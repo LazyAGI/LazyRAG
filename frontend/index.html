@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hello Kong</title>
+</head>
+<body>
+    <h1>Hello World</h1>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button onclick="register()">Register (user)</button>
+        <button onclick="loginUser()">Login (user)</button>
+        <button onclick="loginAdmin()">Login (admin/admin)</button>
+        <button onclick="callHello()">Call /api/hello</button>
+        <button onclick="callAdmin()">Call /api/admin</button>
+    </div>
+    <pre id="result"></pre>
+
+    <script>
+        const STORAGE_ACCESS = "access_token";
+        const STORAGE_REFRESH = "refresh_token";
+        const STORAGE_EXPIRES = "access_expires_at";  // expiry timestamp in ms
+        const REFRESH_BUFFER_MS = 2 * 60 * 1000;     // refresh 2 min before expiry
+        const REFRESH_CHECK_INTERVAL_MS = 60 * 1000; // check every 60 seconds
+
+        let token = localStorage.getItem(STORAGE_ACCESS) || "";
+
+        function show(data) {
+            document.getElementById("result").innerText = JSON.stringify(data, null, 2);
+        }
+
+        function saveTokens(accessToken, refreshToken, expiresInSeconds) {
+            token = accessToken || "";
+            if (accessToken) localStorage.setItem(STORAGE_ACCESS, accessToken);
+            else localStorage.removeItem(STORAGE_ACCESS);
+            if (refreshToken) localStorage.setItem(STORAGE_REFRESH, refreshToken);
+            else localStorage.removeItem(STORAGE_REFRESH);
+            const expiresAt = expiresInSeconds ? Date.now() + expiresInSeconds * 1000 : 0;
+            if (expiresAt) localStorage.setItem(STORAGE_EXPIRES, String(expiresAt));
+            else localStorage.removeItem(STORAGE_EXPIRES);
+        }
+
+        async function refreshAccessToken() {
+            const refresh = localStorage.getItem(STORAGE_REFRESH);
+            if (!refresh) return false;
+            try {
+                const res = await fetch("/api/auth/refresh", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ refresh_token: refresh })
+                });
+                if (!res.ok) {
+                    saveTokens("", "", 0);
+                    return false;
+                }
+                const data = await res.json();
+                saveTokens(data.access_token, data.refresh_token, data.expires_in);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function shouldRefresh() {
+            const exp = localStorage.getItem(STORAGE_EXPIRES);
+            if (!exp || !token) return false;
+            const expiresAt = parseInt(exp, 10);
+            return Date.now() >= expiresAt - REFRESH_BUFFER_MS;
+        }
+
+        setInterval(async () => {
+            if (shouldRefresh()) await refreshAccessToken();
+        }, REFRESH_CHECK_INTERVAL_MS);
+
+        async function register() {
+            const username = prompt("username (new):");
+            const password = prompt("password:");
+            if (!username || !password) return;
+            const res = await fetch("/api/auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
+            show(await res.json());
+        }
+
+        async function loginUser() {
+            const username = prompt("username:");
+            const password = prompt("password:");
+            if (!username || !password) return;
+            await login(username, password);
+        }
+
+        async function loginAdmin() {
+            await login("admin", "admin");
+        }
+
+        async function login(username, password) {
+            const res = await fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                const at = data.access_token || "";
+                const rt = data.refresh_token || "";
+                saveTokens(at, rt, data.expires_in);
+                show({ ...data, token_set: !!at, refresh_token_set: !!rt });
+            } else {
+                saveTokens("", "", 0);
+                show(data);
+            }
+        }
+
+        async function callHello() {
+            if (shouldRefresh()) await refreshAccessToken();
+            const res = await fetch("/api/hello", {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            show(await res.json());
+        }
+
+        async function callAdmin() {
+            if (shouldRefresh()) await refreshAccessToken();
+            const res = await fetch("/api/admin", {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            show(await res.json());
+        }
+    </script>
+</body>
+</html>
