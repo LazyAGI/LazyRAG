@@ -1,14 +1,17 @@
 services:
 
   kong:
+    # Use build: ./kong if the default image fails with "module 'resty.http' not found"
     image: kong:3.6
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
       KONG_PROXY_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_PLUGINS: bundled,rbac-auth
     volumes:
       - ./kong.yml:/kong/kong.yml
+      - ./kong/plugins/rbac-auth:/usr/local/share/lua/5.1/kong/plugins/rbac-auth
     ports:
       - "8000:8000"
     depends_on:
@@ -30,7 +33,9 @@ services:
       retries: 20
 
   auth-service:
-    build: ./backend/auth-service
+    build:
+      context: ./backend
+      dockerfile: auth-service/Dockerfile
     expose:
       - "8000"
     environment:
@@ -45,11 +50,11 @@ services:
         condition: service_healthy
 
   core:
-    build: ./backend/core
+    build:
+      context: ./backend
+      dockerfile: core/Dockerfile
     expose:
       - "8000"
-    environment:
-      AUTH_SERVICE_URL: http://auth-service:8000
     depends_on:
       - auth-service
 

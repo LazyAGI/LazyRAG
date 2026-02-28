@@ -2,9 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY auth-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY auth-service/ .
+COPY scripts /app/scripts
+COPY core /app/core
+COPY common /app/common
+RUN python3 /app/scripts/extract_api_permissions.py --output /app/api_permissions.json --exclude scripts,core /app/core /app
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

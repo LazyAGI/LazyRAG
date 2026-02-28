@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 
-from rbac import PermissionProtectedRoute, permission_required
+from common.rbac import permission_required
 
 app = FastAPI(title="Core Service")
-app.router.route_class = PermissionProtectedRoute
+# Authorization is centralized at Kong via auth-service /api/auth/authorize; decorators are for static analysis only.
 
 
 @app.get("/hello")

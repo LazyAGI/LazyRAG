@@ -8,6 +8,10 @@ services:
         paths:
           - /api/auth
         strip_path: false
+        plugins:
+          - name: rbac-auth
+            config:
+              auth_service_url: http://auth-service:8000
 
   - name: core-service
     url: http://core:8000
@@ -16,3 +20,7 @@ services:
         paths:
           - /api
         strip_path: false
+        plugins:
+          - name: rbac-auth
+            config:
+              auth_service_url: http://auth-service:8000
