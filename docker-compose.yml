@@ -13,7 +13,8 @@ services:
       - "8000:8000"
     depends_on:
       - auth-service
-      - business
+      - permission
+      - core
 
   db:
     image: postgres:16
@@ -43,15 +44,30 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      permission:
+        condition: service_started
 
-  business:
-    build: ./backend/business
+  permission:
+    build: ./backend/permission
+    expose:
+      - "8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      AUTH_SERVICE_URL: http://auth-service:8000
+    depends_on:
+      db:
+        condition: service_healthy
+
+  core:
+    build: ./backend/core
     expose:
       - "8000"
     environment:
       AUTH_SERVICE_URL: http://auth-service:8000
+      PERMISSION_SERVICE_URL: http://permission:8000
     depends_on:
       - auth-service
+      - permission
 
   frontend:
     build: ./frontend

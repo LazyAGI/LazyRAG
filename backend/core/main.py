@@ -2,7 +2,7 @@ from fastapi import FastAPI
 
 from rbac import PermissionProtectedRoute, permission_required
 
-app = FastAPI(title="Business Service")
+app = FastAPI(title="Core Service")
 app.router.route_class = PermissionProtectedRoute
 
 
