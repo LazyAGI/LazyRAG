@@ -10,21 +10,25 @@ from jose import jwt
 
 
 def jwt_secret() -> str:
-    return os.environ.get("JWT_SECRET") or (_ for _ in ()).throw(RuntimeError, "JWT_SECRET is required")
+    s = os.environ.get("JWT_SECRET")
+    if not s:
+        raise RuntimeError("JWT_SECRET is required")
+    return s
+
+
+def _env_int(key: str, default: int) -> int:
+    try:
+        return int(os.environ.get(key, str(default)))
+    except ValueError:
+        return default
 
 
 def jwt_ttl_minutes() -> int:
-    try:
-        return int(os.environ.get("JWT_TTL_MINUTES", "60"))
-    except ValueError:
-        return 60
+    return _env_int("JWT_TTL_MINUTES", 60)
 
 
 def refresh_token_ttl_days() -> int:
-    try:
-        return int(os.environ.get("JWT_REFRESH_TTL_DAYS", "7"))
-    except ValueError:
-        return 7
+    return _env_int("JWT_REFRESH_TTL_DAYS", 7)
 
 
 def create_access_token(*, subject: str, role: str) -> str:

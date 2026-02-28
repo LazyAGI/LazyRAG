@@ -62,9 +62,6 @@ class User(Base):
 
     role: Mapped["Role"] = relationship("Role", lazy="raise")
 
-    def __repr__(self) -> str:
-        return f"User(id={self.id}, username={self.username!r}, role_id={self.role_id})"
-
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"

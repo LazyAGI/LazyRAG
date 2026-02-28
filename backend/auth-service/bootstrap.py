@@ -1,4 +1,3 @@
-"""Load permission groups from YAML, create default roles and admin user."""
 from __future__ import annotations
 
 import os
@@ -13,7 +12,6 @@ from models import PermissionGroup, Role, RolePermission, User
 
 
 def _load_permission_groups_yaml() -> list[str]:
-    """Load permission group names from permission_groups.yaml (default source)."""
     path = Path(__file__).resolve().parent / "permission_groups.yaml"
     try:
         with open(path, encoding="utf-8") as f:

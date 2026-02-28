@@ -262,18 +262,14 @@
 
             let table = "<table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Action</th></tr></thead><tbody>";
             for (const u of users) {
-                const isAdminAccount = (u.role_name || "").toLowerCase() === "admin";
-                const actionCell = isAdminAccount
-                    ? `<span style="color:#666">Admin (cannot be changed)</span>`
-                    : `<select data-user-id="${u.id}" class="roleSelect">
-                            ${roles.map(r => `<option value="${r.id}" ${r.id === u.role_id ? "selected" : ""}>${r.name}${r.built_in ? " (built-in)" : ""}</option>`).join("")}
-                        </select>
-                        <button class="saveRole" data-user-id="${u.id}">Save</button>`;
                 table += `<tr>
                     <td>${u.id}</td>
                     <td>${u.username}</td>
                     <td>${u.role_name}</td>
-                    <td>${actionCell}</td>
+                    <td><select data-user-id="${u.id}" class="roleSelect">
+                        ${roles.map(r => `<option value="${r.id}" ${r.id === u.role_id ? "selected" : ""}>${r.name}${r.built_in ? " (built-in)" : ""}</option>`).join("")}
+                    </select>
+                    <button class="saveRole" data-user-id="${u.id}">Save</button></td>
                 </tr>`;
             }
             table += "</tbody></table>";

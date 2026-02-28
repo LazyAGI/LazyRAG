@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import joinedload, Session
 
 from auth_security import (
@@ -31,8 +31,6 @@ bearer_scheme = HTTPBearer(auto_error=False)
 logger = logging.getLogger("auth-service")
 
 BUILTIN_ADMIN_ROLE = "admin"
-
-# (method, path) -> list of required permission names (any one suffices). Loaded at startup.
 API_PERMISSIONS_MAP: dict[tuple[str, str], list[str]] = {}
 
 
@@ -72,7 +70,6 @@ def _normalize_path(path: str) -> str:
 
 
 def _path_matches_pattern(path: str, pattern: str) -> bool:
-    """True if path matches pattern (pattern may contain {param} segments)."""
     path_segs = [s for s in path.split("/") if s]
     pattern_segs = [s for s in pattern.split("/") if s]
     if len(path_segs) != len(pattern_segs):
@@ -85,7 +82,6 @@ def _path_matches_pattern(path: str, pattern: str) -> bool:
 
 
 def _required_permissions_for(method: str, path: str) -> list[str] | None:
-    """Look up required permissions for (method, path); support path params via pattern match."""
     key = (method, path)
     if key in API_PERMISSIONS_MAP:
         return API_PERMISSIONS_MAP[key]
@@ -98,10 +94,7 @@ def _required_permissions_for(method: str, path: str) -> list[str] | None:
 def _load_api_permissions() -> None:
     global API_PERMISSIONS_MAP
     path = os.environ.get("AUTH_API_PERMISSIONS_FILE")
-    if not path:
-        path = Path(__file__).resolve().parent / "api_permissions.json"
-    else:
-        path = Path(path)
+    path = Path(path) if path else Path(__file__).resolve().parent / "api_permissions.json"
     if not path.exists():
         logger.warning("api_permissions.json not found at %s; RBAC authorize will allow all", path)
         API_PERMISSIONS_MAP = {}
@@ -112,8 +105,7 @@ def _load_api_permissions() -> None:
         for item in data:
             method = (item.get("method") or "GET").upper()
             p = _normalize_path(item.get("path") or "/")
-            perms = list(item.get("permissions") or [])
-            API_PERMISSIONS_MAP[(method, p)] = perms
+            API_PERMISSIONS_MAP[(method, p)] = list(item.get("permissions") or [])
         logger.info("Loaded %d API permission entries from %s", len(API_PERMISSIONS_MAP), path)
     except Exception as e:
         logger.exception("Failed to load api_permissions from %s: %s", path, e)
@@ -133,11 +125,9 @@ def on_startup():
     _load_api_permissions()
 
 
-def _current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> int:
-    if not credentials or not credentials.credentials:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+def _user_id_from_token(token: str) -> int:
     try:
-        payload = jwt.decode(credentials.credentials, jwt_secret(), algorithms=["HS256"])
+        payload = jwt.decode(token, jwt_secret(), algorithms=["HS256"])
     except JWTError:
         raise HTTPException(status_code=401, detail="Unauthorized")
     sub = payload.get("sub")
@@ -147,6 +137,20 @@ def _current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(
         return int(sub)
     except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> int:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return _user_id_from_token(credentials.credentials)
+
+
+def _get_user_with_role(db: Session, user_id: int) -> User | None:
+    return db.scalar(
+        select(User).where(User.id == user_id).options(
+            joinedload(User.role).joinedload(Role.permission_groups)
+        )
+    )
 
 
 def _require_admin(user_id: int = Depends(_current_user_id)) -> User:
@@ -166,17 +170,15 @@ def _default_role_id(db: Session) -> int:
 
 @app.get("/api/auth/health")
 def api_health():
-    from sqlalchemy import func
     with SessionLocal() as db:
-        admin_id = db.scalar(select(Role.id).where(Role.name == "admin"))
-        user_id = db.scalar(select(Role.id).where(Role.name == "user"))
+        role_names = set(db.scalars(select(Role.name).where(Role.name.in_(["admin", "user"]))))
         n_roles = db.scalar(select(func.count()).select_from(Role))
         n_users = db.scalar(select(func.count()).select_from(User))
     return {
         "status": "ok",
         "roles_count": n_roles,
         "users_count": n_users,
-        "bootstrap_ok": bool(admin_id and user_id),
+        "bootstrap_ok": role_names >= {"admin", "user"},
     }
 
 
@@ -200,22 +202,18 @@ def api_login(body: LoginBody):
             user = authenticate_user(db=db, username=body.username, password=body.password)
         except AuthError as e:
             raise HTTPException(status_code=401, detail=str(e))
-        user = db.scalar(select(User).where(User.id == user.id).options(joinedload(User.role)))
-        user_id = user.id
-        role_name = user.role.name
+        user = _get_user_with_role(db, user.id)
+        user_id, role_name = user.id, user.role.name
         access_token = create_access_token(subject=str(user_id), role=role_name)
         refresh_token = generate_refresh_token()
-        token_hash = hash_refresh_token(refresh_token)
-        expires_at = refresh_token_expires_at()
         db.add(
             RefreshToken(
                 user_id=user_id,
-                token_hash=token_hash,
-                expires_at=expires_at,
+                token_hash=hash_refresh_token(refresh_token),
+                expires_at=refresh_token_expires_at(),
             )
         )
         db.commit()
-
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -227,77 +225,38 @@ def api_login(body: LoginBody):
 
 @app.post("/api/auth/validate")
 def api_validate(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)):
-    """Validate JWT and return sub, role and permissions for downstream services."""
     if not credentials or credentials.credentials is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(token, jwt_secret(), algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    sub = payload.get("sub")
-    if not sub:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    try:
-        user_id = int(sub)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _user_id_from_token(credentials.credentials)
     with SessionLocal() as db:
-        user = db.scalar(
-            select(User).where(User.id == user_id).options(
-                joinedload(User.role).joinedload(Role.permission_groups)
-            )
-        )
+        user = _get_user_with_role(db, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    permissions = [p.name for p in user.role.permission_groups]
-    return {"sub": sub, "role": user.role.name, "permissions": permissions}
+    return {"sub": str(user.id), "role": user.role.name, "permissions": [p.name for p in user.role.permission_groups]}
 
 
 @app.post("/api/auth/authorize")
 def api_authorize(body: AuthorizeBody, request: Request):
-    """
-    Centralized RBAC: check if the bearer token is valid and has permission for (method, path).
-    Used by Kong (or other gateway) to authorize requests. Returns 200 if allowed, 401/403 otherwise.
-    Routes not in the permission map (e.g. login, register) are allowed without a token.
-    """
+    """RBAC: bearer valid and has permission for (method, path). 200 if allowed, 401/403 otherwise."""
     method = (body.method or "GET").upper()
     path = _normalize_path(body.path or "/")
     required = _required_permissions_for(method, path)
     if not required:
         return {"allowed": True}
-
     auth_header = request.headers.get("authorization") or ""
-    if not auth_header or not auth_header.strip():
-        raise HTTPException(status_code=401, detail="Unauthorized")
     token = auth_header.strip()
     if token.lower().startswith("bearer "):
         token = token[7:].strip()
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    try:
-        payload = jwt.decode(token, jwt_secret(), algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    sub = payload.get("sub")
-    if not sub:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    try:
-        user_id = int(sub)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _user_id_from_token(token)
     with SessionLocal() as db:
-        user = db.scalar(
-            select(User).where(User.id == user_id).options(
-                joinedload(User.role).joinedload(Role.permission_groups)
-            )
-        )
+        user = _get_user_with_role(db, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     if user.role.name == BUILTIN_ADMIN_ROLE:
         return {"allowed": True}
-    user_perms = {p.name for p in user.role.permission_groups}
-    if user_perms & set(required):
+    if {p.name for p in user.role.permission_groups} & set(required):
         return {"allowed": True}
     raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -306,10 +265,8 @@ def api_authorize(body: AuthorizeBody, request: Request):
 def api_refresh(body: RefreshBody):
     if not body.refresh_token or not body.refresh_token.strip():
         raise HTTPException(status_code=401, detail="refresh_token required")
-
     token_hash = hash_refresh_token(body.refresh_token.strip())
     now_utc = datetime.now(timezone.utc)
-
     with SessionLocal() as db:
         row = db.scalar(
             select(RefreshToken).where(
@@ -319,31 +276,24 @@ def api_refresh(body: RefreshBody):
         )
         if not row:
             raise HTTPException(status_code=401, detail="Invalid or expired refresh_token")
-
-        user = db.scalar(select(User).where(User.id == row.user_id))
+        user = db.scalar(select(User).where(User.id == row.user_id).options(joinedload(User.role)))
         if not user:
             db.delete(row)
             db.commit()
             raise HTTPException(status_code=401, detail="User not found")
-
         db.delete(row)
         new_refresh_token = generate_refresh_token()
-        new_hash = hash_refresh_token(new_refresh_token)
         db.add(
             RefreshToken(
                 user_id=user.id,
-                token_hash=new_hash,
+                token_hash=hash_refresh_token(new_refresh_token),
                 expires_at=refresh_token_expires_at(),
             )
         )
         db.commit()
-
-    with SessionLocal() as db:
-        user_loaded = db.scalar(select(User).where(User.id == user.id).options(joinedload(User.role)))
-    role_name = user_loaded.role.name
-    access_token = create_access_token(subject=str(user.id), role=role_name)
+        role_name = user.role.name
     return {
-        "access_token": access_token,
+        "access_token": create_access_token(subject=str(user.id), role=role_name),
         "refresh_token": new_refresh_token,
         "token_type": "bearer",
         "expires_in": 60 * 60,
@@ -415,11 +365,8 @@ def api_set_role_permissions(role_id: int, body: RolePermissionsBody, _: User = 
             raise HTTPException(status_code=404, detail="Role not found")
         if role.built_in and role.name == BUILTIN_ADMIN_ROLE:
             raise HTTPException(status_code=400, detail="Cannot change admin role permissions")
-        pg_ids = set()
-        for name in body.permission_groups:
-            pg = db.scalar(select(PermissionGroup).where(PermissionGroup.name == name))
-            if pg:
-                pg_ids.add(pg.id)
+        pg_ids = {pg.id for name in body.permission_groups
+                  if (pg := db.scalar(select(PermissionGroup).where(PermissionGroup.name == name)))}
         db.execute(delete(RolePermission).where(RolePermission.role_id == role_id))
         for pg_id in pg_ids:
             db.add(RolePermission(role_id=role_id, permission_group_id=pg_id))
@@ -432,10 +379,7 @@ def api_set_role_permissions(role_id: int, body: RolePermissionsBody, _: User = 
 def api_list_users(_: User = Depends(_require_admin)):
     with SessionLocal() as db:
         users = db.scalars(select(User).options(joinedload(User.role)).order_by(User.id)).all()
-    return [
-        {"id": u.id, "username": u.username, "role_id": u.role_id, "role_name": u.role.name}
-        for u in users
-    ]
+    return [{"id": u.id, "username": u.username, "role_id": u.role_id, "role_name": u.role.name} for u in users]
 
 
 @app.patch("/api/auth/users/{user_id}")
