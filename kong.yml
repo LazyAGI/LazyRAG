@@ -1,0 +1,20 @@
+_format_version: "3.0"
+
+services:
+  # Auth and users: /api/auth/*
+  - name: auth-service
+    url: http://auth-service:8000
+    routes:
+      - name: auth-route
+        paths:
+          - /api/auth
+        strip_path: false
+
+  # Business API: /api/*
+  - name: business-service
+    url: http://business:8000
+    routes:
+      - name: business-route
+        paths:
+          - /api
+        strip_path: false

@@ -1,0 +1,64 @@
+services:
+
+  kong:
+    image: kong:3.6
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./kong.yml:/kong/kong.yml
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - business
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  auth-service:
+    build: ./backend/auth-service
+    expose:
+      - "8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      JWT_SECRET: dev-secret-change-me
+      JWT_TTL_MINUTES: "60"
+      JWT_REFRESH_TTL_DAYS: "7"
+      BOOTSTRAP_ADMIN_USERNAME: admin
+      BOOTSTRAP_ADMIN_PASSWORD: admin
+    depends_on:
+      db:
+        condition: service_healthy
+
+  business:
+    build: ./backend/business
+    expose:
+      - "8000"
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8000
+    depends_on:
+      - auth-service
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - kong
+
+volumes:
+  pgdata:
