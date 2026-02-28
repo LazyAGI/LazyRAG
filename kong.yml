@@ -1,7 +1,6 @@
 _format_version: "3.0"
 
 services:
-  # Auth and users: /api/auth/*
   - name: auth-service
     url: http://auth-service:8000
     routes:
@@ -10,11 +9,18 @@ services:
           - /api/auth
         strip_path: false
 
-  # Business API: /api/*
-  - name: business-service
-    url: http://business:8000
+  - name: permission-service
+    url: http://permission:8000
     routes:
-      - name: business-route
+      - name: permission-route
+        paths:
+          - /api/permission
+        strip_path: false
+
+  - name: core-service
+    url: http://core:8000
+    routes:
+      - name: core-route
         paths:
           - /api
         strip_path: false
