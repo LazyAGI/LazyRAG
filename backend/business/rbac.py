@@ -1,3 +1,4 @@
+"""Permission-based access: validate token with auth-service and check required permission group (category.action)."""
 from __future__ import annotations
 
 import os
@@ -8,12 +9,15 @@ from fastapi.routing import APIRoute
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+BUILTIN_ADMIN_ROLE = "admin"
 
-def roles_required(*roles: str):
-    role_set = set(roles)
+
+def permission_required(*permissions: str):
+    """Require at least one of the given permission groups (e.g. user.read, document.write)."""
+    perm_set = set(permissions)
 
     def decorator(fn: Callable[..., Any]):
-        setattr(fn, "__required_roles__", role_set)
+        setattr(fn, "__required_permissions__", perm_set)
         return fn
 
     return decorator
@@ -26,8 +30,8 @@ def _auth_service_url() -> str:
     return url.rstrip("/")
 
 
-async def _validate_token_and_get_role(authorization: str) -> dict[str, str] | None:
-    """Call auth-service to validate JWT and return sub and role from DB."""
+async def _validate_token_and_get_permissions(authorization: str) -> dict[str, Any] | None:
+    """Call auth-service to validate JWT and return sub, role and permissions."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.post(
@@ -39,27 +43,37 @@ async def _validate_token_and_get_role(authorization: str) -> dict[str, str] | N
         data = r.json()
         sub = data.get("sub")
         role = data.get("role")
+        permissions = data.get("permissions") or []
         if sub is None or role is None:
             return None
-        return {"sub": sub, "role": role}
+        return {"sub": sub, "role": role, "permissions": permissions}
     except Exception:
         return None
 
 
-class RoleProtectedRoute(APIRoute):
+def _has_permission(user: dict, required: set[str]) -> bool:
+    if user.get("role") == BUILTIN_ADMIN_ROLE:
+        return True
+    user_perms = set(user.get("permissions") or [])
+    return bool(required & user_perms)
+
+
+class PermissionProtectedRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Response]:
         original_route_handler = super().get_route_handler()
-        required_roles: set[str] | None = getattr(self.endpoint, "__required_roles__", None)
+        required_permissions: set[str] | None = getattr(
+            self.endpoint, "__required_permissions__", None
+        )
 
         async def custom_route_handler(request: Request) -> Response:
-            if required_roles:
+            if required_permissions:
                 auth_header = request.headers.get("authorization", "")
                 if not auth_header:
                     return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-                user = await _validate_token_and_get_role(auth_header)
+                user = await _validate_token_and_get_permissions(auth_header)
                 if not user:
                     return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-                if user["role"] not in required_roles:
+                if not _has_permission(user, required_permissions):
                     return JSONResponse({"detail": "Forbidden"}, status_code=403)
                 request.state.user = user
 

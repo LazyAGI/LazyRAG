@@ -1,31 +1,40 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hello Kong</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 1rem; }
+        nav { margin-bottom: 1rem; padding: 0.5rem 0; border-bottom: 1px solid #ccc; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
+        nav a { color: #06c; text-decoration: none; }
+        nav a:hover { text-decoration: underline; }
+        .error { color: #c00; }
+        input, button { padding: 0.4rem 0.6rem; margin: 0.2rem; }
+        button { cursor: pointer; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; }
+        th { background: #f5f5f5; }
+        pre { background: #f8f8f8; padding: 0.8rem; overflow: auto; }
+        .page { display: none; }
+        .page.active { display: block; }
+        label { display: inline-block; min-width: 80px; }
+        .form-row { margin: 0.5rem 0; }
+    </style>
 </head>
 <body>
-    <h1>Hello World</h1>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button onclick="register()">Register (user)</button>
-        <button onclick="loginUser()">Login (user)</button>
-        <button onclick="loginAdmin()">Login (admin/admin)</button>
-        <button onclick="callHello()">Call /api/hello</button>
-        <button onclick="callAdmin()">Call /api/admin</button>
-    </div>
-    <pre id="result"></pre>
+    <div id="app"></div>
 
     <script>
         const STORAGE_ACCESS = "access_token";
         const STORAGE_REFRESH = "refresh_token";
-        const STORAGE_EXPIRES = "access_expires_at";  // expiry timestamp in ms
-        const REFRESH_BUFFER_MS = 2 * 60 * 1000;     // refresh 2 min before expiry
-        const REFRESH_CHECK_INTERVAL_MS = 60 * 1000; // check every 60 seconds
+        const STORAGE_EXPIRES = "access_expires_at";
+        const STORAGE_ROLE = "user_role";
+        const REFRESH_BUFFER_MS = 2 * 60 * 1000;
+        const REFRESH_CHECK_INTERVAL_MS = 60 * 1000;
 
         let token = localStorage.getItem(STORAGE_ACCESS) || "";
-
-        function show(data) {
-            document.getElementById("result").innerText = JSON.stringify(data, null, 2);
-        }
 
         function saveTokens(accessToken, refreshToken, expiresInSeconds) {
             token = accessToken || "";
@@ -36,6 +45,19 @@
             const expiresAt = expiresInSeconds ? Date.now() + expiresInSeconds * 1000 : 0;
             if (expiresAt) localStorage.setItem(STORAGE_EXPIRES, String(expiresAt));
             else localStorage.removeItem(STORAGE_EXPIRES);
+        }
+
+        function saveRole(role) {
+            if (role != null) localStorage.setItem(STORAGE_ROLE, role);
+            else localStorage.removeItem(STORAGE_ROLE);
+        }
+
+        function getRole() {
+            return localStorage.getItem(STORAGE_ROLE) || "";
+        }
+
+        function isAdmin() {
+            return (getRole() || "").toLowerCase() === "admin";
         }
 
         async function refreshAccessToken() {
@@ -49,6 +71,7 @@
                 });
                 if (!res.ok) {
                     saveTokens("", "", 0);
+                    saveRole(null);
                     return false;
                 }
                 const data = await res.json();
@@ -62,70 +85,330 @@
         function shouldRefresh() {
             const exp = localStorage.getItem(STORAGE_EXPIRES);
             if (!exp || !token) return false;
-            const expiresAt = parseInt(exp, 10);
-            return Date.now() >= expiresAt - REFRESH_BUFFER_MS;
+            return Date.now() >= parseInt(exp, 10) - REFRESH_BUFFER_MS;
         }
 
-        setInterval(async () => {
+        async function api(path, options = {}) {
             if (shouldRefresh()) await refreshAccessToken();
-        }, REFRESH_CHECK_INTERVAL_MS);
-
-        async function register() {
-            const username = prompt("username (new):");
-            const password = prompt("password:");
-            if (!username || !password) return;
-            const res = await fetch("/api/auth/register", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, password })
-            });
-            show(await res.json());
-        }
-
-        async function loginUser() {
-            const username = prompt("username:");
-            const password = prompt("password:");
-            if (!username || !password) return;
-            await login(username, password);
-        }
-
-        async function loginAdmin() {
-            await login("admin", "admin");
-        }
-
-        async function login(username, password) {
-            const res = await fetch("/api/auth/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username, password })
-            });
+            const t = localStorage.getItem(STORAGE_ACCESS);
+            const headers = { "Content-Type": "application/json", ...options.headers };
+            if (t) headers["Authorization"] = `Bearer ${t}`;
+            const res = await fetch(path, { ...options, headers });
             const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-                const at = data.access_token || "";
-                const rt = data.refresh_token || "";
-                saveTokens(at, rt, data.expires_in);
-                show({ ...data, token_set: !!at, refresh_token_set: !!rt });
-            } else {
+            return { ok: res.ok, status: res.status, data };
+        }
+
+        // ---------- Router ----------
+        function getHashRoute() {
+            const hash = window.location.hash.slice(1) || "/";
+            return hash.startsWith("/") ? hash : "/" + hash;
+        }
+
+        function parseRoute(path) {
+            const parts = path.split("/").filter(Boolean);
+            if (parts[0] === "roles" && parts[1] && parts[2] === "permissions") return { page: "role-permissions", id: parts[1] };
+            if (parts[0] === "roles" && parts[1]) return { page: "role-permissions", id: parts[1] };
+            if (parts[0] === "roles") return { page: "roles" };
+            if (parts[0] === "users") return { page: "users" };
+            if (parts[0] === "register") return { page: "register" };
+            if (parts[0] === "login") return { page: "login" };
+            if (parts[0] === "" || parts[0] === "home") return { page: "home" };
+            return { page: "home" };
+        }
+
+        function navigate(path) {
+            window.location.hash = path.startsWith("/") ? path.slice(1) : path;
+        }
+
+        function render(route) {
+            const hasToken = !!localStorage.getItem(STORAGE_ACCESS);
+            const adminOnlyPages = ["users", "roles", "role-permissions"];
+
+            if (!hasToken && route.page !== "login" && route.page !== "register") {
+                navigate("/login");
+                return;
+            }
+            if (hasToken && adminOnlyPages.includes(route.page) && !isAdmin()) {
+                navigate("/");
+                return;
+            }
+
+            if (route.page === "login") {
+                if (hasToken) { navigate("/"); return; }
+                renderLogin();
+            } else if (route.page === "register") {
+                if (hasToken) { navigate("/"); return; }
+                renderRegister();
+            }
+            else if (route.page === "home") renderHome();
+            else if (route.page === "users") renderUsers();
+            else if (route.page === "roles") renderRoles();
+            else if (route.page === "role-permissions" && route.id) renderRolePermissions(route.id);
+            else renderHome();
+        }
+
+        function renderLogin() {
+            const app = document.getElementById("app");
+            app.innerHTML = `
+                <h1>Login</h1>
+                <form id="loginForm" class="form">
+                    <div class="form-row"><label>Username</label><input type="text" id="loginUsername" required></div>
+                    <div class="form-row"><label>Password</label><input type="password" id="loginPassword" required></div>
+                    <div class="form-row"><button type="submit">Login</button></div>
+                </form>
+                <p id="loginError" class="error"></p>
+                <p><a href="#/register">Register a new account</a></p>
+            `;
+            document.getElementById("loginForm").onsubmit = async (e) => {
+                e.preventDefault();
+                const username = document.getElementById("loginUsername").value.trim();
+                const password = document.getElementById("loginPassword").value;
+                document.getElementById("loginError").textContent = "";
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    saveTokens(data.access_token, data.refresh_token, data.expires_in);
+                    saveRole(data.role || "");
+                    navigate("/");
+                } else {
+                    document.getElementById("loginError").textContent = data.detail || "Login failed";
+                }
+            };
+        }
+
+        function renderRegister() {
+            const app = document.getElementById("app");
+            app.innerHTML = `
+                <h1>Register</h1>
+                <form id="regForm" class="form">
+                    <div class="form-row"><label>Username</label><input type="text" id="regUsername" required></div>
+                    <div class="form-row"><label>Password</label><input type="password" id="regPassword" required></div>
+                    <div class="form-row"><button type="submit">Register</button></div>
+                </form>
+                <p id="regError" class="error"></p>
+                <p><a href="#/login">Back to Login</a></p>
+            `;
+            document.getElementById("regForm").onsubmit = async (e) => {
+                e.preventDefault();
+                const username = document.getElementById("regUsername").value.trim();
+                const password = document.getElementById("regPassword").value;
+                document.getElementById("regError").textContent = "";
+                const res = await fetch("/api/auth/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) {
+                    document.getElementById("regError").textContent = "Registered. Go to login.";
+                } else {
+                    document.getElementById("regError").textContent = data.detail || "Register failed";
+                }
+            };
+        }
+
+        function renderHome() {
+            const app = document.getElementById("app");
+            const showAdminNav = isAdmin();
+            let nav = `<nav><a href="#/">Home</a>`;
+            if (showAdminNav) {
+                nav += ` | <a href="#/users">User management</a> | <a href="#/roles">Role management</a>`;
+            }
+            nav += ` | <a href="#" id="logout">Logout</a></nav>`;
+            app.innerHTML = nav + `
+                <h1>Home</h1>
+                <p>Role: <strong>${getRole() || "-"}</strong></p>
+                <div style="margin: 1rem 0;">
+                    <button id="btnHello">Call /api/hello</button>
+                    <button id="btnAdmin">Call /api/admin</button>
+                </div>
+                <pre id="result"></pre>
+            `;
+            document.getElementById("logout").onclick = (e) => {
+                e.preventDefault();
                 saveTokens("", "", 0);
-                show(data);
+                saveRole(null);
+                navigate("/login");
+            };
+            document.getElementById("btnHello").onclick = async () => {
+                const r = await api("/api/hello");
+                document.getElementById("result").textContent = JSON.stringify(r.data, null, 2);
+            };
+            document.getElementById("btnAdmin").onclick = async () => {
+                const r = await api("/api/admin");
+                document.getElementById("result").textContent = JSON.stringify(r.data, null, 2);
+            };
+        }
+
+        async function renderUsers() {
+            const r = await api("/api/auth/users");
+            if (!r.ok && r.status === 403) {
+                navigate("/");
+                return;
+            }
+            const app = document.getElementById("app");
+            let nav = `<nav><a href="#/">Home</a> | <a href="#/users">User management</a> | <a href="#/roles">Role management</a> | <a href="#/login" id="navLogout">Logout</a></nav>`;
+            if (!r.ok) {
+                app.innerHTML = nav + `<p class="error">${r.data.detail || "Failed to load users"}</p>`;
+                return;
+            }
+            const users = r.data;
+            const rolesRes = await api("/api/auth/roles");
+            const roles = rolesRes.ok ? rolesRes.data : [];
+
+            let table = "<table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Action</th></tr></thead><tbody>";
+            for (const u of users) {
+                const isAdminAccount = (u.role_name || "").toLowerCase() === "admin";
+                const actionCell = isAdminAccount
+                    ? `<span style="color:#666">Admin (cannot be changed)</span>`
+                    : `<select data-user-id="${u.id}" class="roleSelect">
+                            ${roles.map(r => `<option value="${r.id}" ${r.id === u.role_id ? "selected" : ""}>${r.name}${r.built_in ? " (built-in)" : ""}</option>`).join("")}
+                        </select>
+                        <button class="saveRole" data-user-id="${u.id}">Save</button>`;
+                table += `<tr>
+                    <td>${u.id}</td>
+                    <td>${u.username}</td>
+                    <td>${u.role_name}</td>
+                    <td>${actionCell}</td>
+                </tr>`;
+            }
+            table += "</tbody></table>";
+
+            app.innerHTML = nav + `<h1>User management</h1>${table}`;
+
+            const navLogout = document.getElementById("navLogout");
+            if (navLogout) navLogout.onclick = (e) => { e.preventDefault(); saveTokens("", "", 0); saveRole(null); navigate("/login"); };
+
+            app.querySelectorAll(".saveRole").forEach(btn => {
+                btn.onclick = async () => {
+                    const userId = btn.dataset.userId;
+                    const select = app.querySelector(`.roleSelect[data-user-id="${userId}"]`);
+                    const roleId = parseInt(select.value, 10);
+                    const res = await api(`/api/auth/users/${userId}`, { method: "PATCH", body: JSON.stringify({ role_id: roleId }) });
+                    if (res.ok) alert("Saved");
+                    else alert(res.data.detail || "Failed");
+                };
+            });
+        }
+
+        async function renderRoles() {
+            const r = await api("/api/auth/roles");
+            if (!r.ok && r.status === 403) {
+                navigate("/");
+                return;
+            }
+            const app = document.getElementById("app");
+            let nav = `<nav><a href="#/">Home</a> | <a href="#/users">User management</a> | <a href="#/roles">Role management</a> | <a href="#/login" id="navLogout">Logout</a></nav>`;
+            if (!r.ok) {
+                app.innerHTML = nav + `<p class="error">${r.data.detail || "Failed to load roles"}</p>`;
+                return;
+            }
+            const roles = r.data;
+
+            let table = "<table><thead><tr><th>ID</th><th>Name</th><th>Built-in</th><th>Actions</th></tr></thead><tbody>";
+            for (const role of roles) {
+                table += `<tr>
+                    <td>${role.id}</td>
+                    <td>${role.name}</td>
+                    <td>${role.built_in ? "Yes" : "No"}</td>
+                    <td>
+                        <a href="#/roles/${role.id}/permissions">Permissions</a>
+                        ${!role.built_in ? ` | <button class="deleteRole" data-role-id="${role.id}" data-name="${role.name}">Delete</button>` : ""}
+                    </td>
+                </tr>`;
+            }
+            table += "</tbody></table>";
+
+            app.innerHTML = nav + `
+                <h1>Role management</h1>
+                <div class="form-row">
+                    <input type="text" id="newRoleName" placeholder="New role name">
+                    <button id="addRole">Add role</button>
+                </div>
+                <p id="roleMsg" class="error"></p>
+                ${table}
+            `;
+
+            const navLogout2 = document.getElementById("navLogout");
+            if (navLogout2) navLogout2.onclick = (e) => { e.preventDefault(); saveTokens("", "", 0); saveRole(null); navigate("/login"); };
+
+            document.getElementById("addRole").onclick = async () => {
+                const name = document.getElementById("newRoleName").value.trim();
+                document.getElementById("roleMsg").textContent = "";
+                if (!name) return;
+                const res = await api("/api/auth/roles", { method: "POST", body: JSON.stringify({ name }) });
+                if (res.ok) {
+                    document.getElementById("newRoleName").value = "";
+                    render(parseRoute(getHashRoute()));
+                } else {
+                    document.getElementById("roleMsg").textContent = res.data.detail || "Failed";
+                }
+            };
+
+            app.querySelectorAll(".deleteRole").forEach(btn => {
+                btn.onclick = async () => {
+                    if (!confirm(`Delete role "${btn.dataset.name}"?`)) return;
+                    const res = await api(`/api/auth/roles/${btn.dataset.roleId}`, { method: "DELETE" });
+                    if (res.ok) render(parseRoute(getHashRoute()));
+                    else alert(res.data.detail || "Failed");
+                };
+            });
+        }
+
+        async function renderRolePermissions(roleId) {
+            const [roleRes, permsRes, currentRes] = await Promise.all([
+                api("/api/auth/roles"),
+                api("/api/auth/permission-groups"),
+                api(`/api/auth/roles/${roleId}/permissions`)
+            ]);
+            if (!roleRes.ok || !permsRes.ok) {
+                navigate("/roles");
+                return;
+            }
+            const roles = roleRes.data;
+            const role = roles.find(r => r.id === parseInt(roleId, 10));
+            const allGroups = permsRes.data;
+            const current = currentRes.ok ? (currentRes.data.permission_groups || []) : [];
+            const currentSet = new Set(current);
+
+            const app = document.getElementById("app");
+            let nav = `<nav><a href="#/">Home</a> | <a href="#/users">User management</a> | <a href="#/roles">Role management</a> | <a href="#/login" id="navLogout">Logout</a></nav>`;
+            let body = `<h1>Permissions for role: ${role ? role.name : roleId}</h1>`;
+            if (role && role.built_in && role.name === "admin") {
+                body += `<p class="error">Admin role has all permissions and cannot be changed.</p>`;
+            } else {
+                body += `<form id="permForm"><ul style="list-style:none; padding:0;">`;
+                for (const g of allGroups) {
+                    body += `<li><label><input type="checkbox" name="perm" value="${g.name}" ${currentSet.has(g.name) ? "checked" : ""}> ${g.name}</label></li>`;
+                }
+                body += `</ul><button type="submit">Save permissions</button></form><p id="permMsg" class="error"></p>`;
+            }
+            body += `<p><a href="#/roles">Back to roles</a></p>`;
+            app.innerHTML = nav + body;
+
+            const navLogout3 = document.getElementById("navLogout");
+            if (navLogout3) navLogout3.onclick = (e) => { e.preventDefault(); saveTokens("", "", 0); saveRole(null); navigate("/login"); };
+
+            const form = document.getElementById("permForm");
+            if (form) {
+                form.onsubmit = async (e) => {
+                    e.preventDefault();
+                    const checkboxes = form.querySelectorAll('input[name="perm"]:checked');
+                    const permission_groups = Array.from(checkboxes).map(c => c.value);
+                    const res = await api(`/api/auth/roles/${roleId}/permissions`, { method: "PUT", body: JSON.stringify({ permission_groups }) });
+                    document.getElementById("permMsg").textContent = res.ok ? "Saved." : (res.data.detail || "Failed");
+                };
             }
         }
 
-        async function callHello() {
-            if (shouldRefresh()) await refreshAccessToken();
-            const res = await fetch("/api/hello", {
-                headers: token ? { Authorization: `Bearer ${token}` } : {}
-            });
-            show(await res.json());
-        }
+        window.addEventListener("hashchange", () => render(parseRoute(getHashRoute())));
+        setInterval(() => { if (shouldRefresh()) refreshAccessToken(); }, REFRESH_CHECK_INTERVAL_MS);
 
-        async function callAdmin() {
-            if (shouldRefresh()) await refreshAccessToken();
-            const res = await fetch("/api/admin", {
-                headers: token ? { Authorization: `Bearer ${token}` } : {}
-            });
-            show(await res.json());
-        }
+        render(parseRoute(getHashRoute()));
     </script>
 </body>
 </html>
