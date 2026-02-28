@@ -24,8 +24,8 @@ def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
 
 
-def register_user(*, db: Session, username: str, password: str, role: str = "user") -> User:
-    user = User(username=username, password_hash=hash_password(password), role=role)
+def register_user(*, db: Session, username: str, password: str, role_id: int) -> User:
+    user = User(username=username, password_hash=hash_password(password), role_id=role_id)
     db.add(user)
     try:
         db.commit()

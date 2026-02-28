@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 
-from rbac import RoleProtectedRoute, roles_required
+from rbac import PermissionProtectedRoute, permission_required
 
 app = FastAPI(title="Business Service")
-app.router.route_class = RoleProtectedRoute
+app.router.route_class = PermissionProtectedRoute
 
 
 @app.get("/hello")
@@ -17,12 +17,12 @@ def admin():
 
 
 @app.get("/api/hello")
-@roles_required("user", "admin")
+@permission_required("user.read")
 def api_hello():
     return {"message": "Hello from Backend"}
 
 
 @app.get("/api/admin")
-@roles_required("admin")
+@permission_required("document.write")
 def api_admin():
     return {"message": "Admin only area"}

@@ -1,0 +1,7 @@
+# Built-in permission groups (category.action). Not modifiable at runtime.
+permission_groups:
+  - user.read
+  - user.write
+  - document.read
+  - document.write
+  - qa.read
