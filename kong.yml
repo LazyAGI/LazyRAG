@@ -9,14 +9,6 @@ services:
           - /api/auth
         strip_path: false
 
-  - name: permission-service
-    url: http://permission:8000
-    routes:
-      - name: permission-route
-        paths:
-          - /api/permission
-        strip_path: false
-
   - name: core-service
     url: http://core:8000
     routes:

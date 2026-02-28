@@ -257,7 +257,7 @@
                 return;
             }
             const users = r.data;
-            const rolesRes = await api("/api/permission/roles");
+            const rolesRes = await api("/api/auth/roles");
             const roles = rolesRes.ok ? rolesRes.data : [];
 
             let table = "<table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Action</th></tr></thead><tbody>";
@@ -266,7 +266,7 @@
                 const actionCell = isAdminAccount
                     ? `<span style="color:#666">Admin (cannot be changed)</span>`
                     : `<select data-user-id="${u.id}" class="roleSelect">
-                            ${roles.map(r => `<option value="${r.name}" ${r.name === (u.role_name || "") ? "selected" : ""}>${r.name}${r.built_in ? " (built-in)" : ""}</option>`).join("")}
+                            ${roles.map(r => `<option value="${r.id}" ${r.id === u.role_id ? "selected" : ""}>${r.name}${r.built_in ? " (built-in)" : ""}</option>`).join("")}
                         </select>
                         <button class="saveRole" data-user-id="${u.id}">Save</button>`;
                 table += `<tr>
@@ -287,8 +287,8 @@
                 btn.onclick = async () => {
                     const userId = btn.dataset.userId;
                     const select = app.querySelector(`.roleSelect[data-user-id="${userId}"]`);
-                    const roleName = select.value;
-                    const res = await api(`/api/auth/users/${userId}`, { method: "PATCH", body: JSON.stringify({ role_name: roleName }) });
+                    const roleId = parseInt(select.value, 10);
+                    const res = await api(`/api/auth/users/${userId}`, { method: "PATCH", body: JSON.stringify({ role_id: roleId }) });
                     if (res.ok) alert("Saved");
                     else alert(res.data.detail || "Failed");
                 };
@@ -296,7 +296,7 @@
         }
 
         async function renderRoles() {
-            const r = await api("/api/permission/roles");
+            const r = await api("/api/auth/roles");
             if (!r.ok && r.status === 403) {
                 navigate("/");
                 return;
@@ -340,7 +340,7 @@
                 const name = document.getElementById("newRoleName").value.trim();
                 document.getElementById("roleMsg").textContent = "";
                 if (!name) return;
-                const res = await api("/api/permission/roles", { method: "POST", body: JSON.stringify({ name }) });
+                const res = await api("/api/auth/roles", { method: "POST", body: JSON.stringify({ name }) });
                 if (res.ok) {
                     document.getElementById("newRoleName").value = "";
                     render(parseRoute(getHashRoute()));
@@ -352,7 +352,7 @@
             app.querySelectorAll(".deleteRole").forEach(btn => {
                 btn.onclick = async () => {
                     if (!confirm(`Delete role "${btn.dataset.name}"?`)) return;
-                    const res = await api(`/api/permission/roles/${btn.dataset.roleId}`, { method: "DELETE" });
+                    const res = await api(`/api/auth/roles/${btn.dataset.roleId}`, { method: "DELETE" });
                     if (res.ok) render(parseRoute(getHashRoute()));
                     else alert(res.data.detail || "Failed");
                 };
@@ -361,9 +361,9 @@
 
         async function renderRolePermissions(roleId) {
             const [roleRes, permsRes, currentRes] = await Promise.all([
-                api("/api/permission/roles"),
-                api("/api/permission/permission-groups"),
-                api(`/api/permission/roles/${roleId}/permissions`)
+                api("/api/auth/roles"),
+                api("/api/auth/permission-groups"),
+                api(`/api/auth/roles/${roleId}/permissions`)
             ]);
             if (!roleRes.ok || !permsRes.ok) {
                 navigate("/roles");
@@ -399,7 +399,7 @@
                     e.preventDefault();
                     const checkboxes = form.querySelectorAll('input[name="perm"]:checked');
                     const permission_groups = Array.from(checkboxes).map(c => c.value);
-                    const res = await api(`/api/permission/roles/${roleId}/permissions`, { method: "PUT", body: JSON.stringify({ permission_groups }) });
+                    const res = await api(`/api/auth/roles/${roleId}/permissions`, { method: "PUT", body: JSON.stringify({ permission_groups }) });
                     document.getElementById("permMsg").textContent = res.ok ? "Saved." : (res.data.detail || "Failed");
                 };
             }

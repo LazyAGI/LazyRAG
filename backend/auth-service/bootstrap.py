@@ -1,62 +1,71 @@
-"""Bootstrap admin user and migrate users.role_id -> users.role_name if needed."""
+"""Load permission groups from YAML, create default roles and admin user."""
 from __future__ import annotations
 
 import os
-from sqlalchemy import select, text
+from pathlib import Path
+
+import yaml
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db import engine
-from models import User
 from auth_service import hash_password
+from models import PermissionGroup, Role, RolePermission, User
 
 
-def _users_table_has_role_id() -> bool:
-    if "postgresql" not in (os.environ.get("DATABASE_URL") or ""):
-        return False
-    with engine.connect() as conn:
-        r = conn.execute(
-            text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = 'users'"
-            )
-        )
-        cols = {row[0] for row in r}
-    return "role_id" in cols
-
-
-def _roles_table_exists() -> bool:
-    with engine.connect() as conn:
-        r = conn.execute(
-            text(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = 'public' AND table_name = 'roles'"
-            )
-        )
-        return r.scalar() is not None
-
-
-def _migrate_users_role_id_to_role_name() -> None:
-    """Migrate users.role_id to users.role_name. Backfill from roles if that table exists."""
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role_name VARCHAR(64)"))
-        if _roles_table_exists():
-            conn.execute(text(
-                "UPDATE users u SET role_name = (SELECT name FROM roles r WHERE r.id = u.role_id LIMIT 1) "
-                "WHERE u.role_id IS NOT NULL"
-            ))
-        conn.execute(text("UPDATE users SET role_name = 'user' WHERE role_name IS NULL"))
-        conn.execute(text("ALTER TABLE users ALTER COLUMN role_name SET NOT NULL"))
-        conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS role_id"))
+def _load_permission_groups_yaml() -> list[str]:
+    """Load permission group names from permission_groups.yaml (default source)."""
+    path = Path(__file__).resolve().parent / "permission_groups.yaml"
     try:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS fk_users_role_id"))
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return list(data.get("permission_groups", []) or [])
     except Exception:
-        pass
+        return []
 
 
 def bootstrap(db: Session) -> None:
-    if _users_table_has_role_id():
-        _migrate_users_role_id_to_role_name()
+    names = _load_permission_groups_yaml()
+    for name in names:
+        existing = db.scalar(select(PermissionGroup).where(PermissionGroup.name == name))
+        if not existing:
+            db.add(PermissionGroup(name=name))
+    db.commit()
+
+    all_groups = {row.name: row.id for row in db.scalars(select(PermissionGroup)).all()}
+
+    admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+    if not admin_role:
+        admin_role = Role(name="admin", built_in=True)
+        db.add(admin_role)
+        db.flush()
+    user_role = db.scalar(select(Role).where(Role.name == "user"))
+    if not user_role:
+        user_role = Role(name="user", built_in=True)
+        db.add(user_role)
+        db.flush()
+    db.commit()
+
+    for name, pg_id in all_groups.items():
+        exists = db.scalar(
+            select(RolePermission).where(
+                RolePermission.role_id == admin_role.id,
+                RolePermission.permission_group_id == pg_id,
+            )
+        )
+        if not exists:
+            db.add(RolePermission(role_id=admin_role.id, permission_group_id=pg_id))
+
+    for perm_name in ("user.read", "document.read"):
+        if perm_name in all_groups:
+            exists = db.scalar(
+                select(RolePermission).where(
+                    RolePermission.role_id == user_role.id,
+                    RolePermission.permission_group_id == all_groups[perm_name],
+                )
+            )
+            if not exists:
+                db.add(RolePermission(role_id=user_role.id, permission_group_id=all_groups[perm_name]))
+    db.commit()
 
     username = os.environ.get("BOOTSTRAP_ADMIN_USERNAME")
     password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
@@ -67,7 +76,7 @@ def bootstrap(db: Session) -> None:
     admin_user = User(
         username=username,
         password_hash=hash_password(password),
-        role_name="admin",
+        role_id=admin_role.id,
     )
     db.add(admin_user)
     db.commit()
