@@ -4,7 +4,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.orm import joinedload, Session
 
 from auth_security import (
     create_access_token,
@@ -16,7 +17,7 @@ from auth_security import (
 from auth_service import AuthError, authenticate_user, register_user
 from bootstrap import bootstrap
 from db import SessionLocal, engine
-from models import Base, RefreshToken, User
+from models import Base, PermissionGroup, RefreshToken, Role, RolePermission, User
 
 app = FastAPI(title="Auth Service")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -38,8 +39,16 @@ class RefreshBody(BaseModel):
     refresh_token: str
 
 
+class RoleCreateBody(BaseModel):
+    name: str
+
+
+class RolePermissionsBody(BaseModel):
+    permission_groups: list[str]
+
+
 class UserRoleBody(BaseModel):
-    role_name: str
+    role_id: int
 
 
 @app.on_event("startup")
@@ -74,33 +83,46 @@ def _current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(
 
 def _require_admin(user_id: int = Depends(_current_user_id)) -> User:
     with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.id == user_id))
-    if not user or user.role_name != BUILTIN_ADMIN_ROLE:
+        user = db.scalar(select(User).where(User.id == user_id).options(joinedload(User.role)))
+    if not user or user.role.name != BUILTIN_ADMIN_ROLE:
         raise HTTPException(status_code=403, detail="Admin required")
     return user
+
+
+def _default_role_id(db: Session) -> int:
+    role = db.scalar(select(Role).where(Role.name == "user"))
+    if not role:
+        raise HTTPException(status_code=500, detail="Default role 'user' not found")
+    return role.id
 
 
 @app.get("/api/auth/health")
 def api_health():
     from sqlalchemy import func
     with SessionLocal() as db:
+        admin_id = db.scalar(select(Role.id).where(Role.name == "admin"))
+        user_id = db.scalar(select(Role.id).where(Role.name == "user"))
+        n_roles = db.scalar(select(func.count()).select_from(Role))
         n_users = db.scalar(select(func.count()).select_from(User))
-        admin_user = db.scalar(select(User).where(User.role_name == BUILTIN_ADMIN_ROLE))
     return {
         "status": "ok",
+        "roles_count": n_roles,
         "users_count": n_users,
-        "bootstrap_ok": admin_user is not None,
+        "bootstrap_ok": bool(admin_id and user_id),
     }
 
 
 @app.post("/api/auth/register")
 def api_register(body: RegisterBody):
     with SessionLocal() as db:
+        role_id = _default_role_id(db)
         try:
-            user = register_user(db=db, username=body.username, password=body.password, role_name="user")
+            user = register_user(db=db, username=body.username, password=body.password, role_id=role_id)
         except AuthError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    return {"id": user.id, "username": user.username, "role": user.role_name}
+        role = db.scalar(select(Role).where(Role.id == user.role_id))
+        role_name = role.name if role else "user"
+    return {"id": user.id, "username": user.username, "role": role_name}
 
 
 @app.post("/api/auth/login")
@@ -110,8 +132,9 @@ def api_login(body: LoginBody):
             user = authenticate_user(db=db, username=body.username, password=body.password)
         except AuthError as e:
             raise HTTPException(status_code=401, detail=str(e))
+        user = db.scalar(select(User).where(User.id == user.id).options(joinedload(User.role)))
         user_id = user.id
-        role_name = user.role_name
+        role_name = user.role.name
         access_token = create_access_token(subject=str(user_id), role=role_name)
         refresh_token = generate_refresh_token()
         token_hash = hash_refresh_token(refresh_token)
@@ -136,7 +159,7 @@ def api_login(body: LoginBody):
 
 @app.post("/api/auth/validate")
 def api_validate(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)):
-    """Validate JWT and return sub and role (identity only; permissions from permission service)."""
+    """Validate JWT and return sub, role and permissions for downstream services."""
     if not credentials or credentials.credentials is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
     token = credentials.credentials
@@ -152,10 +175,15 @@ def api_validate(credentials: HTTPAuthorizationCredentials | None = Depends(bear
     except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Unauthorized")
     with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.id == user_id))
+        user = db.scalar(
+            select(User).where(User.id == user_id).options(
+                joinedload(User.role).joinedload(Role.permission_groups)
+            )
+        )
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    return {"sub": sub, "role": user.role_name}
+    permissions = [p.name for p in user.role.permission_groups]
+    return {"sub": sub, "role": user.role.name, "permissions": permissions}
 
 
 @app.post("/api/auth/refresh")
@@ -194,7 +222,9 @@ def api_refresh(body: RefreshBody):
         )
         db.commit()
 
-    role_name = user.role_name
+    with SessionLocal() as db:
+        user_loaded = db.scalar(select(User).where(User.id == user.id).options(joinedload(User.role)))
+    role_name = user_loaded.role.name
     access_token = create_access_token(subject=str(user.id), role=role_name)
     return {
         "access_token": access_token,
@@ -204,12 +234,83 @@ def api_refresh(body: RefreshBody):
     }
 
 
+@app.get("/api/auth/permission-groups")
+def api_list_permission_groups(_: User = Depends(_require_admin)):
+    with SessionLocal() as db:
+        groups = db.scalars(select(PermissionGroup).order_by(PermissionGroup.name)).all()
+    return [{"id": g.id, "name": g.name} for g in groups]
+
+
+@app.get("/api/auth/roles")
+def api_list_roles(_: User = Depends(_require_admin)):
+    with SessionLocal() as db:
+        roles = db.scalars(select(Role).order_by(Role.name)).all()
+    return [{"id": r.id, "name": r.name, "built_in": r.built_in} for r in roles]
+
+
+@app.post("/api/auth/roles")
+def api_create_role(body: RoleCreateBody, _: User = Depends(_require_admin)):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    with SessionLocal() as db:
+        if db.scalar(select(Role).where(Role.name == name)):
+            raise HTTPException(status_code=400, detail="Role name already exists")
+        role = Role(name=name, built_in=False)
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+    return {"id": role.id, "name": role.name, "built_in": False}
+
+
+@app.delete("/api/auth/roles/{role_id}")
+def api_delete_role(role_id: int, _: User = Depends(_require_admin)):
+    with SessionLocal() as db:
+        role = db.scalar(select(Role).where(Role.id == role_id))
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        if role.built_in:
+            raise HTTPException(status_code=400, detail="Cannot delete built-in role")
+        db.delete(role)
+        db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/auth/roles/{role_id}/permissions")
+def api_get_role_permissions(role_id: int, _: User = Depends(_require_admin)):
+    with SessionLocal() as db:
+        role = db.scalar(select(Role).where(Role.id == role_id).options(joinedload(Role.permission_groups)))
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+    return {"role_id": role_id, "permission_groups": [p.name for p in role.permission_groups]}
+
+
+@app.put("/api/auth/roles/{role_id}/permissions")
+def api_set_role_permissions(role_id: int, body: RolePermissionsBody, _: User = Depends(_require_admin)):
+    with SessionLocal() as db:
+        role = db.scalar(select(Role).where(Role.id == role_id))
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        if role.built_in and role.name == BUILTIN_ADMIN_ROLE:
+            raise HTTPException(status_code=400, detail="Cannot change admin role permissions")
+        pg_ids = set()
+        for name in body.permission_groups:
+            pg = db.scalar(select(PermissionGroup).where(PermissionGroup.name == name))
+            if pg:
+                pg_ids.add(pg.id)
+        db.execute(delete(RolePermission).where(RolePermission.role_id == role_id))
+        for pg_id in pg_ids:
+            db.add(RolePermission(role_id=role_id, permission_group_id=pg_id))
+        db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/auth/users")
 def api_list_users(_: User = Depends(_require_admin)):
     with SessionLocal() as db:
-        users = db.scalars(select(User).order_by(User.id)).all()
+        users = db.scalars(select(User).options(joinedload(User.role)).order_by(User.id)).all()
     return [
-        {"id": u.id, "username": u.username, "role_name": u.role_name}
+        {"id": u.id, "username": u.username, "role_id": u.role_id, "role_name": u.role.name}
         for u in users
     ]
 
@@ -217,11 +318,11 @@ def api_list_users(_: User = Depends(_require_admin)):
 @app.patch("/api/auth/users/{user_id}")
 def api_set_user_role(user_id: int, body: UserRoleBody, _: User = Depends(_require_admin)):
     with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.id == user_id))
+        user = db.scalar(select(User).where(User.id == user_id).options(joinedload(User.role)))
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        if user.role_name == BUILTIN_ADMIN_ROLE:
+        if user.role.name == BUILTIN_ADMIN_ROLE:
             raise HTTPException(status_code=400, detail="Admin account role cannot be changed")
-        user.role_name = body.role_name.strip()
+        user.role_id = body.role_id
         db.commit()
     return {"ok": True}
