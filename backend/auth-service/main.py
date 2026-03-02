@@ -93,7 +93,7 @@ def _required_permissions_for(method: str, path: str) -> list[str] | None:
 
 def _load_api_permissions() -> None:
     global API_PERMISSIONS_MAP
-    path = os.environ.get('AUTH_API_PERMISSIONS_FILE')
+    path = os.environ.get('LAZYRAG_AUTH_API_PERMISSIONS_FILE')
     path = Path(path) if path else Path(__file__).resolve().parent / 'api_permissions.json'
     if not path.exists():
         logger.warning('api_permissions.json not found at %s; RBAC authorize will allow all', path)
@@ -385,7 +385,7 @@ def api_list_users(_: User = Depends(_require_admin)):  # noqa: B008
 @app.patch('/api/auth/users/{user_id}')
 @permission_required('user.write')
 def api_set_user_role(user_id: int, body: UserRoleBody, _: User = Depends(_require_admin)):  # noqa: B008
-    bootstrap_username = (os.environ.get('BOOTSTRAP_ADMIN_USERNAME') or '').strip()
+    bootstrap_username = (os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME') or '').strip()
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.id == user_id).options(joinedload(User.role)))
         if not user:

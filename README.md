@@ -36,7 +36,7 @@ docker compose up --build
 ## Project Layout
 
 ```
-hello-kong/
+LazyRAG/
 ├── kong.yml                    # Kong declarative config (routes, rbac-auth)
 ├── docker-compose.yml          # All services
 ├── Makefile                    # Lint: flake8 (algorithm, backend), gofmt (backend/core)

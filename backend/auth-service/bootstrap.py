@@ -65,8 +65,8 @@ def bootstrap(db: Session) -> None:
                 db.add(RolePermission(role_id=user_role.id, permission_group_id=all_groups[perm_name]))
     db.commit()
 
-    username = os.environ.get('BOOTSTRAP_ADMIN_USERNAME')
-    password = os.environ.get('BOOTSTRAP_ADMIN_PASSWORD')
+    username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME')
+    password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD')
     if not username or not password:
         return
     if db.scalar(select(User).where(User.username == username)):

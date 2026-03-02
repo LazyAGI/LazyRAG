@@ -10,7 +10,7 @@ from common.db import get_doc_task_db_config  # noqa: E402
 
 db_config = get_doc_task_db_config()
 doc_processor = DocumentProcessor(
-    port=int(os.environ.get('DOCUMENT_PROCESSOR_PORT', '8000')),
+    port=int(os.environ.get('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '8000')),
     db_config=db_config,
     num_workers=0,  # use separate worker container
 )

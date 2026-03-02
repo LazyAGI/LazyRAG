@@ -11,7 +11,7 @@ store_config = {
     'vector_store': {
         'type': 'milvus',
         'kwargs': {
-            'uri': os.getenv('MILVUS_URI', 'http://localhost:19530'),
+            'uri': os.getenv('LAZYRAG_MILVUS_URI', 'http://localhost:19530'),
             'index_kwargs': {
                 'index_type': 'FLAT',
                 'metric_type': 'COSINE',
@@ -21,21 +21,21 @@ store_config = {
     'segment_store': {
         'type': 'opensearch',
         'kwargs': {
-            'uris': os.getenv('OPENSEARCH_URI', 'https://localhost:9200'),
+            'uris': os.getenv('LAZYRAG_OPENSEARCH_URI', 'https://localhost:9200'),
             'client_kwargs': {
                 'http_compress': True,
                 'use_ssl': True,
                 'verify_certs': False,
-                'user': os.getenv('OPENSEARCH_USER', 'admin'),
-                'password': os.getenv('OPENSEARCH_PASSWORD', 'admin'),
+                'user': os.getenv('LAZYRAG_OPENSEARCH_USER', 'admin'),
+                'password': os.getenv('LAZYRAG_OPENSEARCH_PASSWORD', 'admin'),
             },
         },
     },
 }
 
-mineru_url = os.getenv('MINERU_SERVER_URL', 'http://localhost:8000').rstrip('/')
-processor_url = os.getenv('DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
-server_port = int(os.getenv('DOCUMENT_SERVER_PORT', '8000'))
+mineru_url = os.getenv('LAZYRAG_MINERU_SERVER_URL', 'http://localhost:8000').rstrip('/')
+processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
+server_port = int(os.getenv('LAZYRAG_DOCUMENT_SERVER_PORT', '8000'))
 
 docs = Document(
     dataset_path=None,

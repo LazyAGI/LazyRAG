@@ -10,9 +10,9 @@ from jose import jwt
 
 
 def jwt_secret() -> str:
-    s = os.environ.get('JWT_SECRET')
+    s = os.environ.get('LAZYRAG_JWT_SECRET')
     if not s:
-        raise RuntimeError('JWT_SECRET is required')
+        raise RuntimeError('LAZYRAG_JWT_SECRET is required')
     return s
 
 
@@ -24,11 +24,11 @@ def _env_int(key: str, default: int) -> int:
 
 
 def jwt_ttl_minutes() -> int:
-    return _env_int('JWT_TTL_MINUTES', 60)
+    return _env_int('LAZYRAG_JWT_TTL_MINUTES', 60)
 
 
 def refresh_token_ttl_days() -> int:
-    return _env_int('JWT_REFRESH_TTL_DAYS', 7)
+    return _env_int('LAZYRAG_JWT_REFRESH_TTL_DAYS', 7)
 
 
 def create_access_token(*, subject: str, role: str) -> str:
