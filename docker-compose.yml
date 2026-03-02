@@ -98,6 +98,7 @@ services:
       db:
         condition: service_healthy
       processor-server:
+        condition: service_started
 
   parsing:
     build: ./algorithm
