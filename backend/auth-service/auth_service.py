@@ -9,7 +9,7 @@ from passlib.context import CryptContext
 from models import User
 
 
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+pwd_context = CryptContext(schemes=['pbkdf2_sha256'], deprecated='auto')
 
 
 class AuthError(Exception):
@@ -31,7 +31,7 @@ def register_user(*, db: Session, username: str, password: str, role_id: int) ->
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise AuthError("username already exists")
+        raise AuthError('username already exists')
     db.refresh(user)
     return user
 
@@ -39,5 +39,5 @@ def register_user(*, db: Session, username: str, password: str, role_id: int) ->
 def authenticate_user(*, db: Session, username: str, password: str) -> User:
     user = db.scalar(select(User).where(User.username == username))
     if not user or not verify_password(password, user.password_hash):
-        raise AuthError("invalid username or password")
+        raise AuthError('invalid username or password')
     return user
