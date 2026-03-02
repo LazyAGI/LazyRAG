@@ -1,4 +1,4 @@
-package document
+package doc
 
 import (
 	"encoding/json"

@@ -30,5 +30,5 @@ def parse_db_url(url: Optional[str]) -> Optional[Dict[str, Any]]:
 
 def get_doc_task_db_config() -> Optional[Dict[str, Any]]:
     """Get db_config from DOC_TASK_DATABASE_URL for DocumentProcessor / DocumentProcessorWorker."""
-    url = os.getenv('DOC_TASK_DATABASE_URL')
+    url = os.getenv('LAZYRAG_DOC_TASK_DATABASE_URL')
     return parse_db_url(url)

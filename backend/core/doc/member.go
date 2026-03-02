@@ -1,14 +1,8 @@
-package member
+package doc
 
 import (
-	"encoding/json"
 	"net/http"
 )
-
-func replyJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
-}
 
 // 以下为 DatasetMemberService 接口桩，TODO 稍后实现。
 

@@ -36,7 +36,7 @@ docker compose up --build
 ## 项目结构
 
 ```
-hello-kong/
+LazyRAG/
 ├── kong.yml                    # Kong 声明式配置（路由、rbac-auth）
 ├── docker-compose.yml          # 所有服务
 ├── Makefile                    # 代码检查：flake8（algorithm、backend）、gofmt（backend/core）

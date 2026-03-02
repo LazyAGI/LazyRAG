@@ -45,11 +45,11 @@ class History(BaseModel):
     content: str = Field('', description='消息内容')
 
 
-MAX_CONCURRENCY = int(os.getenv('MAX_CONCURRENCY', 10))
+MAX_CONCURRENCY = int(os.getenv('LAZYRAG_MAX_CONCURRENCY', 10))
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
-doc = Document(url=os.getenv('DOCUMENT_SERVER_URL', 'http://localhost:8000'))
+doc = Document(url=os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000'))
 llm = lazyllm.OnlineLLM().prompt(
     '你是懒人RAG的助手，请根据用户的问题 `{query}` 和历史对话 `{history}` '
     '以及参考文献 `{references}`，给出回答。'

@@ -1,4 +1,4 @@
-module hello-kong/core
+module lazyrag/core
 
 go 1.22
 
