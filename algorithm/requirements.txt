@@ -1,1 +1,1 @@
-lazyllm
+lazyllm[rag-advanced]

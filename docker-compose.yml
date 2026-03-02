@@ -17,6 +17,7 @@ services:
     depends_on:
       - auth-service
       - core
+      - chat
 
   db:
     image: postgres:16
@@ -64,6 +65,68 @@ services:
       - "8080:80"
     depends_on:
       - kong
+
+  # ---------- Algorithm stack: MinerU -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
+  mineru:
+    build: ./algorithm
+    expose:
+      - "8000"
+    environment:
+      MINERU_SERVER_PORT: "8000"
+    command: ["python", "parsing/mineru.py"]
+
+  processor-server:
+    build: ./algorithm
+    expose:
+      - "8000"
+    environment:
+      DOCUMENT_PROCESSOR_PORT: "8000"
+      DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+    command: ["python", "processor/server.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  processor-worker:
+    build: ./algorithm
+    environment:
+      DOCUMENT_WORKER_PORT: "8001"
+      DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      MINERU_SERVER_URL: http://mineru:8000
+    command: ["python", "processor/worker.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+      processor-server:
+
+  parsing:
+    build: ./algorithm
+    expose:
+      - "8000"
+    environment:
+      DOCUMENT_PROCESSOR_URL: http://processor-server:8000
+      DOCUMENT_SERVER_PORT: "8000"
+      MINERU_SERVER_URL: http://mineru:8000
+      MILVUS_URI: ${MILVUS_URI:-http://localhost:19530}
+      OPENSEARCH_URI: ${OPENSEARCH_URI:-https://localhost:9200}
+      OPENSEARCH_USER: ${OPENSEARCH_USER:-admin}
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_PASSWORD:-admin}
+    command: ["python", "parsing/parsing.py"]
+    depends_on:
+      - processor-server
+      - mineru
+
+  chat:
+    build: ./algorithm
+    expose:
+      - "8046"
+    environment:
+      DOCUMENT_SERVER_URL: http://parsing:8000
+      MAX_CONCURRENCY: "10"
+      LAZYRAG_LLM_PRIORITY: "0"
+    command: ["python", "chat/chat.py", "--port", "8046"]
+    depends_on:
+      - parsing
 
 volumes:
   pgdata:

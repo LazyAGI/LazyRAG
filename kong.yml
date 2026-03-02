@@ -1,5 +1,6 @@
 _format_version: "3.0"
 
+# Route order: more specific paths first so /api/chat is not swallowed by /api
 services:
   - name: auth-service
     url: http://auth-service:8000
@@ -7,6 +8,18 @@ services:
       - name: auth-route
         paths:
           - /api/auth
+        strip_path: false
+        plugins:
+          - name: rbac-auth
+            config:
+              auth_service_url: http://auth-service:8000
+
+  - name: chat-service
+    url: http://chat:8046
+    routes:
+      - name: chat-route
+        paths:
+          - /api/chat
         strip_path: false
         plugins:
           - name: rbac-auth
