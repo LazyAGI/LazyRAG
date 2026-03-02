@@ -9,7 +9,7 @@ def permission_required(*permissions: str):
     perm_set = set(permissions)
 
     def decorator(fn: Callable[..., Any]):
-        setattr(fn, "__required_permissions__", perm_set)
+        fn.__required_permissions__ = perm_set
         return fn
 
     return decorator

@@ -1,0 +1,3 @@
+[flake8]
+exclude = __pycache__,.git,algorithm/lazyllm
+max-line-length = 120

@@ -12,11 +12,11 @@ from models import PermissionGroup, Role, RolePermission, User
 
 
 def _load_permission_groups_yaml() -> list[str]:
-    path = Path(__file__).resolve().parent / "permission_groups.yaml"
+    path = Path(__file__).resolve().parent / 'permission_groups.yaml'
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        return list(data.get("permission_groups", []) or [])
+        return list(data.get('permission_groups', []) or [])
     except Exception:
         return []
 
@@ -31,19 +31,19 @@ def bootstrap(db: Session) -> None:
 
     all_groups = {row.name: row.id for row in db.scalars(select(PermissionGroup)).all()}
 
-    admin_role = db.scalar(select(Role).where(Role.name == "admin"))
+    admin_role = db.scalar(select(Role).where(Role.name == 'admin'))
     if not admin_role:
-        admin_role = Role(name="admin", built_in=True)
+        admin_role = Role(name='admin', built_in=True)
         db.add(admin_role)
         db.flush()
-    user_role = db.scalar(select(Role).where(Role.name == "user"))
+    user_role = db.scalar(select(Role).where(Role.name == 'user'))
     if not user_role:
-        user_role = Role(name="user", built_in=True)
+        user_role = Role(name='user', built_in=True)
         db.add(user_role)
         db.flush()
     db.commit()
 
-    for name, pg_id in all_groups.items():
+    for _name, pg_id in all_groups.items():
         exists = db.scalar(
             select(RolePermission).where(
                 RolePermission.role_id == admin_role.id,
@@ -53,7 +53,7 @@ def bootstrap(db: Session) -> None:
         if not exists:
             db.add(RolePermission(role_id=admin_role.id, permission_group_id=pg_id))
 
-    for perm_name in ("user.read", "document.read"):
+    for perm_name in ('user.read', 'document.read'):
         if perm_name in all_groups:
             exists = db.scalar(
                 select(RolePermission).where(
@@ -65,8 +65,8 @@ def bootstrap(db: Session) -> None:
                 db.add(RolePermission(role_id=user_role.id, permission_group_id=all_groups[perm_name]))
     db.commit()
 
-    username = os.environ.get("BOOTSTRAP_ADMIN_USERNAME")
-    password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
+    username = os.environ.get('BOOTSTRAP_ADMIN_USERNAME')
+    password = os.environ.get('BOOTSTRAP_ADMIN_PASSWORD')
     if not username or not password:
         return
     if db.scalar(select(User).where(User.username == username)):

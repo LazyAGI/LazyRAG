@@ -12,6 +12,12 @@ func replyJSON(w http.ResponseWriter, v any) {
 
 // 以下为 RetrievalService（search/QA）接口桩，TODO 稍后实现。
 
-func AllSearchHistory(w http.ResponseWriter, r *http.Request)   { replyJSON(w, map[string]any{}); /* TODO */ }
-func SearchKnowledge(w http.ResponseWriter, r *http.Request)   { replyJSON(w, map[string]any{}); /* TODO */ }
-func DeleteSearchHistory(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK); /* TODO */ }
+func AllSearchHistory(w http.ResponseWriter, r *http.Request) {
+	replyJSON(w, map[string]any{}) /* TODO */
+}
+func SearchKnowledge(w http.ResponseWriter, r *http.Request) {
+	replyJSON(w, map[string]any{}) /* TODO */
+}
+func DeleteSearchHistory(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK) /* TODO */
+}

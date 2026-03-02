@@ -1,6 +1,9 @@
 import os
-from lazyllm.tools.servers.mineru import MineruServer
+import sys
 
-if __name__ == "__main__":
-    mineru_server = MineruServer(port=int(os.getenv('MINERU_SERVER_PORT', '8000')))
-    mineru_server.start()
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from lazyllm.tools.servers.mineru.mineru_server_module import MineruServer  # noqa: E402
+
+if __name__ == '__main__':
+    MineruServer(port=int(os.getenv('MINERU_SERVER_PORT', '8000'))).start()
