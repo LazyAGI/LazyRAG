@@ -41,6 +41,8 @@ func main() {
 		reply(w, map[string]string{"message": "Admin only area"})
 	})
 
+	registerAllRoutes(mux)
+
 	log.Print("Core listening on :8000")
 	log.Fatal(http.ListenAndServe(":8000", mux))
 }
