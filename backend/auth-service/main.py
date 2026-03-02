@@ -22,7 +22,7 @@ from auth_security import (
 )
 from auth_service import AuthError, authenticate_user, register_user
 from bootstrap import bootstrap
-from common.rbac import permission_required
+from rbac import permission_required
 from db import SessionLocal, engine
 from models import Base, PermissionGroup, RefreshToken, Role, RolePermission, User
 

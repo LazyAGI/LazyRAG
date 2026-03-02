@@ -1,6 +1,5 @@
 # Backend service layout
 
-- **common**: Shared package (sibling to core and auth-service) providing `permission_required(...)` for **Python** static analysis only. Used by auth-service; no per-request auth logic here.
 - **auth-service** (Python/FastAPI): Users and auth. Register, login, JWT, `/api/auth/validate`, and **centralized RBAC** via `/api/auth/authorize`. Routes are annotated with `@permission_required("user.read")` or `user.write`; the extract script reads these and Kong enforces them.
 - **core** (Go): Business API. Exposes `/hello`, `/admin`, `/api/hello`, `/api/admin`. Permissions are declared at registration via **handleAPI(mux, method, path, []string{"perm"}, handler)**; the extract script parses these calls. No per-route auth in Go; Kong does it.
 
