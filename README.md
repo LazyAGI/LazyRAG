@@ -1,4 +1,4 @@
-# Hello Kong
+# LazyRAG
 
 **[中文](README.CN.md)** | **English**
 
