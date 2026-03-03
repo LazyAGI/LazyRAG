@@ -56,8 +56,14 @@ services:
       dockerfile: core/Dockerfile
     expose:
       - "8000"
+    environment:
+      ACL_DB_DRIVER: postgres
+      ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
     depends_on:
-      - auth-service
+      db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
 
   frontend:
     build: ./frontend

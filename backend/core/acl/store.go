@@ -2,89 +2,86 @@ package acl
 
 import (
 	"fmt"
-	"sync"
 	"time"
+
+	"lazyrag/core/common/orm"
 )
 
-// aclKey returns composite key for ACL index.
-func aclKey(resourceType, resourceID string) string {
-	return resourceType + ":" + resourceID
-}
-
-// Store in-memory implementation for visibility and ACL. Replace with DB later.
+// Store holds ACL data in database via ORM.
 type Store struct {
-	mu         sync.RWMutex
-	nextVisID  int64
-	nextACLID  int64
-	nextKBID   int64
-	visibility map[string]*VisibilityRow // kb_id -> row (missing = private)
-	acl        map[string][]*ACLRow      // resourceType:resourceID -> list (no record = no permission)
-	aclByID    map[int64]*ACLRow         // acl_id -> row
-	kbs        map[string]*KBInfo        // kb_id -> info (for owner, name, list)
-	userGroups map[int64][]int64         // user_id -> tenant/group ids (for group ACL)
+	db *orm.DB
 }
 
-var defaultStore = &Store{
-	visibility: make(map[string]*VisibilityRow),
-	acl:        make(map[string][]*ACLRow),
-	aclByID:    make(map[int64]*ACLRow),
-	kbs:        make(map[string]*KBInfo),
-	userGroups: make(map[int64][]int64),
-}
+var defaultStore *Store
 
-// GetStore returns the default in-memory store (for tests can swap).
+// GetStore returns the ACL store. Must call InitStore first.
 func GetStore() *Store { return defaultStore }
 
-// EnsureKB creates a KB if not exists (so we can set owner). Returns kb_id.
+// InitStore initializes the ACL store with database. Call from main after DB connect.
+// Runs migrations for ACL tables.
+func InitStore(db *orm.DB) {
+	if db == nil {
+		panic("acl: InitStore requires non-nil db")
+	}
+	if err := db.MigrateACL(); err != nil {
+		panic("acl: migrate failed: " + err.Error())
+	}
+	defaultStore = &Store{db: db}
+}
+
+// EnsureKB creates a KB if not exists. Returns kb_id.
 func (s *Store) EnsureKB(kbID string, name string, ownerID int64) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if kbID != "" && s.kbs[kbID] != nil {
-		return kbID
+	if kbID != "" {
+		var m orm.KBModel
+		if err := s.db.First(&m, "id = ?", kbID).Error; err == nil {
+			return kbID
+		}
 	}
 	if kbID == "" {
-		s.nextKBID++
-		kbID = fmt.Sprintf("kb_%d", s.nextKBID)
+		kbID = fmt.Sprintf("kb_%d", time.Now().UnixNano())
 	}
-	s.kbs[kbID] = &KBInfo{ID: kbID, Name: name, OwnerID: ownerID, Visibility: VisibilityPrivate}
+	m := &orm.KBModel{ID: kbID, Name: name, OwnerID: ownerID, Visibility: VisibilityPrivate}
+	s.db.Create(m)
 	return kbID
 }
 
 // GetKB returns KB info if exists.
 func (s *Store) GetKB(kbID string) *KBInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.kbs[kbID]
+	var m orm.KBModel
+	if err := s.db.First(&m, "id = ?", kbID).Error; err != nil {
+		return nil
+	}
+	return &KBInfo{ID: m.ID, Name: m.Name, OwnerID: m.OwnerID, Visibility: m.Visibility}
 }
 
-// SetKBVisibility sets visibility for a KB (creates row if needed).
+// SetKBVisibility sets visibility for a KB.
 func (s *Store) SetKBVisibility(kbID string, level string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.nextVisID++
-	s.visibility[kbID] = &VisibilityRow{ID: s.nextVisID, ResourceID: kbID, Level: level}
-	if k := s.kbs[kbID]; k != nil {
-		k.Visibility = level
+	var v orm.VisibilityModel
+	err := s.db.Where("resource_id = ?", kbID).First(&v).Error
+	if err != nil {
+		v = orm.VisibilityModel{ResourceID: kbID, Level: level}
+		s.db.Create(&v)
+	} else {
+		s.db.Model(&v).Update("level", level)
+	}
+	var k orm.KBModel
+	if s.db.First(&k, "id = ?", kbID).Error == nil {
+		s.db.Model(&k).Update("visibility", level)
 	}
 }
 
 // GetVisibility returns visibility level for kb (default private).
 func (s *Store) GetVisibility(kbID string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if v, ok := s.visibility[kbID]; ok {
-		return v.Level
+	var v orm.VisibilityModel
+	if err := s.db.Where("resource_id = ?", kbID).First(&v).Error; err != nil {
+		return VisibilityPrivate
 	}
-	return VisibilityPrivate
+	return v.Level
 }
 
 // AddACL adds an ACL row; returns acl_id.
 func (s *Store) AddACL(resourceType, resourceID string, granteeType string, targetID int64, permission string, createdBy int64, expiresAt *time.Time) int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.nextACLID++
-	row := &ACLRow{
-		ID:           s.nextACLID,
+	m := &orm.ACLModel{
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
 		GranteeType:  granteeType,
@@ -94,64 +91,43 @@ func (s *Store) AddACL(resourceType, resourceID string, granteeType string, targ
 		CreatedAt:    time.Now(),
 		ExpiresAt:    expiresAt,
 	}
-	key := aclKey(resourceType, resourceID)
-	s.acl[key] = append(s.acl[key], row)
-	s.aclByID[row.ID] = row
-	return row.ID
+	s.db.Create(m)
+	return m.ID
 }
 
 // UpdateACL updates permission and optional expires_at.
 func (s *Store) UpdateACL(aclID int64, permission string, expiresAt *time.Time) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	row, ok := s.aclByID[aclID]
-	if !ok {
-		return false
-	}
-	row.Permission = permission
-	row.ExpiresAt = expiresAt
-	return true
+	res := s.db.Model(&orm.ACLModel{}).Where("id = ?", aclID).Updates(map[string]any{
+		"permission": permission,
+		"expires_at": expiresAt,
+	})
+	return res.RowsAffected > 0
 }
 
 // DeleteACL removes an ACL by id.
 func (s *Store) DeleteACL(aclID int64) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	row, ok := s.aclByID[aclID]
-	if !ok {
-		return false
-	}
-	delete(s.aclByID, aclID)
-	key := aclKey(row.ResourceType, row.ResourceID)
-	list := s.acl[key]
-	for i, r := range list {
-		if r.ID == aclID {
-			s.acl[key] = append(list[:i], list[i+1:]...)
-			break
-		}
-	}
-	return true
+	res := s.db.Delete(&orm.ACLModel{}, "id = ?", aclID)
+	return res.RowsAffected > 0
 }
 
 // ListACL returns ACL list for resource, optionally filtered by grantee_type. Excludes expired.
 func (s *Store) ListACL(resourceType, resourceID string, granteeType string) []ACLListItem {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	now := time.Now()
-	var out []ACLListItem
-	for _, row := range s.acl[aclKey(resourceType, resourceID)] {
-		if row.ExpiresAt != nil && row.ExpiresAt.Before(now) {
-			continue
-		}
-		if granteeType != "" && row.GranteeType != granteeType {
-			continue
-		}
+	q := s.db.Model(&orm.ACLModel{}).
+		Where("resource_type = ? AND resource_id = ?", resourceType, resourceID).
+		Where("expires_at IS NULL OR expires_at > ?", time.Now())
+	if granteeType != "" {
+		q = q.Where("grantee_type = ?", granteeType)
+	}
+	var rows []orm.ACLModel
+	q.Find(&rows)
+	out := make([]ACLListItem, 0, len(rows))
+	for _, r := range rows {
 		out = append(out, ACLListItem{
-			ID:          row.ID,
-			GranteeType: row.GranteeType,
-			GranteeID:   row.TargetID,
-			Permission:  row.Permission,
-			CreatedAt:   row.CreatedAt,
+			ID:          r.ID,
+			GranteeType: r.GranteeType,
+			GranteeID:   r.TargetID,
+			Permission:  r.Permission,
+			CreatedAt:   r.CreatedAt,
 		})
 	}
 	return out
@@ -159,63 +135,89 @@ func (s *Store) ListACL(resourceType, resourceID string, granteeType string) []A
 
 // GetACLByID returns ACL row and whether it belongs to the given resource.
 func (s *Store) GetACLByID(resourceType, resourceID string, aclID int64) (*ACLRow, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	row, ok := s.aclByID[aclID]
-	if !ok || row.ResourceType != resourceType || row.ResourceID != resourceID {
+	var m orm.ACLModel
+	if err := s.db.First(&m, "id = ? AND resource_type = ? AND resource_id = ?", aclID, resourceType, resourceID).Error; err != nil {
 		return nil, false
 	}
-	return row, true
+	return &ACLRow{
+		ID:           m.ID,
+		ResourceType: m.ResourceType,
+		ResourceID:   m.ResourceID,
+		GranteeType:  m.GranteeType,
+		TargetID:     m.TargetID,
+		Permission:   m.Permission,
+		CreatedBy:    m.CreatedBy,
+		CreatedAt:    m.CreatedAt,
+		ExpiresAt:    m.ExpiresAt,
+	}, true
 }
 
-// ACLsForUser returns effective ACL entries for user: direct user entries + group entries (target_id in user's groups).
-// For simplicity we only consider grantee_type=user with target_id=userID; group/tenant can be added via userGroups.
+// ACLsForUser returns effective ACL entries for user.
 func (s *Store) ACLsForUser(resourceType, resourceID string, userID int64) []*ACLRow {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	now := time.Now()
+	q := s.db.Model(&orm.ACLModel{}).
+		Where("resource_type = ? AND resource_id = ?", resourceType, resourceID).
+		Where("expires_at IS NULL OR expires_at > ?", now)
+
+	var rows []orm.ACLModel
+	q.Find(&rows)
+
+	var groupIDs []int64
+	s.db.Model(&orm.UserGroupModel{}).Where("user_id = ?", userID).Pluck("group_id", &groupIDs)
+	groupSet := make(map[int64]bool)
+	for _, g := range groupIDs {
+		groupSet[g] = true
+	}
+
 	var out []*ACLRow
-	for _, row := range s.acl[aclKey(resourceType, resourceID)] {
-		if row.ExpiresAt != nil && row.ExpiresAt.Before(now) {
+	for _, r := range rows {
+		if r.GranteeType == GranteeUser && r.TargetID == userID {
+			out = append(out, toACLRow(&r))
 			continue
 		}
-		if row.GranteeType == GranteeUser && row.TargetID == userID {
-			out = append(out, row)
-			continue
-		}
-		if row.GranteeType == GranteeTenant {
-			for _, gid := range s.userGroups[userID] {
-				if row.TargetID == gid {
-					out = append(out, row)
-					break
-				}
-			}
+		if r.GranteeType == GranteeTenant && groupSet[r.TargetID] {
+			out = append(out, toACLRow(&r))
 		}
 	}
 	return out
 }
 
-// SetUserGroups sets group/tenant ids for a user (for permission formula).
-func (s *Store) SetUserGroups(userID int64, groupIDs []int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.userGroups[userID] = groupIDs
+func toACLRow(m *orm.ACLModel) *ACLRow {
+	return &ACLRow{
+		ID:           m.ID,
+		ResourceType: m.ResourceType,
+		ResourceID:   m.ResourceID,
+		GranteeType:  m.GranteeType,
+		TargetID:     m.TargetID,
+		Permission:   m.Permission,
+		CreatedBy:    m.CreatedBy,
+		CreatedAt:    m.CreatedAt,
+		ExpiresAt:    m.ExpiresAt,
+	}
 }
 
-// AllKBIDs returns all kb ids (for list filtering by permission).
+// SetUserGroups sets group/tenant ids for a user.
+func (s *Store) SetUserGroups(userID int64, groupIDs []int64) {
+	s.db.Where("user_id = ?", userID).Delete(&orm.UserGroupModel{})
+	for _, gid := range groupIDs {
+		s.db.Create(&orm.UserGroupModel{UserID: userID, GroupID: gid})
+	}
+}
+
+// AllKBIDs returns all kb ids.
 func (s *Store) AllKBIDs() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var ids []string
+	s.db.Model(&orm.KBModel{}).Pluck("id", &ids)
+	var visIDs []string
+	s.db.Model(&orm.VisibilityModel{}).Distinct("resource_id").Pluck("resource_id", &visIDs)
 	seen := make(map[string]bool)
-	for id := range s.kbs {
+	for _, id := range ids {
 		seen[id] = true
 	}
-	for id := range s.visibility {
-		if !seen[id] {
-			seen[id] = true
-		}
+	for _, id := range visIDs {
+		seen[id] = true
 	}
-	var out []string
+	out := make([]string, 0, len(seen))
 	for id := range seen {
 		out = append(out, id)
 	}
