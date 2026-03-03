@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS build
+FROM golang:1.24-alpine AS build
 WORKDIR /app
 COPY core/ ./
 RUN CGO_ENABLED=0 go build -o /core .
