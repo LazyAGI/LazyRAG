@@ -31,6 +31,9 @@ func Proxy(targetURL string, flushInterval time.Duration) http.HandlerFunc {
 	return ProxyWithACL(targetURL, flushInterval, nil)
 }
 
+// ForbiddenBody is the JSON body for 403 responses. Matches acl.APIResponse shape (code, message, data).
+const ForbiddenBody = `{"code":1,"message":"forbidden: no permission for this resource","data":null}`
+
 // ProxyWithACL wraps the reverse proxy with ACL check. Before forwarding, body is read,
 // extractor is called to get (userID, items). When items is empty, skip auth. Otherwise
 // acl.Can is invoked for each item; all must pass for request to pass.
@@ -56,7 +59,7 @@ func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLEx
 				if item.NeedPerm == "" || !acl.Can(userID, item.ResourceType, item.ResourceID, item.NeedPerm) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusForbidden)
-					_, _ = w.Write([]byte(`{"code":1,"message":"forbidden: no permission for this resource","data":null}`))
+					_, _ = w.Write([]byte(ForbiddenBody))
 					return
 				}
 			}

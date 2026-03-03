@@ -11,7 +11,7 @@ func PermissionFor(resourceType, resourceID string, userID int64) (permission st
 		if kb != nil && kb.OwnerID == userID {
 			return PermWrite, SourceOwner
 		}
-		// 2) Visibility (default private if not in table)
+		// 2) Visibility (default: private if not in table)
 		vis := st.GetVisibility(resourceID)
 		if vis == VisibilityPublic {
 			// Public: everyone gets read; write still only via owner/ACL
@@ -65,8 +65,6 @@ func Can(userID int64, resourceType, resourceID string, action string) bool {
 	if userID == 0 || resourceID == "" {
 		return false
 	}
-	st := GetStore()
-	kb := st.GetKB(resourceID)
 	perm, _ := PermissionFor(resourceType, resourceID, userID)
 	switch action {
 	case PermRead:
@@ -76,7 +74,11 @@ func Can(userID int64, resourceType, resourceID string, action string) bool {
 	case "create_doc", "delete_doc":
 		return perm == PermWrite
 	case "delete_kb":
-		return resourceType == ResourceTypeKB && kb != nil && kb.OwnerID == userID
+		if resourceType != ResourceTypeKB {
+			return false
+		}
+		kb := GetStore().GetKB(resourceID)
+		return kb != nil && kb.OwnerID == userID
 	default:
 		return false
 	}

@@ -24,6 +24,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "GET", "/api/v1/datasets:allDefaultDatasets", []string{"document.read"}, doc.AllDefaultDatasets)
 	handleAPI(r, "POST", "/api/v1/datasets:presignUploadCoverImageUrl", []string{"document.write"}, doc.PresignUploadCoverImageURL)
 	handleAPI(r, "POST", "/api/v1/datasets:search", []string{"document.read"}, doc.SearchDatasets)
+	// Dataset-level callback (no task id in path)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks:callback", []string{"document.write"}, doc.CallbackTask)
 
 	// ----- DocumentService -----
@@ -75,6 +76,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:cancel", []string{"document.write"}, doc.CancelTask)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:suspend", []string{"document.write"}, doc.SuspendTask)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:resume", []string{"document.write"}, doc.ResumeTask)
+	// Task-level callback (task id in path)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:callback", []string{"document.write"}, doc.TaskCallback)
 
 	// ----- ChatService -----

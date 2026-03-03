@@ -18,6 +18,37 @@
 
 - **PostgreSQL**（db）：供 auth-service 与 processor 存储应用数据与文档任务。
 
+## 请求流程（验证链路）
+
+用户请求从前端到后端依次经过以下验证环节：
+
+```
+前端
+   │
+   ├─► 1. auth-service（获取 JWT）
+   │      登录/注册 → auth-service 返回 JWT → 前端存储 token
+   │
+   └─► 2. Kong（RBAC）
+         携带 JWT 的 API 请求 → Kong rbac-auth 插件 → auth-service /api/auth/authorize
+         → 校验 JWT 与路由权限 → 通过则转发
+         │
+         ▼
+      3. 后端（core）— ACL + 函数调用
+         core 接收请求 → ACL 校验（资源级，如 kb_id、dataset_id）
+         → 执行 handler 或代理到算法服务
+         │
+         ▼
+      4. 算法
+         core 代理到 Python 服务（chat、parsing 等）进行 RAG / 文档处理
+```
+
+| 环节 | 组件 | 作用 |
+|------|------|------|
+| 1 | auth-service | 登录/注册时签发 JWT；前端存储 |
+| 2 | Kong | RBAC：通过 auth-service authorize 校验 JWT 与路由权限 |
+| 3 | core（后端） | ACL：资源级权限（kb、dataset）；handler 执行 |
+| 4 | algorithm | RAG 对话、文档解析、任务处理 |
+
 ## 环境要求
 
 - Docker 与 Docker Compose
@@ -47,12 +78,24 @@ LazyRAG/
 ├── frontend/                  # nginx + index.html 单页
 ├── algorithm/
 │   ├── chat/                  # RAG 对话（lazyllm）
+│   ├── common/                # 共享工具（如 DB URL 解析）
 │   ├── parsing/               # 文档服务（lazyllm、MinerU、Milvus、OpenSearch）
 │   ├── processor/             # 文档任务 server + worker
 │   ├── parsing/mineru.py      # MinerU PDF 服务
 │   └── requirements.txt       # lazyllm[rag-advanced]
-└── kong/plugins/rbac-auth/    # Kong RBAC 插件（auth_service_url）
+├── api/                       # OpenAPI 规范（集中管理）
+│   ├── backend/core/           # core 服务 OpenAPI
+│   ├── backend/auth-service/   # auth-service OpenAPI
+│   └── algorithm/             # 算法服务 OpenAPI
+├── kong/plugins/rbac-auth/     # Kong RBAC 插件（auth_service_url）
+├── scripts/                   # 如 gen_openapi_rag.sh
+└── tests/
+    ├── backend/               # 后端测试
+    └── algorithm/             # 算法测试
 ```
+
+- **Go 模块**：`backend/core` 使用 `module lazyrag/core` 为刻意设计，缩短 import 路径。
+- **OpenAPI**：规范集中存放在 `api/`，与各服务目录对应；新增路由时需同步更新。
 
 ## 环境变量（主要）
 

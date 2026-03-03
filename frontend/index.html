@@ -21,6 +21,7 @@
         .page.active { display: block; }
         label { display: inline-block; min-width: 80px; }
         .form-row { margin: 0.5rem 0; }
+        .loading { opacity: 0.6; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -35,6 +36,21 @@
         const REFRESH_CHECK_INTERVAL_MS = 60 * 1000;
 
         let token = localStorage.getItem(STORAGE_ACCESS) || "";
+
+        function escapeHtml(s) {
+            if (s == null) return '';
+            const t = String(s);
+            return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function getAdminNavHTML() {
+            return '<nav><a href="#/">Home</a> | <a href="#/users">User management</a> | <a href="#/roles">Role management</a> | <a href="#/login" id="navLogout">Logout</a></nav>';
+        }
+
+        function bindLogout() {
+            const el = document.getElementById('navLogout');
+            if (el) el.onclick = (e) => { e.preventDefault(); saveTokens('', '', 0); saveRole(null); navigate('/login'); };
+        }
 
         function saveTokens(accessToken, refreshToken, expiresInSeconds) {
             token = accessToken || "";
@@ -89,13 +105,19 @@
         }
 
         async function api(path, options = {}) {
-            if (shouldRefresh()) await refreshAccessToken();
-            const t = localStorage.getItem(STORAGE_ACCESS);
-            const headers = { "Content-Type": "application/json", ...options.headers };
-            if (t) headers["Authorization"] = `Bearer ${t}`;
-            const res = await fetch(path, { ...options, headers });
-            const data = await res.json().catch(() => ({}));
-            return { ok: res.ok, status: res.status, data };
+            const app = document.getElementById('app');
+            if (app) app.classList.add('loading');
+            try {
+                if (shouldRefresh()) await refreshAccessToken();
+                const t = localStorage.getItem(STORAGE_ACCESS);
+                const headers = { "Content-Type": "application/json", ...options.headers };
+                if (t) headers["Authorization"] = `Bearer ${t}`;
+                const res = await fetch(path, { ...options, headers });
+                const data = await res.json().catch(() => ({}));
+                return { ok: res.ok, status: res.status, data };
+            } finally {
+                if (app) app.classList.remove('loading');
+            }
         }
 
         // ---------- Router ----------
@@ -251,9 +273,9 @@
                 return;
             }
             const app = document.getElementById("app");
-            let nav = `<nav><a href="#/">Home</a> | <a href="#/users">User management</a> | <a href="#/roles">Role management</a> | <a href="#/login" id="navLogout">Logout</a></nav>`;
+            const nav = getAdminNavHTML();
             if (!r.ok) {
-                app.innerHTML = nav + `<p class="error">${r.data.detail || "Failed to load users"}</p>`;
+                app.innerHTML = nav + `<p class="error">${escapeHtml(r.data.detail || "Failed to load users")}</p>`;
                 return;
             }
             const users = r.data;
@@ -263,21 +285,19 @@
             let table = "<table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Action</th></tr></thead><tbody>";
             for (const u of users) {
                 table += `<tr>
-                    <td>${u.id}</td>
-                    <td>${u.username}</td>
-                    <td>${u.role_name}</td>
-                    <td><select data-user-id="${u.id}" class="roleSelect">
-                        ${roles.map(r => `<option value="${r.id}" ${r.id === u.role_id ? "selected" : ""}>${r.name}${r.built_in ? " (built-in)" : ""}</option>`).join("")}
+                    <td>${escapeHtml(u.id)}</td>
+                    <td>${escapeHtml(u.username)}</td>
+                    <td>${escapeHtml(u.role_name)}</td>
+                    <td><select data-user-id="${escapeHtml(u.id)}" class="roleSelect">
+                        ${roles.map(r => `<option value="${r.id}" ${r.id === u.role_id ? "selected" : ""}>${escapeHtml(r.name)}${r.built_in ? " (built-in)" : ""}</option>`).join("")}
                     </select>
-                    <button class="saveRole" data-user-id="${u.id}">Save</button></td>
+                    <button class="saveRole" data-user-id="${escapeHtml(u.id)}">Save</button></td>
                 </tr>`;
             }
             table += "</tbody></table>";
 
             app.innerHTML = nav + `<h1>User management</h1>${table}`;
-
-            const navLogout = document.getElementById("navLogout");
-            if (navLogout) navLogout.onclick = (e) => { e.preventDefault(); saveTokens("", "", 0); saveRole(null); navigate("/login"); };
+            bindLogout();
 
             app.querySelectorAll(".saveRole").forEach(btn => {
                 btn.onclick = async () => {
@@ -298,9 +318,9 @@
                 return;
             }
             const app = document.getElementById("app");
-            let nav = `<nav><a href="#/">Home</a> | <a href="#/users">User management</a> | <a href="#/roles">Role management</a> | <a href="#/login" id="navLogout">Logout</a></nav>`;
+            const nav = getAdminNavHTML();
             if (!r.ok) {
-                app.innerHTML = nav + `<p class="error">${r.data.detail || "Failed to load roles"}</p>`;
+                app.innerHTML = nav + `<p class="error">${escapeHtml(r.data.detail || "Failed to load roles")}</p>`;
                 return;
             }
             const roles = r.data;
@@ -308,12 +328,12 @@
             let table = "<table><thead><tr><th>ID</th><th>Name</th><th>Built-in</th><th>Actions</th></tr></thead><tbody>";
             for (const role of roles) {
                 table += `<tr>
-                    <td>${role.id}</td>
-                    <td>${role.name}</td>
+                    <td>${escapeHtml(role.id)}</td>
+                    <td>${escapeHtml(role.name)}</td>
                     <td>${role.built_in ? "Yes" : "No"}</td>
                     <td>
-                        <a href="#/roles/${role.id}/permissions">Permissions</a>
-                        ${!role.built_in ? ` | <button class="deleteRole" data-role-id="${role.id}" data-name="${role.name}">Delete</button>` : ""}
+                        <a href="#/roles/${escapeHtml(role.id)}/permissions">Permissions</a>
+                        ${!role.built_in ? ` | <button class="deleteRole" data-role-id="${escapeHtml(role.id)}" data-name="${escapeHtml(role.name)}">Delete</button>` : ""}
                     </td>
                 </tr>`;
             }
@@ -328,9 +348,7 @@
                 <p id="roleMsg" class="error"></p>
                 ${table}
             `;
-
-            const navLogout2 = document.getElementById("navLogout");
-            if (navLogout2) navLogout2.onclick = (e) => { e.preventDefault(); saveTokens("", "", 0); saveRole(null); navigate("/login"); };
+            bindLogout();
 
             document.getElementById("addRole").onclick = async () => {
                 const name = document.getElementById("newRoleName").value.trim();
@@ -372,22 +390,20 @@
             const currentSet = new Set(current);
 
             const app = document.getElementById("app");
-            let nav = `<nav><a href="#/">Home</a> | <a href="#/users">User management</a> | <a href="#/roles">Role management</a> | <a href="#/login" id="navLogout">Logout</a></nav>`;
-            let body = `<h1>Permissions for role: ${role ? role.name : roleId}</h1>`;
+            const nav = getAdminNavHTML();
+            let body = `<h1>Permissions for role: ${escapeHtml(role ? role.name : roleId)}</h1>`;
             if (role && role.built_in && role.name === "admin") {
                 body += `<p class="error">Admin role has all permissions and cannot be changed.</p>`;
             } else {
                 body += `<form id="permForm"><ul style="list-style:none; padding:0;">`;
                 for (const g of allGroups) {
-                    body += `<li><label><input type="checkbox" name="perm" value="${g.name}" ${currentSet.has(g.name) ? "checked" : ""}> ${g.name}</label></li>`;
+                    body += `<li><label><input type="checkbox" name="perm" value="${escapeHtml(g.name)}" ${currentSet.has(g.name) ? "checked" : ""}> ${escapeHtml(g.name)}</label></li>`;
                 }
                 body += `</ul><button type="submit">Save permissions</button></form><p id="permMsg" class="error"></p>`;
             }
             body += `<p><a href="#/roles">Back to roles</a></p>`;
             app.innerHTML = nav + body;
-
-            const navLogout3 = document.getElementById("navLogout");
-            if (navLogout3) navLogout3.onclick = (e) => { e.preventDefault(); saveTokens("", "", 0); saveRole(null); navigate("/login"); };
+            bindLogout();
 
             const form = document.getElementById("permForm");
             if (form) {

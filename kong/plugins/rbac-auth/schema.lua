@@ -9,6 +9,12 @@ return {
               default = "http://auth-service:8000",
               description = "Base URL of auth-service (e.g. http://auth-service:8000)",
             },
+            { timeout_ms = {
+                type = "integer",
+                default = 5000,
+                description = "Timeout in ms for auth-service request",
+              },
+            },
           },
         },
       },
