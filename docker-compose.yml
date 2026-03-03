@@ -15,9 +15,12 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - auth-service
-      - core
-      - chat
+      auth-service:
+        condition: service_healthy
+      core:
+        condition: service_healthy
+      chat:
+        condition: service_started
 
   db:
     image: postgres:16
@@ -46,6 +49,11 @@ services:
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
       LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: admin
       LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: admin
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     depends_on:
       db:
         condition: service_healthy
@@ -59,11 +67,16 @@ services:
     environment:
       ACL_DB_DRIVER: postgres
       ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     depends_on:
       db:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -74,6 +87,8 @@ services:
 
   # ---------- Algorithm stack: MinerU -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
   mineru:
+    profiles:
+      - mineru
     build: ./algorithm
     expose:
       - "8000"
@@ -113,7 +128,7 @@ services:
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_DOCUMENT_SERVER_PORT: "8000"
-      LAZYRAG_MINERU_SERVER_URL: http://mineru:8000
+      LAZYRAG_MINERU_SERVER_URL: ${LAZYRAG_MINERU_SERVER_URL:-http://mineru:8000}
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://localhost:19530}
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://localhost:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
@@ -121,7 +136,6 @@ services:
     command: ["python", "parsing/parsing.py"]
     depends_on:
       - processor-server
-      - mineru
 
   chat:
     build: ./algorithm

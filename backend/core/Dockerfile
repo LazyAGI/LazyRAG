@@ -4,7 +4,7 @@ COPY core/ ./
 RUN CGO_ENABLED=0 go build -o /core .
 
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates wget
 COPY --from=build /core /core
 EXPOSE 8000
 CMD ["/core"]

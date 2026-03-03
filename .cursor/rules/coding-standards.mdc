@@ -14,3 +14,8 @@ alwaysApply: true
 
 - Prefer **single quotes** (`'`) for strings when both are valid.
 - Example: `msg = 'hello'` not `msg = "hello"`.
+
+
+## Go
+
+- use gofmt after modifying
