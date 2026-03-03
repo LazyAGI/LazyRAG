@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import asyncio
 from typing import List, Optional, Dict, Any, TypeVar
 
@@ -41,8 +42,8 @@ class ChatResponse(BaseResponse):
 
 
 class History(BaseModel):
-    role: str = Field('assistant', description='消息来自哪个角色，user / assistant')
-    content: str = Field('', description='消息内容')
+    role: str = Field('assistant', description='Role: user or assistant')
+    content: str = Field('', description='Message content')
 
 
 MAX_CONCURRENCY = int(os.getenv('LAZYRAG_MAX_CONCURRENCY', 10))
@@ -50,9 +51,12 @@ rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
 doc = Document(url=os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000'))
+_default_prompt = (
+    'You are a RAG assistant. Answer the user question `{query}` using '
+    'history `{history}` and references `{references}`.'
+)
 llm = lazyllm.OnlineLLM().prompt(
-    '你是懒人RAG的助手，请根据用户的问题 `{query}` 和历史对话 `{history}` '
-    '以及参考文献 `{references}`，给出回答。'
+    os.getenv('LAZYRAG_CHAT_PROMPT', _default_prompt)
 )
 r1 = lazyllm.Retriever(
     doc=doc, group_name='block', topk=25, embed_keys=['bge_m3_dense'],
@@ -97,11 +101,11 @@ async def chat(
     is_stream = request.url.path.endswith('/stream')  # noqa: F841
     effective_priority = int(os.getenv('LAZYRAG_LLM_PRIORITY', '0')) if priority is None else priority
     try:
-        import time
         t0 = time.perf_counter()
         async with rag_sem:
             lazyllm.globals._init_sid(sid=session_id)
-            result = ppl(
+            result = await asyncio.to_thread(
+                ppl,
                 query=query,
                 history=history,
                 filters=filters,

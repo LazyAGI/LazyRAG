@@ -24,7 +24,7 @@ def parse_db_url(url: Optional[str]) -> Optional[Dict[str, Any]]:
             'port': u.port or (5432 if 'postgres' in db_type else 3306),
             'db_name': (u.path or '/').lstrip('/') or 'app',
         }
-    except Exception:
+    except (ValueError, AttributeError, TypeError):
         return None
 
 

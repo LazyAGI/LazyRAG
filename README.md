@@ -18,6 +18,37 @@ A full-stack application with Kong API Gateway, JWT/RBAC auth, Go core API, Pyth
 
 - **PostgreSQL** (db): Used by auth-service and processor for app data and doc tasks.
 
+## Request Flow (Verification Chain)
+
+User requests from frontend to backend pass through the following verification steps:
+
+```
+Frontend
+   │
+   ├─► 1. auth-service (obtain JWT)
+   │      Login / register → auth-service returns JWT → frontend stores token
+   │
+   └─► 2. Kong (RBAC)
+          API request with JWT → Kong rbac-auth plugin → auth-service /api/auth/authorize
+          → validates JWT and route permission → forwards if allowed
+          │
+          ▼
+       3. Backend (core) — ACL + handler
+          Core receives request → ACL check (resource-level, e.g. kb_id, dataset_id)
+          → executes handler or proxies to algorithm
+          │
+          ▼
+       4. Algorithm
+          Core proxies to Python services (chat, parsing, etc.) for RAG / document processing
+```
+
+| Step | Component | Role |
+|------|-----------|------|
+| 1 | auth-service | Issues JWT on login/register; frontend stores it |
+| 2 | Kong | RBAC: validates JWT and route permission via auth-service authorize |
+| 3 | core (backend) | ACL: resource-level permission (kb, dataset); handler execution |
+| 4 | algorithm | RAG chat, document parsing, task processing |
+
 ## Prerequisites
 
 - Docker and Docker Compose
@@ -47,12 +78,24 @@ LazyRAG/
 ├── frontend/                  # nginx + index.html SPA
 ├── algorithm/
 │   ├── chat/                  # RAG chat (lazyllm)
-│   ├── parsing/                # Document server (lazyllm, MinerU, Milvus, OpenSearch)
+│   ├── common/                # Shared utilities (e.g. DB URL parsing)
+│   ├── parsing/               # Document server (lazyllm, MinerU, Milvus, OpenSearch)
 │   ├── processor/             # server + worker for doc tasks
-│   ├── parsing/mineru.py       # MinerU PDF server
+│   ├── parsing/mineru.py      # MinerU PDF server
 │   └── requirements.txt       # lazyllm[rag-advanced]
-└── kong/plugins/rbac-auth/    # Kong RBAC plugin (auth_service_url)
+├── api/                       # OpenAPI specs (centralized)
+│   ├── backend/core/           # core service OpenAPI
+│   ├── backend/auth-service/   # auth-service OpenAPI
+│   └── algorithm/             # algorithm services OpenAPI
+├── kong/plugins/rbac-auth/     # Kong RBAC plugin (auth_service_url)
+├── scripts/                   # e.g. gen_openapi_rag.sh
+└── tests/
+    ├── backend/               # Backend tests
+    └── algorithm/             # Algorithm tests
 ```
+
+- **Go module**: `backend/core` uses `module lazyrag/core` by design; the short module path keeps imports concise.
+- **OpenAPI**: Specs live in `api/` and mirror service layout; keep them in sync when adding routes.
 
 ## Environment (notable)
 

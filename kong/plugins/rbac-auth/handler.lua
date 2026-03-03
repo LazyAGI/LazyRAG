@@ -14,8 +14,9 @@ function RbacAuthHandler:access(conf)
   local url = (conf.auth_service_url:gsub("/+$", "")) .. "/api/auth/authorize"
   local body = cjson.encode({ method = method, path = path })
 
+  local timeout_ms = conf.timeout_ms and conf.timeout_ms > 0 and conf.timeout_ms or 5000
   local httpc = http.new()
-  httpc:set_timeout(5000)
+  httpc:set_timeout(timeout_ms)
   local res, err = httpc:request_uri(url, {
     method = "POST",
     body = body,

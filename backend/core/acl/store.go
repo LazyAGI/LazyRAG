@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
 	"lazyrag/core/common/orm"
 )
 
@@ -40,8 +41,7 @@ func (s *Store) EnsureKB(kbID string, name string, ownerID int64) string {
 	if kbID == "" {
 		kbID = fmt.Sprintf("kb_%d", time.Now().UnixNano())
 	}
-	m := &orm.KBModel{ID: kbID, Name: name, OwnerID: ownerID, Visibility: VisibilityPrivate}
-	s.db.Create(m)
+	s.db.Create(&orm.KBModel{ID: kbID, Name: name, OwnerID: ownerID, Visibility: VisibilityPrivate})
 	return kbID
 }
 
@@ -54,20 +54,21 @@ func (s *Store) GetKB(kbID string) *KBInfo {
 	return &KBInfo{ID: m.ID, Name: m.Name, OwnerID: m.OwnerID, Visibility: m.Visibility}
 }
 
-// SetKBVisibility sets visibility for a KB.
+// SetKBVisibility sets visibility for a KB. Updates acl_visibility and acl_kbs in one transaction.
 func (s *Store) SetKBVisibility(kbID string, level string) {
-	var v orm.VisibilityModel
-	err := s.db.Where("resource_id = ?", kbID).First(&v).Error
-	if err != nil {
-		v = orm.VisibilityModel{ResourceID: kbID, Level: level}
-		s.db.Create(&v)
-	} else {
-		s.db.Model(&v).Update("level", level)
-	}
-	var k orm.KBModel
-	if s.db.First(&k, "id = ?", kbID).Error == nil {
-		s.db.Model(&k).Update("visibility", level)
-	}
+	_ = s.db.Transaction(func(tx *gorm.DB) error {
+		var v orm.VisibilityModel
+		if err := tx.Where("resource_id = ?", kbID).First(&v).Error; err != nil {
+			tx.Create(&orm.VisibilityModel{ResourceID: kbID, Level: level})
+		} else {
+			tx.Model(&v).Update("level", level)
+		}
+		var k orm.KBModel
+		if tx.First(&k, "id = ?", kbID).Error == nil {
+			tx.Model(&k).Update("visibility", level)
+		}
+		return nil
+	})
 }
 
 // GetVisibility returns visibility level for kb (default private).
@@ -204,17 +205,16 @@ func (s *Store) SetUserGroups(userID int64, groupIDs []int64) {
 	}
 }
 
-// AllKBIDs returns all kb ids.
+// AllKBIDs returns all kb ids (from acl_kbs and acl_visibility, deduplicated).
 func (s *Store) AllKBIDs() []string {
+	seen := make(map[string]bool)
 	var ids []string
 	s.db.Model(&orm.KBModel{}).Pluck("id", &ids)
-	var visIDs []string
-	s.db.Model(&orm.VisibilityModel{}).Distinct("resource_id").Pluck("resource_id", &visIDs)
-	seen := make(map[string]bool)
 	for _, id := range ids {
 		seen[id] = true
 	}
-	for _, id := range visIDs {
+	s.db.Model(&orm.VisibilityModel{}).Distinct("resource_id").Pluck("resource_id", &ids)
+	for _, id := range ids {
 		seen[id] = true
 	}
 	out := make([]string, 0, len(seen))
