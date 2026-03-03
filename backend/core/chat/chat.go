@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 
+	"lazyrag/core/acl"
 	"lazyrag/core/common"
 )
 
@@ -18,50 +19,67 @@ func chatServiceURL() string {
 	return "http://localhost:8046"
 }
 
-// extractChatACL extracts (userID, kbID, needPerm) from chat request for proxy's ACL check.
-// Proxy will call acl.Can(userID, kbID, needPerm). Returns empty needPerm to deny.
-func extractChatACL(r *http.Request, body []byte) (userID, kbID int64, needPerm string) {
+// extractMessageForACL extracts (userID, items) from chat request for proxy's ACL check.
+// - kb_id only: items = [{ResourceType: "kb", ResourceID: kb_id, NeedPerm: "read"}]
+// - dataset_id only: items = [{ResourceType: "db", ResourceID: dataset_id, NeedPerm: "read"}]
+// - both: items = both entries, both must pass
+// - neither: items = nil, skip auth
+func extractMessageForACL(r *http.Request, body []byte) (userID int64, items []common.ACLCheckItem) {
 	if s := r.Header.Get("X-User-Id"); s != "" {
 		userID, _ = strconv.ParseInt(s, 10, 64)
 	}
-	if len(body) > 0 {
-		var m map[string]any
-		if json.Unmarshal(body, &m) == nil {
-			if v, ok := m["kb_id"]; ok {
-				kbID = toInt64(v)
-			}
-			if kbID == 0 {
-				if v, ok := m["dataset_id"]; ok {
-					kbID = toInt64(v)
-				}
-			}
+	if len(body) == 0 {
+		return userID, nil
+	}
+	var m map[string]any
+	if json.Unmarshal(body, &m) != nil {
+		return userID, nil
+	}
+	kbID := ""
+	datasetID := ""
+	if v, ok := m["kb_id"]; ok {
+		kbID = toString(v)
+	}
+	if v, ok := m["dataset_id"]; ok {
+		datasetID = toString(v)
+	}
+	if kbID == "" && datasetID == "" {
+		return userID, nil
+	}
+	if kbID != "" && datasetID != "" {
+		return userID, []common.ACLCheckItem{
+			{ResourceType: acl.ResourceTypeKB, ResourceID: kbID, NeedPerm: "read"},
+			{ResourceType: acl.ResourceTypeDB, ResourceID: datasetID, NeedPerm: "read"},
 		}
 	}
-	if kbID == 0 {
-		return userID, kbID, ""
+	if kbID != "" {
+		return userID, []common.ACLCheckItem{
+			{ResourceType: acl.ResourceTypeKB, ResourceID: kbID, NeedPerm: "read"},
+		}
 	}
-	return userID, kbID, "read"
+	return userID, []common.ACLCheckItem{
+		{ResourceType: acl.ResourceTypeDB, ResourceID: datasetID, NeedPerm: "read"},
+	}
 }
 
-func toInt64(v any) int64 {
+func toString(v any) string {
 	switch x := v.(type) {
-	case float64:
-		return int64(x)
-	case int:
-		return int64(x)
-	case int64:
-		return x
 	case string:
-		n, _ := strconv.ParseInt(x, 10, 64)
-		return n
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
 	default:
-		return 0
+		return ""
 	}
 }
 
 // Chat forwards POST /api/chat to the Python service after ACL check (read on kb_id/dataset_id).
-var Chat = common.ProxyWithACL(chatServiceURL()+"/api/chat", 0, extractChatACL)
+var Chat = common.ProxyWithACL(chatServiceURL()+"/api/chat", 0, extractMessageForACL)
 
 // ChatStream forwards POST /api/chat/stream to the Python service and flushes
 // every chunk immediately; guarded by same ACL check.
-var ChatStream = common.ProxyWithACL(chatServiceURL()+"/api/chat/stream", -1, extractChatACL)
+var ChatStream = common.ProxyWithACL(chatServiceURL()+"/api/chat/stream", -1, extractMessageForACL)

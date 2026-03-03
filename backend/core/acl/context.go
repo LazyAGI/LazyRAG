@@ -18,15 +18,10 @@ func CurrentUserID(r *http.Request) int64 {
 	return id
 }
 
-// PathKbID returns kb_id from path. Returns 0 if missing or invalid.
-func PathKbID(r *http.Request) int64 {
+// PathKbID returns kb_id from path. Returns empty string if missing.
+func PathKbID(r *http.Request) string {
 	vars := mux.Vars(r)
-	s := vars["kb_id"]
-	if s == "" {
-		return 0
-	}
-	id, _ := strconv.ParseInt(s, 10, 64)
-	return id
+	return vars["kb_id"]
 }
 
 // PathACLID returns acl_id from path.

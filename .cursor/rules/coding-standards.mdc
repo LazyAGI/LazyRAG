@@ -1,0 +1,16 @@
+---
+description: Default comments in English; Python prefers single quotes
+alwaysApply: true
+---
+
+# Coding Standards
+
+## Comments
+
+- Write all comments in **English**.
+- Use clear, concise language.
+
+## Python
+
+- Prefer **single quotes** (`'`) for strings when both are valid.
+- Example: `msg = 'hello'` not `msg = "hello"`.

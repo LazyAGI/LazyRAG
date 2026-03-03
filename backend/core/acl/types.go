@@ -30,23 +30,30 @@ const (
 	SourceACL       = "acl"
 )
 
+// ResourceType for ACL.
+const (
+	ResourceTypeKB = "kb" // knowledge base
+	ResourceTypeDB = "db" // database
+)
+
 // VisibilityRow matches visibility table: id, kb_id, level (default private if missing).
 type VisibilityRow struct {
-	ID    int64  `json:"id"`
-	KbID  int64  `json:"kb_id"`
-	Level string `json:"level"` // public / protected / private
+	ID         int64  `json:"id"`
+	ResourceID string `json:"resource_id"` // kb_id for kb resources
+	Level      string `json:"level"`       // public / protected / private
 }
 
-// ACLRow matches ACL table.
+// ACLRow matches ACL table. Generic for kb and db resources.
 type ACLRow struct {
-	ID          int64      `json:"id"`
-	KbID        int64      `json:"kb_id"`
-	GranteeType string     `json:"grantee_type"` // user / tenant
-	TargetID    int64      `json:"target_id"`    // user_id or tenant_id
-	Permission  string     `json:"permission"`   // read / write
-	CreatedBy   int64      `json:"created_by"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	ID           int64      `json:"id"`
+	ResourceType string     `json:"resource_type"` // kb / db
+	ResourceID   string     `json:"resource_id"`   // kb_id or db_id
+	GranteeType  string     `json:"grantee_type"`  // user / tenant
+	TargetID     int64      `json:"target_id"`     // user_id or tenant_id
+	Permission   string     `json:"permission"`    // read / write
+	CreatedBy    int64      `json:"created_by"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
 // ACLListItem for list response (grantee_id in API = target_id in DB).
@@ -60,7 +67,7 @@ type ACLListItem struct {
 
 // KBInfo minimal KB metadata for list and owner check.
 type KBInfo struct {
-	ID         int64  `json:"id"`
+	ID         string `json:"id"`
 	Name       string `json:"name"`
 	OwnerID    int64  `json:"owner_id"`
 	Visibility string `json:"visibility"`
@@ -95,7 +102,7 @@ type BatchAddACLItem struct {
 
 // PermissionBatchRequest body for POST /api/kb/permission/batch
 type PermissionBatchRequest struct {
-	KbIDs []int64 `json:"kb_ids"`
+	KbIDs []string `json:"kb_ids"`
 }
 
 // API response envelope: { code, message, data }
@@ -113,7 +120,7 @@ type PermissionResult struct {
 
 // PermissionBatchItem for POST /api/kb/permission/batch
 type PermissionBatchItem struct {
-	KbID       int64  `json:"kb_id"`
+	KbID       string `json:"kb_id"`
 	Permission string `json:"permission"`
 }
 
@@ -129,7 +136,7 @@ type KBListResult struct {
 }
 
 type KBListRow struct {
-	ID         int64  `json:"id"`
+	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Visibility string `json:"visibility"`
 	Permission string `json:"permission"`

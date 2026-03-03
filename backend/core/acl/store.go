@@ -1,9 +1,15 @@
 package acl
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
+
+// aclKey returns composite key for ACL index.
+func aclKey(resourceType, resourceID string) string {
+	return resourceType + ":" + resourceID
+}
 
 // Store in-memory implementation for visibility and ACL. Replace with DB later.
 type Store struct {
@@ -11,18 +17,18 @@ type Store struct {
 	nextVisID  int64
 	nextACLID  int64
 	nextKBID   int64
-	visibility map[int64]*VisibilityRow // kb_id -> row (missing = private)
-	acl        map[int64][]*ACLRow      // kb_id -> list (no record = no permission)
-	aclByID    map[int64]*ACLRow        // acl_id -> row
-	kbs        map[int64]*KBInfo        // kb_id -> info (for owner, name, list)
-	userGroups map[int64][]int64        // user_id -> tenant/group ids (for group ACL)
+	visibility map[string]*VisibilityRow // kb_id -> row (missing = private)
+	acl        map[string][]*ACLRow      // resourceType:resourceID -> list (no record = no permission)
+	aclByID    map[int64]*ACLRow         // acl_id -> row
+	kbs        map[string]*KBInfo        // kb_id -> info (for owner, name, list)
+	userGroups map[int64][]int64         // user_id -> tenant/group ids (for group ACL)
 }
 
 var defaultStore = &Store{
-	visibility: make(map[int64]*VisibilityRow),
-	acl:        make(map[int64][]*ACLRow),
+	visibility: make(map[string]*VisibilityRow),
+	acl:        make(map[string][]*ACLRow),
 	aclByID:    make(map[int64]*ACLRow),
-	kbs:        make(map[int64]*KBInfo),
+	kbs:        make(map[string]*KBInfo),
 	userGroups: make(map[int64][]int64),
 }
 
@@ -30,40 +36,40 @@ var defaultStore = &Store{
 func GetStore() *Store { return defaultStore }
 
 // EnsureKB creates a KB if not exists (so we can set owner). Returns kb_id.
-func (s *Store) EnsureKB(kbID int64, name string, ownerID int64) int64 {
+func (s *Store) EnsureKB(kbID string, name string, ownerID int64) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.kbs[kbID] != nil {
+	if kbID != "" && s.kbs[kbID] != nil {
 		return kbID
 	}
-	if kbID == 0 {
+	if kbID == "" {
 		s.nextKBID++
-		kbID = s.nextKBID
+		kbID = fmt.Sprintf("kb_%d", s.nextKBID)
 	}
 	s.kbs[kbID] = &KBInfo{ID: kbID, Name: name, OwnerID: ownerID, Visibility: VisibilityPrivate}
 	return kbID
 }
 
 // GetKB returns KB info if exists.
-func (s *Store) GetKB(kbID int64) *KBInfo {
+func (s *Store) GetKB(kbID string) *KBInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.kbs[kbID]
 }
 
 // SetKBVisibility sets visibility for a KB (creates row if needed).
-func (s *Store) SetKBVisibility(kbID int64, level string) {
+func (s *Store) SetKBVisibility(kbID string, level string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextVisID++
-	s.visibility[kbID] = &VisibilityRow{ID: s.nextVisID, KbID: kbID, Level: level}
+	s.visibility[kbID] = &VisibilityRow{ID: s.nextVisID, ResourceID: kbID, Level: level}
 	if k := s.kbs[kbID]; k != nil {
 		k.Visibility = level
 	}
 }
 
 // GetVisibility returns visibility level for kb (default private).
-func (s *Store) GetVisibility(kbID int64) string {
+func (s *Store) GetVisibility(kbID string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if v, ok := s.visibility[kbID]; ok {
@@ -73,21 +79,23 @@ func (s *Store) GetVisibility(kbID int64) string {
 }
 
 // AddACL adds an ACL row; returns acl_id.
-func (s *Store) AddACL(kbID int64, granteeType string, targetID int64, permission string, createdBy int64, expiresAt *time.Time) int64 {
+func (s *Store) AddACL(resourceType, resourceID string, granteeType string, targetID int64, permission string, createdBy int64, expiresAt *time.Time) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextACLID++
 	row := &ACLRow{
-		ID:          s.nextACLID,
-		KbID:        kbID,
-		GranteeType: granteeType,
-		TargetID:    targetID,
-		Permission:  permission,
-		CreatedBy:   createdBy,
-		CreatedAt:   time.Now(),
-		ExpiresAt:   expiresAt,
+		ID:           s.nextACLID,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		GranteeType:  granteeType,
+		TargetID:     targetID,
+		Permission:   permission,
+		CreatedBy:    createdBy,
+		CreatedAt:    time.Now(),
+		ExpiresAt:    expiresAt,
 	}
-	s.acl[kbID] = append(s.acl[kbID], row)
+	key := aclKey(resourceType, resourceID)
+	s.acl[key] = append(s.acl[key], row)
 	s.aclByID[row.ID] = row
 	return row.ID
 }
@@ -114,23 +122,24 @@ func (s *Store) DeleteACL(aclID int64) bool {
 		return false
 	}
 	delete(s.aclByID, aclID)
-	list := s.acl[row.KbID]
+	key := aclKey(row.ResourceType, row.ResourceID)
+	list := s.acl[key]
 	for i, r := range list {
 		if r.ID == aclID {
-			s.acl[row.KbID] = append(list[:i], list[i+1:]...)
+			s.acl[key] = append(list[:i], list[i+1:]...)
 			break
 		}
 	}
 	return true
 }
 
-// ListACL returns ACL list for kb, optionally filtered by grantee_type. Excludes expired.
-func (s *Store) ListACL(kbID int64, granteeType string) []ACLListItem {
+// ListACL returns ACL list for resource, optionally filtered by grantee_type. Excludes expired.
+func (s *Store) ListACL(resourceType, resourceID string, granteeType string) []ACLListItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	now := time.Now()
 	var out []ACLListItem
-	for _, row := range s.acl[kbID] {
+	for _, row := range s.acl[aclKey(resourceType, resourceID)] {
 		if row.ExpiresAt != nil && row.ExpiresAt.Before(now) {
 			continue
 		}
@@ -148,12 +157,12 @@ func (s *Store) ListACL(kbID int64, granteeType string) []ACLListItem {
 	return out
 }
 
-// GetACLByID returns ACL row and whether it belongs to kbID.
-func (s *Store) GetACLByID(kbID int64, aclID int64) (*ACLRow, bool) {
+// GetACLByID returns ACL row and whether it belongs to the given resource.
+func (s *Store) GetACLByID(resourceType, resourceID string, aclID int64) (*ACLRow, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	row, ok := s.aclByID[aclID]
-	if !ok || row.KbID != kbID {
+	if !ok || row.ResourceType != resourceType || row.ResourceID != resourceID {
 		return nil, false
 	}
 	return row, true
@@ -161,12 +170,12 @@ func (s *Store) GetACLByID(kbID int64, aclID int64) (*ACLRow, bool) {
 
 // ACLsForUser returns effective ACL entries for user: direct user entries + group entries (target_id in user's groups).
 // For simplicity we only consider grantee_type=user with target_id=userID; group/tenant can be added via userGroups.
-func (s *Store) ACLsForUser(kbID int64, userID int64) []*ACLRow {
+func (s *Store) ACLsForUser(resourceType, resourceID string, userID int64) []*ACLRow {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	now := time.Now()
 	var out []*ACLRow
-	for _, row := range s.acl[kbID] {
+	for _, row := range s.acl[aclKey(resourceType, resourceID)] {
 		if row.ExpiresAt != nil && row.ExpiresAt.Before(now) {
 			continue
 		}
@@ -194,26 +203,21 @@ func (s *Store) SetUserGroups(userID int64, groupIDs []int64) {
 }
 
 // AllKBIDs returns all kb ids (for list filtering by permission).
-func (s *Store) AllKBIDs() []int64 {
+func (s *Store) AllKBIDs() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var ids []int64
+	seen := make(map[string]bool)
 	for id := range s.kbs {
-		ids = append(ids, id)
+		seen[id] = true
 	}
 	for id := range s.visibility {
-		if s.kbs[id] == nil {
-			ids = append(ids, id)
-		}
-	}
-	// dedup not strictly needed for small sets
-	seen := make(map[int64]bool)
-	var out []int64
-	for _, id := range ids {
 		if !seen[id] {
 			seen[id] = true
-			out = append(out, id)
 		}
+	}
+	var out []string
+	for id := range seen {
+		out = append(out, id)
 	}
 	return out
 }

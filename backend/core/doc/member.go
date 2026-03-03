@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-// 以下为 DatasetMemberService 接口桩，TODO 稍后实现。
+// DatasetMemberService stub handlers. TODO: implement later.
 
 func ListDatasetMembers(w http.ResponseWriter, r *http.Request) {
 	replyJSON(w, map[string]any{}) /* TODO */
