@@ -15,10 +15,11 @@ from sqlalchemy.orm import joinedload, Session
 
 from auth_security import (
     create_access_token,
+    generate_refresh_token,
     hash_refresh_token,
     jwt_secret,
+    jwt_ttl_seconds,
     refresh_token_expires_at,
-    generate_refresh_token,
 )
 from auth_service import AuthError, authenticate_user, register_user
 from bootstrap import bootstrap
@@ -219,7 +220,7 @@ def api_login(body: LoginBody):
         'refresh_token': refresh_token,
         'token_type': 'bearer',
         'role': role_name,
-        'expires_in': 60 * 60,
+        'expires_in': jwt_ttl_seconds(),
     }
 
 
@@ -296,7 +297,7 @@ def api_refresh(body: RefreshBody):
         'access_token': create_access_token(subject=str(user.id), role=role_name),
         'refresh_token': new_refresh_token,
         'token_type': 'bearer',
-        'expires_in': 60 * 60,
+        'expires_in': jwt_ttl_seconds(),
     }
 
 

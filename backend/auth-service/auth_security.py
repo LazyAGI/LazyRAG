@@ -27,6 +27,10 @@ def jwt_ttl_minutes() -> int:
     return _env_int('LAZYRAG_JWT_TTL_MINUTES', 60)
 
 
+def jwt_ttl_seconds() -> int:
+    return jwt_ttl_minutes() * 60
+
+
 def refresh_token_ttl_days() -> int:
     return _env_int('LAZYRAG_JWT_REFRESH_TTL_DAYS', 7)
 

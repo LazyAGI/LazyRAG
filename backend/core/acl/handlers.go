@@ -26,6 +26,14 @@ func replyErr(w http.ResponseWriter, message string, statusCode int) {
 	reply(w, codeError, message, nil)
 }
 
+func validGranteeType(s string) bool {
+	return s == GranteeUser || s == GranteeTenant
+}
+
+func validPermission(s string) bool {
+	return s == PermRead || s == PermWrite
+}
+
 // ListACL GET /api/kb/{kb_id}/acl
 func ListACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
@@ -50,11 +58,11 @@ func AddACL(w http.ResponseWriter, r *http.Request) {
 		replyErr(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	if body.GranteeType != GranteeUser && body.GranteeType != GranteeTenant {
+	if !validGranteeType(body.GranteeType) {
 		replyErr(w, "grantee_type must be user or tenant", http.StatusBadRequest)
 		return
 	}
-	if body.Permission != PermRead && body.Permission != PermWrite {
+	if !validPermission(body.Permission) {
 		replyErr(w, "permission must be read or write", http.StatusBadRequest)
 		return
 	}
@@ -76,21 +84,19 @@ func UpdateACL(w http.ResponseWriter, r *http.Request) {
 		replyErr(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	if body.Permission != PermRead && body.Permission != PermWrite {
+	if !validPermission(body.Permission) {
 		replyErr(w, "permission must be read or write", http.StatusBadRequest)
 		return
 	}
-	row, ok := GetStore().GetACLByID(ResourceTypeKB, kbID, aclID)
-	if !ok || row == nil {
+	_, ok := GetStore().GetACLByID(ResourceTypeKB, kbID, aclID)
+	if !ok {
 		replyErr(w, "acl not found", http.StatusNotFound)
 		return
 	}
-	ok = GetStore().UpdateACL(aclID, body.Permission, body.ExpiresAt)
-	if !ok {
+	if !GetStore().UpdateACL(aclID, body.Permission, body.ExpiresAt) {
 		replyErr(w, "update failed", http.StatusInternalServerError)
 		return
 	}
-	_ = row
 	replyOK(w, nil)
 }
 
@@ -126,10 +132,7 @@ func BatchAddACL(w http.ResponseWriter, r *http.Request) {
 	createdBy := CurrentUserID(r)
 	count := 0
 	for _, item := range body.Items {
-		if item.GranteeType != GranteeUser && item.GranteeType != GranteeTenant {
-			continue
-		}
-		if item.Permission != PermRead && item.Permission != PermWrite {
+		if !validGranteeType(item.GranteeType) || !validPermission(item.Permission) {
 			continue
 		}
 		GetStore().AddACL(ResourceTypeKB, kbID, item.GranteeType, item.GranteeID, item.Permission, createdBy, nil)
