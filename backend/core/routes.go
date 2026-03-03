@@ -1,10 +1,12 @@
 package main
 
 import (
-	"github.com/gorilla/mux"
+	"lazyrag/core/acl"
 	"lazyrag/core/chat"
 	"lazyrag/core/db"
 	"lazyrag/core/doc"
+
+	"github.com/gorilla/mux"
 )
 
 // registerAllRoutes 注册 openapi 中除 Job 外的所有接口，并集中使用 handleAPI 做 RBAC（供 extract_api_permissions.py 提取）。
@@ -98,4 +100,15 @@ func registerAllRoutes(r *mux.Router) {
 	// ----- WriterSegmentJob -----
 	handleAPI(r, "POST", "/api/v1/writerSegmentJob:submit", []string{"document.write"}, doc.Submit)
 	handleAPI(r, "GET", "/api/v1/writerSegmentJobs/{writerSegmentJob}", []string{"document.read"}, doc.Get)
+
+	// ----- ACL (knowledge base data permission) -----
+	handleAPI(r, "GET", "/api/kb/list", []string{"document.read"}, acl.ListKB)
+	handleAPI(r, "POST", "/api/kb/permission/batch", []string{"document.read"}, acl.PermissionBatch)
+	handleAPI(r, "GET", "/api/kb/{kb_id}/permission", []string{"document.read"}, acl.GetPermission)
+	handleAPI(r, "GET", "/api/kb/{kb_id}/can", []string{"document.read"}, acl.CanHandler)
+	handleAPI(r, "GET", "/api/kb/{kb_id}/acl", []string{"document.read"}, acl.ListACL)
+	handleAPI(r, "POST", "/api/kb/{kb_id}/acl", []string{"document.write"}, acl.AddACL)
+	handleAPI(r, "POST", "/api/kb/{kb_id}/acl/batch", []string{"document.write"}, acl.BatchAddACL)
+	handleAPI(r, "PUT", "/api/kb/{kb_id}/acl/{acl_id}", []string{"document.write"}, acl.UpdateACL)
+	handleAPI(r, "DELETE", "/api/kb/{kb_id}/acl/{acl_id}", []string{"document.write"}, acl.DeleteACL)
 }
