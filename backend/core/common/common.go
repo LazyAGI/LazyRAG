@@ -11,9 +11,17 @@ import (
 	"lazyrag/core/acl"
 )
 
-// ACLExtractor extracts (userID, kbID, needPerm) from the request for ACL check.
-// needPerm is passed to acl.Can (e.g. "read", "write"). Return empty needPerm to deny.
-type ACLExtractor func(req *http.Request, body []byte) (userID, kbID int64, needPerm string)
+// ACLCheckItem represents one resource to check for ACL.
+type ACLCheckItem struct {
+	ResourceType string // kb / db
+	ResourceID   string
+	NeedPerm     string // read / write
+}
+
+// ACLExtractor extracts (userID, items) from the request for ACL check.
+// When items is nil or empty: skip auth, direct pass.
+// When items has entries: loop acl.Can for each; all must pass for request to pass.
+type ACLExtractor func(req *http.Request, body []byte) (userID int64, items []ACLCheckItem)
 
 // Proxy builds a reverse proxy that forwards to targetURL.
 // flushInterval controls how often buffered data is flushed to the client:
@@ -24,8 +32,8 @@ func Proxy(targetURL string, flushInterval time.Duration) http.HandlerFunc {
 }
 
 // ProxyWithACL wraps the reverse proxy with ACL check. Before forwarding, body is read,
-// extractor is called to get (userID, kbID, needPerm); then acl.Can(userID, kbID, needPerm)
-// is invoked. If false or needPerm is empty, respond 403. Otherwise restore body and proxy.
+// extractor is called to get (userID, items). When items is empty, skip auth. Otherwise
+// acl.Can is invoked for each item; all must pass for request to pass.
 // Pass nil as extractor to skip check (same as Proxy).
 func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLExtractor) http.HandlerFunc {
 	target, _ := url.Parse(targetURL)
@@ -43,12 +51,14 @@ func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLEx
 			r.Body.Close()
 		}
 		if extractor != nil {
-			userID, kbID, needPerm := extractor(r, body)
-			if needPerm == "" || !acl.Can(userID, kbID, needPerm) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_, _ = w.Write([]byte(`{"code":1,"message":"forbidden: no permission for this knowledge base","data":null}`))
-				return
+			userID, items := extractor(r, body)
+			for _, item := range items {
+				if item.NeedPerm == "" || !acl.Can(userID, item.ResourceType, item.ResourceID, item.NeedPerm) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(`{"code":1,"message":"forbidden: no permission for this resource","data":null}`))
+					return
+				}
 			}
 		}
 		if len(body) > 0 {

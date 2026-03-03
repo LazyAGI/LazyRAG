@@ -10,7 +10,7 @@ func replyJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// 以下为 DatabaseService (RAG) 接口桩，TODO 稍后实现。
+// DatabaseService (RAG) stub handlers. TODO: implement later.
 
 func GetUserDatabaseTags(w http.ResponseWriter, r *http.Request) {
 	replyJSON(w, map[string]any{}) /* TODO */

@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// registerAllRoutes 注册 openapi 中除 Job 外的所有接口，并集中使用 handleAPI 做 RBAC（供 extract_api_permissions.py 提取）。
+// registerAllRoutes registers all OpenAPI routes (except Job) and uses handleAPI for RBAC (for extract_api_permissions.py).
 func registerAllRoutes(r *mux.Router) {
 	// ----- DatasetService -----
 	handleAPI(r, "GET", "/api/v1/dataset/algos", []string{"document.read"}, doc.ListAlgos)
@@ -67,7 +67,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/members:search", []string{"document.read"}, doc.SearchDatasetMember)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}:batchAddMember", []string{"document.write"}, doc.BatchAddDatasetMember)
 
-	// ----- TaskService（直接暴露 Task，不再通过 Job）-----
+	// ----- TaskService (expose Task directly, not via Job) -----
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/tasks", []string{"document.read"}, doc.ListTasks)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks", []string{"document.write"}, doc.CreateTask)
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/tasks/{task}", []string{"document.read"}, doc.GetTask)

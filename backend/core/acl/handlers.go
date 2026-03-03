@@ -29,19 +29,19 @@ func replyErr(w http.ResponseWriter, message string, statusCode int) {
 // ListACL GET /api/kb/{kb_id}/acl
 func ListACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
-	if kbID == 0 {
+	if kbID == "" {
 		replyErr(w, "invalid kb_id", http.StatusBadRequest)
 		return
 	}
 	granteeType := r.URL.Query().Get("grantee_type")
-	list := GetStore().ListACL(kbID, granteeType)
+	list := GetStore().ListACL(ResourceTypeKB, kbID, granteeType)
 	replyOK(w, map[string]any{"list": list})
 }
 
 // AddACL POST /api/kb/{kb_id}/acl
 func AddACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
-	if kbID == 0 {
+	if kbID == "" {
 		replyErr(w, "invalid kb_id", http.StatusBadRequest)
 		return
 	}
@@ -59,7 +59,7 @@ func AddACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	createdBy := CurrentUserID(r)
-	aclID := GetStore().AddACL(kbID, body.GranteeType, body.GranteeID, body.Permission, createdBy, body.ExpiresAt)
+	aclID := GetStore().AddACL(ResourceTypeKB, kbID, body.GranteeType, body.GranteeID, body.Permission, createdBy, body.ExpiresAt)
 	replyOK(w, map[string]any{"acl_id": aclID})
 }
 
@@ -67,7 +67,7 @@ func AddACL(w http.ResponseWriter, r *http.Request) {
 func UpdateACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	aclID := PathACLID(r)
-	if kbID == 0 || aclID == 0 {
+	if kbID == "" || aclID == 0 {
 		replyErr(w, "invalid path", http.StatusBadRequest)
 		return
 	}
@@ -80,7 +80,7 @@ func UpdateACL(w http.ResponseWriter, r *http.Request) {
 		replyErr(w, "permission must be read or write", http.StatusBadRequest)
 		return
 	}
-	row, ok := GetStore().GetACLByID(kbID, aclID)
+	row, ok := GetStore().GetACLByID(ResourceTypeKB, kbID, aclID)
 	if !ok || row == nil {
 		replyErr(w, "acl not found", http.StatusNotFound)
 		return
@@ -98,11 +98,11 @@ func UpdateACL(w http.ResponseWriter, r *http.Request) {
 func DeleteACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	aclID := PathACLID(r)
-	if kbID == 0 || aclID == 0 {
+	if kbID == "" || aclID == 0 {
 		replyErr(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	_, ok := GetStore().GetACLByID(kbID, aclID)
+	_, ok := GetStore().GetACLByID(ResourceTypeKB, kbID, aclID)
 	if !ok {
 		replyErr(w, "acl not found", http.StatusNotFound)
 		return
@@ -114,7 +114,7 @@ func DeleteACL(w http.ResponseWriter, r *http.Request) {
 // BatchAddACL POST /api/kb/{kb_id}/acl/batch
 func BatchAddACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
-	if kbID == 0 {
+	if kbID == "" {
 		replyErr(w, "invalid kb_id", http.StatusBadRequest)
 		return
 	}
@@ -132,7 +132,7 @@ func BatchAddACL(w http.ResponseWriter, r *http.Request) {
 		if item.Permission != PermRead && item.Permission != PermWrite {
 			continue
 		}
-		GetStore().AddACL(kbID, item.GranteeType, item.GranteeID, item.Permission, createdBy, nil)
+		GetStore().AddACL(ResourceTypeKB, kbID, item.GranteeType, item.GranteeID, item.Permission, createdBy, nil)
 		count++
 	}
 	replyOK(w, map[string]any{"count": count})
@@ -141,12 +141,12 @@ func BatchAddACL(w http.ResponseWriter, r *http.Request) {
 // GetPermission GET /api/kb/{kb_id}/permission
 func GetPermission(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
-	if kbID == 0 {
+	if kbID == "" {
 		replyErr(w, "invalid kb_id", http.StatusBadRequest)
 		return
 	}
 	userID := CurrentUserID(r)
-	permission, source := PermissionFor(kbID, userID)
+	permission, source := PermissionFor(ResourceTypeKB, kbID, userID)
 	replyOK(w, PermissionResult{Permission: permission, Source: source})
 }
 
@@ -160,7 +160,7 @@ func PermissionBatch(w http.ResponseWriter, r *http.Request) {
 	userID := CurrentUserID(r)
 	list := make([]PermissionBatchItem, 0, len(body.KbIDs))
 	for _, kbID := range body.KbIDs {
-		perm, _ := PermissionFor(kbID, userID)
+		perm, _ := PermissionFor(ResourceTypeKB, kbID, userID)
 		list = append(list, PermissionBatchItem{KbID: kbID, Permission: perm})
 	}
 	replyOK(w, list)
@@ -169,7 +169,7 @@ func PermissionBatch(w http.ResponseWriter, r *http.Request) {
 // CanHandler GET /api/kb/{kb_id}/can?action=create_doc|delete_doc|delete_kb
 func CanHandler(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
-	if kbID == 0 {
+	if kbID == "" {
 		replyErr(w, "invalid kb_id", http.StatusBadRequest)
 		return
 	}
@@ -179,7 +179,7 @@ func CanHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := CurrentUserID(r)
-	allowed := Can(userID, kbID, action)
+	allowed := Can(userID, ResourceTypeKB, kbID, action)
 	replyOK(w, CanResult{Allowed: allowed})
 }
 
@@ -201,7 +201,7 @@ func ListKB(w http.ResponseWriter, r *http.Request) {
 		if kb == nil {
 			continue
 		}
-		perm, _ := PermissionFor(kbID, userID)
+		perm, _ := PermissionFor(ResourceTypeKB, kbID, userID)
 		if perm == PermNone {
 			continue
 		}

@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-// 以下为 SegmentService 接口桩，TODO 稍后实现。
+// SegmentService stub handlers. TODO: implement later.
 
 func ListSegments(w http.ResponseWriter, r *http.Request)   { replyJSON(w, map[string]any{}) /* TODO */ }
 func GetSegment(w http.ResponseWriter, r *http.Request)     { replyJSON(w, map[string]any{}) /* TODO */ }

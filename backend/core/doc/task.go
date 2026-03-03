@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-// 以下为 TaskService 接口桩（直接暴露 Task，不通过 Job），TODO 稍后实现。
+// TaskService stub handlers (expose Task directly, not via Job). TODO: implement later.
 
 func ListTasks(w http.ResponseWriter, r *http.Request)    { replyJSON(w, map[string]any{}) /* TODO */ }
 func CreateTask(w http.ResponseWriter, r *http.Request)   { replyJSON(w, map[string]any{}) /* TODO */ }
