@@ -1,5 +1,5 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
-.PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff
+.PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend
@@ -89,3 +89,6 @@ lint-go-only-diff:
 lint: lint-python lint-go
 
 lint-only-diff: lint-python-only-diff lint-go-only-diff
+
+test:
+	@./tests/run-all.sh
