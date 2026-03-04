@@ -92,6 +92,12 @@ describe('shouldRefresh', () => {
     saveTokens('t', 'r', 3600);
     expect(shouldRefresh()).toBe(false);
   });
+
+  it('returns true when token is about to expire', () => {
+    // Refresh buffer is 2 min (120s). Token expiring in 60s should trigger refresh.
+    saveTokens('t', 'r', 60);
+    expect(shouldRefresh()).toBe(true);
+  });
 });
 
 describe('parseRoute', () => {

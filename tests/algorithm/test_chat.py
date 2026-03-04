@@ -9,7 +9,7 @@ import pytest
 try:
     from chat.chat import History, ChatResponse
     CHAT_AVAILABLE = True
-except (ImportError, Exception):
+except ImportError:
     CHAT_AVAILABLE = False
 
 
@@ -19,7 +19,8 @@ def test_history_model():
     h = History(role='user', content='hello')
     assert h.role == 'user'
     assert h.content == 'hello'
-    assert h.dict() == {'role': 'user', 'content': 'hello'}
+    dump = getattr(h, 'model_dump', h.dict)()
+    assert dump == {'role': 'user', 'content': 'hello'}
 
 
 @pytest.mark.skipif(not CHAT_AVAILABLE, reason='chat module or lazyllm not available')
