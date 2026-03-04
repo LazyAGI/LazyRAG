@@ -3,6 +3,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+milvus_uri = os.getenv('LAZYRAG_MILVUS_URI')
+opensearch_uri = os.getenv('LAZYRAG_OPENSEARCH_URI')
+if not milvus_uri:
+    raise ValueError('LAZYRAG_MILVUS_URI is required')
+if not opensearch_uri:
+    raise ValueError('LAZYRAG_OPENSEARCH_URI is required')
+
 from lazyllm.tools.rag import Document, OnlineEmbeddingModule, MineruPDFReader, PDFReader  # noqa: E402
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader  # noqa: E402
 from lazyllm.tools.rag.doc_impl import NodeGroupType  # noqa: E402
@@ -12,7 +19,7 @@ store_config = {
     'vector_store': {
         'type': 'milvus',
         'kwargs': {
-            'uri': os.getenv('LAZYRAG_MILVUS_URI', 'http://localhost:19530'),
+            'uri': milvus_uri,
             'index_kwargs': {
                 'index_type': 'FLAT',
                 'metric_type': 'COSINE',
@@ -22,7 +29,7 @@ store_config = {
     'segment_store': {
         'type': 'opensearch',
         'kwargs': {
-            'uris': os.getenv('LAZYRAG_OPENSEARCH_URI', 'https://localhost:9200'),
+            'uris': opensearch_uri,
             'client_kwargs': {
                 'http_compress': True,
                 'use_ssl': True,

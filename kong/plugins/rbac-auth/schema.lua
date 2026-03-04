@@ -1,19 +1,24 @@
+local typedefs = require 'kong.db.schema.typedefs'
+
 return {
-  name = "rbac-auth",
+  name = 'rbac-auth',
   fields = {
-    { config = {
-        type = "record",
+    { consumer = typedefs.no_consumer },
+    { protocols = typedefs.protocols_http },
+    {
+      config = {
+        type = 'record',
         fields = {
-          { auth_service_url = {
-              type = "string",
-              default = "http://auth-service:8000",
-              description = "Base URL of auth-service (e.g. http://auth-service:8000)",
+          {
+            auth_service_url = {
+              type = 'string',
+              default = 'http://auth-service:8000',
             },
-            { timeout_ms = {
-                type = "integer",
-                default = 5000,
-                description = "Timeout in ms for auth-service request",
-              },
+          },
+          {
+            timeout_ms = {
+              type = 'integer',
+              default = 5000,
             },
           },
         },

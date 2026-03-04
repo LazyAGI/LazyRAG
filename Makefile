@@ -52,7 +52,7 @@ PADDLEOCR_VLM_BACKEND ?= vllm
 
 # Milvus / OpenSearch (when using built-in profiles)
 MILVUS_IMAGE_TAG ?= v2.6.11
-OPENSEARCH_IMAGE_TAG ?= latest
+OPENSEARCH_IMAGE_TAG ?= 2.18.0
 
 export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET LAZYRAG_JWT_TTL_MINUTES LAZYRAG_JWT_REFRESH_TTL_DAYS
 export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD LAZYRAG_AUTH_API_PERMISSIONS_FILE
@@ -158,14 +158,14 @@ test:
 
 # Only build/start mineru/paddleocr when LAZYRAG_OCR_SERVER_TYPE is mineru/paddleocr
 # AND LAZYRAG_OCR_SERVER_URL points to the internal service (user has not specified external URL).
+# Only mineru has build:; paddleocr/milvus/opensearch use image: only, so only needed for up.
 _need_mineru := $(and $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYRAG_OCR_SERVER_URL)))
 _need_paddleocr := $(and $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYRAG_OCR_SERVER_URL)))
 _need_milvus := $(findstring milvus:19530,$(LAZYRAG_MILVUS_URI))
 _need_opensearch := $(findstring opensearch:9200,$(LAZYRAG_OPENSEARCH_URI))
-PROFILES := $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch))
 
 build:
-	@docker compose build $(PROFILES)
+	@docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
-	@docker compose up $(PROFILES)
+	@docker compose $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch)) up
