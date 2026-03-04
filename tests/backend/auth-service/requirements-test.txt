@@ -1,0 +1,3 @@
+# Test deps for auth-service (in addition to backend/auth-service/requirements.txt)
+pytest>=7.0
+httpx>=0.25
