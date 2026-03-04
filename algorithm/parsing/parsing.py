@@ -3,7 +3,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from lazyllm.tools.rag import Document, OnlineEmbeddingModule, MineruPDFReader  # noqa: E402
+from lazyllm.tools.rag import Document, OnlineEmbeddingModule, MineruPDFReader, PDFReader  # noqa: E402
+from lazyllm.tools.rag.readers import PaddleOCRPDFReader  # noqa: E402
 from lazyllm.tools.rag.doc_impl import NodeGroupType  # noqa: E402
 from lazyllm.tools.rag.parsing_service import DocumentProcessor  # noqa: E402
 
@@ -33,9 +34,19 @@ store_config = {
     },
 }
 
-mineru_url = os.getenv('LAZYRAG_MINERU_SERVER_URL', 'http://localhost:8000').rstrip('/')
+ocr_type = os.getenv('LAZYRAG_OCR_SERVER_TYPE', 'none')
+ocr_url = os.getenv('LAZYRAG_OCR_SERVER_URL', 'http://localhost:8000').rstrip('/')
 processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
 server_port = int(os.getenv('LAZYRAG_DOCUMENT_SERVER_PORT', '8000'))
+
+if ocr_type in ('none', None, ''):
+    pdf_reader = PDFReader()
+elif ocr_type == 'mineru':
+    pdf_reader = MineruPDFReader(ocr_url)
+elif ocr_type == 'paddleocr':
+    pdf_reader = PaddleOCRPDFReader(url=ocr_url)
+else:
+    raise ValueError(f'Unsupported LAZYRAG_OCR_SERVER_TYPE: {ocr_type!r}')
 
 docs = Document(
     dataset_path=None,
@@ -47,7 +58,7 @@ docs = Document(
     server=server_port,
 )
 
-docs.add_reader('*.pdf', MineruPDFReader(mineru_url))
+docs.add_reader('*.pdf', pdf_reader)
 docs.create_node_group(
     name='block',
     display_name='段落切片',
