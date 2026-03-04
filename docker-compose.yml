@@ -280,7 +280,7 @@ services:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${LAZYRAG_OPENSEARCH_PASSWORD:-admin}
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
     ulimits:
       memlock:
         soft: -1
@@ -291,7 +291,7 @@ services:
     volumes:
       - opensearch-data:/usr/share/opensearch/data
     healthcheck:
-      test: ['CMD-SHELL', 'curl -s -k -u admin:$$OPENSEARCH_INITIAL_ADMIN_PASSWORD https://localhost:9200/_cluster/health | grep -q "\"status\":\"green\"\\|\"status\":\"yellow\""']
+      test: ['CMD-SHELL', 'curl -s -k -u admin:"$$OPENSEARCH_INITIAL_ADMIN_PASSWORD" https://localhost:9200/_cluster/health | grep -q "\"status\":\"green\"\\|\"status\":\"yellow\""']
       interval: 30s
       timeout: 10s
       retries: 5
