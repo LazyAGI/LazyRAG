@@ -1,0 +1,125 @@
+# CI: pull_request_target -> lint, doc_check -> wait_approve (env: protest) -> tests
+name: CI
+
+on:
+  pull_request_target:
+    branches: [main, master, 'dev/*']
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+
+      - name: Lint
+        run: make lint
+
+  doc_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Doc check
+        run: pip install pytest && python -m pytest tests/doc_check/ -v
+
+  # Requires environment "protest" in repo Settings → Environments (add protection for manual approval)
+  wait_approve:
+    needs: [lint, doc_check]
+    runs-on: ubuntu-latest
+    environment: protest
+    steps:
+      - run: echo "Approved, proceeding to tests"
+
+  test-frontend:
+    needs: [wait_approve]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install and test
+        run: cd tests/frontend && npm install && npm test
+
+  test-auth-service:
+    needs: [wait_approve]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install -r backend/auth-service/requirements.txt
+          pip install -r tests/backend/auth-service/requirements-test.txt
+
+      - name: Test
+        run: python -m pytest tests/backend/auth-service/ -v
+
+  test-backend-core:
+    needs: [wait_approve]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+
+      - name: Test
+        run: cd tests/backend/core && go mod tidy && go test ./... -v
+
+  test-algorithm:
+    needs: [wait_approve]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install -r algorithm/requirements.txt
+          pip install pytest httpx
+
+      - name: Test
+        run: python -m pytest tests/algorithm/ -v
