@@ -54,13 +54,15 @@ def test_validate_no_token(client: TestClient):
 
 
 def test_validate_with_token(client: TestClient):
-    client.post('/api/auth/register', json={'username': 'valuser', 'password': 'p'})
+    reg = client.post('/api/auth/register', json={'username': 'valuser', 'password': 'p'})
+    assert reg.status_code == 200
+    user_id = reg.json()['id']
     login = client.post('/api/auth/login', json={'username': 'valuser', 'password': 'p'})
     token = login.json()['access_token']
     r = client.post('/api/auth/validate', headers={'Authorization': f'Bearer {token}'})
     assert r.status_code == 200
     data = r.json()
-    assert data['sub'] == '1'  # first user id
+    assert data['sub'] == str(user_id)
     assert 'role' in data
     assert 'permissions' in data
 
@@ -89,9 +91,8 @@ def test_authorize_no_required_permission(client: TestClient):
     assert r.json()['allowed'] is True
 
 
-def test_authorize_without_token(client: TestClient):
-    """Path that requires permission but no token -> 401."""
-    # Depends on api_permissions.json - if not present, all allowed. So we test with token.
+def test_authorize_with_token(client: TestClient):
+    """With valid token and user.read permission for /api/hello, authorize returns allowed."""
     client.post('/api/auth/register', json={'username': 'authuser', 'password': 'p'})
     login = client.post('/api/auth/login', json={'username': 'authuser', 'password': 'p'})
     token = login.json()['access_token']
@@ -100,5 +101,5 @@ def test_authorize_without_token(client: TestClient):
         json={'method': 'GET', 'path': '/api/hello'},
         headers={'Authorization': f'Bearer {token}'},
     )
-    # If api_permissions.json exists and requires perm, user might get 403. If not, 200.
-    assert r.status_code in (200, 403)
+    assert r.status_code == 200
+    assert r.json()['allowed'] is True

@@ -10,7 +10,7 @@ FAILED=0
 
 echo "=== Frontend ==="
 if command -v npm &>/dev/null; then
-  (cd tests/frontend && npm install --silent 2>/dev/null; npm test 2>&1) || FAILED=1
+  (cd tests/frontend && npm install --silent; npm test 2>&1) || FAILED=1
 else
   echo "Skip (npm not found)"
 fi

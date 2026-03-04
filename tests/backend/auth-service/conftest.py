@@ -10,6 +10,8 @@ os.environ['LAZYRAG_DATABASE_URL'] = 'sqlite:///:memory:'
 os.environ['LAZYRAG_JWT_SECRET'] = 'test-secret'
 os.environ['LAZYRAG_JWT_TTL_MINUTES'] = '60'
 os.environ['LAZYRAG_JWT_REFRESH_TTL_DAYS'] = '7'
+_test_dir = os.path.dirname(os.path.abspath(__file__))
+os.environ['LAZYRAG_AUTH_API_PERMISSIONS_FILE'] = os.path.join(_test_dir, 'api_permissions_test.json')
 
 # Add auth-service to path (run from project root: pytest tests/backend/auth-service/)
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
