@@ -27,8 +27,8 @@ LAZYRAG_DOC_TASK_DATABASE_URL ?= postgresql+psycopg://app:app@db:5432/app
 LAZYRAG_DOCUMENT_PROCESSOR_URL ?= http://processor-server:8000
 LAZYRAG_DOCUMENT_SERVER_PORT ?= 8000
 LAZYRAG_OCR_SERVER_TYPE ?= none
-# Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080
-LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,))
+# Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080, none->placeholder
+LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
 
 # Vector / segment stores (required when using Processor/Worker). Default URIs use built-in services.
 # If user provides external URIs, milvus/opensearch are not deployed.
@@ -54,6 +54,8 @@ PADDLEOCR_VLM_BACKEND ?= vllm
 # Milvus / OpenSearch (when using built-in profiles)
 MILVUS_IMAGE_TAG ?= v2.6.11
 OPENSEARCH_IMAGE_TAG ?= 2.18.0
+MINIO_ACCESS_KEY ?= minioadmin
+MINIO_SECRET_KEY ?= minioadmin
 
 export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET LAZYRAG_JWT_TTL_MINUTES LAZYRAG_JWT_REFRESH_TTL_DAYS
 export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD LAZYRAG_AUTH_API_PERMISSIONS_FILE
@@ -63,7 +65,7 @@ export LAZYRAG_DOCUMENT_PROCESSOR_URL LAZYRAG_DOCUMENT_SERVER_PORT LAZYRAG_OCR_S
 export LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG_OPENSEARCH_PASSWORD
 export LAZYRAG_MINERU_SERVER_PORT LAZYRAG_DOCUMENT_SERVER_URL LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY LAZYRAG_CHAT_PROMPT
 export PADDLEOCR_VLM_IMAGE_TAG PADDLEOCR_API_IMAGE_TAG PADDLEOCR_VLM_BACKEND
-export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG
+export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG MINIO_ACCESS_KEY MINIO_SECRET_KEY
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend
