@@ -1,5 +1,5 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
-.PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build
+.PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build down clear
 
 # ---------------------------------------------------------------------------
 # Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)
@@ -180,3 +180,11 @@ down:
 
 up-build:
 	@docker compose $(_COMPOSE_PROFILES) up --build
+
+clear:
+	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."
+	@docker compose $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
+	@echo "🧹 Clearing Python cache..."
+	@find . -type d -name '__pycache__' ! -path '*/\.git/*' -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name '*.pyc' ! -path '*/\.git/*' -delete 2>/dev/null || true
+	@echo "✅ Clear done."
