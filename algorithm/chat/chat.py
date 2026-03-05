@@ -46,17 +46,16 @@ MAX_CONCURRENCY = int(os.getenv('LAZYRAG_MAX_CONCURRENCY', 10))
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
-doc = Document(url=os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000'))
+doc = Document(url=os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000'), name='algo1')
 _default_prompt = (
     'You are a RAG assistant. Answer the user question `{query}` using '
     'history `{history}` and references `{references}`.'
 )
-llm = lazyllm.OnlineLLM().prompt(
+llm = lazyllm.OnlineChatModule().prompt(
     os.getenv('LAZYRAG_CHAT_PROMPT', _default_prompt)
 )
 r1 = lazyllm.Retriever(
-    doc=doc, group_name='block', topk=25, embed_keys=['bge_m3_dense'],
-    output_format='content', join='\n\n'
+    doc=doc, group_name='block', topk=25, output_format='content', join='\n\n'
 )
 
 

@@ -79,13 +79,22 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - kong
+      kong:
+        condition: service_started
+      parsing:
+        condition: service_healthy
+      chat:
+        condition: service_healthy
 
   # ---------- Algorithm stack: MinerU/PaddleOCR -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
+  # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru adds mineru[all], others use base+code only.
   mineru:
     profiles:
       - mineru
-    build: ./algorithm
+    build:
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: mineru
     expose:
       - "8000"
     environment:
@@ -159,7 +168,10 @@ services:
     restart: unless-stopped
 
   processor-server:
-    build: ./algorithm
+    build:
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     expose:
       - "8000"
     environment:
@@ -190,7 +202,10 @@ services:
         condition: service_healthy
 
   processor-worker:
-    build: ./algorithm
+    build:
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     environment:
       LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
       LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
@@ -214,9 +229,18 @@ services:
         condition: service_healthy
 
   parsing:
-    build: ./algorithm
+    build:
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     expose:
       - "8000"
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/docs || exit 1']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_DOCUMENT_SERVER_PORT: "8000"
@@ -245,9 +269,18 @@ services:
         condition: service_started
 
   chat:
-    build: ./algorithm
+    build:
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     expose:
       - "8046"
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       LAZYRAG_DOCUMENT_SERVER_URL: http://parsing:8000
       LAZYRAG_MAX_CONCURRENCY: "10"
@@ -265,7 +298,8 @@ services:
       LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
-      - parsing
+      parsing:
+        condition: service_healthy
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------
   milvus-etcd:
@@ -296,17 +330,13 @@ services:
     volumes:
       - milvus-minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
-      interval: 30s
-      timeout: 20s
-      retries: 3
+    # Healthcheck disabled: newer MinIO images lack curl; use service_started in milvus depends_on
 
   milvus:
     profiles:
       - milvus
     image: milvusdb/milvus:${MILVUS_IMAGE_TAG:-v2.6.11}
-    command: ['milvus', 'run', 'standalone']
+    command: ['sh', '-c', 'sleep 15 && exec milvus run standalone']
     security_opt:
       - seccomp:unconfined
     environment:
@@ -329,7 +359,7 @@ services:
       milvus-etcd:
         condition: service_healthy
       milvus-minio:
-        condition: service_healthy
+        condition: service_started
 
   # ---------- Segment store: OpenSearch single-node (profile: opensearch) ----------
   opensearch:

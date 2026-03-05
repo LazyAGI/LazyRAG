@@ -166,11 +166,17 @@ _need_paddleocr := $(and $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),$(findst
 _need_milvus := $(findstring milvus:19530,$(LAZYRAG_MILVUS_URI))
 _need_opensearch := $(findstring opensearch:9200,$(LAZYRAG_OPENSEARCH_URI))
 
+# Shared compose profile flags for up/down/up-build
+_COMPOSE_PROFILES := $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch))
+
 build:
 	@docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
-	@docker compose $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch)) up
+	@docker compose $(_COMPOSE_PROFILES) up
+
+down:
+	@docker compose $(_COMPOSE_PROFILES) down
 
 up-build:
-	@docker compose $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch)) up --build
+	@docker compose $(_COMPOSE_PROFILES) up --build
