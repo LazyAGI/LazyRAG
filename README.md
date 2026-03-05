@@ -13,7 +13,7 @@ A full-stack application with Kong API Gateway, JWT/RBAC auth, Go core API, Pyth
 - **Algorithm stack**:
   - **processor-server**: Document task queue server.
   - **processor-worker**: Document task execution worker.
-  - **parsing**: Document service (lazyllm RAG) — vector/segment stores (Milvus+OpenSearch or MapStore), PDF reader (built-in, MinerU, or PaddleOCR).
+  - **parsing**: Document service (lazyllm RAG) — vector/segment stores (Milvus+OpenSearch), PDF reader (built-in, MinerU, or PaddleOCR).
   - **chat**: RAG chat API (lazyllm) on port 8046; uses parsing service for documents.
 
 - **PostgreSQL** (db): Used by auth-service and processor for app data and doc tasks.
@@ -63,13 +63,12 @@ db
 |---------|---------|--------------|---------|
 | **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` and URL `http://mineru:8000` | MinerU PDF parsing (layout analysis) |
 | **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` and URL `http://paddleocr:8080` | PaddleOCR-VL PDF parsing (GPU required) |
-| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_USE_MILVUS_OPENSEARCH` in `1`/`true`/`yes`/`on` and `LAZYRAG_MILVUS_URI` contains `milvus:19530` | Vector store for embeddings |
-| **opensearch** | `opensearch` | `LAZYRAG_USE_MILVUS_OPENSEARCH` in `1`/`true`/`yes`/`on` and `LAZYRAG_OPENSEARCH_URI` contains `opensearch:9200` | Segment store for document chunks |
+| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI` contains `milvus:19530` | Vector store for embeddings |
+| **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI` contains `opensearch:9200` | Segment store for document chunks |
 
-**Store modes for parsing**:
+**Store for parsing** (required when using Processor/Worker):
 
-- **Milvus + OpenSearch** (default): When optional milvus/opensearch are enabled. Use for production or larger datasets.
-- **MapStore**: When `LAZYRAG_USE_MILVUS_OPENSEARCH=0` (or `false`/`no`/`off`). In-memory store; no milvus/opensearch deployment. Use for quick dev or minimal setup.
+- **Milvus + OpenSearch** are always required. If `LAZYRAG_MILVUS_URI` / `LAZYRAG_OPENSEARCH_URI` point to built-in services (`milvus:19530`, `opensearch:9200`), they are deployed automatically. If you provide external URIs, no deployment is needed.
 
 **OCR modes for parsing**:
 
@@ -115,14 +114,14 @@ Frontend
 
 ## Quick Start
 
-**Minimal (MapStore, no Milvus/OpenSearch):**
-```bash
-make up LAZYRAG_USE_MILVUS_OPENSEARCH=0
-```
-
-**Full stack (Milvus + OpenSearch):**
+**Full stack (Milvus + OpenSearch deployed by default):**
 ```bash
 make up
+```
+
+**With external Milvus/OpenSearch** (no deployment of milvus/opensearch):
+```bash
+make up LAZYRAG_MILVUS_URI=http://your-milvus:19530 LAZYRAG_OPENSEARCH_URI=https://your-opensearch:9200
 ```
 
 **With MinerU OCR:**
@@ -186,12 +185,11 @@ LazyRAG/
 | auth-service      | `JWT_SECRET`, `JWT_TTL_MINUTES`, `JWT_REFRESH_TTL_DAYS` | Token config      |
 | auth-service      | `BOOTSTRAP_ADMIN_*`            | Initial admin user                      |
 | processor-*       | `DOC_TASK_DATABASE_URL`        | Same DB for doc tasks                   |
-| parsing           | `LAZYRAG_USE_MILVUS_OPENSEARCH` | `1`/`true`/`yes`/`on` = Milvus+OpenSearch; else MapStore |
 | parsing           | `LAZYRAG_OCR_SERVER_TYPE`      | `none` \| `mineru` \| `paddleocr`       |
-| parsing           | `LAZYRAG_MILVUS_URI`, `LAZYRAG_OPENSEARCH_URI`, `LAZYRAG_OPENSEARCH_USER`, `LAZYRAG_OPENSEARCH_PASSWORD` | Stores (when using Milvus+OpenSearch) |
+| parsing           | `LAZYRAG_MILVUS_URI`, `LAZYRAG_OPENSEARCH_URI`, `LAZYRAG_OPENSEARCH_USER`, `LAZYRAG_OPENSEARCH_PASSWORD` | Vector/segment stores (required) |
 | chat              | `DOCUMENT_SERVER_URL`, `MAX_CONCURRENCY` | Document API and concurrency    |
 
-Override store endpoints when using external Milvus/OpenSearch; set `LAZYRAG_USE_MILVUS_OPENSEARCH=0` to use MapStore (no deployment of milvus/opensearch).
+Override store endpoints when using external Milvus/OpenSearch; if URIs do not contain `milvus:19530` or `opensearch:9200`, those services are not deployed.
 
 ## Lint
 

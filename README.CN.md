@@ -13,7 +13,7 @@
 - **算法栈**：
   - **processor-server**：文档任务队列服务。
   - **processor-worker**：文档任务执行 worker。
-  - **parsing**：文档服务（lazyllm RAG），向量/分段存储（Milvus+OpenSearch 或 MapStore），PDF 阅读器（内置、MinerU 或 PaddleOCR）。
+  - **parsing**：文档服务（lazyllm RAG），向量/分段存储（Milvus+OpenSearch），PDF 阅读器（内置、MinerU 或 PaddleOCR）。
   - **chat**：RAG 对话 API（lazyllm），端口 8046；依赖 parsing 文档服务。
 
 - **PostgreSQL**（db）：供 auth-service 与 processor 存储应用数据与文档任务。
@@ -63,13 +63,12 @@ db
 |-----|---------|----------|------|
 | **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` 且 URL 为 `http://mineru:8000` | MinerU PDF 解析（版面分析） |
 | **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` 且 URL 为 `http://paddleocr:8080` | PaddleOCR-VL PDF 解析（需 GPU） |
-| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_USE_MILVUS_OPENSEARCH` 为 `1`/`true`/`yes`/`on` 且 `LAZYRAG_MILVUS_URI` 含 `milvus:19530` | 向量存储（embeddings） |
-| **opensearch** | `opensearch` | `LAZYRAG_USE_MILVUS_OPENSEARCH` 为 `1`/`true`/`yes`/`on` 且 `LAZYRAG_OPENSEARCH_URI` 含 `opensearch:9200` | 分段存储（文档切片） |
+| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI` 含 `milvus:19530` | 向量存储（embeddings） |
+| **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI` 含 `opensearch:9200` | 分段存储（文档切片） |
 
-**parsing 存储模式**：
+**parsing 存储**（使用 Processor/Worker 时必选）：
 
-- **Milvus + OpenSearch**（默认）：启用可选 milvus/opensearch 时使用。适用于生产或较大数据集。
-- **MapStore**：当 `LAZYRAG_USE_MILVUS_OPENSEARCH=0`（或 `false`/`no`/`off`）时使用。内存存储，不部署 milvus/opensearch。适用于快速开发或最小化部署。
+- **Milvus + OpenSearch** 始终需要。若 `LAZYRAG_MILVUS_URI` / `LAZYRAG_OPENSEARCH_URI` 指向内置服务（`milvus:19530`、`opensearch:9200`），则自动部署；若传入外部 URI，则无需部署。
 
 **parsing OCR 模式**：
 
@@ -115,14 +114,14 @@ db
 
 ## 快速开始
 
-**最小化部署（MapStore，不部署 Milvus/OpenSearch）：**
-```bash
-make up LAZYRAG_USE_MILVUS_OPENSEARCH=0
-```
-
-**完整栈（Milvus + OpenSearch）：**
+**完整栈（默认部署 Milvus + OpenSearch）：**
 ```bash
 make up
+```
+
+**使用外部 Milvus/OpenSearch**（不部署 milvus/opensearch）：
+```bash
+make up LAZYRAG_MILVUS_URI=http://your-milvus:19530 LAZYRAG_OPENSEARCH_URI=https://your-opensearch:9200
 ```
 
 **启用 MinerU OCR：**
@@ -186,12 +185,11 @@ LazyRAG/
 | auth-service    | `JWT_SECRET`、`JWT_TTL_MINUTES`、`JWT_REFRESH_TTL_DAYS` | Token 配置   |
 | auth-service    | `BOOTSTRAP_ADMIN_*`            | 初始管理员账号                       |
 | processor-*     | `DOC_TASK_DATABASE_URL`       | 文档任务用同一数据库                 |
-| parsing         | `LAZYRAG_USE_MILVUS_OPENSEARCH` | `1`/`true`/`yes`/`on` = Milvus+OpenSearch；否则 MapStore |
 | parsing         | `LAZYRAG_OCR_SERVER_TYPE`     | `none` \| `mineru` \| `paddleocr`    |
-| parsing         | `LAZYRAG_MILVUS_URI`、`LAZYRAG_OPENSEARCH_URI`、`LAZYRAG_OPENSEARCH_USER`、`LAZYRAG_OPENSEARCH_PASSWORD` | 向量与分段存储（使用 Milvus+OpenSearch 时） |
+| parsing         | `LAZYRAG_MILVUS_URI`、`LAZYRAG_OPENSEARCH_URI`、`LAZYRAG_OPENSEARCH_USER`、`LAZYRAG_OPENSEARCH_PASSWORD` | 向量与分段存储（必选） |
 | chat            | `DOCUMENT_SERVER_URL`、`MAX_CONCURRENCY` | 文档服务地址与并发数        |
 
-使用外部 Milvus/OpenSearch 时需覆盖上述存储变量；设置 `LAZYRAG_USE_MILVUS_OPENSEARCH=0` 可改用 MapStore（不部署 milvus/opensearch）。
+使用外部 Milvus/OpenSearch 时需覆盖上述存储变量；若 URI 不含 `milvus:19530` 或 `opensearch:9200`，则不会部署对应服务。
 
 ## 代码检查
 
