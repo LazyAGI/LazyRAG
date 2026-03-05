@@ -1,5 +1,5 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
-.PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up
+.PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build
 
 # ---------------------------------------------------------------------------
 # Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)
@@ -30,9 +30,8 @@ LAZYRAG_OCR_SERVER_TYPE ?= none
 # Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080
 LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,))
 
-# Vector / segment stores (when using built-in: http://milvus:19530, https://opensearch:9200)
-# Set LAZYRAG_USE_MILVUS_OPENSEARCH=0 to use MapStore instead (no milvus/opensearch deployment)
-LAZYRAG_USE_MILVUS_OPENSEARCH ?= 1
+# Vector / segment stores (required when using Processor/Worker). Default URIs use built-in services.
+# If user provides external URIs, milvus/opensearch are not deployed.
 LAZYRAG_MILVUS_URI ?= http://milvus:19530
 LAZYRAG_OPENSEARCH_URI ?= https://opensearch:9200
 LAZYRAG_OPENSEARCH_USER ?= admin
@@ -61,7 +60,7 @@ export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD LAZYRAG
 export ACL_DB_DRIVER ACL_DB_DSN LAZYRAG_CHAT_SERVICE_URL
 export LAZYRAG_DOCUMENT_PROCESSOR_PORT LAZYRAG_DOCUMENT_WORKER_PORT LAZYRAG_DOC_TASK_DATABASE_URL
 export LAZYRAG_DOCUMENT_PROCESSOR_URL LAZYRAG_DOCUMENT_SERVER_PORT LAZYRAG_OCR_SERVER_TYPE LAZYRAG_OCR_SERVER_URL
-export LAZYRAG_USE_MILVUS_OPENSEARCH LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG_OPENSEARCH_PASSWORD
+export LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG_OPENSEARCH_PASSWORD
 export LAZYRAG_MINERU_SERVER_PORT LAZYRAG_DOCUMENT_SERVER_URL LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY LAZYRAG_CHAT_PROMPT
 export PADDLEOCR_VLM_IMAGE_TAG PADDLEOCR_API_IMAGE_TAG PADDLEOCR_VLM_BACKEND
 export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG
@@ -163,13 +162,15 @@ test:
 # Only mineru has build:; paddleocr/milvus/opensearch use image: only, so only needed for up.
 _need_mineru := $(and $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYRAG_OCR_SERVER_URL)))
 _need_paddleocr := $(and $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYRAG_OCR_SERVER_URL)))
-# Use allowlist: only 1, true, yes, on enable milvus/opensearch; anything else uses MapStore
-_use_milvus_opensearch := $(filter 1 true yes on,$(LAZYRAG_USE_MILVUS_OPENSEARCH))
-_need_milvus := $(and $(_use_milvus_opensearch),$(findstring milvus:19530,$(LAZYRAG_MILVUS_URI)))
-_need_opensearch := $(and $(_use_milvus_opensearch),$(findstring opensearch:9200,$(LAZYRAG_OPENSEARCH_URI)))
+# Deploy milvus/opensearch only when URI points to built-in services; external URIs = no deployment
+_need_milvus := $(findstring milvus:19530,$(LAZYRAG_MILVUS_URI))
+_need_opensearch := $(findstring opensearch:9200,$(LAZYRAG_OPENSEARCH_URI))
 
 build:
 	@docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
 	@docker compose $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch)) up
+
+up-build:
+	@docker compose $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch)) up --build
