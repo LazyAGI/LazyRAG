@@ -28,6 +28,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, _on_signal)
     doc_processor_worker.start()
     try:
+        # NOTE: DocumentProcessorWorker has no public wait(); _worker_impl is internal. May break with lazyllm updates.
         doc_processor_worker._worker_impl.wait()
     except KeyboardInterrupt:
         pass

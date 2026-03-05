@@ -1,3 +1,16 @@
+x-llm-api-keys: &llm-api-keys
+  LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
+  LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
+  LAZYLLM_QWEN_API_KEY: ${LAZYLLM_QWEN_API_KEY:-}
+  LAZYLLM_SENSENOVA_API_KEY: ${LAZYLLM_SENSENOVA_API_KEY:-}
+  LAZYLLM_SENSENOVA_SECRET_KEY: ${LAZYLLM_SENSENOVA_SECRET_KEY:-}
+  LAZYLLM_KIMI_API_KEY: ${LAZYLLM_KIMI_API_KEY:-}
+  LAZYLLM_DEEPSEEK_API_KEY: ${LAZYLLM_DEEPSEEK_API_KEY:-}
+  LAZYLLM_DOUBAO_API_KEY: ${LAZYLLM_DOUBAO_API_KEY:-}
+  LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
+  LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
+  LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
+
 services:
 
   kong:
@@ -98,18 +111,8 @@ services:
     expose:
       - "8000"
     environment:
+      <<: *llm-api-keys
       LAZYRAG_MINERU_SERVER_PORT: "8000"
-      LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
-      LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
-      LAZYLLM_QWEN_API_KEY: ${LAZYLLM_QWEN_API_KEY:-}
-      LAZYLLM_SENSENOVA_API_KEY: ${LAZYLLM_SENSENOVA_API_KEY:-}
-      LAZYLLM_SENSENOVA_SECRET_KEY: ${LAZYLLM_SENSENOVA_SECRET_KEY:-}
-      LAZYLLM_KIMI_API_KEY: ${LAZYLLM_KIMI_API_KEY:-}
-      LAZYLLM_DEEPSEEK_API_KEY: ${LAZYLLM_DEEPSEEK_API_KEY:-}
-      LAZYLLM_DOUBAO_API_KEY: ${LAZYLLM_DOUBAO_API_KEY:-}
-      LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
-      LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
-      LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
     command: ["python", "parsing/mineru.py"]
 
   # PaddleOCR-VL document parsing service (official images).
@@ -177,20 +180,8 @@ services:
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
       LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
-      # Show relay server subprocess logs (Uvicorn, tracebacks); default 'lazyllm' filters them out
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
-      # LAZYLLM_*_API_KEY from host (e.g. zshrc) - pass through for LLM calls
-      LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
-      LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
-      LAZYLLM_QWEN_API_KEY: ${LAZYLLM_QWEN_API_KEY:-}
-      LAZYLLM_SENSENOVA_API_KEY: ${LAZYLLM_SENSENOVA_API_KEY:-}
-      LAZYLLM_SENSENOVA_SECRET_KEY: ${LAZYLLM_SENSENOVA_SECRET_KEY:-}
-      LAZYLLM_KIMI_API_KEY: ${LAZYLLM_KIMI_API_KEY:-}
-      LAZYLLM_DEEPSEEK_API_KEY: ${LAZYLLM_DEEPSEEK_API_KEY:-}
-      LAZYLLM_DOUBAO_API_KEY: ${LAZYLLM_DOUBAO_API_KEY:-}
-      LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
-      LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
-      LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
+      <<: *llm-api-keys
     command: ["python", "processor/server.py"]
     healthcheck:
       test: ['CMD-SHELL', 'curl -f http://localhost:8000/health || exit 1']
@@ -210,17 +201,7 @@ services:
       LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
       LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
-      LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
-      LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
-      LAZYLLM_QWEN_API_KEY: ${LAZYLLM_QWEN_API_KEY:-}
-      LAZYLLM_SENSENOVA_API_KEY: ${LAZYLLM_SENSENOVA_API_KEY:-}
-      LAZYLLM_SENSENOVA_SECRET_KEY: ${LAZYLLM_SENSENOVA_SECRET_KEY:-}
-      LAZYLLM_KIMI_API_KEY: ${LAZYLLM_KIMI_API_KEY:-}
-      LAZYLLM_DEEPSEEK_API_KEY: ${LAZYLLM_DEEPSEEK_API_KEY:-}
-      LAZYLLM_DOUBAO_API_KEY: ${LAZYLLM_DOUBAO_API_KEY:-}
-      LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
-      LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
-      LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
+      <<: *llm-api-keys
     command: ["python", "processor/worker.py"]
     depends_on:
       db:
@@ -245,22 +226,14 @@ services:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_DOCUMENT_SERVER_PORT: "8000"
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
-      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://mineru:8000}
+      # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
+      # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
+      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-admin}
-      LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
-      LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
-      LAZYLLM_QWEN_API_KEY: ${LAZYLLM_QWEN_API_KEY:-}
-      LAZYLLM_SENSENOVA_API_KEY: ${LAZYLLM_SENSENOVA_API_KEY:-}
-      LAZYLLM_SENSENOVA_SECRET_KEY: ${LAZYLLM_SENSENOVA_SECRET_KEY:-}
-      LAZYLLM_KIMI_API_KEY: ${LAZYLLM_KIMI_API_KEY:-}
-      LAZYLLM_DEEPSEEK_API_KEY: ${LAZYLLM_DEEPSEEK_API_KEY:-}
-      LAZYLLM_DOUBAO_API_KEY: ${LAZYLLM_DOUBAO_API_KEY:-}
-      LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
-      LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
-      LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
+      <<: *llm-api-keys
     command: ["python", "parsing/parsing.py"]
     depends_on:
       processor-server:
@@ -285,17 +258,7 @@ services:
       LAZYRAG_DOCUMENT_SERVER_URL: http://parsing:8000
       LAZYRAG_MAX_CONCURRENCY: "10"
       LAZYRAG_LLM_PRIORITY: "0"
-      LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
-      LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
-      LAZYLLM_QWEN_API_KEY: ${LAZYLLM_QWEN_API_KEY:-}
-      LAZYLLM_SENSENOVA_API_KEY: ${LAZYLLM_SENSENOVA_API_KEY:-}
-      LAZYLLM_SENSENOVA_SECRET_KEY: ${LAZYLLM_SENSENOVA_SECRET_KEY:-}
-      LAZYLLM_KIMI_API_KEY: ${LAZYLLM_KIMI_API_KEY:-}
-      LAZYLLM_DEEPSEEK_API_KEY: ${LAZYLLM_DEEPSEEK_API_KEY:-}
-      LAZYLLM_DOUBAO_API_KEY: ${LAZYLLM_DOUBAO_API_KEY:-}
-      LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
-      LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
-      LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
+      <<: *llm-api-keys
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
       parsing:
@@ -325,8 +288,8 @@ services:
       - milvus
     image: minio/minio:RELEASE.2024-05-28T17-19-04Z
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - milvus-minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -337,12 +300,13 @@ services:
       - milvus
     image: milvusdb/milvus:${MILVUS_IMAGE_TAG:-v2.6.11}
     command: ['sh', '-c', 'sleep 15 && exec milvus run standalone']
-    security_opt:
-      - seccomp:unconfined
+    # seccomp:unconfined removed for security; add back if Milvus fails on your platform
     environment:
       MINIO_REGION: us-east-1
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
     volumes:
       - milvus-data:/var/lib/milvus
     healthcheck:

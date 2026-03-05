@@ -75,4 +75,6 @@ docs.activate_group('block')
 
 if __name__ == '__main__':
     docs.start()
+    # NOTE: lazyllm has no public API for waiting on knowledge-base readiness; _manager._kbs is internal.
+    # May break with lazyllm updates; add a comment if this is necessary for startup ordering.
     docs._manager._kbs.wait()
