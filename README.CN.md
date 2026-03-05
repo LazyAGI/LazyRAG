@@ -141,6 +141,10 @@ Makefile 会根据环境变量自动选择 profile。也可直接运行 `docker 
 - Kong（API）：http://localhost:8000  
 - 默认管理员：`admin` / `admin`（由 auth-service 引导创建）
 
+## Swagger / API 文档
+
+**统一入口**：http://localhost:8080/docs.html — 各服务 Swagger UI 的标签页汇总。前端通过 Docker 网络代理到各服务（如 `auth-service:8000`），无需额外端口映射。
+
 ## 项目结构
 
 ```

@@ -141,6 +141,10 @@ The Makefile auto-selects profiles based on env vars. You can also run `docker c
 - Kong (API): http://localhost:8000  
 - Default admin: `admin` / `admin` (from auth-service bootstrap)
 
+## Swagger / API docs
+
+**Unified docs**: http://localhost:8080/docs.html — tabbed view of all service Swagger UIs. The frontend proxies to each service via Docker network (e.g. `auth-service:8000`), so no extra port mappings are needed.
+
 ## Project Layout
 
 ```
