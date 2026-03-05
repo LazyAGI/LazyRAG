@@ -76,6 +76,8 @@ services:
     environment:
       ACL_DB_DRIVER: postgres
       ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
+      LAZYRAG_PARSING_SERVICE_URL: http://parsing:8000
+      LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -94,6 +96,8 @@ services:
     depends_on:
       kong:
         condition: service_started
+      core:
+        condition: service_healthy
       parsing:
         condition: service_healthy
       chat:
