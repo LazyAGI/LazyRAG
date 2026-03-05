@@ -1,17 +1,24 @@
 import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lazyllm import OnlineEmbeddingModule
+from lazyllm.tools.rag import Document, MineruPDFReader, PDFReader
+from lazyllm.tools.rag.readers import PaddleOCRPDFReader
+from lazyllm.tools.rag.doc_impl import NodeGroupType
+from lazyllm.tools.rag.parsing_service import DocumentProcessor
 
-from lazyllm.tools.rag import Document, OnlineEmbeddingModule, MineruPDFReader  # noqa: E402
-from lazyllm.tools.rag.doc_impl import NodeGroupType  # noqa: E402
-from lazyllm.tools.rag.parsing_service import DocumentProcessor  # noqa: E402
 
+# Milvus + OpenSearch are required when using Processor/Worker. If user provides external URIs, no deployment needed.
+milvus_uri = os.getenv('LAZYRAG_MILVUS_URI')
+opensearch_uri = os.getenv('LAZYRAG_OPENSEARCH_URI')
+if not milvus_uri:
+    raise ValueError('LAZYRAG_MILVUS_URI is required')
+if not opensearch_uri:
+    raise ValueError('LAZYRAG_OPENSEARCH_URI is required')
 store_config = {
     'vector_store': {
         'type': 'milvus',
         'kwargs': {
-            'uri': os.getenv('LAZYRAG_MILVUS_URI', 'http://localhost:19530'),
+            'uri': milvus_uri,
             'index_kwargs': {
                 'index_type': 'FLAT',
                 'metric_type': 'COSINE',
@@ -21,7 +28,7 @@ store_config = {
     'segment_store': {
         'type': 'opensearch',
         'kwargs': {
-            'uris': os.getenv('LAZYRAG_OPENSEARCH_URI', 'https://localhost:9200'),
+            'uris': opensearch_uri,
             'client_kwargs': {
                 'http_compress': True,
                 'use_ssl': True,
@@ -33,9 +40,19 @@ store_config = {
     },
 }
 
-mineru_url = os.getenv('LAZYRAG_MINERU_SERVER_URL', 'http://localhost:8000').rstrip('/')
+ocr_type = os.getenv('LAZYRAG_OCR_SERVER_TYPE', 'none')
+ocr_url = os.getenv('LAZYRAG_OCR_SERVER_URL', 'http://localhost:8000').rstrip('/')
 processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
 server_port = int(os.getenv('LAZYRAG_DOCUMENT_SERVER_PORT', '8000'))
+
+if ocr_type in ('none', None, ''):
+    pdf_reader = PDFReader()
+elif ocr_type == 'mineru':
+    pdf_reader = MineruPDFReader(ocr_url)
+elif ocr_type == 'paddleocr':
+    pdf_reader = PaddleOCRPDFReader(url=ocr_url)
+else:
+    raise ValueError(f'Unsupported LAZYRAG_OCR_SERVER_TYPE: {ocr_type!r}')
 
 docs = Document(
     dataset_path=None,
@@ -47,7 +64,7 @@ docs = Document(
     server=server_port,
 )
 
-docs.add_reader('*.pdf', MineruPDFReader(mineru_url))
+docs.add_reader('*.pdf', pdf_reader)
 docs.create_node_group(
     name='block',
     display_name='段落切片',
@@ -58,3 +75,6 @@ docs.activate_group('block')
 
 if __name__ == '__main__':
     docs.start()
+    # NOTE: lazyllm has no public API for waiting on knowledge-base readiness; _manager._kbs is internal.
+    # May break with lazyllm updates; add a comment if this is necessary for startup ordering.
+    docs._manager._kbs.wait()
