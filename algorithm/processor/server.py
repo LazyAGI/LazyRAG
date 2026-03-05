@@ -1,12 +1,9 @@
 import os
-import sys
+import signal
+import threading
 
-# ensure project root (algorithm/) is on path when running as script
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from lazyllm.tools.rag.parsing_service import DocumentProcessor  # noqa: E402
-
-from common.db import get_doc_task_db_config  # noqa: E402
+from lazyllm.tools.rag.parsing_service import DocumentProcessor
+from common.db import get_doc_task_db_config
 
 db_config = get_doc_task_db_config()
 doc_processor = DocumentProcessor(
@@ -15,5 +12,25 @@ doc_processor = DocumentProcessor(
     num_workers=0,  # use separate worker container
 )
 
+_shutdown_event = threading.Event()
+
+
+def _on_signal(signum, frame):
+    _shutdown_event.set()
+    try:
+        doc_processor.stop()
+    except Exception:
+        pass
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
     doc_processor.start()
+    try:
+        # NOTE: DocumentProcessor has no public wait(); _impl is internal. May break with lazyllm updates.
+        doc_processor._impl.wait()
+    except KeyboardInterrupt:
+        pass
+    # Keep process alive; wait() may return immediately with some launcher configs
+    _shutdown_event.wait()
