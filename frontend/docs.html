@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Docs - LazyRAG</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: system-ui, sans-serif; }
+        .header {
+            padding: 0.75rem 1rem;
+            background: #1a1a2e;
+            color: #eee;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .header a { color: #7dd3fc; text-decoration: none; }
+        .header a:hover { text-decoration: underline; }
+        .tabs {
+            display: flex;
+            gap: 0.25rem;
+            padding: 0.5rem 1rem;
+            background: #f1f5f9;
+            border-bottom: 1px solid #e2e8f0;
+            flex-wrap: wrap;
+        }
+        .tabs button {
+            padding: 0.5rem 1rem;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .tabs button:hover { background: #f8fafc; }
+        .tabs button.active {
+            background: #3b82f6;
+            color: #fff;
+            border-color: #3b82f6;
+        }
+        .frame-wrap { padding: 0; }
+        .frame-wrap iframe {
+            width: 100%;
+            height: calc(100vh - 100px);
+            border: none;
+        }
+        .frame-wrap.hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="/">← Back to App</a>
+        <span>API Docs</span>
+    </div>
+    <div class="tabs">
+        <button data-service="auth" class="active">auth-service</button>
+        <button data-service="processor-server">processor-server</button>
+        <button data-service="processor-worker">processor-worker</button>
+        <button data-service="parsing">parsing</button>
+        <button data-service="chat">chat</button>
+    </div>
+    <div class="frame-wrap" id="auth"><iframe src="/api-docs/auth-service/docs" title="auth-service"></iframe></div>
+    <div class="frame-wrap hidden" id="processor-server"><iframe src="/api-docs/processor-server/docs" title="processor-server"></iframe></div>
+    <div class="frame-wrap hidden" id="processor-worker"><iframe src="/api-docs/processor-worker/docs" title="processor-worker"></iframe></div>
+    <div class="frame-wrap hidden" id="parsing"><iframe src="/api-docs/parsing/docs" title="parsing"></iframe></div>
+    <div class="frame-wrap hidden" id="chat"><iframe src="/api-docs/chat/docs" title="chat"></iframe></div>
+
+    <script>
+        document.querySelectorAll('.tabs button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.frame-wrap').forEach(f => f.classList.add('hidden'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.service).classList.remove('hidden');
+            });
+        });
+    </script>
+</body>
+</html>
+
