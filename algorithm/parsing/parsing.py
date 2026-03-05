@@ -75,4 +75,4 @@ docs.activate_group('block')
 
 if __name__ == '__main__':
     docs.start()
-    docs._manager._manager.wait()
+    docs._manager._kbs.wait()
