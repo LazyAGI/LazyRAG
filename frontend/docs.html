@@ -43,7 +43,7 @@
         .swagger-wrap { padding: 0; }
         .swagger-wrap .swagger-ui { padding: 0 1rem 1rem; }
         .swagger-wrap.hidden { display: none; }
-        #swagger-auth, #swagger-processor-server, #swagger-processor-worker, #swagger-parsing, #swagger-chat {
+        #swagger-auth, #swagger-core, #swagger-processor-server, #swagger-processor-worker, #swagger-parsing, #swagger-chat {
             min-height: calc(100vh - 100px);
         }
     </style>
@@ -55,12 +55,14 @@
     </div>
     <div class="tabs">
         <button data-service="auth" class="active">auth-service</button>
+        <button data-service="core">core (Go)</button>
         <button data-service="processor-server">processor-server</button>
         <button data-service="processor-worker">processor-worker</button>
         <button data-service="parsing">parsing</button>
         <button data-service="chat">chat</button>
     </div>
     <div class="swagger-wrap" id="auth"><div id="swagger-auth"></div></div>
+    <div class="swagger-wrap hidden" id="core"><div id="swagger-core"></div></div>
     <div class="swagger-wrap hidden" id="processor-server"><div id="swagger-processor-server"></div></div>
     <div class="swagger-wrap hidden" id="processor-worker"><div id="swagger-processor-worker"></div></div>
     <div class="swagger-wrap hidden" id="parsing"><div id="swagger-parsing"></div></div>
@@ -71,6 +73,7 @@
     <script>
         const services = [
             { id: 'auth', domId: 'swagger-auth', url: '/api-docs/auth-service/openapi.json' },
+            { id: 'core', domId: 'swagger-core', url: '/api-docs/core/openapi.json' },
             { id: 'processor-server', domId: 'swagger-processor-server', url: '/api-docs/processor-server/openapi.json' },
             { id: 'processor-worker', domId: 'swagger-processor-worker', url: '/api-docs/processor-worker/openapi.json' },
             { id: 'parsing', domId: 'swagger-parsing', url: '/api-docs/parsing/openapi.json' },

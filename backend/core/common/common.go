@@ -42,7 +42,11 @@ func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLEx
 	target, _ := url.Parse(targetURL)
 	rp := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
+			q := req.URL.RawQuery
 			req.URL = target
+			if q != "" {
+				req.URL.RawQuery = q
+			}
 			req.Host = target.Host
 		},
 		FlushInterval: flushInterval,

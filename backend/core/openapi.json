@@ -1,0 +1,136 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Backend Core API",
+    "version": "0.1.0",
+    "description": "LazyRAG Go backend core API - proxies to algorithm services"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/hello": {
+      "get": {
+        "summary": "Hello (requires user.read)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/admin": {
+      "get": {
+        "summary": "Admin (requires document.write)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/upload_files": {
+      "post": {
+        "summary": "Upload files to knowledge base",
+        "description": "Proxies to parsing service. Multipart form with files.",
+        "parameters": [
+          { "name": "override", "in": "query", "schema": { "type": "boolean", "default": false } },
+          { "name": "metadatas", "in": "query", "schema": { "type": "string" } },
+          { "name": "user_path", "in": "query", "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": { "type": "object", "properties": { "files": { "type": "array", "items": { "type": "string", "format": "binary" } } } }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Returns [ids, results]" } }
+      }
+    },
+    "/api/add_files_to_group": {
+      "post": {
+        "summary": "Upload files and add to knowledge base group",
+        "description": "Proxies to parsing service. Multipart form with files.",
+        "parameters": [
+          { "name": "group_name", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "override", "in": "query", "schema": { "type": "boolean", "default": false } }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": { "type": "object", "properties": { "files": { "type": "array", "items": { "type": "string", "format": "binary" } } } }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Returns file ids" } }
+      }
+    },
+    "/api/list_files": {
+      "get": {
+        "summary": "List files in knowledge base",
+        "description": "Proxies to parsing service.",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "details", "in": "query", "schema": { "type": "boolean", "default": true } },
+          { "name": "alive", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": { "200": { "description": "Returns file list with status" } }
+      }
+    },
+    "/api/list_files_in_group": {
+      "get": {
+        "summary": "List files in a knowledge base group",
+        "parameters": [
+          { "name": "group_name", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "alive", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": { "200": { "description": "Returns file list" } }
+      }
+    },
+    "/api/list_kb_groups": {
+      "get": {
+        "summary": "List knowledge base groups",
+        "responses": { "200": { "description": "Returns group names" } }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "summary": "Chat with knowledge base",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": { "type": "string" },
+                  "history": { "type": "array" },
+                  "session_id": { "type": "string" },
+                  "filters": { "type": "object" },
+                  "files": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Chat response" } }
+      }
+    },
+    "/api/chat/stream": {
+      "post": {
+        "summary": "Chat with knowledge base (streaming)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": { "type": "string" },
+                  "history": { "type": "array" },
+                  "session_id": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Streaming response" } }
+      }
+    }
+  }
+}
