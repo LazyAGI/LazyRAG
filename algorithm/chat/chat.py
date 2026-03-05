@@ -1,18 +1,14 @@
 import os
-import sys
 import time
 import asyncio
 from typing import List, Optional, Dict, Any, TypeVar
 
-# Allow running as script from algorithm/ with local lazyllm
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pydantic import BaseModel, Field
+from fastapi import Body, FastAPI, Request
 
-from pydantic import BaseModel, Field  # noqa: E402
-from fastapi import Body, FastAPI, Request  # noqa: E402
-
-import lazyllm  # noqa: E402
-from lazyllm.tools.rag import Document  # noqa: E402
-from lazyllm import LOG  # noqa: E402
+import lazyllm
+from lazyllm.tools.rag import Document
+from lazyllm import LOG
 
 app = FastAPI()
 M = TypeVar('M')

@@ -147,7 +147,7 @@ services:
     command:
       - /bin/bash
       - -c
-      - 'paddlex --serve --pipeline /home/paddleocr/pipeline_config_${VLM_BACKEND}.yaml'
+      - 'paddlex --serve --pipeline /home/paddleocr/pipeline_config_$${VLM_BACKEND}.yaml'
     user: root
     restart: unless-stopped
 

@@ -1,9 +1,6 @@
 import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from lazyllm.tools.servers.mineru.mineru_server_module import MineruServer  # noqa: E402
+from lazyllm.tools.servers.mineru.mineru_server_module import MineruServer
 
 if __name__ == '__main__':
     MineruServer(port=int(os.getenv('LAZYRAG_MINERU_SERVER_PORT', '8000'))).start()

@@ -1,7 +1,9 @@
 import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lazyllm.tools.rag import Document, OnlineEmbeddingModule, MineruPDFReader, PDFReader
+from lazyllm.tools.rag.readers import PaddleOCRPDFReader
+from lazyllm.tools.rag.doc_impl import NodeGroupType
+from lazyllm.tools.rag.parsing_service import DocumentProcessor
 
 milvus_uri = os.getenv('LAZYRAG_MILVUS_URI')
 opensearch_uri = os.getenv('LAZYRAG_OPENSEARCH_URI')
@@ -9,11 +11,6 @@ if not milvus_uri:
     raise ValueError('LAZYRAG_MILVUS_URI is required')
 if not opensearch_uri:
     raise ValueError('LAZYRAG_OPENSEARCH_URI is required')
-
-from lazyllm.tools.rag import Document, OnlineEmbeddingModule, MineruPDFReader, PDFReader  # noqa: E402
-from lazyllm.tools.rag.readers import PaddleOCRPDFReader  # noqa: E402
-from lazyllm.tools.rag.doc_impl import NodeGroupType  # noqa: E402
-from lazyllm.tools.rag.parsing_service import DocumentProcessor  # noqa: E402
 
 store_config = {
     'vector_store': {
@@ -75,4 +72,4 @@ docs.create_node_group(
 docs.activate_group('block')
 
 if __name__ == '__main__':
-    docs.start()
+    docs.start().wait()
