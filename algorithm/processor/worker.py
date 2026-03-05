@@ -1,4 +1,6 @@
 import os
+import signal
+import threading
 
 from lazyllm.tools.rag.parsing_service import DocumentProcessorWorker
 from common.db import get_doc_task_db_config
@@ -10,5 +12,24 @@ doc_processor_worker = DocumentProcessorWorker(
     num_workers=1,
 )
 
+_shutdown_event = threading.Event()
+
+
+def _on_signal(signum, frame):
+    _shutdown_event.set()
+    try:
+        doc_processor_worker.stop()
+    except Exception:
+        pass
+
+
 if __name__ == '__main__':
-    doc_processor_worker.start().wait()
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
+    doc_processor_worker.start()
+    try:
+        doc_processor_worker._worker_impl.wait()
+    except KeyboardInterrupt:
+        pass
+    # Keep process alive; wait() may return immediately with some launcher configs
+    _shutdown_event.wait()

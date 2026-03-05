@@ -4,6 +4,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     build-essential \
     gcc \
     python3-dev \

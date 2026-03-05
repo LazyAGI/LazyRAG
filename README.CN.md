@@ -11,12 +11,71 @@
 - **auth-service**：FastAPI 认证服务，注册、登录、刷新、角色与权限、引导创建管理员；Kong 的 `rbac-auth` 插件调用该服务。
 - **core**：Go HTTP 服务，提供数据集、文档、任务、检索等接口（当前多为桩实现）；经 Kong 并启用 RBAC。
 - **算法栈**：
-  - **mineru**：PDF 解析（MinerU）。
-  - **processor-server** / **processor-worker**：文档任务队列与处理。
-  - **parsing**：文档服务（lazyllm RAG），向量库（Milvus）、分段存储（OpenSearch）、MinerU 阅读器。
+  - **processor-server**：文档任务队列服务。
+  - **processor-worker**：文档任务执行 worker。
+  - **parsing**：文档服务（lazyllm RAG），向量/分段存储（Milvus+OpenSearch 或 MapStore），PDF 阅读器（内置、MinerU 或 PaddleOCR）。
   - **chat**：RAG 对话 API（lazyllm），端口 8046；依赖 parsing 文档服务。
 
 - **PostgreSQL**（db）：供 auth-service 与 processor 存储应用数据与文档任务。
+
+## 服务依赖（depends_on）
+
+`docker-compose.yml` 中的依赖关系（A → B 表示 A 等待 B 启动）：
+
+```
+db
+├── auth-service
+│   └── kong
+│       └── frontend
+├── core（还依赖 auth-service）
+└── processor-server
+    └── processor-worker（还依赖 db）
+        └── parsing
+            └── chat
+```
+
+| 服务 | 依赖 |
+|------|------|
+| db | — |
+| auth-service | db |
+| kong | auth-service |
+| frontend | kong |
+| core | db, auth-service |
+| processor-server | db |
+| processor-worker | db, processor-server |
+| parsing | processor-server, processor-worker |
+| chat | parsing |
+
+**可选服务**（按 profile 启用）：
+
+| 服务 | 依赖 |
+|------|------|
+| mineru | — |
+| paddleocr-vlm-server | — |
+| paddleocr | paddleocr-vlm-server |
+| milvus-etcd, milvus-minio | — |
+| milvus | milvus-etcd, milvus-minio |
+| opensearch | — |
+
+## 可选服务
+
+| 服务 | Profile | 启用条件 | 用途 |
+|-----|---------|----------|------|
+| **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` 且 URL 为 `http://mineru:8000` | MinerU PDF 解析（版面分析） |
+| **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` 且 URL 为 `http://paddleocr:8080` | PaddleOCR-VL PDF 解析（需 GPU） |
+| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_USE_MILVUS_OPENSEARCH` 为 `1`/`true`/`yes`/`on` 且 `LAZYRAG_MILVUS_URI` 含 `milvus:19530` | 向量存储（embeddings） |
+| **opensearch** | `opensearch` | `LAZYRAG_USE_MILVUS_OPENSEARCH` 为 `1`/`true`/`yes`/`on` 且 `LAZYRAG_OPENSEARCH_URI` 含 `opensearch:9200` | 分段存储（文档切片） |
+
+**parsing 存储模式**：
+
+- **Milvus + OpenSearch**（默认）：启用可选 milvus/opensearch 时使用。适用于生产或较大数据集。
+- **MapStore**：当 `LAZYRAG_USE_MILVUS_OPENSEARCH=0`（或 `false`/`no`/`off`）时使用。内存存储，不部署 milvus/opensearch。适用于快速开发或最小化部署。
+
+**parsing OCR 模式**：
+
+- **none**（默认）：内置 PDFReader。
+- **mineru**：MinerU 服务（profile `mineru`）。
+- **paddleocr**：PaddleOCR-VL 服务（profile `paddleocr`，需 GPU）。
 
 ## 请求流程（验证链路）
 
@@ -56,9 +115,27 @@
 
 ## 快速开始
 
+**最小化部署（MapStore，不部署 Milvus/OpenSearch）：**
 ```bash
-docker compose up --build
+make up LAZYRAG_USE_MILVUS_OPENSEARCH=0
 ```
+
+**完整栈（Milvus + OpenSearch）：**
+```bash
+make up
+```
+
+**启用 MinerU OCR：**
+```bash
+make up LAZYRAG_OCR_SERVER_TYPE=mineru
+```
+
+**启用 PaddleOCR（需 GPU）：**
+```bash
+make up LAZYRAG_OCR_SERVER_TYPE=paddleocr
+```
+
+Makefile 会根据环境变量自动选择 profile。也可直接运行 `docker compose up --build`；可选服务需通过 `--profile mineru`、`--profile paddleocr`、`--profile milvus`、`--profile opensearch` 显式启用。
 
 - 前端：http://localhost:8080  
 - Kong（API）：http://localhost:8000  
@@ -99,16 +176,18 @@ LazyRAG/
 
 ## 环境变量（主要）
 
-| 服务/范围       | 变量名                    | 说明 / 示例                          |
-|-----------------|---------------------------|--------------------------------------|
-| auth-service    | `DATABASE_URL`            | PostgreSQL 连接                      |
+| 服务/范围       | 变量名                         | 说明 / 示例                          |
+|-----------------|--------------------------------|--------------------------------------|
+| auth-service    | `DATABASE_URL`                 | PostgreSQL 连接                      |
 | auth-service    | `JWT_SECRET`、`JWT_TTL_MINUTES`、`JWT_REFRESH_TTL_DAYS` | Token 配置   |
-| auth-service    | `BOOTSTRAP_ADMIN_*`       | 初始管理员账号                       |
-| processor-*     | `DOC_TASK_DATABASE_URL`   | 文档任务用同一数据库                 |
-| parsing         | `MILVUS_URI`、`OPENSEARCH_URI`、`OPENSEARCH_USER`、`OPENSEARCH_PASSWORD` | 向量与分段存储 |
+| auth-service    | `BOOTSTRAP_ADMIN_*`            | 初始管理员账号                       |
+| processor-*     | `DOC_TASK_DATABASE_URL`       | 文档任务用同一数据库                 |
+| parsing         | `LAZYRAG_USE_MILVUS_OPENSEARCH` | `1`/`true`/`yes`/`on` = Milvus+OpenSearch；否则 MapStore |
+| parsing         | `LAZYRAG_OCR_SERVER_TYPE`     | `none` \| `mineru` \| `paddleocr`    |
+| parsing         | `LAZYRAG_MILVUS_URI`、`LAZYRAG_OPENSEARCH_URI`、`LAZYRAG_OPENSEARCH_USER`、`LAZYRAG_OPENSEARCH_PASSWORD` | 向量与分段存储（使用 Milvus+OpenSearch 时） |
 | chat            | `DOCUMENT_SERVER_URL`、`MAX_CONCURRENCY` | 文档服务地址与并发数        |
 
-若使用非默认的 Milvus/OpenSearch，可在 `docker-compose.yml` 或 env 文件中覆盖上述变量。
+使用外部 Milvus/OpenSearch 时需覆盖上述存储变量；设置 `LAZYRAG_USE_MILVUS_OPENSEARCH=0` 可改用 MapStore（不部署 milvus/opensearch）。
 
 ## 代码检查
 
