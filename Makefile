@@ -75,7 +75,15 @@ GO_DIRS := backend/core
 
 # Require flake8 to be installed (e.g. in a venv). Do not auto pip-install to avoid PEP 668 errors.
 install-flake8:
-	@python3 -c "import flake8" 2>/dev/null || { echo "Missing flake8. Install in a venv: pip install flake8 flake8-quotes flake8-bugbear"; exit 1; }
+	@for pkg in flake8 flake8-quotes flake8-bugbear; do \
+		case $$pkg in \
+			flake8) mod="flake8" ;; \
+			flake8-quotes) mod="flake8_quotes" ;; \
+			flake8-bugbear) mod="bugbear" ;; \
+		esac; \
+		python3 -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('$$mod') else 1)" \
+			|| pip install $$pkg; \
+	done
 
 lint-python: install-flake8
 	@echo "🐍 Linting Python ($(PYTHON_DIRS))..."
