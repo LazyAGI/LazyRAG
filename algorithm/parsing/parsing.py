@@ -2,6 +2,7 @@ import os
 
 from lazyllm import OnlineEmbeddingModule
 from lazyllm.tools.rag import Document, MineruPDFReader, PDFReader
+from lazyllm.tools.rag.transform import SentenceSplitter
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
@@ -69,7 +70,7 @@ docs.create_node_group(
     name='block',
     display_name='段落切片',
     group_type=NodeGroupType.CHUNK,
-    transform=lambda x: x,
+    transform=SentenceSplitter(chunk_size=512, chunk_overlap=50),
 )
 docs.activate_group('block')
 

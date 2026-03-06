@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,9 @@ import (
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
 )
+
+//go:embed openapi.json
+var openAPIJSON []byte
 
 // handleAPI registers a route with required permissions. The perms slice is used by
 // extract_api_permissions.py to generate api_permissions.json for Kong RBAC; it is not
@@ -38,6 +42,10 @@ func main() {
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
+	}).Methods(http.MethodGet)
+	r.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(openAPIJSON)
 	}).Methods(http.MethodGet)
 	handleAPI(r, "GET", "/api/hello", []string{"user.read"}, func(w http.ResponseWriter, r *http.Request) {
 		common.ReplyJSON(w, map[string]string{"message": "Hello from Backend"})

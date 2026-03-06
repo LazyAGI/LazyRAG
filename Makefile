@@ -73,49 +73,21 @@ PYTHON_DIRS := algorithm backend
 # Go dirs to lint
 GO_DIRS := backend/core
 
+# Require flake8 to be installed (e.g. in a venv). Do not auto pip-install to avoid PEP 668 errors.
 install-flake8:
-	@python3 -c "import flake8" 2>/dev/null || pip3 install flake8
-	@for pkg in flake8-quotes flake8-bugbear; do \
+	@for pkg in flake8 flake8-quotes flake8-bugbear; do \
 		case $$pkg in \
+			flake8) mod="flake8" ;; \
 			flake8-quotes) mod="flake8_quotes" ;; \
 			flake8-bugbear) mod="bugbear" ;; \
 		esac; \
 		python3 -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('$$mod') else 1)" \
-			|| pip3 install $$pkg; \
+			|| pip install $$pkg; \
 	done
 
 lint-python: install-flake8
 	@echo "🐍 Linting Python ($(PYTHON_DIRS))..."
 	@python3 -m flake8 $(PYTHON_DIRS)
-
-.ONESHELL:
-lint-python-only-diff:
-	@set -e
-	@$(MAKE) -s install-flake8
-	@if [ -n "$(CHANGED_PY_FILES)" ]; then \
-		echo "$(CHANGED_PY_FILES)" | xargs python3 -m flake8; \
-		exit 0; \
-	fi
-	@echo "🔍 Collecting changed Python files..."
-	@FILES=$$( \
-		{ \
-			git diff --name-only origin/main..HEAD 2>/dev/null || true; \
-			git diff --cached --name-only 2>/dev/null || true; \
-			git diff --name-only 2>/dev/null || true; \
-		} | sort -u | while read f; do \
-			case "$$f" in \
-				*.py) \
-					case "$$f" in algorithm/lazyllm/*) ;; *) [ -f "$$f" ] && echo "$$f";; esac;; \
-			esac; \
-		done \
-	); \
-	if [ -n "$$FILES" ]; then \
-		echo "➡️  Running flake8 on:"; \
-		echo "$$FILES"; \
-		echo "$$FILES" | xargs python3 -m flake8; \
-	else \
-		echo "✅ No Python file changes to lint."; \
-	fi
 
 lint-go:
 	@echo "🔷 Linting Go ($(GO_DIRS))..."
@@ -127,34 +99,7 @@ lint-go:
 	fi
 	@echo "✅ Go fmt OK."
 
-.ONESHELL:
-lint-go-only-diff:
-	@set -e
-	@echo "🔍 Collecting changed Go files..."
-	@FILES=$$( \
-		{ \
-			git diff --name-only origin/main..HEAD 2>/dev/null || true; \
-			git diff --cached --name-only 2>/dev/null || true; \
-			git diff --name-only 2>/dev/null || true; \
-		} | sort -u | while read f; do \
-			case "$$f" in backend/core/*.go) [ -f "$$f" ] && echo "$$f";; esac; \
-		done \
-	); \
-	if [ -n "$$FILES" ]; then \
-		FMT=$$(echo "$$FILES" | xargs gofmt -l -s 2>/dev/null); \
-		if [ -n "$$FMT" ]; then \
-			echo "❌ Go files not formatted (run: gofmt -w -s <files>):"; \
-			echo "$$FMT"; \
-			exit 1; \
-		fi; \
-		echo "✅ Go fmt OK for changed files."; \
-	else \
-		echo "✅ No Go file changes to lint."; \
-	fi
-
 lint: lint-python lint-go
-
-lint-only-diff: lint-python-only-diff lint-go-only-diff
 
 test:
 	@./tests/run-all.sh
@@ -171,17 +116,22 @@ _need_opensearch := $(findstring opensearch:9200,$(LAZYRAG_OPENSEARCH_URI))
 # Shared compose profile flags for up/down/up-build
 _COMPOSE_PROFILES := $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch))
 
+# Only init submodules when not yet cloned; if already present (even with different commit), do nothing. Never recursive.
+_SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update --init || true
+
 build:
+	$(_SUBMODULE_INIT)
 	@docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
-	@docker compose $(_COMPOSE_PROFILES) up
+	@docker compose $(_COMPOSE_PROFILES) up -d
 
 down:
 	@docker compose $(_COMPOSE_PROFILES) down
 
 up-build:
-	@docker compose $(_COMPOSE_PROFILES) up --build
+	$(_SUBMODULE_INIT)
+	@docker compose $(_COMPOSE_PROFILES) up --build -d
 
 clear:
 	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."

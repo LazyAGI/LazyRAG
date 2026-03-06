@@ -5,6 +5,7 @@ import (
 	"lazyrag/core/chat"
 	"lazyrag/core/db"
 	"lazyrag/core/doc"
+	"lazyrag/core/file"
 
 	"github.com/gorilla/mux"
 )
@@ -78,6 +79,13 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:resume", []string{"document.write"}, doc.ResumeTask)
 	// Task-level callback (task id in path)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:callback", []string{"document.write"}, doc.TaskCallback)
+
+	// ----- RAG File Service (proxy to parsing) -----
+	handleAPI(r, "POST", "/api/upload_files", []string{"document.write"}, file.UploadFiles)
+	handleAPI(r, "POST", "/api/add_files_to_group", []string{"document.write"}, file.AddFilesToGroup)
+	handleAPI(r, "GET", "/api/list_files", []string{"document.read"}, file.ListFiles)
+	handleAPI(r, "GET", "/api/list_files_in_group", []string{"document.read"}, file.ListFilesInGroup)
+	handleAPI(r, "GET", "/api/list_kb_groups", []string{"document.read"}, file.ListKBGroups)
 
 	// ----- ChatService -----
 	handleAPI(r, "POST", "/api/chat", []string{"qa.read"}, chat.Chat)
