@@ -1,5 +1,6 @@
 backend/auth-service/api_permissions.json
 .vscode/settings.json
+backend/core/core
 
 .flake8-python.path
 __pycache__
@@ -70,4 +71,3 @@ docs/zh/assets
 build*
 lazyllm_cpp.egg-info/
 !build*.sh
-
