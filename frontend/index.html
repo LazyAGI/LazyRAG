@@ -252,36 +252,8 @@
         }
 
         function renderHome() {
-            const app = document.getElementById("app");
-            const showAdminNav = isAdmin();
-            let nav = `<nav><a href="#/">Home</a> | <a href="#/rag">RAG (Documents & Chat)</a>`;
-            if (showAdminNav) {
-                nav += ` | <a href="#/users">User management</a> | <a href="#/roles">Role management</a>`;
-            }
-            nav += ` | <a href="#" id="logout">Logout</a></nav>`;
-            app.innerHTML = nav + `
-                <h1>Home</h1>
-                <p>Role: <strong>${getRole() || "-"}</strong></p>
-                <div style="margin: 1rem 0;">
-                    <button id="btnHello">Call /api/hello</button>
-                    <button id="btnAdmin">Call /api/admin</button>
-                </div>
-                <pre id="result"></pre>
-            `;
-            document.getElementById("logout").onclick = (e) => {
-                e.preventDefault();
-                saveTokens("", "", 0);
-                saveRole(null);
-                navigate("/login");
-            };
-            document.getElementById("btnHello").onclick = async () => {
-                const r = await api("/api/hello");
-                document.getElementById("result").textContent = JSON.stringify(r.data, null, 2);
-            };
-            document.getElementById("btnAdmin").onclick = async () => {
-                const r = await api("/api/admin");
-                document.getElementById("result").textContent = JSON.stringify(r.data, null, 2);
-            };
+            // After login, show RAG (Documents & Chat) directly on home
+            renderRAG();
         }
 
         async function renderUsers() {
