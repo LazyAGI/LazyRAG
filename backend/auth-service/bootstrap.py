@@ -53,7 +53,7 @@ def bootstrap(db: Session) -> None:
         if not exists:
             db.add(RolePermission(role_id=admin_role.id, permission_group_id=pg_id))
 
-    for perm_name in ('user.read', 'document.read'):
+    for perm_name in ('user.read', 'document.read', 'document.write', 'qa.read'):
         if perm_name in all_groups:
             exists = db.scalar(
                 select(RolePermission).where(
