@@ -42,6 +42,25 @@ class History(BaseModel):
     content: str = Field('', description='Message content')
 
 
+def _normalize_history(raw: Any) -> List[History]:
+    """Accept list, empty dict, or None from client/proxy (e.g. Kong may send history as {})."""
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return []
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if isinstance(item, History):
+            out.append(item)
+        elif isinstance(item, dict):
+            out.append(History(role=item.get('role', 'assistant'), content=item.get('content', '')))
+        else:
+            continue
+    return out
+
+
 MAX_CONCURRENCY = int(os.getenv('LAZYRAG_MAX_CONCURRENCY', 10))
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
@@ -59,6 +78,21 @@ r1 = lazyllm.Retriever(
 )
 
 
+def _history_to_list(history: List[History]) -> list:
+    try:
+        return [h.model_dump() for h in history]
+    except AttributeError:
+        return [h.dict() for h in history]
+
+
+def _history_for_prompt(history: List[History]) -> str:
+    """Format history as string for prompt template (template uses str.replace)."""
+    items = _history_to_list(history)
+    if not items:
+        return ''
+    return '\n'.join(f"{h.get('role', '')}: {h.get('content', '')}" for h in items)
+
+
 def ppl(
     query: str,
     history: List[History],
@@ -69,15 +103,35 @@ def ppl(
     databases: Optional[List[Dict]],
     priority: Optional[int],
 ):
-    refs = r1(query=query)
-    return llm(dict(query=query, history=[h.dict() for h in history], references=refs))
+    refs = r1(query=query, filters=filters)
+    # Prompt template uses str.replace(); all format values must be str, not list
+    history_str = _history_for_prompt(history)
+    refs_str = refs if isinstance(refs, str) else '\n\n'.join(refs) if refs else ''
+    return llm(dict(query=query, history=history_str, references=refs_str))
+
+
+@app.get('/health', summary='Health check')
+@app.get('/api/health', summary='Health check (API path)')
+async def health():
+    """Health check; optionally checks document server connectivity."""
+    doc_url = os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000')
+    status = {'document_server_url': doc_url, 'document_server_reachable': None}
+    try:
+        import urllib.request
+        req = urllib.request.Request(doc_url.rstrip('/') + '/', method='GET')
+        urllib.request.urlopen(req, timeout=3)
+        status['document_server_reachable'] = True
+    except Exception as e:
+        status['document_server_reachable'] = False
+        status['document_server_error'] = str(e)
+    return status
 
 
 @app.post('/api/chat', summary='与知识库对话')
 @app.post('/api/chat/stream', summary='与知识库对话')
 async def chat(
     query: str = Body(..., description='用户问题'),  # noqa: B008
-    history: List[History] = Body(default_factory=list, description='历史对话'),  # noqa: B008
+    history: Any = Body(default=None, description='历史对话，可为 list 或省略（代理可能传为 {}）'),  # noqa: B008
     session_id: str = Body('session_id', description='会话 ID'),  # noqa: B008
     filters: Optional[Dict[str, Any]] = Body(None, description='检索过滤条件'),  # noqa: B008
     files: Optional[List[str]] = Body(None, description='上传临时文件'),  # noqa: B008
@@ -93,6 +147,7 @@ async def chat(
 ) -> ChatResponse:
     cost = 0.0
     result = None
+    history_list = _normalize_history(history)
     is_stream = request.url.path.endswith('/stream')  # noqa: F841
     effective_priority = int(os.getenv('LAZYRAG_LLM_PRIORITY', '0')) if priority is None else priority
     try:
@@ -102,7 +157,7 @@ async def chat(
             result = await asyncio.to_thread(
                 ppl,
                 query=query,
-                history=history,
+                history=history_list,
                 filters=filters,
                 files=files,
                 debug=debug,

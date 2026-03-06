@@ -5,6 +5,8 @@ import threading
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from common.db import get_doc_task_db_config
 
+from processor.upload_handler import run_upload_server
+
 db_config = get_doc_task_db_config()
 doc_processor = DocumentProcessor(
     port=int(os.environ.get('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '8000')),
@@ -13,6 +15,7 @@ doc_processor = DocumentProcessor(
 )
 
 _shutdown_event = threading.Event()
+_upload_server_thread = None
 
 
 def _on_signal(signum, frame):
@@ -23,9 +26,20 @@ def _on_signal(signum, frame):
         pass
 
 
+# (TODO): temp plan, will be removed later
+def _run_upload_server_background():
+    port = int(os.environ.get('LAZYRAG_UPLOAD_SERVER_PORT', '8001'))
+    run_upload_server(port)
+
+
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
+
+    # Start upload server in background (for add_doc without doc-manager)
+    _upload_server_thread = threading.Thread(target=_run_upload_server_background, daemon=True)
+    _upload_server_thread.start()
+
     doc_processor.start()
     try:
         # NOTE: DocumentProcessor has no public wait(); _impl is internal. May break with lazyllm updates.
