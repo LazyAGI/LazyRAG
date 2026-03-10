@@ -45,6 +45,17 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   auth-service:
     build:
       context: ./backend
@@ -53,6 +64,7 @@ services:
       - "8000"
     environment:
       LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      LAZYRAG_REDIS_URL: redis://redis:6379/0
       LAZYRAG_JWT_SECRET: dev-secret-change-me
       LAZYRAG_JWT_TTL_MINUTES: "60"
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
@@ -65,6 +77,8 @@ services:
       retries: 3
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   core:
@@ -373,6 +387,7 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   rag-uploads:
   milvus-etcd:
   milvus-minio:
