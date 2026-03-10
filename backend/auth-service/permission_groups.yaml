@@ -2,6 +2,14 @@
 permission_groups:
   - user.read
   - user.write
+  - user.admin   # 仅管理员角色拥有，用于用户/角色/用户组等管理接口的网关鉴权
+  - document.read
+  - document.write
+  - qa.read
+
+# 内置 user 角色默认拥有的权限码（须在 permission_groups 中存在）
+default_user_role_permissions:
+  - user.read
   - document.read
   - document.write
   - qa.read

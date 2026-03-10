@@ -2,6 +2,15 @@
 .PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build down clear
 
 # ---------------------------------------------------------------------------
+# Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
+# Usage: make up                           →  docker compose up -d
+#        make up COMPOSE_PROJECT=myproj    →  docker compose -p myproj up -d
+#        make down                         →  docker compose down
+#        make down COMPOSE_PROJECT=myproj  →  docker compose -p myproj down
+# ---------------------------------------------------------------------------
+_COMPOSE := docker compose $(if $(COMPOSE_PROJECT),-p $(COMPOSE_PROJECT),)
+
+# ---------------------------------------------------------------------------
 # Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)
 # ---------------------------------------------------------------------------
 # Auth
@@ -121,21 +130,21 @@ _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update -
 
 build:
 	$(_SUBMODULE_INIT)
-	@docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
+	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
-	@docker compose $(_COMPOSE_PROFILES) up -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d
 
 down:
-	@docker compose $(_COMPOSE_PROFILES) down
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down
 
 up-build:
 	$(_SUBMODULE_INIT)
-	@docker compose $(_COMPOSE_PROFILES) up --build -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up --build -d
 
 clear:
 	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."
-	@docker compose $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
 	@echo "🧹 Clearing Python cache..."
 	@find . -type d -name '__pycache__' ! -path '*/\.git/*' -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name '*.pyc' ! -path '*/\.git/*' -delete 2>/dev/null || true

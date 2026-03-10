@@ -1,7 +1,19 @@
-fastapi
-uvicorn
-sqlalchemy
-psycopg[binary]
-python-jose[cryptography]
-passlib
-pyyaml
+alembic==1.15.2
+fastapi==0.115.0
+uvicorn==0.30.6
+sqlalchemy==2.0.41
+greenlet==3.2.2
+
+# DB drivers
+psycopg[binary]==3.2.6
+pymysql==1.1.1
+
+# Auth / crypto
+python-jose[cryptography]==3.3.0
+cryptography==44.0.2
+passlib==1.7.4
+
+# Config / cache
+pyyaml==6.0.2
+redis==7.0.1
+
