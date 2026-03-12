@@ -41,10 +41,14 @@ class ErrorCodes:
     ROLE_NAME_REQUIRED: ErrorTuple = (400, 1000408, "请填写角色名称")
     ROLE_NAME_EXISTS: ErrorTuple = (400, 1000409, "角色名称已存在")
     CANNOT_DELETE_BUILTIN_ROLE: ErrorTuple = (400, 1000410, "不能删除内置角色")
-    CANNOT_CHANGE_ADMIN_PERMS: ErrorTuple = (400, 1000411, "不能修改管理员角色权限")
+    CANNOT_CHANGE_ADMIN_PERMS: ErrorTuple = (400, 1000411, "不能修改系统管理员角色权限")
 
     # ---- 系统内部 ----
     DEFAULT_ROLE_NOT_FOUND: ErrorTuple = (500, 1000501, "默认角色 'user' 不存在")
+
+    # ---- 基础设施依赖 ----
+    REDIS_AUTH_FAILED: ErrorTuple = (500, 1000601, "Redis 认证失败")
+    REDIS_UNAVAILABLE: ErrorTuple = (500, 1000602, "Redis 不可用")
 
 
 @dataclass

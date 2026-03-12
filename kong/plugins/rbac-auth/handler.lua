@@ -11,7 +11,7 @@ function RbacAuthHandler:access(conf)
   local path = kong.request.get_path()
   local auth = kong.request.get_header("Authorization") or ""
 
-  local url = (conf.auth_service_url:gsub("/+$", "")) .. "/api/auth/authorize"
+  local url = (conf.auth_service_url:gsub("/+$", "")) .. "/api/authservice/auth/authorize"
   local body = cjson.encode({ method = method, path = path })
 
   local timeout_ms = conf.timeout_ms and conf.timeout_ms > 0 and conf.timeout_ms or 5000

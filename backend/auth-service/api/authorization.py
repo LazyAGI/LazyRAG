@@ -5,6 +5,7 @@
 import json
 import logging
 import os
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -17,10 +18,10 @@ from repositories import UserRepository
 from schemas.auth import AuthorizeBody, AuthorizeResponse
 
 
-router = APIRouter(prefix='/api/auth', tags=['authorization'])
+router = APIRouter(prefix='/auth', tags=['authorization'])
 logger = logging.getLogger('auth-service')
 
-BUILTIN_ADMIN_ROLE = 'admin'
+BUILTIN_ADMIN_ROLE = 'system-admin'
 API_PERMISSIONS_MAP: dict[tuple[str, str], list[str]] = {}
 
 
@@ -71,7 +72,7 @@ def load_api_permissions() -> None:
         API_PERMISSIONS_MAP = {}
 
 
-def _user_id_from_token(token: str) -> int:
+def _user_id_from_token(token: str) -> uuid.UUID:
     try:
         payload = jwt.decode(token, jwt_secret(), algorithms=['HS256'])
     except JWTError:
@@ -80,7 +81,7 @@ def _user_id_from_token(token: str) -> int:
     if not sub:
         raise_error(ErrorCodes.UNAUTHORIZED)
     try:
-        return int(sub)
+        return uuid.UUID(sub)
     except (TypeError, ValueError):
         raise_error(ErrorCodes.UNAUTHORIZED)
 
@@ -106,11 +107,20 @@ def authorize(body: AuthorizeBody, request: Request):
         raise_error(ErrorCodes.UNAUTHORIZED)
     user_id = _user_id_from_token(token)
     with SessionLocal() as db:
-        user = UserRepository.get_by_id(db, user_id, load_role=True, load_permission_groups=True)
+        user = UserRepository.get_by_id(
+            db,
+            user_id,
+            load_role=True,
+            load_permission_groups=True,
+            load_groups=True,
+            load_group_permission_groups=True,
+        )
     if not user:
         raise_error(ErrorCodes.UNAUTHORIZED)
     if user.role.name == BUILTIN_ADMIN_ROLE:
         return {'allowed': True}
-    if {p.code for p in user.role.permission_groups} & set(required):
+    from core.permissions import get_effective_permission_codes
+    effective = get_effective_permission_codes(user)
+    if effective & set(required):
         return {'allowed': True}
     raise_error(ErrorCodes.FORBIDDEN)

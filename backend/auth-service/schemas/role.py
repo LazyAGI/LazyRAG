@@ -11,7 +11,7 @@ class RolePermissionsBody(BaseModel):
 
 class PermissionGroupItem(BaseModel):
     """权限组项"""
-    id: int
+    id: str  # UUID string
     code: str
     description: str = ''
     module: str = ''
@@ -20,21 +20,21 @@ class PermissionGroupItem(BaseModel):
 
 class RoleItem(BaseModel):
     """角色项"""
-    id: int
+    id: str  # UUID string
     name: str
     built_in: bool
 
 
 class RoleCreateResponse(BaseModel):
     """创建角色返回"""
-    id: int
+    id: str  # UUID string
     name: str
     built_in: bool
 
 
 class RolePermissionsResponse(BaseModel):
     """角色权限查询返回"""
-    role_id: int
+    role_id: str  # UUID string
     permission_groups: list[str]
 
 

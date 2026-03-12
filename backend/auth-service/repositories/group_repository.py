@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy.orm import Session, joinedload
-from models import Group, UserGroup
+from models import Group, GroupPermission, PermissionGroup, UserGroup
 
 
 class GroupRepository:
@@ -38,7 +38,7 @@ class GroupRepository:
         tenant_id: str,
         group_name: str,
         remark: str = '',
-        creator_user_id: int | None = None,
+        creator_user_id: uuid.UUID | None = None,
     ) -> Group:
         g = self.model(
             tenant_id=tenant_id,
@@ -77,7 +77,7 @@ class GroupRepository:
         tenant_id: str,
         group_name: str,
         remark: str = '',
-        creator_user_id: int | None = None,
+        creator_user_id: uuid.UUID | None = None,
     ) -> Group:
         return cls()._create(
             session, tenant_id, group_name, remark, creator_user_id
@@ -104,21 +104,37 @@ class UserGroupRepository:
         )
 
     def _get_by_group_and_user(
-        self, session: Session, group_id: uuid.UUID, user_id: int, tenant_id: str | None = None
+        self,
+        session: Session,
+        group_id: uuid.UUID,
+        user_id: uuid.UUID,
+        tenant_id: str | None = None,
     ) -> UserGroup | None:
         q = session.query(self.model).filter_by(group_id=group_id, user_id=user_id)
         if tenant_id is not None:
             q = q.filter_by(tenant_id=tenant_id)
         return q.first()
 
+    def _get_by_group_and_users(
+        self, session: Session, group_id: uuid.UUID, user_ids: list[uuid.UUID]
+    ) -> list[UserGroup]:
+        if not user_ids:
+            return []
+        return (
+            session.query(self.model)
+            .filter_by(group_id=group_id)
+            .filter(self.model.user_id.in_(user_ids))
+            .all()
+        )
+
     def _add(
         self,
         session: Session,
         tenant_id: str,
-        user_id: int,
+        user_id: uuid.UUID,
         group_id: uuid.UUID,
         role: str = 'member',
-        creator_user_id: int | None = None,
+        creator_user_id: uuid.UUID | None = None,
     ) -> UserGroup:
         ug = self.model(
             tenant_id=tenant_id,
@@ -133,7 +149,10 @@ class UserGroupRepository:
         return ug
 
     def _remove_by_group_and_users(
-        self, session: Session, group_id: uuid.UUID, user_ids: list[int]
+        self,
+        session: Session,
+        group_id: uuid.UUID,
+        user_ids: list[uuid.UUID],
     ) -> None:
         session.query(self.model).filter_by(group_id=group_id).filter(
             self.model.user_id.in_(user_ids)
@@ -153,29 +172,63 @@ class UserGroupRepository:
         cls,
         session: Session,
         group_id: uuid.UUID,
-        user_id: int,
+        user_id: uuid.UUID,
         tenant_id: str | None = None,
     ) -> UserGroup | None:
         return cls()._get_by_group_and_user(session, group_id, user_id, tenant_id)
+
+    @classmethod
+    def get_by_group_and_users(
+        cls, session: Session, group_id: uuid.UUID, user_ids: list[uuid.UUID]
+    ) -> list[UserGroup]:
+        return cls()._get_by_group_and_users(session, group_id, user_ids)
 
     @classmethod
     def add(
         cls,
         session: Session,
         tenant_id: str,
-        user_id: int,
+        user_id: uuid.UUID,
         group_id: uuid.UUID,
         role: str = 'member',
-        creator_user_id: int | None = None,
+        creator_user_id: uuid.UUID | None = None,
     ) -> UserGroup:
         return cls()._add(session, tenant_id, user_id, group_id, role, creator_user_id)
 
     @classmethod
     def remove_by_group_and_users(
-        cls, session: Session, group_id: uuid.UUID, user_ids: list[int]
+        cls,
+        session: Session,
+        group_id: uuid.UUID,
+        user_ids: list[uuid.UUID],
     ) -> None:
         cls()._remove_by_group_and_users(session, group_id, user_ids)
 
     @classmethod
     def set_member_role(cls, session: Session, row: UserGroup, role: str) -> None:
         cls()._set_member_role(session, row, role)
+
+
+class GroupPermissionRepository:
+    """用户组与权限组关联：组内成员在鉴权时自动拥有组权限（与角色权限取并集）。"""
+
+    @classmethod
+    def get_permission_codes(cls, session: Session, group_id: uuid.UUID) -> list[str]:
+        """返回某组绑定的权限组 code 列表。"""
+        rows = (
+            session.query(PermissionGroup.code)
+            .join(GroupPermission, GroupPermission.permission_group_id == PermissionGroup.id)
+            .filter(GroupPermission.group_id == group_id)
+            .all()
+        )
+        return [r[0] for r in rows]
+
+    @classmethod
+    def replace_permissions(
+        cls, session: Session, group_id: uuid.UUID, permission_group_ids: set[uuid.UUID]
+    ) -> None:
+        """全量替换组的权限组绑定（先删后插，保证无重复）。"""
+        session.query(GroupPermission).filter_by(group_id=group_id).delete(synchronize_session=False)
+        for pg_id in permission_group_ids:
+            session.add(GroupPermission(group_id=group_id, permission_group_id=pg_id))
+        session.commit()

@@ -1,5 +1,6 @@
-"""Refresh token 存储：使用 Redis，key 为 token_hash，value 为 user_id，TTL 与 refresh 有效期一致。"""
+"""Refresh token storage: Redis, key=token_hash, value=user_id (UUID string), TTL=refresh validity."""
 import logging
+import uuid
 
 from core.redis_client import redis_client
 from core.security import refresh_token_ttl_seconds
@@ -13,23 +14,23 @@ def _key(token_hash: str) -> str:
     return f'{KEY_PREFIX}{token_hash}'
 
 
-def set_refresh_token(token_hash: str, user_id: int) -> None:
-    """写入 refresh token，TTL 到期自动失效。"""
+def set_refresh_token(token_hash: str, user_id: uuid.UUID) -> None:
+    """Store refresh token; TTL expires automatically."""
     r = redis_client()
     key = _key(token_hash)
     ttl = refresh_token_ttl_seconds()
     r.set(key, str(user_id), ex=ttl)
 
 
-def get_user_id_by_token(token_hash: str) -> int | None:
-    """根据 token_hash 查 user_id，不存在或已过期返回 None。"""
+def get_user_id_by_token(token_hash: str) -> uuid.UUID | None:
+    """Return user_id (UUID) for token_hash, or None if missing/expired."""
     r = redis_client()
     key = _key(token_hash)
     val = r.get(key)
     if val is None:
         return None
     try:
-        return int(val)
+        return uuid.UUID(val)
     except (TypeError, ValueError):
         return None
 

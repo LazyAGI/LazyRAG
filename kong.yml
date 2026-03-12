@@ -5,9 +5,9 @@ services:
   - name: auth-service
     url: http://auth-service:8000
     routes:
-      - name: auth-route
+      - name: authservice-route
         paths:
-          - /api/auth
+          - /api/authservice
         strip_path: false
         plugins:
           - name: rbac-auth
