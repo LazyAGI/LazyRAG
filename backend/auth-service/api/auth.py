@@ -1,7 +1,10 @@
 import logging
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi import APIRouter, Depends
 
 from api.authorization import load_api_permissions
@@ -17,8 +20,8 @@ from core.security import (
     jwt_secret,
     jwt_ttl_seconds,
 )
-from core.database import SessionLocal, engine
-from models import Base, User
+from core.database import SessionLocal
+from models import User
 from repositories import RoleRepository, UserRepository
 from schemas.auth import (
     ChangePasswordBody,
@@ -33,25 +36,46 @@ from schemas.auth import (
     SuccessResponse,
     ValidateResponse,
 )
-from services.auth_service import authenticate_user, hash_password, register_user, validate_password, verify_password
+from services.auth_service import auth_service
 
 
-router = APIRouter(prefix='/api/auth', tags=['auth'])
-logger = logging.getLogger('auth-service')
+router = APIRouter(prefix='/auth', tags=['auth'])
+# 复用 uvicorn 的 logger，确保容器日志可见
+logger = logging.getLogger('uvicorn.error')
 
 
-def _default_role_id(session) -> int:
+def _default_role_id(session):
     role = RoleRepository.get_by_name(session, 'user')
     if not role:
         raise_error(ErrorCodes.DEFAULT_ROLE_NOT_FOUND)
-    return role.id
+    return role.id  # UUID
 
 
-# TODO sjh 查一下这个方法做什么的
+def _run_alembic_upgrade() -> None:
+    """
+    执行alembic upgrade head
+    """
+    auth_service_root = Path(__file__).resolve().parent.parent
+    alembic_ini = auth_service_root / 'alembic.ini'
+    if not alembic_ini.exists():
+        logger.warning('alembic.ini not found at %s; skipping migrations', alembic_ini)
+        return
+    config = Config(str(alembic_ini))
+    config.set_main_option('script_location', str(auth_service_root / 'alembic'))
+
+    try:
+        command.upgrade(config, 'head')
+        logger.info('Alembic upgrade head completed')
+        return
+    except Exception as e:
+        logger.exception('Alembic upgrade failed: %s', e)
+        raise
+
+
 @router.on_event('startup')
 def on_startup():
-    """应用启动时：创建数据库表、执行 bootstrap 初始化、加载 API 权限配置。"""
-    Base.metadata.create_all(bind=engine)
+    """应用启动时：执行迁移、bootstrap 初始化、加载 API 权限配置。"""
+    _run_alembic_upgrade()
     with SessionLocal() as db:
         bootstrap(db)
     load_api_permissions()
@@ -74,7 +98,7 @@ def register(body: RegisterBody):
     
     with SessionLocal() as db:
         role_id = _default_role_id(db)
-        user = register_user(
+        user = auth_service.register_user(
             db=db,
             username=username,
             password=password,
@@ -92,25 +116,31 @@ def login(body: LoginBody):
     """用户登录：校验用户名密码并通过登录失败限流后，颁发 access_token 与 refresh_token。"""
     username = (body.username or '').strip()
     password = body.password or ''
+
+    logger.info("[auth-service] login enter username=%r", username)
     if not username:
         raise_error(ErrorCodes.USERNAME_REQUIRED)
     if not password:
         raise_error(ErrorCodes.PASSWORD_REQUIRED)
     
-    with SessionLocal() as db:
-        user = authenticate_user(db=db, username=username, password=password)
-        user = UserRepository.get_by_id(db, user.id, load_role=True)
-        if not user:
-            raise_error(ErrorCodes.UNAUTHORIZED)
-        user_id, role_name = user.id, user.role.name
-        access_token = create_access_token(
-            subject=str(user_id),
-            role=role_name,
-            tenant_id=(user.tenant_id or None),
-            jti=generate_jti(),
-        )
-        refresh_token = generate_refresh_token()
-        set_refresh_token(hash_refresh_token(refresh_token), user_id)
+    try:
+        with SessionLocal() as db:
+            user = auth_service.authenticate_user(db=db, username=username, password=password)
+            user = UserRepository.get_by_id(db, user.id, load_role=True)
+            if not user:
+                raise_error(ErrorCodes.UNAUTHORIZED)
+            user_id, role_name = user.id, user.role.name
+            access_token = create_access_token(
+                subject=str(user_id),
+                role=role_name,
+                tenant_id=(user.tenant_id or None),
+                jti=generate_jti(),
+            )
+            refresh_token = generate_refresh_token()
+            set_refresh_token(hash_refresh_token(refresh_token), user_id)
+    except Exception as e:
+        logger.exception("[auth-service] login exception username=%r: %s", username, e)
+        raise
     return {
         'access_token': access_token,
         'refresh_token': refresh_token,
@@ -162,20 +192,26 @@ def validate(credentials=Depends(bearer_scheme)):
         raise_error(ErrorCodes.UNAUTHORIZED)
     user_id = _user_id_from_token(credentials.credentials)
     with SessionLocal() as db:
-        user = UserRepository.get_by_id(db, user_id, load_role=True, load_permission_groups=True)
+        user = UserRepository.get_by_id(
+            db, user_id,
+            load_role=True, load_permission_groups=True,
+            load_groups=True, load_group_permission_groups=True,
+        )
     if not user:
         raise_error(ErrorCodes.UNAUTHORIZED)
+    from core.permissions import get_effective_permission_codes
     return {
         'sub': str(user.id),
         'role': user.role.name,
         'tenant_id': user.tenant_id,
-        'permissions': [p.code for p in user.role.permission_groups],
+        'permissions': list(get_effective_permission_codes(user)),
     }
 
 
 @router.get('/me', response_model=MeResponse)
 def me(user: User = Depends(current_user)):
-    """当前用户信息：根据 Bearer token 返回当前登录用户的 id、用户名、邮箱、状态、角色及权限列表。"""
+    """当前用户信息：根据 Bearer token 返回当前登录用户的 id、用户名、邮箱、状态、角色及有效权限列表（角色权限 ∪ 组权限）。"""
+    from core.permissions import get_effective_permission_codes
     return {
         'user_id': str(user.id),
         'username': user.username,
@@ -183,7 +219,7 @@ def me(user: User = Depends(current_user)):
         'email': user.email,
         'status': 'inactive' if user.disabled else 'active',
         'role': user.role.name,
-        'permissions': [p.code for p in user.role.permission_groups],
+        'permissions': list(get_effective_permission_codes(user)),
         'tenant_id': user.tenant_id,
     }
 
@@ -191,18 +227,18 @@ def me(user: User = Depends(current_user)):
 @router.post('/change_password', response_model=SuccessResponse)
 def change_password(body: ChangePasswordBody, user: User = Depends(current_user)):
     """修改密码：校验旧密码后，将当前用户密码更新为新密码（新密码需符合强度要求）。"""
-    if not verify_password(body.old_password, user.password_hash):
+    if not auth_service.verify_password(body.old_password, user.password_hash):
         raise_error(ErrorCodes.OLD_PASSWORD_INVALID)
     new_password = (body.new_password or '').strip()
     if not new_password:
         raise_error(ErrorCodes.NEW_PASSWORD_REQUIRED)
-    if not validate_password(new_password):
+    if not auth_service.validate_password(new_password):
         raise_error(ErrorCodes.INVALID_PASSWORD)
     with SessionLocal() as db:
         row = UserRepository.get_by_id(db, user.id)
         if not row:
             raise_error(ErrorCodes.USER_NOT_FOUND)
-        row.password_hash = hash_password(new_password)
+        row.password_hash = auth_service.hash_password(new_password)
         row.updated_pwd_time = datetime.now(timezone.utc)
         db.commit()
     return {'success': True}

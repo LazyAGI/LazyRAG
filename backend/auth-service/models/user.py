@@ -1,19 +1,33 @@
+import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import mapped_column, relationship
+from sqlalchemy.types import Uuid as UuidType
 
 from .base import Base
+from .user_group import UserGroup
 
 
 class User(Base):
     __tablename__ = 'users'
 
-    id = mapped_column(Integer, primary_key=True, autoincrement=True, comment='主键，供其他表关联')
-    username = mapped_column(String(128), unique=True, index=True, nullable=False, comment='用户名')
-    display_name = mapped_column(String(255), nullable=False, default='', comment='用户显示名')
-    password_hash = mapped_column(String(255), nullable=False, comment='密码哈希')
-    role_id = mapped_column(ForeignKey('roles.id', ondelete='RESTRICT'), nullable=False, index=True, comment='角色 id，外键')
+    id = mapped_column(
+        UuidType(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        comment='Primary key UUID',
+    )
+    username = mapped_column(String(128), unique=True, index=True, nullable=False, comment='Username')
+    display_name = mapped_column(String(255), nullable=False, default='', comment='Display name')
+    password_hash = mapped_column(String(255), nullable=False, comment='Password hash')
+    role_id = mapped_column(
+        UuidType(as_uuid=True),
+        ForeignKey('roles.id', ondelete='RESTRICT'),
+        nullable=False,
+        index=True,
+        comment='Role id, FK',
+    )
 
     tenant_id = mapped_column(String(64), nullable=False, default='', index=True, comment='租户 id')
     email = mapped_column(String(255), nullable=True, index=True, comment='邮箱')
@@ -40,4 +54,9 @@ class User(Base):
     source = mapped_column(String(32), nullable=False, default='platform', comment='用户来源')
 
     role = relationship('Role', lazy='raise')
-    groups = relationship('UserGroup', back_populates='user', cascade='all, delete-orphan')
+    groups = relationship(
+        'UserGroup',
+        back_populates='user',
+        foreign_keys=[UserGroup.user_id],
+        cascade='all, delete-orphan',
+    )

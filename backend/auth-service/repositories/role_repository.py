@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy.orm import Session, joinedload
 from models import Role, RolePermission
 
@@ -10,10 +12,10 @@ class RoleRepository:
     def _get_by_name(self, session: Session, name: str) -> Role | None:
         return session.query(self.model).filter_by(name=name).first()
 
-    def _get_by_id(self, session: Session, role_id: int) -> Role | None:
+    def _get_by_id(self, session: Session, role_id: uuid.UUID) -> Role | None:
         return session.get(self.model, role_id)
 
-    def _get_with_permission_groups(self, session: Session, role_id: int) -> Role | None:
+    def _get_with_permission_groups(self, session: Session, role_id: uuid.UUID) -> Role | None:
         return (
             session.query(self.model)
             .options(joinedload(Role.permission_groups))
@@ -42,7 +44,12 @@ class RoleRepository:
         session.delete(role)
         session.commit()
 
-    def _replace_permissions(self, session: Session, role_id: int, permission_group_ids: set[int]) -> None:
+    def _replace_permissions(
+        self,
+        session: Session,
+        role_id: uuid.UUID,
+        permission_group_ids: set[uuid.UUID],
+    ) -> None:
         session.query(RolePermission).filter_by(role_id=role_id).delete(synchronize_session=False)
         for pg_id in permission_group_ids:
             session.add(RolePermission(role_id=role_id, permission_group_id=pg_id))
@@ -53,11 +60,11 @@ class RoleRepository:
         return cls()._get_by_name(session, name)
 
     @classmethod
-    def get_by_id(cls, session: Session, role_id: int) -> Role | None:
+    def get_by_id(cls, session: Session, role_id: uuid.UUID) -> Role | None:
         return cls()._get_by_id(session, role_id)
 
     @classmethod
-    def get_with_permission_groups(cls, session: Session, role_id: int) -> Role | None:
+    def get_with_permission_groups(cls, session: Session, role_id: uuid.UUID) -> Role | None:
         return cls()._get_with_permission_groups(session, role_id)
 
     @classmethod
@@ -81,5 +88,10 @@ class RoleRepository:
         cls()._delete(session, role)
 
     @classmethod
-    def replace_permissions(cls, session: Session, role_id: int, permission_group_ids: set[int]) -> None:
+    def replace_permissions(
+        cls,
+        session: Session,
+        role_id: uuid.UUID,
+        permission_group_ids: set[uuid.UUID],
+    ) -> None:
         cls()._replace_permissions(session, role_id, permission_group_ids)

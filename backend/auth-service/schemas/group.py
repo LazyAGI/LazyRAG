@@ -14,16 +14,27 @@ class GroupUpdateBody(BaseModel):
 
 
 class GroupAddUsersBody(BaseModel):
-    user_ids: list[int]
+    user_ids: list[str]  # UUID strings
     role: str | None = None
 
 
 class GroupRemoveUsersBody(BaseModel):
-    user_ids: list[int]
+    user_ids: list[str]  # UUID strings
 
 
 class GroupMemberRoleBody(BaseModel):
     role: str
+
+
+class GroupMemberRoleBatchBody(BaseModel):
+    """批量修改组内成员角色，user_ids 支持单个或多个，与 role 一起使用"""
+    user_ids: list[str]  # UUID 字符串数组
+    role: str
+
+
+class GroupPermissionsBody(BaseModel):
+    """组权限全量设置：权限组 code 列表，与角色权限并集后生效，不重复存储"""
+    permission_groups: list[str]
 
 
 # ----- 响应 -----
@@ -67,6 +78,11 @@ class GroupUserItem(BaseModel):
 class GroupUserListResponse(BaseModel):
     """组内用户列表"""
     users: list[GroupUserItem]
+
+
+class GroupPermissionsResponse(BaseModel):
+    """组绑定的权限组 code 列表"""
+    permission_groups: list[str]
 
 
 class OkResponse(BaseModel):

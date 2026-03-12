@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends
 
 from core.deps import current_user
@@ -15,7 +17,7 @@ from schemas.role import (
 from services import role_service
 
 
-router = APIRouter(prefix='/api/role', tags=['role'])
+router = APIRouter(prefix='/role', tags=['role'])
 
 
 @router.get('/permission-groups', response_model=list[PermissionGroupItem])
@@ -39,25 +41,34 @@ def create_role(body: RoleCreateBody, _: User = Depends(current_user)):
     return role_service.create_role(body.name.strip())
 
 
+def _parse_role_id(role_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(role_id)
+    except (ValueError, TypeError):
+        from core.errors import ErrorCodes, raise_error
+        raise_error(ErrorCodes.ROLE_NOT_FOUND)
+
+
 @router.delete('/{role_id}', response_model=OkResponse)
 @permission_required('user.admin')
-def delete_role(role_id: int, _: User = Depends(current_user)):
+def delete_role(role_id: str, _: User = Depends(current_user)):
     """删除指定角色，内置角色不可删除"""
-    role_service.delete_role(role_id)
+    role_service.delete_role(_parse_role_id(role_id))
     return {'ok': True}
 
 
 @router.get('/{role_id}/permissions', response_model=RolePermissionsResponse)
 @permission_required('user.admin')
-def get_role_permissions(role_id: int, _: User = Depends(current_user)):
+def get_role_permissions(role_id: str, _: User = Depends(current_user)):
     """查询指定角色已绑定的权限组名称列表"""
-    permission_groups = role_service.get_role_permissions(role_id)
-    return {'role_id': role_id, 'permission_groups': permission_groups}
+    rid = _parse_role_id(role_id)
+    permission_groups = role_service.get_role_permissions(rid)
+    return {'role_id': str(rid), 'permission_groups': permission_groups}
 
 
 @router.put('/{role_id}/permissions', response_model=OkResponse)
 @permission_required('user.admin')
-def set_role_permissions(role_id: int, body: RolePermissionsBody, _: User = Depends(current_user)):
+def set_role_permissions(role_id: str, body: RolePermissionsBody, _: User = Depends(current_user)):
     """设置指定角色的权限组(全量覆盖)，管理员角色不可修改"""
-    role_service.set_role_permissions(role_id, body.permission_groups)
+    role_service.set_role_permissions(_parse_role_id(role_id), body.permission_groups)
     return {'ok': True}

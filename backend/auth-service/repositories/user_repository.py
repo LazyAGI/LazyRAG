@@ -1,5 +1,7 @@
+import uuid
+
 from sqlalchemy.orm import Session, joinedload
-from models import Role, User
+from models import Group, Role, User, UserGroup
 
 
 class UserRepository:
@@ -10,16 +12,24 @@ class UserRepository:
     def _get_by_id(
         self,
         session: Session,
-        user_id: int,
+        user_id: uuid.UUID,
         *,
         load_role: bool = False,
         load_permission_groups: bool = False,
+        load_groups: bool = False,
+        load_group_permission_groups: bool = False,
     ) -> User | None:
         q = session.query(self.model).filter_by(id=user_id)
         if load_role:
             q = q.options(joinedload(User.role))
             if load_permission_groups:
                 q = q.options(joinedload(User.role).joinedload(Role.permission_groups))
+        if load_groups:
+            q = q.options(joinedload(User.groups).joinedload(UserGroup.group))
+            if load_group_permission_groups:
+                q = q.options(
+                    joinedload(User.groups).joinedload(UserGroup.group).joinedload(Group.permission_groups)
+                )
         return q.first()
 
     def _get_by_username(self, session: Session, username: str) -> User | None:
@@ -33,7 +43,7 @@ class UserRepository:
         session: Session,
         username: str,
         password_hash: str,
-        role_id: int,
+        role_id: uuid.UUID,
         tenant_id: str = '',
         email: str | None = None,
         display_name: str = '',
@@ -90,12 +100,21 @@ class UserRepository:
     def get_by_id(
         cls,
         session: Session,
-        user_id: int,
+        user_id: uuid.UUID,
         *,
         load_role: bool = False,
         load_permission_groups: bool = False,
+        load_groups: bool = False,
+        load_group_permission_groups: bool = False,
     ) -> User | None:
-        return cls()._get_by_id(session, user_id, load_role=load_role, load_permission_groups=load_permission_groups)
+        return cls()._get_by_id(
+            session,
+            user_id,
+            load_role=load_role,
+            load_permission_groups=load_permission_groups,
+            load_groups=load_groups,
+            load_group_permission_groups=load_group_permission_groups,
+        )
 
     @classmethod
     def get_by_username(cls, session: Session, username: str) -> User | None:
@@ -111,7 +130,7 @@ class UserRepository:
         session: Session,
         username: str,
         password_hash: str,
-        role_id: int,
+        role_id: uuid.UUID,
         tenant_id: str = '',
         email: str | None = None,
         display_name: str = '',

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from models import RolePermission
 from repositories import PermissionGroupRepository, RoleRepository, UserRepository
-from services.auth_service import hash_password
+from services.auth_service import auth_service
 
 
 def _load_yaml() -> dict:
@@ -48,20 +48,20 @@ def bootstrap(db: Session) -> None:
 
     all_groups = {g.code: g.id for g in PermissionGroupRepository.list_all_ordered(db)}
 
-    admin_role = RoleRepository.get_by_name(db, 'admin')
-    if not admin_role:
-        admin_role = RoleRepository.create(db, 'admin', built_in=True)
+    system_admin_role = RoleRepository.get_by_name(db, 'system-admin')
+    if not system_admin_role:
+        system_admin_role = RoleRepository.create(db, 'system-admin', built_in=True)
     user_role = RoleRepository.get_by_name(db, 'user')
     if not user_role:
         user_role = RoleRepository.create(db, 'user', built_in=True)
 
     for _code, pg_id in all_groups.items():
         exists = db.query(RolePermission).filter_by(
-            role_id=admin_role.id,
+            role_id=system_admin_role.id,
             permission_group_id=pg_id,
         ).first()
         if not exists:
-            db.add(RolePermission(role_id=admin_role.id, permission_group_id=pg_id))
+            db.add(RolePermission(role_id=system_admin_role.id, permission_group_id=pg_id))
 
     for perm_name in _load_default_user_role_permissions():
         perm_name = (perm_name or '').strip()
@@ -75,17 +75,15 @@ def bootstrap(db: Session) -> None:
             db.add(RolePermission(role_id=user_role.id, permission_group_id=all_groups[perm_name]))
     db.commit()
 
-    username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME')
-    password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD')
-    if not username or not password:
-        return
+    username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME', 'system-admin').strip() or 'system-admin'
+    password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD', '123456').strip() or '123456'
     if UserRepository.get_by_username(db, username):
         return
     UserRepository.create(
         db,
         username=username,
-        password_hash=hash_password(password),
-        role_id=admin_role.id,
+        password_hash=auth_service.hash_password(password),
+        role_id=system_admin_role.id,
         tenant_id='',
         disabled=False,
     )
