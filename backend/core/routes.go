@@ -10,9 +10,9 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// registerAllRoutes registers all OpenAPI routes (except Job) and uses handleAPI for RBAC (for extract_api_permissions.py).
+// registerAllRoutes 注册全部 OpenAPI 路由（不含 Job），经 handleAPI 挂载权限信息（供 extract_api_permissions.py 生成 Kong RBAC）。
 func registerAllRoutes(r *mux.Router) {
-	// ----- DatasetService -----
+	// ----- 数据集服务 -----
 	handleAPI(r, "GET", "/api/v1/dataset/algos", []string{"document.read"}, doc.ListAlgos)
 	handleAPI(r, "GET", "/api/v1/dataset/tags", []string{"document.read"}, doc.AllDatasetTags)
 	handleAPI(r, "GET", "/api/v1/datasets", []string{"document.read"}, doc.ListDatasets)
@@ -25,7 +25,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "GET", "/api/v1/datasets:allDefaultDatasets", []string{"document.read"}, doc.AllDefaultDatasets)
 	handleAPI(r, "POST", "/api/v1/datasets:presignUploadCoverImageUrl", []string{"document.write"}, doc.PresignUploadCoverImageURL)
 	handleAPI(r, "POST", "/api/v1/datasets:search", []string{"document.read"}, doc.SearchDatasets)
-	// Dataset-level callback (no task id in path)
+	// 数据集级回调（路径中无 task id）
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks:callback", []string{"document.write"}, doc.CallbackTask)
 
 	// ----- DocumentService -----
@@ -44,7 +44,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/documents/{document}/table:modify", []string{"document.write"}, doc.ModifyTableData)
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/documents/{document}/table:search", []string{"document.read"}, doc.SearchTableData)
 
-	// ----- SegmentService -----
+	// ----- 分段服务 -----
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/documents/{document}/segments", []string{"document.read"}, doc.ListSegments)
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/documents/{document}/segments/{segment}", []string{"document.read"}, doc.GetSegment)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/documents/{document}/segments/{segment}:edit", []string{"document.write"}, doc.EditSegment)
@@ -56,12 +56,12 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/segments:hybrid", []string{"document.read"}, doc.HybridSearchSegments)
 	handleAPI(r, "POST", "/api/v1/segments:scroll", []string{"document.read"}, doc.ScrollSegments)
 
-	// ----- TableService -----
+	// ----- 表格服务 -----
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/documents/{document}/table/meta", []string{"document.read"}, db.GetMeta)
 	handleAPI(r, "POST", "/api/v1/table:findMeta", []string{"document.read"}, db.FindMeta)
 	handleAPI(r, "POST", "/api/v1/table:query", []string{"document.read"}, db.QueryTable)
 
-	// ----- DatasetMemberService -----
+	// ----- 数据集成员服务 -----
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/members", []string{"document.read"}, doc.ListDatasetMembers)
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/members/{member}", []string{"document.read"}, doc.GetDatasetMember)
 	handleAPI(r, "DELETE", "/api/v1/datasets/{dataset}/members/{member}", []string{"document.write"}, doc.DeleteDatasetMember)
@@ -69,7 +69,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/members:search", []string{"document.read"}, doc.SearchDatasetMember)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}:batchAddMember", []string{"document.write"}, doc.BatchAddDatasetMember)
 
-	// ----- TaskService (expose Task directly, not via Job) -----
+	// ----- 任务服务（直接暴露 Task，不经 Job） -----
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/tasks", []string{"document.read"}, doc.ListTasks)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks", []string{"document.write"}, doc.CreateTask)
 	handleAPI(r, "GET", "/api/v1/datasets/{dataset}/tasks/{task}", []string{"document.read"}, doc.GetTask)
@@ -77,21 +77,66 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:cancel", []string{"document.write"}, doc.CancelTask)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:suspend", []string{"document.write"}, doc.SuspendTask)
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:resume", []string{"document.write"}, doc.ResumeTask)
-	// Task-level callback (task id in path)
+	// 任务级回调（路径中含 task id）
 	handleAPI(r, "POST", "/api/v1/datasets/{dataset}/tasks/{task}:callback", []string{"document.write"}, doc.TaskCallback)
 
-	// ----- RAG File Service (proxy to parsing) -----
+	// ----- RAG 文件服务（代理到解析服务） -----
 	handleAPI(r, "POST", "/api/upload_files", []string{"document.write"}, file.UploadFiles)
 	handleAPI(r, "POST", "/api/add_files_to_group", []string{"document.write"}, file.AddFilesToGroup)
 	handleAPI(r, "GET", "/api/list_files", []string{"document.read"}, file.ListFiles)
 	handleAPI(r, "GET", "/api/list_files_in_group", []string{"document.read"}, file.ListFilesInGroup)
 	handleAPI(r, "GET", "/api/list_kb_groups", []string{"document.read"}, file.ListKBGroups)
 
-	// ----- ChatService -----
+	// ----- 对话服务 -----
 	handleAPI(r, "POST", "/api/chat", []string{"qa.read"}, chat.Chat)
-	handleAPI(r, "POST", "/api/chat/stream", []string{"qa.read"}, chat.ChatStream)
 
-	// ----- DatabaseService (RAG databases) -----
+	// ----- 会话服务 -----
+	handleAPI(r, "POST", "/api/v1/conversations:chat", []string{"qa.read"}, chat.ChatConversations)
+	handleAPI(r, "POST", "/api/v1/conversations:resumeChat", []string{"qa.read"}, chat.ResumeChat)
+	handleAPI(r, "POST", "/api/v1/conversations:stopChatGeneration", []string{"qa.read"}, chat.StopChatGeneration)
+	handleAPI(r, "GET", "/api/v1/conversations/{conversation_id}:status", []string{"qa.read"}, chat.GetChatStatus)
+
+	handleAPI(r, "GET", "/api/v1/conversations/{name}", []string{"qa.read"}, chat.GetConversation)
+	handleAPI(r, "GET", "/api/v1/conversations/{name}:detail", []string{"qa.read"}, chat.GetConversationDetail)
+	handleAPI(r, "DELETE", "/api/v1/conversations/{name}", []string{"qa.read"}, chat.DeleteConversation)
+	handleAPI(r, "GET", "/api/v1/conversations", []string{"qa.read"}, chat.ListConversations)
+	handleAPI(r, "POST", "/api/v1/conversations:setChatHistory", []string{"qa.read"}, chat.SetChatHistory)
+	handleAPI(r, "POST", "/api/v1/conversations:feedBackChatHistory", []string{"qa.read"}, chat.FeedBackChatHistory)
+
+	handleAPI(r, "GET", "/api/v1/conversation:switchStatus", []string{"qa.read"}, chat.GetMultiAnswersSwitchStatus)
+	handleAPI(r, "POST", "/api/v1/conversation:switchStatus", []string{"qa.read"}, chat.SetMultiAnswersSwitchStatus)
+
+	// 兼容无 /api 前缀路径（与 neutrino 网关外露路径一致）
+	handleAPI(r, "POST", "/v1/conversations:chat", []string{"qa.read"}, chat.ChatConversations)
+	handleAPI(r, "POST", "/v1/conversations:resumeChat", []string{"qa.read"}, chat.ResumeChat)
+	handleAPI(r, "POST", "/v1/conversations:stopChatGeneration", []string{"qa.read"}, chat.StopChatGeneration)
+	handleAPI(r, "GET", "/v1/conversations/{conversation_id}:status", []string{"qa.read"}, chat.GetChatStatus)
+	handleAPI(r, "GET", "/v1/conversations/{name}", []string{"qa.read"}, chat.GetConversation)
+	handleAPI(r, "GET", "/v1/conversations/{name}:detail", []string{"qa.read"}, chat.GetConversationDetail)
+	handleAPI(r, "DELETE", "/v1/conversations/{name}", []string{"qa.read"}, chat.DeleteConversation)
+	handleAPI(r, "GET", "/v1/conversations", []string{"qa.read"}, chat.ListConversations)
+	handleAPI(r, "POST", "/v1/conversations:setChatHistory", []string{"qa.read"}, chat.SetChatHistory)
+	handleAPI(r, "POST", "/v1/conversations:feedBackChatHistory", []string{"qa.read"}, chat.FeedBackChatHistory)
+	handleAPI(r, "GET", "/v1/conversation:switchStatus", []string{"qa.read"}, chat.GetMultiAnswersSwitchStatus)
+	handleAPI(r, "POST", "/v1/conversation:switchStatus", []string{"qa.read"}, chat.SetMultiAnswersSwitchStatus)
+
+	// ----- 提示词服务 -----
+	handleAPI(r, "POST", "/api/v1/prompts", []string{"document.write"}, chat.CreatePrompt)
+	handleAPI(r, "PATCH", "/api/v1/prompts/{name}", []string{"document.write"}, chat.UpdatePrompt)
+	handleAPI(r, "DELETE", "/api/v1/prompts/{name}", []string{"document.write"}, chat.DeletePrompt)
+	handleAPI(r, "GET", "/api/v1/prompts/{name}", []string{"document.read"}, chat.GetPrompt)
+	handleAPI(r, "GET", "/api/v1/prompts", []string{"document.read"}, chat.ListPrompts)
+	handleAPI(r, "POST", "/api/v1/prompts/{name}:setDefault", []string{"document.write"}, chat.SetDefaultPrompt)
+	handleAPI(r, "POST", "/api/v1/prompts/{name}:unsetDefault", []string{"document.write"}, chat.UnsetDefaultPrompt)
+	handleAPI(r, "POST", "/v1/prompts", []string{"document.write"}, chat.CreatePrompt)
+	handleAPI(r, "PATCH", "/v1/prompts/{name}", []string{"document.write"}, chat.UpdatePrompt)
+	handleAPI(r, "DELETE", "/v1/prompts/{name}", []string{"document.write"}, chat.DeletePrompt)
+	handleAPI(r, "GET", "/v1/prompts/{name}", []string{"document.read"}, chat.GetPrompt)
+	handleAPI(r, "GET", "/v1/prompts", []string{"document.read"}, chat.ListPrompts)
+	handleAPI(r, "POST", "/v1/prompts/{name}:setDefault", []string{"document.write"}, chat.SetDefaultPrompt)
+	handleAPI(r, "POST", "/v1/prompts/{name}:unsetDefault", []string{"document.write"}, chat.UnsetDefaultPrompt)
+
+	// ----- 数据库服务（RAG 数据库） -----
 	handleAPI(r, "GET", "/api/v1/rag/database/tags", []string{"document.read"}, db.GetUserDatabaseTags)
 	handleAPI(r, "POST", "/api/v1/rag/databases", []string{"document.read"}, db.GetUserDatabases)
 	handleAPI(r, "POST", "/api/v1/rag/databases/create", []string{"document.write"}, db.CreateDatabase)
@@ -103,7 +148,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/rag/databases/{database_id}/tables/{table_id}/preview", []string{"document.read"}, db.ListTableRows)
 	handleAPI(r, "POST", "/api/v1/rag/databases/{database_id}/update", []string{"document.write"}, db.UpdateDatabase)
 
-	// ----- Internal -----
+	// ----- 内部接口 -----
 	handleAPI(r, "GET", "/api/v1/inner/datasets/{dataset}:internal", []string{"document.read"}, doc.GetDatasetInternal)
 	handleAPI(r, "POST", "/api/v1/inner/rag:knowledgeRetrieve", []string{"qa.read"}, doc.KnowledgeRetrieve)
 
@@ -111,7 +156,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/api/v1/writerSegmentJob:submit", []string{"document.write"}, doc.Submit)
 	handleAPI(r, "GET", "/api/v1/writerSegmentJobs/{writerSegmentJob}", []string{"document.read"}, doc.Get)
 
-	// ----- ACL (knowledge base data permission) -----
+	// ----- ACL（知识库数据权限） -----
 	handleAPI(r, "GET", "/api/kb/list", []string{"document.read"}, acl.ListKB)
 	handleAPI(r, "POST", "/api/kb/permission/batch", []string{"document.read"}, acl.PermissionBatch)
 	handleAPI(r, "GET", "/api/kb/{kb_id}/permission", []string{"document.read"}, acl.GetPermission)

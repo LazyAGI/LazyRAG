@@ -2,7 +2,7 @@ package orm
 
 import "time"
 
-// VisibilityModel stores visibility level for a resource (e.g. kb).
+// VisibilityModel 资源（如 kb）可见级别。
 type VisibilityModel struct {
 	ID         int64  `gorm:"primaryKey;autoIncrement"`
 	ResourceID string `gorm:"column:resource_id;type:varchar(255);index"`
@@ -11,7 +11,7 @@ type VisibilityModel struct {
 
 func (VisibilityModel) TableName() string { return "acl_visibility" }
 
-// ACLModel stores ACL entries for resources.
+// ACLModel ACL 行记录。
 type ACLModel struct {
 	ID           int64      `gorm:"primaryKey;autoIncrement"`
 	ResourceType string     `gorm:"column:resource_type;type:varchar(32);index:idx_acl_resource,priority:1"`
@@ -26,7 +26,7 @@ type ACLModel struct {
 
 func (ACLModel) TableName() string { return "acl_rows" }
 
-// KBModel stores KB metadata.
+// KBModel 知识库元数据。
 type KBModel struct {
 	ID         string `gorm:"primaryKey;column:id;type:varchar(64)"`
 	Name       string `gorm:"column:name;type:varchar(255)"`
@@ -36,7 +36,7 @@ type KBModel struct {
 
 func (KBModel) TableName() string { return "acl_kbs" }
 
-// UserGroupModel stores user -> group/tenant mapping for ACL.
+// UserGroupModel 用户与组/租户映射。
 type UserGroupModel struct {
 	UserID  int64 `gorm:"primaryKey;column:user_id"`
 	GroupID int64 `gorm:"primaryKey;column:group_id"`
