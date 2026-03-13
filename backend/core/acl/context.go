@@ -7,8 +7,8 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// CurrentUserID returns the current user id from request (e.g. set by auth middleware).
-// Reads X-User-Id header; 0 if missing or invalid.
+// CurrentUserID 从请求中读取当前用户 id（如由鉴权中间件设置）
+// 读取 X-User-Id 头，缺失或非法时返回 0
 func CurrentUserID(r *http.Request) int64 {
 	s := r.Header.Get("X-User-Id")
 	if s == "" {
@@ -18,13 +18,13 @@ func CurrentUserID(r *http.Request) int64 {
 	return id
 }
 
-// PathKbID returns kb_id from path. Returns empty string if missing.
+// PathKbID 从路径中解析 kb_id，缺失时返回空字符串
 func PathKbID(r *http.Request) string {
 	vars := mux.Vars(r)
 	return vars["kb_id"]
 }
 
-// PathACLID returns acl_id from path.
+// PathACLID 从路径中解析 acl_id
 func PathACLID(r *http.Request) int64 {
 	vars := mux.Vars(r)
 	s := vars["acl_id"]

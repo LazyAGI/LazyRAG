@@ -6,7 +6,7 @@ import (
 	"lazyrag/core/common"
 )
 
-// SegmentService stub handlers. TODO: implement later.
+// SegmentService 占位实现，后续补全。
 
 func ListSegments(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, map[string]any{}) /* TODO */

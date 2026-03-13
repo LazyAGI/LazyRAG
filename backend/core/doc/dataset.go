@@ -6,7 +6,7 @@ import (
 	"lazyrag/core/common"
 )
 
-// DatasetService stub handlers. TODO: implement later.
+// DatasetService 占位实现，后续补全。
 
 func ListAlgos(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, map[string]any{}) /* TODO */

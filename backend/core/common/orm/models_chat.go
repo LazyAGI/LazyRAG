@@ -1,0 +1,92 @@
+package orm
+
+import "encoding/json"
+
+// Prompt 表，对应 neutrino 的 prompts。
+type Prompt struct {
+	ID      string `gorm:"column:id;type:varchar(64);primaryKey"`
+	Name    string `gorm:"column:name;type:varchar(255);uniqueIndex;not null"`
+	Content string `gorm:"column:content;type:text;not null"`
+
+	BaseModel
+}
+
+func (Prompt) TableName() string { return "prompts" }
+
+// DefaultPrompt 表，对应 neutrino 的 default_prompts。
+type DefaultPrompt struct {
+	ID         int    `gorm:"column:id;primaryKey;autoIncrement"`
+	PromptID   string `gorm:"column:prompt_id;type:varchar(64);not null"`
+	PromptName string `gorm:"column:prompt_name;type:varchar(255);not null"`
+
+	BaseModel
+}
+
+func (DefaultPrompt) TableName() string { return "default_prompts" }
+
+// MultiAnswersSwitch 表，对应 neutrino 的 multi_answers_switches。
+type MultiAnswersSwitch struct {
+	ID     int32 `gorm:"column:id;primaryKey;autoIncrement"`
+	Status int32 `gorm:"column:status;not null;default:0"`
+
+	BaseModel
+}
+
+func (MultiAnswersSwitch) TableName() string { return "multi_answers_switches" }
+
+// Conversation 表，对应 neutrino 的 conversations；channel_id 使用默认值。
+type Conversation struct {
+	ID            string          `gorm:"column:id;type:varchar(36);primaryKey"`
+	DisplayName   string          `gorm:"column:display_name;type:varchar(255)"`
+	ChannelID     string          `gorm:"column:channel_id;type:varchar(36);not null;default:default"`
+	SearchConfig  json.RawMessage `gorm:"column:search_config;type:json"` // neutrino: JSON search_config
+	ApplicationID string          `gorm:"column:application_id;type:varchar(64);default:''"`
+	Ext           json.RawMessage `gorm:"column:ext;type:json"`
+	Model         string          `gorm:"column:model;type:varchar(64);default:''"`
+	Models        json.RawMessage `gorm:"column:models;type:json"` // neutrino: []string JSON
+	ChatTimes     int32           `gorm:"column:chat_times;not null;default:0"`
+
+	BaseModel
+}
+
+func (Conversation) TableName() string { return "conversations" }
+
+// ChatHistory 表，对应 neutrino 的 chat_histories。
+type ChatHistory struct {
+	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
+	Seq             int             `gorm:"column:seq;not null"`
+	ConversationID  string          `gorm:"column:conversation_id;type:varchar(36);index;not null"`
+	RawContent      string          `gorm:"column:raw_content;type:text"`
+	RetrievalResult json.RawMessage `gorm:"column:retrieval_result;type:json"`
+	Content         string          `gorm:"column:content;type:text"`
+	Result          string          `gorm:"column:result;type:text"`
+	FeedBack        int             `gorm:"column:feed_back;default:0"` // 0 none, 1 like, 2 unlike
+	Reason          string          `gorm:"column:reason;type:varchar(255)"`
+	ExpectedAnswer  string          `gorm:"column:expected_answer;type:text"`
+	Ext             json.RawMessage `gorm:"column:ext;type:json"`
+	Version         string          `gorm:"column:version;type:varchar(128);default:2.3"`
+
+	TimeMixin
+}
+
+func (ChatHistory) TableName() string { return "chat_histories" }
+
+// MultiAnswersChatHistory 表，对应 neutrino 的 multi_answers_chat_histories。
+// 双答案模式先落该表，用户最终选择后再转存到 chat_histories。
+type MultiAnswersChatHistory struct {
+	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
+	Seq             int             `gorm:"column:seq;not null"`
+	ConversationID  string          `gorm:"column:conversation_id;type:varchar(36);index;not null"`
+	RawContent      string          `gorm:"column:raw_content;type:text"`
+	RetrievalResult json.RawMessage `gorm:"column:retrieval_result;type:json"`
+	Content         string          `gorm:"column:content;type:text"`
+	Result          string          `gorm:"column:result;type:text"`
+	FeedBack        int             `gorm:"column:feed_back;default:0"`
+	Reason          string          `gorm:"column:reason;type:varchar(255)"`
+	Ext             json.RawMessage `gorm:"column:ext;type:json"`
+	Endpoint        string          `gorm:"column:endpoint;type:varchar(512)"`
+
+	TimeMixin
+}
+
+func (MultiAnswersChatHistory) TableName() string { return "multi_answers_chat_histories" }
