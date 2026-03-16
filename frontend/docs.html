@@ -1,105 +1,169 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="./src/public/Lazy.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>API Docs - LazyRAG</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui.css">
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui.css"
+    />
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; font-family: system-ui, sans-serif; }
-        .header {
-            padding: 0.75rem 1rem;
-            background: #1a1a2e;
-            color: #eee;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .header a { color: #7dd3fc; text-decoration: none; }
-        .header a:hover { text-decoration: underline; }
-        .tabs {
-            display: flex;
-            gap: 0.25rem;
-            padding: 0.5rem 1rem;
-            background: #f1f5f9;
-            border-bottom: 1px solid #e2e8f0;
-            flex-wrap: wrap;
-        }
-        .tabs button {
-            padding: 0.5rem 1rem;
-            border: 1px solid #cbd5e1;
-            background: #fff;
-            cursor: pointer;
-            border-radius: 4px;
-            font-size: 0.9rem;
-        }
-        .tabs button:hover { background: #f8fafc; }
-        .tabs button.active {
-            background: #3b82f6;
-            color: #fff;
-            border-color: #3b82f6;
-        }
-        .swagger-wrap { padding: 0; }
-        .swagger-wrap .swagger-ui { padding: 0 1rem 1rem; }
-        .swagger-wrap.hidden { display: none; }
-        #swagger-auth, #swagger-core, #swagger-processor-server, #swagger-processor-worker, #swagger-parsing, #swagger-chat {
-            min-height: calc(100vh - 100px);
-        }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+      }
+      .header {
+        padding: 0.75rem 1rem;
+        background: #1a1a2e;
+        color: #eee;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .header a {
+        color: #7dd3fc;
+        text-decoration: none;
+      }
+      .header a:hover {
+        text-decoration: underline;
+      }
+      .tabs {
+        display: flex;
+        gap: 0.25rem;
+        padding: 0.5rem 1rem;
+        background: #f1f5f9;
+        border-bottom: 1px solid #e2e8f0;
+        flex-wrap: wrap;
+      }
+      .tabs button {
+        padding: 0.5rem 1rem;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 0.9rem;
+      }
+      .tabs button:hover {
+        background: #f8fafc;
+      }
+      .tabs button.active {
+        background: #3b82f6;
+        color: #fff;
+        border-color: #3b82f6;
+      }
+      .swagger-wrap {
+        padding: 0;
+      }
+      .swagger-wrap .swagger-ui {
+        padding: 0 1rem 1rem;
+      }
+      .swagger-wrap.hidden {
+        display: none;
+      }
+      #swagger-auth,
+      #swagger-core,
+      #swagger-processor-server,
+      #swagger-processor-worker,
+      #swagger-parsing,
+      #swagger-chat {
+        min-height: calc(100vh - 100px);
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="header">
-        <a href="/">← Back to App</a>
-        <span>API Docs</span>
+      <a href="/">← Back to App</a>
+      <span>API Docs</span>
     </div>
     <div class="tabs">
-        <button data-service="auth" class="active">auth-service</button>
-        <button data-service="core">core (Go)</button>
-        <button data-service="processor-server">processor-server</button>
-        <button data-service="processor-worker">processor-worker</button>
-        <button data-service="parsing">parsing</button>
-        <button data-service="chat">chat</button>
+      <button data-service="auth" class="active">auth-service</button>
+      <button data-service="core">core (Go)</button>
+      <button data-service="processor-server">processor-server</button>
+      <button data-service="processor-worker">processor-worker</button>
+      <button data-service="parsing">parsing</button>
+      <button data-service="chat">chat</button>
     </div>
     <div class="swagger-wrap" id="auth"><div id="swagger-auth"></div></div>
-    <div class="swagger-wrap hidden" id="core"><div id="swagger-core"></div></div>
-    <div class="swagger-wrap hidden" id="processor-server"><div id="swagger-processor-server"></div></div>
-    <div class="swagger-wrap hidden" id="processor-worker"><div id="swagger-processor-worker"></div></div>
-    <div class="swagger-wrap hidden" id="parsing"><div id="swagger-parsing"></div></div>
-    <div class="swagger-wrap hidden" id="chat"><div id="swagger-chat"></div></div>
+    <div class="swagger-wrap hidden" id="core">
+      <div id="swagger-core"></div>
+    </div>
+    <div class="swagger-wrap hidden" id="processor-server">
+      <div id="swagger-processor-server"></div>
+    </div>
+    <div class="swagger-wrap hidden" id="processor-worker">
+      <div id="swagger-processor-worker"></div>
+    </div>
+    <div class="swagger-wrap hidden" id="parsing">
+      <div id="swagger-parsing"></div>
+    </div>
+    <div class="swagger-wrap hidden" id="chat">
+      <div id="swagger-chat"></div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js"></script>
     <script>
-        const services = [
-            { id: 'auth', domId: 'swagger-auth', url: '/api-docs/auth-service/openapi.json' },
-            { id: 'core', domId: 'swagger-core', url: '/api-docs/core/openapi.json' },
-            { id: 'processor-server', domId: 'swagger-processor-server', url: '/api-docs/processor-server/openapi.json' },
-            { id: 'processor-worker', domId: 'swagger-processor-worker', url: '/api-docs/processor-worker/openapi.json' },
-            { id: 'parsing', domId: 'swagger-parsing', url: '/api-docs/parsing/openapi.json' },
-            { id: 'chat', domId: 'swagger-chat', url: '/api-docs/chat/openapi.json' },
-        ];
+      const services = [
+        {
+          id: "auth",
+          domId: "swagger-auth",
+          url: "/api-docs/auth-service/openapi.json",
+        },
+        {
+          id: "core",
+          domId: "swagger-core",
+          url: "/api-docs/core/openapi.json",
+        },
+        {
+          id: "processor-server",
+          domId: "swagger-processor-server",
+          url: "/api-docs/processor-server/openapi.json",
+        },
+        {
+          id: "processor-worker",
+          domId: "swagger-processor-worker",
+          url: "/api-docs/processor-worker/openapi.json",
+        },
+        {
+          id: "parsing",
+          domId: "swagger-parsing",
+          url: "/api-docs/parsing/openapi.json",
+        },
+        {
+          id: "chat",
+          domId: "swagger-chat",
+          url: "/api-docs/chat/openapi.json",
+        },
+      ];
 
-        services.forEach(s => {
-            SwaggerUIBundle({
-                url: s.url,
-                dom_id: '#' + s.domId,
-                presets: [
-                    SwaggerUIBundle.presets.apis,
-                    SwaggerUIStandalonePreset,
-                ],
-                layout: 'StandaloneLayout',
-            });
+      services.forEach((s) => {
+        SwaggerUIBundle({
+          url: s.url,
+          dom_id: "#" + s.domId,
+          presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+          layout: "StandaloneLayout",
         });
+      });
 
-        document.querySelectorAll('.tabs button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.swagger-wrap').forEach(f => f.classList.add('hidden'));
-                btn.classList.add('active');
-                document.getElementById(btn.dataset.service).classList.remove('hidden');
-            });
+      document.querySelectorAll(".tabs button").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document
+            .querySelectorAll(".tabs button")
+            .forEach((b) => b.classList.remove("active"));
+          document
+            .querySelectorAll(".swagger-wrap")
+            .forEach((f) => f.classList.add("hidden"));
+          btn.classList.add("active");
+          document
+            .getElementById(btn.dataset.service)
+            .classList.remove("hidden");
         });
+      });
     </script>
-</body>
+  </body>
 </html>

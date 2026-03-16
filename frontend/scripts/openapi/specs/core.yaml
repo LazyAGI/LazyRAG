@@ -1,0 +1,622 @@
+info:
+    description: LazyRAG Go backend core API - proxies to algorithm services. 经 Kong 暴露时前缀为 /api/core。
+    title: Backend Core API
+    version: 0.1.0
+openapi: 3.0.3
+paths:
+    /api/core/add_files_to_group:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /add_files_to_group
+    /api/core/admin:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /admin
+    /api/core/chat:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /chat
+    /api/core/conversation:switchStatus:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /conversation:switchStatus
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /conversation:switchStatus
+    /api/core/conversations:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /conversations
+    /api/core/conversations/{conversation_id}:status:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /conversations/{conversation_id}:status
+    /api/core/conversations/{name}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /conversations/{name}
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /conversations/{name}
+    /api/core/conversations/{name}:detail:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /conversations/{name}:detail
+    /api/core/conversations:chat:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /conversations:chat
+    /api/core/conversations:feedBackChatHistory:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /conversations:feedBackChatHistory
+    /api/core/conversations:resumeChat:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /conversations:resumeChat
+    /api/core/conversations:setChatHistory:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /conversations:setChatHistory
+    /api/core/conversations:stopChatGeneration:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /conversations:stopChatGeneration
+    /api/core/dataset/algos:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /dataset/algos
+    /api/core/dataset/tags:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /dataset/tags
+    /api/core/datasets:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets
+    /api/core/datasets/{dataset}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /datasets/{dataset}
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}
+        patch:
+            responses:
+                "200":
+                    description: OK
+            summary: PATCH /datasets/{dataset}
+    /api/core/datasets/{dataset}/documents:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents
+    /api/core/datasets/{dataset}/documents/{document}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /datasets/{dataset}/documents/{document}
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents/{document}
+        patch:
+            responses:
+                "200":
+                    description: OK
+            summary: PATCH /datasets/{dataset}/documents/{document}
+    /api/core/datasets/{dataset}/documents/{document}/segments:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents/{document}/segments
+    /api/core/datasets/{dataset}/documents/{document}/segments/{segment}:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents/{document}/segments/{segment}
+    /api/core/datasets/{dataset}/documents/{document}/segments/{segment}:edit:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/segments/{segment}:edit
+    /api/core/datasets/{dataset}/documents/{document}/segments/{segment}:modifyStatus:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/segments/{segment}:modifyStatus
+    /api/core/datasets/{dataset}/documents/{document}/segments:search:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/segments:search
+    /api/core/datasets/{dataset}/documents/{document}/table/meta:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents/{document}/table/meta
+    /api/core/datasets/{dataset}/documents/{document}/table:add:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/table:add
+    /api/core/datasets/{dataset}/documents/{document}/table:batchDelete:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/table:batchDelete
+    /api/core/datasets/{dataset}/documents/{document}/table:modify:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/table:modify
+    /api/core/datasets/{dataset}/documents/{document}/table:search:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents/{document}/table:search
+    /api/core/datasets/{dataset}/documents:search:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents:search
+    /api/core/datasets/{dataset}/group/{group}/documents/{document}/segments/{segment}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /datasets/{dataset}/group/{group}/documents/{document}/segments/{segment}
+    /api/core/datasets/{dataset}/members:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/members
+    /api/core/datasets/{dataset}/members/{member}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /datasets/{dataset}/members/{member}
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/members/{member}
+        patch:
+            responses:
+                "200":
+                    description: OK
+            summary: PATCH /datasets/{dataset}/members/{member}
+    /api/core/datasets/{dataset}/members:search:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/members:search
+    /api/core/datasets/{dataset}/tasks:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/tasks
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/tasks
+    /api/core/datasets/{dataset}/tasks/{task}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /datasets/{dataset}/tasks/{task}
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/tasks/{task}
+    /api/core/datasets/{dataset}/tasks/{task}:callback:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/tasks/{task}:callback
+    /api/core/datasets/{dataset}/tasks/{task}:cancel:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/tasks/{task}:cancel
+    /api/core/datasets/{dataset}/tasks/{task}:resume:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/tasks/{task}:resume
+    /api/core/datasets/{dataset}/tasks/{task}:suspend:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/tasks/{task}:suspend
+    /api/core/datasets/{dataset}/tasks:callback:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/tasks:callback
+    /api/core/datasets/{dataset}:batchAddMember:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}:batchAddMember
+    /api/core/datasets/{dataset}:batchDelete:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}:batchDelete
+    /api/core/datasets/{dataset}:setDefault:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}:setDefault
+    /api/core/datasets/{dataset}:unsetDefault:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}:unsetDefault
+    /api/core/datasets:allDefaultDatasets:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets:allDefaultDatasets
+    /api/core/datasets:presignUploadCoverImageUrl:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets:presignUploadCoverImageUrl
+    /api/core/datasets:search:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets:search
+    /api/core/document/creators:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /document/creators
+    /api/core/document/tags:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /document/tags
+    /api/core/documents:search:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /documents:search
+    /api/core/health:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /health
+    /api/core/hello:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /hello
+    /api/core/inner/datasets/{dataset}:internal:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /inner/datasets/{dataset}:internal
+    /api/core/inner/rag:knowledgeRetrieve:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /inner/rag:knowledgeRetrieve
+    /api/core/kb/{kb_id}/acl:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /kb/{kb_id}/acl
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /kb/{kb_id}/acl
+    /api/core/kb/{kb_id}/acl/{acl_id}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /kb/{kb_id}/acl/{acl_id}
+        put:
+            responses:
+                "200":
+                    description: OK
+            summary: PUT /kb/{kb_id}/acl/{acl_id}
+    /api/core/kb/{kb_id}/acl/batch:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /kb/{kb_id}/acl/batch
+    /api/core/kb/{kb_id}/can:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /kb/{kb_id}/can
+    /api/core/kb/{kb_id}/permission:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /kb/{kb_id}/permission
+    /api/core/kb/list:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /kb/list
+    /api/core/kb/permission/batch:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /kb/permission/batch
+    /api/core/list_files:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /list_files
+    /api/core/list_files_in_group:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /list_files_in_group
+    /api/core/list_kb_groups:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /list_kb_groups
+    /api/core/prompts:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /prompts
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /prompts
+    /api/core/prompts/{name}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /prompts/{name}
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /prompts/{name}
+        patch:
+            responses:
+                "200":
+                    description: OK
+            summary: PATCH /prompts/{name}
+    /api/core/prompts/{name}:setDefault:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /prompts/{name}:setDefault
+    /api/core/prompts/{name}:unsetDefault:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /prompts/{name}:unsetDefault
+    /api/core/rag/database/tags:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /rag/database/tags
+    /api/core/rag/databases:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /rag/databases
+    /api/core/rag/databases/{database_id}:
+        delete:
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /rag/databases/{database_id}
+    /api/core/rag/databases/{database_id}/tables:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /rag/databases/{database_id}/tables
+    /api/core/rag/databases/{database_id}/tables/{table_id}/cell:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /rag/databases/{database_id}/tables/{table_id}/cell
+    /api/core/rag/databases/{database_id}/tables/{table_id}/preview:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /rag/databases/{database_id}/tables/{table_id}/preview
+    /api/core/rag/databases/{database_id}/update:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /rag/databases/{database_id}/update
+    /api/core/rag/databases/create:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /rag/databases/create
+    /api/core/rag/databases/summary:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /rag/databases/summary
+    /api/core/rag/databases/validate-connection:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /rag/databases/validate-connection
+    /api/core/segment/imageURIs:batchSign:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /segment/imageURIs:batchSign
+    /api/core/segments:bulkDelete:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /segments:bulkDelete
+    /api/core/segments:hybrid:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /segments:hybrid
+    /api/core/segments:scroll:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /segments:scroll
+    /api/core/table:findMeta:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /table:findMeta
+    /api/core/table:query:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /table:query
+    /api/core/upload_files:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /upload_files
+    /api/core/writerSegmentJob:submit:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /writerSegmentJob:submit
+    /api/core/writerSegmentJobs/{writerSegmentJob}:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /writerSegmentJobs/{writerSegmentJob}
+servers:
+    - description: same origin; see paths with /api/core prefix
+      url: /

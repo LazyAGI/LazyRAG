@@ -1,0 +1,13 @@
+.chat-image-upload {
+  .ant-upload {
+    display: block;
+    height: 20px;
+
+    cursor: pointer;
+  }
+}
+.drag-upload-container {
+  .ant-upload {
+    height: auto;
+  }
+}

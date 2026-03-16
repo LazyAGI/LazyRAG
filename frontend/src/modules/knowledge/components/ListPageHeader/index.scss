@@ -1,0 +1,18 @@
+.filter-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+
+  .search-input {
+    width: 300px;
+  }
+
+  .right-box {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: 16px;
+  }
+}

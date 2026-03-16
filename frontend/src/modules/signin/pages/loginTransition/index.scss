@@ -1,0 +1,66 @@
+.login-transition-page {
+  width: 100vw;
+  height: 100vh;
+  background-position: 50% 50%;
+  background-size: cover;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-transition-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  padding: 48px 64px 40px;
+  max-width: 480px;
+  width: 90%;
+  text-align: center;
+  height: 560px;
+
+  .card-content {
+    margin: 125px 0;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card-logo {
+    width: 150px;
+    height: 60px;
+    object-fit: contain;
+  }
+  .card-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1a1a1a;
+    margin: 0 0 40px;
+    line-height: 1.4;
+  }
+  .retry-btn {
+    background: #fff !important;
+    border: 1px solid #5b9bd5 !important;
+    color: #5b9bd5 !important;
+    border-radius: 6px;
+    padding: 8px 32px;
+    height: 40px;
+    font-size: 15px;
+    &:hover {
+      border-color: #4a8bc2 !important;
+      color: #4a8bc2 !important;
+    }
+  }
+  .card-footer {
+    margin-top: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .footer-logo-img {
+    max-width: 302px;
+    height: 36px;
+    object-fit: contain;
+  }
+}

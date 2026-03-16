@@ -1,0 +1,85 @@
+.segmentList {
+  height: 100%;
+  flex: 1;
+  position: relative;
+
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+
+  padding-left: 0px;
+  overflow: auto;
+
+  &.fullMode {
+    display: block;
+    margin-bottom: 16px;
+  }
+}
+
+.fullTextContent {
+  position: relative;
+
+  margin-right: 16px;
+  margin-bottom: 4px;
+
+  word-break: break-all;
+  white-space: pre-wrap;
+
+  background-color: rgb(123 162 255 / 20%);
+
+  cursor: pointer;
+
+  &:nth-child(2n) {
+    background-color: rgb(189 240 235 / 70%);
+  }
+
+  > img {
+    max-width: 100%;
+  }
+}
+
+.fullTextNumber {
+  position: absolute;
+  right: 4px;
+  bottom: 0;
+
+  color: #8d9ab2;
+}
+
+#scrollableDiv-summary {
+  & > div {
+    height: 100%;
+  }
+  .segmentList-virtuoso {
+    & > div {
+      height: 100%;
+      & > div {
+        height: 100%;
+        & > div {
+          height: 100%;
+          .segmentCard {
+            max-height: unset;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            .content {
+              flex: 1;
+            }
+          }
+        }
+      }
+    }
+  }
+  .mdx-editor-wrapper {
+    height: 100%;
+    & > div {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      .mdxeditor-root-contenteditable {
+        flex: 1 !important;
+      }
+    }
+  }
+}

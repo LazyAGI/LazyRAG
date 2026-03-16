@@ -1,0 +1,11 @@
+.ant-carousel .slick-prev,
+.ant-carousel .slick-next,
+.ant-carousel .slick-prev:hover,
+.ant-carousel .slick-next:hover {
+  font-size: 40px;
+  color: var(--color-primary);
+}
+.knowledge-container {
+  display: flex;
+  flex-direction: column;
+}
