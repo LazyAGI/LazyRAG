@@ -7,8 +7,10 @@ Modes:
    parsing service with ``--parser-url``.
 
 Run:
-    python examples/rag/doc_service_standalone.py --wait
-    python examples/rag/doc_service_standalone.py --parser-url http://127.0.0.1:9966 --wait
+    export LAZYLLM_HOME=./tmp_home
+    PYTHONPATH=$PWD/algorithm/lazyllm \
+    LAZYLLM_HOME=$PWD/.lazyllm \
+    python backend/core/doc/lazyllm_mock.py --wait
 '''
 
 from __future__ import annotations
@@ -30,27 +32,37 @@ FIXED_DB_ROOT = '.lazyllm/.dbs/'
 DEFAULT_OPENAPI_PATH = os.path.join(FIXED_DB_ROOT, 'doc_service.openapi.json')
 
 
-def _make_db_config(db_name: str) -> Dict[str, Any]:
-    return {
-        'db_type': 'sqlite',
-        'user': None,
-        'password': None,
-        'host': None,
-        'port': None,
-        'db_name': db_name,
-    }
-
-
 # def _make_db_config(db_name: str) -> Dict[str, Any]:
 #     return {
-#         'db_type': 'postgresql',
-#         'user': 'app',
-#         'password': 'app',
-#         'host': '127.0.0.1',
-#         'port': 5432,
+#         'db_type': 'sqlite',
+#         'user': None,
+#         'password': None,
+#         'host': None,
+#         'port': None,
 #         'db_name': db_name,
 #     }
+# def _prepare_runtime_paths() -> Dict[str, str]:
+#     os.makedirs(FIXED_DB_ROOT, exist_ok=True)
+#     paths = {
+#         'root_dir': FIXED_DB_ROOT,
+#         'storage_dir': os.path.join(FIXED_DB_ROOT, 'uploads'),
+#         'store_dir': os.path.join(FIXED_DB_ROOT, 'store'),
+#         'parser_db': os.path.join(FIXED_DB_ROOT, 'parser.sqlite'),
+#         'doc_db': os.path.join(FIXED_DB_ROOT, 'doc_service.sqlite'),
+#     }
+#     os.makedirs(paths['storage_dir'], exist_ok=True)
+#     os.makedirs(paths['store_dir'], exist_ok=True)
+#     return paths
 
+def _make_db_config(db_name: str) -> Dict[str, Any]:
+    return {
+        'db_type': 'postgresql',
+        'user': 'root',
+        'password': '123456',
+        'host': '172.21.0.2',
+        'port': 5432,
+        'db_name': db_name,
+    }
 
 def _prepare_runtime_paths() -> Dict[str, str]:
     os.makedirs(FIXED_DB_ROOT, exist_ok=True)
@@ -58,13 +70,12 @@ def _prepare_runtime_paths() -> Dict[str, str]:
         'root_dir': FIXED_DB_ROOT,
         'storage_dir': os.path.join(FIXED_DB_ROOT, 'uploads'),
         'store_dir': os.path.join(FIXED_DB_ROOT, 'store'),
-        'parser_db': os.path.join(FIXED_DB_ROOT, 'parser.sqlite'),
-        'doc_db': os.path.join(FIXED_DB_ROOT, 'doc_service.sqlite'),
+        'parser_db': 'lazyllm_parse_server',
+        'doc_db': 'lazyllm_doc_server',
     }
     os.makedirs(paths['storage_dir'], exist_ok=True)
     os.makedirs(paths['store_dir'], exist_ok=True)
     return paths
-
 
 def _wait_until(predicate, timeout: float = 20.0, interval: float = 0.1):
     deadline = time.time() + timeout
