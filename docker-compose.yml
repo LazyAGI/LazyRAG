@@ -34,13 +34,33 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: app
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: "123456"
+
+    ports:
+      - "9009:5432"
+
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./volumes/db:/var/lib/postgresql/data
+      # 初始化多个数据库的 SQL 脚本（首启时执行）
+      - ./db-init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      test: ["CMD-SHELL", "pg_isready -U root -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: docker.m.daocloud.io/redis:7
+    # 使用 ACL 文件创建用户：保留 default 用户，同时新增 test/123456
+    command: ["redis-server", "--appendonly", "yes", "--aclfile", "/usr/local/etc/redis/users.acl"]
+    volumes:
+      - ./volumes/redis:/data
+      # 注意：./volumes/redis/users.acl 之前被误创建成目录，导致 Redis 实际没加载 ACL 文件。
+      # 改为挂载仓库内的固定 ACL 文件，确保一致可复现。
+      - ./redis-users.acl:/usr/local/etc/redis/users.acl:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -51,20 +71,26 @@ services:
       dockerfile: auth-service/Dockerfile
     expose:
       - "8000"
+    ports:
+      - "9001:8000"
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     environment:
-      LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      # auth-service 使用 root/123456 连接 Postgres 的 authservice 库（由 init 脚本创建）
+      LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/authservice
+      # Redis 使用 ACL 用户 test / 密码 123456
+      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
       LAZYRAG_JWT_SECRET: dev-secret-change-me
       LAZYRAG_JWT_TTL_MINUTES: "60"
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
-      LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: admin
-      LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: admin
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/health')\" || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   core:
@@ -75,10 +101,12 @@ services:
       - "8000"
     environment:
       ACL_DB_DRIVER: postgres
-      ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
-      LAZYRAG_PARSING_SERVICE_URL: http://parsing:8000
-      LAZYRAG_PROCESSOR_SERVICE_URL: http://processor-server:8001
-      LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
+      ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+      MIGRATIONS_DIR: /migrations
+      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
+      # LAZYRAG_PARSING_SERVICE_URL: http://parsing:8000
+      # LAZYRAG_PROCESSOR_SERVICE_URL: http://processor-server:8001
+      LAZYRAG_CHAT_SERVICE_URL: http://10.119.17.243:8048
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -89,6 +117,22 @@ services:
         condition: service_healthy
       auth-service:
         condition: service_healthy
+
+  # core-dev:
+  #   image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/deepquery/golang:1.24.6
+  #   working_dir: /app
+  #   command: ["sleep", "infinity"]
+  #   volumes:
+  #     - ./backend/core:/app
+  #   environment:
+  #     ACL_DB_DRIVER: postgres
+  #     ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+  #     LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -184,7 +228,7 @@ services:
       - "8000"
       - "8001"
     volumes:
-      - rag-uploads:/app/uploads
+      - ./volumes/processor:/app/uploads
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
       LAZYRAG_UPLOAD_SERVER_PORT: "8001"
@@ -208,7 +252,7 @@ services:
       dockerfile: Dockerfile
       target: default
     volumes:
-      - rag-uploads:/app/uploads
+      - ./volumes/processor:/app/uploads
     environment:
       LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
       LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
@@ -287,7 +331,7 @@ services:
       - ETCD_QUOTA_BACKEND_BYTES=4294967296
       - ETCD_SNAPSHOT_COUNT=50000
     volumes:
-      - milvus-etcd:/etcd
+      - ./volumes/milvus-etcd:/etcd
     command: etcd -advertise-client-urls=http://milvus-etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     healthcheck:
       test: ['CMD', 'etcdctl', 'endpoint', 'health']
@@ -303,7 +347,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
-      - milvus-minio:/minio_data
+      - ./volumes/milvus-minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
     # Healthcheck disabled: newer MinIO images lack curl; use service_started in milvus depends_on
 
@@ -320,7 +364,7 @@ services:
       MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
     volumes:
-      - milvus-data:/var/lib/milvus
+      - ./volumes/milvus:/var/lib/milvus
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9091/healthz']
       interval: 30s
@@ -358,7 +402,7 @@ services:
         soft: 65536
         hard: 65536
     volumes:
-      - opensearch-data:/usr/share/opensearch/data
+      - ./volumes/opensearch:/usr/share/opensearch/data
     healthcheck:
       test: ['CMD-SHELL', 'curl -s -k -u admin:"$$OPENSEARCH_INITIAL_ADMIN_PASSWORD" https://localhost:9200/_cluster/health | grep -q "\"status\":\"green\"\\|\"status\":\"yellow\""']
       interval: 30s
@@ -371,10 +415,44 @@ services:
       - '9200:9200'
       - '9600:9600'
 
-volumes:
-  pgdata:
-  rag-uploads:
-  milvus-etcd:
-  milvus-minio:
-  milvus-data:
-  opensearch-data:
+  # ---------- JuiceFS S3 Gateway ----------
+  juicefs-minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    environment:
+      MINIO_ROOT_USER: ${JUICEFS_MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${JUICEFS_MINIO_PASSWORD:-minioadmin}
+    volumes:
+      - ./volumes/juicefs-minio:/data
+    command: server /data --console-address ":9001"
+    ports:
+      - "9010:9000"
+      - "9012:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  juicefs-s3-gateway:
+    build:
+      context: ./backend/juicefs-s3-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "9003:9000"
+    environment:
+      MINIO_ROOT_USER: ${JUICEFS_ACCESS_KEY:-juicefs}
+      MINIO_ROOT_PASSWORD: ${JUICEFS_SECRET_KEY:-juicefs123}
+    command: >
+      gateway
+      redis://test:123456@redis:6379/1
+      :9000
+      --access-log /dev/stdout
+      --no-banner
+    depends_on:
+      redis:
+        condition: service_healthy
+      juicefs-minio:
+        condition: service_healthy
+    volumes:
+      - ./volumes/juicefs-cache:/var/jfsCache
+

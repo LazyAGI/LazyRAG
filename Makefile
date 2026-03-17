@@ -1,6 +1,19 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
 .PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build down clear
 
+# Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
+# (which often times out in restricted networks). Override with: make up DOCKER_BUILDKIT=1
+export DOCKER_BUILDKIT ?= 0
+
+# ---------------------------------------------------------------------------
+# Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
+# Usage: make up                           →  docker compose up -d
+#        make up COMPOSE_PROJECT=myproj    →  docker compose -p myproj up -d
+#        make down                         →  docker compose down
+#        make down COMPOSE_PROJECT=myproj  →  docker compose -p myproj down
+# ---------------------------------------------------------------------------
+_COMPOSE := docker compose $(if $(COMPOSE_PROJECT),-p $(COMPOSE_PROJECT),)
+
 # ---------------------------------------------------------------------------
 # Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)
 # ---------------------------------------------------------------------------
@@ -57,6 +70,12 @@ OPENSEARCH_IMAGE_TAG ?= 2.18.0
 MINIO_ACCESS_KEY ?= minioadmin
 MINIO_SECRET_KEY ?= minioadmin
 
+# JuiceFS S3 Gateway
+JUICEFS_MINIO_USER ?= minioadmin
+JUICEFS_MINIO_PASSWORD ?= minioadmin
+JUICEFS_ACCESS_KEY ?= juicefs
+JUICEFS_SECRET_KEY ?= juicefs123
+
 export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET LAZYRAG_JWT_TTL_MINUTES LAZYRAG_JWT_REFRESH_TTL_DAYS
 export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD LAZYRAG_AUTH_API_PERMISSIONS_FILE
 export ACL_DB_DRIVER ACL_DB_DSN LAZYRAG_CHAT_SERVICE_URL
@@ -66,6 +85,7 @@ export LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG
 export LAZYRAG_MINERU_SERVER_PORT LAZYRAG_DOCUMENT_SERVER_URL LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY LAZYRAG_CHAT_PROMPT
 export PADDLEOCR_VLM_IMAGE_TAG PADDLEOCR_API_IMAGE_TAG PADDLEOCR_VLM_BACKEND
 export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG MINIO_ACCESS_KEY MINIO_SECRET_KEY
+export JUICEFS_MINIO_USER JUICEFS_MINIO_PASSWORD JUICEFS_ACCESS_KEY JUICEFS_SECRET_KEY
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend
@@ -121,21 +141,21 @@ _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update -
 
 build:
 	$(_SUBMODULE_INIT)
-	@docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
+	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
-	@docker compose $(_COMPOSE_PROFILES) up -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d
 
 down:
-	@docker compose $(_COMPOSE_PROFILES) down
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down
 
 up-build:
 	$(_SUBMODULE_INIT)
-	@docker compose $(_COMPOSE_PROFILES) up --build -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up --build -d
 
 clear:
 	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."
-	@docker compose $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
 	@echo "🧹 Clearing Python cache..."
 	@find . -type d -name '__pycache__' ! -path '*/\.git/*' -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name '*.pyc' ! -path '*/\.git/*' -delete 2>/dev/null || true
