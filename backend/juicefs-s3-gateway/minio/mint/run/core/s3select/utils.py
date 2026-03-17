@@ -99,7 +99,7 @@ class LogOutput(object):
 
 
 def generate_bucket_name():
-    return "s3select-test-" + str(uuid.uuid4())
+    return 's3select-test-' + str(uuid.uuid4())
 
 
 def generate_object_name():
