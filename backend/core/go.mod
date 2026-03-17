@@ -9,10 +9,13 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/redis/go-redis/v9 v9.18.0
+	github.com/swaggo/http-swagger v1.3.4
+	github.com/swaggo/swag v1.16.3
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

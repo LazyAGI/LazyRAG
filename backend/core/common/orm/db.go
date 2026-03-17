@@ -43,16 +43,6 @@ func Connect(driver, dsn string) (*DB, error) {
 	return &DB{DB: db}, nil
 }
 
-// MigrateACL 对 ACL 相关表执行自动迁移。
-func (db *DB) MigrateACL() error {
-	return db.AutoMigrate(
-		&VisibilityModel{},
-		&ACLModel{},
-		&KBModel{},
-		&UserGroupModel{},
-	)
-}
-
 // MustConnect 连接数据库，失败则打 Fatal 日志并退出，供 main 使用。
 func MustConnect(driver, dsn string) *DB {
 	db, err := Connect(driver, dsn)

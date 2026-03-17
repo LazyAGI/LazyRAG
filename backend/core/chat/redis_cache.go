@@ -50,6 +50,7 @@ type ChatChunkResponse struct {
 	Sources          []any    `json:"sources,omitempty"`
 	PromptQuestions  []string `json:"prompt_questions,omitempty"`
 	ReasoningContent string   `json:"reasoning_content,omitempty"`
+	ThinkingDurationS int64   `json:"thinking_duration_s,omitempty"`
 }
 
 func chatStatusKey(conversationID string) string { return fmt.Sprintf(chatStatusKeyPrefix, conversationID) }

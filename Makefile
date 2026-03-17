@@ -1,6 +1,10 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
 .PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build down clear
 
+# Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
+# (which often times out in restricted networks). Override with: make up DOCKER_BUILDKIT=1
+export DOCKER_BUILDKIT ?= 0
+
 # ---------------------------------------------------------------------------
 # Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
 # Usage: make up                           →  docker compose up -d

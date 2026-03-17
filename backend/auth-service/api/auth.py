@@ -134,6 +134,7 @@ def login(body: LoginBody):
                 subject=str(user_id),
                 role=role_name,
                 tenant_id=(user.tenant_id or None),
+                username=user.username,
                 jti=generate_jti(),
             )
             refresh_token = generate_refresh_token()
@@ -174,6 +175,7 @@ def refresh(body: RefreshBody):
             subject=str(user.id),
             role=role_name,
             tenant_id=(tenant_id or None),
+            username=user.username,
             jti=generate_jti(),
         ),
         'refresh_token': new_refresh_token,

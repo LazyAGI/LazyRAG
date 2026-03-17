@@ -18,14 +18,10 @@ var defaultStore *Store
 // GetStore 返回 ACL 存储。须先调用 InitStore。
 func GetStore() *Store { return defaultStore }
 
-// InitStore 使用数据库初始化 ACL 存储。在 main 中连接 DB 后调用。
-// 会对 ACL 相关表执行迁移。
+// InitStore 使用数据库初始化 ACL 存储。在 main 中连接 DB 并执行 migrate.RunUp() 后调用。
 func InitStore(db *orm.DB) {
 	if db == nil {
 		panic("acl: InitStore requires non-nil db")
-	}
-	if err := db.MigrateACL(); err != nil {
-		panic("acl: migrate failed: " + err.Error())
 	}
 	defaultStore = &Store{db: db}
 }

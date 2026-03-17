@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"flag"
@@ -13,12 +14,16 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/mysql"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
+	migratepostgres "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
+	gormpostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
+	"lazyrag/core/common/orm"
 	"lazyrag/core/log"
 )
 
@@ -32,6 +37,10 @@ func main() {
 
 	cmd := os.Args[1]
 	switch cmd {
+	case "migrate":
+		migrateCmd(os.Args[2:])
+	case "upgrade":
+		upCmd(os.Args[2:])
 	case "create":
 		createCmd(os.Args[2:])
 	case "up":
@@ -42,6 +51,8 @@ func main() {
 		gotoCmd(os.Args[2:])
 	case "version":
 		versionCmd(os.Args[2:])
+	case "force":
+		forceCmd(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -49,26 +60,23 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `dbmigrate: create and run SQL migrations.
+	fmt.Fprint(os.Stderr, `dbmigrate: SQL migrations (类似 Flask-Migrate: migrate 生成脚本, upgrade 应用).
 
-Database: use the same DB as core. In Docker see docker-compose.yml service "core"
-  (db service = Postgres 16; core uses ACL_DB_DRIVER=postgres, ACL_DB_DSN=...).
+  Flask 对照:
+    flask db migrate [-m "msg"]  →  dbmigrate migrate [-m "msg"]
+    flask db upgrade             →  dbmigrate upgrade  或  core 启动时自动执行 RunUp()
 
-Env (defaults match core/main.go):
-  ACL_DB_DRIVER   sqlite|postgres|mysql   (default: sqlite)
-  ACL_DB_DSN      driver dsn             (default: ./acl.db when sqlite)
-  MIGRATIONS_DIR  path to migrations dir  (default: ./migrations)
-
-  Docker/compose example:
-    ACL_DB_DRIVER=postgres
-    ACL_DB_DSN="host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
+Env: ACL_DB_DRIVER, ACL_DB_DSN, MIGRATIONS_DIR (default: ./migrations)
 
 Commands:
-  create -name <snake_name>          create two files: <ts>_<name>.up.sql and .down.sql
-  up [-n <steps>]                    apply all pending migrations (or N steps)
-  down [-n <steps>]                  rollback 1 step (or N steps)
-  goto -version <v>                  migrate up/down to a specific version
-  version                            print current migration version
+  migrate [-m "message"]         生成迁移脚本（根据 orm/models 生成 DDL，需 Postgres + ACL_DB_DSN）
+  upgrade                       应用所有未执行的迁移（修改数据库）
+  create -name <name> [-with-ddl]  手动创建迁移文件（可选 -with-ddl 自动填 DDL）
+  up [-n <steps>]               同 upgrade；-n 指定步数
+  down [-n <steps>]              回滚 N 步
+  goto -version <v>              迁移到指定版本
+  version                        当前迁移版本
+  force -version <v>              将版本表设为指定版本并清除 dirty（修复失败迁移后使用）
 `)
 }
 
@@ -92,15 +100,31 @@ func dbConfigFromEnv() (driver, dsn string) {
 	return driver, dsn
 }
 
+// migrateCmd 对应 Flask 的 flask db migrate：生成带 DDL 的迁移脚本（-m 可选描述）。
+func migrateCmd(args []string) {
+	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+	msg := fs.String("m", "auto", "migration message (used as migration name)")
+	_ = fs.Parse(args)
+	name := strings.TrimSpace(*msg)
+	if name == "" {
+		name = "auto"
+	}
+	createCmdWith(sanitizeName(name), true)
+}
+
 func createCmd(args []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
-	name := fs.String("name", "", "migration name, e.g. add_prompt_tables")
+	name := fs.String("name", "", "migration name, e.g. init or add_xxx")
+	withDDL := fs.Bool("with-ddl", false, "generate full CREATE TABLE from orm/models (requires postgres + ACL_DB_DSN)")
 	_ = fs.Parse(args)
 	if strings.TrimSpace(*name) == "" {
 		log.Logger.Error().Msg("create: -name is required")
 		os.Exit(2)
 	}
+	createCmdWith(sanitizeName(*name), *withDDL)
+}
 
+func createCmdWith(name string, withDDL bool) {
 	dir := migrationsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		log.Logger.Error().Err(err).Msg("create: mkdir failed")
@@ -108,15 +132,87 @@ func createCmd(args []string) {
 	}
 
 	ts := time.Now().UTC().Format("20060102150405")
-	base := fmt.Sprintf("%s_%s", ts, sanitizeName(*name))
-	up := filepath.Join(dir, base+".up.sql")
-	down := filepath.Join(dir, base+".down.sql")
+	base := fmt.Sprintf("%s_%s", ts, name)
+	upPath := filepath.Join(dir, base+".up.sql")
+	downPath := filepath.Join(dir, base+".down.sql")
 
-	writeIfNotExists(up, fmt.Sprintf("-- %s\n-- +migrate Up\n\n", base))
-	writeIfNotExists(down, fmt.Sprintf("-- %s\n-- +migrate Down\n\n", base))
+	var upContent, downContent string
+	if withDDL {
+		driver, dsn := dbConfigFromEnv()
+		if driver != "postgres" || strings.TrimSpace(dsn) == "" {
+			log.Logger.Error().Msg("create -with-ddl requires ACL_DB_DRIVER=postgres and ACL_DB_DSN")
+			os.Exit(2)
+		}
+		upSQL, downSQL, err := capturePostgresDDL(dsn)
+		if err != nil {
+			log.Logger.Error().Err(err).Msg("capture DDL failed")
+			os.Exit(1)
+		}
+		upContent = fmt.Sprintf("-- %s\n-- +migrate Up\n\n%s", base, upSQL)
+		downContent = fmt.Sprintf("-- %s\n-- +migrate Down\n\n%s", base, downSQL)
+	} else {
+		upContent = fmt.Sprintf("-- %s\n-- +migrate Up\n-- 在此下方填写 DDL，或使用 create -name xxx -with-ddl 自动生成。\n\n", base)
+		downContent = fmt.Sprintf("-- %s\n-- +migrate Down\n-- 在此下方填写回滚 SQL。\n\n", base)
+	}
 
-	fmt.Println(up)
-	fmt.Println(down)
+	writeIfNotExists(upPath, upContent)
+	writeIfNotExists(downPath, downContent)
+	fmt.Println(upPath)
+	fmt.Println(downPath)
+}
+
+// capturePostgresDDL 连接 Postgres，用 GORM 建表并捕获 SQL，返回 up（CREATE TABLE）与 down（DROP TABLE）。
+func capturePostgresDDL(dsn string) (upSQL, downSQL string, err error) {
+	var statements []string
+	recorder := &sqlRecorder{collect: &statements}
+	cfg := &gorm.Config{Logger: recorder}
+	db, err := gorm.Open(gormpostgres.Open(dsn), cfg)
+	if err != nil {
+		return "", "", err
+	}
+	sqlDB, _ := db.DB()
+	if sqlDB != nil {
+		defer sqlDB.Close()
+	}
+	for _, m := range orm.AllModelsForDDL() {
+		if err := db.Migrator().CreateTable(m); err != nil {
+			return "", "", err
+		}
+	}
+	var up strings.Builder
+	for _, s := range statements {
+		up.WriteString(s)
+		if !strings.HasSuffix(strings.TrimSpace(s), ";") {
+			up.WriteString(";")
+		}
+		up.WriteString("\n")
+	}
+	tables := orm.TableNamesForDDL()
+	var down strings.Builder
+	for i := len(tables) - 1; i >= 0; i-- {
+		down.WriteString("DROP TABLE IF EXISTS ")
+		down.WriteString(tables[i])
+		down.WriteString(" CASCADE;\n")
+	}
+	return up.String(), down.String(), nil
+}
+
+type sqlRecorder struct {
+	collect *[]string
+}
+
+func (s *sqlRecorder) LogMode(logger.LogLevel) logger.Interface { return s }
+
+func (s *sqlRecorder) Info(context.Context, string, ...interface{})  {}
+func (s *sqlRecorder) Warn(context.Context, string, ...interface{})  {}
+func (s *sqlRecorder) Error(context.Context, string, ...interface{}) {}
+
+func (s *sqlRecorder) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	sql, _ := fc()
+	sql = strings.TrimSpace(sql)
+	if sql != "" {
+		*s.collect = append(*s.collect, sql)
+	}
 }
 
 func sanitizeName(s string) string {
@@ -228,6 +324,25 @@ func versionCmd(args []string) {
 	log.Logger.Info().Uint("version", v).Msg("version: clean")
 }
 
+// forceCmd 将 schema_migrations 设为指定版本并清除 dirty，用于修复 "Dirty database version" 报错。
+// 仅在确认数据库实际状态与该版本一致时使用（例如表已存在且与迁移一致）。
+func forceCmd(args []string) {
+	fs := flag.NewFlagSet("force", flag.ExitOnError)
+	v := fs.Uint("version", 0, "version to set, e.g. 20260315095955")
+	_ = fs.Parse(args)
+	if *v == 0 {
+		log.Logger.Error().Msg("force: -version is required (e.g. 20260315095955)")
+		os.Exit(2)
+	}
+	m := mustMigrator()
+	defer closeMigrator(m)
+	if err := m.Force(int(*v)); err != nil {
+		log.Logger.Error().Err(err).Uint("version", *v).Msg("force failed")
+		os.Exit(1)
+	}
+	log.Logger.Info().Uint("version", *v).Msg("force ok")
+}
+
 func closeMigrator(m *migrate.Migrate) {
 	if m == nil {
 		return
@@ -268,7 +383,7 @@ func mustMigrator() *migrate.Migrate {
 			os.Exit(1)
 		}
 	case "postgres":
-		inst, err := postgres.WithInstance(db, &postgres.Config{})
+		inst, err := migratepostgres.WithInstance(db, &migratepostgres.Config{})
 		if err != nil {
 			log.Logger.Error().Err(err).Msg("postgres instance failed")
 			os.Exit(1)
