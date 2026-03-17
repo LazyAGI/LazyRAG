@@ -1,6 +1,6 @@
-# JuiceFS S3 Gateway 用户操作文档（LazyRAG-back 集成版）
+# JuiceFS S3 Gateway 用户操作文档（LazyRAG 集成版）
 
-本文档面向**使用者/运维**，说明在 `LazyRAG-back` 项目中如何启动、配置、验证与使用 **JuiceFS S3 Gateway**（S3 兼容接口），以及常见问题排查方法。
+本文档面向**使用者/运维**，说明在 `LazyRAG` 项目中如何启动、配置、验证与使用 **JuiceFS S3 Gateway**（S3 兼容接口），以及常见问题排查方法。
 
 ---
 
@@ -25,7 +25,7 @@
 ## 2. 前置条件
 
 - 已安装并启动 **Docker Desktop**
-- 在项目根目录：`LazyRAG-back/`
+- 在项目根目录：`LazyRAG/`
 
 ---
 
@@ -33,9 +33,10 @@
 
 ### 3.1 启动（推荐：构建并启动）
 
-在 `LazyRAG-back/` 下执行：
+在 `LazyRAG/` 下执行（将本机路径用 `xxx` 代替）：
 
 ```bash
+cd xxx/LazyRAG
 make up-build
 ```
 
@@ -95,9 +96,10 @@ S3 访问密钥来自 `juicefs-s3-gateway` 容器环境变量：
 
 JuiceFS 第一次使用时需要对文件系统进行 `format`（只需执行一次，后续无需重复）。
 
-在 `LazyRAG-back/` 下执行：
+在 `LazyRAG/` 下执行（将本机路径用 `xxx` 代替）：
 
 ```bash
+cd xxx/LazyRAG
 docker compose run --rm juicefs-s3-gateway format \
   --storage minio \
   --bucket http://juicefs-minio:9000/juicefs \
@@ -249,9 +251,9 @@ rm -f /tmp/test-juicefs.txt /tmp/downloaded-test.txt /tmp/subdir-test.txt
 
 默认数据落盘位置（项目内）：
 
-- `LazyRAG-back/volumes/juicefs-minio/`：MinIO 数据（JuiceFS 数据块）
-- `LazyRAG-back/volumes/redis/`：Redis 数据（包含 JuiceFS 元数据 DB1）
-- `LazyRAG-back/volumes/juicefs-cache/`：JuiceFS 本地缓存
+- `LazyRAG/volumes/juicefs-minio/`：MinIO 数据（JuiceFS 数据块）
+- `LazyRAG/volumes/redis/`：Redis 数据（包含 JuiceFS 元数据 DB1）
+- `LazyRAG/volumes/juicefs-cache/`：JuiceFS 本地缓存
 
 ---
 
