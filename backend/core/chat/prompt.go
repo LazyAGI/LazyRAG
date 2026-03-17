@@ -40,17 +40,15 @@ func writePromptJSON(w http.ResponseWriter, status int, v any) {
 // CreatePrompt 对应 POST /api/v1/prompts
 func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Prompt struct {
-			DisplayName string `json:"display_name"`
-			Content     string `json:"content"`
-		} `json:"prompt"`
+		DisplayName string `json:"display_name"`
+		Content     string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	displayName := strings.TrimSpace(body.Prompt.DisplayName)
-	content := body.Prompt.Content
+	displayName := strings.TrimSpace(body.DisplayName)
+	content := body.Content
 	if utf8.RuneCountInString(displayName) > promptNameMaxLen {
 		http.Error(w, "name too long", http.StatusBadRequest)
 		return
@@ -60,7 +58,7 @@ func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if displayName == "" || strings.TrimSpace(content) == "" {
-		http.Error(w, "prompt.display_name and prompt.content required", http.StatusBadRequest)
+		http.Error(w, "display_name and content required", http.StatusBadRequest)
 		return
 	}
 
@@ -105,19 +103,17 @@ func UpdatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Prompt struct {
-			DisplayName string `json:"display_name"`
-			Content     string `json:"content"`
-		} `json:"prompt"`
+		DisplayName string `json:"display_name"`
+		Content     string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	displayName := strings.TrimSpace(body.Prompt.DisplayName)
-	content := body.Prompt.Content
+	displayName := strings.TrimSpace(body.DisplayName)
+	content := body.Content
 	if displayName == "" && content == "" {
-		http.Error(w, "prompt required", http.StatusBadRequest)
+		http.Error(w, "display_name/content required", http.StatusBadRequest)
 		return
 	}
 	if displayName != "" && utf8.RuneCountInString(displayName) > promptNameMaxLen {
