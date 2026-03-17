@@ -16,6 +16,8 @@ func AllModelsForDDL() []interface{} {
 		&Conversation{},
 		&ChatHistory{},
 		&MultiAnswersChatHistory{},
+		&Dataset{},
+		&DefaultDataset{},
 	}
 }
 
@@ -32,5 +34,7 @@ func TableNamesForDDL() []string {
 		"conversations",
 		"chat_histories",
 		"multi_answers_chat_histories",
+		"datasets",
+		"default_datasets",
 	}
 }
