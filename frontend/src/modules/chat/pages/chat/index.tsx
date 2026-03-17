@@ -24,8 +24,7 @@ import UIUtils from "@/modules/chat/utils/ui";
 import InitialCard from "@/modules/chat/components/InitialCard";
 import ChatConfigs, { ChatConfig } from "@/modules/chat/components/ChatConfigs";
 import { Method, SSE } from "@/modules/chat/utils/sse";
-import { ChatServiceApi } from "@/modules/chat/utils/request";
-import { BASE_URL } from "@/components/request";
+import { CHAT_STREAM_URL, ChatServiceApi } from "@/modules/chat/utils/request";
 import { useEffect } from "react";
 import { useConversationSettings } from "@/modules/chat/store/conversationSettings";
 
@@ -49,8 +48,6 @@ const ChatPage: FC = () => {
     action: ChatConversationsRequestActionEnum,
     callbacks: Record<string, (e: CustomEvent) => void>,
   ) {
-    const URL = `${BASE_URL}/api/ragservice/v1/conversations:chat`;
-
     // 若本次请求带有上传文件（图片/文档），忽略知识库选择；不修改用户已选/置顶的知识库
     const hasUploadedFiles = input?.some(
       (q: Query) => q.input_type === "image" || q.input_type === "file",
@@ -59,7 +56,7 @@ const ChatPage: FC = () => {
       ? []
       : chatConfig?.knowledgeBaseId?.map((id) => ({ id })) || [];
 
-    return new SSE(URL, {
+    return new SSE(CHAT_STREAM_URL, {
       method: Method.POST,
       headers: {
         "Content-Type": "application/json",

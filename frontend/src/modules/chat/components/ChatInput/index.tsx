@@ -574,13 +574,13 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                 </div>
 
                 <div className="input-bottom-actions-right">
-                  <Tooltip title="批量对话">
+                  {/* <Tooltip title="批量对话">
                     <Button
                       type="text"
                       icon={<BatchChatIcon />}
                       onClick={() => batchChatRef.current?.onOpen()}
                     />
-                  </Tooltip>
+                  </Tooltip> */}
                   <div className="input-bottom-actions-right-item">
                     <ImageUpload
                       updateFiles={updateImageList}

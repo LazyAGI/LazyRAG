@@ -23,8 +23,11 @@ import UIUtils from "@/modules/chat/utils/ui";
 import InitialCard from "@/modules/chat/components/InitialCard";
 import { ChatConfig } from "@/modules/chat/components/ChatConfigs";
 import { Method, SSE } from "@/modules/chat/utils/sse";
-import { ChatServiceApi } from "@/modules/chat/utils/request";
-import { BASE_URL } from "@/components/request";
+import {
+  CHAT_RESUME_STREAM_URL,
+  CHAT_STREAM_URL,
+  ChatServiceApi,
+} from "@/modules/chat/utils/request";
 import { CloseOutlined } from "@ant-design/icons";
 import { useChatMessageStore } from "@/modules/chat/store/chatMessage";
 import {
@@ -261,8 +264,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     action: ChatConversationsRequestActionEnum,
     callbacks: Record<string, (e: CustomEvent) => void>,
   ) {
-    const URL = `${BASE_URL}/api/ragservice/v1/conversations:chat`;
-
     const modelSelection = getModelSelection(sessionId);
 
     // 若本次请求带有上传文件（图片/文档），忽略知识库选择；不修改用户已选/置顶的知识库
@@ -279,7 +280,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
           ? chatConfig.knowledgeBaseId.map((k) => ({ id: k }))
           : [];
 
-    return new SSE(URL, {
+    return new SSE(CHAT_STREAM_URL, {
       method: Method.POST,
       headers: {
         "Content-Type": "application/json",
@@ -319,8 +320,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     conversationId: string,
     callbacks: Record<string, (e: CustomEvent) => void>,
   ) {
-    const URL = `${BASE_URL}/api/ragservice/v1/conversations:resumeChat`;
-    return new SSE(URL, {
+    return new SSE(CHAT_RESUME_STREAM_URL, {
       method: Method.POST,
       headers: {
         "Content-Type": "application/json",

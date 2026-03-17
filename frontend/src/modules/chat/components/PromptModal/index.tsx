@@ -37,23 +37,23 @@ const PRESET_PROMPTS: Array<
 > = [
   {
     id: "preset-1",
-    display_name: "铁路行业标准规范查询",
+    display_name: "通用问答助手",
     content:
-      "xxx是什么？请依据铁路行业的标准规范来回答，不要引入任何公路行业规范。",
+      "请根据我提供的文档内容，简洁明了地回答我的问题。如果文档中没有相关信息，请直接告知。",
     isPreset: true,
   },
   {
     id: "preset-2",
-    display_name: "可行性研究阶段咨询",
+    display_name: "文档摘要提取",
     content:
-      "你回答所有问题时应当先说依据哪本规范标准的名称再说标准规范的编号，而不是只提供标准规范的编号。请回答：可行性研究阶段，xxx",
+      "请帮我总结一下这份文档的核心内容，并列出其中的关键要点。",
     isPreset: true,
   },
   {
     id: "preset-3",
-    display_name: "国铁专项咨询",
+    display_name: "结构化信息提取",
     content:
-      "我有一个关于国铁的疑问，请在回答过程中不要混入地铁、市域（郊）城际铁路相关的信息。问题是这样的：xxx",
+      "请从文档中提取出所有的日期、参与方和主要结论，并以表格的形式呈现。",
     isPreset: true,
   },
 ];
@@ -79,7 +79,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
 
     function fetchPromptList() {
       PromptServiceApi()
-        .promptServiceListPrompts({ pageSize: 1000 })
+        .promptServiceListPrompts({ pageSize: 2 })
         .then((res) => {
           setPromptList(res.data.prompts ? [...res.data?.prompts] : []);
         });

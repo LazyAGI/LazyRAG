@@ -46,7 +46,8 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
     const [pageToken, setPageToken] = useState("");
     const [checkedList, setCheckedList] = useState<string[]>([]);
     const [showBatchExport, setShowBatchExport] = useState(false);
-    const listRef = useRef(null);
+    const deleteHistoryInFlightRef = useRef(false);
+    const deleteHistoryLastInvokeRef = useRef(0);
     const { setThink } = useChatThinkStore();
     const { setNewMessage } = useChatNewMessageStore();
     useImperativeHandle(ref, () => ({
@@ -90,6 +91,15 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
     }
 
     function deleteHistory(data: Conversation) {
+      const now = Date.now();
+      if (
+        deleteHistoryInFlightRef.current ||
+        now - deleteHistoryLastInvokeRef.current < 1000
+      ) {
+        return;
+      }
+      deleteHistoryInFlightRef.current = true;
+      deleteHistoryLastInvokeRef.current = now;
       ChatServiceApi()
         .conversationServiceDeleteConversation({
           conversation: data.conversation_id || "",
@@ -97,9 +107,10 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
         .then(() => {
           message.success("删除会话成功");
           getHistory({ isFirst: true });
-          if (listRef.current) {
-            listRef.current.el.scrollTo({ top: 0 });
-          }
+          document.getElementById("scrollableDiv")?.scrollTo({ top: 0 });
+        })
+        .finally(() => {
+          deleteHistoryInFlightRef.current = false;
         });
       onRemove(data);
     }
@@ -264,7 +275,6 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
             next={() => getHistory({ isMore: true })}
             hasMore={!!pageToken}
             loader={<Spin />}
-            ref={listRef}
             scrollableTarget="scrollableDiv"
           >
             {showBatchExport ? (

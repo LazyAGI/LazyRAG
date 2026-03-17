@@ -44,13 +44,13 @@
     padding: 8px;
 
     line-height: 1;
+    text-align: left;
 
     cursor: pointer;
 
     &::before {
       position: absolute;
       left: 4px;
-
       visibility: hidden;
       width: 6px;
       height: 6px;
@@ -69,6 +69,11 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-weight: 400;
+      text-align: left;
+    }
+
+    .update-time {
+      text-align: right;
     }
 
     .close {
