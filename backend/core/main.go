@@ -2,19 +2,22 @@ package main
 
 import (
 	_ "embed"
+	"encoding/json"
 	"net/http"
 	"os"
 
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v3"
 	"lazyrag/core/acl"
 	"lazyrag/core/store"
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
 	"lazyrag/core/log"
+	"lazyrag/core/migrate"
 )
 
-//go:embed openapi.json
-var openAPIJSON []byte
+//go:embed docs.html
+var swaggerUIHTML []byte
 
 // handleAPI 注册带权限要求的路由。perms 供 extract_api_permissions.py 生成 api_permissions.json（Kong RBAC），
 // 运行时不由 core 校验（由 Kong + auth-service 鉴权）。使用 gorilla/mux，同一 path 可区分方法，支持 ":action" 路径。
@@ -36,6 +39,9 @@ func main() {
 		log.Logger.Fatal().Msg("ACL_DB_DRIVER set but ACL_DB_DSN is empty")
 	}
 	db := orm.MustConnect(driver, dsn)
+	if err := migrate.RunUp(); err != nil {
+		log.Logger.Fatal().Err(err).Msg("run SQL migrations failed")
+	}
 	acl.InitStore(db)
 	log.Logger.Info().Str("driver", driver).Msg("ACL store initialized")
 
@@ -47,18 +53,41 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	}).Methods(http.MethodGet)
+	handleAPI(r, "GET", "/hello", []string{"user.read"}, func(w http.ResponseWriter, r *http.Request) {
+		common.ReplyJSON(w, map[string]string{"message": "Hello from Backend"})
+	})
+	handleAPI(r, "GET", "/admin", []string{"document.write"}, func(w http.ResponseWriter, r *http.Request) {
+		common.ReplyJSON(w, map[string]string{"message": "Admin only area"})
+	})
+	registerAllRoutes(r)
+
+	// 启动时从已注册路由自动生成 OpenAPI spec，无需手维护 doc_swag.go / swag init
+	openAPIJSON, err := buildOpenAPISpecFromRouter(r)
+	if err != nil {
+		log.Logger.Fatal().Err(err).Msg("build OpenAPI spec from router failed")
+	}
 	r.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(openAPIJSON)
 	}).Methods(http.MethodGet)
-	handleAPI(r, "GET", "/api/hello", []string{"user.read"}, func(w http.ResponseWriter, r *http.Request) {
-		common.ReplyJSON(w, map[string]string{"message": "Hello from Backend"})
-	})
-	handleAPI(r, "GET", "/api/admin", []string{"document.write"}, func(w http.ResponseWriter, r *http.Request) {
-		common.ReplyJSON(w, map[string]string{"message": "Admin only area"})
-	})
-
-	registerAllRoutes(r)
+	r.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]interface{}
+		if err := json.Unmarshal(openAPIJSON, &m); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out, err := yaml.Marshal(m)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-yaml")
+		w.Write(out)
+	}).Methods(http.MethodGet)
+	r.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(swaggerUIHTML)
+	}).Methods(http.MethodGet)
 
 	log.Logger.Info().Msg("Core listening on :8000")
 	if err := http.ListenAndServe(":8000", r); err != nil {

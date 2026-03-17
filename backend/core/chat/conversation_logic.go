@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -22,6 +24,7 @@ const (
 	defaultTopK                      = 3
 )
 
+// newID 仍用于 history 等内部 ID。
 func newID(prefix string) string {
 	return prefix + strconvBase36(time.Now().UnixNano())
 }
@@ -49,21 +52,86 @@ func strconvBase36(v int64) string {
 	return string(b[i:])
 }
 
+// GetDefaultDisplayName 与 neurtrino 的逻辑对齐：
+// 1. 优先使用 input 中第一个非空 text；
+// 2. 否则退回第一个非空 uri；
+// 3. 都没有时用 conversationID；
+// 4. 最终截断为最多 255 个 rune。
+func GetDefaultDisplayName(conversationID string, input []map[string]any) string {
+	tempContent := ""
+	for _, q := range input {
+		if t, ok := q["text"].(string); ok && strings.TrimSpace(t) != "" {
+			tempContent = strings.TrimSpace(t)
+			break
+		}
+		if tempContent == "" {
+			if u, ok := q["uri"].(string); ok && strings.TrimSpace(u) != "" {
+				tempContent = strings.TrimSpace(u)
+			}
+		}
+	}
+	if tempContent == "" {
+		tempContent = conversationID
+	}
+	runes := []rune(tempContent)
+	if len(runes) > maxConversationDisplayNameLength {
+		return string(runes[:maxConversationDisplayNameLength])
+	}
+	return string(runes)
+}
+
+// newConversationID 生成 UUID v4，会话 ID 与 neutrino 保持一致风格。
+func newConversationID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	out := make([]byte, 36)
+	hex.Encode(out[0:8], b[0:4])
+	out[8] = '-'
+	hex.Encode(out[9:13], b[4:6])
+	out[13] = '-'
+	hex.Encode(out[14:18], b[6:8])
+	out[18] = '-'
+	hex.Encode(out[19:23], b[8:10])
+	out[23] = '-'
+	hex.Encode(out[24:36], b[10:16])
+	return string(out)
+}
+
 func conversationIDFromName(name string) string {
 	name = strings.TrimSpace(name)
 	name = strings.TrimPrefix(name, "conversations/")
 	name = strings.TrimPrefix(name, "/")
+	if idx := strings.Index(name, ":"); idx >= 0 {
+		name = name[:idx]
+	}
 	return name
 }
 
 // ensureConversation 加载或创建该用户的会话，返回会话、下一条 history 的 seq、error
-func ensureConversation(db *gorm.DB, convID, displayName, userID, userName string) (*orm.Conversation, int, error) {
+func ensureConversation(db *gorm.DB, convID, displayName string, searchConfig json.RawMessage, models json.RawMessage, userID, userName string) (*orm.Conversation, int, error) {
 	now := time.Now()
 	var c orm.Conversation
 	err := db.Where("id = ? AND create_user_id = ?", convID, userID).First(&c).Error
 	if err == nil {
 		var count int64
 		db.Model(&orm.ChatHistory{}).Where("conversation_id = ?", convID).Count(&count)
+
+		updates := map[string]any{}
+		if len(searchConfig) > 0 && (len(c.SearchConfig) == 0 || string(c.SearchConfig) == "{}") {
+			updates["search_config"] = searchConfig
+		}
+		if len(models) > 0 && len(c.Models) == 0 {
+			updates["models"] = models
+		}
+		if displayName != "" && c.DisplayName == "" {
+			updates["display_name"] = displayName
+		}
+		if len(updates) > 0 {
+			db.Model(&orm.Conversation{}).Where("id = ?", c.ID).Updates(updates)
+		}
+
 		return &c, int(count) + 1, nil
 	}
 	if err != gorm.ErrRecordNotFound {
@@ -73,7 +141,8 @@ func ensureConversation(db *gorm.DB, convID, displayName, userID, userName strin
 		ID:           convID,
 		DisplayName:  displayName,
 		ChannelID:    "default",
-		SearchConfig: json.RawMessage("{}"),
+		SearchConfig: searchConfig,
+		Models:       models,
 		ChatTimes:    0,
 		BaseModel: orm.BaseModel{
 			CreateUserID:   userID,
@@ -284,18 +353,17 @@ func handleStreamChat(
 	if dualReply {
 		secondaryHistoryID = newID("h_")
 	}
-	if rdb != nil {
-		_ = setChatInput(reqCtx, rdb, convID, historyID, query, seq)
-		_ = setChatStatus(reqCtx, rdb, convID, historyID, "generating", "")
-		if dualReply {
-			_ = setChatStatus(reqCtx, rdb, convID, secondaryHistoryID, "generating", "")
-			_ = setMultiAnswerInfo(reqCtx, rdb, convID, historyID, secondaryHistoryID, seq)
-		}
-	}
-
 	chatCtx, chatCancel := context.WithCancel(context.Background())
 	defer chatCancel()
 	if rdb != nil {
+		// 与 neutrino 一致：生成/续传相关的 Redis 元数据写入使用 chatCtx，
+		// 避免页面刷新导致 reqCtx 取消，从而 generating 状态未写入，resume 误判为已完成。
+		_ = setChatInput(chatCtx, rdb, convID, historyID, query, seq)
+		_ = setChatStatus(chatCtx, rdb, convID, historyID, "generating", "")
+		if dualReply {
+			_ = setChatStatus(chatCtx, rdb, convID, secondaryHistoryID, "generating", "")
+			_ = setMultiAnswerInfo(chatCtx, rdb, convID, historyID, secondaryHistoryID, seq)
+		}
 		go func() {
 			_ = watchChatCancelSignal(chatCtx, rdb, convID, historyID)
 			chatCancel()
@@ -323,22 +391,38 @@ func streamSingleAnswer(
 	ch, err := StreamChatUpstream(chatCtx, baseURL, reqBody)
 	if err != nil {
 		if rdb != nil {
-			_ = setChatStatus(reqCtx, rdb, convID, historyID, "failed", "")
+			_ = setChatStatus(chatCtx, rdb, convID, historyID, "failed", "")
 		}
-		writeSSEChunk(w, flusher, map[string]any{"finish_reason": "FINISH_REASON_UNKNOWN", "history_id": historyID})
+		writeSSEChunk(w, flusher, &ChatChunkResponse{
+			ConversationID:   convID,
+			Seq:              int32(seq),
+			Message:          "",
+			Delta:            "",
+			FinishReason:     "FINISH_REASON_UNKNOWN",
+			HistoryID:        historyID,
+			Sources:          nil,
+			PromptQuestions:  []string{},
+			ReasoningContent: "",
+			ThinkingDurationS: 0,
+		})
 		return
 	}
 	var fullText string
 	var sources []any
 	thinkingDone := false
 	thinkStart := time.Now()
-	writeSSEChunk(w, flusher, map[string]any{
-		"conversation_id":     convID,
-		"seq":                 seq,
-		"delta":               "",
-		"history_id":          historyID,
-		"reasoning_content":   "",
-		"thinking_duration_s": 0,
+	// 首帧：仅携带会话/历史信息，finish_reason 为 UNSPECIFIED
+	writeSSEChunk(w, flusher, &ChatChunkResponse{
+		ConversationID:   convID,
+		Seq:              int32(seq),
+		Message:          "",
+		Delta:            "",
+		FinishReason:     "FINISH_REASON_UNSPECIFIED",
+		HistoryID:        historyID,
+		Sources:          nil,
+		PromptQuestions:  []string{},
+		ReasoningContent: "",
+		ThinkingDurationS: 0,
 	})
 	for d := range ch {
 		fullText += d.Text
@@ -356,27 +440,24 @@ func streamSingleAnswer(
 		if !thinkingDone {
 			deltaToSend = ""
 		}
-		chunk := map[string]any{
-			"conversation_id":     convID,
-			"seq":                 seq,
-			"delta":               deltaToSend,
-			"history_id":          historyID,
-			"reasoning_content":   d.ReasoningText,
-			"thinking_duration_s": thinkingDurationS,
-			"sources":             sources,
+		chunk := &ChatChunkResponse{
+			ConversationID:    convID,
+			Seq:               int32(seq),
+			Message:           "",
+			Delta:             deltaToSend,
+			FinishReason:      "FINISH_REASON_UNSPECIFIED",
+			HistoryID:         historyID,
+			Sources:           sources,
+			PromptQuestions:   []string{},
+			ReasoningContent:  d.ReasoningText,
+			ThinkingDurationS: thinkingDurationS,
 		}
 		if reqCtx.Err() == nil {
 			writeSSEChunk(w, flusher, chunk)
 		}
+		// 与 neutrino 一致：Redis 写入用 chatCtx，避免用户刷新后 reqCtx 取消导致后续 chunk 写不进去，resume 无法续传
 		if rdb != nil {
-			_ = appendChatChunk(reqCtx, rdb, convID, historyID, &ChatChunkResponse{
-				ConversationID:   convID,
-				Seq:              int32(seq),
-				Delta:            deltaToSend,
-				HistoryID:        historyID,
-				ReasoningContent: d.ReasoningText,
-				Sources:          sources,
-			})
+			_ = appendChatChunk(chatCtx, rdb, convID, historyID, chunk)
 		}
 	}
 	now := time.Now()
@@ -395,7 +476,19 @@ func streamSingleAnswer(
 	db.Model(&orm.Conversation{}).Where("id = ?", convID).Update("updated_at", now)
 	db.Model(&orm.Conversation{}).Where("id = ?", convID).UpdateColumn("chat_times", gorm.Expr("chat_times + ?", 1))
 	if reqCtx.Err() == nil {
-		writeSSEChunk(w, flusher, map[string]any{"conversation_id": convID, "seq": seq, "delta": "", "finish_reason": "FINISH_REASON_STOP", "history_id": historyID})
+		// 结束帧：message 携带完整答案，finish_reason 为 STOP
+		writeSSEChunk(w, flusher, &ChatChunkResponse{
+			ConversationID:    convID,
+			Seq:               int32(seq),
+			Message:           fullText,
+			Delta:             "",
+			FinishReason:      "FINISH_REASON_STOP",
+			HistoryID:         historyID,
+			Sources:           sources,
+			PromptQuestions:   []string{},
+			ReasoningContent:  "",
+			ThinkingDurationS: int64(time.Since(thinkStart).Seconds()),
+		})
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 		flusher.Flush()
 	}
@@ -423,8 +516,8 @@ func streamDualAnswer(
 	secondaryCh, err2 := StreamChatUpstream(chatCtx, baseURL, secondaryReq)
 	if err1 != nil && err2 != nil {
 		if rdb != nil {
-			_ = setChatStatus(reqCtx, rdb, convID, historyID, "failed", "")
-			_ = setChatStatus(reqCtx, rdb, convID, secondaryHistoryID, "failed", "")
+			_ = setChatStatus(chatCtx, rdb, convID, historyID, "failed", "")
+			_ = setChatStatus(chatCtx, rdb, convID, secondaryHistoryID, "failed", "")
 		}
 		writeSSEChunk(w, flusher, map[string]any{"finish_reason": "FINISH_REASON_UNKNOWN"})
 		return
@@ -452,8 +545,9 @@ func streamDualAnswer(
 			})
 			writeMu.Unlock()
 		}
+		// 与 neutrino 一致：Redis 写入用 chatCtx，避免刷新后 reqCtx 取消导致 chunk 写不进去
 		if rdb != nil {
-			_ = appendChatChunk(reqCtx, rdb, convID, historyID, &ChatChunkResponse{
+			_ = appendChatChunk(chatCtx, rdb, convID, historyID, &ChatChunkResponse{
 				ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: historyID,
 				ReasoningContent: reasoning, Sources: sources,
 			})
@@ -470,7 +564,7 @@ func streamDualAnswer(
 			writeMu.Unlock()
 		}
 		if rdb != nil {
-			_ = appendChatChunk(reqCtx, rdb, convID, secondaryHistoryID, &ChatChunkResponse{
+			_ = appendChatChunk(chatCtx, rdb, convID, secondaryHistoryID, &ChatChunkResponse{
 				ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: secondaryHistoryID,
 				ReasoningContent: reasoning, Sources: sources,
 			})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -22,9 +23,22 @@ import (
 	"lazyrag/core/store"
 )
 
-// writeSSEChunk 写一条 SSE 行： data: {json}\n\n
+// writeConversationJSON 直接输出 JSON（不包 code/message/data 壳），与 neutrino ragservice HTTP 网关保持一致。
+func writeConversationJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if v == nil {
+		_, _ = w.Write([]byte("{}"))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// writeSSEChunk 写一条 SSE 行： data: {"result":{...}}\n\n
 func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, v any) {
-	b, _ := json.Marshal(v)
+	// 与 neutrino ragservice 的 HTTP 网关保持一致：最外层包一层 result 字段
+	wrapped := map[string]any{"result": v}
+	b, _ := json.Marshal(wrapped)
 	_, _ = w.Write([]byte("data: "))
 	_, _ = w.Write(b)
 	_, _ = w.Write([]byte("\n\n"))
@@ -45,6 +59,11 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	fmt.Println("DEBUG ChatConversations headers path=", r.URL.Path,
+		" Authorization=", r.Header.Get("Authorization"),
+		" X-User-Id=", r.Header.Get("X-User-Id"),
+		" X-User-Name=", r.Header.Get("X-User-Name"))
+
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		common.ReplyErr(w, "read body failed", http.StatusBadRequest)
@@ -85,7 +104,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 
 	convID, _ := raw["conversation_id"].(string)
 	if convID == "" {
-		convID = newID("c_")
+		convID = newConversationID()
 	}
 	if len(convID) > maxConversationIDLength {
 		common.ReplyErr(w, "conversation_id too long", http.StatusBadRequest)
@@ -95,6 +114,19 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	displayName := ""
 	if conv != nil {
 		displayName, _ = conv["display_name"].(string)
+	}
+	// 与 neurtrino 一致：如果前端未显式传 display_name，则根据输入自动生成默认标题
+	if displayName == "" {
+		// 将 raw["input"] 粗略转换为 []map[string]any，便于 GetDefaultDisplayName 复用 neurtrino 逻辑
+		var fusionInput []map[string]any
+		if in, ok := raw["input"].([]any); ok {
+			for _, it := range in {
+				if m, ok2 := it.(map[string]any); ok2 {
+					fusionInput = append(fusionInput, m)
+				}
+			}
+		}
+		displayName = GetDefaultDisplayName(convID, fusionInput)
 	}
 	if len([]rune(displayName)) > maxConversationDisplayNameLength {
 		common.ReplyErr(w, "display_name too long", http.StatusBadRequest)
@@ -148,7 +180,24 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
 		return
 	}
-	_, seq, err := ensureConversation(db, convID, displayName, userID, userName)
+
+	// 序列化会话级 search_config / models，保证与 neutrino 一致存储
+	var searchConfigJSON json.RawMessage
+	if conv != nil {
+		if sc, ok := conv["search_config"]; ok {
+			if b, err := json.Marshal(sc); err == nil {
+				searchConfigJSON = b
+			}
+		}
+	}
+	var modelsJSON json.RawMessage
+	if len(modelStrs) > 0 {
+		if b, err := json.Marshal(modelStrs); err == nil {
+			modelsJSON = b
+		}
+	}
+
+	_, seq, err := ensureConversation(db, convID, displayName, searchConfigJSON, modelsJSON, userID, userName)
 	if err != nil {
 		common.ReplyErr(w, "failed to ensure conversation", http.StatusInternalServerError)
 		return
@@ -328,16 +377,11 @@ func sendChunk(w http.ResponseWriter, flusher http.Flusher, ch *ChatChunkRespons
 	if ch == nil {
 		return
 	}
-	writeSSEChunk(w, flusher, map[string]any{
-		"conversation_id":   ch.ConversationID,
-		"seq":               ch.Seq,
-		"message":           ch.Message,
-		"delta":             ch.Delta,
-		"finish_reason":     ch.FinishReason,
-		"history_id":        ch.HistoryID,
-		"reasoning_content": ch.ReasoningContent,
-		"sources":           ch.Sources,
-	})
+	// 默认补全 finish_reason，保证每帧都有值
+	if ch.FinishReason == "" {
+		ch.FinishReason = "FINISH_REASON_UNSPECIFIED"
+	}
+	writeSSEChunk(w, flusher, ch)
 }
 
 func resumeSingleAnswerChat(ctx context.Context, rdb *redis.Client, convID, historyID string, w http.ResponseWriter, flusher http.Flusher) {
@@ -391,6 +435,10 @@ func resumeSingleAnswerChat(ctx context.Context, rdb *redis.Client, convID, hist
 		return nil
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
+		return
+	}
+	// 与 neutrino 一致：用户刷新（context.Canceled）时不清理 Redis，下次 resume 可继续从 Redis 续传
+	if errors.Is(err, context.Canceled) {
 		return
 	}
 
@@ -493,8 +541,11 @@ func resumeMultiAnswerChat(ctx context.Context, rdb *redis.Client, convID string
 		FinishReason:   "FINISH_REASON_STOP",
 	})
 
-	_ = clearChatData(context.Background(), rdb, convID, info.PrimaryHistoryID)
-	_ = clearChatData(context.Background(), rdb, convID, info.SecondaryHistoryID)
+	// 与 neutrino 一致：仅当客户端仍连接时清理 Redis；用户刷新时不清理，下次 resume 可续传
+	if ctx.Err() == nil {
+		_ = clearChatData(context.Background(), rdb, convID, info.PrimaryHistoryID)
+		_ = clearChatData(context.Background(), rdb, convID, info.SecondaryHistoryID)
+	}
 }
 
 // StopChatGeneration 对应 POST /api/v1/conversations:stopChatGeneration
@@ -556,7 +607,7 @@ func GetChatStatus(w http.ResponseWriter, r *http.Request) {
 		ids, _ := getGeneratingHistoryIDs(r.Context(), rdb, convID)
 		isGenerating = len(ids) > 0
 	}
-	common.ReplyOK(w, map[string]any{"is_generating": isGenerating})
+	writeConversationJSON(w, http.StatusOK, map[string]any{"is_generating": isGenerating})
 }
 
 // GetConversation 对应 GET /api/v1/conversations/{name}
@@ -576,12 +627,38 @@ func GetConversation(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
 		return
 	}
-	common.ReplyOK(w, map[string]any{
-		"name":            "conversations/" + c.ID,
-		"conversation_id": c.ID,
-		"display_name":    c.DisplayName,
-		"create_time":     c.CreatedAt.Unix(),
-		"update_time":     c.UpdatedAt.Unix(),
+
+	// 解析 search_config
+	var searchCfg any
+	if len(c.SearchConfig) > 0 {
+		_ = json.Unmarshal(c.SearchConfig, &searchCfg)
+	}
+	// 解析 models
+	var models []string
+	if len(c.Models) > 0 {
+		_ = json.Unmarshal(c.Models, &models)
+	} else if c.Model != "" {
+		models = []string{c.Model}
+	}
+
+	// 统计反馈
+	var likeCnt, unlikeCnt int64
+	db := store.DB()
+	db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 1).Count(&likeCnt)
+	db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 2).Count(&unlikeCnt)
+
+	writeConversationJSON(w, http.StatusOK, map[string]any{
+		"name":                  "conversations/" + c.ID,
+		"conversation_id":       c.ID,
+		"display_name":          c.DisplayName,
+		"search_config":         searchCfg,
+		"user":                  c.CreateUserName,
+		"chat_times":            c.ChatTimes,
+		"total_feedback_like":   likeCnt,
+		"total_feedback_unlike": unlikeCnt,
+		"create_time":           c.CreatedAt.UTC().Format(time.RFC3339),
+		"update_time":           c.UpdatedAt.UTC().Format(time.RFC3339),
+		"models":                models,
 	})
 }
 
@@ -636,23 +713,75 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 
 	list := make([]map[string]any, 0, len(histories))
 	for _, h := range histories {
+		// 解析检索结果中的 sources，与 neutrino 的 SearchResults.Sources 对齐
+		var sources any
+		if len(h.RetrievalResult) > 0 {
+			var rr struct {
+				Sources any `json:"sources"`
+			}
+			if err := json.Unmarshal(h.RetrievalResult, &rr); err == nil {
+				sources = rr.Sources
+			}
+		}
+		// 解析扩展字段中的 input / reasoning_content 等
+		var input any
+		var reasoningContent string
+		if len(h.Ext) > 0 {
+			var ext struct {
+				Input            any    `json:"input"`
+				ReasoningContent string `json:"reasoning_content"`
+			}
+			if err := json.Unmarshal(h.Ext, &ext); err == nil {
+				input = ext.Input
+				reasoningContent = ext.ReasoningContent
+			}
+		}
+
 		list = append(list, map[string]any{
-			"seq":             h.Seq,
-			"query":           h.RawContent,
-			"result":          h.Result,
-			"id":              h.ID,
-			"reason":          h.Reason,
-			"expected_answer": h.ExpectedAnswer,
-			"create_time":     h.CreateTime.Unix(),
+			"seq":               h.Seq,
+			"query":             h.RawContent,
+			"result":            h.Result,
+			"id":                h.ID,
+			"feed_back":         h.FeedBack,
+			"sources":           sources,
+			"input":             input,
+			"reasoning_content": reasoningContent,
+			"reason":            h.Reason,
+			"expected_answer":   h.ExpectedAnswer,
+			"create_time":       h.CreateTime.UTC().Format(time.RFC3339),
 		})
 	}
-	common.ReplyOK(w, map[string]any{
+
+	// 解析会话级元数据
+	var searchCfg any
+	if len(c.SearchConfig) > 0 {
+		_ = json.Unmarshal(c.SearchConfig, &searchCfg)
+	}
+	var models []string
+	if len(c.Models) > 0 {
+		_ = json.Unmarshal(c.Models, &models)
+	} else if c.Model != "" {
+		models = []string{c.Model}
+	}
+
+	var likeCnt, unlikeCnt int64
+	db := store.DB()
+	db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 1).Count(&likeCnt)
+	db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 2).Count(&unlikeCnt)
+
+	writeConversationJSON(w, http.StatusOK, map[string]any{
 		"conversation": map[string]any{
-			"name":            "conversations/" + c.ID,
-			"conversation_id": c.ID,
-			"display_name":    c.DisplayName,
-			"create_time":     c.CreatedAt.Unix(),
-			"update_time":     c.UpdatedAt.Unix(),
+			"name":                  "conversations/" + c.ID,
+			"conversation_id":       c.ID,
+			"display_name":          c.DisplayName,
+			"search_config":         searchCfg,
+			"user":                  c.CreateUserName,
+			"chat_times":            c.ChatTimes,
+			"total_feedback_like":   likeCnt,
+			"total_feedback_unlike": unlikeCnt,
+			"create_time":           c.CreatedAt.UTC().Format(time.RFC3339),
+			"update_time":           c.UpdatedAt.UTC().Format(time.RFC3339),
+			"models":                models,
 		},
 		"history": list,
 	})
@@ -678,7 +807,7 @@ func DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	db.Where("conversation_id = ?", convID).Delete(&orm.ChatHistory{})
 	db.Where("conversation_id = ?", convID).Delete(&orm.MultiAnswersChatHistory{})
-	common.ReplyOK(w, nil)
+	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
 // ListConversations 对应 GET /api/v1/conversations
@@ -710,21 +839,45 @@ func ListConversations(w http.ResponseWriter, r *http.Request) {
 	q.Count(&total)
 	var list []orm.Conversation
 	q.Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&list)
+
 	items := make([]map[string]any, 0, len(list))
 	for _, c := range list {
+		// 解析 search_config
+		var searchCfg any
+		if len(c.SearchConfig) > 0 {
+			_ = json.Unmarshal(c.SearchConfig, &searchCfg)
+		}
+		// 解析 models：优先使用 models 字段，其次回退到单个 model
+		var models []string
+		if len(c.Models) > 0 {
+			_ = json.Unmarshal(c.Models, &models)
+		} else if c.Model != "" {
+			models = []string{c.Model}
+		}
+		// 统计点赞/点踩数
+		var likeCnt, unlikeCnt int64
+		db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 1).Count(&likeCnt)
+		db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 2).Count(&unlikeCnt)
+
 		items = append(items, map[string]any{
-			"name":            "conversations/" + c.ID,
-			"conversation_id": c.ID,
-			"display_name":    c.DisplayName,
-			"create_time":     c.CreatedAt.Unix(),
-			"update_time":     c.UpdatedAt.Unix(),
+			"name":                  "conversations/" + c.ID,
+			"conversation_id":       c.ID,
+			"display_name":          c.DisplayName,
+			"search_config":         searchCfg,
+			"user":                  c.CreateUserName,
+			"chat_times":            c.ChatTimes,
+			"total_feedback_like":   likeCnt,
+			"total_feedback_unlike": unlikeCnt,
+			"create_time":           c.CreatedAt.UTC().Format(time.RFC3339),
+			"update_time":           c.UpdatedAt.UTC().Format(time.RFC3339),
+			"models":                models,
 		})
 	}
 	nextToken := ""
 	if offset+len(list) < int(total) {
 		nextToken = strconv.Itoa(offset + len(list))
 	}
-	common.ReplyOK(w, map[string]any{
+	writeConversationJSON(w, http.StatusOK, map[string]any{
 		"conversations":   items,
 		"total_size":      total,
 		"next_page_token": nextToken,
@@ -800,7 +953,7 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = db.Where("id IN ?", []string{body.SetHistoryID, body.DeletedHistoryID}).Delete(&orm.MultiAnswersChatHistory{}).Error
-	common.ReplyOK(w, map[string]any{"history_id": body.SetHistoryID})
+	writeConversationJSON(w, http.StatusOK, map[string]any{"history_id": body.SetHistoryID})
 }
 
 // FeedBackChatHistory 对应 POST /api/v1/conversations:feedBackChatHistory
@@ -830,7 +983,7 @@ func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "history not found", http.StatusNotFound)
 		return
 	}
-	common.ReplyOK(w, nil)
+	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
 // GetMultiAnswersSwitchStatus 对应 GET /api/v1/conversation:switchStatus
@@ -845,7 +998,7 @@ func GetMultiAnswersSwitchStatus(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		st = row.Status
 	}
-	common.ReplyOK(w, map[string]any{"status": st})
+	writeConversationJSON(w, http.StatusOK, map[string]any{"status": st})
 }
 
 // SetMultiAnswersSwitchStatus 对应 POST /api/v1/conversation:switchStatus
@@ -883,5 +1036,5 @@ func SetMultiAnswersSwitchStatus(w http.ResponseWriter, r *http.Request) {
 	} else {
 		db.Model(&row).Updates(map[string]any{"status": body.Status, "updated_at": now})
 	}
-	common.ReplyOK(w, map[string]any{"status": body.Status})
+	writeConversationJSON(w, http.StatusOK, map[string]any{"status": body.Status})
 }
