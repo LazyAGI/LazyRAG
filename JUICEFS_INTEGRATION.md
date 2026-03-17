@@ -1,11 +1,10 @@
 # JuiceFS S3 Gateway 集成指南
 
-本文档说明 JuiceFS S3 Gateway 如何集成到 LazyRAG-back 项目中。
+本文档说明 JuiceFS S3 Gateway 如何集成到 LazyRAG 项目中。
 
 ## ✅ 已完成的集成工作
 
 ### 1. 文件拷贝
-- ✅ 已将 `tieyiyuan/neutrino/prod/appplatform/juicefs-s3-gateway` 目录完整拷贝到 `LazyRAG-back/backend/juicefs-s3-gateway`
 - ✅ 包含所有必要文件: Dockerfile, Dockerfile.arm64, juicefs 源码, minio 源码
 
 ### 2. Docker Compose 配置
@@ -39,7 +38,8 @@
 ### 方法一: 使用 Makefile (推荐)
 
 ```bash
-cd /Users/wangbochao.vendor/Desktop/object/lazyRag_shift/LazyRAG-back
+# 进入项目根目录（将本机路径用 xxx 代替）
+cd xxx/LazyRAG
 
 # 构建并启动所有服务
 make up-build
@@ -54,7 +54,8 @@ docker compose logs -f juicefs-s3-gateway
 ### 方法二: 使用 Docker Compose 直接启动
 
 ```bash
-cd /Users/wangbochao.vendor/Desktop/object/lazyRag_shift/LazyRAG-back
+# 进入项目根目录（将本机路径用 xxx 代替）
+cd xxx/LazyRAG
 
 # 启动所有服务
 docker compose up -d
@@ -111,7 +112,7 @@ PostgreSQL: localhost:9009
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                  LazyRAG-back 服务                    │
+│                    LazyRAG 服务                       │
 ├──────────────────────────────────────────────────────┤
 │                                                       │
 │  ┌─────────┐  ┌──────┐  ┌──────────┐  ┌──────────┐ │
@@ -189,7 +190,7 @@ s3.download_file('my-data', 'document.pdf', 'downloaded.pdf')
 创建 `.env` 文件来覆盖默认配置:
 
 ```bash
-# 在 LazyRAG-back 根目录创建 .env 文件
+# 在 LazyRAG 根目录创建 .env 文件
 cat > .env << 'EOF'
 # JuiceFS S3 Gateway 凭证
 JUICEFS_ACCESS_KEY=your-custom-key
@@ -210,7 +211,7 @@ make up
 所有数据存储在 `volumes/` 目录:
 
 ```
-LazyRAG-back/
+LazyRAG/
 ├── volumes/
 │   ├── db/              # PostgreSQL 数据
 │   ├── redis/           # Redis 数据(包含 JuiceFS 元数据)
