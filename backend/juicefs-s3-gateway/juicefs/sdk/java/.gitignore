@@ -1,0 +1,8 @@
+*.dll
+*.dylib
+*.so
+.classpath
+.project
+.settings/
+dependency-reduced-pom.xml
+target/
