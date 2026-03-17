@@ -6,7 +6,7 @@ import (
 	"lazyrag/core/common"
 )
 
-// DatasetMemberService stub handlers. TODO: implement later.
+// DatasetMemberService 占位实现，后续补全。
 
 func ListDatasetMembers(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, map[string]any{}) /* TODO */

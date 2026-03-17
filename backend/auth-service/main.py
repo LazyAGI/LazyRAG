@@ -1,398 +1,211 @@
-from __future__ import annotations
-
 import json
 import logging
-import os
-from datetime import datetime, timezone
-from pathlib import Path
+import time
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from pydantic import BaseModel
-from sqlalchemy import delete, func, select
-from sqlalchemy.orm import joinedload, Session
+import redis
+import traceback
+import yaml
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.responses import Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from auth_security import (
-    create_access_token,
-    generate_refresh_token,
-    hash_refresh_token,
-    jwt_secret,
-    jwt_ttl_seconds,
-    refresh_token_expires_at,
+from api.auth import router as auth_router
+from api.authorization import router as authorization_router
+from api.group import router as group_router
+from api.role import router as role_router
+from api.user import router as user_router
+from core.errors import AppException, error_payload_from_exception
+
+
+# 确保日志可见（uvicorn 的 log_config 可能把默认级别设为 WARNING/且禁用既有 logger）
+logging.basicConfig(level=logging.INFO, format="%(message)s", force=True)
+
+app = FastAPI(
+    title='Auth Service',
+    description='LazyRAG 认证与授权服务（登录、注册、Token、用户/角色/组管理）',
+    version='1.0.0',
+    docs_url='/docs',
+    redoc_url=None,
+    oauth2_redirect_url=None,
+    openapi_url='/openapi.json',
 )
-from auth_service import AuthError, authenticate_user, register_user
-from bootstrap import bootstrap
-from rbac import permission_required
-from db import SessionLocal, engine
-from models import Base, PermissionGroup, RefreshToken, Role, RolePermission, User
 
-app = FastAPI(title='Auth Service')
-bearer_scheme = HTTPBearer(auto_error=False)
-logger = logging.getLogger('auth-service')
+_SWAGGER_PATHS = {'/openapi.json', '/openapi.yaml', '/docs'}
 
-BUILTIN_ADMIN_ROLE = 'admin'
-API_PERMISSIONS_MAP: dict[tuple[str, str], list[str]] = {}
+_logger = logging.getLogger('uvicorn.error')
+_logger.setLevel(logging.INFO)
+if not _logger.handlers:
+    _logger.addHandler(logging.StreamHandler())
+_logger.propagate = True
 
 
-class RegisterBody(BaseModel):
-    username: str
-    password: str
-
-
-class LoginBody(BaseModel):
-    username: str
-    password: str
-
-
-class RefreshBody(BaseModel):
-    refresh_token: str
-
-
-class RoleCreateBody(BaseModel):
-    name: str
-
-
-class RolePermissionsBody(BaseModel):
-    permission_groups: list[str]
-
-
-class UserRoleBody(BaseModel):
-    role_id: int
-
-
-class AuthorizeBody(BaseModel):
-    method: str
-    path: str
-
-
-def _normalize_path(path: str) -> str:
-    return path.rstrip('/') or '/'
-
-
-def _path_matches_pattern(path: str, pattern: str) -> bool:
-    path_segs = [s for s in path.split('/') if s]
-    pattern_segs = [s for s in pattern.split('/') if s]
-    if len(path_segs) != len(pattern_segs):
-        return False
-    for pseg, mseg in zip(path_segs, pattern_segs):
-        if not mseg.startswith('{') or not mseg.endswith('}'):
-            if pseg != mseg:
-                return False
-    return True
-
-
-def _required_permissions_for(method: str, path: str) -> list[str] | None:
-    key = (method, path)
-    if key in API_PERMISSIONS_MAP:
-        return API_PERMISSIONS_MAP[key]
-    for (m, pattern), perms in API_PERMISSIONS_MAP.items():
-        if m == method and _path_matches_pattern(path, pattern):
-            return perms
-    return None
-
-
-def _load_api_permissions() -> None:
-    global API_PERMISSIONS_MAP
-    path = os.environ.get('LAZYRAG_AUTH_API_PERMISSIONS_FILE')
-    path = Path(path) if path else Path(__file__).resolve().parent / 'api_permissions.json'
-    if not path.exists():
-        logger.warning('api_permissions.json not found at %s; RBAC authorize will allow all', path)
-        API_PERMISSIONS_MAP = {}
-        return
+@app.middleware('http')
+async def _log_request(request: Request, call_next):
+    """每个请求打印一条相关请求日志 + access-log"""
+    if request.url.path in _SWAGGER_PATHS:
+        return await call_next(request)
+    client_ip = None
+    if request.client:
+        client_ip = request.client.host
+    _logger.info("Request started: %s %s from %s", request.method, request.url.path, client_ip)
+    print(f"Request started: {request.method} {request.url.path} from {client_ip}", flush=True)
+    start = time.time()
     try:
-        data = json.loads(path.read_text(encoding='utf-8'))
-        API_PERMISSIONS_MAP = {}
-        for item in data:
-            method = (item.get('method') or 'GET').upper()
-            p = _normalize_path(item.get('path') or '/')
-            API_PERMISSIONS_MAP[(method, p)] = list(item.get('permissions') or [])
-        logger.info('Loaded %d API permission entries from %s', len(API_PERMISSIONS_MAP), path)
-    except Exception as e:
-        logger.exception('Failed to load api_permissions from %s: %s', path, e)
-        API_PERMISSIONS_MAP = {}
-
-
-@app.on_event('startup')
-def on_startup():
-    Base.metadata.create_all(bind=engine)
-    try:
-        with SessionLocal() as db:
-            bootstrap(db)
-        logger.info('Bootstrap completed')
-    except Exception as e:
-        logger.exception('Bootstrap failed: %s', e)
+        response = await call_next(request)
+    except AppException:
+        # 业务异常交给 exception_handler 统一格式化，不应全部是 500
         raise
-    _load_api_permissions()
+    except redis.exceptions.RedisError:
+        # 交给 Redis 专用 handler 输出更清晰的错误信息
+        raise
+    except StarletteHTTPException:
+        raise
+    except Exception as e:
+        cost_ms = int((time.time() - start) * 1000)
+        _logger.exception(
+            "unhandled_exception method=%s path=%s cost_ms=%d",
+            request.method,
+            request.url.path,
+            cost_ms,
+            extra={"method": request.method, "path": request.url.path, "cost_ms": cost_ms},
+        )
+        # 强制输出堆栈到 stdout（避免 uvicorn/logger 配置导致 traceback 不可见）
+        print(traceback.format_exc(), flush=True)
+        _logger.error(
+            "unhandled_exception_detail type=%s module=%s message=%s",
+            type(e).__name__,
+            type(e).__module__,
+            str(e),
+        )
+        print(
+            f"unhandled_exception method={request.method} path={request.url.path} cost_ms={cost_ms} "
+            f"type={type(e).__name__} module={type(e).__module__} message={e}",
+            flush=True,
+        )
+        return JSONResponse(status_code=500, content={"code": 500, "message": "Internal Server Error", "data": None})
+    cost_ms = int((time.time() - start) * 1000)
+    if response.status_code >= 500:
+        _logger.error(
+            "access-log method=%s path=%s status=%s cost_ms=%d",
+            request.method,
+            request.url.path,
+            response.status_code,
+            cost_ms,
+            extra={"method": request.method, "path": request.url.path, "status": response.status_code, "cost_ms": cost_ms},
+        )
+        print(f"access-log method={request.method} path={request.url.path} status={response.status_code} cost_ms={cost_ms}", flush=True)
+    else:
+        _logger.info(
+            "access-log method=%s path=%s status=%s cost_ms=%d",
+            request.method,
+            request.url.path,
+            response.status_code,
+            cost_ms,
+            extra={"method": request.method, "path": request.url.path, "status": response.status_code, "cost_ms": cost_ms},
+        )
+        print(f"access-log method={request.method} path={request.url.path} status={response.status_code} cost_ms={cost_ms}", flush=True)
+    return response
 
 
-def _user_id_from_token(token: str) -> int:
+def _copy_headers(headers) -> dict[str, str]:
+    d = dict(headers)
+    d.pop('content-length', None)
+    return d
+
+
+@app.middleware('http')
+async def _standardize_json_response(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path in _SWAGGER_PATHS:
+        return response
+
+    content_type = (response.headers.get('content-type') or '').lower()
+    if 'application/json' not in content_type:
+        return response
+
+    body = b''
+    async for chunk in response.body_iterator:
+        body += chunk
+
     try:
-        payload = jwt.decode(token, jwt_secret(), algorithms=['HS256'])
-    except JWTError:
-        raise HTTPException(status_code=401, detail='Unauthorized')
-    sub = payload.get('sub')
-    if not sub:
-        raise HTTPException(status_code=401, detail='Unauthorized')
+        payload = json.loads(body.decode('utf-8')) if body else None
+    except Exception:
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=_copy_headers(response.headers),
+            media_type='application/json',
+        )
+
+    if isinstance(payload, dict) and (('swagger' in payload or 'openapi' in payload) and 'info' in payload and 'paths' in payload):
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=_copy_headers(response.headers),
+            media_type='application/json',
+        )
+
+    if isinstance(payload, dict) and 'code' in payload and 'message' in payload and 'data' in payload:
+        payload['code'] = response.status_code
+        return JSONResponse(content=payload, status_code=response.status_code, headers=_copy_headers(response.headers))
+
+    if 200 <= response.status_code < 300:
+        wrapped = {'code': response.status_code, 'message': 'success', 'data': payload}
+    else:
+        msg = None
+        if isinstance(payload, dict):
+            msg = payload.get('message')
+        if not isinstance(msg, str) or not msg:
+            msg = 'An error occurred'
+        wrapped = {'code': response.status_code, 'message': msg, 'data': payload}
+
+    return JSONResponse(content=wrapped, status_code=response.status_code, headers=_copy_headers(response.headers))
+
+
+@app.exception_handler(AppException)
+def _handle_app_exception(_, exc: AppException):
+    return JSONResponse(status_code=exc.http_code, content=error_payload_from_exception(exc))
+
+@app.exception_handler(redis.exceptions.RedisError)
+def _handle_redis_error(_, exc: redis.exceptions.RedisError):
+    from core.errors import ErrorCodes, raise_error
+    # 这里必须打印完整堆栈，否则容器日志只剩 “Redis 认证失败” 无法定位根因。
+    tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    _logger.error("redis_error type=%s message=%s\n%s", type(exc).__name__, str(exc), tb)
+    print(f"redis_error type={type(exc).__name__} message={exc}\n{tb}", flush=True)
     try:
-        return int(sub)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=401, detail='Unauthorized')
+        if isinstance(exc, redis.exceptions.AuthenticationError):
+            raise_error(ErrorCodes.REDIS_AUTH_FAILED)
+        raise_error(ErrorCodes.REDIS_UNAVAILABLE)
+    except AppException as e:
+        return JSONResponse(status_code=e.http_code, content=error_payload_from_exception(e))
 
 
-def _current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> int:  # noqa: B008
-    if not credentials or not credentials.credentials:
-        raise HTTPException(status_code=401, detail='Unauthorized')
-    return _user_id_from_token(credentials.credentials)
+@app.exception_handler(StarletteHTTPException)
+def _handle_http_exception(_, exc: StarletteHTTPException):
+    message = exc.detail if isinstance(exc.detail, str) else "HTTP error"
+    return JSONResponse(status_code=exc.status_code, content={"code": exc.status_code, "message": message, "data": None})
 
 
-def _get_user_with_role(db: Session, user_id: int) -> User | None:
-    return db.scalar(
-        select(User).where(User.id == user_id).options(
-            joinedload(User.role).joinedload(Role.permission_groups)
-        )
-    )
+@app.exception_handler(RequestValidationError)
+def _handle_validation_error(_, exc: RequestValidationError):
+    return JSONResponse(status_code=400, content={"code": 400, "message": "参数错误", "data": exc.errors()})
 
 
-def _require_admin(user_id: int = Depends(_current_user_id)) -> User:  # noqa: B008
-    with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.id == user_id).options(joinedload(User.role)))
-    if not user or user.role.name != BUILTIN_ADMIN_ROLE:
-        raise HTTPException(status_code=403, detail='Admin required')
-    return user
+@app.get('/openapi.yaml', include_in_schema=False)
+def openapi_yaml():
+    """openapi.yaml文档"""
+    schema = app.openapi()
+    body = yaml.dump(schema, allow_unicode=True, sort_keys=False)
+    return Response(content=body, media_type='application/x-yaml')
 
 
-def _default_role_id(db: Session) -> int:
-    role = db.scalar(select(Role).where(Role.name == 'user'))
-    if not role:
-        raise HTTPException(status_code=500, detail="Default role 'user' not found")
-    return role.id
+_API_PREFIX = "/api/authservice"
 
-
-@app.get('/api/auth/health')
-def api_health():
-    with SessionLocal() as db:
-        role_names = set(db.scalars(select(Role.name).where(Role.name.in_(['admin', 'user']))))
-        n_roles = db.scalar(select(func.count()).select_from(Role))
-        n_users = db.scalar(select(func.count()).select_from(User))
-    return {
-        'status': 'ok',
-        'roles_count': n_roles,
-        'users_count': n_users,
-        'bootstrap_ok': role_names >= {'admin', 'user'},
-    }
-
-
-@app.post('/api/auth/register')
-def api_register(body: RegisterBody):
-    with SessionLocal() as db:
-        role_id = _default_role_id(db)
-        try:
-            user = register_user(db=db, username=body.username, password=body.password, role_id=role_id)
-        except AuthError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-        role = db.scalar(select(Role).where(Role.id == user.role_id))
-        role_name = role.name if role else 'user'
-    return {'id': user.id, 'username': user.username, 'role': role_name}
-
-
-@app.post('/api/auth/login')
-def api_login(body: LoginBody):
-    with SessionLocal() as db:
-        try:
-            user = authenticate_user(db=db, username=body.username, password=body.password)
-        except AuthError as e:
-            raise HTTPException(status_code=401, detail=str(e))
-        user = _get_user_with_role(db, user.id)
-        user_id, role_name = user.id, user.role.name
-        access_token = create_access_token(subject=str(user_id), role=role_name)
-        refresh_token = generate_refresh_token()
-        db.add(
-            RefreshToken(
-                user_id=user_id,
-                token_hash=hash_refresh_token(refresh_token),
-                expires_at=refresh_token_expires_at(),
-            )
-        )
-        db.commit()
-    return {
-        'access_token': access_token,
-        'refresh_token': refresh_token,
-        'token_type': 'bearer',
-        'role': role_name,
-        'expires_in': jwt_ttl_seconds(),
-    }
-
-
-@app.post('/api/auth/validate')
-def api_validate(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)):  # noqa: B008
-    if not credentials or credentials.credentials is None:
-        raise HTTPException(status_code=401, detail='Unauthorized')
-    user_id = _user_id_from_token(credentials.credentials)
-    with SessionLocal() as db:
-        user = _get_user_with_role(db, user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail='Unauthorized')
-    return {'sub': str(user.id), 'role': user.role.name, 'permissions': [p.name for p in user.role.permission_groups]}
-
-
-@app.post('/api/auth/authorize')
-def api_authorize(body: AuthorizeBody, request: Request):
-    """RBAC: bearer valid and has permission for (method, path). 200 if allowed, 401/403 otherwise."""
-    method = (body.method or 'GET').upper()
-    path = _normalize_path(body.path or '/')
-    required = _required_permissions_for(method, path)
-    if not required:
-        return {'allowed': True}
-    auth_header = request.headers.get('authorization') or ''
-    token = auth_header.strip()
-    if token.lower().startswith('bearer '):
-        token = token[7:].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail='Unauthorized')
-    user_id = _user_id_from_token(token)
-    with SessionLocal() as db:
-        user = _get_user_with_role(db, user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail='Unauthorized')
-    if user.role.name == BUILTIN_ADMIN_ROLE:
-        return {'allowed': True}
-    if {p.name for p in user.role.permission_groups} & set(required):
-        return {'allowed': True}
-    raise HTTPException(status_code=403, detail='Forbidden')
-
-
-@app.post('/api/auth/refresh')
-def api_refresh(body: RefreshBody):
-    if not body.refresh_token or not body.refresh_token.strip():
-        raise HTTPException(status_code=401, detail='refresh_token required')
-    token_hash = hash_refresh_token(body.refresh_token.strip())
-    now_utc = datetime.now(timezone.utc)
-    with SessionLocal() as db:
-        row = db.scalar(
-            select(RefreshToken).where(
-                RefreshToken.token_hash == token_hash,
-                RefreshToken.expires_at > now_utc,
-            )
-        )
-        if not row:
-            raise HTTPException(status_code=401, detail='Invalid or expired refresh_token')
-        user = db.scalar(select(User).where(User.id == row.user_id).options(joinedload(User.role)))
-        if not user:
-            db.delete(row)
-            db.commit()
-            raise HTTPException(status_code=401, detail='User not found')
-        db.delete(row)
-        new_refresh_token = generate_refresh_token()
-        db.add(
-            RefreshToken(
-                user_id=user.id,
-                token_hash=hash_refresh_token(new_refresh_token),
-                expires_at=refresh_token_expires_at(),
-            )
-        )
-        db.commit()
-        role_name = user.role.name
-    return {
-        'access_token': create_access_token(subject=str(user.id), role=role_name),
-        'refresh_token': new_refresh_token,
-        'token_type': 'bearer',
-        'expires_in': jwt_ttl_seconds(),
-    }
-
-
-@app.get('/api/auth/permission-groups')
-@permission_required('user.read')
-def api_list_permission_groups(_: User = Depends(_require_admin)):  # noqa: B008
-    with SessionLocal() as db:
-        groups = db.scalars(select(PermissionGroup).order_by(PermissionGroup.name)).all()
-    return [{'id': g.id, 'name': g.name} for g in groups]
-
-
-@app.get('/api/auth/roles')
-@permission_required('user.read')
-def api_list_roles(_: User = Depends(_require_admin)):  # noqa: B008
-    with SessionLocal() as db:
-        roles = db.scalars(select(Role).order_by(Role.name)).all()
-    return [{'id': r.id, 'name': r.name, 'built_in': r.built_in} for r in roles]
-
-
-@app.post('/api/auth/roles')
-@permission_required('user.write')
-def api_create_role(body: RoleCreateBody, _: User = Depends(_require_admin)):  # noqa: B008
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail='name required')
-    with SessionLocal() as db:
-        if db.scalar(select(Role).where(Role.name == name)):
-            raise HTTPException(status_code=400, detail='Role name already exists')
-        role = Role(name=name, built_in=False)
-        db.add(role)
-        db.commit()
-        db.refresh(role)
-    return {'id': role.id, 'name': role.name, 'built_in': False}
-
-
-@app.delete('/api/auth/roles/{role_id}')
-@permission_required('user.write')
-def api_delete_role(role_id: int, _: User = Depends(_require_admin)):  # noqa: B008
-    with SessionLocal() as db:
-        role = db.scalar(select(Role).where(Role.id == role_id))
-        if not role:
-            raise HTTPException(status_code=404, detail='Role not found')
-        if role.built_in:
-            raise HTTPException(status_code=400, detail='Cannot delete built-in role')
-        db.delete(role)
-        db.commit()
-    return {'ok': True}
-
-
-@app.get('/api/auth/roles/{role_id}/permissions')
-@permission_required('user.read')
-def api_get_role_permissions(role_id: int, _: User = Depends(_require_admin)):  # noqa: B008
-    with SessionLocal() as db:
-        role = db.scalar(select(Role).where(Role.id == role_id).options(joinedload(Role.permission_groups)))
-        if not role:
-            raise HTTPException(status_code=404, detail='Role not found')
-    return {'role_id': role_id, 'permission_groups': [p.name for p in role.permission_groups]}
-
-
-@app.put('/api/auth/roles/{role_id}/permissions')
-@permission_required('user.write')
-def api_set_role_permissions(role_id: int, body: RolePermissionsBody, _: User = Depends(_require_admin)):  # noqa: B008
-    with SessionLocal() as db:
-        role = db.scalar(select(Role).where(Role.id == role_id))
-        if not role:
-            raise HTTPException(status_code=404, detail='Role not found')
-        if role.built_in and role.name == BUILTIN_ADMIN_ROLE:
-            raise HTTPException(status_code=400, detail='Cannot change admin role permissions')
-        pg_ids = {pg.id for name in body.permission_groups
-                  if (pg := db.scalar(select(PermissionGroup).where(PermissionGroup.name == name)))}
-        db.execute(delete(RolePermission).where(RolePermission.role_id == role_id))
-        for pg_id in pg_ids:
-            db.add(RolePermission(role_id=role_id, permission_group_id=pg_id))
-        db.commit()
-    return {'ok': True}
-
-
-@app.get('/api/auth/users')
-@permission_required('user.read')
-def api_list_users(_: User = Depends(_require_admin)):  # noqa: B008
-    with SessionLocal() as db:
-        users = db.scalars(select(User).options(joinedload(User.role)).order_by(User.id)).all()
-    return [{'id': u.id, 'username': u.username, 'role_id': u.role_id, 'role_name': u.role.name} for u in users]
-
-
-@app.patch('/api/auth/users/{user_id}')
-@permission_required('user.write')
-def api_set_user_role(user_id: int, body: UserRoleBody, _: User = Depends(_require_admin)):  # noqa: B008
-    bootstrap_username = (os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME') or '').strip()
-    with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.id == user_id).options(joinedload(User.role)))
-        if not user:
-            raise HTTPException(status_code=404, detail='User not found')
-        if bootstrap_username and user.username == bootstrap_username:
-            raise HTTPException(status_code=400, detail='Bootstrap admin account role cannot be changed')
-        user.role_id = body.role_id
-        db.commit()
-    return {'ok': True}
+app.include_router(auth_router, prefix=_API_PREFIX)
+app.include_router(authorization_router, prefix=_API_PREFIX)
+app.include_router(user_router, prefix=_API_PREFIX)
+app.include_router(role_router, prefix=_API_PREFIX)
+app.include_router(group_router, prefix=_API_PREFIX)

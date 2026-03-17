@@ -65,6 +65,17 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   auth-service:
     build:
       context: ./backend
@@ -456,3 +467,11 @@ services:
     volumes:
       - ./volumes/juicefs-cache:/var/jfsCache
 
+volumes:
+  pgdata:
+  redisdata:
+  rag-uploads:
+  milvus-etcd:
+  milvus-minio:
+  milvus-data:
+  opensearch-data:

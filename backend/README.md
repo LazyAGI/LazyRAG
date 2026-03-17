@@ -1,6 +1,6 @@
 # Backend service layout
 
-- **auth-service** (Python/FastAPI): Users and auth. Register, login, JWT, `/api/auth/validate`, and **centralized RBAC** via `/api/auth/authorize`. Routes are annotated with `@permission_required("user.read")` or `user.write`; the extract script reads these and Kong enforces them.
+- **auth-service** (Python/FastAPI): Users and auth. Register, login, refresh token, JWT, `/api/auth/validate`, and **centralized RBAC** via `/api/auth/authorize`. **登录、注册、刷新 token 等接口以本服务为参考实现**，详见 [docs/auth-api.md](../docs/auth-api.md)。Routes are annotated with `@permission_required("user.read")` or `user.write`; the extract script reads these and Kong enforces them.
 - **core** (Go): Business API. Exposes `/hello`, `/admin`, `/api/hello`, `/api/admin`. Permissions are declared at registration via **handleAPI(mux, method, path, []string{"perm"}, handler)**; the extract script parses these calls. No per-route auth in Go; Kong does it.
 
 ## Centralized authorization (Kong + auth-service)

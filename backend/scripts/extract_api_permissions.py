@@ -5,7 +5,6 @@ Extract (method, path) -> permissions from:
 - Go: handleAPI(mux, method, path, []string{...}, handler) at route registration (core).
 Run at deploy time; writes api_permissions.json for auth-service and Kong.
 """
-from __future__ import annotations
 
 import argparse
 import ast
@@ -13,6 +12,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+import yaml
 
 
 def _normalize_path(path: str) -> str:
@@ -95,11 +96,73 @@ def collect_files(root: Path, exclude_dirs: set[str], ext: str) -> list[Path]:
     return sorted(out)
 
 
+def _extract_permission_codes(entries: list[dict]) -> list[str]:
+    codes: set[str] = set()
+    for item in entries:
+        perms = item.get('permissions') or []
+        for p in perms:
+            s = str(p or '').strip()
+            if s:
+                codes.add(s)
+    return sorted(codes)
+
+
+def _read_permission_groups_yaml(path: Path) -> tuple[str, dict]:
+    """
+    Read permission_groups.yaml returning (leading_comment_block, data_dict).
+    Leading comments are preserved (best-effort).
+    """
+    if not path.exists():
+        return '', {}
+    text = path.read_text(encoding='utf-8')
+    comment_lines: list[str] = []
+    for line in text.splitlines():
+        if line.startswith('#') or not line.strip():
+            comment_lines.append(line)
+            continue
+        break
+    try:
+        data = yaml.safe_load(text) or {}
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        data = {}
+    comment_block = '\n'.join(comment_lines).rstrip() + ('\n' if comment_lines else '')
+    return comment_block, data
+
+
+def _sync_permission_groups_yaml(path: Path, used_codes: list[str]) -> None:
+    """
+    Sync permission_groups.yaml.permission_groups from used_codes (full overwrite).
+    - Overwrites permission_groups with the full, de-duplicated set of used codes.
+    - Does NOT delete/modify any DB data (bootstrap is additive).
+    - Preserves leading comment block best-effort.
+    - Keeps other YAML keys as-is (e.g. default_user_role_permissions) if present.
+    """
+    header, data = _read_permission_groups_yaml(path)
+    merged = sorted(set(used_codes))
+
+    out: dict = dict(data)
+    out['permission_groups'] = merged
+    if 'default_user_role_permissions' not in out:
+        out['default_user_role_permissions'] = []
+
+    body = yaml.safe_dump(out, sort_keys=False, allow_unicode=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(header + body, encoding='utf-8')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Extract API permissions from Python (FastAPI @permission_required) and Go (APIRoutePermissions)'
     )
     parser.add_argument('--output', '-o', type=Path, help='Output JSON path')
+    parser.add_argument(
+        '--sync-permission-groups',
+        type=Path,
+        default=None,
+        help='Optional permission_groups.yaml path to sync (adds missing codes only)',
+    )
     parser.add_argument(
         '--exclude', type=str, default='',
         help='Comma-separated subdir names to exclude (e.g. scripts,core,vendor)',
@@ -147,6 +210,15 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding='utf-8')
     print(f'Wrote {len(result)} API permission entries to {out_path}')
+
+    used_codes = _extract_permission_codes(result)
+    if args.sync_permission_groups is not None:
+        pg_path = args.sync_permission_groups.resolve()
+    else:
+        # Default: auth-service/permission_groups.yaml next to the default output location
+        pg_path = out_path.parent / 'permission_groups.yaml'
+    _sync_permission_groups_yaml(pg_path, used_codes)
+    print(f'Synced {len(used_codes)} permission codes to {pg_path}')
 
 
 if __name__ == '__main__':

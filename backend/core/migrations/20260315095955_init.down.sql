@@ -1,0 +1,13 @@
+-- 20260315095955_init
+-- +migrate Down
+
+DROP TABLE IF EXISTS multi_answers_chat_histories CASCADE;
+DROP TABLE IF EXISTS chat_histories CASCADE;
+DROP TABLE IF EXISTS conversations CASCADE;
+DROP TABLE IF EXISTS multi_answers_switches CASCADE;
+DROP TABLE IF EXISTS default_prompts CASCADE;
+DROP TABLE IF EXISTS prompts CASCADE;
+DROP TABLE IF EXISTS acl_user_groups CASCADE;
+DROP TABLE IF EXISTS acl_kbs CASCADE;
+DROP TABLE IF EXISTS acl_rows CASCADE;
+DROP TABLE IF EXISTS acl_visibility CASCADE;

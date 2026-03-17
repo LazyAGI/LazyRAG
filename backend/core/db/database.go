@@ -6,7 +6,7 @@ import (
 	"lazyrag/core/common"
 )
 
-// DatabaseService (RAG) stub handlers. TODO: implement later.
+// DatabaseService（RAG）占位实现，后续补全。
 
 func GetUserDatabaseTags(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, map[string]any{}) /* TODO */

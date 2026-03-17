@@ -6,7 +6,7 @@ import (
 	"lazyrag/core/common"
 )
 
-// Internal API stub handlers. TODO: implement later.
+// 内部 API 占位实现，后续补全。
 
 func GetDatasetInternal(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, map[string]any{}) /* TODO */

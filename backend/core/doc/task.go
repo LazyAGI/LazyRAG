@@ -6,7 +6,7 @@ import (
 	"lazyrag/core/common"
 )
 
-// TaskService stub handlers (expose Task directly, not via Job). TODO: implement later.
+// TaskService 占位实现（直接暴露 Task，不经 Job），后续补全。
 
 func ListTasks(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, map[string]any{}) /* TODO */

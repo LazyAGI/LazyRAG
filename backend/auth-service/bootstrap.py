@@ -1,80 +1,89 @@
-from __future__ import annotations
-
 import os
 from pathlib import Path
 
 import yaml
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from auth_service import hash_password
-from models import PermissionGroup, Role, RolePermission, User
+from models import RolePermission
+from repositories import PermissionGroupRepository, RoleRepository, UserRepository
+from services.auth_service import auth_service
 
 
-def _load_permission_groups_yaml() -> list[str]:
+def _load_yaml() -> dict:
     path = Path(__file__).resolve().parent / 'permission_groups.yaml'
     try:
         with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        return list(data.get('permission_groups', []) or [])
+        return data or {}
     except Exception:
-        return []
+        return {}
+
+
+def _load_permission_groups_yaml() -> list[str]:
+    data = _load_yaml()
+    return list(data.get('permission_groups', []) or [])
+
+
+def _load_default_user_role_permissions() -> list[str]:
+    """内置 user 角色默认拥有的权限码，来自 permission_groups.yaml。"""
+    data = _load_yaml()
+    return list(data.get('default_user_role_permissions', []) or [])
+
+
+def _code_to_module_action(code: str) -> tuple[str, str]:
+    """从权限码解析出 module 与 action，如 user.read -> ('user', 'read')"""
+    parts = (code or '').strip().split('.', 1)
+    return (parts[0] or '', parts[1] if len(parts) > 1 else '')
 
 
 def bootstrap(db: Session) -> None:
-    names = _load_permission_groups_yaml()
-    for name in names:
-        existing = db.scalar(select(PermissionGroup).where(PermissionGroup.name == name))
-        if not existing:
-            db.add(PermissionGroup(name=name))
-    db.commit()
+    codes = _load_permission_groups_yaml()
+    for code in codes:
+        code = (code or '').strip()
+        if not code:
+            continue
+        if not PermissionGroupRepository.get_by_code(db, code):
+            module, action = _code_to_module_action(code)
+            PermissionGroupRepository.create(db, code=code, description='', module=module, action=action)
 
-    all_groups = {row.name: row.id for row in db.scalars(select(PermissionGroup)).all()}
+    all_groups = {g.code: g.id for g in PermissionGroupRepository.list_all_ordered(db)}
 
-    admin_role = db.scalar(select(Role).where(Role.name == 'admin'))
-    if not admin_role:
-        admin_role = Role(name='admin', built_in=True)
-        db.add(admin_role)
-        db.flush()
-    user_role = db.scalar(select(Role).where(Role.name == 'user'))
+    system_admin_role = RoleRepository.get_by_name(db, 'system-admin')
+    if not system_admin_role:
+        system_admin_role = RoleRepository.create(db, 'system-admin', built_in=True)
+    user_role = RoleRepository.get_by_name(db, 'user')
     if not user_role:
-        user_role = Role(name='user', built_in=True)
-        db.add(user_role)
-        db.flush()
-    db.commit()
+        user_role = RoleRepository.create(db, 'user', built_in=True)
 
-    for _name, pg_id in all_groups.items():
-        exists = db.scalar(
-            select(RolePermission).where(
-                RolePermission.role_id == admin_role.id,
-                RolePermission.permission_group_id == pg_id,
-            )
-        )
+    for _code, pg_id in all_groups.items():
+        exists = db.query(RolePermission).filter_by(
+            role_id=system_admin_role.id,
+            permission_group_id=pg_id,
+        ).first()
         if not exists:
-            db.add(RolePermission(role_id=admin_role.id, permission_group_id=pg_id))
+            db.add(RolePermission(role_id=system_admin_role.id, permission_group_id=pg_id))
 
-    for perm_name in ('user.read', 'document.read', 'document.write', 'qa.read'):
-        if perm_name in all_groups:
-            exists = db.scalar(
-                select(RolePermission).where(
-                    RolePermission.role_id == user_role.id,
-                    RolePermission.permission_group_id == all_groups[perm_name],
-                )
-            )
-            if not exists:
-                db.add(RolePermission(role_id=user_role.id, permission_group_id=all_groups[perm_name]))
+    for perm_name in _load_default_user_role_permissions():
+        perm_name = (perm_name or '').strip()
+        if not perm_name or perm_name not in all_groups:
+            continue
+        exists = db.query(RolePermission).filter_by(
+            role_id=user_role.id,
+            permission_group_id=all_groups[perm_name],
+        ).first()
+        if not exists:
+            db.add(RolePermission(role_id=user_role.id, permission_group_id=all_groups[perm_name]))
     db.commit()
 
-    username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME')
-    password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD')
-    if not username or not password:
+    username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME', 'system-admin').strip() or 'system-admin'
+    password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD', '123456').strip() or '123456'
+    if UserRepository.get_by_username(db, username):
         return
-    if db.scalar(select(User).where(User.username == username)):
-        return
-    admin_user = User(
+    UserRepository.create(
+        db,
         username=username,
-        password_hash=hash_password(password),
-        role_id=admin_role.id,
+        password_hash=auth_service.hash_password(password),
+        role_id=system_admin_role.id,
+        tenant_id='',
+        disabled=False,
     )
-    db.add(admin_user)
-    db.commit()
