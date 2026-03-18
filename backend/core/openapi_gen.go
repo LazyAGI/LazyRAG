@@ -78,4 +78,3 @@ func buildOpenAPISpecFromRouter(r *mux.Router) ([]byte, error) {
 	}
 	return json.MarshalIndent(spec, "", "  ")
 }
-
