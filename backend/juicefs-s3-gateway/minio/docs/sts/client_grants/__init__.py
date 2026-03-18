@@ -83,13 +83,14 @@ class ClientGrantsCredentialProvider(CredentialProvider):
             headers['authorization'] = urllib3.make_headers(
                 basic_auth='%s:%s' % (self.cid, self.csec))['authorization']
 
-            response = self._http.urlopen('POST', self.idp_ep,
-                                          body="grant_type=client_credentials",
-                                          headers=headers,
-                                          preload_content=True,
-                                          )
+            response = self._http.urlopen(
+                'POST', self.idp_ep,
+                body='grant_type=client_credentials',
+                headers=headers,
+                preload_content=True,
+            )
             if response.status != 200:
-                message = "Credential refresh failed, response: %s"
+                message = 'Credential refresh failed, response: %s'
                 raise CredentialRetrievalError(
                     provider=method,
                     error_msg=message % response.status,
@@ -106,7 +107,7 @@ class ClientGrantsCredentialProvider(CredentialProvider):
             query_components = []
             for key in query:
                 if query[key] is not None:
-                    query_components.append("%s=%s" % (key, query[key]))
+                    query_components.append('%s=%s' % (key, query[key]))
 
             query_string = '&'.join(query_components)
             sts_ep_url = self.sts_ep
@@ -114,9 +115,10 @@ class ClientGrantsCredentialProvider(CredentialProvider):
                 sts_ep_url = self.sts_ep + '?' + query_string
 
             response = self._http.urlopen(
-                'POST', sts_ep_url, preload_content=True)
+                'POST', sts_ep_url, preload_content=True,
+            )
             if response.status != 200:
-                message = "Credential refresh failed, response: %s"
+                message = 'Credential refresh failed, response: %s'
                 raise CredentialRetrievalError(
                     provider=method,
                     error_msg=message % response.status,

@@ -24,11 +24,11 @@ from flask import Flask, request
 
 boto3.set_stream_logger('boto3.resources', logging.DEBUG)
 
-authorize_url = "http://localhost:8080/auth/realms/minio/protocol/openid-connect/auth"
-token_url = "http://localhost:8080/auth/realms/minio/protocol/openid-connect/token"
+authorize_url = 'http://localhost:8080/auth/realms/minio/protocol/openid-connect/auth'
+token_url = 'http://localhost:8080/auth/realms/minio/protocol/openid-connect/token'
 
 # callback url specified when the application was defined
-callback_uri = "http://localhost:8000/oauth2/callback"
+callback_uri = 'http://localhost:8000/oauth2/callback'
 
 # keycloak id and secret
 client_id = 'account'
@@ -46,7 +46,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def homepage():
-    text = '<a href="%s">Authenticate with keycloak</a>'
+    text = "<a href='%s'>Authenticate with keycloak</a>"
     return text % make_authorization_url()
 
 
@@ -55,13 +55,13 @@ def make_authorization_url():
     # Save it for use later to prevent xsrf attacks
 
     state = str(uuid4())
-    params = {"client_id": client_id,
-              "response_type": "code",
-              "state": state,
-              "redirect_uri": callback_uri,
-              "scope": "openid"}
+    params = {'client_id': client_id,
+              'response_type': 'code',
+              'state': state,
+              'redirect_uri': callback_uri,
+              'scope': 'openid'}
 
-    url = authorize_url + "?" + urllib.parse.urlencode(params)
+    url = authorize_url + '?' + urllib.parse.urlencode(params)
     return url
 
 
@@ -69,7 +69,7 @@ def make_authorization_url():
 def callback():
     error = request.args.get('error', '')
     if error:
-        return "Error: " + error
+        return 'Error: ' + error
 
     authorization_code = request.args.get('code')
 
@@ -104,7 +104,7 @@ def callback():
     for obj in bucket.objects.all():
         print(obj)
 
-    return "success"
+    return 'success'
 
 
 if __name__ == '__main__':

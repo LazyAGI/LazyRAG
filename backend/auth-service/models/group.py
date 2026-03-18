@@ -1,12 +1,10 @@
 import uuid
-from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import mapped_column, relationship
 from sqlalchemy.types import Uuid as UuidType
 
 from .base import Base
-from .user_group import UserGroup
 
 
 class GroupPermission(Base):

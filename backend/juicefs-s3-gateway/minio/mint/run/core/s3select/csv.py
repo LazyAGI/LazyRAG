@@ -16,16 +16,13 @@
 # limitations under the License.
 
 import io
-import os
 
-from minio import Minio
 from minio.select import (COMPRESSION_TYPE_NONE, FILE_HEADER_INFO_NONE,
-                          JSON_TYPE_DOCUMENT, QUOTE_FIELDS_ALWAYS,
-                          QUOTE_FIELDS_ASNEEDED, CSVInputSerialization,
-                          CSVOutputSerialization, JSONInputSerialization,
+                          QUOTE_FIELDS_ALWAYS, CSVInputSerialization,
+                          CSVOutputSerialization,
                           JSONOutputSerialization, SelectRequest)
 
-from utils import *
+from utils import generate_bucket_name, generate_object_name
 
 
 def test_sql_api(test_name, client, bucket_name, input_data, sql_opts, expected_output):
@@ -33,7 +30,6 @@ def test_sql_api(test_name, client, bucket_name, input_data, sql_opts, expected_
     object_name = generate_object_name()
     got_output = b''
     try:
-        bytes_content = io.BytesIO(input_data)
         client.put_object(bucket_name, object_name,
                           io.BytesIO(input_data), len(input_data))
         data = client.select_object_content(bucket_name, object_name, sql_opts)
@@ -63,33 +59,33 @@ def test_csv_input_custom_quote_char(client, log_output):
 
     tests = [
         # Invalid quote character, should fail
-        ('""', '"', b'col1,col2,col3\n', Exception()),
+        ('\"\"', '\"', b'col1,col2,col3\n', Exception()),
         # UTF-8 quote character
-        ('ع', '"', 'عcol1ع,عcol2ع,عcol3ع\n'.encode(),
+        ('ع', '\"', 'عcol1ع,عcol2ع,عcol3ع\n'.encode(),
          b'{"_1":"col1","_2":"col2","_3":"col3"}\n'),
         # Only one field is quoted
-        ('"', '"', b'"col1",col2,col3\n',
+        ('\"', '\"', b'"col1",col2,col3\n',
          b'{"_1":"col1","_2":"col2","_3":"col3"}\n'),
-        ('"', '"', b'"col1,col2,col3"\n', b'{"_1":"col1,col2,col3"}\n'),
-        ('\'', '"', b'"col1",col2,col3\n',
+        ('\"', '\"', b'"col1,col2,col3"\n', b'{"_1":"col1,col2,col3"}\n'),
+        ("'", '\"', b'"col1",col2,col3\n',
          b'{"_1":"\\"col1\\"","_2":"col2","_3":"col3"}\n'),
-        ('', '"', b'"col1",col2,col3\n',
+        ('', '\"', b'"col1",col2,col3\n',
          b'{"_1":"\\"col1\\"","_2":"col2","_3":"col3"}\n'),
-        ('', '"', b'"col1",col2,col3\n',
+        ('', '\"', b'"col1",col2,col3\n',
          b'{"_1":"\\"col1\\"","_2":"col2","_3":"col3"}\n'),
-        ('', '"', b'"col1","col2","col3"\n',
+        ('', '\"', b'"col1","col2","col3"\n',
          b'{"_1":"\\"col1\\"","_2":"\\"col2\\"","_3":"\\"col3\\""}\n'),
-        ('"', '"', b'""""""\n', b'{"_1":"\\"\\""}\n'),
-        ('"', '"', b'A",B\n', b'{"_1":"A\\"","_2":"B"}\n'),
-        ('"', '"', b'A"",B\n', b'{"_1":"A\\"\\"","_2":"B"}\n'),
-        ('"', '\\', b'A\\B,C\n', b'{"_1":"A\\\\B","_2":"C"}\n'),
-        ('"', '"', b'"A""B","CD"\n', b'{"_1":"A\\"B","_2":"CD"}\n'),
-        ('"', '\\', b'"A\\B","CD"\n', b'{"_1":"AB","_2":"CD"}\n'),
-        ('"', '\\', b'"A\\,","CD"\n', b'{"_1":"A,","_2":"CD"}\n'),
-        ('"', '\\', b'"A\\"B","CD"\n', b'{"_1":"A\\"B","_2":"CD"}\n'),
-        ('"', '\\', b'"A\\""\n', b'{"_1":"A\\""}\n'),
-        ('"', '\\', b'"A\\"\\"B"\n', b'{"_1":"A\\"\\"B"}\n'),
-        ('"', '\\', b'"A\\"","\\"B"\n', b'{"_1":"A\\"","_2":"\\"B"}\n'),
+        ('\"', '\"', b'""""""\n', b'{"_1":"\\"\\""}\n'),
+        ('\"', '\"', b'A",B\n', b'{"_1":"A\\"","_2":"B"}\n'),
+        ('\"', '\"', b'A"",B\n', b'{"_1":"A\\"\\"","_2":"B"}\n'),
+        ('\"', '\\', b'A\\B,C\n', b'{"_1":"A\\\\B","_2":"C"}\n'),
+        ('\"', '\"', b'"A""B","CD"\n', b'{"_1":"A\\"B","_2":"CD"}\n'),
+        ('\"', '\\', b'"A\\B","CD"\n', b'{"_1":"AB","_2":"CD"}\n'),
+        ('\"', '\\', b'"A\\,","CD"\n', b'{"_1":"A,","_2":"CD"}\n'),
+        ('\"', '\\', b'"A\\"B","CD"\n', b'{"_1":"A\\"B","_2":"CD"}\n'),
+        ('\"', '\\', b'"A\\""\n', b'{"_1":"A\\""}\n'),
+        ('\"', '\\', b'"A\\"\\"B"\n', b'{"_1":"A\\"\\"B"}\n'),
+        ('\"', '\\', b'"A\\"","\\"B"\n', b'{"_1":"A\\"","_2":"\\"B"}\n'),
     ]
 
     client.make_bucket(bucket_name)
@@ -97,19 +93,19 @@ def test_csv_input_custom_quote_char(client, log_output):
     try:
         for idx, (quote_char, escape_char, data, expected_output) in enumerate(tests):
             sql_opts = SelectRequest(
-                "select * from s3object",
+                'select * from s3object',
                 CSVInputSerialization(
                     compression_type=COMPRESSION_TYPE_NONE,
                     file_header_info=FILE_HEADER_INFO_NONE,
-                    record_delimiter="\n",
-                    field_delimiter=",",
+                    record_delimiter='\n',
+                    field_delimiter=',',
                     quote_character=quote_char,
                     quote_escape_character=escape_char,
-                    comments="#",
-                    allow_quoted_record_delimiter="FALSE",
+                    comments='#',
+                    allow_quoted_record_delimiter='FALSE',
                 ),
                 JSONOutputSerialization(
-                    record_delimiter="\n",
+                    record_delimiter='\n',
                 ),
                 request_progress=False,
             )
@@ -131,18 +127,18 @@ def test_csv_output_custom_quote_char(client, log_output):
         # UTF-8 quote character
         ("''", "''", b'col1,col2,col3\n', Exception()),
         ("'", "'", b'col1,col2,col3\n', b"'col1','col2','col3'\n"),
-        ("", '"', b'col1,col2,col3\n', b'\x00col1\x00,\x00col2\x00,\x00col3\x00\n'),
-        ('"', '"', b'col1,col2,col3\n', b'"col1","col2","col3"\n'),
-        ('"', '"', b'col"1,col2,col3\n', b'"col""1","col2","col3"\n'),
-        ('"', '"', b'""""\n', b'""""\n'),
-        ('"', '"', b'\n', b''),
-        ("'", "\\", b'col1,col2,col3\n', b"'col1','col2','col3'\n"),
-        ("'", "\\", b'col""1,col2,col3\n', b"'col\"\"1','col2','col3'\n"),
-        ("'", "\\", b'col\'1,col2,col3\n', b"'col\\'1','col2','col3'\n"),
-        ("'", "\\", b'"col\'1","col2","col3"\n', b"'col\\'1','col2','col3'\n"),
-        ("'", "\\", b'col\'\n', b"'col\\''\n"),
+        ('', '\"', b'col1,col2,col3\n', b'\x00col1\x00,\x00col2\x00,\x00col3\x00\n'),
+        ('\"', '\"', b'col1,col2,col3\n', b'"col1","col2","col3"\n'),
+        ('\"', '\"', b'col"1,col2,col3\n', b'"col""1","col2","col3"\n'),
+        ('\"', '\"', b'""""\n', b'""""\n'),
+        ('\"', '\"', b'\n', b''),
+        ("'", '\\', b'col1,col2,col3\n', b"'col1','col2','col3'\n"),
+        ("'", '\\', b'col""1,col2,col3\n', b"'col\"\"1','col2','col3'\n"),
+        ("'", '\\', b"col'1,col2,col3\n", b"'col\\'1','col2','col3'\n"),
+        ("'", '\\', b'\"col\'1\",\"col2\",\"col3\"\n', b"'col\\'1','col2','col3'\n"),
+        ("'", '\\', b"col'\n", b"'col\\''\n"),
         # Two consecutive escaped quotes
-        ("'", "\\", b'"a"""""\n', b"'a\"\"'\n"),
+        ("'", '\\', b'"a"""""\n', b"'a\"\"'\n"),
     ]
 
     client.make_bucket(bucket_name)
@@ -150,21 +146,21 @@ def test_csv_output_custom_quote_char(client, log_output):
     try:
         for idx, (quote_char, escape_char, input_data, expected_output) in enumerate(tests):
             sql_opts = SelectRequest(
-                "select * from s3object",
+                'select * from s3object',
                 CSVInputSerialization(
                     compression_type=COMPRESSION_TYPE_NONE,
                     file_header_info=FILE_HEADER_INFO_NONE,
-                    record_delimiter="\n",
-                    field_delimiter=",",
-                    quote_character='"',
-                    quote_escape_character='"',
-                    comments="#",
-                    allow_quoted_record_delimiter="FALSE",
+                    record_delimiter='\n',
+                    field_delimiter=',',
+                    quote_character='\"',
+                    quote_escape_character='\"',
+                    comments='#',
+                    allow_quoted_record_delimiter='FALSE',
                 ),
                 CSVOutputSerialization(
                     quote_fields=QUOTE_FIELDS_ALWAYS,
-                    record_delimiter="\n",
-                    field_delimiter=",",
+                    record_delimiter='\n',
+                    field_delimiter=',',
                     quote_character=quote_char,
                     quote_escape_character=escape_char,
                 ),

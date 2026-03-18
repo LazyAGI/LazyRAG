@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 
 from api.authorization import load_api_permissions
 from bootstrap import bootstrap
-from core.deps import bearer_scheme, current_user, require_admin, _user_id_from_token
+from core.deps import bearer_scheme, current_user, _user_id_from_token
 from core.errors import ErrorCodes, raise_error
 from core.refresh_token_store import delete_refresh_token, get_user_id_by_token, set_refresh_token
 from core.security import (
@@ -17,7 +17,6 @@ from core.security import (
     generate_jti,
     generate_refresh_token,
     hash_refresh_token,
-    jwt_secret,
     jwt_ttl_seconds,
 )
 from core.database import SessionLocal
@@ -84,7 +83,7 @@ def on_startup():
 @router.get('/health', response_model=HealthResponse)
 def health():
     """系统健康检查接口，用于监控服务存活状态"""
-    return {"status": "ok", "timestamp": time.time()}
+    return {'status': 'ok', 'timestamp': time.time()}
 
 
 @router.post('/register', response_model=RegisterResponse)
@@ -95,7 +94,6 @@ def register(body: RegisterBody):
     confirm = (body.confirm_password or '').strip() if body.confirm_password else ''
     if password != confirm:
         raise_error(ErrorCodes.PASSWORD_CONFIRM_MISMATCH)
-    
     with SessionLocal() as db:
         role_id = _default_role_id(db)
         user = auth_service.register_user(
@@ -117,12 +115,11 @@ def login(body: LoginBody):
     username = (body.username or '').strip()
     password = body.password or ''
 
-    logger.info("[auth-service] login enter username=%r", username)
+    logger.info('[auth-service] login enter username=%r', username)
     if not username:
         raise_error(ErrorCodes.USERNAME_REQUIRED)
     if not password:
         raise_error(ErrorCodes.PASSWORD_REQUIRED)
-    
     try:
         with SessionLocal() as db:
             user = auth_service.authenticate_user(db=db, username=username, password=password)
@@ -140,7 +137,7 @@ def login(body: LoginBody):
             refresh_token = generate_refresh_token()
             set_refresh_token(hash_refresh_token(refresh_token), user_id)
     except Exception as e:
-        logger.exception("[auth-service] login exception username=%r: %s", username, e)
+        logger.exception('[auth-service] login exception username=%r: %s', username, e)
         raise
     return {
         'access_token': access_token,
@@ -188,7 +185,7 @@ def refresh(body: RefreshBody):
 
 # TODO sjh 确认这个方法是不是用于配合kong做鉴权的
 @router.post('/validate', response_model=ValidateResponse)
-def validate(credentials=Depends(bearer_scheme)):
+def validate(credentials=Depends(bearer_scheme)):  # noqa: B008
     """校验 Token：验证请求头中的 Bearer token 是否有效，并返回用户 id、角色、租户及权限列表，供网关或前端做鉴权。"""
     if not credentials or credentials.credentials is None:
         raise_error(ErrorCodes.UNAUTHORIZED)
@@ -211,7 +208,7 @@ def validate(credentials=Depends(bearer_scheme)):
 
 
 @router.get('/me', response_model=MeResponse)
-def me(user: User = Depends(current_user)):
+def me(user: User = Depends(current_user)):  # noqa: B008
     """当前用户信息：根据 Bearer token 返回当前登录用户的 id、用户名、邮箱、状态、角色及有效权限列表（角色权限 ∪ 组权限）。"""
     from core.permissions import get_effective_permission_codes
     return {
@@ -227,7 +224,7 @@ def me(user: User = Depends(current_user)):
 
 
 @router.post('/change_password', response_model=SuccessResponse)
-def change_password(body: ChangePasswordBody, user: User = Depends(current_user)):
+def change_password(body: ChangePasswordBody, user: User = Depends(current_user)):  # noqa: B008
     """修改密码：校验旧密码后，将当前用户密码更新为新密码（新密码需符合强度要求）。"""
     if not auth_service.verify_password(body.old_password, user.password_hash):
         raise_error(ErrorCodes.OLD_PASSWORD_INVALID)
@@ -247,7 +244,7 @@ def change_password(body: ChangePasswordBody, user: User = Depends(current_user)
 
 
 @router.post('/logout', response_model=SuccessResponse)
-def logout(body: LogoutBody, user: User = Depends(current_user)):
+def logout(body: LogoutBody, user: User = Depends(current_user)):  # noqa: B008
     """登出：若请求体携带 refresh_token，则服务端使该 refresh_token 失效，前端应清除本地 token。"""
     if not body.refresh_token:
         return {'success': True}
