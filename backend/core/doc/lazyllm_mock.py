@@ -64,6 +64,7 @@ def _make_db_config(db_name: str) -> Dict[str, Any]:
         'db_name': db_name,
     }
 
+
 def _prepare_runtime_paths() -> Dict[str, str]:
     os.makedirs(FIXED_DB_ROOT, exist_ok=True)
     paths = {
@@ -76,6 +77,7 @@ def _prepare_runtime_paths() -> Dict[str, str]:
     os.makedirs(paths['storage_dir'], exist_ok=True)
     os.makedirs(paths['store_dir'], exist_ok=True)
     return paths
+
 
 def _wait_until(predicate, timeout: float = 20.0, interval: float = 0.1):
     deadline = time.time() + timeout

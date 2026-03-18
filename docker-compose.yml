@@ -78,8 +78,8 @@ services:
     environment:
       ACL_DB_DRIVER: postgres
       ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
-      LAZYRAG_PARSING_SERVICE_URL: http://parsing:8000
-      LAZYRAG_PROCESSOR_SERVICE_URL: http://processor-server:8001
+      LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://doc-server:8000}
+      LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://parsing:8000}
       LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
@@ -92,6 +92,41 @@ services:
       auth-service:
         condition: service_healthy
 
+  lazyllm-doc-server:
+    build:
+      context: .
+      dockerfile: backend/core/doc/Dockerfile
+    ports:
+      - "8848:8000"
+    volumes:
+      - rag-uploads:/app/uploads
+    environment:
+      LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
+      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
+      LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: ${LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL:-http://doc-server:8000/v1/internal/callbacks/tasks}
+      LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: /app/uploads
+      LAZYRAG_UPLOAD_DIR: /app/uploads
+      LAZYLLM_EXPECTED_LOG_MODULES: "all"
+      <<: *llm-api-keys
+    command: ["python", "backend/core/doc/doc_server.py"]
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:8000/v1/health && curl -f http://lazyllm-parse-server:8000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      lazyllm-parse-server:
+        condition: service_healthy
+      lazyllm-algo:
+        condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - doc-server
+
   frontend:
     build: ./frontend
     ports:
@@ -101,7 +136,9 @@ services:
         condition: service_started
       core:
         condition: service_healthy
-      parsing:
+      lazyllm-doc-server:
+        condition: service_healthy
+      lazyllm-algo:
         condition: service_healthy
       chat:
         condition: service_healthy
@@ -177,21 +214,18 @@ services:
     user: root
     restart: unless-stopped
 
-  processor-server:
+  lazyllm-parse-server:
     build:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
     expose:
       - "8000"
-      - "8001"
     volumes:
       - rag-uploads:/app/uploads
     environment:
-      LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
-      LAZYRAG_UPLOAD_SERVER_PORT: "8001"
-      LAZYRAG_UPLOAD_DIR: /app/uploads
-      LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      LAZYRAG_DOCUMENT_PROCESSOR_PORT: ${LAZYRAG_DOCUMENT_PROCESSOR_PORT:-8000}
+      LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
       <<: *llm-api-keys
     command: ["python", "processor/server.py"]
@@ -203,8 +237,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - processor-server
 
-  processor-worker:
+  lazyllm-parse-worker:
     build:
       context: ./algorithm
       dockerfile: Dockerfile
@@ -212,18 +250,33 @@ services:
     volumes:
       - rag-uploads:/app/uploads
     environment:
-      LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
-      LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      LAZYRAG_DOCUMENT_WORKER_PORT: ${LAZYRAG_DOCUMENT_WORKER_PORT:-8001}
+      LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: ${LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS:-1}
+      LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION: ${LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION:-300}
+      LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL: ${LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL:-60}
+      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ${LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES:-}
+      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: ${LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY:-false}
+      LAZYRAG_DOCUMENT_WORKER_POLL_MODE: ${LAZYRAG_DOCUMENT_WORKER_POLL_MODE:-direct}
+      LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
       <<: *llm-api-keys
     command: ["python", "processor/worker.py"]
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:8001/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
     depends_on:
       db:
         condition: service_healthy
-      processor-server:
+      lazyllm-parse-server:
         condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - processor-worker
 
-  parsing:
+  lazyllm-algo:
     build:
       context: ./algorithm
       dockerfile: Dockerfile
@@ -231,14 +284,14 @@ services:
     expose:
       - "8000"
     healthcheck:
-      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/docs || exit 1']
+      test: ['CMD-SHELL', 'python parsing/healthcheck.py']
       interval: 15s
       timeout: 10s
       retries: 10
       start_period: 120s
     environment:
-      LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
-      LAZYRAG_DOCUMENT_SERVER_PORT: "8000"
+      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
+      LAZYRAG_ALGO_SERVER_PORT: ${LAZYRAG_ALGO_SERVER_PORT:-8000}
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
@@ -250,10 +303,14 @@ services:
       <<: *llm-api-keys
     command: ["python", "parsing/parsing.py"]
     depends_on:
-      processor-server:
+      lazyllm-parse-server:
         condition: service_healthy
-      processor-worker:
-        condition: service_started
+      lazyllm-parse-worker:
+        condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - parsing
 
   chat:
     build:
@@ -269,13 +326,13 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      LAZYRAG_DOCUMENT_SERVER_URL: http://parsing:8000
+      LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000}
       LAZYRAG_MAX_CONCURRENCY: "10"
       LAZYRAG_LLM_PRIORITY: "0"
       <<: *llm-api-keys
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
-      parsing:
+      lazyllm-algo:
         condition: service_healthy
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------
