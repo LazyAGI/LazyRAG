@@ -65,17 +65,6 @@ services:
       timeout: 3s
       retries: 20
 
-  redis:
-    image: redis:7
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   auth-service:
     build:
       context: ./backend
@@ -425,47 +414,6 @@ services:
     ports:
       - '9200:9200'
       - '9600:9600'
-
-  # ---------- JuiceFS S3 Gateway ----------
-  juicefs-minio:
-    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
-    environment:
-      MINIO_ROOT_USER: ${JUICEFS_MINIO_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${JUICEFS_MINIO_PASSWORD:-minioadmin}
-    volumes:
-      - ./volumes/juicefs-minio:/data
-    command: server /data --console-address ":9001"
-    ports:
-      - "9010:9000"
-      - "9012:9001"
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-
-  juicefs-s3-gateway:
-    build:
-      context: ./backend/juicefs-s3-gateway
-      dockerfile: Dockerfile
-    ports:
-      - "9003:9000"
-    environment:
-      MINIO_ROOT_USER: ${JUICEFS_ACCESS_KEY:-juicefs}
-      MINIO_ROOT_PASSWORD: ${JUICEFS_SECRET_KEY:-juicefs123}
-    command: >
-      gateway
-      redis://test:123456@redis:6379/1
-      :9000
-      --access-log /dev/stdout
-      --no-banner
-    depends_on:
-      redis:
-        condition: service_healthy
-      juicefs-minio:
-        condition: service_healthy
-    volumes:
-      - ./volumes/juicefs-cache:/var/jfsCache
 
 volumes:
   pgdata:
