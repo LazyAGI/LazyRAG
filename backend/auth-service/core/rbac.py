@@ -23,17 +23,17 @@ def permission_required(*permissions: str):
         def wrapper(*args: Any, **kwargs: Any):
             user = None
             for v in list(kwargs.values()) + list(args):
-                if hasattr(v, "role") and getattr(v, "role", None) is not None:
+                if hasattr(v, 'role') and getattr(v, 'role', None) is not None:
                     user = v
                     break
             if user is None:
                 # 未注入 current_user 时，不允许“悄悄放行”
                 raise_error(ErrorCodes.UNAUTHORIZED)
-            role = getattr(user, "role", None)
-            role_name = getattr(role, "name", None)
-            if role_name == "system-admin":
+            role = getattr(user, 'role', None)
+            role_name = getattr(role, 'name', None)
+            if role_name == 'system-admin':
                 return fn(*args, **kwargs)
-            
+
             user_perms = get_effective_permission_codes(user)
             if user_perms & perm_set:
                 return fn(*args, **kwargs)
@@ -42,4 +42,3 @@ def permission_required(*permissions: str):
         return wrapper
 
     return decorator
-

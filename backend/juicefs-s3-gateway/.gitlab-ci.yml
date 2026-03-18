@@ -1,0 +1,87 @@
+# GitLab CI configuration for juicefs-s3-gateway
+
+.juicefs-s3-gateway:
+  variables:
+    MODULE_PATH: prod/appplatform/juicefs-s3-gateway
+    MODULE_NAME: juicefs-s3-gateway
+    IMAGE_NAME: registry.sensetime.com/maas_stack_dev/juicedata/mount
+  rules:
+    - changes:
+        - prod/appplatform/juicefs-s3-gateway/**/*
+
+juicefs-s3-gateway:test:
+  extends: .juicefs-s3-gateway
+  stage: test
+  script:
+    - echo "test"
+  tags:
+    - docker
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - when: manual
+
+juicefs-s3-gateway:build:
+  extends: .juicefs-s3-gateway
+  stage: build
+  image: registry.sensetime.com/maas_stack_dev/ci/builder:1.3.0
+  services:
+    - name: registry.sensetime.com/maas_stack_dev/appplatform/docker:28-dind
+  needs:
+    - version:generate
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - when: manual
+      allow_failure: true
+  before_script:
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin $DOCKER_REGISTRY
+    - echo "Building juicefs-s3-gateway version ${VERSION}"
+    - docker buildx create --use --name multiplatform --driver docker-container
+  script:
+    - cd ${MODULE_PATH}
+    - docker buildx build --platform linux/amd64 --file Dockerfile --build-arg VERSION=${VERSION} --build-arg DEV_VERSION=${DEV_VERSION}-${VERSION} -t ${IMAGE_NAME}:${VERSION}-amd64 --push .
+    - docker buildx build --platform linux/arm64 --file Dockerfile.arm64 --build-arg VERSION=${VERSION} --build-arg DEV_VERSION=${DEV_VERSION}-${VERSION} -t ${IMAGE_NAME}:${VERSION}-arm64 --push .
+    - docker buildx imagetools create --tag ${IMAGE_NAME}:${VERSION} ${IMAGE_NAME}:${VERSION}-amd64 ${IMAGE_NAME}:${VERSION}-arm64
+  tags:
+    - docker
+
+
+# 提测
+juicefs-s3-gateway:submit:test:
+  extends: .juicefs-s3-gateway
+  stage: submit
+  resource_group: submit:test
+  image: registry.sensetime.com/maas_stack_dev/ci/builder:1.3.0
+  needs:
+    - version:generate
+    - juicefs-s3-gateway:build
+  script:
+    - bash $CI_PROJECT_DIR/ops/ci/scripts/push_config.sh
+  rules:
+    - when: manual
+      allow_failure: true
+  tags:
+    - docker
+
+
+juicefs-s3-gateway:deploy:dev:
+  extends: .juicefs-s3-gateway
+  stage: deploy
+  image: registry.sensetime.com/maas_stack_dev/ci/builder:1.3.0
+  variables:
+    KUBECONFIG: "$KUBECONFIG_YAML"
+    HTTPS_PROXY: "$IDC_PROXY"
+  needs:
+    - version:generate
+    - juicefs-s3-gateway:build
+  script:
+    - echo "Deploying juicefs-s3-gateway version ${VERSION} to dev environment..."
+    - cd ops/cd/appplatform
+    - if [ ! -f "$KUBECONFIG" ]; then printf "%s\n" "$KUBECONFIG" > kubeconfig.yaml && export KUBECONFIG=kubeconfig.yaml; fi
+    - helmfile -e dev -l app=juicefs-s3-gateway sync --state-values-set "juicefs_s3_gateway.tag=${VERSION}"
+    - if [ -f "kubeconfig.yaml" ]; then rm kubeconfig.yaml; fi
+
+  rules:
+    - when: manual
+      allow_failure: true
+  tags:
+    - docker

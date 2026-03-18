@@ -23,7 +23,7 @@ router = APIRouter(prefix='/user', tags=['user'])
 
 @router.post('', response_model=CreateUserResponse)
 @permission_required('user.admin')
-def create_user(body: CreateUserBody, _: User = Depends(current_user)):
+def create_user(body: CreateUserBody, _: User = Depends(current_user)):  # noqa: B008
     """System-admin creates a user. Default role is user; can assign any role for high-privilege users."""
     role_id = None
     if body.role_id:
@@ -46,9 +46,9 @@ def create_user(body: CreateUserBody, _: User = Depends(current_user)):
 @router.get('', response_model=UserListResponse)
 @permission_required('user.admin')
 def list_users(
-    _: User = Depends(current_user),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
+    _: User = Depends(current_user),  # noqa: B008
+    page: int = Query(1, ge=1),  # noqa: B008
+    page_size: int = Query(20, ge=1, le=200),  # noqa: B008
     search: str | None = None,
     tenant_id: str | None = None,
 ):
@@ -78,7 +78,7 @@ def _parse_user_ids(user_ids: list[str]) -> list[uuid.UUID]:
 
 @router.patch('/role', response_model=OkResponse)
 @permission_required('user.admin')
-def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user)):
+def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user)):  # noqa: B008
     """直接给指定用户设置系统角色（与 group 无关），支持 user_ids 批量。"""
     uids = _parse_user_ids(body.user_ids or [])
     try:
@@ -92,7 +92,7 @@ def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user
 
 @router.get('/{user_id}', response_model=UserDetailResponse)
 @permission_required('user.admin')
-def get_user(user_id: str, _: User = Depends(current_user)):
+def get_user(user_id: str, _: User = Depends(current_user)):  # noqa: B008
     """查询用户详情（需 user.admin）。"""
     uid = _parse_user_id(user_id)
     return user_service.get_user(uid)
@@ -100,7 +100,7 @@ def get_user(user_id: str, _: User = Depends(current_user)):
 
 @router.patch('/{user_id}', response_model=OkResponse)
 @permission_required('user.admin')
-def set_user_role(user_id: str, body: UserRoleBody, _: User = Depends(current_user)):
+def set_user_role(user_id: str, body: UserRoleBody, _: User = Depends(current_user)):  # noqa: B008
     """修改指定用户的角色"""
     uid = _parse_user_id(user_id)
     try:
@@ -114,7 +114,7 @@ def set_user_role(user_id: str, body: UserRoleBody, _: User = Depends(current_us
 
 @router.patch('/{user_id}/reset_password', response_model=OkResponse)
 @permission_required('user.admin')
-def reset_password(user_id: str, body: ResetPasswordBody, _: User = Depends(current_user)):
+def reset_password(user_id: str, body: ResetPasswordBody, _: User = Depends(current_user)):  # noqa: B008
     """重置指定用户的密码，新密码需符合强度要求"""
     user_service.reset_password(_parse_user_id(user_id), body.new_password or '')
     return {'ok': True}

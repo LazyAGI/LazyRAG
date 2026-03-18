@@ -1,0 +1,75 @@
+project_name: juicefs
+env:
+  - GO111MODULE=on
+  - CGO_ENABLED=1
+  - REVISIONDATE={{ .Env.REVISIONDATE }}
+before:
+  hooks:
+    - go mod download
+builds:
+  - id: juicefs-windows-amd64
+    hooks:
+      pre:
+        - sh -c 'mkdir -p /usr/local/include/winfsp && cp hack/winfsp_headers/* /usr/local/include/winfsp'
+    env:
+      - CC=x86_64-w64-mingw32-gcc
+      - CXX=x86_64-w64-mingw32-g++
+    ldflags: -s -w -X github.com/juicedata/juicefs/pkg/version.version={{.Version}} -X github.com/juicedata/juicefs/pkg/version.revision={{.ShortCommit}} -X github.com/juicedata/juicefs/pkg/version.revisionDate={{.Env.REVISIONDATE}}
+    flags:
+      - -buildmode
+      - exe
+    main: .
+    goos:
+      - windows
+    goarch:
+      - amd64
+  - id: juicefs-darwin-amd64
+    env:
+      - CC=o64-clang
+      - CXX=o64-clang++
+    ldflags: -s -w -X github.com/juicedata/juicefs/pkg/version.version={{.Version}} -X github.com/juicedata/juicefs/pkg/version.revision={{.ShortCommit}} -X github.com/juicedata/juicefs/pkg/version.revisionDate={{.Env.REVISIONDATE}}
+    main: .
+    goos:
+      - darwin
+    goarch:
+      - amd64
+  - id: juicefs-darwin-arm64
+    env:
+      - CC=oa64-clang
+      - CXX=oa64-clang++
+    ldflags: -s -w -X github.com/juicedata/juicefs/pkg/version.version={{.Version}} -X github.com/juicedata/juicefs/pkg/version.revision={{.ShortCommit}} -X github.com/juicedata/juicefs/pkg/version.revisionDate={{.Env.REVISIONDATE}}
+    main: .
+    goos:
+      - darwin
+    goarch:
+      - arm64
+  - id: juicefs-linux-amd64
+    env:
+      - CC=/usr/bin/musl-gcc
+    ldflags: -s -w -X github.com/juicedata/juicefs/pkg/version.version={{.Version}} -X github.com/juicedata/juicefs/pkg/version.revision={{.ShortCommit}} -X github.com/juicedata/juicefs/pkg/version.revisionDate={{.Env.REVISIONDATE}} -linkmode external -extldflags '-static'
+    main: .
+    goos:
+      - linux
+    goarch:
+      - amd64
+  - id: juicefs-linux-arm64
+    env:
+      - CC=aarch64-linux-gnu-gcc
+    ldflags: -s -w -X github.com/juicedata/juicefs/pkg/version.version={{.Version}} -X github.com/juicedata/juicefs/pkg/version.revision={{.ShortCommit}} -X github.com/juicedata/juicefs/pkg/version.revisionDate={{.Env.REVISIONDATE}}
+    main: .
+    goos:
+      - linux
+    goarch:
+      - arm64
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Tag }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+archives:
+  - name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"

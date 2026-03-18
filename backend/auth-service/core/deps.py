@@ -30,7 +30,9 @@ def _user_id_from_token(token: str) -> uuid.UUID:
         raise_error(ErrorCodes.UNAUTHORIZED)
 
 
-def current_user_id(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> uuid.UUID:  # noqa: B008
+def current_user_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),  # noqa: B008
+) -> uuid.UUID:
     if not credentials or not credentials.credentials:
         raise_error(ErrorCodes.UNAUTHORIZED)
     return _user_id_from_token(credentials.credentials)
@@ -55,4 +57,3 @@ def require_admin(user: User = Depends(current_user)) -> User:  # noqa: B008
     if user.role.name != 'system-admin':
         raise_error(ErrorCodes.ADMIN_REQUIRED)
     return user
-
