@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import mapped_column, relationship
@@ -28,13 +27,11 @@ class User(Base):
         index=True,
         comment='Role id, FK',
     )
-
     tenant_id = mapped_column(String(64), nullable=False, default='', index=True, comment='租户 id')
     email = mapped_column(String(255), nullable=True, index=True, comment='邮箱')
     phone = mapped_column(String(64), nullable=False, default='', comment='手机号')
     remark = mapped_column(String(255), nullable=False, default='', comment='备注')
     creator = mapped_column(String(128), nullable=False, default='', comment='创建者')
-
     created_at = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -49,7 +46,6 @@ class User(Base):
     )
     last_login_time = mapped_column(DateTime(timezone=True), nullable=True, comment='最后登录时间')
     updated_pwd_time = mapped_column(DateTime(timezone=True), nullable=True, comment='修改密码时间')
-
     disabled = mapped_column(Boolean, nullable=False, default=False, index=True, comment='是否禁用')
     source = mapped_column(String(32), nullable=False, default='platform', comment='用户来源')
 

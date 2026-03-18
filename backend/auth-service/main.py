@@ -1,26 +1,25 @@
 import json
 import logging
 import time
+import traceback
 
 import redis
-import traceback
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from starlette.responses import Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 
 from api.auth import router as auth_router
 from api.authorization import router as authorization_router
 from api.group import router as group_router
 from api.role import router as role_router
 from api.user import router as user_router
-from core.errors import AppException, error_payload_from_exception
+from core.errors import AppException, ErrorCodes, error_payload_from_exception
 
 
-# 确保日志可见（uvicorn 的 log_config 可能把默认级别设为 WARNING/且禁用既有 logger）
-logging.basicConfig(level=logging.INFO, format="%(message)s", force=True)
+logging.basicConfig(level=logging.INFO, format='%(message)s', force=True)
 
 app = FastAPI(
     title='Auth Service',
@@ -43,76 +42,88 @@ _logger.propagate = True
 
 @app.middleware('http')
 async def _log_request(request: Request, call_next):
-    """每个请求打印一条相关请求日志 + access-log"""
     if request.url.path in _SWAGGER_PATHS:
         return await call_next(request)
-    client_ip = None
-    if request.client:
-        client_ip = request.client.host
-    _logger.info("Request started: %s %s from %s", request.method, request.url.path, client_ip)
-    print(f"Request started: {request.method} {request.url.path} from {client_ip}", flush=True)
+
+    client_ip = request.client.host if request.client else None
+    _logger.info('Request started: %s %s from %s', request.method, request.url.path, client_ip)
+    print(f'Request started: {request.method} {request.url.path} from {client_ip}', flush=True)
+
     start = time.time()
     try:
         response = await call_next(request)
-    except AppException:
-        # 业务异常交给 exception_handler 统一格式化，不应全部是 500
+    except (AppException, redis.exceptions.RedisError, StarletteHTTPException):
         raise
-    except redis.exceptions.RedisError:
-        # 交给 Redis 专用 handler 输出更清晰的错误信息
-        raise
-    except StarletteHTTPException:
-        raise
-    except Exception as e:
+    except Exception as exc:
         cost_ms = int((time.time() - start) * 1000)
         _logger.exception(
-            "unhandled_exception method=%s path=%s cost_ms=%d",
+            'unhandled_exception method=%s path=%s cost_ms=%d',
             request.method,
             request.url.path,
             cost_ms,
-            extra={"method": request.method, "path": request.url.path, "cost_ms": cost_ms},
+            extra={'method': request.method, 'path': request.url.path, 'cost_ms': cost_ms},
         )
-        # 强制输出堆栈到 stdout（避免 uvicorn/logger 配置导致 traceback 不可见）
         print(traceback.format_exc(), flush=True)
         _logger.error(
-            "unhandled_exception_detail type=%s module=%s message=%s",
-            type(e).__name__,
-            type(e).__module__,
-            str(e),
+            'unhandled_exception_detail type=%s module=%s message=%s',
+            type(exc).__name__,
+            type(exc).__module__,
+            str(exc),
         )
         print(
-            f"unhandled_exception method={request.method} path={request.url.path} cost_ms={cost_ms} "
-            f"type={type(e).__name__} module={type(e).__module__} message={e}",
+            f'unhandled_exception method={request.method} '
+            f'path={request.url.path} '
+            f'cost_ms={cost_ms} '
+            f'type={type(exc).__name__} '
+            f'module={type(exc).__module__} '
+            f'message={exc}',
             flush=True,
         )
-        return JSONResponse(status_code=500, content={"code": 500, "message": "Internal Server Error", "data": None})
+        return JSONResponse(
+            status_code=500,
+            content={'code': 500, 'message': 'Internal Server Error', 'data': None},
+        )
+
     cost_ms = int((time.time() - start) * 1000)
+    extra = {
+        'method': request.method,
+        'path': request.url.path,
+        'status': response.status_code,
+        'cost_ms': cost_ms,
+    }
     if response.status_code >= 500:
         _logger.error(
-            "access-log method=%s path=%s status=%s cost_ms=%d",
+            'access-log method=%s path=%s status=%s cost_ms=%d',
             request.method,
             request.url.path,
             response.status_code,
             cost_ms,
-            extra={"method": request.method, "path": request.url.path, "status": response.status_code, "cost_ms": cost_ms},
+            extra=extra,
         )
-        print(f"access-log method={request.method} path={request.url.path} status={response.status_code} cost_ms={cost_ms}", flush=True)
     else:
         _logger.info(
-            "access-log method=%s path=%s status=%s cost_ms=%d",
+            'access-log method=%s path=%s status=%s cost_ms=%d',
             request.method,
             request.url.path,
             response.status_code,
             cost_ms,
-            extra={"method": request.method, "path": request.url.path, "status": response.status_code, "cost_ms": cost_ms},
+            extra=extra,
         )
-        print(f"access-log method={request.method} path={request.url.path} status={response.status_code} cost_ms={cost_ms}", flush=True)
+
+    print(
+        f'access-log method={request.method} '
+        f'path={request.url.path} '
+        f'status={response.status_code} '
+        f'cost_ms={cost_ms}',
+        flush=True,
+    )
     return response
 
 
 def _copy_headers(headers) -> dict[str, str]:
-    d = dict(headers)
-    d.pop('content-length', None)
-    return d
+    result = dict(headers)
+    result.pop('content-length', None)
+    return result
 
 
 @app.middleware('http')
@@ -139,7 +150,12 @@ async def _standardize_json_response(request: Request, call_next):
             media_type='application/json',
         )
 
-    if isinstance(payload, dict) and (('swagger' in payload or 'openapi' in payload) and 'info' in payload and 'paths' in payload):
+    if (
+        isinstance(payload, dict)
+        and ('swagger' in payload or 'openapi' in payload)
+        and 'info' in payload
+        and 'paths' in payload
+    ):
         return Response(
             content=body,
             status_code=response.status_code,
@@ -147,62 +163,84 @@ async def _standardize_json_response(request: Request, call_next):
             media_type='application/json',
         )
 
-    if isinstance(payload, dict) and 'code' in payload and 'message' in payload and 'data' in payload:
+    if isinstance(payload, dict) and {'code', 'message', 'data'} <= payload.keys():
         payload['code'] = response.status_code
-        return JSONResponse(content=payload, status_code=response.status_code, headers=_copy_headers(response.headers))
+        return JSONResponse(
+            content=payload,
+            status_code=response.status_code,
+            headers=_copy_headers(response.headers),
+        )
 
     if 200 <= response.status_code < 300:
         wrapped = {'code': response.status_code, 'message': 'success', 'data': payload}
     else:
-        msg = None
-        if isinstance(payload, dict):
-            msg = payload.get('message')
+        msg = payload.get('message') if isinstance(payload, dict) else None
         if not isinstance(msg, str) or not msg:
             msg = 'An error occurred'
         wrapped = {'code': response.status_code, 'message': msg, 'data': payload}
 
-    return JSONResponse(content=wrapped, status_code=response.status_code, headers=_copy_headers(response.headers))
+    return JSONResponse(
+        content=wrapped,
+        status_code=response.status_code,
+        headers=_copy_headers(response.headers),
+    )
 
 
 @app.exception_handler(AppException)
 def _handle_app_exception(_, exc: AppException):
-    return JSONResponse(status_code=exc.http_code, content=error_payload_from_exception(exc))
+    return JSONResponse(
+        status_code=exc.http_code,
+        content=error_payload_from_exception(exc),
+    )
+
 
 @app.exception_handler(redis.exceptions.RedisError)
 def _handle_redis_error(_, exc: redis.exceptions.RedisError):
-    from core.errors import ErrorCodes, raise_error
-    # 这里必须打印完整堆栈，否则容器日志只剩 “Redis 认证失败” 无法定位根因。
     tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    _logger.error("redis_error type=%s message=%s\n%s", type(exc).__name__, str(exc), tb)
-    print(f"redis_error type={type(exc).__name__} message={exc}\n{tb}", flush=True)
+    _logger.error('redis_error type=%s message=%s\n%s', type(exc).__name__, str(exc), tb)
+    print(f'redis_error type={type(exc).__name__} message={exc}\n{tb}', flush=True)
+
+    error = ErrorCodes.REDIS_AUTH_FAILED
+    if not isinstance(exc, redis.exceptions.AuthenticationError):
+        error = ErrorCodes.REDIS_UNAVAILABLE
+
     try:
-        if isinstance(exc, redis.exceptions.AuthenticationError):
-            raise_error(ErrorCodes.REDIS_AUTH_FAILED)
-        raise_error(ErrorCodes.REDIS_UNAVAILABLE)
-    except AppException as e:
-        return JSONResponse(status_code=e.http_code, content=error_payload_from_exception(e))
+        from core.errors import raise_error
+
+        raise_error(error)
+    except AppException as app_exc:
+        return JSONResponse(
+            status_code=app_exc.http_code,
+            content=error_payload_from_exception(app_exc),
+        )
 
 
 @app.exception_handler(StarletteHTTPException)
 def _handle_http_exception(_, exc: StarletteHTTPException):
-    message = exc.detail if isinstance(exc.detail, str) else "HTTP error"
-    return JSONResponse(status_code=exc.status_code, content={"code": exc.status_code, "message": message, "data": None})
+    message = exc.detail if isinstance(exc.detail, str) else 'HTTP error'
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={'code': exc.status_code, 'message': message, 'data': None},
+    )
 
 
 @app.exception_handler(RequestValidationError)
 def _handle_validation_error(_, exc: RequestValidationError):
-    return JSONResponse(status_code=400, content={"code": 400, "message": "参数错误", "data": exc.errors()})
+    return JSONResponse(
+        status_code=400,
+        content={'code': 400, 'message': '参数错误', 'data': exc.errors()},
+    )
 
 
 @app.get('/openapi.yaml', include_in_schema=False)
 def openapi_yaml():
-    """openapi.yaml文档"""
     schema = app.openapi()
     body = yaml.dump(schema, allow_unicode=True, sort_keys=False)
     return Response(content=body, media_type='application/x-yaml')
 
 
-_API_PREFIX = "/api/authservice"
+_API_PREFIX = '/api/authservice'
+
 
 app.include_router(auth_router, prefix=_API_PREFIX)
 app.include_router(authorization_router, prefix=_API_PREFIX)
