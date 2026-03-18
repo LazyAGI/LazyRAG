@@ -164,12 +164,12 @@ def remove_group_users(group_id: str, body: GroupRemoveUsersBody, _: User = Depe
     return {'ok': True}
 
 
-@router.patch('/{group_id}/user/role', response_model=OkResponse)
+@router.patch('/{group_id}/users/roles', response_model=OkResponse)
 @permission_required('user.admin')
 def set_member_roles_batch(
     group_id: str, body: GroupMemberRoleBatchBody, _: User = Depends(current_user)  # noqa: B008
 ):
-    """修改组内成员角色（支持批量）。user_ids 传一个或多个用户 UUID，与 role 一起使用。"""
+    """Update group member roles in batch for the specified users."""
     gid = _parse_group_id(group_id)
     uids = _parse_user_ids(body.user_ids or [])
     group_service.set_member_roles_batch(gid, uids, (body.role or '').strip())

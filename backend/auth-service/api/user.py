@@ -76,10 +76,10 @@ def _parse_user_ids(user_ids: list[str]) -> list[uuid.UUID]:
     return result
 
 
-@router.patch('/role', response_model=OkResponse)
+@router.patch('/roles', response_model=OkResponse)
 @permission_required('user.admin')
 def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user)):  # noqa: B008
-    """直接给指定用户设置系统角色（与 group 无关），支持 user_ids 批量。"""
+    """Update system roles in batch for the specified users."""
     uids = _parse_user_ids(body.user_ids or [])
     try:
         rid = uuid.UUID(body.role_id)

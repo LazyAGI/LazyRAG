@@ -1,4 +1,6 @@
+import logging
 import os
+import secrets
 from pathlib import Path
 
 import yaml
@@ -7,6 +9,9 @@ from sqlalchemy.orm import Session
 from models import RolePermission
 from repositories import PermissionGroupRepository, RoleRepository, UserRepository
 from services.auth_service import auth_service
+
+
+logger = logging.getLogger(__name__)
 
 
 def _load_yaml() -> dict:
@@ -34,6 +39,19 @@ def _code_to_module_action(code: str) -> tuple[str, str]:
     """从权限码解析出 module 与 action，如 user.read -> ('user', 'read')"""
     parts = (code or '').strip().split('.', 1)
     return (parts[0] or '', parts[1] if len(parts) > 1 else '')
+
+
+def _resolve_bootstrap_admin_password() -> str:
+    configured_password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD', '').strip()
+    if configured_password:
+        return configured_password
+
+    generated_password = secrets.token_urlsafe(18)
+    logger.warning(
+        'LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD is not set. Generated a one-time bootstrap admin password: %s',
+        generated_password,
+    )
+    return generated_password
 
 
 def bootstrap(db: Session) -> None:
@@ -76,7 +94,7 @@ def bootstrap(db: Session) -> None:
     db.commit()
 
     username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME', 'system-admin').strip() or 'system-admin'
-    password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD', '123456').strip() or '123456'
+    password = _resolve_bootstrap_admin_password()
     if UserRepository.get_by_username(db, username):
         return
     UserRepository.create(

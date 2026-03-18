@@ -296,7 +296,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/user/roles:
+    patch:
+      tags:
+      - user
+      summary: Set User Roles Batch
+      description: Update system roles in batch for the specified users.
+      operationId: set_user_roles_batch_api_user_roles_patch
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRoleBatchBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/user/{user_id}:
+    get:
+      tags:
+      - user
+      summary: Get User
+      description: 查询用户详情（需 user.admin）。
+      operationId: get_user_api_user__user_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     patch:
       tags:
       - user
@@ -796,13 +852,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/group/{group_id}/user/{user_id}/role:
+  /api/group/{group_id}/users/roles:
     patch:
       tags:
       - group
-      summary: Set Member Role
-      description: 修改指定用户在用户组内的角色
-      operationId: set_member_role_api_group__group_id__user__user_id__role_patch
+      summary: Set Member Roles Batch
+      description: Update group member roles in batch for the specified users.
+      operationId: set_member_roles_batch_api_group__group_id__users_roles_patch
       security:
       - HTTPBearer: []
       parameters:
@@ -812,18 +868,12 @@ paths:
         schema:
           type: string
           title: Group Id
-      - name: user_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: User Id
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GroupMemberRoleBody'
+              $ref: '#/components/schemas/GroupMemberRoleBatchBody'
       responses:
         '200':
           description: Successful Response
