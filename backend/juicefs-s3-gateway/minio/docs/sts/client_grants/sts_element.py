@@ -22,6 +22,10 @@ else:
 _STS_NS = {'sts': 'https://sts.amazonaws.com/doc/2011-06-15/'}
 
 
+class InvalidXMLError(ValueError):
+    pass
+
+
 class STSElement(object):
     """STS aware XML parsing class. Wraps a root element name and
     cElementTree.Element instance. Provides STS namespace aware parsing
@@ -45,8 +49,8 @@ class STSElement(object):
             return cls(root_name, cElementTree.fromstring(data))
         except _ETREE_EXCEPTIONS as error:
             raise InvalidXMLError(
-                '"{}" XML is not parsable. Message: {}'.format(
-                    root_name, error.message
+                '{} XML is not parsable. Message: {}'.format(
+                    root_name, str(error)
                 )
             )
 
@@ -77,8 +81,8 @@ class STSElement(object):
                 return self.element.find('sts:{}'.format(name), _STS_NS).text
             except _ETREE_EXCEPTIONS as error:
                 raise InvalidXMLError(
-                    ('Invalid XML provided for "{}" - erroring tag <{}>. '
-                     'Message: {}').format(self.root_name, name, error.message)
+                    ('Invalid XML provided for {} - erroring tag <{}>. '
+                     'Message: {}').format(self.root_name, name, str(error))
                 )
         else:
             return self.element.findtext('sts:{}'.format(name), None, _STS_NS)

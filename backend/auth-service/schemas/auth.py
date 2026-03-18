@@ -4,7 +4,7 @@ from pydantic import BaseModel
 # ----- 健康检查 -----
 class HealthResponse(BaseModel):
     """健康检查返回"""
-    status: str = "ok"
+    status: str = 'ok'
     timestamp: float
 
 

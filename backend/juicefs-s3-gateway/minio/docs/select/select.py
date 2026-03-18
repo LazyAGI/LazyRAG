@@ -1,4 +1,4 @@
-#!/usr/bin/env/env python3
+#!/usr/bin/env python3
 import boto3
 
 s3 = boto3.client('s3',
@@ -14,7 +14,7 @@ r = s3.select_object_content(
     Expression="select * from s3object s where s.Location like '%United States%'",
     InputSerialization={
         'CSV': {
-            "FileHeaderInfo": "USE",
+            'FileHeaderInfo': 'USE',
         },
         'CompressionType': 'GZIP',
     },
@@ -27,7 +27,7 @@ for event in r['Payload']:
         print(records)
     elif 'Stats' in event:
         statsDetails = event['Stats']['Details']
-        print("Stats details bytesScanned: ")
+        print('Stats details bytesScanned: ')
         print(statsDetails['BytesScanned'])
-        print("Stats details bytesProcessed: ")
+        print('Stats details bytesProcessed: ')
         print(statsDetails['BytesProcessed'])

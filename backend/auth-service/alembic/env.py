@@ -9,11 +9,11 @@ _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
+from alembic import context  # noqa: E402
+from sqlalchemy import engine_from_config, pool  # noqa: E402
 
-from core.database import DATABASE_URL
-from models import Base
+from core.database import DATABASE_URL  # noqa: E402
+from models import Base  # noqa: E402
 
 
 config = context.config
@@ -25,7 +25,7 @@ target_metadata = Base.metadata
 
 
 def _get_url() -> str:
-    return os.environ.get("LAZYRAG_DATABASE_URL") or DATABASE_URL
+    return os.environ.get('LAZYRAG_DATABASE_URL') or DATABASE_URL
 
 
 def run_migrations_offline() -> None:
@@ -34,7 +34,7 @@ def run_migrations_offline() -> None:
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        dialect_opts={'paramstyle': 'named'},
         compare_type=True,
     )
 
@@ -44,11 +44,11 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = _get_url()
+    configuration['sqlalchemy.url'] = _get_url()
 
     connectable = engine_from_config(
         configuration,
-        prefix="sqlalchemy.",
+        prefix='sqlalchemy.',
         poolclass=pool.NullPool,
     )
 
@@ -67,4 +67,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

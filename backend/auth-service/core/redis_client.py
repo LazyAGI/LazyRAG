@@ -20,7 +20,7 @@ def redis_client() -> redis.Redis:
 
     url = redis_url()
     _CLIENT = redis.Redis.from_url(
-        url, 
+        url,
         decode_responses=True,
         socket_connect_timeout=5,
         # 读写超时：每次操作的超时时间（秒）

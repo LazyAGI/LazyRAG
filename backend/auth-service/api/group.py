@@ -44,9 +44,9 @@ def _parse_user_id(user_id: str) -> uuid.UUID:
 @router.get('', response_model=GroupListResponse)
 @permission_required('user.admin')
 def list_groups(
-    _: User = Depends(current_user),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
+    _: User = Depends(current_user),  # noqa: B008
+    page: int = Query(1, ge=1),  # noqa: B008
+    page_size: int = Query(20, ge=1, le=200),  # noqa: B008
     search: str | None = None,
     tenant_id: str | None = None,
 ):
@@ -57,7 +57,7 @@ def list_groups(
 
 @router.post('', response_model=GroupCreateResponse)
 @permission_required('user.admin')
-def create_group(body: GroupCreateBody, user: User = Depends(current_user)):
+def create_group(body: GroupCreateBody, user: User = Depends(current_user)):  # noqa: B008
     """创建用户组，需填写组名、备注、租户等"""
     group_name = (body.group_name or '').strip()
     if not group_name:
@@ -74,7 +74,7 @@ def create_group(body: GroupCreateBody, user: User = Depends(current_user)):
 
 @router.get('/{group_id}', response_model=GroupDetailResponse)
 @permission_required('user.admin')
-def get_group(group_id: str, _: User = Depends(current_user)):
+def get_group(group_id: str, _: User = Depends(current_user)):  # noqa: B008
     """查询指定用户组详情(组名、备注、租户等)"""
     gid = _parse_group_id(group_id)
     detail = group_service.get_group(gid)
@@ -85,7 +85,7 @@ def get_group(group_id: str, _: User = Depends(current_user)):
 
 @router.patch('/{group_id}', response_model=OkResponse)
 @permission_required('user.admin')
-def update_group(group_id: str, body: GroupUpdateBody, _: User = Depends(current_user)):
+def update_group(group_id: str, body: GroupUpdateBody, _: User = Depends(current_user)):  # noqa: B008
     """更新指定用户组(组名、备注、租户)；需 user.admin(由网关鉴权)。"""
     gid = _parse_group_id(group_id)
     group_service.update_group(
@@ -99,7 +99,7 @@ def update_group(group_id: str, body: GroupUpdateBody, _: User = Depends(current
 
 @router.delete('/{group_id}', response_model=OkResponse)
 @permission_required('user.admin')
-def delete_group(group_id: str, _: User = Depends(current_user)):
+def delete_group(group_id: str, _: User = Depends(current_user)):  # noqa: B008
     """删除指定用户组"""
     gid = _parse_group_id(group_id)
     group_service.delete_group(gid)
@@ -108,7 +108,7 @@ def delete_group(group_id: str, _: User = Depends(current_user)):
 
 @router.get('/{group_id}/permissions', response_model=GroupPermissionsResponse)
 @permission_required('user.admin')
-def get_group_permissions(group_id: str, _: User = Depends(current_user)):
+def get_group_permissions(group_id: str, _: User = Depends(current_user)):  # noqa: B008
     """查询组绑定的权限组；组内成员鉴权时自动拥有这些权限（与角色权限并集）。"""
     gid = _parse_group_id(group_id)
     codes = group_service.get_group_permissions(gid)
@@ -117,7 +117,7 @@ def get_group_permissions(group_id: str, _: User = Depends(current_user)):
 
 @router.put('/{group_id}/permissions', response_model=OkResponse)
 @permission_required('user.admin')
-def set_group_permissions(group_id: str, body: GroupPermissionsBody, _: User = Depends(current_user)):
+def set_group_permissions(group_id: str, body: GroupPermissionsBody, _: User = Depends(current_user)):  # noqa: B008
     """全量设置组的权限组；组内成员自动拥有新权限，无需单独写用户表。"""
     gid = _parse_group_id(group_id)
     group_service.set_group_permissions(gid, body.permission_groups or [])
@@ -126,7 +126,7 @@ def set_group_permissions(group_id: str, body: GroupPermissionsBody, _: User = D
 
 @router.get('/{group_id}/user', response_model=GroupUserListResponse)
 @permission_required('user.admin')
-def list_group_users(group_id: str, _: User = Depends(current_user)):
+def list_group_users(group_id: str, _: User = Depends(current_user)):  # noqa: B008
     """查询指定用户组内的成员列表(用户 id、用户名、组内角色、租户)"""
     gid = _parse_group_id(group_id)
     users = group_service.list_group_users(gid)
@@ -145,7 +145,7 @@ def _parse_user_ids(user_ids: list[str]) -> list[uuid.UUID]:
 
 @router.post('/{group_id}/user', response_model=OkResponse)
 @permission_required('user.admin')
-def add_group_users(group_id: str, body: GroupAddUsersBody, operator: User = Depends(current_user)):
+def add_group_users(group_id: str, body: GroupAddUsersBody, operator: User = Depends(current_user)):  # noqa: B008
     """将指定用户批量加入用户组，可指定组内角色(默认 member)，已存在则跳过"""
     gid = _parse_group_id(group_id)
     role = (body.role or 'member').strip() or 'member'
@@ -156,7 +156,7 @@ def add_group_users(group_id: str, body: GroupAddUsersBody, operator: User = Dep
 
 @router.post('/{group_id}/user/remove', response_model=OkResponse)
 @permission_required('user.admin')
-def remove_group_users(group_id: str, body: GroupRemoveUsersBody, _: User = Depends(current_user)):
+def remove_group_users(group_id: str, body: GroupRemoveUsersBody, _: User = Depends(current_user)):  # noqa: B008
     """从用户组中批量移除指定用户"""
     gid = _parse_group_id(group_id)
     uids = _parse_user_ids(body.user_ids or [])
@@ -167,7 +167,7 @@ def remove_group_users(group_id: str, body: GroupRemoveUsersBody, _: User = Depe
 @router.patch('/{group_id}/user/role', response_model=OkResponse)
 @permission_required('user.admin')
 def set_member_roles_batch(
-    group_id: str, body: GroupMemberRoleBatchBody, _: User = Depends(current_user)
+    group_id: str, body: GroupMemberRoleBatchBody, _: User = Depends(current_user)  # noqa: B008
 ):
     """修改组内成员角色（支持批量）。user_ids 传一个或多个用户 UUID，与 role 一起使用。"""
     gid = _parse_group_id(group_id)
