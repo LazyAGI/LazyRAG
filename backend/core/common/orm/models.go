@@ -107,7 +107,7 @@ func (Conversation) TableName() string { return "conversations" }
 type ChatHistory struct {
 	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	Seq             int             `gorm:"column:seq;not null"`
-	ConversationID string          `gorm:"column:conversation_id;type:varchar(36);index;not null"`
+	ConversationID  string          `gorm:"column:conversation_id;type:varchar(36);index;not null"`
 	RawContent      string          `gorm:"column:raw_content;type:text"`
 	RetrievalResult json.RawMessage `gorm:"column:retrieval_result;type:json"`
 	Content         string          `gorm:"column:content;type:text"`

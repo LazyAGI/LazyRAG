@@ -394,15 +394,15 @@ func streamSingleAnswer(
 			_ = setChatStatus(chatCtx, rdb, convID, historyID, "failed", "")
 		}
 		writeSSEChunk(w, flusher, &ChatChunkResponse{
-			ConversationID:   convID,
-			Seq:              int32(seq),
-			Message:          "",
-			Delta:            "",
-			FinishReason:     "FINISH_REASON_UNKNOWN",
-			HistoryID:        historyID,
-			Sources:          nil,
-			PromptQuestions:  []string{},
-			ReasoningContent: "",
+			ConversationID:    convID,
+			Seq:               int32(seq),
+			Message:           "",
+			Delta:             "",
+			FinishReason:      "FINISH_REASON_UNKNOWN",
+			HistoryID:         historyID,
+			Sources:           nil,
+			PromptQuestions:   []string{},
+			ReasoningContent:  "",
 			ThinkingDurationS: 0,
 		})
 		return
@@ -413,15 +413,15 @@ func streamSingleAnswer(
 	thinkStart := time.Now()
 	// 首帧：仅携带会话/历史信息，finish_reason 为 UNSPECIFIED
 	writeSSEChunk(w, flusher, &ChatChunkResponse{
-		ConversationID:   convID,
-		Seq:              int32(seq),
-		Message:          "",
-		Delta:            "",
-		FinishReason:     "FINISH_REASON_UNSPECIFIED",
-		HistoryID:        historyID,
-		Sources:          nil,
-		PromptQuestions:  []string{},
-		ReasoningContent: "",
+		ConversationID:    convID,
+		Seq:               int32(seq),
+		Message:           "",
+		Delta:             "",
+		FinishReason:      "FINISH_REASON_UNSPECIFIED",
+		HistoryID:         historyID,
+		Sources:           nil,
+		PromptQuestions:   []string{},
+		ReasoningContent:  "",
 		ThinkingDurationS: 0,
 	})
 	for d := range ch {
@@ -642,4 +642,3 @@ dualPersist:
 		flusher.Flush()
 	}
 }
-
