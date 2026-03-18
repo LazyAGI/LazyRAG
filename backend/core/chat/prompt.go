@@ -345,4 +345,3 @@ func UnsetDefaultPrompt(w http.ResponseWriter, r *http.Request) {
 	_ = corestore.DB().Where("create_user_id = ? AND prompt_id = ?", userID, promptID).Delete(&orm.DefaultPrompt{}).Error
 	writePromptJSON(w, http.StatusOK, nil)
 }
-

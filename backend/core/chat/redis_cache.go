@@ -41,23 +41,27 @@ type MultiAnswerInfo struct {
 }
 
 type ChatChunkResponse struct {
-	ConversationID   string   `json:"conversation_id"`
-	Seq              int32    `json:"seq"`
-	Message          string   `json:"message"`
-	Delta            string   `json:"delta"`
-	FinishReason     string   `json:"finish_reason"`
-	HistoryID        string   `json:"history_id"`
-	Sources          []any    `json:"sources,omitempty"`
-	PromptQuestions  []string `json:"prompt_questions,omitempty"`
-	ReasoningContent string   `json:"reasoning_content,omitempty"`
-	ThinkingDurationS int64   `json:"thinking_duration_s,omitempty"`
+	ConversationID    string   `json:"conversation_id"`
+	Seq               int32    `json:"seq"`
+	Message           string   `json:"message"`
+	Delta             string   `json:"delta"`
+	FinishReason      string   `json:"finish_reason"`
+	HistoryID         string   `json:"history_id"`
+	Sources           []any    `json:"sources,omitempty"`
+	PromptQuestions   []string `json:"prompt_questions,omitempty"`
+	ReasoningContent  string   `json:"reasoning_content,omitempty"`
+	ThinkingDurationS int64    `json:"thinking_duration_s,omitempty"`
 }
 
-func chatStatusKey(conversationID string) string { return fmt.Sprintf(chatStatusKeyPrefix, conversationID) }
-func chatStreamKey(cid, hid string) string       { return fmt.Sprintf(chatStreamKeyPrefix, cid, hid) }
-func chatStopKey(cid, hid string) string         { return fmt.Sprintf(chatStopKeyPrefix, cid, hid) }
-func chatMultiKey(cid, primaryHID string) string { return fmt.Sprintf(chatMultiKeyPrefix, cid, primaryHID) }
-func chatInputKey(cid, hid string) string        { return fmt.Sprintf(chatInputKeyPrefix, cid, hid) }
+func chatStatusKey(conversationID string) string {
+	return fmt.Sprintf(chatStatusKeyPrefix, conversationID)
+}
+func chatStreamKey(cid, hid string) string { return fmt.Sprintf(chatStreamKeyPrefix, cid, hid) }
+func chatStopKey(cid, hid string) string   { return fmt.Sprintf(chatStopKeyPrefix, cid, hid) }
+func chatMultiKey(cid, primaryHID string) string {
+	return fmt.Sprintf(chatMultiKeyPrefix, cid, primaryHID)
+}
+func chatInputKey(cid, hid string) string { return fmt.Sprintf(chatInputKeyPrefix, cid, hid) }
 
 func setChatStatus(ctx context.Context, rdb *redis.Client, conversationID, historyID, status, currentResult string) error {
 	key := chatStatusKey(conversationID)
@@ -228,4 +232,3 @@ func getMultiAnswerInfo(ctx context.Context, rdb *redis.Client, conversationID, 
 	}
 	return &info, nil
 }
-

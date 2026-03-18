@@ -46,4 +46,3 @@ func HTTPPost(ctx context.Context, url, contentType string, body []byte) ([]byte
 	}
 	return respBytes, resp.StatusCode, nil
 }
-

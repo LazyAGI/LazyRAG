@@ -14,4 +14,3 @@ func UserID(r *http.Request) string {
 func UserName(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("X-User-Name"))
 }
-

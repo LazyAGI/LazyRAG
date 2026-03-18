@@ -79,7 +79,7 @@ type KBInfo struct {
 type AddACLRequest struct {
 	GranteeType string     `json:"grantee_type"` // user / tenant
 	GranteeID   int64      `json:"grantee_id"`
-	Permission  string     `json:"permission"`   // read / write
+	Permission  string     `json:"permission"` // read / write
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 

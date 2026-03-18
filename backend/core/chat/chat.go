@@ -205,8 +205,8 @@ type UpstreamStreamChunk struct {
 }
 
 type upstreamStreamLine struct {
-	Code int                `json:"code"`
-	Msg  string             `json:"msg"`
+	Code int                 `json:"code"`
+	Msg  string              `json:"msg"`
 	Data UpstreamStreamChunk `json:"data"`
 }
 
@@ -264,4 +264,3 @@ func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any
 	}()
 	return out, nil
 }
-
