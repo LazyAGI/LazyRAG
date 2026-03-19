@@ -23,6 +23,7 @@ from core.security import (
     generate_refresh_token,
     hash_refresh_token,
     jwt_ttl_seconds,
+    refresh_token_expires_at,
 )
 from models import User
 from repositories import RoleRepository, UserRepository
@@ -149,6 +150,7 @@ def login(body: LoginBody):
     return {
         'access_token': access_token,
         'refresh_token': refresh_token,
+        'refresh_expires_at': refresh_token_expires_at().isoformat(),
         'token_type': 'bearer',
         'role': role_name,
         'expires_in': jwt_ttl_seconds(),
@@ -187,6 +189,7 @@ def refresh(body: RefreshBody):
             jti=generate_jti(),
         ),
         'refresh_token': new_refresh_token,
+        'refresh_expires_at': refresh_token_expires_at().isoformat(),
         'token_type': 'bearer',
         'expires_in': jwt_ttl_seconds(),
         'role': role_name,

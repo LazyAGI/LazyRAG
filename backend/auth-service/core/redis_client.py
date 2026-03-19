@@ -4,13 +4,14 @@ import redis
 
 
 _CLIENT: redis.Redis | None = None
+REDIS_URL_ENV = 'LAZYRAG_REDIS_URL'
 
 
 def redis_url() -> str:
-    url = (os.environ.get('LAZYRAG_REDIS_URL') or '').strip()
-    if url:
-        return url
-    return 'redis://localhost:6379/0'
+    url = (os.environ.get(REDIS_URL_ENV) or '').strip()
+    if not url:
+        raise RuntimeError(f'{REDIS_URL_ENV} is required for auth-service Redis features')
+    return url
 
 
 def redis_client() -> redis.Redis:
