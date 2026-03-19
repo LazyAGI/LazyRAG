@@ -13,8 +13,6 @@ from schemas.group import (
     GroupDetailResponse,
     GroupListResponse,
     GroupMemberRoleBatchBody,
-    GroupPermissionsBody,
-    GroupPermissionsResponse,
     GroupRemoveUsersBody,
     GroupUpdateBody,
     GroupUserListResponse,
@@ -108,30 +106,6 @@ def delete_group(group_id: str, _: User = Depends(current_user)):  # noqa: B008
     gid = _parse_group_id(group_id)
     group_service.delete_group(gid)
     return {'ok': True}
-
-
-@router.get('/{group_id}/permissions', response_model=GroupPermissionsResponse)
-@permission_required('user.admin')
-def get_group_permissions(
-    group_id: str,
-    _: User = Depends(current_user),  # noqa: B008
-):
-    gid = _parse_group_id(group_id)
-    codes = group_service.get_group_permissions(gid)
-    return {'permission_groups': codes}
-
-
-@router.put('/{group_id}/permissions', response_model=OkResponse)
-@permission_required('user.admin')
-def set_group_permissions(
-    group_id: str,
-    body: GroupPermissionsBody,
-    _: User = Depends(current_user),  # noqa: B008
-):
-    gid = _parse_group_id(group_id)
-    group_service.set_group_permissions(gid, body.permission_groups or [])
-    return {'ok': True}
-
 
 @router.get('/{group_id}/user', response_model=GroupUserListResponse)
 @permission_required('user.admin')
