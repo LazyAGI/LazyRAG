@@ -19,7 +19,7 @@ sys.path.insert(0, str(base_dir))
 from chat.component.llm.simple_llm import SimpleLlmComponent
 from chat.component.rerank.join import RRFJoinComponent
 from chat.component.rerank.custom_rerank import Qwen3Reranker
-from chat.component.embedding.custom_embedding import BgeM3Online
+from chat.component.embedding.bge_embedding import BgeM3Online
 
 from chat.component.rewrite.multiturn_query_rewriter import MultiturnQueryRewriter
 from chat.component.utils.adaptive_k import AdaptiveKComponent
