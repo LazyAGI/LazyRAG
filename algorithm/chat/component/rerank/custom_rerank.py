@@ -2,7 +2,6 @@ import re
 import requests
 from typing import Any, Dict, List, Optional, Union
 
-import lazyllm
 from lazyllm import LOG
 from lazyllm.tools.rag.doc_node import DocNode, MetadataMode
 from lazyllm.tools.rag.rerank import Reranker
@@ -23,9 +22,9 @@ class UrlReranker(Reranker):
 
     def __init__(
         self,
-        name: str = "UrlReranker",
+        name: str = 'UrlReranker',
         url: Optional[str] = None,
-        api_key: str = "api_key",
+        api_key: str = 'api_key',
         batch_size: int = 64,
         truncate_text: bool = True,
         output_format: Optional[str] = None,
@@ -45,7 +44,7 @@ class UrlReranker(Reranker):
         """
         super().__init__(name=name, output_format=output_format, join=join, **kwargs)
         if not url:
-            raise ValueError("`url` 不能为空，请传入远端重排序服务地址。")
+            raise ValueError('`url` 不能为空，请传入远端重排序服务地址。')
 
         self._url = url
         self._api_key = api_key
@@ -59,13 +58,13 @@ class UrlReranker(Reranker):
     def _build_headers(self) -> Dict[str, str]:
         """构建 HTTP 头。"""
         return {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._api_key}",
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self._api_key}',
         }
 
     def _extract_top_k(self, total: int, **kwargs: Any) -> int:
         """从 kwargs 中解析 top_k/topk，默认取全部。"""
-        top_k = kwargs.get("top_k", kwargs.get("topk", total))
+        top_k = kwargs.get('top_k', kwargs.get('topk', total))
         try:
             top_k = int(top_k)
         except Exception:
@@ -82,21 +81,26 @@ class UrlReranker(Reranker):
           - {<metadata_key>}: 节点 metadata 中的键
         若占位符缺失对应值，则回退为空串。
         """
-        template: Optional[str] = dict(kwargs).pop("template", None)
+        template: Optional[str] = dict(kwargs).pop('template', None)
         if not template:
             return [n.get_text(metadata_mode=MetadataMode.EMBED) for n in nodes]
 
-        placeholders = re.findall(r"{(\w+)}", template)
+        placeholders = re.findall(r'{(\w+)}', template)
 
         formatted: List[str] = []
         for node in nodes:
             values = {
-                key: node.text if key == 'text' else node.metadata.get(key, "") or node.global_metadata.get(key, "") for key in placeholders
+                key: (
+                    node.text
+                    if key == 'text'
+                    else node.metadata.get(key, '') or node.global_metadata.get(key, '')
+                )
+                for key in placeholders
             }
             try:
                 formatted.append(template.format(**values))
             except Exception as exc:
-                LOG.warning("Template formatting failed; fallback to raw text: %s", exc)
+                LOG.warning('Template formatting failed; fallback to raw text: %s', exc)
                 formatted.append(node.get_text(metadata_mode=MetadataMode.EMBED))
         return formatted
 
@@ -111,13 +115,13 @@ class UrlReranker(Reranker):
             }
         """
         payload: Dict[str, Any] = {
-            "query": query,
-            "texts": list(texts),
-            "truncate": self._truncate_text,
+            'query': query,
+            'texts': list(texts),
+            'truncate': self._truncate_text,
         }
         if kwargs:
             for k, v in kwargs.items():
-                if k not in ("query", "texts", "truncate"):
+                if k not in ('query', 'texts', 'truncate'):
                     payload[k] = v
         return payload
 
@@ -129,14 +133,14 @@ class UrlReranker(Reranker):
         输出顺序：按 "index" 排序返回分数列表。
         """
         if not isinstance(response, list):
-            LOG.warning("Response is not a list; attempting lenient parsing: %r", response)
+            LOG.warning('Response is not a list; attempting lenient parsing: %r', response)
             return []
 
         try:
-            sorted_data = sorted(response, key=lambda x: x["index"])
-            return [float(item["score"]) for item in sorted_data]
+            sorted_data = sorted(response, key=lambda x: x['index'])
+            return [float(item['score']) for item in sorted_data]
         except Exception as exc:
-            LOG.error("Failed to parse response: %s; response=%r", exc, response)
+            LOG.error('Failed to parse response: %s; response=%r', exc, response)
             return []
 
     def forward(self, nodes: List[DocNode], query: str, **kwargs: Any) -> List[DocNode]:
@@ -151,7 +155,7 @@ class UrlReranker(Reranker):
 
         all_scores: List[float] = []
         for start in range(0, len(texts), self._batch_size):
-            batch_texts = texts[start : start + self._batch_size]
+            batch_texts = texts[start:start + self._batch_size]
             payload = self._encapsulated_data(query, batch_texts, **kwargs)
 
             try:
@@ -161,18 +165,18 @@ class UrlReranker(Reranker):
                 resp.raise_for_status()
                 scores = self._parse_response(resp.json())
             except requests.RequestException as exc:
-                LOG.error("HTTP request for reranking failed (this batch will be scored as 0): %s", exc)
+                LOG.error('HTTP request for reranking failed (this batch will be scored as 0): %s', exc)
                 scores = []
 
             if len(scores) != len(batch_texts):
                 LOG.warning(
-                    "Returned scores count mismatches inputs: got=%d, expected=%d; padding with zeros.",
+                    'Returned scores count mismatches inputs: got=%d, expected=%d; padding with zeros.',
                     len(scores), len(batch_texts)
                 )
                 if len(scores) < len(batch_texts):
                     scores += [0.0] * (len(batch_texts) - len(scores))
                 else:
-                    scores = scores[: len(batch_texts)]
+                    scores = scores[:len(batch_texts)]
 
             all_scores.extend(scores)
 
@@ -182,7 +186,7 @@ class UrlReranker(Reranker):
 
         scored_nodes.sort(key=lambda n: n.relevance_score, reverse=True)
         results = scored_nodes[:top_k] if top_k > 0 else scored_nodes
-        LOG.debug(f"Rerank use `{self._name}` and get nodes: {results}")
+        LOG.debug(f'Rerank use `{self._name}` and get nodes: {results}')
         return self._post_process(results)
 
 
@@ -206,24 +210,24 @@ class Qwen3Reranker(UrlReranker):
     """
 
     _PROMPT_PREFIX = (
-        "<|im_start|>system\n"
-        "Judge whether the Document meets the requirements based on the Query and the Instruct provided. "
+        '<|im_start|>system\n'
+        'Judge whether the Document meets the requirements based on the Query and the Instruct provided. '
         'Note that the answer can only be "yes" or "no".'
-        "<|im_end|>\n<|im_start|>user\n"
+        '<|im_end|>\n<|im_start|>user\n'
     )
-    _PROMPT_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    _PROMPT_SUFFIX = '<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
 
-    _QUERY_TEMPLATE = "{prefix}<Instruct>: {instruction}\n<Query>: {query}\n"
-    _DOCUMENT_TEMPLATE = "<Document>: {doc}{suffix}"
+    _QUERY_TEMPLATE = '{prefix}<Instruct>: {instruction}\n<Query>: {query}\n'
+    _DOCUMENT_TEMPLATE = '<Document>: {doc}{suffix}'
 
     _LOCAL_TRUNCATE_MAX_CHARS = 16384
-    _DEFAULT_TASK_DESCRIPTION = "Given a web search query, retrieve relevant passages that answer the query"
+    _DEFAULT_TASK_DESCRIPTION = 'Given a web search query, retrieve relevant passages that answer the query'
 
     def __init__(
         self,
-        name: str = "Qwen3Reranker",
+        name: str = 'Qwen3Reranker',
         url: Optional[str] = None,
-        api_key: str = "api_key",
+        api_key: str = 'api_key',
         batch_size: int = 64,
         truncate_text: bool = True,
         output_format: Optional[str] = None,
@@ -271,18 +275,18 @@ class Qwen3Reranker(UrlReranker):
             return s[: self._LOCAL_TRUNCATE_MAX_CHARS]
 
         for t in texts:
-            t_norm = _truncate_if_needed(t or "")
+            t_norm = _truncate_if_needed(t or '')
             docs.append(self._DOCUMENT_TEMPLATE.format(doc=t_norm, suffix=self._PROMPT_SUFFIX))
         return docs
 
     def _encapsulated_data(self, query: str, texts: List[str], **kwargs: Any) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
-            "query": self._build_instruct(self._task_description, query),
-            "documents": self._build_documents(texts),
+            'query': self._build_instruct(self._task_description, query),
+            'documents': self._build_documents(texts),
         }
         if kwargs:
             for k, v in kwargs.items():
-                if k not in ("query", "documents"):
+                if k not in ('query', 'documents'):
                     payload[k] = v
         return payload
 
@@ -291,14 +295,14 @@ class Qwen3Reranker(UrlReranker):
         期望输入：
             {"results": [{"index": int, "relevance_score": float}, ...]}
         """
-        if not isinstance(response, dict) or "results" not in response:
+        if not isinstance(response, dict) or 'results' not in response:
             LOG.warning("response missing 'results' field: %r", response)
             return []
 
-        results = response.get("results", [])
+        results = response.get('results', [])
         try:
-            results = sorted(results, key=lambda x: x["index"])
-            return [float(item["relevance_score"]) for item in results]
+            results = sorted(results, key=lambda x: x['index'])
+            return [float(item['relevance_score']) for item in results]
         except Exception as exc:
-            LOG.error("Failed to parse response: %s; response=%r", exc, response)
+            LOG.error('Failed to parse response: %s; response=%r', exc, response)
             return []

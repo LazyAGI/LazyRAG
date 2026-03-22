@@ -1,6 +1,4 @@
 from typing import List, Tuple, Any
-
-from lazyllm import LOG
 from lazyllm.tools.rag import DocNode
 
 
@@ -29,11 +27,10 @@ class RRFJoinComponent:
 
         # adjust node scores
         reranked_nodes: List[DocNode] = []
-        for uid, score in reranked_results.items():
+        for uid, _ in reranked_results.items():
             reranked_nodes.append(uid_to_node[uid])
 
         return reranked_nodes[:top_k] if top_k > 0 else reranked_nodes
-
 
     def __call__(self, *args, **kwargs: Any) -> List[Any]:
         input = []

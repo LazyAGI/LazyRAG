@@ -71,18 +71,17 @@ class RAGContextFormatter(ModuleBase):
         for index, node in enumerate(nodes):
             file_name = node.metadata.get('file_name')
             node_str = (
-                f"文档[[{index + 1}]]:\n文档名：{file_name}\n{node.text}\n"
+                f'文档[[{index + 1}]]:\n文档名：{file_name}\n{node.text}\n'
             )
             node_str_list.append(node_str)
 
-        context_str = "\n".join(node_str_list)
+        context_str = '\n'.join(node_str_list)
         return context_str
-
 
     def forward(self, input, **kwargs) -> Any:
         nodes = input or []
-        image_files = kwargs.get("image_files") or []
-        query = kwargs.get("query")
+        image_files = kwargs.get('image_files') or []
+        query = kwargs.get('query')
         if len(nodes):
             context_str = self._create_context_str(nodes)
             res = standard_rag_input_cn.format(instructions=LLM_PROMPT_INSTRUCTIONS, context=context_str, query=query)

@@ -38,7 +38,7 @@ def shorten_image_urls(markdown: str) -> Tuple[str, List[str]]:
         if is_valid_path(url):
             matched_urls.append(url)
             filename = get_url_basename(url)
-            return f"![{alt_text}]({filename})"
+            return f'![{alt_text}]({filename})'
         else:
             return match.group(0)
 
@@ -57,9 +57,9 @@ class AggregateComponent:
             return nodes
 
         result_nodes = []
-        nodes = sorted(nodes, key=lambda x: x.global_metadata["docid"])
-        for _, group in itertools.groupby(nodes, key=lambda x: x.global_metadata["docid"]):
-            grouped_nodes = sorted(group, key=lambda x: (x.metadata.get("index") or 0))
+        nodes = sorted(nodes, key=lambda x: x.global_metadata['docid'])
+        for _, group in itertools.groupby(nodes, key=lambda x: x.global_metadata['docid']):
+            grouped_nodes = sorted(group, key=lambda x: (x.metadata.get('index') or 0))
 
             # 合并节点内容
             content = []
@@ -69,17 +69,17 @@ class AggregateComponent:
                 text = node._content
                 title = node.metadata.get('title', '')
                 if title:
-                    text = f"{title.strip()}\n{text.lstrip()}"
+                    text = f'{title.strip()}\n{text.lstrip()}'
                 node_str, images = shorten_image_urls(text)
                 content.append(node_str)
                 all_images.extend(images)
-                if node.metadata.get("table_image_map", None):
+                if node.metadata.get('table_image_map', None):
                     table_image_map.update(node.metadata['table_image_map'])
             content = f"\n\n{'---'}\n\n".join(content)
 
             first_node = grouped_nodes[0]
             # 创建新节点
-            metadata = {"images": all_images}
+            metadata = {'images': all_images}
             metadata.update(first_node._metadata)
             if table_image_map:
                 metadata['table_image_map'] = table_image_map

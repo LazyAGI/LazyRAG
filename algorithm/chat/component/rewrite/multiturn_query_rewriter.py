@@ -18,7 +18,8 @@ MULTITURN_QUERY_REWRITE_PROMPT = """
     - 仅在必要时改写：指代不明、关键约束仅存在于上下文、多轮任务延续等
     - 若 last_user_query 脱离任何上下文仍语义完整，不得进行任何程度的加工和改写（名词替换、句式调整等）。
 2) 结合 chat_history 与 session_memory 解析指代与省略；继承已给出的时间/地点/来源/语言等约束。
-    - 输入中提供变量 has_appendix 表示用户是否上传了附件。若 last_user_query 中存在指示代词（如“这是谁 / 这两个人 / 这里 / 那张表”），必须先判断指代来源是历史对话还是上传的附件；确保不把附件指代误改写为历史内容，或反之。
+    - 输入中提供变量 has_appendix 表示用户是否上传了附件。若 last_user_query 中存在指示代词
+      （如“这是谁 / 这两个人 / 这里 / 那张表”），必须先判断指代来源是历史对话还是上传的附件；确保不把附件指代误改写为历史内容，或反之。
     - 若指代来源无法确定，则保持保守改写或不改写，不做臆测。
 3) 将“今天/近两年/上周”等相对时间，基于 current_date 归一为绝对日期或区间。
 4) 不臆造事实或新增约束；若存在歧义，做**保守改写**并下调 confidence，在 rationale_short 说明原因。
@@ -53,32 +54,36 @@ class RewriterInput(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
         json_schema_extra={
-            "example": {
-                "chat_history": [
-                    {"role": "user", "content": "对比下 Qwen 与 Llama 的推理性能", "time": "2025-08-11T10:00:00+09:00"},
-                    {"role": "assistant", "content": "已对比：A100 上 Qwen-32B > Llama-34B ..."}
+            'example': {
+                'chat_history': [
+                    {
+                        'role': 'user',
+                        'content': '对比下 Qwen 与 Llama 的推理性能',
+                        'time': '2025-08-11T10:00:00+09:00',
+                    },
+                    {'role': 'assistant', 'content': '已对比：A100 上 Qwen-32B > Llama-34B ...'},
                 ],
-                "last_user_query": "那它在多图输入时差异大吗？近两个月的数据就行",
-                "has_appendix": False,
-                "current_date": "2025-08-12",
-                "user_locale": "zh",
-                "session_memory": {
-                    "topic": "多模型推理对比",
-                    "entities": ["Qwen-32B", "Llama-34B"],
-                    "time_hints": ["近两个月"],
-                    "source_scope": ["官方博客", "评测报告"]
-                }
+                'last_user_query': '那它在多图输入时差异大吗？近两个月的数据就行',
+                'has_appendix': False,
+                'current_date': '2025-08-12',
+                'user_locale': 'zh',
+                'session_memory': {
+                    'topic': '多模型推理对比',
+                    'entities': ['Qwen-32B', 'Llama-34B'],
+                    'time_hints': ['近两个月'],
+                    'source_scope': ['官方博客', '评测报告'],
+                },
             }
         })
 
-    chat_history: List[BaseMessage] = Field(..., description="过去 N 轮对话")
-    last_user_query: str = Field(..., description="用户最新一句")
-    current_date: date = Field(..., description="用于相对时间归一的当前日期（YYYY-MM-DD）")
-    user_locale: Optional[str] = Field(default="zh", description="用户首选语言（如 zh/en），可选")
-    has_appendix: bool = Field(False, description="是否包含附件")
+    chat_history: List[BaseMessage] = Field(..., description='过去 N 轮对话')
+    last_user_query: str = Field(..., description='用户最新一句')
+    current_date: date = Field(..., description='用于相对时间归一的当前日期（YYYY-MM-DD）')
+    user_locale: Optional[str] = Field(default='zh', description='用户首选语言（如 zh/en），可选')
+    has_appendix: bool = Field(False, description='是否包含附件')
     session_memory: Optional[SessionMemory] = Field(
         default=None,
-        description="会话内已确定的实体/意图/约束（可选）"
+        description='会话内已确定的实体/意图/约束（可选）',
     )
 
 
@@ -94,16 +99,16 @@ class MultiturnQueryRewriter(ModuleBase):
 
     def forward(self, input: dict, session_id: str = None, **kwargs):
         user_input = input
-        query = user_input.get("query", "")
-        llm_chat_history = user_input.get("history", [])
-        has_appendix = kwargs.pop("has_appendix", False)
+        query = user_input.get('query', '')
+        llm_chat_history = user_input.get('history', [])
+        has_appendix = kwargs.pop('has_appendix', False)
         records = [BaseMessage(**history) for history in llm_chat_history]
         rewrite_input = RewriterInput(chat_history=records, last_user_query=query, current_date=date.today(),
                                       has_appendix=has_appendix)
 
         res = self._llm(rewrite_input.model_dump_json(), **kwargs)
-        LOG.info(f"[MultiturnQueryRewriter] [res={res}]")
+        LOG.info(f'[MultiturnQueryRewriter] [res={res}]')
         if isinstance(res, dict):
-            user_input["query"] = res.get("rewritten_query")
-            user_input["origin_query"] = query
+            user_input['query'] = res.get('rewritten_query')
+            user_input['origin_query'] = query
         return user_input

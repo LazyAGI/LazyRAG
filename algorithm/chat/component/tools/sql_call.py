@@ -12,7 +12,7 @@ from lazyllm.tools.sql import SqlManager
 from chat.component.tools.encrypt_sql_manager import EncryptSqlManager
 
 
-ENCRYPT_SQL_MANAGER = os.getenv("ENCRYPT_SQL_MANAGER") == "True"
+ENCRYPT_SQL_MANAGER = os.getenv('ENCRYPT_SQL_MANAGER') == 'True'
 SQLManager = EncryptSqlManager if ENCRYPT_SQL_MANAGER else SqlManager
 
 
@@ -91,31 +91,31 @@ class SqlGenSchema(ModuleBase):
         password = source.get('password', None)
         description = database.get('description', None)
         sql_manager = SQLManager(
-            db_type=kind, 
-            host=host, 
-            port=port, 
-            user=user, 
-            password=password, 
-            db_name=db_name, 
+            db_type=kind,
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            db_name=db_name,
             tables_info_dict=description
         )
         return sql_manager.desc
 
 
 class SqlGenerator(ModuleBase):
-    EXAMPLE_TITLE = "Here are some example: "
+    EXAMPLE_TITLE = 'Here are some example: '
 
     def __init__(
         self,
         llm,
-        sql_examples: str = "",
+        sql_examples: str = '',
         sql_post_func: Callable = None,
         return_trace: bool = False,
     ) -> None:
         super().__init__(return_trace=return_trace)
         self.sql_post_func = sql_post_func
 
-        self._pattern = re.compile(r"```sql(.+?)```", re.DOTALL)
+        self._pattern = re.compile(r'```sql(.+?)```', re.DOTALL)
         self.example = sql_examples
 
         self._llm = llm
@@ -128,7 +128,7 @@ class SqlGenerator(ModuleBase):
             extracted_content = matches[0].strip()
             return extracted_content if not self.sql_post_func else self.sql_post_func(extracted_content)
         else:
-            return ""
+            return ''
 
     def forward(self, query: str, databases: list[dict], **kwargs):
         database = databases[0]
@@ -136,7 +136,7 @@ class SqlGenerator(ModuleBase):
         kind = source.get('kind')
         schema_desc = SqlGenSchema().forward(databases)
 
-        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        current_date = datetime.datetime.now().strftime('%Y-%m-%d')
         sql_query_instruct = sql_query_instruct_template.format(
             current_date=current_date, db_type=kind, schema_desc=schema_desc)
         query_prompter = ChatPrompter(instruction=sql_query_instruct)
@@ -145,10 +145,10 @@ class SqlGenerator(ModuleBase):
             ppl.llm_query = self._llm.share(prompt=query_prompter).used_by(self._module_id)
             ppl.sql_extractor = self.extract_sql_from_response
         return ppl(query, **kwargs)
-    
+
 
 class SqlExecute(ModuleBase):
-    EXAMPLE_TITLE = "Here are some example: "
+    EXAMPLE_TITLE = 'Here are some example: '
 
     def __init__(
         self,
@@ -169,24 +169,24 @@ class SqlExecute(ModuleBase):
         password = source.get('password', None)
         description = database.get('description', None)
         sql_manager = SQLManager(
-            db_type=kind, 
-            host=host, 
-            port=port, 
-            user=user, 
-            password=password, 
-            db_name=db_name, 
+            db_type=kind,
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            db_name=db_name,
             tables_info_dict=description
         )
         return sql_manager.execute_query(statement=statement)
-    
+
 
 class SqlExplain(ModuleBase):
-    EXAMPLE_TITLE = "Here are some example: "
+    EXAMPLE_TITLE = 'Here are some example: '
 
     def __init__(
         self,
         llm,
-        sql_examples: str = "",
+        sql_examples: str = '',
         sql_post_func: Callable = None,
         return_trace: bool = False,
     ) -> None:
@@ -202,7 +202,7 @@ class SqlExplain(ModuleBase):
         schema_desc = SqlGenSchema().forward(databases)
         sql_explain_instruct = db_explain_instruct_template.format(
             history=chat_history_to_str(history=kwargs.get('llm_chat_history', [])),
-            db_type=kind, 
+            db_type=kind,
             schema_desc=schema_desc,
             statement=statement,
             result=input,

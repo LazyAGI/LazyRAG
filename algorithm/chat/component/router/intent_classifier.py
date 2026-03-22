@@ -83,7 +83,7 @@ class IntentClassifier(ModuleBase):
             for ele in self._intent_list:
                 for ch in ele:
                     # chinese unicode range
-                    if "\u4e00" <= ch <= "\u9fff":
+                    if '\u4e00' <= ch <= '\u9fff':
                         return ch_prompt_classifier_template
             return en_prompt_classifier_template
 
@@ -106,15 +106,15 @@ class IntentClassifier(ModuleBase):
     ):
         input_json = {}
         if isinstance(input, str):
-            input_json = {"human_input": input, "intent_list": self._intent_list}
+            input_json = {'human_input': input, 'intent_list': self._intent_list}
         elif isinstance(input, dict):
             input_json = {
-                "human_input": input.get("human_input", ""),
-                "intent_list": input.get("intent_list", self._intent_list),
-                "intent_hints": input.get("intent_hints", {})
+                'human_input': input.get('human_input', ''),
+                'intent_list': input.get('intent_list', self._intent_list),
+                'intent_hints': input.get('intent_hints', {})
             }
         else:
-            raise ValueError(f"Unexpected type for input: {type(input)}")
+            raise ValueError(f'Unexpected type for input: {type(input)}')
 
         history_info = chat_history_to_str(history)
         history = []
@@ -126,8 +126,8 @@ class IntentClassifier(ModuleBase):
         return input if input in self._intent_list else (self._intent_list[0] if self._intent_list else input)
 
     def forward(self, input: str, llm_chat_history: List[Dict[str, Any]] = None, **kwargs) -> str:
-        if llm_chat_history is not None and self._llm._module_id not in globals["chat_history"]:
-            globals["chat_history"][self._llm._module_id] = llm_chat_history
+        if llm_chat_history is not None and self._llm._module_id not in globals['chat_history']:
+            globals['chat_history'][self._llm._module_id] = llm_chat_history
         return self._impl(input, **kwargs)
 
     def __enter__(self):

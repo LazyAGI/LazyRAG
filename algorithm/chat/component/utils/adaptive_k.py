@@ -1,20 +1,11 @@
 from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from typing import Any, List
-import json
-import os
-import re
-from abc import ABC, abstractmethod
-from collections import defaultdict
-from copy import deepcopy
-from typing import List, Tuple, Union, cast
-
 from lazyllm import LOG
-from lazyllm.tools.rag import DocNode
 
 
 # ------------- 工具函数 -----------------
+
 
 def _moving_average(xs: List[float], w: int) -> List[float]:
     """居中滑动平均；w=1 表示不平滑。纯 Python 实现，边界用边缘值延拓。"""
@@ -30,8 +21,10 @@ def _moving_average(xs: List[float], w: int) -> List[float]:
         out.append(sum(window) / w)
     return out
 
+
 def _clamp(x: int, lo: int, hi: int) -> int:
     return max(lo, min(x, hi))
+
 
 def _fit_by_budget(nodes: Sequence[Any],
                    get_token_len: Optional[Callable[[Any], int]],
@@ -49,12 +42,14 @@ def _fit_by_budget(nodes: Sequence[Any],
         k += 1
     return max(k, 1)  # 避免 k=0
 
+
 # ------------- 主函数 -----------------
+
 
 def adaptive_k_select_from_nodes(
     nodes: Sequence[Any],                          # 已按相关度降序排序的 DocNode 列表
     *,
-    get_score: Callable[[Any], float] = lambda n: getattr(n, "relevance_score"),
+    get_score: Callable[[Any], float] = lambda n: n.relevance_score,
     get_token_len: Optional[Callable[[Any], int]] = None,  # 如 lambda n: n.token_len
     assume_sorted_desc: bool = True,               # 若=False，会按 score 再次降序排序
     max_tokens: Optional[int] = None,
@@ -144,10 +139,12 @@ def adaptive_k_select_from_nodes(
 
 
 class AdaptiveKComponent:
-    def __init__(self, 
-        get_score: Callable[[Any], float] = lambda n: getattr(n, "relevance_score"),
+    def __init__(
+        self,
+        get_score: Callable[[Any], float] = lambda n: n.relevance_score,
         get_token_len: Optional[Callable[[Any], int]] = None,
-        **kwargs):
+        **kwargs,
+    ):
         self.get_score = get_score
         self.get_token_len = get_token_len
         self.kwargs = kwargs or {}
@@ -160,5 +157,5 @@ class AdaptiveKComponent:
             get_token_len=self.get_token_len,
             **self.kwargs
         )
-        LOG.info(f"[AdaptiveKComponent] AdaptiveK selected {k} / {len(nodes)} nodes, diag={diag}")
+        LOG.info(f'[AdaptiveKComponent] AdaptiveK selected {k} / {len(nodes)} nodes, diag={diag}')
         return selected

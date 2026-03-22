@@ -8,7 +8,7 @@ import lazyllm
 from lazyllm.tools.rag import Retriever
 from pipelines.rag_pipeline import get_ppl_search
 
-DOCUMENT_URL = os.getenv("LAZYLLM_DOCUMENT_URL", "http://127.0.0.1:8525")
+DOCUMENT_URL = os.getenv('LAZYLLM_DOCUMENT_URL', 'http://127.0.0.1:8525')
 
 
 class BaseTool(ABC):
@@ -23,12 +23,12 @@ class BaseTool(ABC):
         Returns:
             Dict[str, Any]: 工具 schema 字典，格式为:
             {
-                "tool_name": {
-                    "description": "工具描述",
-                    "parameters": {
-                        "param_name": {
-                            "type": "参数类型",
-                            "des": "参数描述"
+                'tool_name': {
+                    'description': '工具描述',
+                    'parameters': {
+                        'param_name': {
+                            'type': '参数类型',
+                            'des': '参数描述'
                         }
                     }
                 }
@@ -73,17 +73,17 @@ class KBSearch(BaseTool):
     def tool_schema(self) -> Dict[str, Any]:
         """工具 schema 定义"""
         return {
-            "kb_search": {
-                "description": "Used to retrieve content chunks from the knowledge \
-                    base and extract target information points. Supports global and document-scoped search.",
-                "parameters": {
-                    "querys": {
-                        "type": "List[str]",
-                        "des": "Distinct semantic queries; avoid overlap."
+            'kb_search': {
+                'description': 'Used to retrieve content chunks from the knowledge \
+                    base and extract target information points. Supports global and document-scoped search.',
+                'parameters': {
+                    'querys': {
+                        'type': 'List[str]',
+                        'des': 'Distinct semantic queries; avoid overlap.'
                     },
-                    "file_names": {
-                        "type": "Optional[List[str]] = None",
-                        "des": "Restrict search to specific documents; None means global."
+                    'file_names': {
+                        'type': 'Optional[List[str]] = None',
+                        'des': 'Restrict search to specific documents; None means global.'
                     }
                 }
             }
@@ -99,8 +99,8 @@ class KBSearch(BaseTool):
         if static_params is None:
             static_params = {}
 
-        original_query = static_params.get("query", "")
-        document_url = static_params.get("document_url", DOCUMENT_URL)
+        original_query = static_params.get('query', '')
+        document_url = static_params.get('document_url', DOCUMENT_URL)
 
         if file_names:
             file_ids = self.file_search(file_names, static_params)
@@ -118,49 +118,51 @@ class KBSearch(BaseTool):
         for query in querys:
             if file_ids:
                 params['filters'].update({'docid': file_ids})
-            nodes = search_ppl(params | {"query": query})
+            nodes = search_ppl(params | {'query': query})
             for node in nodes:
                 if node._uid not in node_ids:
-                    file_names_unique.add(node.global_metadata.get("file_name", ""))
+                    file_names_unique.add(node.global_metadata.get('file_name', ''))
                     node_ids.add(node._uid)
                     unique_nodes.append(node)
         if file_ids:
-            original_nodes = search_ppl(params | {"query": original_query})
+            original_nodes = search_ppl(params | {'query': original_query})
             for node in original_nodes:
                 if node._uid not in node_ids:
-                    file_names_unique.add(node.global_metadata.get("file_name", ""))
+                    file_names_unique.add(node.global_metadata.get('file_name', ''))
                     node_ids.add(node._uid)
                     unique_nodes.append(node)
 
         nodes = []
-        for _, group in itertools.groupby(unique_nodes, key=lambda x: x.global_metadata['docid']):
-            group = list(group)
-            new_node = group[0]
-            group = sorted(group, key=lambda x: x.metadata.get("index", 0))
-            contents = [f"{node.metadata.get('title', '').strip()}\n{node.get_text()}" for node in group]
+        for _, grp in itertools.groupby(unique_nodes, key=lambda x: x.global_metadata['docid']):
+            grouped_nodes = list(grp)
+            new_node = grouped_nodes[0]
+            grouped_nodes = sorted(grouped_nodes, key=lambda x: x.metadata.get('index', 0))
+            contents = [
+                '{}\n{}'.format(node.metadata.get('title', '').strip(), node.get_text())
+                for node in grouped_nodes
+            ]
             new_node._content = '\n'.join(contents)
             nodes.append(new_node)
 
         res = []
         for node in nodes:
             filename = node.metadata.get('file_name', '')
-            res.append(f"file_name: {filename}\n{node.get_text()}")
+            res.append(f'file_name: {filename}\n{node.get_text()}')
 
         return nodes, res
 
     def file_search(self, file_names: List[str], static_params: dict = None, topk: int = 3) -> List[str]:
-        """按文件名检索相似文件"""
-        filters = static_params.get("filters", {}) if static_params else {}
+        filters = static_params.get('filters', {}) if static_params else {}
         document_url = static_params.get('document_url', DOCUMENT_URL) if static_params else DOCUMENT_URL
-        name = static_params.get("name", "__default__")
-        doc = lazyllm.Document(url=f"{document_url}/_call", name=name)
-        retriever = Retriever(doc, group_name="filename", embed_keys=["bge_m3_sparse"], topk=topk)
+        name = static_params.get('name', '__default__')
+        doc = lazyllm.Document(url=f'{document_url}/_call', name=name)
+        retriever = Retriever(doc, group_name='filename', embed_keys=['bge_m3_sparse'], topk=topk)
 
         file_ids = []
         for file_name in file_names:
             nodes = retriever(file_name, filters=filters)
             for node in nodes:
-                docid = node.global_metadata.get("docid", "")
+                docid = node.global_metadata.get('docid', '')
                 if docid and docid not in file_ids:
                     file_ids.append(docid)
         return file_ids
@@ -180,7 +182,7 @@ def register_tool(tool_name: str, tool_instance: BaseTool):
         tool_instance: 工具实例（必须是 BaseTool 的子类）
     """
     if not isinstance(tool_instance, BaseTool):
-        raise TypeError(f"Tool instance must be a subclass of BaseTool, got {type(tool_instance)}")
+        raise TypeError(f'Tool instance must be a subclass of BaseTool, got {type(tool_instance)}')
     _tool_instances[tool_name] = tool_instance
     _tool_schemas[tool_name] = tool_instance.tool_schema
 
@@ -206,7 +208,7 @@ def get_tool_schema(tool_name: str) -> Dict[str, Any]:
         Dict[str, Any]: 工具的 schema 字典
     """
     if tool_name not in _tool_schemas:
-        raise KeyError(f"Tool '{tool_name}' not found in registry")
+        raise KeyError(f'Tool {tool_name!r} not found in registry')
     return _tool_schemas[tool_name]
 
 
@@ -221,7 +223,7 @@ def get_tool_instance(tool_name: str) -> BaseTool:
         BaseTool: 工具实例
     """
     if tool_name not in _tool_instances:
-        raise KeyError(f"Tool '{tool_name}' not found in registry")
+        raise KeyError(f'Tool {tool_name!r} not found in registry')
     return _tool_instances[tool_name]
 
 

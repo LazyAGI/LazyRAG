@@ -39,7 +39,7 @@ def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'in
     if mode != 'debug':
         state.reasoning_process_stream.append(value)
         if isinstance(value, list):
-            raise ValueError(f"value: {value}")
+            raise ValueError(f'value: {value}')
 
 
 # llms
@@ -154,18 +154,18 @@ def generate_answer(state: TaskContext):
     nodes = state.middle_results.raw_results
     inference = '\n'.join(state.inferences)
     agg_nodes = []
-    for _, group in itertools.groupby(nodes, key=lambda x: x.global_metadata['docid']):
-        group = list(group)
+    for _, grp in itertools.groupby(nodes, key=lambda x: x.global_metadata['docid']):
+        grouped_nodes = list(grp)
         # group = sorted(group, key=lambda n: n.metadata['index'])
         file_contents = []
-        for node in group:
+        for node in grouped_nodes:
             text = node._content
             title = node.metadata.get('title', '')
             if title:
                 text = f'{title.strip()}\n{text.lstrip()}'
             file_contents.append(text)
-        file_contents = f'\n\n{"---"}\n\n'.join(file_contents)
-        agg_nodes.append(group[0])
+        file_contents = '\n\n---\n\n'.join(file_contents)
+        agg_nodes.append(grouped_nodes[0])
         agg_nodes[-1]._content = file_contents
 
     for index, node in enumerate(agg_nodes):
@@ -219,12 +219,12 @@ async def get_llm_res(state: TaskContext, iter):
                     buffer = buffer.replace('<think>', '')
                 else:
                     buffer += '</think>'
-                LOG.info(f"buffer: {buffer}")
+                LOG.info(f'buffer: {buffer}')
                 add_reasoning_process_stream(state, buffer)
                 check_think = True
         else:
             add_reasoning_process_stream(state, chunk)
-            
+
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def plan_step(state: TaskContext):
@@ -384,9 +384,11 @@ def get_ppl_agentic():
 
     with pipeline() as ppl:
         ppl.planner = plan_step
-        ppl.loop = loop(search_eval_ppl, 
-                        stop_condition=lambda x: x.middle_results.evaluation_result['next_step'] == 'GenerateAnswer',
-                        count=4)
+        ppl.loop = loop(
+            search_eval_ppl,
+            stop_condition=lambda x: x.middle_results.evaluation_result['next_step'] == 'GenerateAnswer',
+            count=4,
+        )
         ppl.gen = bind(generate_answer, ppl.input)
 
     return ppl
@@ -414,7 +416,7 @@ async def astream_iterator(agent, state):
                         text = text.replace('<think>', '')
                 for i in range(0, len(text), CHUNK_SIZE):
                     chunk = text[i:i + CHUNK_SIZE]
-                    LOG.info(f"yielding chunk: {chunk}")
+                    LOG.info(f'yielding chunk: {chunk}')
                     yield chunk
                     if i + CHUNK_SIZE < len(text):
                         await asyncio.sleep(CHUNK_DELAY)
@@ -446,14 +448,14 @@ def agentic_rag(global_params, tool_params, stream=False, **kwargs):
         try:
             state = agent(state)
         except Exception as e:
-            LOG.error(f"Error: {e}")
+            LOG.error(f'Error: {e}')
             return {'think': '', 'text': '', 'recall': []}
         # answer = state.answer
         relevant_nodes = copy.deepcopy(state.middle_results.formatted_results)
         agg_nodes = copy.deepcopy(state.middle_results.agg_results)
         answer = '\n'.join(state.reasoning_process_stream)
         # round_num = len(state.executed_steps)
-        LOG.info(f"agg_nodes: {agg_nodes}")
+        LOG.info(f'agg_nodes: {agg_nodes}')
         res = CustomOutputParser().forward(answer, aggregate=agg_nodes, stream=False)
         res['recall'] = relevant_nodes
         return res  # , relevant_nodes, round_num
@@ -467,13 +469,20 @@ if __name__ == '__main__':
     # global_params = {'query': query, 'document_url': 'http://127.0.0.1:8525'}
     # tool_params = {'kb_search': {'filters': {'kb_id': [kb_id]}, 'files': [], 'stream': False, 'priority': 1}}
 
-    query = "徐汇区在推进6所学校集中开竣工过程中，如何通过“全链条服务”保障教育民生项目高效落地？"
-    global_params = {"query": query}
-    tool_params = {"kb_search": {"filters": {}, "files": [], "stream": False, 'priority': 1,
-                                 "document_url": "http://10.119.16.66:9011,tyy_0302"}}
+    query = '徐汇区在推进6所学校集中开竣工过程中，如何通过“全链条服务”保障教育民生项目高效落地？'
+    global_params = {'query': query}
+    tool_params = {
+        'kb_search': {
+            'filters': {},
+            'files': [],
+            'stream': False,
+            'priority': 1,
+            'document_url': 'http://10.119.16.66:9011,tyy_0302',
+        },
+    }
     res = agentic_rag(global_params=global_params, tool_params=tool_params, stream=False)
     print(res['text'])
-  
+
     async def get_ans():
         iter = agentic_rag(global_params=global_params, tool_params=tool_params, stream=True)
         think = ''
