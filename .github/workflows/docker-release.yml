@@ -1,3 +1,9 @@
+# 需要在仓库中配置的变量： 
+## vars.REGISTRY && vars.REGISTRY_NAMESPACE && 
+## secrets.REGISTRY_USERNAME && secrets.REGISTRY_PASSWORD
+
+# 用于构建所有服务 amd + arm 架构镜像 
+
 name: Docker Release
 
 on:
@@ -35,6 +41,8 @@ env:
   REGISTRY: ${{ vars.REGISTRY || 'registry.gitlab.com' }}
   # Namespace/repository path in GitLab registry (group/project)
   REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE || github.repository }}
+  
+
 
 jobs:
   docker-release:
