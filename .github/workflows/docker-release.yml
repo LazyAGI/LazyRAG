@@ -20,7 +20,7 @@ on:
         required: true
         type: string
       service:
-        description: JSON array of services to build (e.g. ["backend","frontend"] or ["all"])
+        description: JSON array of services to build (e.g. [ "backend", "frontend", "mineru", "processor-server", "processor-worker", "parsing", "chat", "auth-service" ] or ["all"])
         required: false
         default: '["all"]'
         type: string
