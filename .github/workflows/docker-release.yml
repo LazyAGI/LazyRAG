@@ -114,6 +114,35 @@ jobs:
           echo "services=$SERVICES" >> $GITHUB_OUTPUT
 
 
+      - name: Evaluate service release rule
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          SELECTED_SERVICES: ${{ inputs.service }}
+          CHANGED_SERVICES: ${{ steps.changes.outputs.services }}
+          CURRENT_SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+
+          should_build='false'
+
+          if [[ "${EVENT_NAME}" == 'workflow_dispatch' ]]; then
+            if jq -e --arg svc "${CURRENT_SERVICE}" 'index("all") != null or index($svc) != null' <<< "${SELECTED_SERVICES}" > /dev/null; then
+              should_build='true'
+            fi
+          elif [[ "${REF_TYPE}" == 'tag' ]]; then
+            should_build='true'
+          elif [[ "${EVENT_NAME}" == 'push' && "${REF_TYPE}" != 'tag' ]]; then
+            if [[ " ${CHANGED_SERVICES} " == *" ${CURRENT_SERVICE} "* ]]; then
+              should_build='true'
+            fi
+          fi
+
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+
+
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -131,20 +160,12 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        if: |
-          github.event_name == 'push' && github.ref_type != 'tag' &&
-            (
-              contains(steps.changes.outputs.services, matrix.service)
-            )
+        if: ${{ steps.gate.outputs.should_build == 'true' }}
 
 
       - name: Login to Registry
         uses: docker/login-action@v3
-        if: |
-          github.event_name == 'push' && github.ref_type != 'tag' &&
-            (
-              contains(steps.changes.outputs.services, matrix.service)
-            )
+        if: ${{ steps.gate.outputs.should_build == 'true' }}
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.REGISTRY_USERNAME }}
@@ -153,21 +174,7 @@ jobs:
 
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
-        if: |
-          (github.event_name == 'workflow_dispatch' &&
-            (
-              contains(fromJson(inputs.service), 'all') ||
-              contains(fromJson(inputs.service), matrix.service)
-            )
-          )
-          ||
-          (github.ref_type == 'tag')
-          ||
-          (github.event_name == 'push' && github.ref_type != 'tag' &&
-            (
-              contains(steps.changes.outputs.services, matrix.service)
-            )
-          )
+        if: ${{ steps.gate.outputs.should_build == 'true' }}
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
