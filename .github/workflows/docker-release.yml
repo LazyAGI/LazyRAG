@@ -156,7 +156,7 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
 
-      - name: Build and push ${{ matrix.service }}
+      - name: Build and push ${{ matrix.service }} - linux/amd64
         uses: docker/build-push-action@v6
         if: ${{ steps.tag.outputs.value != '' }}
         with:
@@ -165,7 +165,40 @@ jobs:
           target: ${{ matrix.target }}
           push: true
           provenance: false
-          platforms: linux/amd64,linux/arm64 
+          platforms: linux/amd64
           tags: |
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-amd64
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest-amd64
+
+      - name: Build and push ${{ matrix.service }} - linux/arm64 
+        uses: docker/build-push-action@v6
+        if: ${{ steps.tag.outputs.value != '' }}
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: true
+          provenance: false
+          platforms: linux/arm64 
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-arm64
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest-arm64
+            
+      - name: Create and push manifest
+        run: |          
+          IMAGE="${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}"
+          
+          echo "Waiting for images to be available..."
+          sleep 30
+          
+          # Create manifest
+          docker manifest create $IMAGE \
+            --amend $IMAGE:${{ steps.tag.outputs.value }}-arm64 \
+            --amend $IMAGE:${{ steps.tag.outputs.value }}-amd64 || true
+          docker manifest push $IMAGE:${{ steps.tag.outputs.value }}
+          
+          # Create latest manifest
+          docker manifest create $IMAGE \
+            --amend $IMAGE:latest-arm64 \
+            --amend $IMAGE:latest-amd64 || true
+          docker manifest push $IMAGE:latest
