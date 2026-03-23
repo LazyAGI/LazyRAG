@@ -201,13 +201,13 @@ jobs:
           sleep 30
           
           # Create manifest
-          docker manifest create $IMAGE \
+          docker manifest create $IMAGE:${{ steps.tag.outputs.value }} \
             --amend $IMAGE:${{ steps.tag.outputs.value }}-arm64 \
             --amend $IMAGE:${{ steps.tag.outputs.value }}-amd64 || true
           docker manifest push $IMAGE:${{ steps.tag.outputs.value }}
           
           # Create latest manifest
-          docker manifest create $IMAGE \
+          docker manifest create $IMAGE:latest \
             --amend $IMAGE:latest-arm64 \
             --amend $IMAGE:latest-amd64 || true
           docker manifest push $IMAGE:latest
