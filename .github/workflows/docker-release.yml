@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - cl/caoyangbo/build-ci
+      - "v*"
     tags:
       - "v*"
     paths-ignore:
