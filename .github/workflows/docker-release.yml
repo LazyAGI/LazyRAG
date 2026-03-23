@@ -90,6 +90,30 @@ jobs:
           submodules: recursive
 
 
+      - name: Detect changed services
+        id: changes
+        shell: bash
+        run: |
+          set -e
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            git fetch origin main --depth=2
+            CHANGED=$(git diff --name-only origin/main...HEAD)
+          else
+            CHANGED=""
+          fi
+
+          SERVICES=""
+
+          [[ "$CHANGED" == *"backend/auth-service"* ]] && SERVICES="$SERVICES auth-service"
+          [[ "$CHANGED" == *"backend/core"* ]] && SERVICES="$SERVICES backend"
+          [[ "$CHANGED" == *"frontend"* ]] && SERVICES="$SERVICES frontend"
+          [[ "$CHANGED" == *"algorithm"* ]] && SERVICES="$SERVICES mineru processor-server processor-worker parsing chat"
+
+          echo "services=$SERVICES"
+          echo "services=$SERVICES" >> $GITHUB_OUTPUT
+
+
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -117,30 +141,6 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
 
-      - name: Detect changed services
-        id: changes
-        shell: bash
-        run: |
-          set -e
-
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            git fetch origin main --depth=2
-            CHANGED=$(git diff --name-only origin/main...HEAD)
-          else
-            CHANGED=""
-          fi
-
-          SERVICES=""
-
-          [[ "$CHANGED" == *"backend/auth-service"* ]] && SERVICES="$SERVICES auth-service"
-          [[ "$CHANGED" == *"backend/core"* ]] && SERVICES="$SERVICES backend"
-          [[ "$CHANGED" == *"frontend"* ]] && SERVICES="$SERVICES frontend"
-          [[ "$CHANGED" == *"algorithm"* ]] && SERVICES="$SERVICES mineru processor-server processor-worker parsing chat"
-
-          echo "services=$SERVICES"
-          echo "services=$SERVICES" >> $GITHUB_OUTPUT
-
-
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         if: |
@@ -154,7 +154,10 @@ jobs:
           (github.ref_type == 'tag')
           ||
           (github.event_name == 'push' && github.ref_type != 'tag' &&
-            contains(steps.changes.outputs.services, matrix.service)
+            (
+              steps.changes.outputs.services == '' ||
+              contains(steps.changes.outputs.services, matrix.service)
+            )
           )
         with:
           context: ${{ matrix.context }}
@@ -165,4 +168,4 @@ jobs:
           platforms: linux/amd64,linux/arm64 
           tags: |
             ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}
-            # ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest
