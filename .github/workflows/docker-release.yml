@@ -114,29 +114,6 @@ jobs:
           echo "services=$SERVICES" >> $GITHUB_OUTPUT
 
 
-      # - name: Evaluate service release rule
-      #   id: gate
-      #   shell: bash
-      #   run: |
-      #     set -euo pipefail
-
-      #     should_build='false'
-
-      #     if [[ "${{ github.event_name }}" == 'workflow_dispatch' ]]; then
-      #       if jq -e --arg svc "${{ matrix.service }}" 'index("all") != null or index($svc) != null' <<< '${{ inputs.service }}' > /dev/null; then
-      #         should_build='true'
-      #       fi
-      #     elif [[ "${{ github.ref_type }}" == 'tag' ]]; then
-      #       should_build='true'
-      #     elif [[ "${{ github.event_name }}" == 'push' && "${{ github.ref_type }}" != 'tag' ]]; then
-      #       if [[ " ${{ steps.changes.outputs.services }} " == *" ${{ matrix.service }} "* ]]; then
-      #         should_build='true'
-      #       fi
-      #     fi
-
-      #     echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
-
-
       - name: Resolve release tag
         id: tag
         shell: bash
