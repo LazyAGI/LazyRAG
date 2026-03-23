@@ -185,6 +185,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest-arm64
             
       - name: Create and push manifest
+        if: ${{ steps.tag.outputs.value != '' }}
         run: |          
           IMAGE="${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}"
           
