@@ -19,9 +19,9 @@ on:
         required: true
         type: string
       service:
-        description: Service to build (e.g. core,frontend or 'all')
+        description: JSON array of services to build (e.g. ["backend","frontend"] or ["all"])
         required: false
-        default: all
+        default: '["all"]'
         type: string
 
 concurrency:
@@ -143,17 +143,17 @@ jobs:
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         if: |
-          (github.event_name == 'workflow_dispatch' && 
-            (inputs.service == 'all' || contains(inputs.service, matrix.service))
+          (github.event_name == 'workflow_dispatch' &&
+            (
+              contains(fromJson(inputs.service), 'all') ||
+              contains(fromJson(inputs.service), matrix.service)
+            )
           )
           ||
           (github.ref_type == 'tag')
           ||
           (github.event_name == 'push' && github.ref_type != 'tag' &&
-            (
-              steps.changes.outputs.services == '' ||
-              contains(steps.changes.outputs.services, matrix.service)
-            )
+            contains(steps.changes.outputs.services, matrix.service)
           )
         with:
           context: ${{ matrix.context }}
