@@ -22,15 +22,13 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "PATCH", "/datasets/{dataset}", []string{"document.write"}, doc.UpdateDataset)
 	handleAPI(r, "POST", "/datasets/{dataset}:setDefault", []string{"document.write"}, doc.SetDefault)
 	handleAPI(r, "POST", "/datasets/{dataset}:unsetDefault", []string{"document.write"}, doc.UnsetDefault)
-	handleAPI(r, "GET", "/datasets:allDefaultDatasets", []string{"document.read"}, doc.AllDefaultDatasets)
-	handleAPI(r, "POST", "/datasets:presignUploadCoverImageUrl", []string{"document.write"}, doc.PresignUploadCoverImageURL)
-	handleAPI(r, "POST", "/datasets:search", []string{"document.read"}, doc.SearchDatasets)
-	// 数据集级回调（路径中无 task id）
-	handleAPI(r, "POST", "/datasets/{dataset}/tasks:callback", []string{"document.write"}, doc.CallbackTask)
 
 	// ----- DocumentService -----
 	handleAPI(r, "GET", "/datasets/{dataset}/documents", []string{"document.read"}, doc.ListDocuments)
 	handleAPI(r, "POST", "/datasets/{dataset}/documents", []string{"document.write"}, doc.CreateDocument)
+	// :content/:download 必须先于 {document} 注册，否则 /documents/xxx:content 会被 {document} 抢先匹配为详情接口。
+	handleAPI(r, "GET", "/datasets/{dataset}/documents/{document}:content", []string{"document.read"}, doc.GetDocumentContent)
+	handleAPI(r, "GET", "/datasets/{dataset}/documents/{document}:download", []string{"document.read"}, doc.DownloadDocument)
 	handleAPI(r, "GET", "/datasets/{dataset}/documents/{document}", []string{"document.read"}, doc.GetDocument)
 	handleAPI(r, "DELETE", "/datasets/{dataset}/documents/{document}", []string{"document.write"}, doc.DeleteDocument)
 	handleAPI(r, "PATCH", "/datasets/{dataset}/documents/{document}", []string{"document.write"}, doc.UpdateDocument)
@@ -72,13 +70,21 @@ func registerAllRoutes(r *mux.Router) {
 	// ----- 任务服务（直接暴露 Task，不经 Job） -----
 	handleAPI(r, "GET", "/datasets/{dataset}/tasks", []string{"document.read"}, doc.ListTasks)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks", []string{"document.write"}, doc.CreateTask)
+	handleAPI(r, "POST", "/datasets/{dataset}/tasks:search", []string{"document.read"}, doc.SearchTasks)
+	handleAPI(r, "POST", "/datasets/{dataset}/uploads", []string{"document.write"}, doc.UploadFile)
+	handleAPI(r, "GET", "/datasets/{dataset}/uploads/{upload_file_id}:content", []string{"document.read"}, doc.GetUploadedFileContent)
+	handleAPI(r, "GET", "/datasets/{dataset}/uploads/{upload_file_id}:download", []string{"document.read"}, doc.DownloadUploadedFile)
+	handleAPI(r, "POST", "/datasets/{dataset}/tasks:batchUpload", []string{"document.write"}, doc.BatchUploadTasks)
 	handleAPI(r, "GET", "/datasets/{dataset}/tasks/{task}", []string{"document.read"}, doc.GetTask)
 	handleAPI(r, "DELETE", "/datasets/{dataset}/tasks/{task}", []string{"document.write"}, doc.DeleteTask)
-	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:cancel", []string{"document.write"}, doc.CancelTask)
+	handleAPI(r, "POST", "/datasets/{dataset}/tasks:start", []string{"document.write"}, doc.StartTask)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:suspend", []string{"document.write"}, doc.SuspendTask)
-	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:resume", []string{"document.write"}, doc.ResumeTask)
-	// 任务级回调（路径中含 task id）
-	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:callback", []string{"document.write"}, doc.TaskCallback)
+	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:initUpload", []string{"document.write"}, doc.InitUpload)
+	handleAPI(r, "PUT", "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}/parts/{part_number}", []string{"document.write"}, doc.UploadPart)
+	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:complete", []string{"document.write"}, doc.CompleteUpload)
+	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:abort", []string{"document.write"}, doc.AbortUpload)
+	// 签名静态文件 URL：前端浏览器可直接访问，无需再经 :file 业务路由。
+	handleAPI(r, "GET", "/static-files/{path:.*}", nil, doc.GetSignedStaticFile)
 
 	// ----- RAG 文件服务（代理到解析服务） -----
 	handleAPI(r, "POST", "/upload_files", []string{"document.write"}, file.UploadFiles)
@@ -109,12 +115,13 @@ func registerAllRoutes(r *mux.Router) {
 
 	// ----- 提示词服务 -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)
+	// :setDefault/:unsetDefault 放在通用 {name} 路由前，保持 :action 路由一律优先的约定。
+	handleAPI(r, "POST", "/prompts/{name}:setDefault", []string{"document.write"}, chat.SetDefaultPrompt)
+	handleAPI(r, "POST", "/prompts/{name}:unsetDefault", []string{"document.write"}, chat.UnsetDefaultPrompt)
 	handleAPI(r, "PATCH", "/prompts/{name}", []string{"document.write"}, chat.UpdatePrompt)
 	handleAPI(r, "DELETE", "/prompts/{name}", []string{"document.write"}, chat.DeletePrompt)
 	handleAPI(r, "GET", "/prompts/{name}", []string{"document.read"}, chat.GetPrompt)
 	handleAPI(r, "GET", "/prompts", []string{"document.read"}, chat.ListPrompts)
-	handleAPI(r, "POST", "/prompts/{name}:setDefault", []string{"document.write"}, chat.SetDefaultPrompt)
-	handleAPI(r, "POST", "/prompts/{name}:unsetDefault", []string{"document.write"}, chat.UnsetDefaultPrompt)
 
 	// ----- 数据库服务（RAG 数据库） -----
 	handleAPI(r, "GET", "/rag/database/tags", []string{"document.read"}, db.GetUserDatabaseTags)
@@ -146,4 +153,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/kb/{kb_id}/acl/batch", []string{"document.write"}, acl.BatchAddACL)
 	handleAPI(r, "PUT", "/kb/{kb_id}/acl/{acl_id}", []string{"document.write"}, acl.UpdateACL)
 	handleAPI(r, "DELETE", "/kb/{kb_id}/acl/{acl_id}", []string{"document.write"}, acl.DeleteACL)
+	handleAPI(r, "GET", "/kb/{kb_id}/authorization", []string{"document.read"}, acl.GetKBAuthorization)
+	handleAPI(r, "POST", "/kb/{kb_id}/authorization", []string{"document.write"}, acl.SetKBAuthorization)
+	handleAPI(r, "GET", "/kb/grant-principals", []string{"document.read"}, acl.ListGrantPrincipals)
 }

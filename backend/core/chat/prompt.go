@@ -8,10 +8,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
 	corestore "lazyrag/core/store"
-
-	"github.com/gorilla/mux"
 )
 
 const (
@@ -20,10 +19,18 @@ const (
 )
 
 func promptNameFromPath(r *http.Request) string {
-	raw := mux.Vars(r)["name"]
+	raw := common.PathVar(r, "name")
 	raw = strings.TrimPrefix(raw, "prompts/")
 	raw = strings.TrimPrefix(raw, "/")
 	return raw
+}
+
+func conversationIDFromPath(r *http.Request) string {
+	return common.PathVar(r, "conversation_id")
+}
+
+func conversationNameFromPath(r *http.Request) string {
+	return common.PathVar(r, "name")
 }
 
 // writePromptJSON 直接输出 JSON（不包 code/message/data 壳），与 neutrino ragservice HTTP 网关保持一致。

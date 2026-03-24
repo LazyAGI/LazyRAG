@@ -1,0 +1,378 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Backend Core API",
+    "version": "0.1.0",
+    "description": "LazyRAG Go backend core API - proxies to algorithm services"
+  },
+  "servers": [{ "url": "/api/core", "description": "Kong gateway (strip_path 后 core 接收无此前缀)" }],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/hello": {
+      "get": {
+        "summary": "Hello (requires user.read)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/admin": {
+      "get": {
+        "summary": "Admin (requires document.write)",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/upload_files": {
+      "post": {
+        "summary": "Upload files to knowledge base",
+        "description": "Proxies to parsing service. Multipart form with files.",
+        "parameters": [
+          { "name": "override", "in": "query", "schema": { "type": "boolean", "default": false } },
+          { "name": "metadatas", "in": "query", "schema": { "type": "string" } },
+          { "name": "user_path", "in": "query", "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": { "type": "object", "properties": { "files": { "type": "array", "items": { "type": "string", "format": "binary" } } } }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Returns [ids, results]" } }
+      }
+    },
+    "/add_files_to_group": {
+      "post": {
+        "summary": "Upload files and add to knowledge base group",
+        "description": "Proxies to parsing service. Multipart form with files.",
+        "parameters": [
+          { "name": "group_name", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "override", "in": "query", "schema": { "type": "boolean", "default": false } }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": { "type": "object", "properties": { "files": { "type": "array", "items": { "type": "string", "format": "binary" } } } }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Returns file ids" } }
+      }
+    },
+    "/list_files": {
+      "get": {
+        "summary": "List files in knowledge base",
+        "description": "Proxies to parsing service.",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "details", "in": "query", "schema": { "type": "boolean", "default": true } },
+          { "name": "alive", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": { "200": { "description": "Returns file list with status" } }
+      }
+    },
+    "/list_files_in_group": {
+      "get": {
+        "summary": "List files in a knowledge base group",
+        "parameters": [
+          { "name": "group_name", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "alive", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": { "200": { "description": "Returns file list" } }
+      }
+    },
+    "/list_kb_groups": {
+      "get": {
+        "summary": "List knowledge base groups",
+        "responses": { "200": { "description": "Returns group names" } }
+      }
+    },
+    "/chat": {
+      "post": {
+        "summary": "Chat with knowledge base",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": { "type": "string" },
+                  "history": { "type": "array" },
+                  "session_id": { "type": "string" },
+                  "filters": { "type": "object" },
+                  "files": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Chat response" } }
+      }
+    },
+    "/chat/stream": {
+      "post": {
+        "summary": "Chat with knowledge base (streaming)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": { "type": "string" },
+                  "history": { "type": "array" },
+                  "session_id": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Streaming response" } }
+      }
+    },
+    "/conversations:chat": {
+      "post": {
+        "summary": "会话对话 (requires qa.read)",
+        "description": "发起或继续会话对话",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Chat response" } }
+      }
+    },
+    "/conversations:resumeChat": {
+      "post": {
+        "summary": "恢复对话流 (requires qa.read)",
+        "description": "恢复正在进行的对话流式输出",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["conversation_id"],
+                "properties": {
+                  "conversation_id": { "type": "string", "description": "会话 ID" },
+                  "history_id": { "type": "string", "description": "可选，指定恢复的历史消息 ID" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Resume stream response" } }
+      }
+    },
+    "/conversations:stopChatGeneration": {
+      "post": {
+        "summary": "停止对话生成 (requires qa.read)",
+        "description": "停止当前会话的流式生成",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["conversation_id"],
+                "properties": {
+                  "conversation_id": { "type": "string", "description": "会话 ID" },
+                  "history_id": { "type": "string", "description": "可选，指定要停止的历史消息 ID" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/conversations/{conversation_id}:status": {
+      "get": {
+        "summary": "获取对话状态 (requires qa.read)",
+        "parameters": [{ "name": "conversation_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Chat status" } }
+      }
+    },
+    "/conversations/{name}": {
+      "get": {
+        "summary": "获取会话 (requires qa.read)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Conversation" } }
+      },
+      "delete": {
+        "summary": "删除会话 (requires qa.read)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/conversations/{name}:detail": {
+      "get": {
+        "summary": "获取会话详情 (requires qa.read)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Conversation detail" } }
+      }
+    },
+    "/conversations": {
+      "get": {
+        "summary": "会话列表 (requires qa.read)",
+        "parameters": [
+          { "name": "page_size", "in": "query", "schema": { "type": "integer" } },
+          { "name": "page_token", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "List of conversations" } }
+      }
+    },
+    "/conversations:setChatHistory": {
+      "post": {
+        "summary": "设置会话历史 (requires qa.read)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["set_history_id", "deleted_history_id"],
+                "properties": {
+                  "set_history_id": { "type": "string", "description": "保留的历史记录 ID" },
+                  "deleted_history_id": { "type": "string", "description": "要删除的历史记录 ID" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/conversations:feedBackChatHistory": {
+      "post": {
+        "summary": "反馈会话历史 (requires qa.read)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["history_id", "type"],
+                "properties": {
+                  "history_id": { "type": "string", "description": "历史记录 ID" },
+                  "type": { "type": "integer", "format": "int32", "description": "反馈类型" },
+                  "reason": { "type": "string", "description": "反馈原因" },
+                  "expected_answer": { "type": "string", "description": "期望答案" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/conversation:switchStatus": {
+      "get": {
+        "summary": "获取多答案开关状态 (requires qa.read)",
+        "responses": { "200": { "description": "Switch status" } }
+      },
+      "post": {
+        "summary": "设置多答案开关状态 (requires qa.read)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/prompts": {
+      "get": {
+        "summary": "提示词列表 (requires document.read)",
+        "responses": { "200": { "description": "List of prompts" } }
+      },
+      "post": {
+        "summary": "创建提示词 (requires document.write)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Created prompt" } }
+      }
+    },
+    "/prompts/{name}": {
+      "get": {
+        "summary": "获取提示词 (requires document.read)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Prompt" } }
+      },
+      "patch": {
+        "summary": "更新提示词 (requires document.write)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "summary": "删除提示词 (requires document.write)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/prompts/{name}:setDefault": {
+      "post": {
+        "summary": "设为默认提示词 (requires document.write)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/prompts/{name}:unsetDefault": {
+      "post": {
+        "summary": "取消默认提示词 (requires document.write)",
+        "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/kb/list": {
+      "get": {
+        "summary": "知识库列表 (requires document.read)",
+        "responses": { "200": { "description": "List of KB" } }
+      }
+    },
+    "/kb/{kb_id}/permission": {
+      "get": {
+        "summary": "知识库权限 (requires document.read)",
+        "parameters": [{ "name": "kb_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Permission" } }
+      }
+    },
+    "/kb/{kb_id}/acl": {
+      "get": {
+        "summary": "ACL 列表 (requires document.read)",
+        "parameters": [{ "name": "kb_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "ACL list" } }
+      },
+      "post": {
+        "summary": "添加 ACL (requires document.write)",
+        "parameters": [{ "name": "kb_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/datasets": {
+      "get": {
+        "summary": "数据集列表 (requires document.read)",
+        "responses": { "200": { "description": "List of datasets" } }
+      },
+      "post": {
+        "summary": "创建数据集 (requires document.write)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Created dataset" } }
+      }
+    },
+    "/datasets/{dataset}": {
+      "get": {
+        "summary": "获取数据集 (requires document.read)",
+        "parameters": [{ "name": "dataset", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Dataset" } }
+      },
+      "delete": {
+        "summary": "删除数据集 (requires document.write)",
+        "parameters": [{ "name": "dataset", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "patch": {
+        "summary": "更新数据集 (requires document.write)",
+        "parameters": [{ "name": "dataset", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

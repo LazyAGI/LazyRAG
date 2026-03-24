@@ -9,18 +9,32 @@ import (
 )
 
 var (
-	db  *gorm.DB
-	rdb *redis.Client
+	db        *gorm.DB
+	lazyllmDB *gorm.DB
+	rdb       *redis.Client
 )
 
 // Init 初始化全局 DB 与 Redis，由 main 在启动时调用
-func Init(database *gorm.DB, redisClient *redis.Client) {
+func Init(database, lazyllmDatabase *gorm.DB, redisClient *redis.Client) {
 	db = database
+	if lazyllmDatabase != nil {
+		lazyllmDB = lazyllmDatabase
+	} else {
+		lazyllmDB = database
+	}
 	rdb = redisClient
 }
 
 // DB 返回全局 *gorm.DB
 func DB() *gorm.DB { return db }
+
+// LazyLLMDB 返回 lazyllm 只读库连接；未单独配置时回退到主库。
+func LazyLLMDB() *gorm.DB {
+	if lazyllmDB != nil {
+		return lazyllmDB
+	}
+	return db
+}
 
 // Redis 返回全局 *redis.Client，可能为 nil（未配置时）
 func Redis() *redis.Client { return rdb }

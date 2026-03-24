@@ -104,6 +104,16 @@ func _swagCreateDocument() {}
 // @Router    /datasets/{dataset}/documents/{document} [get]
 func _swagGetDocument() {}
 
+// @Summary  预览文档内容
+// @Tags      documents
+// @Router    /datasets/{dataset}/documents/{document}:content [get]
+func _swagGetDocumentContent() {}
+
+// @Summary  下载文档
+// @Tags      documents
+// @Router    /datasets/{dataset}/documents/{document}:download [get]
+func _swagDownloadDocument() {}
+
 // @Summary  删除文档
 // @Tags      documents
 // @Router    /datasets/{dataset}/documents/{document} [delete]
@@ -268,6 +278,26 @@ func _swagListTasks() {}
 // @Router    /datasets/{dataset}/tasks [post]
 func _swagCreateTask() {}
 
+// @Summary  上传文件
+// @Tags      tasks
+// @Router    /datasets/{dataset}/uploads [post]
+func _swagUploadDatasetFiles() {}
+
+// @Summary  预览已上传文件
+// @Tags      tasks
+// @Router    /datasets/{dataset}/uploads/{upload_file_id}:content [get]
+func _swagGetUploadedFileContent() {}
+
+// @Summary  下载已上传文件
+// @Tags      tasks
+// @Router    /datasets/{dataset}/uploads/{upload_file_id}:download [get]
+func _swagDownloadUploadedFile() {}
+
+// @Summary  批量上传文件并创建任务
+// @Tags      tasks
+// @Router    /datasets/{dataset}/tasks:batchUpload [post]
+func _swagBatchUploadTasks() {}
+
 // @Summary  获取任务
 // @Tags      tasks
 // @Router    /datasets/{dataset}/tasks/{task} [get]
@@ -278,20 +308,10 @@ func _swagGetTask() {}
 // @Router    /datasets/{dataset}/tasks/{task} [delete]
 func _swagDeleteTask() {}
 
-// @Summary  取消任务
-// @Tags      tasks
-// @Router    /datasets/{dataset}/tasks/{task}:cancel [post]
-func _swagCancelTask() {}
-
 // @Summary  暂停任务
 // @Tags      tasks
 // @Router    /datasets/{dataset}/tasks/{task}:suspend [post]
 func _swagSuspendTask() {}
-
-// @Summary  恢复任务
-// @Tags      tasks
-// @Router    /datasets/{dataset}/tasks/{task}:resume [post]
-func _swagResumeTask() {}
 
 // @Summary  任务回调
 // @Tags      tasks

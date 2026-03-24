@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"lazyrag/core/acl"
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
+	"lazyrag/core/log"
 	corestore "lazyrag/core/store"
-
-	"github.com/gorilla/mux"
 )
 
 // DatasetService 占位实现，后续补全。
@@ -57,7 +57,6 @@ type Dataset struct {
 	Type           string         `json:"type"`
 	Tags           []string       `json:"tags"`
 	DefaultDataset bool           `json:"default_dataset"`
-	Industry       string         `json:"industry"`
 }
 
 type ListAlgosResponse struct {
@@ -161,11 +160,59 @@ func shareTypeToPB(_ uint8) string { return "SHARE_TYPE_UNSPECIFIED" }
 func stateToPB(_ uint8) string     { return "STATE_UNSPECIFIED" }
 
 func datasetIDFromPath(r *http.Request) string {
-	raw := mux.Vars(r)["dataset"]
-	raw = strings.TrimSpace(raw)
+	raw := common.PathVar(r, "dataset")
 	raw = strings.TrimPrefix(raw, "datasets/")
 	raw = strings.TrimPrefix(raw, "/")
 	return raw
+}
+
+func documentIDFromPath(r *http.Request) string {
+	return common.PathVar(r, "document")
+}
+
+func taskIDFromPath(r *http.Request) string {
+	return common.PathVar(r, "task")
+}
+
+func uploadIDFromPath(r *http.Request) string {
+	return common.PathVar(r, "upload_id")
+}
+
+func uploadFileIDFromPath(r *http.Request) string {
+	return common.PathVar(r, "upload_file_id")
+}
+
+func datasetMemberNameFromPath(r *http.Request) string {
+	return common.PathVar(r, "member")
+}
+
+func datasetACLForUser(ds *orm.Dataset, userID string) []string {
+	if ds == nil {
+		return nil
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" || strings.TrimSpace(ds.ID) == "" {
+		return nil
+	}
+	if strings.TrimSpace(ds.CreateUserID) == userID {
+		return []string{acl.PermissionDatasetRead, acl.PermissionDatasetWrite, acl.PermissionDatasetUpload}
+	}
+	permissions, _ := acl.PermissionsFor(acl.ResourceTypeDB, ds.ID, userID)
+	return permissions
+}
+
+func canAccessDataset(ds *orm.Dataset, userID string, action string) bool {
+	if ds == nil {
+		return false
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" || strings.TrimSpace(ds.ID) == "" {
+		return false
+	}
+	if strings.TrimSpace(ds.CreateUserID) == userID {
+		return true
+	}
+	return acl.Can(userID, acl.ResourceTypeDB, ds.ID, action)
 }
 
 func ListAlgos(w http.ResponseWriter, r *http.Request) {
@@ -173,12 +220,26 @@ func ListAlgos(w http.ResponseWriter, r *http.Request) {
 	const listAlgosPath = "/v1/algo/list"
 	algoURL := common.JoinURL(common.AlgoServiceEndpoint(), listAlgosPath)
 
+	timeout := 5 * time.Second
+	start := time.Now()
 	var ar algoListResp
-	if err := common.ApiGet(r.Context(), algoURL, nil, &ar, 5*time.Second); err != nil {
+	if err := common.ApiGet(r.Context(), algoURL, nil, &ar, timeout); err != nil {
+		log.Logger.Error().
+			Err(err).
+			Str("algo_url", algoURL).
+			Dur("timeout", timeout).
+			Dur("elapsed", time.Since(start)).
+			Msg("algo service request failed")
 		common.ReplyErr(w, "algo service unavailable", http.StatusBadGateway)
 		return
 	}
 	if ar.Code != 200 {
+		log.Logger.Warn().
+			Int("algo_service_code", ar.Code).
+			Str("algo_service_msg", strings.TrimSpace(ar.Msg)).
+			Str("algo_url", algoURL).
+			Dur("elapsed", time.Since(start)).
+			Msg("algo service returned error code")
 		common.ReplyErr(w, "algo service error: "+strings.TrimSpace(ar.Msg), http.StatusBadGateway)
 		return
 	}
@@ -206,7 +267,8 @@ func AllDatasetTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	seen := map[string]struct{}{}
-	var tags []string
+	// Keep JSON stable: return [] instead of null when empty.
+	tags := make([]string, 0)
 	for _, ds := range datasets {
 		for _, t := range parseDatasetTags(ds.Ext) {
 			if _, ok := seen[t]; ok {
@@ -268,11 +330,12 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := corestore.DB().Model(&orm.Dataset{}).
-		Where("create_user_id = ? AND deleted_at IS NULL", userID)
+		Where("deleted_at IS NULL")
 
 	if keyword != "" {
 		like := "%" + strings.ReplaceAll(keyword, "%", "\\%") + "%"
-		db = db.Where("(display_name LIKE ? OR `desc` LIKE ?)", like, like)
+		// NOTE: desc is a reserved keyword; use ANSI quoting for Postgres compatibility.
+		db = db.Where(`(display_name LIKE ? OR "desc" LIKE ?)`, like, like)
 	}
 
 	// order_by: "create_time desc" / "update_time desc" / "display_name asc"
@@ -295,7 +358,8 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 
 	var rows []orm.Dataset
 	if err := db.
-		Select("id, display_name, `desc`, cover_image, created_at, updated_at, ext, type, share_type, dataset_state").
+		// NOTE: desc is reserved; use ANSI quoting for Postgres compatibility.
+		Select(`id, kb_id, create_user_id, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
 		Limit(fetchLimit).
 		Offset(0).
 		Find(&rows).Error; err != nil {
@@ -303,10 +367,17 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filtered := rows
+	visible := rows[:0]
+	for _, ds := range rows {
+		if len(datasetACLForUser(&ds, userID)) > 0 {
+			visible = append(visible, ds)
+		}
+	}
+
+	filtered := visible
 	if len(wantTags) > 0 {
 		filtered = filtered[:0]
-		for _, ds := range rows {
+		for _, ds := range visible {
 			tags := parseDatasetTags(ds.Ext)
 			if containsAll(tags, wantTags) {
 				filtered = append(filtered, ds)
@@ -326,6 +397,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]Dataset, 0, len(page))
 	for _, ds := range page {
+		datasetACL := datasetACLForUser(&ds, userID)
 		out = append(out, Dataset{
 			Name:           "datasets/" + ds.ID,
 			DatasetID:      ds.ID,
@@ -343,12 +415,11 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			Creator:        "", // 未在查询字段中包含 create_user_name
 			CreateTime:     ds.CreatedAt,
 			UpdateTime:     ds.UpdatedAt,
-			Acl:            nil,
+			Acl:            datasetACL,
 			ShareType:      shareTypeToPB(ds.ShareType),
 			Type:           datasetTypeToPB(ds.Type),
 			Tags:           parseDatasetTags(ds.Ext),
 			DefaultDataset: false,
-			Industry:       "",
 		})
 	}
 
@@ -429,9 +500,9 @@ func isDefaultDatasetForUser(ctx context.Context, userID, datasetID string) bool
 
 type kbCreateRequest struct {
 	KbID           string                 `json:"kb_id"`
-	DisplayName    *string                `json:"display_name,omitempty"`
+	DisplayName    string                 `json:"display_name"`
 	Description    *string                `json:"description,omitempty"`
-	OwnerID        *string                `json:"owner_id,omitempty"`
+	OwnerID        string                 `json:"owner_id"`
 	Meta           map[string]any         `json:"meta,omitempty"`
 	AlgoID         string                 `json:"algo_id,omitempty"`
 	IdempotencyKey *string                `json:"idempotency_key,omitempty"`
@@ -465,11 +536,6 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(body.Type) == "" {
-		common.ReplyErr(w, "type required", http.StatusBadRequest)
-		return
-	}
-
 	displayName := strings.TrimSpace(body.DisplayName)
 	desc := strings.TrimSpace(body.Desc)
 	cover := strings.TrimSpace(body.CoverImage)
@@ -484,28 +550,63 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	// 1) 调外部 POST /v1/kbs 创建 KB
 	const createKBPath = "/v1/kbs"
-	kbURL := common.JoinURL(common.KbServiceEndpoint(), createKBPath)
+	kbURL := common.JoinURL(common.AlgoServiceEndpoint(), createKBPath)
 
 	req := kbCreateRequest{
 		KbID:        datasetID,
+		DisplayName: displayName,
+		OwnerID:     userID,
 		AlgoID:      algoID,
 		Meta:        map[string]any{"tags": body.Tags},
-	}
-	// optional pointers (omit empty)
-	if displayName != "" {
-		req.DisplayName = &displayName
 	}
 	if desc != "" {
 		req.Description = &desc
 	}
-	if userID != "" {
-		req.OwnerID = &userID
-	}
 
-	if err := common.ApiPost(r.Context(), kbURL, req, nil, nil, 10*time.Second); err != nil {
+	kbTimeout := 10 * time.Second
+	kbStart := time.Now()
+	// Accept flexible response shapes; we only need kb_id if provided.
+	var kbResp map[string]any
+	if err := common.ApiPost(r.Context(), kbURL, req, nil, &kbResp, kbTimeout); err != nil {
+		log.Logger.Error().
+			Err(err).
+			Str("kb_url", kbURL).
+			Str("kb_id", datasetID).
+			Str("dataset_id", datasetID).
+			Str("user_id", userID).
+			Str("algo_id", algoID).
+			Dur("timeout", kbTimeout).
+			Dur("elapsed", time.Since(kbStart)).
+			Msg("kb service create failed")
 		common.ReplyErr(w, "kb service create failed", http.StatusBadGateway)
 		return
 	}
+
+	// Prefer kb_id returned by external service; fall back to datasetID.
+	kbID := datasetID
+	if v, ok := kbResp["kb_id"]; ok {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			kbID = strings.TrimSpace(s)
+		}
+	}
+	// Some services wrap data as { data: { kb_id: ... } }.
+	if v, ok := kbResp["data"]; ok && kbID == datasetID {
+		if m, ok := v.(map[string]any); ok {
+			if vv, ok := m["kb_id"]; ok {
+				if s, ok := vv.(string); ok && strings.TrimSpace(s) != "" {
+					kbID = strings.TrimSpace(s)
+				}
+			}
+		}
+	}
+	log.Logger.Info().
+		Str("kb_url", kbURL).
+		Str("kb_id", kbID).
+		Str("dataset_id", datasetID).
+		Str("user_id", userID).
+		Str("algo_id", algoID).
+		Dur("elapsed", time.Since(kbStart)).
+		Msg("kb service create ok")
 
 	// 2) 本地落库 datasets（新增字段 kb_id）
 	now := time.Now().UTC()
@@ -517,7 +618,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	ds := orm.Dataset{
 		ID:    datasetID,
-		KbID:  datasetID,
+		KbID:  kbID,
 		DisplayName: displayName,
 		Desc:        desc,
 		CoverImage:  cover,
@@ -533,7 +634,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		ShareType: 0,
 		TenantID:  "",
 		IsDemonstrate: false,
-		Type: datasetTypeFromPB(body.Type),
+		Type: uint8(1),
 		Ext:  extBytes,
 		BaseModel: orm.BaseModel{
 			CreateUserID:   userID,
@@ -546,6 +647,9 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	if err := corestore.DB().WithContext(context.Background()).Create(&ds).Error; err != nil {
 		common.ReplyErr(w, "create dataset failed", http.StatusInternalServerError)
 		return
+	}
+	if st := acl.GetStore(); st != nil {
+		st.EnsureKB(kbID, displayName, userID)
 	}
 
 	common.ReplyJSON(w, Dataset{
@@ -565,12 +669,11 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Creator:        userName,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
-		Acl:            nil,
+		Acl:            []string{acl.PermissionDatasetRead, acl.PermissionDatasetWrite, acl.PermissionDatasetUpload},
 		ShareType:      "SHARE_TYPE_UNSPECIFIED",
-		Type:           body.Type,
+		Type:           datasetTypeToPB(ds.Type),
 		Tags:           body.Tags,
 		DefaultDataset: false,
-		Industry:       body.Industry,
 	})
 }
 func GetDataset(w http.ResponseWriter, r *http.Request) {
@@ -587,9 +690,16 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 
 	var ds orm.Dataset
 	if err := corestore.DB().
-		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", datasetID, userID).
+		Where("id = ? AND deleted_at IS NULL", datasetID).
 		First(&ds).Error; err != nil {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
+		return
+	}
+	datasetACL := datasetACLForUser(&ds, userID)
+	if len(datasetACL) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(common.ForbiddenBody))
 		return
 	}
 
@@ -610,12 +720,11 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		Creator:        ds.CreateUserName,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
-		Acl:            nil,
+		Acl:            datasetACL,
 		ShareType:      shareTypeToPB(ds.ShareType),
 		Type:           datasetTypeToPB(ds.Type),
 		Tags:           parseDatasetTags(ds.Ext),
 		DefaultDataset: isDefaultDatasetForUser(r.Context(), userID, ds.ID),
-		Industry:       "",
 	})
 }
 func DeleteDataset(w http.ResponseWriter, r *http.Request) {
@@ -632,9 +741,15 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 
 	var ds orm.Dataset
 	if err := corestore.DB().
-		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", datasetID, userID).
+		Where("id = ? AND deleted_at IS NULL", datasetID).
 		First(&ds).Error; err != nil {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
+		return
+	}
+	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(common.ForbiddenBody))
 		return
 	}
 
@@ -643,8 +758,28 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(kbID) == "" {
 		kbID = ds.ID
 	}
-	kbURL := common.JoinURL(common.KbServiceEndpoint(), "/v1/kbs/"+kbID)
-	_ = common.ApiDelete(r.Context(), kbURL, nil, nil, 10*time.Second)
+	kbURL := common.JoinURL(common.AlgoServiceEndpoint(), "/v1/kbs/"+kbID)
+	kbTimeout := 10 * time.Second
+	kbStart := time.Now()
+	if err := common.ApiDelete(r.Context(), kbURL, nil, nil, kbTimeout); err != nil {
+		log.Logger.Warn().
+			Err(err).
+			Str("kb_url", kbURL).
+			Str("kb_id", kbID).
+			Str("dataset_id", datasetID).
+			Str("user_id", userID).
+			Dur("timeout", kbTimeout).
+			Dur("elapsed", time.Since(kbStart)).
+			Msg("kb service delete failed (ignored)")
+	} else {
+		log.Logger.Info().
+			Str("kb_url", kbURL).
+			Str("kb_id", kbID).
+			Str("dataset_id", datasetID).
+			Str("user_id", userID).
+			Dur("elapsed", time.Since(kbStart)).
+			Msg("kb service delete ok")
+	}
 
 	// 2) 本地软删 datasets
 	now := time.Now().UTC()
@@ -683,9 +818,15 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 
 	var ds orm.Dataset
 	if err := corestore.DB().
-		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", datasetID, userID).
+		Where("id = ? AND deleted_at IS NULL", datasetID).
 		First(&ds).Error; err != nil {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
+		return
+	}
+	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(common.ForbiddenBody))
 		return
 	}
 
@@ -723,7 +864,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(kbID) == "" {
 		kbID = ds.ID
 	}
-	kbURL := common.JoinURL(common.KbServiceEndpoint(), "/v1/kbs/"+kbID+"/update")
+	kbURL := common.JoinURL(common.AlgoServiceEndpoint(), "/v1/kbs/"+kbID+"/update")
 	extMeta := map[string]any{"tags": body.Tags}
 	req := kbUpdateRequest{
 		DisplayName: &newDisplay,
@@ -734,10 +875,30 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	if algoID != "" {
 		req.AlgoID = &algoID
 	}
-	if err := common.ApiPost(r.Context(), kbURL, req, nil, nil, 10*time.Second); err != nil {
+	kbTimeout := 10 * time.Second
+	kbStart := time.Now()
+	if err := common.ApiPost(r.Context(), kbURL, req, nil, nil, kbTimeout); err != nil {
+		log.Logger.Error().
+			Err(err).
+			Str("kb_url", kbURL).
+			Str("kb_id", kbID).
+			Str("dataset_id", datasetID).
+			Str("user_id", userID).
+			Str("algo_id", algoID).
+			Dur("timeout", kbTimeout).
+			Dur("elapsed", time.Since(kbStart)).
+			Msg("kb service update failed")
 		common.ReplyErr(w, "kb service update failed", http.StatusBadGateway)
 		return
 	}
+	log.Logger.Info().
+		Str("kb_url", kbURL).
+		Str("kb_id", kbID).
+		Str("dataset_id", datasetID).
+		Str("user_id", userID).
+		Str("algo_id", algoID).
+		Dur("elapsed", time.Since(kbStart)).
+		Msg("kb service update ok")
 
 	now := time.Now().UTC()
 	ds.DisplayName = newDisplay
@@ -752,6 +913,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	datasetACL := datasetACLForUser(&ds, userID)
 	common.ReplyJSON(w, Dataset{
 		Name:           "datasets/" + ds.ID,
 		DatasetID:      ds.ID,
@@ -769,12 +931,11 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		Creator:        ds.CreateUserName,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
-		Acl:            nil,
+		Acl:            datasetACL,
 		ShareType:      shareTypeToPB(ds.ShareType),
 		Type:           datasetTypeToPB(ds.Type),
 		Tags:           parseDatasetTags(ds.Ext),
 		DefaultDataset: isDefaultDatasetForUser(r.Context(), userID, ds.ID),
-		Industry:       "",
 	})
 }
 func SetDefault(w http.ResponseWriter, r *http.Request) {
@@ -799,12 +960,18 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 保证 dataset 存在且属于该用户
+	// 保证 dataset 存在且当前用户有写权限
 	var ds orm.Dataset
 	if err := corestore.DB().
-		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", datasetID, userID).
+		Where("id = ? AND deleted_at IS NULL", datasetID).
 		First(&ds).Error; err != nil {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
+		return
+	}
+	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(common.ForbiddenBody))
 		return
 	}
 
@@ -851,6 +1018,20 @@ func UnsetDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var ds orm.Dataset
+	if err := corestore.DB().
+		Where("id = ? AND deleted_at IS NULL", datasetID).
+		First(&ds).Error; err != nil {
+		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
+		return
+	}
+	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(common.ForbiddenBody))
+		return
+	}
+
 	if err := corestore.DB().
 		Where("create_user_id = ? AND dataset_id = ?", userID, datasetID).
 		Delete(&orm.DefaultDataset{}).Error; err != nil {
@@ -859,13 +1040,3 @@ func UnsetDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 }
-func AllDefaultDatasets(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-func PresignUploadCoverImageURL(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-func SearchDatasets(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-func CallbackTask(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) /* TODO */ }

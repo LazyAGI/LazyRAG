@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	apidocs "lazyrag/core/docs"
 )
 
 const (
@@ -14,34 +15,43 @@ const (
 	apiPrefix          = "/api/core"
 )
 
-// buildOpenAPISpecFromRouter 遍历已注册的路由，生成 OpenAPI 3.0 spec（启动时自动收集，无需手维护 doc_swag.go）
+// buildOpenAPISpecFromRouter 基于静态 swagger 描述与运行时路由共同生成 OpenAPI 3.0 spec。
+// 这样既能保留手工补充的参数/请求体定义，也能保证 /docs、/openapi.json、/openapi.yaml
+// 总是覆盖到当前实际注册的路由。
 func buildOpenAPISpecFromRouter(r *mux.Router) ([]byte, error) {
-	// path -> method -> operation
-	type op struct {
-		Summary string `json:"summary"`
-	}
-	pathOps := map[string]map[string]op{}
+	spec := loadBaseOpenAPISpec()
+	mergeOpenAPISpec(spec, prefixOpenAPIPaths(manualOpenAPISpec()))
+	paths := getOrCreateObject(spec, "paths")
 
 	err := r.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		path, err := route.GetPathTemplate()
 		if err != nil || path == "" {
 			return nil
 		}
-		// 文档自身端点不入 spec
 		if strings.HasPrefix(path, "/openapi") || path == "/docs" {
 			return nil
 		}
+
 		methods, err := route.GetMethods()
 		if err != nil {
 			return nil
 		}
-		if pathOps[path] == nil {
-			pathOps[path] = make(map[string]op)
-		}
-		for _, m := range methods {
-			// OpenAPI 3.0 要求方法名小写（get/post/...），否则 Swagger UI 不会识别为 operation
-			lower := strings.ToLower(m)
-			pathOps[path][lower] = op{Summary: m + " " + path}
+
+		fullPath := apiPrefix + path
+		pathItem := getOrCreateObject(paths, fullPath)
+		pathParams := extractPathParameters(path)
+		for _, method := range methods {
+			lowerMethod := strings.ToLower(method)
+			op := getOrCreateObject(pathItem, lowerMethod)
+			if _, ok := op["summary"]; !ok {
+				op["summary"] = method + " " + path
+			}
+			if _, ok := op["responses"]; !ok {
+				op["responses"] = map[string]any{"200": map[string]any{"description": "OK"}}
+			}
+			if len(pathParams) > 0 {
+				op["parameters"] = mergeParameters(toParameterList(op["parameters"]), pathParams)
+			}
 		}
 		return nil
 	})
@@ -49,33 +59,152 @@ func buildOpenAPISpecFromRouter(r *mux.Router) ([]byte, error) {
 		return nil, err
 	}
 
-	paths := make(map[string]interface{})
-	for path, methods := range pathOps {
-		// 对外暴露的 URL 统一带上 /api/core 前缀，方便在 Swagger 中直接看到完整路径
-		fullPath := apiPrefix + path
-		pathItem := make(map[string]interface{})
-		for method, op := range methods {
-			pathItem[method] = map[string]interface{}{
-				"summary":   op.Summary,
-				"responses": map[string]interface{}{"200": map[string]string{"description": "OK"}},
-			}
-		}
-		paths[fullPath] = pathItem
+	spec["openapi"] = "3.0.3"
+	spec["info"] = map[string]any{
+		"title":       openAPITitle,
+		"version":     openAPIVersion,
+		"description": openAPIDescription,
 	}
+	spec["servers"] = []map[string]any{{
+		"url":         "/",
+		"description": "same origin; see paths with /api/core prefix",
+	}}
+	spec["paths"] = paths
 
-	spec := map[string]interface{}{
-		"openapi": "3.0.3",
-		"info": map[string]interface{}{
-			"title":       openAPITitle,
-			"version":     openAPIVersion,
-			"description": openAPIDescription,
-		},
-		// server 使用根路径（与浏览器当前 host 保持一致），真正的前缀体现在 paths 的 key 里
-		"servers": []map[string]interface{}{
-			{"url": "/", "description": "same origin; see paths with /api/core prefix"},
-		},
-		"paths": paths,
-	}
 	return json.MarshalIndent(spec, "", "  ")
 }
 
+func loadBaseOpenAPISpec() map[string]any {
+	raw := strings.TrimSpace(apidocs.SwaggerDoc())
+	if raw == "" {
+		return map[string]any{}
+	}
+
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		return map[string]any{}
+	}
+
+	if basePaths, ok := spec["paths"].(map[string]any); ok {
+		prefixedPaths := make(map[string]any, len(basePaths))
+		for path, item := range basePaths {
+			if strings.HasPrefix(path, apiPrefix) {
+				prefixedPaths[path] = item
+				continue
+			}
+			prefixedPaths[apiPrefix+path] = item
+		}
+		spec["paths"] = prefixedPaths
+	}
+
+	return spec
+}
+
+func getOrCreateObject(parent map[string]any, key string) map[string]any {
+	if existing, ok := parent[key].(map[string]any); ok {
+		return existing
+	}
+	created := map[string]any{}
+	parent[key] = created
+	return created
+}
+
+func extractPathParameters(path string) []map[string]any {
+	segments := strings.Split(path, "/")
+	params := make([]map[string]any, 0)
+	seen := make(map[string]struct{})
+	for _, segment := range segments {
+		start := strings.Index(segment, "{")
+		end := strings.Index(segment, "}")
+		if start < 0 || end <= start+1 {
+			continue
+		}
+		name := strings.TrimSpace(segment[start+1 : end])
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		params = append(params, map[string]any{
+			"name":     name,
+			"in":       "path",
+			"required": true,
+			"schema": map[string]any{
+				"type": "string",
+			},
+		})
+	}
+	return params
+}
+
+func toParameterList(v any) []map[string]any {
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if m, ok := item.(map[string]any); ok {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+func mergeParameters(existing, generated []map[string]any) []map[string]any {
+	if len(generated) == 0 {
+		return existing
+	}
+	merged := make([]map[string]any, 0, len(existing)+len(generated))
+	merged = append(merged, existing...)
+	seen := make(map[string]struct{}, len(existing))
+	for _, item := range existing {
+		name, _ := item["name"].(string)
+		inVal, _ := item["in"].(string)
+		seen[inVal+":"+name] = struct{}{}
+	}
+	for _, item := range generated {
+		name, _ := item["name"].(string)
+		inVal, _ := item["in"].(string)
+		key := inVal + ":" + name
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, item)
+	}
+	return merged
+}
+
+func mergeOpenAPISpec(dst, src map[string]any) {
+	for key, srcVal := range src {
+		if dstVal, ok := dst[key]; ok {
+			dstMap, dstIsMap := dstVal.(map[string]any)
+			srcMap, srcIsMap := srcVal.(map[string]any)
+			if dstIsMap && srcIsMap {
+				mergeOpenAPISpec(dstMap, srcMap)
+				continue
+			}
+		}
+		dst[key] = srcVal
+	}
+}
+
+func prefixOpenAPIPaths(spec map[string]any) map[string]any {
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok || len(paths) == 0 {
+		return spec
+	}
+	prefixed := make(map[string]any, len(paths))
+	for path, item := range paths {
+		if strings.HasPrefix(path, apiPrefix) {
+			prefixed[path] = item
+			continue
+		}
+		prefixed[apiPrefix+path] = item
+	}
+	spec["paths"] = prefixed
+	return spec
+}

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM registry.cn-sh-01.sensecore.cn/ai-expert-service/python:3.10
 
 WORKDIR /app
 

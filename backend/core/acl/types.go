@@ -12,14 +12,29 @@ const (
 // ACL 授权对象类型。
 const (
 	GranteeUser   = "user"
-	GranteeTenant = "tenant"
+	GranteeGroup  = "group"
+	GranteeTenant = "tenant" // 兼容旧值，等同 group
 )
 
-// 权限级别。
+// 通用权限动作（兼容旧逻辑与通用鉴权调用）。
 const (
-	PermNone  = "none"
-	PermRead  = "read"
-	PermWrite = "write"
+	PermNone   = "none"
+	PermRead   = "read"
+	PermWrite  = "write"
+	PermUpload = "upload"
+)
+
+// 具体权限种类。
+const (
+	PermissionKBRead      = "KB_READ"
+	PermissionKBWrite     = "KB_WRITE"
+	PermissionKBCreateDoc = "KB_CREATE_DOC"
+	PermissionKBDeleteDoc = "KB_DELETE_DOC"
+	PermissionKBDelete    = "KB_DELETE"
+
+	PermissionDatasetRead   = "DATASET_READ"
+	PermissionDatasetWrite  = "DATASET_WRITE"
+	PermissionDatasetUpload = "DATASET_UPLOAD"
 )
 
 // 权限来源（用于审计）。
@@ -48,10 +63,10 @@ type ACLRow struct {
 	ID           int64      `json:"id"`
 	ResourceType string     `json:"resource_type"` // kb / db
 	ResourceID   string     `json:"resource_id"`   // kb_id 或 db_id
-	GranteeType  string     `json:"grantee_type"`  // user / tenant
-	TargetID     int64      `json:"target_id"`     // user_id 或 tenant_id
-	Permission   string     `json:"permission"`    // read / write
-	CreatedBy    int64      `json:"created_by"`
+	GranteeType  string     `json:"grantee_type"`  // user / group
+	TargetID     string     `json:"target_id"`     // user_id 或 group_id
+	Permission   string     `json:"permission"`    // KB_READ / DATASET_WRITE / ...
+	CreatedBy    string     `json:"created_by"`
 	CreatedAt    time.Time  `json:"created_at"`
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
@@ -60,7 +75,7 @@ type ACLRow struct {
 type ACLListItem struct {
 	ID          int64     `json:"id"`
 	GranteeType string    `json:"grantee_type"`
-	GranteeID   int64     `json:"grantee_id"`
+	GranteeID   string    `json:"grantee_id"`
 	Permission  string    `json:"permission"`
 	CreatedAt   time.Time `json:"created_at"`
 }
@@ -69,7 +84,7 @@ type ACLListItem struct {
 type KBInfo struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
-	OwnerID    int64  `json:"owner_id"`
+	OwnerID    string `json:"owner_id"`
 	Visibility string `json:"visibility"`
 }
 
@@ -77,9 +92,9 @@ type KBInfo struct {
 
 // AddACLRequest 对应 POST /api/kb/{kb_id}/acl 请求体
 type AddACLRequest struct {
-	GranteeType string     `json:"grantee_type"` // user / tenant
-	GranteeID   int64      `json:"grantee_id"`
-	Permission  string     `json:"permission"`   // read / write
+	GranteeType string     `json:"grantee_type"` // user / group（兼容 tenant）
+	GranteeID   string     `json:"grantee_id"`
+	Permission  string     `json:"permission"`   // 兼容 read/write，也支持 KB_READ / DATASET_WRITE / ...
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
@@ -96,7 +111,7 @@ type BatchAddACLRequest struct {
 
 type BatchAddACLItem struct {
 	GranteeType string `json:"grantee_type"`
-	GranteeID   int64  `json:"grantee_id"`
+	GranteeID   string `json:"grantee_id"`
 	Permission  string `json:"permission"`
 }
 
@@ -114,14 +129,14 @@ type APIResponse struct {
 
 // PermissionResult 对应 GET /api/kb/{kb_id}/permission
 type PermissionResult struct {
-	Permission string `json:"permission"` // none / read / write
-	Source     string `json:"source"`     // public / protected / owner / acl
+	Permissions []string `json:"permissions"`
+	Source      string   `json:"source"` // public / protected / owner / acl
 }
 
 // PermissionBatchItem 对应 POST /api/kb/permission/batch 单项
 type PermissionBatchItem struct {
-	KbID       string `json:"kb_id"`
-	Permission string `json:"permission"`
+	KbID        string   `json:"kb_id"`
+	Permissions []string `json:"permissions"`
 }
 
 // CanResult 对应 GET /api/kb/{kb_id}/can
@@ -136,8 +151,67 @@ type KBListResult struct {
 }
 
 type KBListRow struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Visibility string `json:"visibility"`
-	Permission string `json:"permission"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Visibility  string   `json:"visibility"`
+	Permissions []string `json:"permissions"`
+}
+
+type GroupInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	UserCount int64  `json:"user_count,omitempty"`
+}
+
+type GroupMember struct {
+	UserID string `json:"user_id"`
+}
+
+type CreateGroupRequest struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+type AddGroupUserRequest struct {
+	UserID string `json:"user_id"`
+}
+
+type ListGroupsResponse struct {
+	Groups []GroupInfo `json:"groups"`
+}
+
+type ListGroupUsersResponse struct {
+	Users []GroupMember `json:"users"`
+}
+
+// --- Authorization page DTOs ---
+
+// AuthorizationSubjectGrant describes one grantee (user/group) and all permissions granted on a KB.
+type AuthorizationSubjectGrant struct {
+	GranteeType string   `json:"grantee_type"` // user / group
+	GranteeID   string   `json:"grantee_id"`
+	Permissions []string `json:"permissions"`
+}
+
+// GetKBAuthorizationResponse is used by the authorization page to render current grants.
+type GetKBAuthorizationResponse struct {
+	KbID   string                      `json:"kb_id"`
+	Grants []AuthorizationSubjectGrant `json:"grants"`
+}
+
+// SetKBAuthorizationRequest replaces ACL grants of a KB with the submitted grants.
+type SetKBAuthorizationRequest struct {
+	Grants []AuthorizationSubjectGrant `json:"grants"`
+}
+
+// GrantPrincipal represents a selectable user/group in authorization UI.
+type GrantPrincipal struct {
+	GranteeType string `json:"grantee_type"` // user / group
+	GranteeID   string `json:"grantee_id"`
+	Name        string `json:"name,omitempty"`
+}
+
+type ListGrantPrincipalsResponse struct {
+	Users  []GrantPrincipal `json:"users"`
+	Groups []GrantPrincipal `json:"groups"`
 }

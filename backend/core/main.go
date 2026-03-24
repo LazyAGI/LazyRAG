@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"gopkg.in/yaml.v3"
@@ -12,6 +14,7 @@ import (
 	"lazyrag/core/store"
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
+	"lazyrag/core/common/readonlyorm"
 	"lazyrag/core/log"
 	"lazyrag/core/migrate"
 )
@@ -42,11 +45,47 @@ func main() {
 	if err := migrate.RunUp(); err != nil {
 		log.Logger.Fatal().Err(err).Msg("run SQL migrations failed")
 	}
+
+	readonlyDriver := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_DB_DRIVER"))
+	readonlyDSN := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_DB_DSN"))
+	if readonlyDriver == "" {
+		readonlyDriver = strings.TrimSpace(os.Getenv("LAZYRAG_LAZYLLM_DB_DRIVER"))
+	}
+	if readonlyDSN == "" {
+		readonlyDSN = strings.TrimSpace(os.Getenv("LAZYRAG_LAZYLLM_DB_DSN"))
+	}
+	readonlyDB := db
+	if readonlyDriver != "" || readonlyDSN != "" {
+		if readonlyDriver == "" {
+			readonlyDriver = driver
+		}
+		if readonlyDSN == "" {
+			log.Logger.Fatal().Msg("LAZYRAG_READONLY_DB_DSN is empty")
+		}
+		readonlyDB = orm.MustConnect(readonlyDriver, readonlyDSN)
+	}
+
+	// Optional: validate readonly external tables at startup.
+	// Enable with LAZYRAG_READONLY_VALIDATE=1 and list tables via LAZYRAG_READONLY_TABLES.
+	if strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_VALIDATE")) == "1" {
+		sqlDB, err := readonlyDB.DB.DB()
+		if err != nil {
+			log.Logger.Fatal().Err(err).Msg("get readonly sql.DB failed")
+		}
+		specs := readonlyorm.Specs()
+		if len(specs) == 0 {
+			log.Logger.Warn().Msg("readonly schema validation enabled but no LAZYRAG_READONLY_TABLES configured; skipping")
+		} else if err := readonlyorm.Validate(context.Background(), sqlDB, specs); err != nil {
+			log.Logger.Fatal().Err(err).Msg("readonly schema validation failed")
+		} else {
+			log.Logger.Info().Int("tables", len(specs)).Msg("readonly schema validation ok")
+		}
+	}
 	acl.InitStore(db)
 	log.Logger.Info().Str("driver", driver).Msg("ACL store initialized")
 
 	// 对话/提示词存储初始化（DB + Redis）。DB 复用 ACL 连接；Redis 用于会话流式/续传/停止等能力（与 neutrino 对齐）。
-	store.Init(db.DB, store.MustRedisFromEnv())
+	store.Init(db.DB, readonlyDB.DB, store.MustRedisFromEnv())
 
 	r := mux.NewRouter()
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

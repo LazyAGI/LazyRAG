@@ -1,0 +1,328 @@
+package doc
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"lazyrag/core/common/orm"
+	"lazyrag/core/store"
+
+	"lazyrag/core/common"
+	"lazyrag/core/log"
+)
+
+// Office 转 PDF：转换状态（写入 documents.ext）
+const (
+	ConvertStatusNone       = "NONE"
+	ConvertStatusPending    = "PENDING"
+	ConvertStatusProcessing = "PROCESSING"
+	ConvertStatusSucceeded  = "SUCCEEDED"
+	ConvertStatusFailed     = "FAILED"
+)
+
+const convertProviderHTTP = "http"
+
+const officeConvertRetryCount = 2
+const defaultOfficeConvertWorkers = 4
+
+// env: LAZYRAG_OFFICE_CONVERT_URL — 完整 URL，POST JSON {"source_path":"..."}，返回 {"pdf_path":"..."} 或 {"data":{"pdf_path":"..."}}
+// Office 文件在 tasks:start 阶段执行转换；失败仅记录状态，并回退到原文件继续提交。
+
+func newDocumentExt(storedPath, storedName, originalFilename string, fileSize int64, contentType, relativePath string, tags []string) documentExt {
+	d := documentExt{StoredPath: storedPath, StoredName: storedName, OriginalFilename: originalFilename, FileSize: fileSize, ContentType: contentType, RelativePath: relativePath, Tags: append([]string(nil), tags...)}
+	if isOfficeDocument(storedPath, contentType, originalFilename) {
+		d.ConvertRequired = true
+		d.ConvertStatus = ConvertStatusPending
+		d.SourceStoredPath = strings.TrimSpace(storedPath)
+		return d
+	}
+	d.ConvertRequired = false
+	d.ConvertStatus = ConvertStatusNone
+	return d
+}
+
+// parsePathForAdd 提交 /v1/docs/add 时使用的本地路径（容器内）；Office 成功时为 PDF。
+func parsePathForAdd(d documentExt) string {
+	if v := strings.TrimSpace(d.ParseStoredPath); v != "" {
+		return v
+	}
+	return strings.TrimSpace(d.StoredPath)
+}
+
+func previewPathForContent(d documentExt) string {
+	if v := strings.TrimSpace(d.ParseStoredPath); v != "" {
+		return v
+	}
+	return strings.TrimSpace(d.StoredPath)
+}
+
+func previewFilenameForContent(d documentExt) string {
+	if v := strings.TrimSpace(d.ParseStoredName); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(d.OriginalFilename); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(d.StoredName); v != "" {
+		return v
+	}
+	return ""
+}
+
+func previewContentTypeForContent(d documentExt) string {
+	if v := strings.TrimSpace(d.ParseContentType); v != "" {
+		return v
+	}
+	return strings.TrimSpace(d.ContentType)
+}
+
+// isOfficeDocument 根据扩展名与 Content-Type 粗判是否为 Office 文档
+func isOfficeDocument(storedPath, contentType, originalFilename string) bool {
+	name := originalFilename
+	if name == "" {
+		name = filepath.Base(storedPath)
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
+		return true
+	}
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	switch {
+	case strings.Contains(ct, "wordprocessingml"),
+		strings.Contains(ct, "msword"),
+		strings.Contains(ct, "spreadsheetml"),
+		strings.Contains(ct, "excel"),
+		strings.Contains(ct, "presentationml"),
+		strings.Contains(ct, "powerpoint"):
+		return true
+	}
+	return false
+}
+
+// expectedParseOutputPath 与原文件同目录：stem.__parsed__.pdf
+func expectedParseOutputPath(sourcePath string) string {
+	dir := filepath.Dir(sourcePath)
+	base := filepath.Base(sourcePath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	return filepath.Join(dir, stem+".__parsed__.pdf")
+}
+
+func expectedParseOutputPathByStoredName(sourcePath, storedName string) string {
+	if v := parseStoredNameFromSource(storedName); strings.TrimSpace(v) != "" {
+		return filepath.Join(filepath.Dir(sourcePath), v)
+	}
+	return expectedParseOutputPath(sourcePath)
+}
+
+func officeConvertTimeout() time.Duration {
+	// 默认 15 分钟，大文档转换
+	return 15 * time.Minute
+}
+
+func officeConvertWorkers() int {
+	raw := strings.TrimSpace(os.Getenv("LAZYRAG_OFFICE_CONVERT_WORKERS"))
+	if raw == "" {
+		return defaultOfficeConvertWorkers
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return defaultOfficeConvertWorkers
+	}
+	return v
+}
+
+// applyOfficeConversion 在 d 已填入源文件 StoredPath/StoredName 等后调用；失败时写入 ConvertStatus=FAILED，不返回 error（上传仍成功）。
+func applyOfficeConversion(ctx context.Context, d *documentExt) {
+	src := strings.TrimSpace(d.StoredPath)
+	if src == "" {
+		return
+	}
+	if !isOfficeDocument(src, d.ContentType, d.OriginalFilename) {
+		d.ConvertRequired = false
+		if strings.TrimSpace(d.ConvertStatus) == "" {
+			d.ConvertStatus = ConvertStatusNone
+		}
+		return
+	}
+
+	d.ConvertRequired = true
+	d.SourceStoredPath = src
+
+	outPath := expectedParseOutputPathByStoredName(src, d.StoredName)
+	d.ConvertStatus = ConvertStatusProcessing
+	d.ConvertError = ""
+	d.ConvertProvider = convertProviderHTTP
+
+	// 幂等：已存在有效 PDF 且不比源旧则复用
+	if ok, sz := reuseExistingPDFIfFresh(src, outPath); ok {
+		fillParseFields(d, outPath, sz)
+		d.ConvertStatus = ConvertStatusSucceeded
+		d.ConvertError = ""
+		log.Logger.Info().Str("source", src).Str("pdf", outPath).Msg("office convert skipped, reused existing pdf")
+		return
+	}
+
+	url := strings.TrimSpace(os.Getenv("LAZYRAG_OFFICE_CONVERT_URL"))
+	if url == "" {
+		d.ConvertStatus = ConvertStatusFailed
+		d.ConvertError = "LAZYRAG_OFFICE_CONVERT_URL is not configured"
+		log.Logger.Warn().Str("source", src).Msg("office convert: service URL missing")
+		return
+	}
+
+	pdfPath, err := callOfficeConvertHTTP(ctx, url, src)
+	if err != nil {
+		d.ConvertStatus = ConvertStatusFailed
+		d.ConvertError = err.Error()
+		log.Logger.Error().Err(err).Str("source", src).Msg("office convert failed")
+		return
+	}
+	pdfPath = strings.TrimSpace(pdfPath)
+	if pdfPath == "" {
+		pdfPath = outPath
+	}
+	st, err := os.Stat(pdfPath)
+	if err != nil || st.IsDir() {
+		d.ConvertStatus = ConvertStatusFailed
+		d.ConvertError = fmt.Sprintf("converted pdf not found: %v", err)
+		return
+	}
+	fillParseFields(d, pdfPath, st.Size())
+	d.ConvertStatus = ConvertStatusSucceeded
+	d.ConvertError = ""
+	log.Logger.Info().Str("source", src).Str("pdf", pdfPath).Int64("size", st.Size()).Msg("office convert succeeded")
+}
+
+func fillParseFields(d *documentExt, pdfPath string, size int64) {
+	d.ParseStoredPath = pdfPath
+	d.ParseStoredName = filepath.Base(pdfPath)
+	d.ParseContentType = "application/pdf"
+	d.ParseFileSize = size
+}
+
+func reuseExistingPDFIfFresh(sourcePath, pdfPath string) (bool, int64) {
+	srcSt, err := os.Stat(sourcePath)
+	if err != nil || srcSt.IsDir() {
+		return false, 0
+	}
+	pdfSt, err := os.Stat(pdfPath)
+	if err != nil || pdfSt.IsDir() || pdfSt.Size() == 0 {
+		return false, 0
+	}
+	// 源文件比 PDF 新则视为需要重转
+	if pdfSt.ModTime().Before(srcSt.ModTime()) {
+		return false, 0
+	}
+	return true, pdfSt.Size()
+}
+
+func callOfficeConvertWithRetry(ctx context.Context, d *documentExt) {
+	if d == nil {
+		return
+	}
+	src := strings.TrimSpace(d.StoredPath)
+	if src == "" || !isOfficeDocument(src, d.ContentType, d.OriginalFilename) {
+		d.ConvertRequired = false
+		if strings.TrimSpace(d.ConvertStatus) == "" {
+			d.ConvertStatus = ConvertStatusNone
+		}
+		return
+	}
+	for attempt := 0; attempt < officeConvertRetryCount; attempt++ {
+		applyOfficeConversion(ctx, d)
+		if strings.TrimSpace(d.ConvertStatus) == ConvertStatusSucceeded {
+			return
+		}
+	}
+}
+
+func persistDocumentConvertState(ctx context.Context, datasetID, documentID string, d documentExt) {
+	updates := map[string]any{
+		"ext":                mustJSON(d),
+		"pdf_convert_result": strings.TrimSpace(d.ConvertStatus),
+		"updated_at":         time.Now().UTC(),
+	}
+	if err := store.DB().WithContext(ctx).Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", documentID, datasetID).Updates(updates).Error; err != nil {
+		log.Logger.Error().Err(err).Str("dataset_id", datasetID).Str("document_id", documentID).Msg("persist document convert state failed")
+	}
+}
+
+func cloneDocumentExt(d documentExt) documentExt {
+	cloned := d
+	if len(d.Tags) > 0 {
+		cloned.Tags = append([]string(nil), d.Tags...)
+	}
+	return cloned
+}
+
+func buildAddFileItem(datasetID string, taskRow orm.Task, docRow orm.Document, dExt documentExt, parsePath string) addFileItem {
+	externalPath := strings.TrimSpace(parsePath)
+	return addFileItem{FilePath: externalPath, DocID: firstNonEmpty(strings.TrimSpace(docRow.LazyllmDocID), docRow.ID), Metadata: map[string]any{
+		"dataset_id":                 datasetID,
+		"document_pid":               docRow.PID,
+		"display_name":               docRow.DisplayName,
+		"core_task_id":               taskRow.ID,
+		"core_document_id":           docRow.ID,
+		"core_stored_path":           dExt.StoredPath,
+		"core_parse_stored_path":     parsePath,
+		"core_original_content_type": dExt.ContentType,
+		"core_parse_content_type":    firstNonEmpty(dExt.ParseContentType, dExt.ContentType, "application/octet-stream"),
+		"core_convert_required":      dExt.ConvertRequired,
+		"core_convert_status":        dExt.ConvertStatus,
+		"external_file_path":         externalPath,
+	}}
+}
+
+func marshalConvertMeta(d documentExt) string {
+	b, _ := json.Marshal(map[string]any{
+		"convert_required": d.ConvertRequired,
+		"convert_status":   d.ConvertStatus,
+		"convert_error":    d.ConvertError,
+		"parse_stored_path": d.ParseStoredPath,
+	})
+	return string(b)
+}
+
+func callOfficeConvertHTTP(ctx context.Context, serviceURL, sourcePath string) (string, error) {
+	body := map[string]string{"source_path": sourcePath}
+	var raw map[string]any
+	if err := common.ApiPost(ctx, serviceURL, body, nil, &raw, officeConvertTimeout()); err != nil {
+		return "", err
+	}
+	// 扁平或嵌套 data
+	if p := extractPDFPath(raw); p != "" {
+		return p, nil
+	}
+	return "", fmt.Errorf("convert response missing pdf_path")
+}
+
+func extractPDFPath(m map[string]any) string {
+	if m == nil {
+		return ""
+	}
+	for _, k := range []string{"pdf_path", "pdfPath", "output_path", "outputPath", "path"} {
+		if v, ok := m[k]; ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	if data, ok := m["data"].(map[string]any); ok {
+		if p := extractPDFPath(data); p != "" {
+			return p
+		}
+	}
+	if data, ok := m["result"].(map[string]any); ok {
+		if p := extractPDFPath(data); p != "" {
+			return p
+		}
+	}
+	return ""
+}

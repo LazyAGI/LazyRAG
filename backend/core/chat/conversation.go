@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
@@ -73,10 +72,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 
 	_, items := extractMessageForACL(r, bodyBytes)
 	if len(items) > 0 {
-		uid := int64(0)
-		if s := r.Header.Get("X-User-Id"); s != "" {
-			uid, _ = strconv.ParseInt(s, 10, 64)
-		}
+		uid := strings.TrimSpace(r.Header.Get("X-User-Id"))
 		for _, it := range items {
 			if it.NeedPerm == "" || !acl.Can(uid, it.ResourceType, it.ResourceID, it.NeedPerm) {
 				w.Header().Set("Content-Type", "application/json")
@@ -228,7 +224,10 @@ func resumeChatStream(w http.ResponseWriter, r *http.Request) {
 		ConversationID string `json:"conversation_id"`
 		HistoryID      string `json:"history_id"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
 	convID := strings.TrimSpace(body.ConversationID)
 	historyID := strings.TrimSpace(body.HistoryID)
 	if convID == "" {
@@ -554,7 +553,10 @@ func StopChatGeneration(w http.ResponseWriter, r *http.Request) {
 		ConversationID string `json:"conversation_id"`
 		HistoryID      string `json:"history_id"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
 	convID := strings.TrimSpace(body.ConversationID)
 	historyID := strings.TrimSpace(body.HistoryID)
 	if convID == "" {
@@ -587,7 +589,7 @@ func StopChatGeneration(w http.ResponseWriter, r *http.Request) {
 
 // GetChatStatus 对应 GET /api/v1/conversations/{conversation_id}:status
 func GetChatStatus(w http.ResponseWriter, r *http.Request) {
-	convID := mux.Vars(r)["conversation_id"]
+	convID := conversationIDFromPath(r)
 	if convID == "" {
 		common.ReplyErr(w, "conversation_id required", http.StatusBadRequest)
 		return
@@ -612,7 +614,7 @@ func GetChatStatus(w http.ResponseWriter, r *http.Request) {
 
 // GetConversation 对应 GET /api/v1/conversations/{name}
 func GetConversation(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := conversationNameFromPath(r)
 	convID := conversationIDFromName(name)
 	if convID == "" {
 		common.ReplyErr(w, "invalid conversation name", http.StatusBadRequest)
@@ -664,7 +666,7 @@ func GetConversation(w http.ResponseWriter, r *http.Request) {
 
 // GetConversationDetail 对应 GET /api/v1/conversations/{name}:detail
 func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := conversationNameFromPath(r)
 	convID := conversationIDFromName(name)
 	if convID == "" {
 		common.ReplyErr(w, "invalid conversation name", http.StatusBadRequest)
@@ -789,7 +791,7 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 
 // DeleteConversation 对应 DELETE /api/v1/conversations/{name}
 func DeleteConversation(w http.ResponseWriter, r *http.Request) {
-	name := mux.Vars(r)["name"]
+	name := conversationNameFromPath(r)
 	convID := conversationIDFromName(name)
 	if convID == "" {
 		common.ReplyErr(w, "invalid conversation name", http.StatusBadRequest)

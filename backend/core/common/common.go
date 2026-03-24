@@ -20,7 +20,7 @@ type ACLCheckItem struct {
 
 // ACLExtractor 从请求中解析 (userID, items) 用于 ACL 校验。
 // items 为 nil 或空时跳过鉴权直接放行；有项时对每项调用 acl.Can，全部通过才放行。
-type ACLExtractor func(req *http.Request, body []byte) (userID int64, items []ACLCheckItem)
+type ACLExtractor func(req *http.Request, body []byte) (userID string, items []ACLCheckItem)
 
 // Proxy 构造反向代理，将请求转发到 targetURL。
 // flushInterval 控制向客户端刷写缓冲的频率：
@@ -51,8 +51,15 @@ func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLEx
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body []byte
 		if r.Body != nil {
-			body, _ = io.ReadAll(r.Body)
+			var err error
+			body, err = io.ReadAll(r.Body)
 			r.Body.Close()
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"code":1,"message":"read request body failed","data":null}`))
+				return
+			}
 		}
 		if extractor != nil {
 			userID, items := extractor(r, body)
@@ -84,8 +91,15 @@ func ProxyWithACLDynamicFlush(
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body []byte
 		if r.Body != nil {
-			body, _ = io.ReadAll(r.Body)
+			var err error
+			body, err = io.ReadAll(r.Body)
 			r.Body.Close()
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"code":1,"message":"read request body failed","data":null}`))
+				return
+			}
 		}
 		if extractor != nil {
 			userID, items := extractor(r, body)
