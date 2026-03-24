@@ -121,7 +121,7 @@ _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update -
 
 build:
 	$(_SUBMODULE_INIT)
-	@docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
+	@DOCKER_BUILDKIT=0 docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
 	@docker compose $(_COMPOSE_PROFILES) up -d
@@ -131,7 +131,7 @@ down:
 
 up-build:
 	$(_SUBMODULE_INIT)
-	@docker compose $(_COMPOSE_PROFILES) up --build -d
+	@DOCKER_BUILDKIT=0 docker compose $(_COMPOSE_PROFILES) up --build -d
 
 clear:
 	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."
