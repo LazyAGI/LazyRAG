@@ -94,9 +94,20 @@ type algoListResp struct {
 }
 
 type extTags struct {
-	Tags     []string `json:"tags"`
-	AlgoID   string   `json:"algo_id"`
-	AlgoName string   `json:"algo_name"`
+	Tags     []string       `json:"tags"`
+	AlgoID   string         `json:"algo_id"`
+	AlgoName string         `json:"algo_name"`
+	Parsers  []ParserConfig `json:"parsers"`
+}
+
+type algoGroupInfoResp struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data []struct {
+		Name        string `json:"name"`
+		Type        string `json:"type"`
+		DisplayName string `json:"display_name"`
+	} `json:"data"`
 }
 
 func parseDatasetTags(ext json.RawMessage) []string {
@@ -132,6 +143,63 @@ func parseDatasetAlgo(ext json.RawMessage) Algo {
 		return Algo{}
 	}
 	return Algo{AlgoID: strings.TrimSpace(v.AlgoID), DisplayName: strings.TrimSpace(v.AlgoName)}
+}
+
+func parseDatasetParsers(ext json.RawMessage) []ParserConfig {
+	if len(ext) == 0 {
+		return nil
+	}
+	var v extTags
+	if err := json.Unmarshal(ext, &v); err != nil {
+		return nil
+	}
+	if len(v.Parsers) == 0 {
+		return nil
+	}
+	out := make([]ParserConfig, 0, len(v.Parsers))
+	for _, p := range v.Parsers {
+		out = append(out, ParserConfig{
+			Name:   strings.TrimSpace(p.Name),
+			Params: p.Params,
+			Type:   strings.TrimSpace(p.Type),
+		})
+	}
+	return out
+}
+
+func fetchParsersByAlgoID(ctx context.Context, algoID string) []ParserConfig {
+	algoID = strings.TrimSpace(algoID)
+	if algoID == "" {
+		return nil
+	}
+	url := common.JoinURL(common.AlgoServiceEndpoint(), "/v1/algo/"+algoID+"/groups")
+	var resp algoGroupInfoResp
+	if err := common.ApiGet(ctx, url, nil, &resp, 5*time.Second); err != nil {
+		return nil
+	}
+	if resp.Code != 200 || len(resp.Data) == 0 {
+		return nil
+	}
+	parserTypeMap := map[string]string{
+		"Original Source": "PARSE_TYPE_CONVERT",
+		"Chunk":           "PARSE_TYPE_SPLIT",
+		"Summary":         "PARSE_TYPE_SUMMARY",
+		"Image Info":      "PARSE_TYPE_IMAGE_CAPTION",
+		"Question Answer": "PARSE_TYPE_QA",
+	}
+	out := make([]ParserConfig, 0, len(resp.Data))
+	for _, item := range resp.Data {
+		parseType, ok := parserTypeMap[strings.TrimSpace(item.Type)]
+		if !ok {
+			continue
+		}
+		out = append(out, ParserConfig{
+			Name:   strings.TrimSpace(item.Name),
+			Params: map[string]any{},
+			Type:   parseType,
+		})
+	}
+	return out
 }
 
 func datasetTypeToPB(t uint8) string {
@@ -368,6 +436,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	visible := rows[:0]
+	parserCache := map[string][]ParserConfig{}
 	for _, ds := range rows {
 		if len(datasetACLForUser(&ds, userID)) > 0 {
 			visible = append(visible, ds)
@@ -398,6 +467,16 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	out := make([]Dataset, 0, len(page))
 	for _, ds := range page {
 		datasetACL := datasetACLForUser(&ds, userID)
+		algo := parseDatasetAlgo(ds.Ext)
+		parsers := parseDatasetParsers(ds.Ext)
+		if len(parsers) == 0 {
+			if cached, ok := parserCache[algo.AlgoID]; ok {
+				parsers = cached
+			} else {
+				parsers = fetchParsersByAlgoID(r.Context(), algo.AlgoID)
+				parserCache[algo.AlgoID] = parsers
+			}
+		}
 		out = append(out, Dataset{
 			Name:           "datasets/" + ds.ID,
 			DatasetID:      ds.ID,
@@ -410,8 +489,8 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			DocumentSize:   0,
 			SegmentCount:   0,
 			TokenCount:     0,
-			Parsers:        nil,
-			Algo:           parseDatasetAlgo(ds.Ext),
+			Parsers:        parsers,
+			Algo:           algo,
 			Creator:        "", // 未在查询字段中包含 create_user_name
 			CreateTime:     ds.CreatedAt,
 			UpdateTime:     ds.UpdatedAt,
@@ -610,10 +689,12 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	// 2) 本地落库 datasets（新增字段 kb_id）
 	now := time.Now().UTC()
+	parsers := fetchParsersByAlgoID(r.Context(), algoID)
 	extBytes, _ := json.Marshal(map[string]any{
-		"tags": body.Tags,
-		"algo_id": algoID,
+		"tags":      body.Tags,
+		"algo_id":   algoID,
 		"algo_name": body.Algo.DisplayName,
+		"parsers":   parsers,
 	})
 
 	ds := orm.Dataset{
@@ -664,7 +745,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		DocumentSize:   0,
 		SegmentCount:   0,
 		TokenCount:     0,
-		Parsers:        nil,
+		Parsers:        parsers,
 		Algo:           Algo{AlgoID: algoID, DisplayName: body.Algo.DisplayName, Description: body.Algo.Description},
 		Creator:        userName,
 		CreateTime:     ds.CreatedAt,
@@ -703,6 +784,11 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	algo := parseDatasetAlgo(ds.Ext)
+	parsers := parseDatasetParsers(ds.Ext)
+	if len(parsers) == 0 {
+		parsers = fetchParsersByAlgoID(r.Context(), algo.AlgoID)
+	}
 	common.ReplyJSON(w, Dataset{
 		Name:           "datasets/" + ds.ID,
 		DatasetID:      ds.ID,
@@ -715,8 +801,8 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		DocumentSize:   0,
 		SegmentCount:   0,
 		TokenCount:     0,
-		Parsers:        nil,
-		Algo:           parseDatasetAlgo(ds.Ext),
+		Parsers:        parsers,
+		Algo:           algo,
 		Creator:        ds.CreateUserName,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
@@ -853,10 +939,15 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	if algoName == "" {
 		algoName = algo.DisplayName
 	}
+	parsers := body.Parsers
+	if len(parsers) == 0 {
+		parsers = fetchParsersByAlgoID(r.Context(), algoID)
+	}
 	extBytes, _ := json.Marshal(map[string]any{
 		"tags":      body.Tags,
 		"algo_id":   algoID,
 		"algo_name": algoName,
+		"parsers":   parsers,
 	})
 
 	// 1) 调外部 POST /v1/kbs/{kb_id}/update
@@ -926,7 +1017,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		DocumentSize:   0,
 		SegmentCount:   0,
 		TokenCount:     0,
-		Parsers:        nil,
+		Parsers:        parseDatasetParsers(ds.Ext),
 		Algo:           parseDatasetAlgo(ds.Ext),
 		Creator:        ds.CreateUserName,
 		CreateTime:     ds.CreatedAt,

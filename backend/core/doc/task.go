@@ -488,6 +488,65 @@ func SuspendTask(w http.ResponseWriter, r *http.Request) {
 	updateTaskStateEndpoint(w, r, string(TaskStateCancelled))
 }
 
+func ResumeTask(w http.ResponseWriter, r *http.Request) {
+	datasetID := datasetIDFromPath(r)
+	taskID := taskIDFromPath(r)
+	if datasetID == "" || taskID == "" {
+		common.ReplyErr(w, "missing dataset or task", http.StatusBadRequest)
+		return
+	}
+	if _, _, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetUpload); !ok {
+		replyDatasetForbidden(w)
+		return
+	}
+
+	var raw map[string]any
+	if r.Body != nil {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil && err != io.EOF {
+			common.ReplyErr(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+	}
+	bodyTaskIDValue, _ := raw["task_id"].(string)
+	bodyTaskID := strings.TrimSpace(bodyTaskIDValue)
+	if bodyTaskID != "" && bodyTaskID != taskID {
+		common.ReplyErr(w, "task_id in body does not match path", http.StatusBadRequest)
+		return
+	}
+
+	var taskRow orm.Task
+	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskID, datasetID).First(&taskRow).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			common.ReplyErr(w, "task not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	state := strings.ToUpper(strings.TrimSpace(buildTaskResponse(r, taskRow).TaskState))
+	if state != string(TaskStateFailed) && state != string(TaskStateCancelled) {
+		common.ReplyErr(w, "task can only be resumed from FAILED or CANCELED state", http.StatusBadRequest)
+		return
+	}
+
+	results, err := startTasksInternal(r, datasetID, []string{taskID})
+	if err != nil && len(results) == 0 {
+		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	resp := StartTasksResponse{Tasks: results, RequestedCount: 1}
+	for _, item := range results {
+		if item.Status == "STARTED" {
+			resp.StartedCount++
+		} else {
+			resp.FailedCount++
+		}
+	}
+	common.ReplyJSON(w, resp)
+}
+
 func InitUpload(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
 	taskID := taskIDFromPath(r)
@@ -1088,40 +1147,40 @@ func updateTaskStateEndpoint(w http.ResponseWriter, r *http.Request, action stri
 	}
 
 	var raw map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-		common.ReplyErr(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	nameValue, _ := raw["name"].(string)
-	name := strings.TrimSpace(nameValue)
-	if name == "" {
-		common.ReplyErr(w, "name is required", http.StatusBadRequest)
-		return
-	}
-	parts := strings.Split(name, "/")
-	if len(parts) != 4 || parts[0] != "datasets" || parts[2] != "jobs" || strings.TrimSpace(parts[1]) == "" || strings.TrimSpace(parts[3]) == "" {
-		common.ReplyErr(w, "invalid name, expected datasets/{dataset}/jobs/{job}", http.StatusBadRequest)
-		return
-	}
-	bodyDatasetID := strings.TrimSpace(parts[1])
-	if bodyDatasetID != datasetID {
-		common.ReplyErr(w, "dataset in body does not match path", http.StatusBadRequest)
-		return
+	if r.Body != nil {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil && err != io.EOF {
+			common.ReplyErr(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
 	}
 
-	var exists int64
-	if err := store.DB().WithContext(r.Context()).Model(&orm.Task{}).
+	var taskRow orm.Task
+	if err := store.DB().WithContext(r.Context()).
 		Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskID, datasetID).
-		Count(&exists).Error; err != nil {
+		First(&taskRow).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			common.ReplyErr(w, "task not found", http.StatusNotFound)
+			return
+		}
 		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if exists == 0 {
-		common.ReplyErr(w, "task not found", http.StatusNotFound)
+
+	bodyTaskIDValue, _ := raw["task_id"].(string)
+	bodyTaskID := strings.TrimSpace(bodyTaskIDValue)
+	if bodyTaskID != "" && bodyTaskID != taskID {
+		common.ReplyErr(w, "task_id in body does not match path", http.StatusBadRequest)
 		return
 	}
 
-	err := callExternalSuspendJob(r, SuspendJobRequest{Name: name})
+	externalTaskID := strings.TrimSpace(taskRow.LazyllmTaskID)
+	if externalTaskID == "" {
+		common.ReplyErr(w, "external task id is empty", http.StatusBadRequest)
+		return
+	}
+
+	err := callExternalSuspendJob(r, ExternalCancelTaskRequest{TaskID: externalTaskID})
 	if err != nil {
 		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
 		return
@@ -1864,7 +1923,7 @@ func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.D
 		if isFolderLikeDocument(node) || sourceLazyDocID == "" {
 			continue
 		}
-		items = append(items, transferItem{DocID: sourceLazyDocID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), SourceAlgoID: datasetAlgoIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), TargetAlgoID: datasetAlgoIDByID(targetDatasetID), Mode: mode})
+		items = append(items, transferItem{DocID: sourceLazyDocID, TargetDocID: newID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), SourceAlgoID: datasetAlgoIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), TargetAlgoID: datasetAlgoIDByID(targetDatasetID), Mode: mode})
 	}
 	return bindings, items, nil
 }
@@ -1980,6 +2039,9 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 }
 
 func matchTransferBindingCandidate(binding transferBinding, row readonlyorm.LazyLLMDocRow) bool {
+	if strings.TrimSpace(binding.TargetDocumentID) != "" && strings.TrimSpace(binding.TargetDocumentID) == strings.TrimSpace(row.DocID) {
+		return true
+	}
 	if strings.TrimSpace(binding.DisplayName) != "" && strings.EqualFold(strings.TrimSpace(binding.DisplayName), strings.TrimSpace(row.Filename)) {
 		return true
 	}
@@ -2021,6 +2083,21 @@ func cleanupMovedSourceTree(ctx context.Context, datasetID string, bindings []tr
 func recalcTransferFolderStats(ctx context.Context, sourceDatasetID string, taskRow orm.Task, sourceRoot orm.Document, bindings []transferBinding, mode string) {
 	_ = mode
 	touched := map[string]struct{}{}
+	appendFolderSelf := func(datasetID, documentID string) {
+		docID := strings.TrimSpace(documentID)
+		if docID == "" {
+			return
+		}
+		var row orm.Document
+		if err := store.DB().WithContext(ctx).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).Take(&row).Error; err != nil {
+			return
+		}
+		if !isFolderLikeDocument(row) {
+			return
+		}
+		key := datasetID + ":" + docID
+		touched[key] = struct{}{}
+	}
 	appendAncestors := func(datasetID, pid string) {
 		current := strings.TrimSpace(pid)
 		for current != "" {
@@ -2038,9 +2115,11 @@ func recalcTransferFolderStats(ctx context.Context, sourceDatasetID string, task
 	}
 	appendAncestors(sourceDatasetID, strings.TrimSpace(sourceRoot.PID))
 	appendAncestors(strings.TrimSpace(taskRow.TargetDatasetID), strings.TrimSpace(taskRow.TargetPID))
+	appendFolderSelf(sourceDatasetID, sourceRoot.ID)
 	for _, binding := range bindings {
 		appendAncestors(sourceDatasetID, parentPIDForDocument(ctx, sourceDatasetID, binding.SourceDocumentID))
 		appendAncestors(strings.TrimSpace(taskRow.TargetDatasetID), parentPIDForDocument(ctx, strings.TrimSpace(taskRow.TargetDatasetID), binding.TargetDocumentID))
+		appendFolderSelf(strings.TrimSpace(taskRow.TargetDatasetID), binding.TargetDocumentID)
 	}
 	for key := range touched {
 		parts := strings.SplitN(key, ":", 2)

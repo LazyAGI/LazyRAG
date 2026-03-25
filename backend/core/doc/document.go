@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -66,17 +67,10 @@ func absoluteCoreURL(path string) string {
 	if p == "" {
 		return ""
 	}
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
-	}
-	base := strings.TrimRight(publicBaseURL(), "/")
-	if base == "" {
-		return p
-	}
 	if strings.HasPrefix(p, "/") {
-		return base + p
+		return p
 	}
-	return base + "/" + p
+	return "/" + p
 }
 
 func signedFileSecret() string {
@@ -131,7 +125,15 @@ func staticFileURLFromFullPath(fullPath string) string {
 	}
 	expires := time.Now().UTC().Unix() + signedFileExpireSeconds()
 	sig := signStaticFile(rel, expires)
-	return absoluteCoreURL(fmt.Sprintf("/static-files/%s?expires=%d&sig=%s", rel, expires, sig))
+	return fmt.Sprintf("/static-files/%s?expires=%d&sig=%s", encodeStaticFilePath(rel), expires, sig)
+}
+
+func encodeStaticFilePath(rel string) string {
+	parts := strings.Split(rel, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 func documentContentPath(datasetID, docID string) string {

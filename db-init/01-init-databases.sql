@@ -1,33 +1,29 @@
 -- 初始化多个业务数据库与额外应用账号。
 -- 该脚本会在 Postgres 容器首次启动、数据目录为空时自动执行。
+-- 注意：CREATE DATABASE 不能放在 DO/函数/事务块中执行，因此这里使用 psql 的 \gexec。
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
-    CREATE ROLE app LOGIN CREATEDB PASSWORD 'app';
-  ELSE
-    ALTER ROLE app WITH LOGIN CREATEDB PASSWORD 'app';
-  END IF;
-END
-$$;
+SELECT 'CREATE ROLE app LOGIN CREATEDB PASSWORD ''app'''
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app')
+\gexec
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'authservice') THEN
-    CREATE DATABASE authservice;
-  END IF;
+ALTER ROLE app WITH LOGIN CREATEDB PASSWORD 'app';
 
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'core') THEN
-    CREATE DATABASE core;
-  END IF;
+SELECT 'CREATE DATABASE authservice'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'authservice')
+\gexec
 
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'doc_task') THEN
-    CREATE DATABASE doc_task;
-  END IF;
+SELECT 'CREATE DATABASE core'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'core')
+\gexec
 
-  IF NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'app') THEN
-    CREATE DATABASE app OWNER app;
-  END IF;
-END
-$$;
+SELECT 'CREATE DATABASE doc_task'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'doc_task')
+\gexec
+
+SELECT 'CREATE DATABASE app OWNER app'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'app')
+\gexec
+
+ALTER DATABASE app OWNER TO app;
+GRANT ALL PRIVILEGES ON DATABASE app TO app;
 

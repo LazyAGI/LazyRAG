@@ -21,7 +21,7 @@ const (
 	TaskStateRunning   TaskState = "RUNNING"
 	TaskStateSucceeded TaskState = "SUCCEEDED"
 	TaskStateFailed    TaskState = "FAILED"
-	TaskStateCancelled TaskState = "CANCELLED"
+	TaskStateCancelled TaskState = "CANCELED"
 	TaskStateSuspended TaskState = "SUSPENDED"
 )
 
@@ -111,7 +111,15 @@ type SearchTasksRequest struct {
 }
 
 type SuspendJobRequest struct {
-	Name string `json:"name"`
+	TaskID string `json:"task_id,omitempty"`
+}
+
+type ResumeTaskRequest struct {
+	TaskID string `json:"task_id,omitempty"`
+}
+
+type ExternalCancelTaskRequest struct {
+	TaskID string `json:"task_id"`
 }
 
 type InitUploadRequest struct {

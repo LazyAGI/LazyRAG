@@ -78,6 +78,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "GET", "/datasets/{dataset}/tasks/{task}", []string{"document.read"}, doc.GetTask)
 	handleAPI(r, "DELETE", "/datasets/{dataset}/tasks/{task}", []string{"document.write"}, doc.DeleteTask)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks:start", []string{"document.write"}, doc.StartTask)
+	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:resume", []string{"document.write"}, doc.ResumeTask)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:suspend", []string{"document.write"}, doc.SuspendTask)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:initUpload", []string{"document.write"}, doc.InitUpload)
 	handleAPI(r, "PUT", "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}/parts/{part_number}", []string{"document.write"}, doc.UploadPart)

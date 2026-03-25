@@ -308,6 +308,11 @@ func _swagGetTask() {}
 // @Router    /datasets/{dataset}/tasks/{task} [delete]
 func _swagDeleteTask() {}
 
+// @Summary  恢复任务
+// @Tags      tasks
+// @Router    /datasets/{dataset}/tasks/{task}:resume [post]
+func _swagResumeTask() {}
+
 // @Summary  暂停任务
 // @Tags      tasks
 // @Router    /datasets/{dataset}/tasks/{task}:suspend [post]

@@ -41,6 +41,7 @@ type reparseRequest struct {
 
 type transferItem struct {
 	DocID         string `json:"doc_id"`
+	TargetDocID   string `json:"target_doc_id,omitempty"`
 	SourceKbID    string `json:"source_kb_id,omitempty"`
 	SourceAlgoID  string `json:"source_algo_id,omitempty"`
 	TargetKbID    string `json:"target_kb_id,omitempty"`
@@ -102,7 +103,7 @@ func callExternalTransferDocs(r *http.Request, req transferRequest) error {
 	return common.ApiPost(r.Context(), common.JoinURL(parsingServiceEndpoint(), "/v1/docs/transfer"), req, nil, &resp, 15*time.Second)
 }
 
-func callExternalSuspendJob(r *http.Request, req SuspendJobRequest) error {
+func callExternalSuspendJob(r *http.Request, req ExternalCancelTaskRequest) error {
 	url := common.JoinURL(parsingServiceEndpoint(), "/v1/tasks/cancel")
 	var resp map[string]any
 	return common.ApiPost(r.Context(), url, req, nil, &resp, 15*time.Second)
