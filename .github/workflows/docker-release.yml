@@ -1,8 +1,8 @@
-# 需要在仓库中配置的变量： 
+# Variables that need to be configured in the repository:
 ## vars.REGISTRY && vars.REGISTRY_NAMESPACE && 
 ## secrets.REGISTRY_USERNAME && secrets.REGISTRY_PASSWORD
 
-# 用于构建所有服务 amd + arm 架构镜像 
+# Creates images for both linux/amd64 and linux/arm64 platforms
 
 name: Docker Release
 
