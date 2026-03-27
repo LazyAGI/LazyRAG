@@ -9,13 +9,13 @@ import (
 )
 
 type addResultItem struct {
-	TaskID           string
-	DocID            string
-	FilePath         string
-	DisplayName      string
-	CoreTaskID       string
-	CoreDocumentID   string
-	Metadata         map[string]any
+	TaskID         string
+	DocID          string
+	FilePath       string
+	DisplayName    string
+	CoreTaskID     string
+	CoreDocumentID string
+	Metadata       map[string]any
 }
 
 type addFileItem struct {
@@ -40,13 +40,13 @@ type reparseRequest struct {
 }
 
 type transferItem struct {
-	DocID         string `json:"doc_id"`
-	TargetDocID   string `json:"target_doc_id,omitempty"`
-	SourceKbID    string `json:"source_kb_id,omitempty"`
-	SourceAlgoID  string `json:"source_algo_id,omitempty"`
-	TargetKbID    string `json:"target_kb_id,omitempty"`
-	TargetAlgoID  string `json:"target_algo_id,omitempty"`
-	Mode          string `json:"mode,omitempty"`
+	DocID        string `json:"doc_id"`
+	TargetDocID  string `json:"target_doc_id,omitempty"`
+	SourceKbID   string `json:"source_kb_id,omitempty"`
+	SourceAlgoID string `json:"source_algo_id,omitempty"`
+	TargetKbID   string `json:"target_kb_id,omitempty"`
+	TargetAlgoID string `json:"target_algo_id,omitempty"`
+	Mode         string `json:"mode,omitempty"`
 }
 
 type transferRequest struct {

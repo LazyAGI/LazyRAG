@@ -282,9 +282,9 @@ func buildAddFileItem(datasetID string, taskRow orm.Task, docRow orm.Document, d
 
 func marshalConvertMeta(d documentExt) string {
 	b, _ := json.Marshal(map[string]any{
-		"convert_required": d.ConvertRequired,
-		"convert_status":   d.ConvertStatus,
-		"convert_error":    d.ConvertError,
+		"convert_required":  d.ConvertRequired,
+		"convert_status":    d.ConvertStatus,
+		"convert_error":     d.ConvertError,
 		"parse_stored_path": d.ParseStoredPath,
 	})
 	return string(b)

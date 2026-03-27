@@ -102,4 +102,3 @@ WHERE table_schema = $1 AND table_name = $2`
 	}
 	return missing, nil
 }
-

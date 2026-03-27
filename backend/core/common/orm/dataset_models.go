@@ -21,8 +21,8 @@ type Dataset struct {
 	BucketName  string `gorm:"column:bucket_name;type:varchar(255);not null"`
 	OssPath     string `gorm:"column:oss_path;type:varchar(255);not null"`
 
-	DatasetInfo json.RawMessage `gorm:"column:dataset_info;type:json"`
-	DatasetState uint8         `gorm:"column:dataset_state;not null"`
+	DatasetInfo  json.RawMessage `gorm:"column:dataset_info;type:json"`
+	DatasetState uint8           `gorm:"column:dataset_state;not null"`
 
 	EmbeddingModel         string `gorm:"column:embedding_model;type:varchar(255);not null"`
 	EmbeddingModelProvider string `gorm:"column:embedding_model_provider;type:varchar(255);not null"`
@@ -54,4 +54,3 @@ type DefaultDataset struct {
 }
 
 func (DefaultDataset) TableName() string { return "default_datasets" }
-

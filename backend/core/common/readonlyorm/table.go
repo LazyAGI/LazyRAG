@@ -27,4 +27,3 @@ func Table(schema, table string) string {
 	}
 	return s + "." + t
 }
-

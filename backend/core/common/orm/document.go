@@ -11,8 +11,8 @@ import "encoding/json"
 // LazyllmDocID matches readonlyorm.LazyLLMDocRow.DocID (external lazyllm_documents.doc_id).
 // DatasetID matches core datasets.id / readonlyorm kb_id style (varchar(255)).
 type Document struct {
-	ID               string `gorm:"column:id;type:varchar(128);primaryKey"`
-	LazyllmDocID     string `gorm:"column:lazyllm_doc_id;type:varchar(128);not null;default:'';index"`
+	ID           string `gorm:"column:id;type:varchar(128);primaryKey"`
+	LazyllmDocID string `gorm:"column:lazyllm_doc_id;type:varchar(128);not null;default:'';index"`
 
 	DatasetID        string          `gorm:"column:dataset_id;type:varchar(255);not null;index"`
 	DisplayName      string          `gorm:"column:display_name;type:varchar(512);not null;default:''"`

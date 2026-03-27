@@ -205,8 +205,8 @@ type UpstreamStreamChunk struct {
 }
 
 type upstreamStreamLine struct {
-	Code int                `json:"code"`
-	Msg  string             `json:"msg"`
+	Code int                 `json:"code"`
+	Msg  string              `json:"msg"`
 	Data UpstreamStreamChunk `json:"data"`
 }
 
