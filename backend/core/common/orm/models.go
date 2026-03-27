@@ -25,9 +25,9 @@ type ACLModel struct {
 	ResourceType string     `gorm:"column:resource_type;type:varchar(32);index:idx_acl_resource,priority:1"`
 	ResourceID   string     `gorm:"column:resource_id;type:varchar(255);index:idx_acl_resource,priority:2"`
 	GranteeType  string     `gorm:"column:grantee_type;type:varchar(32)"`
-	TargetID     int64      `gorm:"column:target_id"`
+	TargetID     string     `gorm:"column:target_id;type:varchar(255)"`
 	Permission   string     `gorm:"column:permission;type:varchar(32)"`
-	CreatedBy    int64      `gorm:"column:created_by"`
+	CreatedBy    string     `gorm:"column:created_by;type:varchar(255)"`
 	CreatedAt    time.Time  `gorm:"column:created_at"`
 	ExpiresAt    *time.Time `gorm:"column:expires_at"`
 }
@@ -38,16 +38,24 @@ func (ACLModel) TableName() string { return "acl_rows" }
 type KBModel struct {
 	ID         string `gorm:"primaryKey;column:id;type:varchar(64)"`
 	Name       string `gorm:"column:name;type:varchar(255)"`
-	OwnerID    int64  `gorm:"column:owner_id"`
+	OwnerID    string `gorm:"column:owner_id;type:varchar(255)"`
 	Visibility string `gorm:"column:visibility;type:varchar(32)"`
 }
 
 func (KBModel) TableName() string { return "acl_kbs" }
 
-// UserGroupModel 用户与组/租户映射。
+// ACLGroupModel 用户组定义。
+type ACLGroupModel struct {
+	ID   string `gorm:"primaryKey;column:id;type:varchar(255)"`
+	Name string `gorm:"column:name;type:varchar(255);not null;default:''"`
+}
+
+func (ACLGroupModel) TableName() string { return "acl_groups" }
+
+// UserGroupModel 用户与组映射。
 type UserGroupModel struct {
-	UserID  int64 `gorm:"primaryKey;column:user_id"`
-	GroupID int64 `gorm:"primaryKey;column:group_id"`
+	UserID  string `gorm:"primaryKey;column:user_id;type:varchar(255)"`
+	GroupID string `gorm:"primaryKey;column:group_id;type:varchar(255)"`
 }
 
 func (UserGroupModel) TableName() string { return "acl_user_groups" }
@@ -107,7 +115,7 @@ func (Conversation) TableName() string { return "conversations" }
 type ChatHistory struct {
 	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	Seq             int             `gorm:"column:seq;not null"`
-	ConversationID  string          `gorm:"column:conversation_id;type:varchar(36);index;not null"`
+	ConversationID string          `gorm:"column:conversation_id;type:varchar(36);index;not null"`
 	RawContent      string          `gorm:"column:raw_content;type:text"`
 	RetrievalResult json.RawMessage `gorm:"column:retrieval_result;type:json"`
 	Content         string          `gorm:"column:content;type:text"`

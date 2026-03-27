@@ -9,6 +9,7 @@ func AllModelsForDDL() []interface{} {
 		&VisibilityModel{},
 		&ACLModel{},
 		&KBModel{},
+		&ACLGroupModel{},
 		&UserGroupModel{},
 		&Prompt{},
 		&DefaultPrompt{},
@@ -16,6 +17,12 @@ func AllModelsForDDL() []interface{} {
 		&Conversation{},
 		&ChatHistory{},
 		&MultiAnswersChatHistory{},
+		&Dataset{},
+		&DefaultDataset{},
+		&Document{},
+		&Task{},
+		&UploadSession{},
+		&UploadedFile{},
 	}
 }
 
@@ -32,5 +39,11 @@ func TableNamesForDDL() []string {
 		"conversations",
 		"chat_histories",
 		"multi_answers_chat_histories",
+		"datasets",
+		"default_datasets",
+		"documents",
+		"tasks",
+		"upload_sessions",
+		"uploaded_files",
 	}
 }

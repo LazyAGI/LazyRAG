@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"lazyrag/core/acl"
 	"lazyrag/core/common"
@@ -17,10 +18,8 @@ func chatServiceURL() string {
 	return "http://localhost:8048"
 }
 
-func extractMessageForACL(r *http.Request, body []byte) (userID int64, items []common.ACLCheckItem) {
-	if s := r.Header.Get("X-User-Id"); s != "" {
-		userID, _ = strconv.ParseInt(s, 10, 64)
-	}
+func extractMessageForACL(r *http.Request, body []byte) (userID string, items []common.ACLCheckItem) {
+	userID = strings.TrimSpace(r.Header.Get("X-User-Id"))
 	if len(body) == 0 {
 		return userID, nil
 	}

@@ -11,6 +11,14 @@ x-llm-api-keys: &llm-api-keys
   LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
   LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
 
+
+x-upload-paths: &upload-paths
+  LAZYRAG_UPLOAD_HOST_DIR: ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}
+  LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+
+x-db-conn: &db-conn
+  LAZYRAG_DATABASE_URL: ${LAZYRAG_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
+
 services:
 
   kong:
@@ -34,22 +42,76 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: app
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: "123456"
+
+    ports:
+      - "9002:5432"
+
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./volumes/db:/var/lib/postgresql/data
+      # 初始化多个数据库的 SQL 脚本（首启时执行）
+      - ./db-init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      test: ["CMD-SHELL", "pg_isready -U root -d postgres"]
       interval: 5s
       timeout: 3s
       retries: 20
 
+  db-bootstrap:
+    image: postgres:16
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: "123456"
+    restart: "no"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        psql -v ON_ERROR_STOP=1 -h db -U root -d postgres <<'SQL'
+        SELECT 'CREATE ROLE app LOGIN CREATEDB PASSWORD ''app'''
+        WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app')
+        \gexec
+
+        ALTER ROLE app WITH LOGIN CREATEDB PASSWORD 'app';
+
+        SELECT 'CREATE DATABASE authservice'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'authservice')
+        \gexec
+
+        SELECT 'CREATE DATABASE core'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'core')
+        \gexec
+
+        SELECT 'CREATE DATABASE doc_task'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'doc_task')
+        \gexec
+
+        SELECT 'CREATE DATABASE app OWNER app'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'app')
+        \gexec
+
+        ALTER DATABASE app OWNER TO app;
+        GRANT ALL PRIVILEGES ON DATABASE app TO app;
+        SQL
+
+        psql -v ON_ERROR_STOP=1 -h db -U root -d app <<'SQL'
+        GRANT USAGE, CREATE ON SCHEMA public TO app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO app;
+        SQL
+
   redis:
-    image: redis:7
-    command: ["redis-server", "--appendonly", "yes"]
+    image: docker.m.daocloud.io/redis:7
+    # 使用 ACL 文件创建用户：保留 default 用户，同时新增 test/123456
+    command: ["redis-server", "--appendonly", "yes", "--aclfile", "/usr/local/etc/redis/users.acl"]
     volumes:
-      - redisdata:/data
+      - ./volumes/redis:/data
+      # 注意：./volumes/redis/users.acl 之前被误创建成目录，导致 Redis 实际没加载 ACL 文件。
+      # 改为挂载仓库内的固定 ACL 文件，确保一致可复现。
+      - ./redis-users.acl:/usr/local/etc/redis/users.acl:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -57,42 +119,102 @@ services:
       retries: 20
 
   auth-service:
-    build:
-      context: ./backend
-      dockerfile: auth-service/Dockerfile
+    # build:
+    #   context: ./backend
+    #   dockerfile: auth-service/Dockerfile
+    image: authservice:20260326-6
+    volumes:
+      - ./api/backend:/openapi-export
     expose:
       - "8000"
+    ports:
+      - "9001:8000"
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     environment:
-      LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
-      LAZYRAG_REDIS_URL: redis://redis:6379/0
+      # auth-service 使用 root/123456 连接 Postgres 的 authservice 库（由 init 脚本创建）
+      LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/authservice
+      # Redis 使用 ACL 用户 test / 密码 123456
+      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
       LAZYRAG_JWT_SECRET: dev-secret-change-me
       LAZYRAG_JWT_TTL_MINUTES: "60"
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
-      LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: admin
-      LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: admin
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/health')\" || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
+  office-convert-service:
+    # build:
+    #   context: ./backend
+    #   dockerfile: office-convert-service/Dockerfile
+    image: office-convert-service:20260324-1
+    expose:
+      - "8080"
+    environment:
+      OFFICE_CONVERT_ALLOWED_ROOTS: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      OFFICE_CONVERT_TIMEOUT_SECONDS: "900"
+    volumes:
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
   core:
-    build:
-      context: ./backend
-      dockerfile: core/Dockerfile
+    # build:
+    #   context: ./backend
+    #   dockerfile: core/Dockerfile
+    image: core:20260326-8
+    volumes:
+      - ./api/backend:/openapi-export
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     expose:
       - "8000"
     environment:
       ACL_DB_DRIVER: postgres
-      ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
-      LAZYRAG_PARSING_SERVICE_URL: http://parsing:8000
-      LAZYRAG_PROCESSOR_SERVICE_URL: http://processor-server:8001
-      LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
+      ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+      MIGRATIONS_DIR: /migrations
+      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
+      LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      # 对前端返回的完整文件访问 URL 前缀
+      LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
+      # 签名静态文件 URL 的密钥与有效期（秒）
+      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
+      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
+      # Office→PDF：POST JSON {"source_path":"容器内绝对路径"}，响应需含 pdf_path（或 data.pdf_path）
+      LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
+      # Office 转 PDF 的并发 worker 数；默认 4
+      # LAZYRAG_OFFICE_CONVERT_WORKERS: "4"
+      # LAZYRAG_ALGO_SERVICE_URL: http://10.119.24.129:8855
+
+      LAZYRAG_ALGO_SERVICE_URL: http://lazyllm-doc-server:8000
+      # Validate readonly external tables at startup (fail fast on schema drift).
+      LAZYRAG_READONLY_VALIDATE: "0"
+      # readonly 连接单独走 app 库；不影响 core 自身 orm 连接。
+      LAZYRAG_READONLY_DB_DRIVER: postgres
+      LAZYRAG_READONLY_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
+      # readonly 表所在 schema，未设置时默认 public。
+      LAZYRAG_READONLY_SCHEMA: public
+      # 仅校验/访问 core 需要读取的部分外部表。
+      LAZYRAG_READONLY_TABLES: "public.lazyllm_documents,public.lazyllm_doc_service_tasks,public.lazyllm_kb_documents"
+      # backward compatibility for older env names if some deployments still use them:
+      # LAZYRAG_LAZYLLM_DB_DRIVER: postgres
+      # LAZYRAG_LAZYLLM_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
+      # LAZYRAG_LAZYLLM_SCHEMA: public
+      # LAZYRAG_PARSING_SERVICE_URL: http://parsing:8000
+      # LAZYRAG_PROCESSOR_SERVICE_URL: http://processor-server:8001
+      # LAZYRAG_CHAT_SERVICE_URL: http://10.119.17.243:8048
+      # LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
+      LAZYRAG_CHAT_SERVICE_URL: http://10.158.145.3:8048
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -101,11 +223,42 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
       auth-service:
+        condition: service_healthy
+      office-convert-service:
+        condition: service_healthy
+
+  core-dev:
+    image: golang:1.24-alpine
+    working_dir: /app
+    command: ["sleep", "infinity"]
+    volumes:
+      - ./backend/core:/app
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+    environment:
+      ACL_DB_DRIVER: postgres
+      ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
+      LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
+      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
+      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
+      LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
+    depends_on:
+      db:
+        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      office-convert-service:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    # build: ./frontend
+    image: lazyrag-frontend:latest
     ports:
       - "8080:80"
     depends_on:
@@ -113,10 +266,72 @@ services:
         condition: service_started
       core:
         condition: service_healthy
-      parsing:
+      # parsing:
+      #   condition: service_healthy
+      # chat:
+      #   condition: service_healthy
+    environment:
+      FRONTEND_API_PROXY_PASS: ${FRONTEND_API_PROXY_PASS:-http://kong:8000}
+      FRONTEND_API_DOCS_PROXY_PASS: ${FRONTEND_API_DOCS_PROXY_PASS:-http://kong:8000}
+
+  lazyllm-doc-server:
+    # build:
+    #   context: .
+    #   dockerfile: backend/core/doc/Dockerfile
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-doc-server:0325-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8088:8000"
+    volumes:
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
+    environment:
+      # LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/app
+      <<: [*db-conn, *upload-paths, *llm-api-keys]
+      LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
+      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
+      LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: ${LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL:-http://doc-server:8000/v1/internal/callbacks/tasks}
+      LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYLLM_EXPECTED_LOG_MODULES: "all"
+    command: ["python", "backend/core/doc/doc_server.py"]
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:8000/v1/health && curl -f http://lazyllm-parse-server:8000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      db:
         condition: service_healthy
-      chat:
-        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+      lazyllm-parse-server:
+        # condition: service_healthy
+        condition: service_started
+      lazyllm-algo:
+        # condition: service_healthy
+        condition: service_started
+    networks:
+      default:
+        aliases:
+          - doc-server
+
+  # frontend:
+  #   build: ./frontend
+  #   ports:
+  #     - "8080:80"
+  #   depends_on:
+  #     kong:
+  #       condition: service_started
+  #     core:
+  #       condition: service_healthy
+  #     lazyllm-doc-server:
+  #       condition: service_healthy
+  #     lazyllm-algo:
+  #       condition: service_healthy
+  #     chat:
+  #       condition: service_healthy
 
   # ---------- Algorithm stack: MinerU/PaddleOCR -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
   # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru adds mineru[all], others use base+code only.
@@ -189,68 +404,100 @@ services:
     user: root
     restart: unless-stopped
 
-  processor-server:
-    build:
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+  lazyllm-parse-server:
+    # build:
+    #   context: ./algorithm
+    #   dockerfile: Dockerfile
+    #   target: default
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-parse-server:0325-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     expose:
       - "8000"
-      - "8001"
     volumes:
-      - rag-uploads:/app/uploads
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     environment:
-      LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
-      LAZYRAG_UPLOAD_SERVER_PORT: "8001"
-      LAZYRAG_UPLOAD_DIR: /app/uploads
-      LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      LAZYRAG_DOCUMENT_PROCESSOR_PORT: ${LAZYRAG_DOCUMENT_PROCESSOR_PORT:-8000}
+      # LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/app
+      <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
-      <<: *llm-api-keys
     command: ["python", "processor/server.py"]
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -f http://localhost:8000/health || exit 1']
-      interval: 10s
-      timeout: 5s
-      retries: 3
+    # healthcheck:
+    #   test: ['CMD-SHELL', 'curl -f http://localhost:8000/health || exit 1']
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 3
     depends_on:
       db:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+    networks:
+      default:
+        aliases:
+          - processor-server
 
-  processor-worker:
-    build:
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+  lazyllm-parse-worker:
+    # build:
+    #   context: ./algorithm
+    #   dockerfile: Dockerfile
+    #   target: default
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-parse-worker:0325-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - rag-uploads:/app/uploads
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     environment:
-      LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
-      LAZYRAG_DOC_TASK_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      LAZYRAG_DOCUMENT_WORKER_PORT: ${LAZYRAG_DOCUMENT_WORKER_PORT:-8001}
+      LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: ${LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS:-1}
+      LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION: ${LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION:-300}
+      LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL: ${LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL:-60}
+      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ${LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES:-}
+      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: ${LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY:-false}
+      LAZYRAG_DOCUMENT_WORKER_POLL_MODE: ${LAZYRAG_DOCUMENT_WORKER_POLL_MODE:-direct}
+      # LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/app
+      <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
-      <<: *llm-api-keys
     command: ["python", "processor/worker.py"]
+    # healthcheck:
+    #   test: ['CMD-SHELL', 'curl -f http://localhost:8001/health || exit 1']
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 3
     depends_on:
       db:
         condition: service_healthy
-      processor-server:
-        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+      lazyllm-parse-server:
+        # condition: service_healthy
+        condition: service_started
+    networks:
+      default:
+        aliases:
+          - processor-worker
 
-  parsing:
-    build:
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+  lazyllm-algo:
+    # build:
+    #   context: ./algorithm
+    #   dockerfile: Dockerfile
+    #   target: default
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-algo:0325-1
     expose:
       - "8000"
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -sf http://localhost:8000/docs || exit 1']
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 120s
+    # volumes:
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
+    # healthcheck:
+    #   test: ['CMD-SHELL', 'python parsing/healthcheck.py']
+    #   interval: 15s
+    #   timeout: 10s
+    #   retries: 10
+    #   start_period: 120s
     environment:
-      LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
-      LAZYRAG_DOCUMENT_SERVER_PORT: "8000"
+      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
+      LAZYRAG_ALGO_SERVER_PORT: ${LAZYRAG_ALGO_SERVER_PORT:-8000}
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
@@ -262,18 +509,29 @@ services:
       <<: *llm-api-keys
     command: ["python", "parsing/parsing.py"]
     depends_on:
-      processor-server:
-        condition: service_healthy
-      processor-worker:
+      lazyllm-parse-server:
+        # condition: service_healthy
         condition: service_started
+      lazyllm-parse-worker:
+        # condition: service_healthy
+        condition: service_started
+    networks:
+      default:
+        aliases:
+          - parsing
 
   chat:
-    build:
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+    # build:
+    #   context: ./algorithm
+    #   dockerfile: Dockerfile
+    #   target: default
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/chat:0325-1
     expose:
       - "8046"
+    volumes:
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+    # volumes:
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s
@@ -281,14 +539,16 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      LAZYRAG_DOCUMENT_SERVER_URL: http://parsing:8000
+      LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000}
+      LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYRAG_MAX_CONCURRENCY: "10"
       LAZYRAG_LLM_PRIORITY: "0"
-      <<: *llm-api-keys
+      <<: [*llm-api-keys, *upload-paths]
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
-      parsing:
-        condition: service_healthy
+      lazyllm-algo:
+        # condition: service_healthy
+        condition: service_started
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------
   milvus-etcd:
@@ -312,7 +572,7 @@ services:
   milvus-minio:
     profiles:
       - milvus
-    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/minio:RELEASE.2024-05-28T17-19-04Z
     environment:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
@@ -324,7 +584,7 @@ services:
   milvus:
     profiles:
       - milvus
-    image: milvusdb/milvus:${MILVUS_IMAGE_TAG:-v2.6.11}
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/milvus:v2.6.11 
     command: ['sh', '-c', 'sleep 15 && exec milvus run standalone']
     # seccomp:unconfined removed for security; add back if Milvus fails on your platform
     environment:
@@ -355,7 +615,7 @@ services:
   opensearch:
     profiles:
       - opensearch
-    image: opensearchproject/opensearch:${OPENSEARCH_IMAGE_TAG:-2.18.0}
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/opensearch:2.18.0 
     container_name: opensearch
     environment:
       - cluster.name=opensearch-cluster

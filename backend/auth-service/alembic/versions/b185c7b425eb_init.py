@@ -36,7 +36,6 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_permission_groups_code'), 'permission_groups', ['code'], unique=True)
     op.create_index(op.f('ix_permission_groups_module'), 'permission_groups', ['module'], unique=False)
-
     op.create_table(
         'roles',
         sa.Column('id', sa.Uuid(), nullable=False, comment='Primary key UUID'),
@@ -53,7 +52,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index(op.f('ix_roles_name'), 'roles', ['name'], unique=True)
-
     op.create_table(
         'role_permissions',
         sa.Column('id', sa.Uuid(), nullable=False, comment='Primary key UUID'),
@@ -79,7 +77,6 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(op.f('ix_role_permissions_role_id'), 'role_permissions', ['role_id'], unique=False)
-
     op.create_table(
         'users',
         sa.Column('id', sa.Uuid(), nullable=False, comment='Primary key UUID'),
@@ -112,7 +109,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_role_id'), 'users', ['role_id'], unique=False)
     op.create_index(op.f('ix_users_tenant_id'), 'users', ['tenant_id'], unique=False)
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
-
     op.create_table(
         'groups',
         sa.Column('id', sa.Uuid(), nullable=False, comment='Primary key UUID'),
@@ -135,7 +131,6 @@ def upgrade() -> None:
     op.create_index(op.f('ix_groups_creator_user_id'), 'groups', ['creator_user_id'], unique=False)
     op.create_index(op.f('ix_groups_group_name'), 'groups', ['group_name'], unique=False)
     op.create_index(op.f('ix_groups_tenant_id'), 'groups', ['tenant_id'], unique=False)
-
     op.create_table(
         'group_permissions',
         sa.Column('id', sa.Uuid(), nullable=False, comment='Primary key UUID'),
@@ -161,7 +156,6 @@ def upgrade() -> None:
         ['permission_group_id'],
         unique=False,
     )
-
     op.create_table(
         'user_groups',
         sa.Column('id', sa.Uuid(), nullable=False, comment='Primary key UUID'),

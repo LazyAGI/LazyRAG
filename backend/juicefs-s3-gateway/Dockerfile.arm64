@@ -1,0 +1,38 @@
+FROM --platform=linux/arm64 registry.sensetime.com/sensecore-graviton/graviton-golang-builder:1.24.9 as binaryimage
+
+RUN echo 'Acquire::AllowInsecureRepositories "true";' > /etc/apt/apt.conf.d/99insecure && \
+cat >/etc/apt/sources.list <<'EOF'
+deb https://mirrors.aliyun.com/debian trixie main contrib non-free non-free-firmware
+deb https://mirrors.aliyun.com/debian trixie-updates main contrib non-free non-free-firmware
+deb https://mirrors.aliyun.com/debian-security trixie-security main contrib non-free non-free-firmware
+EOF
+
+RUN apt-get update  && \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg mc && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+ENV GOPROXY=https://goproxy.cn,direct
+COPY . .
+
+RUN go env -w GO111MODULE=on \
+    && go env -w GOPROXY=https://goproxy.cn,direct
+
+RUN sed -i '/^juicefs.linux:/,+1c\
+juicefs.linux:\
+    CGO_ENABLED=1 GOARCH=arm64 CC=aarch64-linux-musl-gcc go build -ldflags="-s -w -linkmode external -extldflags '\''-static'\''" -o juicefs .' juicefs/Makefile
+
+RUN go env && cd juicefs && go mod tidy && make
+
+FROM --platform=linux/arm64 registry.sensetime.com/sensecore-graviton/graviton-golang-builder:1.24.9
+
+COPY --from=binaryimage /workspace/juicefs/juicefs /usr/local/bin/juicefs
+RUN chmod +x /usr/local/bin/juicefs
+
+# RUN rm -rf /bin/mount.juicefs && ln -s /usr/local/bin/juicefs /bin/mount.juicefs && /usr/local/bin/juicefs --version
+
+RUN chmod +x /usr/local/bin/juicefs && \
+    ln -sf /usr/local/bin/juicefs /bin/mount.juicefs && \
+    /usr/local/bin/juicefs --version
+
+ENTRYPOINT ["/usr/local/bin/juicefs"]

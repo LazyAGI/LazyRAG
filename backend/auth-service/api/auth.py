@@ -60,7 +60,6 @@ def _run_alembic_upgrade() -> None:
     if not alembic_ini.exists():
         logger.warning('alembic.ini not found at %s; skipping migrations', alembic_ini)
         return
-
     config = Config(str(alembic_ini))
     config.set_main_option('script_location', str(auth_service_root / 'alembic'))
 
@@ -92,7 +91,6 @@ def register(body: RegisterBody):
     confirm = (body.confirm_password or '').strip() if body.confirm_password else ''
     if password != confirm:
         raise_error(ErrorCodes.PASSWORD_CONFIRM_MISMATCH)
-
     with SessionLocal() as db:
         role_id = _default_role_id(db)
         user = auth_service.register_user(
@@ -124,7 +122,6 @@ def login(body: LoginBody):
         raise_error(ErrorCodes.USERNAME_REQUIRED)
     if not password:
         raise_error(ErrorCodes.PASSWORD_REQUIRED)
-
     try:
         with SessionLocal() as db:
             user = auth_service.authenticate_user(db=db, username=username, password=password)
@@ -167,7 +164,6 @@ def refresh(body: RefreshBody):
     user_id = get_user_id_by_token(token_hash)
     if user_id is None:
         raise_error(ErrorCodes.REFRESH_TOKEN_INVALID)
-
     delete_refresh_token(token_hash)
     with SessionLocal() as db:
         user = UserRepository.get_by_id(db, user_id, load_role=True)
@@ -255,7 +251,6 @@ def change_password(
         raise_error(ErrorCodes.NEW_PASSWORD_REQUIRED)
     if not auth_service.validate_password(new_password):
         raise_error(ErrorCodes.INVALID_PASSWORD)
-
     with SessionLocal() as db:
         row = UserRepository.get_by_id(db, user.id)
         if not row:
@@ -263,7 +258,6 @@ def change_password(
         row.password_hash = auth_service.hash_password(new_password)
         row.updated_pwd_time = datetime.now(timezone.utc)
         db.commit()
-
     return {'success': True}
 
 
