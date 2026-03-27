@@ -20,7 +20,7 @@ from api.user import router as user_router
 from core.errors import AppException, error_payload_from_exception
 
 
-# 确保日志可见（uvicorn 的 log_config 可能把默认级别设为 WARNING/且禁用既有 logger）
+# Ensure logs are visible (uvicorn log_config may set default level to WARNING and disable existing loggers)
 logging.basicConfig(level=logging.INFO, format='%(message)s', force=True)
 
 _API_PREFIX = '/api/authservice'
@@ -31,7 +31,7 @@ _DOCS_PATH = f'{_API_PREFIX}/docs'
 
 app = FastAPI(
     title='Auth Service',
-    description='LazyRAG 认证与授权服务（登录、注册、Token、用户/角色/组管理）',
+    description='LazyRAG authentication and authorization service (login, registration, token, user/role/group management)',
     version='1.0.0',
     docs_url=_DOCS_PATH,
     redoc_url=None,
@@ -50,7 +50,7 @@ _logger.propagate = True
 
 @app.middleware('http')
 async def _log_request(request: Request, call_next):
-    """每个请求打印一条相关请求日志 + access-log"""
+    """Log one request entry plus access-log for each request"""
     if request.url.path in _SWAGGER_PATHS:
         return await call_next(request)
     client_ip = None
@@ -62,10 +62,10 @@ async def _log_request(request: Request, call_next):
     try:
         response = await call_next(request)
     except AppException:
-        # 业务异常交给 exception_handler 统一格式化，不应全部是 500
+        # Business exceptions are formatted by exception_handler and should not all be 500
         raise
     except redis.exceptions.RedisError:
-        # 交给 Redis 专用 handler 输出更清晰的错误信息
+        # Handled by Redis-specific handler for clearer error output
         raise
     except StarletteHTTPException:
         raise
@@ -78,7 +78,7 @@ async def _log_request(request: Request, call_next):
             cost_ms,
             extra={'method': request.method, 'path': request.url.path, 'cost_ms': cost_ms},
         )
-        # 强制输出堆栈到 stdout（避免 uvicorn/logger 配置导致 traceback 不可见）
+        # Force traceback output to stdout to avoid invisibility caused by uvicorn/logger config
         print(traceback.format_exc(), flush=True)
         _logger.error(
             'unhandled_exception_detail type=%s module=%s message=%s',
@@ -201,7 +201,7 @@ def _handle_app_exception(_, exc: AppException):
 @app.exception_handler(redis.exceptions.RedisError)
 def _handle_redis_error(_, exc: redis.exceptions.RedisError):
     from core.errors import ErrorCodes, raise_error
-    # 这里必须打印完整堆栈，否则容器日志只剩 "Redis 认证失败" 无法定位根因。
+    # Full stack trace must be printed here; otherwise container logs may only show "Redis authentication failed" and hide the root cause.
     tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     _logger.error('redis_error type=%s message=%s\n%s', type(exc).__name__, str(exc), tb)
     print(f'redis_error type={type(exc).__name__} message={exc}\n{tb}', flush=True)
@@ -224,7 +224,7 @@ def _handle_http_exception(_, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 def _handle_validation_error(_, exc: RequestValidationError):
-    return JSONResponse(status_code=400, content={'code': 400, 'message': '参数错误', 'data': exc.errors()})
+    return JSONResponse(status_code=400, content={'code': 400, 'message': 'Invalid request parameters', 'data': exc.errors()})
 
 
 def _export_openapi_artifacts() -> None:
@@ -258,7 +258,7 @@ def swagger_json():
 
 @app.get(_OPENAPI_YAML_PATH, include_in_schema=False)
 def openapi_yaml():
-    """openapi.yaml文档"""
+    """openapi.yaml document"""
     schema = app.openapi()
     body = yaml.dump(schema, allow_unicode=True, sort_keys=False)
     return Response(content=body, media_type='application/x-yaml')

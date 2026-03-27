@@ -1,8 +1,8 @@
-// Package migrate 提供启动时执行 SQL 迁移（与 dbmigrate upgrade 等价）。
-// 仅此一套迁移机制：执行 dbmigrate migrate 生成 migrations/*.sql，启动时本包 RunUp() 应用。
+// Package migrate textStarttext SQL text（text dbmigrate upgrade text）。
+// text：text dbmigrate migrate text migrations/*.sql，Starttext RunUp() text。
 //
-// 版本控制：golang-migrate 在库中维护 schema_migrations 表（version, dirty），
-// 只执行尚未记录的迁移；已执行过的版本不会重复执行。
+// text：golang-migrate text schema_migrations text（version, dirty），
+// text；text。
 
 package migrate
 
@@ -25,8 +25,8 @@ import (
 	"lazyrag/core/log"
 )
 
-// RunUp 执行 migrations 目录下的 .up.sql（与 dbmigrate upgrade 等价）。启动时调用，仅此一套迁移。
-// 若未配置 ACL_DB_DSN 或 MIGRATIONS_DIR 不存在则跳过并返回 nil。
+// RunUp text migrations text .up.sql（text dbmigrate upgrade text）。Starttext，text。
+// text ACL_DB_DSN text MIGRATIONS_DIR text nil。
 func RunUp() error {
 	driver := envOr("ACL_DB_DRIVER", "sqlite")
 	dsn := strings.TrimSpace(os.Getenv("ACL_DB_DSN"))

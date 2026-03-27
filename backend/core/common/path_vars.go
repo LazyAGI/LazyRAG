@@ -7,9 +7,9 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// PathVar 返回清洗后的路径变量值。
-// 对于形如 /resources/{id}:action 的 gorilla/mux 路由，最后一个变量会被解析成 "id:action"，
-// 这里统一剥离末尾的 ":action" 后缀，避免把动作名误当成资源 ID。
+// PathVar text。
+// text /resources/{id}:action text gorilla/mux text，text "id:action"，
+// text ":action" text，text ID。
 func PathVar(r *http.Request, name string) string {
 	if r == nil {
 		return ""

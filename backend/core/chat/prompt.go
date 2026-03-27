@@ -33,7 +33,7 @@ func conversationNameFromPath(r *http.Request) string {
 	return common.PathVar(r, "name")
 }
 
-// writePromptJSON 直接输出 JSON（不包 code/message/data 壳），与 neutrino ragservice HTTP 网关保持一致。
+// writePromptJSON text JSON（text code/message/data text），text neutrino ragservice HTTP text。
 func writePromptJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -44,7 +44,7 @@ func writePromptJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// CreatePrompt 对应 POST /api/v1/prompts
+// CreatePrompt text POST /api/v1/prompts
 func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DisplayName string `json:"display_name"`
@@ -102,7 +102,7 @@ func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdatePrompt 对应 PATCH /api/v1/prompts/{name}
+// UpdatePrompt text PATCH /api/v1/prompts/{name}
 func UpdatePrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
@@ -171,7 +171,7 @@ func UpdatePrompt(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeletePrompt 对应 DELETE /api/v1/prompts/{name}
+// DeletePrompt text DELETE /api/v1/prompts/{name}
 func DeletePrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
@@ -188,11 +188,11 @@ func DeletePrompt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
-	// 与 neurtrino 一致：200 + 空 JSON
+	// text neurtrino text：200 + text JSON
 	writePromptJSON(w, http.StatusOK, nil)
 }
 
-// GetPrompt 对应 GET /api/v1/prompts/{name}
+// GetPrompt text GET /api/v1/prompts/{name}
 func GetPrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
@@ -223,7 +223,7 @@ func GetPrompt(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListPrompts 对应 GET /api/v1/prompts（支持 page_size、page_token）
+// ListPrompts text GET /api/v1/prompts（text page_size、page_token）
 func ListPrompts(w http.ResponseWriter, r *http.Request) {
 	userID := corestore.UserID(r)
 	if userID == "" {
@@ -304,7 +304,7 @@ func ListPrompts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SetDefaultPrompt 对应 POST /api/v1/prompts/{name}:setDefault
+// SetDefaultPrompt text POST /api/v1/prompts/{name}:setDefault
 func SetDefaultPrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
@@ -337,7 +337,7 @@ func SetDefaultPrompt(w http.ResponseWriter, r *http.Request) {
 	writePromptJSON(w, http.StatusOK, nil)
 }
 
-// UnsetDefaultPrompt 对应 POST /api/v1/prompts/{name}:unsetDefault
+// UnsetDefaultPrompt text POST /api/v1/prompts/{name}:unsetDefault
 func UnsetDefaultPrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {

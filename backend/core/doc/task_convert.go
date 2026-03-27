@@ -17,7 +17,7 @@ import (
 	"lazyrag/core/log"
 )
 
-// Office 转 PDF：转换状态（写入 documents.ext）
+// Office text PDF：text（text documents.ext）
 const (
 	ConvertStatusNone       = "NONE"
 	ConvertStatusPending    = "PENDING"
@@ -31,8 +31,8 @@ const convertProviderHTTP = "http"
 const officeConvertRetryCount = 2
 const defaultOfficeConvertWorkers = 4
 
-// env: LAZYRAG_OFFICE_CONVERT_URL — 完整 URL，POST JSON {"source_path":"..."}，返回 {"pdf_path":"..."} 或 {"data":{"pdf_path":"..."}}
-// Office 文件在 tasks:start 阶段执行转换；失败仅记录状态，并回退到原文件继续提交。
+// env: LAZYRAG_OFFICE_CONVERT_URL — text URL，POST JSON {"source_path":"..."}，text {"pdf_path":"..."} text {"data":{"pdf_path":"..."}}
+// Office text tasks:start text；Failedtext，text。
 
 func newDocumentExt(storedPath, storedName, originalFilename string, fileSize int64, contentType, relativePath string, tags []string) documentExt {
 	d := documentExt{StoredPath: storedPath, StoredName: storedName, OriginalFilename: originalFilename, FileSize: fileSize, ContentType: contentType, RelativePath: relativePath, Tags: append([]string(nil), tags...)}
@@ -47,7 +47,7 @@ func newDocumentExt(storedPath, storedName, originalFilename string, fileSize in
 	return d
 }
 
-// parsePathForAdd 提交 /v1/docs/add 时使用的本地路径（容器内）；Office 成功时为 PDF。
+// parsePathForAdd text /v1/docs/add text（text）；Office Successtext PDF。
 func parsePathForAdd(d documentExt) string {
 	if v := strings.TrimSpace(d.ParseStoredPath); v != "" {
 		return v
@@ -82,7 +82,7 @@ func previewContentTypeForContent(d documentExt) string {
 	return strings.TrimSpace(d.ContentType)
 }
 
-// isOfficeDocument 根据扩展名与 Content-Type 粗判是否为 Office 文档
+// isOfficeDocument text Content-Type text Office Document
 func isOfficeDocument(storedPath, contentType, originalFilename string) bool {
 	name := originalFilename
 	if name == "" {
@@ -106,7 +106,7 @@ func isOfficeDocument(storedPath, contentType, originalFilename string) bool {
 	return false
 }
 
-// expectedParseOutputPath 与原文件同目录：stem.__parsed__.pdf
+// expectedParseOutputPath text：stem.__parsed__.pdf
 func expectedParseOutputPath(sourcePath string) string {
 	dir := filepath.Dir(sourcePath)
 	base := filepath.Base(sourcePath)
@@ -122,7 +122,7 @@ func expectedParseOutputPathByStoredName(sourcePath, storedName string) string {
 }
 
 func officeConvertTimeout() time.Duration {
-	// 默认 15 分钟，大文档转换
+	// Default 15 text，textDocumenttext
 	return 15 * time.Minute
 }
 
@@ -138,7 +138,7 @@ func officeConvertWorkers() int {
 	return v
 }
 
-// applyOfficeConversion 在 d 已填入源文件 StoredPath/StoredName 等后调用；失败时写入 ConvertStatus=FAILED，不返回 error（上传仍成功）。
+// applyOfficeConversion text d text StoredPath/StoredName text；Failedtext ConvertStatus=FAILED，text error（UploadtextSuccess）。
 func applyOfficeConversion(ctx context.Context, d *documentExt) {
 	src := strings.TrimSpace(d.StoredPath)
 	if src == "" {
@@ -160,7 +160,7 @@ func applyOfficeConversion(ctx context.Context, d *documentExt) {
 	d.ConvertError = ""
 	d.ConvertProvider = convertProviderHTTP
 
-	// 幂等：已存在有效 PDF 且不比源旧则复用
+	// text：text PDF text
 	if ok, sz := reuseExistingPDFIfFresh(src, outPath); ok {
 		fillParseFields(d, outPath, sz)
 		d.ConvertStatus = ConvertStatusSucceeded
@@ -216,7 +216,7 @@ func reuseExistingPDFIfFresh(sourcePath, pdfPath string) (bool, int64) {
 	if err != nil || pdfSt.IsDir() || pdfSt.Size() == 0 {
 		return false, 0
 	}
-	// 源文件比 PDF 新则视为需要重转
+	// text PDF text
 	if pdfSt.ModTime().Before(srcSt.ModTime()) {
 		return false, 0
 	}
@@ -296,7 +296,7 @@ func callOfficeConvertHTTP(ctx context.Context, serviceURL, sourcePath string) (
 	if err := common.ApiPost(ctx, serviceURL, body, nil, &raw, officeConvertTimeout()); err != nil {
 		return "", err
 	}
-	// 扁平或嵌套 data
+	// text data
 	if p := extractPDFPath(raw); p != "" {
 		return p, nil
 	}

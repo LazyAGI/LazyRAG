@@ -1,4 +1,4 @@
-// Package store 提供 core 内公用的 DB、Redis 初始化与访问以及请求用户上下文，供 chat、doc、file 等模块复用。
+// Package store text core text DB、Redis InitializetextRequestUsertext，text chat、doc、file text。
 package store
 
 import (
@@ -14,7 +14,7 @@ var (
 	rdb       *redis.Client
 )
 
-// Init 初始化全局 DB 与 Redis，由 main 在启动时调用
+// Init Initializetext DB text Redis，text main textStarttext
 func Init(database, lazyllmDatabase *gorm.DB, redisClient *redis.Client) {
 	db = database
 	if lazyllmDatabase != nil {
@@ -25,10 +25,10 @@ func Init(database, lazyllmDatabase *gorm.DB, redisClient *redis.Client) {
 	rdb = redisClient
 }
 
-// DB 返回全局 *gorm.DB
+// DB text *gorm.DB
 func DB() *gorm.DB { return db }
 
-// LazyLLMDB 返回 lazyllm 只读库连接；未单独配置时回退到主库。
+// LazyLLMDB text lazyllm text；text。
 func LazyLLMDB() *gorm.DB {
 	if lazyllmDB != nil {
 		return lazyllmDB
@@ -36,10 +36,10 @@ func LazyLLMDB() *gorm.DB {
 	return db
 }
 
-// Redis 返回全局 *redis.Client，可能为 nil（未配置时）
+// Redis text *redis.Client，text nil（text）
 func Redis() *redis.Client { return rdb }
 
-// MustRedisFromEnv 从环境变量创建 Redis 客户端并 Ping，失败则 panic，供 main 初始化使用
+// MustRedisFromEnv textCreate Redis text Ping，Failedtext panic，text main Initializetext
 func MustRedisFromEnv() *redis.Client {
 	return common.MustRedisFromEnv()
 }

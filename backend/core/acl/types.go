@@ -2,21 +2,21 @@ package acl
 
 import "time"
 
-// 知识库可见级别（读权限）。
+// Knowledge basetext（textPermission）。
 const (
-	VisibilityPublic    = "public"    // 所有人可读
-	VisibilityProtected = "protected" // 仅 ACL/所有者可读
-	VisibilityPrivate   = "private"   // 仅所有者与 ACL
+	VisibilityPublic    = "public"    // text
+	VisibilityProtected = "protected" // text ACL/text
+	VisibilityPrivate   = "private"   // text ACL
 )
 
-// ACL 授权对象类型。
+// ACL text。
 const (
 	GranteeUser   = "user"
 	GranteeGroup  = "group"
-	GranteeTenant = "tenant" // 兼容旧值，等同 group
+	GranteeTenant = "tenant" // text，text group
 )
 
-// 通用权限动作（兼容旧逻辑与通用鉴权调用）。
+// textPermissiontext（textAuthorizationtext）。
 const (
 	PermNone   = "none"
 	PermRead   = "read"
@@ -24,7 +24,7 @@ const (
 	PermUpload = "upload"
 )
 
-// 具体权限种类。
+// textPermissiontext。
 const (
 	PermissionKBRead      = "KB_READ"
 	PermissionKBWrite     = "KB_WRITE"
@@ -37,7 +37,7 @@ const (
 	PermissionDatasetUpload = "DATASET_UPLOAD"
 )
 
-// 权限来源（用于审计）。
+// Permissiontext（text）。
 const (
 	SourceOwner     = "owner"
 	SourcePublic    = "public"
@@ -45,33 +45,33 @@ const (
 	SourceACL       = "acl"
 )
 
-// ACL 资源类型。
+// ACL text。
 const (
-	ResourceTypeKB = "kb" // 知识库
-	ResourceTypeDB = "db" // 数据库
+	ResourceTypeKB = "kb" // Knowledge base
+	ResourceTypeDB = "db" // text
 )
 
-// VisibilityRow 与可见性表对应：id、resource_id(kb_id)、level（缺省为 private）。
+// VisibilityRow text：id、resource_id(kb_id)、level（text private）。
 type VisibilityRow struct {
 	ID         int64  `json:"id"`
-	ResourceID string `json:"resource_id"` // kb 资源为 kb_id
+	ResourceID string `json:"resource_id"` // kb text kb_id
 	Level      string `json:"level"`       // public / protected / private
 }
 
-// ACLRow 与 ACL 表对应，适用于 kb 与 db 资源。
+// ACLRow text ACL text，text kb text db text。
 type ACLRow struct {
 	ID           int64      `json:"id"`
 	ResourceType string     `json:"resource_type"` // kb / db
-	ResourceID   string     `json:"resource_id"`   // kb_id 或 db_id
+	ResourceID   string     `json:"resource_id"`   // kb_id text db_id
 	GranteeType  string     `json:"grantee_type"`  // user / group
-	TargetID     string     `json:"target_id"`     // user_id 或 group_id
+	TargetID     string     `json:"target_id"`     // user_id text group_id
 	Permission   string     `json:"permission"`    // KB_READ / DATASET_WRITE / ...
 	CreatedBy    string     `json:"created_by"`
 	CreatedAt    time.Time  `json:"created_at"`
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
-// ACLListItem 列表接口返回项（API 中 grantee_id 即库中 target_id）。
+// ACLListItem text（API text grantee_id text target_id）。
 type ACLListItem struct {
 	ID          int64     `json:"id"`
 	GranteeType string    `json:"grantee_type"`
@@ -80,7 +80,7 @@ type ACLListItem struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// KBInfo 知识库最小元数据，用于列表与归属校验。
+// KBInfo Knowledge basetext，text。
 type KBInfo struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
@@ -88,23 +88,23 @@ type KBInfo struct {
 	Visibility string `json:"visibility"`
 }
 
-// --- API 请求/响应 DTO ---
+// --- API Request/Response DTO ---
 
-// AddACLRequest 对应 POST /api/kb/{kb_id}/acl 请求体
+// AddACLRequest text POST /api/kb/{kb_id}/acl Requesttext
 type AddACLRequest struct {
-	GranteeType string     `json:"grantee_type"` // user / group（兼容 tenant）
+	GranteeType string     `json:"grantee_type"` // user / group（text tenant）
 	GranteeID   string     `json:"grantee_id"`
-	Permission  string     `json:"permission"`   // 兼容 read/write，也支持 KB_READ / DATASET_WRITE / ...
+	Permission  string     `json:"permission"`   // text read/write，text KB_READ / DATASET_WRITE / ...
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
-// UpdateACLRequest 对应 PUT /api/kb/{kb_id}/acl/{acl_id} 请求体
+// UpdateACLRequest text PUT /api/kb/{kb_id}/acl/{acl_id} Requesttext
 type UpdateACLRequest struct {
 	Permission string     `json:"permission"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 }
 
-// BatchAddACLRequest 对应 POST /api/kb/{kb_id}/acl/batch 请求体
+// BatchAddACLRequest text POST /api/kb/{kb_id}/acl/batch Requesttext
 type BatchAddACLRequest struct {
 	Items []BatchAddACLItem `json:"items"`
 }
@@ -115,36 +115,36 @@ type BatchAddACLItem struct {
 	Permission  string `json:"permission"`
 }
 
-// PermissionBatchRequest 对应 POST /api/kb/permission/batch 请求体
+// PermissionBatchRequest text POST /api/kb/permission/batch Requesttext
 type PermissionBatchRequest struct {
 	KbIDs []string `json:"kb_ids"`
 }
 
-// APIResponse 接口统一响应外壳：{ code, message, data }
+// APIResponse textResponsetext：{ code, message, data }
 type APIResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
 }
 
-// PermissionResult 对应 GET /api/kb/{kb_id}/permission
+// PermissionResult text GET /api/kb/{kb_id}/permission
 type PermissionResult struct {
 	Permissions []string `json:"permissions"`
 	Source      string   `json:"source"` // public / protected / owner / acl
 }
 
-// PermissionBatchItem 对应 POST /api/kb/permission/batch 单项
+// PermissionBatchItem text POST /api/kb/permission/batch text
 type PermissionBatchItem struct {
 	KbID        string   `json:"kb_id"`
 	Permissions []string `json:"permissions"`
 }
 
-// CanResult 对应 GET /api/kb/{kb_id}/can
+// CanResult text GET /api/kb/{kb_id}/can
 type CanResult struct {
 	Allowed bool `json:"allowed"`
 }
 
-// KBListResult 对应 GET /api/kb/list
+// KBListResult text GET /api/kb/list
 type KBListResult struct {
 	Total int64       `json:"total"`
 	List  []KBListRow `json:"list"`

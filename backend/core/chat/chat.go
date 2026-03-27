@@ -1,5 +1,5 @@
-// chat 提供对上游 /api/chat 和 /api/chat_stream 的调用能力，
-// 与 neutrino external/chat.go 的 ChatService 行为保持高度一致。
+// chat text /api/chat text /api/chat_stream text，
+// text neutrino external/chat.go text ChatService text。
 package chat
 
 import (
@@ -23,13 +23,13 @@ const (
 	defaultTTFB         = 3 * time.Minute
 )
 
-// ChatMessage 与 neutrino external.ChatMessage 对齐。
+// ChatMessage text neutrino external.ChatMessage text。
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// DatasetFilters 与 neutrino external.DatasetFilters 对齐（仅保留当前需要的字段）。
+// DatasetFilters text neutrino external.DatasetFilters text（text）。
 type DatasetFilters struct {
 	Subject    []string `json:"subject,omitempty"`
 	DatasetIDs []string `json:"kb_id,omitempty"`
@@ -37,7 +37,7 @@ type DatasetFilters struct {
 	Creators   []string `json:"creator,omitempty"`
 }
 
-// LazyChatRequest 与 neutrino external.LazyChatRequest 对齐，用于 /api/chat 与 /api/chat_stream。
+// LazyChatRequest text neutrino external.LazyChatRequest text，text /api/chat text /api/chat_stream。
 type LazyChatRequest struct {
 	Query          string          `json:"query"`
 	History        []ChatMessage   `json:"history,omitempty"`
@@ -48,7 +48,7 @@ type LazyChatRequest struct {
 	EnableThinking bool            `json:"enable_thinking,omitempty"`
 }
 
-// LazyChatData 与外部返回的 data 区域字段对齐。
+// LazyChatData text data text。
 type LazyChatData struct {
 	Text          string `json:"text"`
 	Sources       []any  `json:"sources"`
@@ -56,7 +56,7 @@ type LazyChatData struct {
 	ReasoningText string `json:"think"`
 }
 
-// LazyChatResponse 对应一次性 /api/chat 的响应。
+// LazyChatResponse text /api/chat textResponse。
 type LazyChatResponse struct {
 	Code int          `json:"code"`
 	Msg  string       `json:"msg"`
@@ -64,20 +64,20 @@ type LazyChatResponse struct {
 	Cost float64      `json:"cost"`
 }
 
-// LazyStreamData 对应 /api/chat_stream 每一行解析后的结构。
+// LazyStreamData text /api/chat_stream text。
 type LazyStreamData struct {
 	RawText string
 	Resp    *LazyChatResponse
 }
 
-// ChatService 封装对上游对话服务的访问（/api/chat 与 /api/chat_stream）。
+// ChatService text（/api/chat text /api/chat_stream）。
 type ChatService struct {
 	chatURL       string
 	streamChatURL string
 	client        *http.Client
 }
 
-// NewChatServiceWithEndpoint 创建使用指定 endpoint 的 ChatService，endpoint 形如 http://host:port。
+// NewChatServiceWithEndpoint Createtext endpoint text ChatService，endpoint text http://host:port。
 func NewChatServiceWithEndpoint(endpoint string) *ChatService {
 	endpoint = strings.TrimRight(endpoint, "/")
 	if endpoint == "" {
@@ -110,7 +110,7 @@ func NewChatServiceWithEndpoint(endpoint string) *ChatService {
 	}
 }
 
-// Chat 调用上游 /api/chat，获取一次性完整结果。
+// Chat text /api/chat，Gettext。
 func (c *ChatService) Chat(ctx context.Context, req *LazyChatRequest) (*LazyChatResponse, error) {
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
@@ -137,7 +137,7 @@ func (c *ChatService) Chat(ctx context.Context, req *LazyChatRequest) (*LazyChat
 	return &out, nil
 }
 
-// StreamChat 调用上游 /api/chat_stream，返回增量数据 channel；ctx 取消或上游关闭时 channel 关闭。
+// StreamChat text /api/chat_stream，text channel；ctx Unsettext channel text。
 func (c *ChatService) StreamChat(ctx context.Context, req *LazyChatRequest) (<-chan *LazyStreamData, error) {
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
@@ -161,7 +161,7 @@ func (c *ChatService) StreamChat(ctx context.Context, req *LazyChatRequest) (<-c
 	return lazyStreamHandler(ctx, resp), nil
 }
 
-// lazyStreamHandler 与 neutrino 实现类似：逐行读取，每行 JSON 反序列化为 LazyChatResponse。
+// lazyStreamHandler text neutrino text：text，text JSON text LazyChatResponse。
 func lazyStreamHandler(ctx context.Context, resp *http.Response) <-chan *LazyStreamData {
 	scanner := bufio.NewScanner(resp.Body)
 	dataChan := make(chan *LazyStreamData)
@@ -170,7 +170,7 @@ func lazyStreamHandler(ctx context.Context, resp *http.Response) <-chan *LazyStr
 			close(dataChan)
 			_ = resp.Body.Close()
 		}()
-		// 防止单行过长
+		// text
 		scanner.Buffer(nil, 512*1024)
 		for scanner.Scan() && ctx.Err() == nil {
 			text := strings.TrimSpace(scanner.Text())
@@ -180,7 +180,7 @@ func lazyStreamHandler(ctx context.Context, resp *http.Response) <-chan *LazyStr
 			data := &LazyStreamData{}
 			var streamResp LazyChatResponse
 			if err := json.Unmarshal([]byte(text), &streamResp); err != nil {
-				// 解析失败时传递原始行，保持与 neutrino 语义接近
+				// textFailedtext，text neutrino text
 				data.RawText = text
 			} else {
 				data.Resp = &streamResp
@@ -195,13 +195,13 @@ func lazyStreamHandler(ctx context.Context, resp *http.Response) <-chan *LazyStr
 	return dataChan
 }
 
-// UpstreamStreamChunk 保留给现有 ChatConversations 逻辑使用，对应 LazyChatResponse.Data。
+// UpstreamStreamChunk text ChatConversations text，text LazyChatResponse.Data。
 type UpstreamStreamChunk struct {
 	Text          string `json:"text"`
 	Think         string `json:"think"`
 	Status        string `json:"status"`
 	Sources       []any  `json:"sources"`
-	ReasoningText string `json:"reasoning_text"` // 部分上游用 think
+	ReasoningText string `json:"reasoning_text"` // text think
 }
 
 type upstreamStreamLine struct {
@@ -210,8 +210,8 @@ type upstreamStreamLine struct {
 	Data UpstreamStreamChunk `json:"data"`
 }
 
-// StreamChatUpstream 兼容旧签名：用于 ChatConversations 内部，基于上面的 ChatService.StreamChat 实现。
-// body 为请求 JSON 的 map 表示，baseURL 为上游服务 endpoint（不带 /api/...）。
+// StreamChatUpstream text：text ChatConversations text，text ChatService.StreamChat text。
+// body textRequest JSON text map text，baseURL text endpoint（text /api/...）。
 func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any) (<-chan UpstreamStreamChunk, error) {
 	service := NewChatServiceWithEndpoint(baseURL)
 
@@ -230,7 +230,7 @@ func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any
 			})
 		}
 	}
-	// 其余字段（filters/files/databases/enable_thinking）暂不强转，保持与原实现行为一致。
+	// text（filters/files/databases/enable_thinking）text，text。
 
 	streamChan, err := service.StreamChat(ctx, req)
 	if err != nil {
@@ -245,7 +245,7 @@ func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any
 				continue
 			}
 			if d.Resp == nil {
-				// 解析失败时的 RawText：忽略或按需处理，这里直接跳过，保持与旧实现接近
+				// textFailedtext RawText：text，text，text
 				continue
 			}
 			chunk := UpstreamStreamChunk{

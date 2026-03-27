@@ -59,7 +59,7 @@ def get_user_id_by_token(token_hash: str) -> uuid.UUID | None:
 
 
 def delete_refresh_token(token_hash: str) -> None:
-    """使该 refresh token 失效（登出或刷新时删旧 token）。"""
+    """Invalidate this refresh token (delete old token on logout or refresh)."""
     r = redis_client()
     key = _key(token_hash)
     try:

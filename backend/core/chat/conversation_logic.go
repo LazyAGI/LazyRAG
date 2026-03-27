@@ -24,7 +24,7 @@ const (
 	defaultTopK                      = 3
 )
 
-// newID 仍用于 history 等内部 ID。
+// newID text history text ID。
 func newID(prefix string) string {
 	return prefix + strconvBase36(time.Now().UnixNano())
 }
@@ -52,11 +52,11 @@ func strconvBase36(v int64) string {
 	return string(b[i:])
 }
 
-// GetDefaultDisplayName 与 neurtrino 的逻辑对齐：
-// 1. 优先使用 input 中第一个非空 text；
-// 2. 否则退回第一个非空 uri；
-// 3. 都没有时用 conversationID；
-// 4. 最终截断为最多 255 个 rune。
+// GetDefaultDisplayName text neurtrino text：
+// 1. text input text text；
+// 2. text uri；
+// 3. text conversationID；
+// 4. text 255 text rune。
 func GetDefaultDisplayName(conversationID string, input []map[string]any) string {
 	tempContent := ""
 	for _, q := range input {
@@ -80,7 +80,7 @@ func GetDefaultDisplayName(conversationID string, input []map[string]any) string
 	return string(runes)
 }
 
-// newConversationID 生成 UUID v4，会话 ID 与 neutrino 保持一致风格。
+// newConversationID text UUID v4，Conversation ID text neutrino text。
 func newConversationID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
@@ -109,7 +109,7 @@ func conversationIDFromName(name string) string {
 	return name
 }
 
-// ensureConversation 加载或创建该用户的会话，返回会话、下一条 history 的 seq、error
+// ensureConversation textCreatetextUsertextConversation，textConversation、text history text seq、error
 func ensureConversation(db *gorm.DB, convID, displayName string, searchConfig json.RawMessage, models json.RawMessage, userID, userName string) (*orm.Conversation, int, error) {
 	now := time.Now()
 	var c orm.Conversation
@@ -356,8 +356,8 @@ func handleStreamChat(
 	chatCtx, chatCancel := context.WithCancel(context.Background())
 	defer chatCancel()
 	if rdb != nil {
-		// 与 neutrino 一致：生成/续传相关的 Redis 元数据写入使用 chatCtx，
-		// 避免页面刷新导致 reqCtx 取消，从而 generating 状态未写入，resume 误判为已完成。
+		// text neutrino text：text/text Redis text chatCtx，
+		// text reqCtx Unset，text generating text，resume text。
 		_ = setChatInput(chatCtx, rdb, convID, historyID, query, seq)
 		_ = setChatStatus(chatCtx, rdb, convID, historyID, "generating", "")
 		if dualReply {
@@ -411,7 +411,7 @@ func streamSingleAnswer(
 	var sources []any
 	thinkingDone := false
 	thinkStart := time.Now()
-	// 首帧：仅携带会话/历史信息，finish_reason 为 UNSPECIFIED
+	// text：textConversation/text，finish_reason text UNSPECIFIED
 	writeSSEChunk(w, flusher, &ChatChunkResponse{
 		ConversationID:   convID,
 		Seq:              int32(seq),
@@ -455,7 +455,7 @@ func streamSingleAnswer(
 		if reqCtx.Err() == nil {
 			writeSSEChunk(w, flusher, chunk)
 		}
-		// 与 neutrino 一致：Redis 写入用 chatCtx，避免用户刷新后 reqCtx 取消导致后续 chunk 写不进去，resume 无法续传
+		// text neutrino text：Redis text chatCtx，textUsertext reqCtx Unsettext chunk text，resume text
 		if rdb != nil {
 			_ = appendChatChunk(chatCtx, rdb, convID, historyID, chunk)
 		}
@@ -476,7 +476,7 @@ func streamSingleAnswer(
 	db.Model(&orm.Conversation{}).Where("id = ?", convID).Update("updated_at", now)
 	db.Model(&orm.Conversation{}).Where("id = ?", convID).UpdateColumn("chat_times", gorm.Expr("chat_times + ?", 1))
 	if reqCtx.Err() == nil {
-		// 结束帧：message 携带完整答案，finish_reason 为 STOP
+		// text：message text，finish_reason text STOP
 		writeSSEChunk(w, flusher, &ChatChunkResponse{
 			ConversationID:    convID,
 			Seq:               int32(seq),
@@ -545,7 +545,7 @@ func streamDualAnswer(
 			})
 			writeMu.Unlock()
 		}
-		// 与 neutrino 一致：Redis 写入用 chatCtx，避免刷新后 reqCtx 取消导致 chunk 写不进去
+		// text neutrino text：Redis text chatCtx，text reqCtx Unsettext chunk text
 		if rdb != nil {
 			_ = appendChatChunk(chatCtx, rdb, convID, historyID, &ChatChunkResponse{
 				ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: historyID,

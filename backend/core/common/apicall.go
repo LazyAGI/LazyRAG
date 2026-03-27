@@ -10,17 +10,17 @@ import (
 	"time"
 )
 
-// ApiGet 统一封装外部 HTTP GET(JSON) 调用。
+// ApiGet text HTTP GET(JSON) text。
 func ApiGet(ctx context.Context, url string, header map[string]string, response any, timeout time.Duration) error {
 	return do(ctx, url, http.MethodGet, nil, header, response, timeout)
 }
 
-// ApiPost 统一封装外部 HTTP POST(JSON) 调用。
+// ApiPost text HTTP POST(JSON) text。
 func ApiPost(ctx context.Context, url string, body any, header map[string]string, response any, timeout time.Duration) error {
 	return do(ctx, url, http.MethodPost, body, header, response, timeout)
 }
 
-// ApiDelete 统一封装外部 HTTP DELETE(JSON) 调用。
+// ApiDelete text HTTP DELETE(JSON) text。
 func ApiDelete(ctx context.Context, url string, header map[string]string, response any, timeout time.Duration) error {
 	return do(ctx, url, http.MethodDelete, nil, header, response, timeout)
 }

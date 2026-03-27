@@ -210,11 +210,11 @@ class UserGroupRepository:
 
 
 class GroupPermissionRepository:
-    """用户组与权限组关联：组内成员在鉴权时自动拥有组权限（与角色权限取并集）。"""
+    """Group-to-permission-group mapping: group members automatically have group permissions during authorization (union with role permissions)."""
 
     @classmethod
     def get_permission_codes(cls, session: Session, group_id: uuid.UUID) -> list[str]:
-        """返回某组绑定的权限组 code 列表。"""
+        """Return permission-group code list bound to a group."""
         rows = (
             session.query(PermissionGroup.code)
             .join(GroupPermission, GroupPermission.permission_group_id == PermissionGroup.id)
@@ -227,7 +227,7 @@ class GroupPermissionRepository:
     def replace_permissions(
         cls, session: Session, group_id: uuid.UUID, permission_group_ids: set[uuid.UUID]
     ) -> None:
-        """全量替换组的权限组绑定（先删后插，保证无重复）。"""
+        """Fully replace group permission bindings (delete then insert, ensuring no duplicates)."""
         session.query(GroupPermission).filter_by(group_id=group_id).delete(synchronize_session=False)
         for pg_id in permission_group_ids:
             session.add(GroupPermission(group_id=group_id, permission_group_id=pg_id))

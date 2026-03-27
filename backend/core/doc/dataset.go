@@ -19,9 +19,9 @@ import (
 	corestore "lazyrag/core/store"
 )
 
-// DatasetService 占位实现，后续补全。
+// DatasetService text，text。
 
-// ----- API 数据结构：严格对齐 ragservice_Dataset表结构与DatasetService接口.md -----
+// ----- API text：text ragservice_DatasettextDatasetServicetext.md -----
 
 type Algo struct {
 	AlgoID      string `json:"algo_id"`
@@ -284,7 +284,7 @@ func canAccessDataset(ds *orm.Dataset, userID string, action string) bool {
 }
 
 func ListAlgos(w http.ResponseWriter, r *http.Request) {
-	// 该接口需要请求外部服务。
+	// textRequesttext。
 	const listAlgosPath = "/v1/algo/list"
 	algoURL := common.JoinURL(common.AlgoServiceEndpoint(), listAlgosPath)
 
@@ -380,7 +380,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 解析 tags（query 可多次出现 tags=...，也可能是 tags=a,b）
+	// text tags（query text tags=...，text tags=a,b）
 	tagSet := map[string]struct{}{}
 	var wantTags []string
 	for _, rt := range rawTags {
@@ -415,7 +415,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		db = db.Order("updated_at desc")
 	}
 
-	// 若有 tags 过滤：先取较大的窗口在内存中过滤（简单实现，避免各 DB 的 JSON 语法差异）
+	// text tags text：text（text，text DB text JSON text）
 	fetchLimit := pageSize
 	if len(wantTags) > 0 {
 		fetchLimit = 1000
@@ -491,7 +491,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			TokenCount:     0,
 			Parsers:        parsers,
 			Algo:           algo,
-			Creator:        "", // 未在查询字段中包含 create_user_name
+			Creator:        "", // text create_user_name
 			CreateTime:     ds.CreatedAt,
 			UpdateTime:     ds.UpdatedAt,
 			Acl:            datasetACL,
@@ -627,7 +627,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		algoID = "__default__"
 	}
 
-	// 1) 调外部 POST /v1/kbs 创建 KB
+	// 1) text POST /v1/kbs Create KB
 	const createKBPath = "/v1/kbs"
 	kbURL := common.JoinURL(common.AlgoServiceEndpoint(), createKBPath)
 
@@ -687,7 +687,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Dur("elapsed", time.Since(kbStart)).
 		Msg("kb service create ok")
 
-	// 2) 本地落库 datasets（新增字段 kb_id）
+	// 2) text datasets（text kb_id）
 	now := time.Now().UTC()
 	parsers := fetchParsersByAlgoID(r.Context(), algoID)
 	extBytes, _ := json.Marshal(map[string]any{
@@ -704,7 +704,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Desc:        desc,
 		CoverImage:  cover,
 
-		// 下面字段在当前模型中为 not null，这里先用可用的默认值占位（后续可按 ragservice 逻辑补齐）。
+		// text not null，textDefaulttext（text ragservice text）。
 		ResourceUID: datasetID,
 		BucketName:  "",
 		OssPath:     "",
@@ -840,7 +840,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1) 调外部 DELETE /v1/kbs/{kb_id}
+	// 1) text DELETE /v1/kbs/{kb_id}
 	kbID := ds.KbID
 	if strings.TrimSpace(kbID) == "" {
 		kbID = ds.ID
@@ -869,16 +869,16 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 		Dur("elapsed", time.Since(kbStart)).
 		Msg("kb service delete ok")
 
-	// 2) 本地软删 datasets
+	// 2) text datasets
 	now := time.Now().UTC()
 	ds.DeletedAt = &now
 	ds.UpdatedAt = now
 	if err := corestore.DB().Save(&ds).Error; err != nil {
-		common.ReplyErr(w, "删除知识库失败，请稍后重试", http.StatusInternalServerError)
+		common.ReplyErr(w, "DeleteKnowledge baseFailed，text", http.StatusInternalServerError)
 		return
 	}
 
-	// 3) 清理默认知识库记录
+	// 3) textDefaultKnowledge basetext
 	_ = corestore.DB().
 		Where("create_user_id = ? AND dataset_id = ?", userID, datasetID).
 		Delete(&orm.DefaultDataset{}).Error
@@ -931,7 +931,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		newCover = ds.CoverImage
 	}
 
-	// 更新 ext: tags / algo (保持现有 algo_id，允许通过 body.algo.algo_id 覆盖)
+	// Update ext: tags / algo (text algo_id，text body.algo.algo_id text)
 	algo := parseDatasetAlgo(ds.Ext)
 	algoID := strings.TrimSpace(body.Algo.AlgoID)
 	if algoID == "" {
@@ -952,7 +952,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		"parsers":   parsers,
 	})
 
-	// 1) 调外部 POST /v1/kbs/{kb_id}/update
+	// 1) text POST /v1/kbs/{kb_id}/update
 	kbID := ds.KbID
 	if strings.TrimSpace(kbID) == "" {
 		kbID = ds.ID
@@ -1053,7 +1053,7 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 保证 dataset 存在且当前用户有写权限
+	// text dataset textUsertextPermission
 	var ds orm.Dataset
 	if err := corestore.DB().
 		Where("id = ? AND deleted_at IS NULL", datasetID).
@@ -1079,7 +1079,7 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt:      now,
 		},
 	}
-	// upsert: delete old then insert (简化，避免不同 DB Upsert 语法差异)
+	// upsert: delete old then insert (text，text DB Upsert text)
 	_ = corestore.DB().
 		Where("create_user_id = ? AND dataset_id = ?", userID, datasetID).
 		Delete(&orm.DefaultDataset{}).Error

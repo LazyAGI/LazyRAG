@@ -1,5 +1,5 @@
-// Package orm 的表结构定义统一放在本文件。
-// 仅此一套迁移：执行命令生成 migrations/*.sql，启动时 migrate.RunUp() 应用。新增 Model 时在此定义并在 all_models.go 中追加，便于 dbmigrate migrate 生成 DDL。
+// Package orm text。
+// text：text migrations/*.sql，Starttext migrate.RunUp() text。text Model text all_models.go text，text dbmigrate migrate text DDL。
 
 package orm
 
@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// ----- ACL 相关 -----
+// ----- ACL text -----
 
-// VisibilityModel 资源（如 kb）可见级别。
+// VisibilityModel text（text kb）text。
 type VisibilityModel struct {
 	ID         int64  `gorm:"primaryKey;autoIncrement"`
 	ResourceID string `gorm:"column:resource_id;type:varchar(255);index"`
@@ -19,7 +19,7 @@ type VisibilityModel struct {
 
 func (VisibilityModel) TableName() string { return "acl_visibility" }
 
-// ACLModel ACL 行记录。
+// ACLModel ACL text。
 type ACLModel struct {
 	ID           int64      `gorm:"primaryKey;autoIncrement"`
 	ResourceType string     `gorm:"column:resource_type;type:varchar(32);index:idx_acl_resource,priority:1"`
@@ -34,7 +34,7 @@ type ACLModel struct {
 
 func (ACLModel) TableName() string { return "acl_rows" }
 
-// KBModel 知识库元数据。
+// KBModel Knowledge basetext。
 type KBModel struct {
 	ID         string `gorm:"primaryKey;column:id;type:varchar(64)"`
 	Name       string `gorm:"column:name;type:varchar(255)"`
@@ -44,7 +44,7 @@ type KBModel struct {
 
 func (KBModel) TableName() string { return "acl_kbs" }
 
-// ACLGroupModel 用户组定义。
+// ACLGroupModel User grouptext。
 type ACLGroupModel struct {
 	ID   string `gorm:"primaryKey;column:id;type:varchar(255)"`
 	Name string `gorm:"column:name;type:varchar(255);not null;default:''"`
@@ -52,7 +52,7 @@ type ACLGroupModel struct {
 
 func (ACLGroupModel) TableName() string { return "acl_groups" }
 
-// UserGroupModel 用户与组映射。
+// UserGroupModel Usertext。
 type UserGroupModel struct {
 	UserID  string `gorm:"primaryKey;column:user_id;type:varchar(255)"`
 	GroupID string `gorm:"primaryKey;column:group_id;type:varchar(255)"`
@@ -60,9 +60,9 @@ type UserGroupModel struct {
 
 func (UserGroupModel) TableName() string { return "acl_user_groups" }
 
-// ----- Chat / Prompt 相关 -----
+// ----- Chat / Prompt text -----
 
-// Prompt 表，对应 neutrino 的 prompts。
+// Prompt text，text neutrino text prompts。
 type Prompt struct {
 	ID      string `gorm:"column:id;type:varchar(64);primaryKey"`
 	Name    string `gorm:"column:name;type:varchar(255);uniqueIndex;not null"`
@@ -73,7 +73,7 @@ type Prompt struct {
 
 func (Prompt) TableName() string { return "prompts" }
 
-// DefaultPrompt 表，对应 neutrino 的 default_prompts。
+// DefaultPrompt text，text neutrino text default_prompts。
 type DefaultPrompt struct {
 	ID         int    `gorm:"column:id;primaryKey;autoIncrement"`
 	PromptID   string `gorm:"column:prompt_id;type:varchar(64);not null"`
@@ -84,7 +84,7 @@ type DefaultPrompt struct {
 
 func (DefaultPrompt) TableName() string { return "default_prompts" }
 
-// MultiAnswersSwitch 表，对应 neutrino 的 multi_answers_switches。
+// MultiAnswersSwitch text，text neutrino text multi_answers_switches。
 type MultiAnswersSwitch struct {
 	ID     int32 `gorm:"column:id;primaryKey;autoIncrement"`
 	Status int32 `gorm:"column:status;not null;default:0"`
@@ -94,7 +94,7 @@ type MultiAnswersSwitch struct {
 
 func (MultiAnswersSwitch) TableName() string { return "multi_answers_switches" }
 
-// Conversation 表，对应 neutrino 的 conversations；channel_id 使用默认值。
+// Conversation text，text neutrino text conversations；channel_id textDefaulttext。
 type Conversation struct {
 	ID            string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	DisplayName   string          `gorm:"column:display_name;type:varchar(255)"`
@@ -111,7 +111,7 @@ type Conversation struct {
 
 func (Conversation) TableName() string { return "conversations" }
 
-// ChatHistory 表，对应 neutrino 的 chat_histories。
+// ChatHistory text，text neutrino text chat_histories。
 type ChatHistory struct {
 	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	Seq             int             `gorm:"column:seq;not null"`
@@ -131,7 +131,7 @@ type ChatHistory struct {
 
 func (ChatHistory) TableName() string { return "chat_histories" }
 
-// MultiAnswersChatHistory 表，对应 neutrino 的 multi_answers_chat_histories。
+// MultiAnswersChatHistory text，text neutrino text multi_answers_chat_histories。
 type MultiAnswersChatHistory struct {
 	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	Seq             int             `gorm:"column:seq;not null"`

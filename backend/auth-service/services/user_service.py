@@ -1,4 +1,4 @@
-"""用户业务逻辑：API 层调用本模块，本模块调用 Repository。"""
+"""User business logic: called by API layer, and this module calls repositories."""
 import uuid
 from datetime import datetime, timezone
 
@@ -123,7 +123,7 @@ class UserService:
     def set_user_roles_batch(
         self, user_ids: list[uuid.UUID], role_id: uuid.UUID
     ) -> None:
-        """直接给指定用户批量设置系统角色（与 group 无关）。任一用户或角色不存在则报错。"""
+        """Batch assign system roles directly to specified users (independent of groups). Raise an error if any user or role does not exist."""
         if not user_ids:
             return
         with SessionLocal() as db:

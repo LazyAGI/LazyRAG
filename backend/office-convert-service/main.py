@@ -16,7 +16,7 @@ logger.setLevel(logging.INFO)
 
 app = FastAPI(
     title='Office Convert Service',
-    description='将 Office 文档转换为 PDF 的独立服务',
+    description='A standalone service for converting Office documents to PDF',
     version='1.0.0',
     docs_url='/docs',
     redoc_url=None,

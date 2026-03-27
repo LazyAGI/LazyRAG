@@ -11,17 +11,17 @@ import (
 	"lazyrag/core/log"
 )
 
-// Store 通过 ORM 在数据库中持有 ACL 数据。
+// Store text ORM text ACL text。
 type Store struct {
 	db *orm.DB
 }
 
 var defaultStore *Store
 
-// GetStore 返回 ACL 存储。须先调用 InitStore。
+// GetStore text ACL text。text InitStore。
 func GetStore() *Store { return defaultStore }
 
-// InitStore 使用数据库初始化 ACL 存储。在 main 中连接 DB 并执行 migrate.RunUp() 后调用。
+// InitStore textInitialize ACL text。text main text DB text migrate.RunUp() text。
 func InitStore(db *orm.DB) {
 	if db == nil {
 		panic("acl: InitStore requires non-nil db")
@@ -29,7 +29,7 @@ func InitStore(db *orm.DB) {
 	defaultStore = &Store{db: db}
 }
 
-// EnsureKB 若知识库不存在则创建，返回 kb_id。
+// EnsureKB textKnowledge basetextCreate，text kb_id。
 func (s *Store) EnsureKB(kbID string, name string, ownerID string) string {
 	if kbID != "" {
 		var m orm.KBModel
@@ -44,7 +44,7 @@ func (s *Store) EnsureKB(kbID string, name string, ownerID string) string {
 	return kbID
 }
 
-// GetKB 返回知识库信息（若存在）。
+// GetKB textKnowledge basetext（text）。
 func (s *Store) GetKB(kbID string) *KBInfo {
 	var m orm.KBModel
 	if err := s.db.First(&m, "id = ?", kbID).Error; err != nil {
@@ -53,7 +53,7 @@ func (s *Store) GetKB(kbID string) *KBInfo {
 	return &KBInfo{ID: m.ID, Name: m.Name, OwnerID: m.OwnerID, Visibility: m.Visibility}
 }
 
-// SetKBVisibility 设置知识库可见级别，在同一事务中更新 acl_visibility 与 acl_kbs。
+// SetKBVisibility SetKnowledge basetext，textUpdate acl_visibility text acl_kbs。
 func (s *Store) SetKBVisibility(kbID string, level string) {
 	_ = s.db.Transaction(func(tx *gorm.DB) error {
 		var v orm.VisibilityModel
@@ -70,7 +70,7 @@ func (s *Store) SetKBVisibility(kbID string, level string) {
 	})
 }
 
-// GetVisibility 返回知识库可见级别，缺省为 private。
+// GetVisibility textKnowledge basetext，text private。
 func (s *Store) GetVisibility(kbID string) string {
 	var v orm.VisibilityModel
 	if err := s.db.Where("resource_id = ?", kbID).First(&v).Error; err != nil {
@@ -79,7 +79,7 @@ func (s *Store) GetVisibility(kbID string) string {
 	return v.Level
 }
 
-// AddACL 新增一条 ACL 记录，返回 acl_id。
+// AddACL text ACL text，text acl_id。
 func canonicalGranteeType(granteeType string) string {
 	switch granteeType {
 	case GranteeTenant:
@@ -189,7 +189,7 @@ func (s *Store) AddACL(resourceType, resourceID string, granteeType string, targ
 	return m.ID
 }
 
-// UpdateACL 更新权限及可选的过期时间。
+// UpdateACL UpdatePermissiontext。
 func (s *Store) UpdateACL(aclID int64, permission string, expiresAt *time.Time) bool {
 	var row orm.ACLModel
 	if err := s.db.First(&row, "id = ?", aclID).Error; err != nil {
@@ -203,13 +203,13 @@ func (s *Store) UpdateACL(aclID int64, permission string, expiresAt *time.Time) 
 	return res.RowsAffected > 0
 }
 
-// DeleteACL 按 id 删除一条 ACL。
+// DeleteACL text id Deletetext ACL。
 func (s *Store) DeleteACL(aclID int64) bool {
 	res := s.db.Delete(&orm.ACLModel{}, "id = ?", aclID)
 	return res.RowsAffected > 0
 }
 
-// ListACL 返回资源的 ACL 列表，可按 grantee_type 过滤，排除已过期项。
+// ListACL text ACL list，text grantee_type text，text。
 func (s *Store) ListACL(resourceType, resourceID string, granteeType string) []ACLListItem {
 	q := s.db.Model(&orm.ACLModel{}).
 		Where("resource_type = ? AND resource_id = ?", resourceType, resourceID).
@@ -232,7 +232,7 @@ func (s *Store) ListACL(resourceType, resourceID string, granteeType string) []A
 	return out
 }
 
-// GetACLByID 按 id 取 ACL 行，并返回是否属于指定资源。
+// GetACLByID text id text ACL text，text。
 func (s *Store) GetACLByID(resourceType, resourceID string, aclID int64) (*ACLRow, bool) {
 	var m orm.ACLModel
 	if err := s.db.First(&m, "id = ? AND resource_type = ? AND resource_id = ?", aclID, resourceType, resourceID).Error; err != nil {
@@ -251,7 +251,7 @@ func (s *Store) GetACLByID(resourceType, resourceID string, aclID int64) (*ACLRo
 	}, true
 }
 
-// ACLsForUser 返回对用户生效的 ACL 记录（含用户直赋与租户/组继承）。
+// ACLsForUser textUsertext ACL text（textUsertextTenant/text）。
 func (s *Store) ACLsForUser(resourceType, resourceID string, userID string) []*ACLRow {
 	now := time.Now()
 	q := s.db.Model(&orm.ACLModel{}).
@@ -295,7 +295,7 @@ func toACLRow(m *orm.ACLModel) *ACLRow {
 	}
 }
 
-// EnsureGroup 若组不存在则创建；name 可为空。
+// EnsureGroup textCreate；name text。
 func (s *Store) EnsureGroup(groupID string, name string) string {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
@@ -312,7 +312,7 @@ func (s *Store) EnsureGroup(groupID string, name string) string {
 	return groupID
 }
 
-// DeleteGroup 删除组定义、成员关系与基于该组的 ACL 行。
+// DeleteGroup Deletetext、Membertext ACL text。
 func (s *Store) DeleteGroup(groupID string) {
 	if strings.TrimSpace(groupID) == "" {
 		return
@@ -325,7 +325,7 @@ func (s *Store) DeleteGroup(groupID string) {
 	})
 }
 
-// AddUserToGroup 为用户添加一个组成员关系。
+// AddUserToGroup textUsertextMembertext。
 func (s *Store) AddUserToGroup(userID, groupID string) {
 	if strings.TrimSpace(userID) == "" || strings.TrimSpace(groupID) == "" {
 		return
@@ -334,7 +334,7 @@ func (s *Store) AddUserToGroup(userID, groupID string) {
 	s.db.FirstOrCreate(&orm.UserGroupModel{}, &orm.UserGroupModel{UserID: userID, GroupID: groupID})
 }
 
-// RemoveUserFromGroup 移除用户的组成员关系，不影响该用户自身 ACL。
+// RemoveUserFromGroup textUsertextMembertext，textUsertext ACL。
 func (s *Store) RemoveUserFromGroup(userID, groupID string) {
 	if strings.TrimSpace(userID) == "" || strings.TrimSpace(groupID) == "" {
 		return
@@ -342,7 +342,7 @@ func (s *Store) RemoveUserFromGroup(userID, groupID string) {
 	s.db.Delete(&orm.UserGroupModel{}, "user_id = ? AND group_id = ?", userID, groupID)
 }
 
-// SetUserGroups 设置用户所属的组 id 列表；未包含的旧组关系会被移除。
+// SetUserGroups SetUsertext id text；text。
 func (s *Store) SetUserGroups(userID string, groupIDs []string) {
 	s.db.Where("user_id = ?", userID).Delete(&orm.UserGroupModel{})
 	for _, gid := range groupIDs {
@@ -350,7 +350,7 @@ func (s *Store) SetUserGroups(userID string, groupIDs []string) {
 	}
 }
 
-// ListGroups 返回所有组及成员数。
+// ListGroups textMembertext。
 func (s *Store) ListGroups() []GroupInfo {
 	var groups []orm.ACLGroupModel
 	s.db.Order("id asc").Find(&groups)
@@ -363,7 +363,7 @@ func (s *Store) ListGroups() []GroupInfo {
 	return out
 }
 
-// ListGroupUsers 返回组成员列表。
+// ListGroupUsers textMember list。
 func (s *Store) ListGroupUsers(groupID string) []GroupMember {
 	var rows []orm.UserGroupModel
 	s.db.Where("group_id = ?", groupID).Order("user_id asc").Find(&rows)
@@ -374,7 +374,7 @@ func (s *Store) ListGroupUsers(groupID string) []GroupMember {
 	return out
 }
 
-// ListUserGroups 返回用户所属组列表。
+// ListUserGroups textUsertext。
 func (s *Store) ListUserGroups(userID string) []GroupInfo {
 	var memberships []orm.UserGroupModel
 	s.db.Where("user_id = ?", userID).Order("group_id asc").Find(&memberships)
@@ -497,7 +497,7 @@ func (s *Store) ListKnownUserIDs() []string {
 	return out
 }
 
-// AllKBIDs 返回所有知识库 id（来自 acl_kbs 与 acl_visibility，去重）。
+// AllKBIDs textKnowledge base id（text acl_kbs text acl_visibility，text）。
 func (s *Store) AllKBIDs() []string {
 	seen := make(map[string]bool)
 	var ids []string

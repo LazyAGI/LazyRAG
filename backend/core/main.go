@@ -61,8 +61,8 @@ func exportOpenAPIArtifacts(openAPIJSON []byte) {
 	}
 }
 
-// handleAPI 注册带权限要求的路由。perms 供 extract_api_permissions.py 生成 api_permissions.json（Kong RBAC），
-// 运行时不由 core 校验（由 Kong + auth-service 鉴权）。使用 gorilla/mux，同一 path 可区分方法，支持 ":action" 路径。
+// handleAPI textPermissiontext。perms text extract_api_permissions.py text api_permissions.json（Kong RBAC），
+// text core text（text Kong + auth-service Authorization）。text gorilla/mux，text path text，text ":action" text。
 func handleAPI(r *mux.Router, method, path string, perms []string, h http.HandlerFunc) {
 	r.HandleFunc(path, h).Methods(method)
 }
@@ -70,8 +70,8 @@ func handleAPI(r *mux.Router, method, path string, perms []string, h http.Handle
 func main() {
 	log.Init()
 
-	// 使用数据库初始化 ACL 存储（驱动由环境变量指定：postgres/sqlite/mysql）。
-	// 未设置 ACL_DB_DRIVER 时默认使用 sqlite，数据文件 ./acl.db。
+	// textInitialize ACL text（text：postgres/sqlite/mysql）。
+	// textSet ACL_DB_DRIVER textDefaulttext sqlite，text ./acl.db。
 	driver := os.Getenv("ACL_DB_DRIVER")
 	dsn := os.Getenv("ACL_DB_DSN")
 	if driver == "" {
@@ -123,7 +123,7 @@ func main() {
 	acl.InitStore(db)
 	log.Logger.Info().Str("driver", driver).Msg("ACL store initialized")
 
-	// 对话/提示词存储初始化（DB + Redis）。DB 复用 ACL 连接；Redis 用于会话流式/续传/停止等能力（与 neutrino 对齐）。
+	// text/PrompttextInitialize（DB + Redis）。DB text ACL text；Redis textConversationtext/text/text（text neutrino text）。
 	store.Init(db.DB, readonlyDB.DB, store.MustRedisFromEnv())
 
 	r := mux.NewRouter()
@@ -140,7 +140,7 @@ func main() {
 	})
 	registerAllRoutes(r)
 
-	// 启动时从已注册路由自动生成 OpenAPI spec，无需手维护 doc_swag.go / swag init
+	// Starttext OpenAPI spec，text doc_swag.go / swag init
 	openAPIJSON, err := buildOpenAPISpecFromRouter(r)
 	if err != nil {
 		log.Logger.Fatal().Err(err).Msg("build OpenAPI spec from router failed")
