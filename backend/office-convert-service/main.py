@@ -10,21 +10,21 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 
-logging.basicConfig(level=logging.INFO, format="%(message)s", force=True)
-logger = logging.getLogger("office-convert-service")
+logging.basicConfig(level=logging.INFO, format='%(message)s', force=True)
+logger = logging.getLogger('office-convert-service')
 logger.setLevel(logging.INFO)
 
 app = FastAPI(
-    title="Office Convert Service",
-    description="将 Office 文档转换为 PDF 的独立服务",
-    version="1.0.0",
-    docs_url="/docs",
+    title='Office Convert Service',
+    description='将 Office 文档转换为 PDF 的独立服务',
+    version='1.0.0',
+    docs_url='/docs',
     redoc_url=None,
-    openapi_url="/openapi.json",
+    openapi_url='/openapi.json',
 )
 
-OFFICE_EXTENSIONS = {".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
-DEFAULT_ALLOWED_ROOTS = "/var/lib/lazyrag/uploads"
+OFFICE_EXTENSIONS = {'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'}
+DEFAULT_ALLOWED_ROOTS = '/var/lib/lazyrag/uploads'
 DEFAULT_TIMEOUT_SECONDS = 900
 
 
@@ -35,13 +35,13 @@ class ConvertRequest(BaseModel):
 class ConvertResponse(BaseModel):
     pdf_path: str
     reused: bool = False
-    provider: str = "libreoffice"
+    provider: str = 'libreoffice'
 
 
 def _allowed_roots() -> list[Path]:
-    raw = os.getenv("OFFICE_CONVERT_ALLOWED_ROOTS", DEFAULT_ALLOWED_ROOTS)
+    raw = os.getenv('OFFICE_CONVERT_ALLOWED_ROOTS', DEFAULT_ALLOWED_ROOTS)
     roots: list[Path] = []
-    for part in raw.split(","):
+    for part in raw.split(','):
         part = part.strip()
         if not part:
             continue
@@ -50,7 +50,7 @@ def _allowed_roots() -> list[Path]:
 
 
 def _timeout_seconds() -> int:
-    raw = (os.getenv("OFFICE_CONVERT_TIMEOUT_SECONDS") or "").strip()
+    raw = (os.getenv('OFFICE_CONVERT_TIMEOUT_SECONDS') or '').strip()
     if not raw:
         return DEFAULT_TIMEOUT_SECONDS
     try:
@@ -74,17 +74,17 @@ def _is_under_any_root(path: Path, roots: Iterable[Path]) -> bool:
 
 
 def _expected_pdf_path(source: Path) -> Path:
-    return source.with_name(f"{source.stem}.__parsed__.pdf")
+    return source.with_name(f'{source.stem}.__parsed__.pdf')
 
 
 def _validate_source_path(source_path: str) -> Path:
     source = Path(source_path).expanduser().resolve()
     if not source.exists() or not source.is_file():
-        raise HTTPException(status_code=404, detail="source file not found")
+        raise HTTPException(status_code=404, detail='source file not found')
     if source.suffix.lower() not in OFFICE_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="source file is not a supported office document")
+        raise HTTPException(status_code=400, detail='source file is not a supported office document')
     if not _is_under_any_root(source, _allowed_roots()):
-        raise HTTPException(status_code=400, detail="source path is outside allowed roots")
+        raise HTTPException(status_code=400, detail='source path is outside allowed roots')
     return source
 
 
@@ -101,15 +101,15 @@ def _run_libreoffice_convert(source: Path, target: Path) -> None:
     with tempfile.TemporaryDirectory(dir=str(output_dir)) as tmpdir:
         tmp_output_dir = Path(tmpdir)
         command = [
-            "libreoffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
+            'libreoffice',
+            '--headless',
+            '--convert-to',
+            'pdf',
             str(source),
-            "--outdir",
+            '--outdir',
             str(tmp_output_dir),
         ]
-        logger.info("running libreoffice convert source=%s target=%s", source, target)
+        logger.info('running libreoffice convert source=%s target=%s', source, target)
         try:
             completed = subprocess.run(
                 command,
@@ -120,39 +120,39 @@ def _run_libreoffice_convert(source: Path, target: Path) -> None:
                 timeout=_timeout_seconds(),
             )
         except subprocess.TimeoutExpired as exc:
-            raise HTTPException(status_code=504, detail=f"libreoffice convert timeout: {exc}") from exc
+            raise HTTPException(status_code=504, detail=f'libreoffice convert timeout: {exc}') from exc
         except subprocess.CalledProcessError as exc:
-            stderr = (exc.stderr or "").strip()
-            stdout = (exc.stdout or "").strip()
+            stderr = (exc.stderr or '').strip()
+            stdout = (exc.stdout or '').strip()
             detail = stderr or stdout or str(exc)
-            raise HTTPException(status_code=500, detail=f"libreoffice convert failed: {detail}") from exc
+            raise HTTPException(status_code=500, detail=f'libreoffice convert failed: {detail}') from exc
 
-        converted_tmp = tmp_output_dir / f"{source.stem}.pdf"
+        converted_tmp = tmp_output_dir / f'{source.stem}.pdf'
         if not converted_tmp.exists() or converted_tmp.stat().st_size <= 0:
-            stdout = (completed.stdout or "").strip()
-            stderr = (completed.stderr or "").strip()
-            raise HTTPException(status_code=500, detail=f"converted pdf not found; stdout={stdout}; stderr={stderr}")
+            stdout = (completed.stdout or '').strip()
+            stderr = (completed.stderr or '').strip()
+            raise HTTPException(status_code=500, detail=f'converted pdf not found; stdout={stdout}; stderr={stderr}')
 
         shutil.move(str(converted_tmp), str(target))
 
 
-@app.get("/health")
+@app.get('/health')
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {'status': 'ok'}
 
 
-@app.post("/v1/office/to-pdf", response_model=ConvertResponse)
+@app.post('/v1/office/to-pdf', response_model=ConvertResponse)
 def convert_office_to_pdf(req: ConvertRequest) -> ConvertResponse:
     source = _validate_source_path(req.source_path)
     target = _expected_pdf_path(source)
 
     if _reuse_if_fresh(source, target):
-        logger.info("reuse converted pdf source=%s target=%s", source, target)
+        logger.info('reuse converted pdf source=%s target=%s', source, target)
         return ConvertResponse(pdf_path=str(target), reused=True)
 
     _run_libreoffice_convert(source, target)
     if not target.exists() or target.stat().st_size <= 0:
-        raise HTTPException(status_code=500, detail="converted pdf not found after libreoffice run")
+        raise HTTPException(status_code=500, detail='converted pdf not found after libreoffice run')
 
-    logger.info("convert succeeded source=%s target=%s size=%d", source, target, target.stat().st_size)
+    logger.info('convert succeeded source=%s target=%s size=%d', source, target, target.stat().st_size)
     return ConvertResponse(pdf_path=str(target), reused=False)
