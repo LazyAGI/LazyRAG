@@ -31,6 +31,7 @@ class GroupMemberRoleBatchBody(BaseModel):
     user_ids: list[str]  # UUID 字符串数组
     role: str
 
+
 # ----- 响应 -----
 class GroupItem(BaseModel):
     """用户组列表项"""
@@ -72,6 +73,7 @@ class GroupUserItem(BaseModel):
 class GroupUserListResponse(BaseModel):
     """组内用户列表"""
     users: list[GroupUserItem]
+
 
 class OkResponse(BaseModel):
     """通用 ok 返回"""

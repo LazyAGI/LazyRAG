@@ -107,6 +107,7 @@ def delete_group(group_id: str, _: User = Depends(current_user)):  # noqa: B008
     group_service.delete_group(gid)
     return {'ok': True}
 
+
 @router.get('/{group_id}/user', response_model=GroupUserListResponse)
 @permission_required('user.admin')
 def list_group_users(group_id: str, _: User = Depends(current_user)):  # noqa: B008
