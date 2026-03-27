@@ -387,7 +387,6 @@ type taskPathParams struct {
 
 type uploadPathParams struct {
 	Dataset  string `path:"dataset"`
-	Task     string `path:"task"`
 	UploadID string `path:"upload_id"`
 }
 
@@ -629,21 +628,20 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
-			Path:        "/datasets/{dataset}/tasks/{task}:initUpload",
-			Summary:     "初始化任务上传",
+			Path:        "/datasets/{dataset}/uploads:initUpload",
+			Summary:     "初始化数据集上传",
 			Tags:        []string{"tasks"},
-			PathParams:  taskPathParams{},
+			PathParams:  datasetPathParams{},
 			RequestBody: jsonBodyOf(doc.InitUploadRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("上传初始化结果", doc.InitUploadResponse{})},
 		},
 		{
 			Method:     "PUT",
-			Path:       "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}/parts/{part_number}",
-			Summary:    "上传任务分片",
+			Path:       "/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}",
+			Summary:    "上传数据集分片",
 			Tags:       []string{"tasks"},
 			PathParams: struct {
 				Dataset    string `path:"dataset"`
-				Task       string `path:"task"`
 				UploadID   string `path:"upload_id"`
 				PartNumber string `path:"part_number"`
 			}{},
@@ -652,7 +650,7 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
-			Path:        "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:complete",
+			Path:        "/datasets/{dataset}/uploads/{upload_id}:complete",
 			Summary:     "完成上传",
 			Tags:        []string{"tasks"},
 			PathParams:  uploadPathParams{},
@@ -661,7 +659,7 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
-			Path:        "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:abort",
+			Path:        "/datasets/{dataset}/uploads/{upload_id}:abort",
 			Summary:     "中止上传",
 			Tags:        []string{"tasks"},
 			PathParams:  uploadPathParams{},

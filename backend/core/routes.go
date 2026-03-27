@@ -67,10 +67,10 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks:start", []string{"document.write"}, doc.StartTask)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:resume", []string{"document.write"}, doc.ResumeTask)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:suspend", []string{"document.write"}, doc.SuspendTask)
-	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}:initUpload", []string{"document.write"}, doc.InitUpload)
-	handleAPI(r, "PUT", "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}/parts/{part_number}", []string{"document.write"}, doc.UploadPart)
-	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:complete", []string{"document.write"}, doc.CompleteUpload)
-	handleAPI(r, "POST", "/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:abort", []string{"document.write"}, doc.AbortUpload)
+	handleAPI(r, "POST", "/datasets/{dataset}/uploads:initUpload", []string{"document.write"}, doc.InitUpload)
+	handleAPI(r, "PUT", "/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}", []string{"document.write"}, doc.UploadPart)
+	handleAPI(r, "POST", "/datasets/{dataset}/uploads/{upload_id}:complete", []string{"document.write"}, doc.CompleteUpload)
+	handleAPI(r, "POST", "/datasets/{dataset}/uploads/{upload_id}:abort", []string{"document.write"}, doc.AbortUpload)
 	// 签名静态文件 URL：前端浏览器可直接访问，无需再经 :file 业务路由。
 	handleAPI(r, "GET", "/static-files/{path:.*}", nil, doc.GetSignedStaticFile)
 

@@ -3456,231 +3456,6 @@
         ]
       }
     },
-    "/api/core/datasets/{dataset}/tasks/{task}/uploads/{upload_id}/parts/{part_number}": {
-      "put": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "task",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "upload_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "part_number",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/octet-stream": {
-              "schema": {
-                "format": "binary",
-                "type": "string"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UploadPartResponse"
-                }
-              }
-            },
-            "description": "分片上传结果"
-          }
-        },
-        "summary": "上传任务分片",
-        "tags": [
-          "tasks"
-        ]
-      }
-    },
-    "/api/core/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:abort": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "task",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "upload_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AbortUploadRequest"
-              }
-            }
-          },
-          "required": false
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AbortUploadResponse"
-                }
-              }
-            },
-            "description": "中止上传结果"
-          }
-        },
-        "summary": "中止上传",
-        "tags": [
-          "tasks"
-        ]
-      }
-    },
-    "/api/core/datasets/{dataset}/tasks/{task}/uploads/{upload_id}:complete": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "task",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "upload_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CompleteUploadRequest"
-              }
-            }
-          },
-          "required": false
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CompleteUploadResponse"
-                }
-              }
-            },
-            "description": "完成上传结果"
-          }
-        },
-        "summary": "完成上传",
-        "tags": [
-          "tasks"
-        ]
-      }
-    },
-    "/api/core/datasets/{dataset}/tasks/{task}:initUpload": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "task",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InitUploadRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InitUploadResponse"
-                }
-              }
-            },
-            "description": "上传初始化结果"
-          }
-        },
-        "summary": "初始化任务上传",
-        "tags": [
-          "tasks"
-        ]
-      }
-    },
     "/api/core/datasets/{dataset}/tasks/{task}:resume": {
       "post": {
         "parameters": [
@@ -4037,6 +3812,199 @@
           }
         },
         "summary": "下载已上传文件"
+      }
+    },
+    "/api/core/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}": {
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "part_number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPartResponse"
+                }
+              }
+            },
+            "description": "分片上传结果"
+          }
+        },
+        "summary": "上传数据集分片",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/core/datasets/{dataset}/uploads/{upload_id}:abort": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AbortUploadRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbortUploadResponse"
+                }
+              }
+            },
+            "description": "中止上传结果"
+          }
+        },
+        "summary": "中止上传",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/core/datasets/{dataset}/uploads/{upload_id}:complete": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteUploadRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteUploadResponse"
+                }
+              }
+            },
+            "description": "完成上传结果"
+          }
+        },
+        "summary": "完成上传",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/core/datasets/{dataset}/uploads:initUpload": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InitUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InitUploadResponse"
+                }
+              }
+            },
+            "description": "上传初始化结果"
+          }
+        },
+        "summary": "初始化数据集上传",
+        "tags": [
+          "tasks"
+        ]
       }
     },
     "/api/core/datasets/{dataset}:batchAddMember": {

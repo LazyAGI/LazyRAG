@@ -618,9 +618,8 @@ func ResumeTask(w http.ResponseWriter, r *http.Request) {
 
 func InitUpload(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
-	taskID := taskIDFromPath(r)
-	if datasetID == "" || taskID == "" {
-		common.ReplyErr(w, "missing dataset or task", http.StatusBadRequest)
+	if datasetID == "" {
+		common.ReplyErr(w, "missing dataset", http.StatusBadRequest)
 		return
 	}
 	userID := store.UserID(r)
@@ -632,11 +631,6 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 	ds, _, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetUpload)
 	if !ok {
 		replyDatasetForbidden(w)
-		return
-	}
-	var taskRow orm.Task
-	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskID, datasetID).Take(&taskRow).Error; err != nil {
-		common.ReplyErr(w, "task not found", http.StatusNotFound)
 		return
 	}
 	var req InitUploadRequest
@@ -656,15 +650,9 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "part_size must be >= 0", http.StatusBadRequest)
 		return
 	}
-	if taskRow.TaskType != string(TaskTypeParse) && taskRow.TaskType != string(TaskTypeParseUploaded) {
-		common.ReplyErr(w, "task type does not support upload", http.StatusBadRequest)
-		return
-	}
 	resp, row, err := initUploadSession(r.Context(), initUploadSessionArgs{
-		Scope:          uploadScopeTask,
+		Scope:          uploadScopeDataset,
 		DatasetID:      datasetID,
-		TaskID:         taskID,
-		DocumentID:     taskRow.DocID,
 		TenantID:       ds.TenantID,
 		DocumentPID:    strings.TrimSpace(req.DocumentPID),
 		RelativePath:   strings.TrimSpace(req.RelativePath),
@@ -685,15 +673,19 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 
 func UploadPart(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
-	taskID := taskIDFromPath(r)
 	uploadID := uploadIDFromPath(r)
 	partNumber, err := strconv.Atoi(strings.TrimSpace(mux.Vars(r)["part_number"]))
-	if datasetID == "" || taskID == "" || uploadID == "" || err != nil || partNumber <= 0 {
+	if datasetID == "" || uploadID == "" || err != nil || partNumber <= 0 {
 		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 	var session orm.UploadSession
-	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND task_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, taskID, datasetID).Take(&session).Error; err != nil {
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	meta, _, metaErr := loadUploadMeta(session)
+	if metaErr != nil || strings.TrimSpace(meta.UploadScope) != uploadScopeDataset {
 		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
 		return
 	}
@@ -702,9 +694,8 @@ func UploadPart(w http.ResponseWriter, r *http.Request) {
 
 func CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
-	taskID := taskIDFromPath(r)
 	uploadID := uploadIDFromPath(r)
-	if datasetID == "" || taskID == "" || uploadID == "" {
+	if datasetID == "" || uploadID == "" {
 		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
 		return
 	}
@@ -714,7 +705,12 @@ func CompleteUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var session orm.UploadSession
-	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND task_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, taskID, datasetID).Take(&session).Error; err != nil {
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	meta, _, metaErr := loadUploadMeta(session)
+	if metaErr != nil || strings.TrimSpace(meta.UploadScope) != uploadScopeDataset {
 		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
 		return
 	}
@@ -822,14 +818,18 @@ func CompleteTempUpload(w http.ResponseWriter, r *http.Request) {
 
 func AbortUpload(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
-	taskID := taskIDFromPath(r)
 	uploadID := uploadIDFromPath(r)
-	if datasetID == "" || taskID == "" || uploadID == "" {
+	if datasetID == "" || uploadID == "" {
 		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 	var session orm.UploadSession
-	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND task_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, taskID, datasetID).Take(&session).Error; err != nil {
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	meta, _, metaErr := loadUploadMeta(session)
+	if metaErr != nil || strings.TrimSpace(meta.UploadScope) != uploadScopeDataset {
 		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
 		return
 	}
@@ -1030,6 +1030,65 @@ func completeUploadInternal(ctx context.Context, session orm.UploadSession, args
 		session.UpdatedAt = time.Now().UTC()
 		_ = store.DB().WithContext(ctx).Save(&session).Error
 		return CompleteUploadResponse{UploadID: session.UploadID, StoredPath: finalPath, FileURL: staticFileURLFromFullPath(finalPath), FileSize: totalSize, UploadScope: meta.UploadScope}, http.StatusOK, nil
+	case uploadScopeDataset:
+		if args.Dataset == nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("dataset context is required")
+		}
+		uploadFileID := newUploadID()
+		finalDir := buildDatasetDocFileDir(args.Dataset.TenantID, session.DatasetID, meta.RelativePath, uploadFileID)
+		if err := os.MkdirAll(finalDir, 0o755); err != nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("create final dir failed")
+		}
+		finalPath := filepath.Join(finalDir, meta.StoredName)
+		if err := os.Rename(mergedPath, finalPath); err != nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("move file failed")
+		}
+		meta.UploadState = string(TaskStateUploaded)
+		meta.FileSize = totalSize
+		session.Ext = mustJSON(meta)
+		session.UploadState = meta.UploadState
+		session.UpdatedAt = time.Now().UTC()
+		_ = store.DB().WithContext(ctx).Save(&session).Error
+
+		now := time.Now().UTC()
+		uploadedExt := uploadedFileExt{
+			StoredPath:       finalPath,
+			StoredName:       meta.StoredName,
+			OriginalFilename: meta.OriginalFilename,
+			FileSize:         totalSize,
+			ContentType:      meta.ContentType,
+			RelativePath:     meta.RelativePath,
+			DocumentPID:      meta.DocumentPID,
+		}
+		uploaded := orm.UploadedFile{
+			UploadFileID: uploadFileID,
+			DatasetID:    session.DatasetID,
+			TenantID:     args.Dataset.TenantID,
+			TaskID:       "",
+			DocumentID:   "",
+			Status:       UploadedFileStateUploaded,
+			Ext:          mustJSON(uploadedExt),
+			BaseModel: orm.BaseModel{
+				CreateUserID:   session.CreateUserID,
+				CreateUserName: session.CreateUserName,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			},
+		}
+		if err := store.DB().WithContext(ctx).Create(&uploaded).Error; err != nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("create uploaded file failed")
+		}
+		return CompleteUploadResponse{
+			UploadID:     session.UploadID,
+			UploadFileID: uploadFileID,
+			DatasetID:    session.DatasetID,
+			StoredPath:   finalPath,
+			ContentURL:   uploadedFileContentPath(session.DatasetID, uploadFileID),
+			DownloadURL:  uploadedFileDownloadPath(session.DatasetID, uploadFileID),
+			FileURL:      staticFileURLFromFullPath(finalPath),
+			FileSize:     totalSize,
+			UploadScope:  meta.UploadScope,
+		}, http.StatusOK, nil
 	default:
 		if args.Dataset == nil {
 			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("dataset context is required")
