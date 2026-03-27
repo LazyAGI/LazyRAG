@@ -647,6 +647,7 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   rag-uploads:
   milvus-etcd:
   milvus-minio:

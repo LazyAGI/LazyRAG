@@ -1,10 +1,8 @@
 import os
 import sys
+from logging.config import fileConfig
 from pathlib import Path
 
-from logging.config import fileConfig
-
-# Add auth-service root to path so "core" and "models" are importable (e.g. when running alembic in Docker)
 _root = Path(__file__).resolve().parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))

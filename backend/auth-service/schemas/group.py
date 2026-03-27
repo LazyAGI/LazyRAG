@@ -31,12 +31,6 @@ class GroupMemberRoleBatchBody(BaseModel):
     user_ids: list[str]  # UUID 字符串数组
     role: str
 
-
-class GroupPermissionsBody(BaseModel):
-    """组权限全量设置：权限组 code 列表，与角色权限并集后生效，不重复存储"""
-    permission_groups: list[str]
-
-
 # ----- 响应 -----
 class GroupItem(BaseModel):
     """用户组列表项"""
@@ -62,13 +56,6 @@ class GroupDetailResponse(BaseModel):
     tenant_id: str | None = None
 
 
-class GroupBasicResponse(BaseModel):
-    """用户组基础信息"""
-    group_id: str
-    group_name: str
-    tenant_id: str | None = None
-
-
 class GroupCreateResponse(BaseModel):
     """创建用户组返回"""
     group_id: str
@@ -85,12 +72,6 @@ class GroupUserItem(BaseModel):
 class GroupUserListResponse(BaseModel):
     """组内用户列表"""
     users: list[GroupUserItem]
-
-
-class GroupPermissionsResponse(BaseModel):
-    """组绑定的权限组 code 列表"""
-    permission_groups: list[str]
-
 
 class OkResponse(BaseModel):
     """通用 ok 返回"""

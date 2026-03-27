@@ -65,14 +65,6 @@ class UserDetailResponse(BaseModel):
     role_name: str
 
 
-class UserBasicResponse(BaseModel):
-    """用户基础信息"""
-    user_id: str
-    username: str
-    display_name: str = ''
-    tenant_id: str | None = None
-
-
 class OkResponse(BaseModel):
     """通用 ok 返回"""
     ok: bool = True

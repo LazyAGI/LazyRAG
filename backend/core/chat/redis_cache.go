@@ -228,4 +228,3 @@ func getMultiAnswerInfo(ctx context.Context, rdb *redis.Client, conversationID, 
 	}
 	return &info, nil
 }
-

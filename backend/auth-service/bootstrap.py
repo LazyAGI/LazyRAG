@@ -7,13 +7,18 @@ from sqlalchemy.orm import Session
 from models import RolePermission
 from repositories import PermissionGroupRepository, RoleRepository, UserRepository
 from services.auth_service import auth_service
+from models import RolePermission
+from repositories import PermissionGroupRepository, RoleRepository, UserRepository
+from services.auth_service import auth_service
 
 
+def _load_yaml() -> dict:
 def _load_yaml() -> dict:
     path = Path(__file__).resolve().parent / 'permission_groups.yaml'
     try:
         with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
+        return data or {}
         return data or {}
     except Exception:
         return {}
@@ -57,7 +62,12 @@ def bootstrap(db: Session) -> None:
             PermissionGroupRepository.create(db, code=code, description='', module=module, action=action)
 
     all_groups = {g.code: g.id for g in PermissionGroupRepository.list_all_ordered(db)}
+    all_groups = {g.code: g.id for g in PermissionGroupRepository.list_all_ordered(db)}
 
+    system_admin_role = RoleRepository.get_by_name(db, 'system-admin')
+    if not system_admin_role:
+        system_admin_role = RoleRepository.create(db, 'system-admin', built_in=True)
+    user_role = RoleRepository.get_by_name(db, 'user')
     system_admin_role = RoleRepository.get_by_name(db, 'system-admin')
     if not system_admin_role:
         system_admin_role = RoleRepository.create(db, 'system-admin', built_in=True)
@@ -75,6 +85,7 @@ def bootstrap(db: Session) -> None:
         ).first()
         if not exists:
             db.add(RolePermission(role_id=system_admin_role.id, permission_group_id=pg_id))
+            db.add(RolePermission(role_id=system_admin_role.id, permission_group_id=pg_id))
 
     for perm_name in _load_default_user_role_permissions():
         pg_id = all_groups.get(perm_name)
@@ -91,10 +102,20 @@ def bootstrap(db: Session) -> None:
     username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME', 'system-admin').strip() or 'system-admin'
     password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD', '123456').strip() or '123456'
     if UserRepository.get_by_username(db, username):
+    username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME', 'system-admin').strip() or 'system-admin'
+    password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD', '123456').strip() or '123456'
+    if UserRepository.get_by_username(db, username):
         return
     UserRepository.create(
         db,
+    UserRepository.create(
+        db,
         username=username,
+        password_hash=auth_service.hash_password(password),
+        role_id=system_admin_role.id,
+        tenant_id='',
+        disabled=False,
+    )
         password_hash=auth_service.hash_password(password),
         role_id=system_admin_role.id,
         tenant_id='',

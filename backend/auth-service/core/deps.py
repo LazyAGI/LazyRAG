@@ -1,18 +1,16 @@
-import logging
 import uuid
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
+from core.database import SessionLocal
 from core.errors import ErrorCodes, raise_error
 from core.security import jwt_secret
-from core.database import SessionLocal
 from models import User
 from repositories import UserRepository
 
 
-logger = logging.getLogger('auth-service')
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -21,9 +19,11 @@ def _user_id_from_token(token: str) -> uuid.UUID:
         payload = jwt.decode(token, jwt_secret(), algorithms=['HS256'])
     except JWTError:
         raise_error(ErrorCodes.UNAUTHORIZED)
+
     sub = payload.get('sub')
     if not sub:
         raise_error(ErrorCodes.UNAUTHORIZED)
+
     try:
         return uuid.UUID(sub)
     except (TypeError, ValueError):

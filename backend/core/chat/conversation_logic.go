@@ -642,4 +642,3 @@ dualPersist:
 		flusher.Flush()
 	}
 }
-

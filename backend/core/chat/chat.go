@@ -264,4 +264,3 @@ func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any
 	}()
 	return out, nil
 }
-

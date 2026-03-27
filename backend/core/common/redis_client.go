@@ -46,4 +46,3 @@ func MustRedisFromEnv() *redis.Client {
 	}
 	return c
 }
-

@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 
 from core.deps import current_user
+from core.errors import ErrorCodes, raise_error
 from core.rbac import permission_required
 from models import User
 from schemas.user import (
@@ -10,7 +11,6 @@ from schemas.user import (
     CreateUserResponse,
     OkResponse,
     ResetPasswordBody,
-    UserBasicResponse,
     UserDetailResponse,
     UserListResponse,
     UserRoleBatchBody,
@@ -25,15 +25,14 @@ router = APIRouter(prefix='/user', tags=['user'])
 @router.post('', response_model=CreateUserResponse)
 @permission_required('user.admin')
 def create_user(body: CreateUserBody, _: User = Depends(current_user)):  # noqa: B008
-    """System-admin creates a user. Default role is user; can assign any role for high-privilege users."""
     role_id = None
     if body.role_id:
         try:
             role_id = uuid.UUID(body.role_id)
         except (ValueError, TypeError):
-            from core.errors import ErrorCodes, raise_error
             raise_error(ErrorCodes.ROLE_NOT_FOUND)
-    result = user_service.create_user(
+
+    return user_service.create_user(
         username=body.username,
         password=body.password,
         role_id=role_id,
@@ -41,7 +40,6 @@ def create_user(body: CreateUserBody, _: User = Depends(current_user)):  # noqa:
         tenant_id=body.tenant_id or '',
         disabled=body.disabled,
     )
-    return result
 
 
 @router.get('', response_model=UserListResponse)
@@ -53,8 +51,12 @@ def list_users(
     search: str | None = None,
     tenant_id: str | None = None,
 ):
-    """分页查询用户列表，支持按关键词、租户筛选"""
-    items, total = user_service.list_users(page=page, page_size=page_size, search=search, tenant_id=tenant_id)
+    items, total = user_service.list_users(
+        page=page,
+        page_size=page_size,
+        search=search,
+        tenant_id=tenant_id,
+    )
     return {'users': items, 'total': total, 'page': page, 'page_size': page_size}
 
 
@@ -62,65 +64,49 @@ def _parse_user_id(user_id: str) -> uuid.UUID:
     try:
         return uuid.UUID(user_id)
     except (ValueError, TypeError):
-        from core.errors import ErrorCodes, raise_error
         raise_error(ErrorCodes.USER_NOT_FOUND)
 
 
 def _parse_user_ids(user_ids: list[str]) -> list[uuid.UUID]:
-    result = []
-    for s in user_ids:
+    result: list[uuid.UUID] = []
+    for value in user_ids:
         try:
-            result.append(uuid.UUID(s))
+            result.append(uuid.UUID(value))
         except (ValueError, TypeError):
-            from core.errors import ErrorCodes, raise_error
-            raise_error(ErrorCodes.USER_NOT_FOUND, extra_msg=s)
+            raise_error(ErrorCodes.USER_NOT_FOUND, extra_msg=value)
     return result
 
 
 @router.patch('/role', response_model=OkResponse)
 @permission_required('user.admin')
 def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user)):  # noqa: B008
-    """直接给指定用户设置系统角色（与 group 无关），支持 user_ids 批量。"""
     uids = _parse_user_ids(body.user_ids or [])
     try:
         rid = uuid.UUID(body.role_id)
     except (ValueError, TypeError):
-        from core.errors import ErrorCodes, raise_error
         raise_error(ErrorCodes.ROLE_NOT_FOUND)
     user_service.set_user_roles_batch(uids, rid)
     return {'ok': True}
 
 
-@router.get('/{user_id}/basic', response_model=UserBasicResponse)
-def get_user_basic(user_id: str, _: User = Depends(current_user)):  # noqa: B008
-    """查询用户基础信息（已登录即可，用于服务间回填用户名）。"""
-    uid = _parse_user_id(user_id)
-    data = user_service.get_user(uid)
-    return {
-        'user_id': data['user_id'],
-        'username': data['username'],
-        'display_name': data['display_name'],
-        'tenant_id': data.get('tenant_id'),
-    }
-
-
 @router.get('/{user_id}', response_model=UserDetailResponse)
 @permission_required('user.admin')
 def get_user(user_id: str, _: User = Depends(current_user)):  # noqa: B008
-    """查询用户详情（需 user.admin）。"""
     uid = _parse_user_id(user_id)
     return user_service.get_user(uid)
 
 
 @router.patch('/{user_id}', response_model=OkResponse)
 @permission_required('user.admin')
-def set_user_role(user_id: str, body: UserRoleBody, _: User = Depends(current_user)):  # noqa: B008
-    """修改指定用户的角色"""
+def set_user_role(
+    user_id: str,
+    body: UserRoleBody,
+    _: User = Depends(current_user),  # noqa: B008
+):
     uid = _parse_user_id(user_id)
     try:
         rid = uuid.UUID(body.role_id)
     except (ValueError, TypeError):
-        from core.errors import ErrorCodes, raise_error
         raise_error(ErrorCodes.ROLE_NOT_FOUND)
     user_service.set_user_role(uid, rid)
     return {'ok': True}
@@ -128,7 +114,10 @@ def set_user_role(user_id: str, body: UserRoleBody, _: User = Depends(current_us
 
 @router.patch('/{user_id}/reset_password', response_model=OkResponse)
 @permission_required('user.admin')
-def reset_password(user_id: str, body: ResetPasswordBody, _: User = Depends(current_user)):  # noqa: B008
-    """重置指定用户的密码，新密码需符合强度要求"""
+def reset_password(
+    user_id: str,
+    body: ResetPasswordBody,
+    _: User = Depends(current_user),  # noqa: B008
+):
     user_service.reset_password(_parse_user_id(user_id), body.new_password or '')
     return {'ok': True}
