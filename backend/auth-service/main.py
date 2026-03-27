@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from pathlib import Path
 
 import redis
 import traceback
@@ -22,17 +23,23 @@ from core.errors import AppException, error_payload_from_exception
 # 确保日志可见（uvicorn 的 log_config 可能把默认级别设为 WARNING/且禁用既有 logger）
 logging.basicConfig(level=logging.INFO, format='%(message)s', force=True)
 
+_API_PREFIX = '/api/authservice'
+_OPENAPI_JSON_PATH = f'{_API_PREFIX}/openapi.json'
+_SWAGGER_JSON_PATH = f'{_API_PREFIX}/swagger.json'
+_OPENAPI_YAML_PATH = f'{_API_PREFIX}/openapi.yaml'
+_DOCS_PATH = f'{_API_PREFIX}/docs'
+
 app = FastAPI(
     title='Auth Service',
     description='LazyRAG 认证与授权服务（登录、注册、Token、用户/角色/组管理）',
     version='1.0.0',
-    docs_url='/docs',
+    docs_url=_DOCS_PATH,
     redoc_url=None,
     oauth2_redirect_url=None,
-    openapi_url='/openapi.json',
+    openapi_url=_OPENAPI_JSON_PATH,
 )
 
-_SWAGGER_PATHS = {'/openapi.json', '/openapi.yaml', '/docs'}
+_SWAGGER_PATHS = {_OPENAPI_JSON_PATH, _SWAGGER_JSON_PATH, _OPENAPI_YAML_PATH, _DOCS_PATH}
 
 _logger = logging.getLogger('uvicorn.error')
 _logger.setLevel(logging.INFO)
@@ -220,7 +227,36 @@ def _handle_validation_error(_, exc: RequestValidationError):
     return JSONResponse(status_code=400, content={'code': 400, 'message': '参数错误', 'data': exc.errors()})
 
 
-@app.get('/openapi.yaml', include_in_schema=False)
+def _export_openapi_artifacts() -> None:
+    schema = app.openapi()
+    current_dir = Path(__file__).resolve().parent
+    repo_root = current_dir.parent.parent
+    outputs = {
+        current_dir / 'openapi.json': 'json',
+        repo_root / 'api' / 'backend' / 'auth-service' / 'swagger.json': 'json',
+        repo_root / 'api' / 'backend' / 'auth-service' / 'openapi.yml': 'yaml',
+        Path('/openapi-export/auth-service/swagger.json'): 'json',
+        Path('/openapi-export/auth-service/openapi.yml'): 'yaml',
+    }
+    json_body = json.dumps(schema, ensure_ascii=False, indent=2) + '\n'
+    yaml_body = yaml.dump(schema, allow_unicode=True, sort_keys=False)
+    for output, kind in outputs.items():
+        try:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            if kind == 'json':
+                output.write_text(json_body, encoding='utf-8')
+            else:
+                output.write_text(yaml_body, encoding='utf-8')
+        except OSError:
+            continue
+
+
+@app.get(_SWAGGER_JSON_PATH, include_in_schema=False)
+def swagger_json():
+    return JSONResponse(content=app.openapi())
+
+
+@app.get(_OPENAPI_YAML_PATH, include_in_schema=False)
 def openapi_yaml():
     """openapi.yaml文档"""
     schema = app.openapi()
@@ -228,10 +264,10 @@ def openapi_yaml():
     return Response(content=body, media_type='application/x-yaml')
 
 
-_API_PREFIX = '/api/authservice'
-
 app.include_router(auth_router, prefix=_API_PREFIX)
 app.include_router(authorization_router, prefix=_API_PREFIX)
 app.include_router(user_router, prefix=_API_PREFIX)
 app.include_router(role_router, prefix=_API_PREFIX)
 app.include_router(group_router, prefix=_API_PREFIX)
+
+_export_openapi_artifacts()

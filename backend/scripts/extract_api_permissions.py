@@ -20,10 +20,59 @@ def _normalize_path(path: str) -> str:
     return path.rstrip('/') or '/'
 
 
+def _get_router_prefixes(tree: ast.AST) -> dict[str, str]:
+    prefixes: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        target_name = node.targets[0].id
+        value = node.value
+        if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
+            continue
+        if value.func.id != 'APIRouter':
+            continue
+        prefix = ''
+        for kw in value.keywords:
+            if kw.arg == 'prefix' and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                prefix = kw.value.value
+                break
+        prefixes[target_name] = _normalize_path(prefix) if prefix else ''
+    return prefixes
+
+
+def _join_paths(prefix: str, path: str) -> str:
+    prefix = prefix.rstrip('/')
+    path = path.rstrip('/')
+    if not prefix and not path:
+        return '/'
+    if not prefix:
+        return path or '/'
+    if not path or path == '/':
+        return prefix or '/'
+    return f'{prefix}{path if path.startswith("/") else "/" + path}'
+
+
+def _extract_module_api_prefix(tree: ast.AST) -> str:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == '_API_PREFIX':
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                    return _normalize_path(node.value.value)
+    return ''
+
+
 def extract_from_py_file(filepath: Path) -> list[dict]:
-    """Parse a Python file for @permission_required + app.get/post(path)."""
+    """Parse a Python file for @permission_required + app/router method decorators."""
     text = filepath.read_text(encoding='utf-8')
     tree = ast.parse(text)
+    router_prefixes = _get_router_prefixes(tree)
+    module_api_prefix = _extract_module_api_prefix(tree)
+    if not module_api_prefix and 'auth-service' in filepath.parts:
+        module_api_prefix = '/api/authservice'
     entries = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef):
@@ -42,13 +91,18 @@ def extract_from_py_file(filepath: Path) -> list[dict]:
                         if perms:
                             required_perms = set(perms)
                 elif isinstance(dec.func, ast.Attribute):
-                    if getattr(dec.func.value, 'id', None) in ('app', 'router') and dec.args:
-                        path_arg = dec.args[0]
-                        if isinstance(path_arg, ast.Constant) and isinstance(path_arg.value, str):
-                            path = _normalize_path(path_arg.value)
-                            method = (dec.func.attr or 'GET').upper()
-                            if method not in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'):
-                                method = 'GET'
+                    router_name = getattr(dec.func.value, 'id', None)
+                    if router_name in ('app', 'router') or router_name in router_prefixes:
+                        if dec.args:
+                            path_arg = dec.args[0]
+                            if isinstance(path_arg, ast.Constant) and isinstance(path_arg.value, str):
+                                route_path = _normalize_path(path_arg.value)
+                                prefix = router_prefixes.get(router_name, '')
+                                local_path = _normalize_path(_join_paths(prefix, route_path))
+                                path = _normalize_path(_join_paths(module_api_prefix, local_path))
+                                method = (dec.func.attr or 'GET').upper()
+                                if method not in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'):
+                                    method = 'GET'
         if required_perms is not None and path is not None and method is not None:
             entries.append({'method': method, 'path': path, 'permissions': sorted(required_perms)})
     return entries
@@ -69,11 +123,13 @@ def extract_from_go_file(filepath: Path) -> list[dict]:
     """Parse a Go file for handleAPI(mux, method, path, []string{...}, ...) calls."""
     text = filepath.read_text(encoding='utf-8')
     entries = []
+    api_prefix = '/api/core' if 'core' in filepath.parts else ''
     for m in _GO_HANDLE_API_RE.finditer(text):
         method = (m.group(1) or 'GET').upper()
         if method not in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'):
             method = 'GET'
-        path = _normalize_path(m.group(2) or '/')
+        raw_path = _normalize_path(m.group(2) or '/')
+        path = _normalize_path(_join_paths(api_prefix, raw_path))
         perms = _parse_go_permissions(m.group(3))
         if perms:
             entries.append({'method': method, 'path': path, 'permissions': sorted(perms)})

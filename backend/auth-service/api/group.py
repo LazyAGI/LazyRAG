@@ -8,6 +8,7 @@ from core.rbac import permission_required
 from models import User
 from schemas.group import (
     GroupAddUsersBody,
+    GroupBasicResponse,
     GroupCreateBody,
     GroupCreateResponse,
     GroupDetailResponse,
@@ -70,6 +71,20 @@ def create_group(body: GroupCreateBody, user: User = Depends(current_user)):  # 
         creator_user_id=user.id,
     )
     return {'group_id': group_id}
+
+
+@router.get('/{group_id}/basic', response_model=GroupBasicResponse)
+def get_group_basic(group_id: str, _: User = Depends(current_user)):  # noqa: B008
+    """查询用户组基础信息（已登录即可，用于服务间回填组名）。"""
+    gid = _parse_group_id(group_id)
+    detail = group_service.get_group(gid)
+    if not detail:
+        raise_error(ErrorCodes.GROUP_NOT_FOUND)
+    return {
+        'group_id': detail['group_id'],
+        'group_name': detail['group_name'],
+        'tenant_id': detail.get('tenant_id'),
+    }
 
 
 @router.get('/{group_id}', response_model=GroupDetailResponse)

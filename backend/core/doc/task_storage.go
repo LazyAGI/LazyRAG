@@ -61,8 +61,20 @@ func buildDatasetDocFileDir(tenantID, datasetID, relativePath, fileID string) st
 	return filepath.Join(baseDir, "files", safePathPart(fileID))
 }
 
-func buildUploadDir(tenantID, datasetID, taskID, uploadID string) string {
+func buildTaskUploadDir(tenantID, datasetID, taskID, uploadID string) string {
 	return filepath.Join(uploadRoot(), "tenants", safePathPart(tenantID), "datasets", safePathPart(datasetID), "tmp", "tasks", safePathPart(taskID), "uploads", safePathPart(uploadID))
+}
+
+func buildDatasetUploadDir(tenantID, datasetID, uploadID string) string {
+	return filepath.Join(uploadRoot(), "tenants", safePathPart(tenantID), "datasets", safePathPart(datasetID), "tmp", "uploads", safePathPart(uploadID))
+}
+
+func buildTempUploadDir(userID, uploadID string) string {
+	return filepath.Join(uploadRoot(), "tmp", "users", safePathPart(userID), "uploads", safePathPart(uploadID))
+}
+
+func buildTempUploadFileDir(userID, uploadID string) string {
+	return filepath.Join(uploadRoot(), "tmp", "users", safePathPart(userID), "files", safePathPart(uploadID))
 }
 
 func storedFileName(filename, documentID string) string {

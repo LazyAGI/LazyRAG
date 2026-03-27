@@ -57,13 +57,10 @@ type ListSegmentsResponse struct {
 }
 
 type segmentSearchInput struct {
-	PageSize  int    `json:"page_size,omitempty"`
 	PageToken string `json:"page_token,omitempty"`
-	Page      int    `json:"page,omitempty"`
+	PageSize  int    `json:"page_size,omitempty"`
 	Group     string `json:"group,omitempty"`
 }
-
-// SegmentService 占位实现，后续补全。
 
 func ListSegments(w http.ResponseWriter, r *http.Request) {
 	datasetID, documentID, lazyDocID, algoID, group, ok := prepareSegmentRequest(w, r, "ListSegments", nil)
@@ -116,53 +113,6 @@ func GetSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	common.ReplyJSON(w, segment)
 }
-func EditSegment(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-func ModifyStatus(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) /* TODO */ }
-func SearchSegments(w http.ResponseWriter, r *http.Request) {
-	body := parseSegmentSearchInput(r)
-	datasetID, documentID, lazyDocID, algoID, group, ok := prepareSegmentRequest(w, r, "SearchSegments", body)
-	if !ok {
-		return
-	}
-	pageSize := parseSegmentPageSize(r, body)
-	page := parseSegmentPage(r, body)
-	raw, _, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "SearchSegments")
-	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
-	log.Logger.Info().
-		Str("handler", "SearchSegments").
-		Str("dataset_id", datasetID).
-		Str("document_id", documentID).
-		Str("lazyllm_doc_id", lazyDocID).
-		Str("algo_id", strings.TrimSpace(algoID)).
-		Str("group", strings.TrimSpace(group)).
-		Int("page", page).
-		Int("page_size", pageSize).
-		Int("segments_count", len(segments)).
-		Int32("total_size", totalSize).
-		Str("next_page_token", strings.TrimSpace(nextPageToken)).
-		Any("search_body", body).
-		Any("external_response", raw).
-		Msg("external chunks request succeeded")
-	common.ReplyJSON(w, ListSegmentsResponse{Segments: segments, TotalSize: totalSize, NextPageToken: nextPageToken})
-}
-func DeleteSegment(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) /* TODO */ }
-func BatchSignImageURI(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-func BulkDelete(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) /* TODO */ }
-func HybridSearchSegments(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-func ScrollSegments(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-
 func parseSegmentPageSize(r *http.Request, body *segmentSearchInput) int {
 	if body != nil && body.PageSize > 0 {
 		if body.PageSize > 1000 {
@@ -183,9 +133,6 @@ func parseSegmentPage(r *http.Request, body *segmentSearchInput) int {
 			if v, err := strconv.Atoi(token); err == nil && v > 0 {
 				return v
 			}
-		}
-		if body.Page > 0 {
-			return body.Page
 		}
 	}
 	if token := firstNonEmptyQuery(r, "page_token", "pageToken", "cursor", "offset_token"); token != "" {
@@ -528,32 +475,39 @@ func toInt32(v any) (int32, bool) {
 
 func mapChunkToSegment(datasetID, documentID string, item map[string]any) SegmentItem {
 	meta := nestedMap(item, "metadata")
+	globalMetaMap := firstMap(item, nil, "global_metadata", "global_meta")
 	segmentID := firstAnyStringWithMeta(item, meta, "", "segment_id", "chunk_id", "id", "uid")
-	resolvedDatasetID := firstAnyStringWithMeta(item, meta, datasetID, "dataset_id", "kb_id")
-	resolvedDocumentID := firstAnyStringWithMeta(item, meta, documentID, "document_id", "doc_id")
-	content := firstAnyStringWithMeta(item, meta, "", "content", "text", "chunk_text", "content_with_weight")
+	resolvedDatasetID := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, datasetID, "dataset_id", "kb_id")
+	resolvedDocumentID := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, documentID, "document_id", "doc_id", "docid", "core_document_id")
+	content := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "content", "text", "chunk_text", "content_with_weight")
 	status := firstAnyStringWithMeta(item, meta, "", "status", "segment_state", "state")
 	createTime := firstAnyStringWithMeta(item, meta, "", "create_time", "created_at")
 	updateTime := firstAnyStringWithMeta(item, meta, "", "update_time", "updated_at")
 	number, _ := firstInt32(item, meta, "number")
 	tokenCount, hasTokenCount := firstInt32(item, meta, "token_count")
 	words, hasWords := firstInt32(item, meta, "words")
-	segmentType := firstAny(item, meta, "segment_type", "type")
-	displayType := firstAny(item, meta, "display_type")
+	segmentType := normalizeSegmentType(firstAny(item, meta, "segment_type", "type"))
+	displayType := normalizeDisplayType(firstAny(item, meta, "display_type"), segmentType)
 	structuredData := firstAny(item, meta, "structured_data")
 	children := firstMap(item, meta, "children")
 	imageKeys := firstStringSlice(item, meta, "image_keys")
 	excludedEmbedMetadataKeys := firstStringSlice(item, meta, "excluded_embed_metadata_keys")
 	excludedLLMMetadataKeys := firstStringSlice(item, meta, "excluded_llm_metadata_keys")
 	metaText := firstJSONString(item, meta, "meta")
+	if metaText == "" {
+		metaText = firstJSONString(globalMetaMap, nil, "meta")
+	}
 	globalMeta := firstJSONString(item, meta, "global_meta", "global_metadata")
-	group := firstAnyStringWithMeta(item, meta, "", "group")
-	parent := firstAnyStringWithMeta(item, meta, "", "parent")
-	answer := firstAnyStringWithMeta(item, meta, "", "answer")
-	tableContent := firstAnyStringWithMeta(item, meta, "", "table_content")
-	imageKey := firstAnyStringWithMeta(item, meta, "", "image_key")
-	imageURI := firstAnyStringWithMeta(item, meta, "", "image_uri")
-	displayContent := firstAnyStringWithMeta(item, meta, "", "display_content")
+	group := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "group")
+	parent := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "parent")
+	answer := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "answer")
+	if metaText == "" {
+		metaText = firstJSONString(item, meta, "bbox", "position", "locator")
+	}
+	tableContent := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "table_content")
+	imageKey := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "image_key")
+	imageURI := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "image_uri")
+	displayContent := firstAnyStringWithFallbackMaps(item, meta, globalMetaMap, "", "display_content")
 	if displayContent == "" {
 		displayContent = content
 	}
@@ -579,8 +533,11 @@ func mapChunkToSegment(datasetID, documentID string, item map[string]any) Segmen
 	var isActive *bool
 	if v, ok := firstBool(item, meta, "is_active", "active"); ok {
 		isActive = &v
-	} else {
+	} else if enabled != nil {
 		isActive = enabled
+	} else {
+		defaultActive := true
+		isActive = &defaultActive
 	}
 	var name *string
 	if segmentID != "" {
@@ -634,6 +591,18 @@ func firstInt32(m map[string]any, meta map[string]any, keys ...string) (int32, b
 		}
 	}
 	return 0, false
+}
+
+func firstAnyStringWithFallbackMaps(primary map[string]any, secondary map[string]any, tertiary map[string]any, fallback string, keys ...string) string {
+	for _, src := range []map[string]any{primary, secondary, tertiary} {
+		if src == nil {
+			continue
+		}
+		if v := firstAnyString(src, "", keys...); v != "" {
+			return v
+		}
+	}
+	return fallback
 }
 
 func firstAny(m map[string]any, meta map[string]any, keys ...string) any {
@@ -753,6 +722,110 @@ func nullIfNil(v any) any {
 		return nil
 	}
 	return v
+}
+
+func normalizeSegmentType(v any) any {
+	if v == nil {
+		return nil
+	}
+	switch vv := v.(type) {
+	case string:
+		s := strings.TrimSpace(vv)
+		if s == "" {
+			return nil
+		}
+		if mapped, ok := segmentTypeNameByValue[s]; ok {
+			return mapped
+		}
+		return s
+	case int:
+		if mapped, ok := segmentTypeNameByValue[strconv.Itoa(vv)]; ok {
+			return mapped
+		}
+	case int32:
+		if mapped, ok := segmentTypeNameByValue[strconv.FormatInt(int64(vv), 10)]; ok {
+			return mapped
+		}
+	case int64:
+		if mapped, ok := segmentTypeNameByValue[strconv.FormatInt(vv, 10)]; ok {
+			return mapped
+		}
+	case float64:
+		if mapped, ok := segmentTypeNameByValue[strconv.FormatInt(int64(vv), 10)]; ok {
+			return mapped
+		}
+	}
+	return v
+}
+
+func normalizeDisplayType(v any, segmentType any) any {
+	if normalized := normalizeDisplayTypeValue(v); normalized != nil {
+		return normalized
+	}
+	s, ok := segmentType.(string)
+	if !ok {
+		return nil
+	}
+	switch s {
+	case "SEGMENT_TYPE_TEXT", "SEGMENT_TYPE_QA", "SEGMENT_TYPE_ONLINE_SEARCH":
+		return "DISPLAY_TYPE_TEXT"
+	case "SEGMENT_TYPE_TABLE", "SEGMENT_TYPE_STRUCTURED_DATA":
+		return "DISPLAY_TYPE_TABLE"
+	default:
+		return nil
+	}
+}
+
+func normalizeDisplayTypeValue(v any) any {
+	if v == nil {
+		return nil
+	}
+	switch vv := v.(type) {
+	case string:
+		s := strings.TrimSpace(vv)
+		if s == "" {
+			return nil
+		}
+		if mapped, ok := displayTypeNameByValue[s]; ok {
+			return mapped
+		}
+		return s
+	case int:
+		if mapped, ok := displayTypeNameByValue[strconv.Itoa(vv)]; ok {
+			return mapped
+		}
+	case int32:
+		if mapped, ok := displayTypeNameByValue[strconv.FormatInt(int64(vv), 10)]; ok {
+			return mapped
+		}
+	case int64:
+		if mapped, ok := displayTypeNameByValue[strconv.FormatInt(vv, 10)]; ok {
+			return mapped
+		}
+	case float64:
+		if mapped, ok := displayTypeNameByValue[strconv.FormatInt(int64(vv), 10)]; ok {
+			return mapped
+		}
+	}
+	return v
+}
+
+var segmentTypeNameByValue = map[string]string{
+	"0": "SEGMENT_TYPE_UNSPECIFIED",
+	"1": "SEGMENT_TYPE_TEXT",
+	"2": "SEGMENT_TYPE_IMAGE",
+	"3": "SEGMENT_TYPE_TABLE",
+	"4": "SEGMENT_TYPE_WEB_IMAGE",
+	"5": "SEGMENT_TYPE_STRUCTURED_DATA",
+	"6": "SEGMENT_TYPE_QA",
+	"7": "SEGMENT_TYPE_ONLINE_SEARCH",
+}
+
+var displayTypeNameByValue = map[string]string{
+	"0": "DISPLAY_TYPE_UNSPECIFIED",
+	"1": "DISPLAY_TYPE_TEXT",
+	"2": "DISPLAY_TYPE_MARKDOWN",
+	"3": "DISPLAY_TYPE_TABLE",
 }
 
 func firstBool(m map[string]any, meta map[string]any, keys ...string) (bool, bool) {

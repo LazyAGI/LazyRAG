@@ -40,6 +40,12 @@ func newUploadID() string {
 	return "upload_" + fmtHex(b[:])
 }
 
+const (
+	uploadScopeTask    = "TASK"
+	uploadScopeDataset = "DATASET"
+	uploadScopeTemp    = "TEMP"
+)
+
 func streamUploadedFile(w http.ResponseWriter, r *http.Request, inline bool) {
 	datasetID := datasetIDFromPath(r)
 	uploadFileID := uploadFileIDFromPath(r)
@@ -303,7 +309,70 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 			DownloadURL:  uploadedFileDownloadPath(row.DatasetID, row.UploadFileID),
 			FileURL:      staticFileURLFromFullPath(ext.StoredPath),
 			Status:       row.Status,
+			UploadScope:  uploadScopeDataset,
 		})
+	}
+	common.ReplyJSON(w, UploadFilesResponse{Files: resp})
+}
+
+func UploadTempFile(w http.ResponseWriter, r *http.Request) {
+	userID := store.UserID(r)
+	userName := store.UserName(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
+		common.ReplyErr(w, "invalid multipart form", http.StatusBadRequest)
+		return
+	}
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		files = r.MultipartForm.File["file"]
+	}
+	if len(files) == 0 {
+		files = flattenMultipartFiles(r.MultipartForm.File)
+	}
+	if len(files) == 0 {
+		common.ReplyErr(w, "no file uploaded", http.StatusBadRequest)
+		return
+	}
+	resp := make([]UploadFileResponse, 0, len(files))
+	now := time.Now().UTC()
+	for _, fh := range files {
+		uploadFileID := newUploadID()
+		storedName := storedFileName(fh.Filename, uploadFileID)
+		finalDir := buildTempUploadFileDir(userID, uploadFileID)
+		if err := os.MkdirAll(finalDir, 0o755); err != nil {
+			common.ReplyErr(w, "create temp dir failed", http.StatusInternalServerError)
+			return
+		}
+		finalPath := filepath.Join(finalDir, storedName)
+		file, err := fh.Open()
+		if err != nil {
+			common.ReplyErr(w, "open upload file failed", http.StatusBadRequest)
+			return
+		}
+		out, err := os.Create(finalPath)
+		if err != nil {
+			_ = file.Close()
+			common.ReplyErr(w, "create upload target failed", http.StatusInternalServerError)
+			return
+		}
+		size, copyErr := io.Copy(out, file)
+		_ = out.Close()
+		_ = file.Close()
+		if copyErr != nil {
+			common.ReplyErr(w, "save upload file failed", http.StatusInternalServerError)
+			return
+		}
+		contentType := fh.Header.Get("Content-Type")
+		row := orm.UploadedFile{UploadFileID: uploadFileID, DatasetID: "", TenantID: "", TaskID: "", DocumentID: "", Status: UploadedFileStateUploaded, Ext: mustJSON(uploadedFileExt{StoredPath: finalPath, StoredName: storedName, OriginalFilename: fh.Filename, FileSize: size, ContentType: contentType}), BaseModel: orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now}}
+		if err := store.DB().WithContext(r.Context()).Create(&row).Error; err != nil {
+			common.ReplyErr(w, "create uploaded file failed", http.StatusInternalServerError)
+			return
+		}
+		resp = append(resp, UploadFileResponse{UploadFileID: uploadFileID, Filename: fh.Filename, StoredName: storedName, StoredPath: finalPath, FileSize: size, ContentType: contentType, FileURL: staticFileURLFromFullPath(finalPath), Status: UploadedFileStateUploaded, UploadScope: uploadScopeTemp})
 	}
 	common.ReplyJSON(w, UploadFilesResponse{Files: resp})
 }
@@ -591,38 +660,27 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "task type does not support upload", http.StatusBadRequest)
 		return
 	}
-	uploadID := newUploadID()
-	partSize := req.PartSize
-	if partSize <= 0 {
-		partSize = 8 * 1024 * 1024
-	}
-	totalParts := 1
-	if req.FileSize > 0 {
-		totalParts = int(math.Ceil(float64(req.FileSize) / float64(partSize)))
-		if totalParts < 1 {
-			totalParts = 1
-		}
-	}
-	meta := uploadMeta{
-		UploadID: uploadID, TaskID: taskID, DocumentID: taskRow.DocID, DatasetID: datasetID,
-		TenantID: ds.TenantID, DocumentPID: strings.TrimSpace(req.DocumentPID), RelativePath: strings.TrimSpace(req.RelativePath),
-		OriginalFilename: req.Filename, StoredName: storedFileName(req.Filename, taskRow.DocID),
-		FileSize: req.FileSize, ContentType: req.ContentType, PartSize: partSize, TotalParts: totalParts,
-		UploadState: string(TaskStateUploading), UploadedParts: []int{},
-	}
-	dir := buildUploadDir(ds.TenantID, datasetID, taskID, uploadID)
-	if err := os.MkdirAll(filepath.Join(dir, "parts"), 0o755); err != nil {
-		common.ReplyErr(w, "create upload dir failed", http.StatusInternalServerError)
+	resp, row, err := initUploadSession(r.Context(), initUploadSessionArgs{
+		Scope:          uploadScopeTask,
+		DatasetID:      datasetID,
+		TaskID:         taskID,
+		DocumentID:     taskRow.DocID,
+		TenantID:       ds.TenantID,
+		DocumentPID:    strings.TrimSpace(req.DocumentPID),
+		RelativePath:   strings.TrimSpace(req.RelativePath),
+		Filename:       req.Filename,
+		FileSize:       req.FileSize,
+		ContentType:    req.ContentType,
+		PartSize:       req.PartSize,
+		CreateUserID:   userID,
+		CreateUserName: userName,
+	})
+	if err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = os.WriteFile(filepath.Join(dir, "meta.json"), mustJSON(meta), 0o644)
-	now := time.Now().UTC()
-	row := orm.UploadSession{UploadID: uploadID, TaskID: taskID, DatasetID: datasetID, TenantID: ds.TenantID, DocumentID: taskRow.DocID, UploadState: string(TaskStateUploading), Ext: mustJSON(meta), BaseModel: orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now}}
-	if err := store.DB().WithContext(r.Context()).Create(&row).Error; err != nil {
-		common.ReplyErr(w, "create upload session failed", http.StatusInternalServerError)
-		return
-	}
-	common.ReplyJSON(w, InitUploadResponse{UploadID: uploadID, TaskID: taskID, DocumentID: taskRow.DocID, StoredName: meta.StoredName, UploadMode: multipartOrSingle(totalParts), PartSize: partSize, TotalParts: totalParts, UploadState: meta.UploadState})
+	_ = row
+	common.ReplyJSON(w, resp)
 }
 
 func UploadPart(w http.ResponseWriter, r *http.Request) {
@@ -639,6 +697,248 @@ func UploadPart(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
 		return
 	}
+	uploadPartInternal(w, r, session, partNumber)
+}
+
+func CompleteUpload(w http.ResponseWriter, r *http.Request) {
+	datasetID := datasetIDFromPath(r)
+	taskID := taskIDFromPath(r)
+	uploadID := uploadIDFromPath(r)
+	if datasetID == "" || taskID == "" || uploadID == "" {
+		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	ds, _, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetUpload)
+	if !ok {
+		replyDatasetForbidden(w)
+		return
+	}
+	var session orm.UploadSession
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND task_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, taskID, datasetID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	resp, statusCode, err := completeUploadInternal(r.Context(), session, completeUploadArgs{Dataset: ds})
+	if err != nil {
+		common.ReplyErr(w, err.Error(), statusCode)
+		return
+	}
+	common.ReplyJSON(w, resp)
+}
+
+func InitTempUpload(w http.ResponseWriter, r *http.Request) {
+	userID := store.UserID(r)
+	userName := store.UserName(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+	var req InitUploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Filename) == "" {
+		common.ReplyErr(w, "filename is required", http.StatusBadRequest)
+		return
+	}
+	if req.FileSize < 0 {
+		common.ReplyErr(w, "file_size must be >= 0", http.StatusBadRequest)
+		return
+	}
+	if req.PartSize < 0 {
+		common.ReplyErr(w, "part_size must be >= 0", http.StatusBadRequest)
+		return
+	}
+	resp, _, err := initUploadSession(r.Context(), initUploadSessionArgs{Scope: uploadScopeTemp, Filename: req.Filename, FileSize: req.FileSize, ContentType: req.ContentType, PartSize: req.PartSize, CreateUserID: userID, CreateUserName: userName})
+	if err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	common.ReplyJSON(w, resp)
+}
+
+func UploadTempPart(w http.ResponseWriter, r *http.Request) {
+	uploadID := uploadIDFromPath(r)
+	partNumber, err := strconv.Atoi(strings.TrimSpace(mux.Vars(r)["part_number"]))
+	if uploadID == "" || err != nil || partNumber <= 0 {
+		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+	var session orm.UploadSession
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	if strings.TrimSpace(session.CreateUserID) != userID {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	meta, _, err := loadUploadMeta(session)
+	if err != nil || strings.TrimSpace(meta.UploadScope) != uploadScopeTemp {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	uploadPartInternal(w, r, session, partNumber)
+}
+
+func CompleteTempUpload(w http.ResponseWriter, r *http.Request) {
+	uploadID := uploadIDFromPath(r)
+	if uploadID == "" {
+		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+	var session orm.UploadSession
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	if strings.TrimSpace(session.CreateUserID) != userID {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	meta, _, err := loadUploadMeta(session)
+	if err != nil || strings.TrimSpace(meta.UploadScope) != uploadScopeTemp {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	resp, statusCode, err := completeUploadInternal(r.Context(), session, completeUploadArgs{})
+	if err != nil {
+		common.ReplyErr(w, err.Error(), statusCode)
+		return
+	}
+	common.ReplyJSON(w, resp)
+}
+
+func AbortUpload(w http.ResponseWriter, r *http.Request) {
+	datasetID := datasetIDFromPath(r)
+	taskID := taskIDFromPath(r)
+	uploadID := uploadIDFromPath(r)
+	if datasetID == "" || taskID == "" || uploadID == "" {
+		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	var session orm.UploadSession
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND task_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, taskID, datasetID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	abortUploadSession(r.Context(), session)
+	common.ReplyJSON(w, map[string]any{"upload_id": uploadID, "upload_state": string(TaskStateCancelled)})
+}
+
+func AbortTempUpload(w http.ResponseWriter, r *http.Request) {
+	uploadID := uploadIDFromPath(r)
+	if uploadID == "" {
+		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+	var session orm.UploadSession
+	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	if strings.TrimSpace(session.CreateUserID) != userID {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	meta, _, err := loadUploadMeta(session)
+	if err != nil || strings.TrimSpace(meta.UploadScope) != uploadScopeTemp {
+		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		return
+	}
+	abortUploadSession(r.Context(), session)
+	common.ReplyJSON(w, map[string]any{"upload_id": uploadID, "upload_state": string(TaskStateCancelled)})
+}
+
+type initUploadSessionArgs struct {
+	Scope          string
+	DatasetID      string
+	TaskID         string
+	DocumentID     string
+	TenantID       string
+	DocumentPID    string
+	RelativePath   string
+	Filename       string
+	FileSize       int64
+	ContentType    string
+	PartSize       int64
+	CreateUserID   string
+	CreateUserName string
+}
+
+type completeUploadArgs struct {
+	Dataset *orm.Dataset
+}
+
+func initUploadSession(ctx context.Context, args initUploadSessionArgs) (InitUploadResponse, orm.UploadSession, error) {
+	uploadID := newUploadID()
+	partSize := args.PartSize
+	if partSize <= 0 {
+		partSize = 8 * 1024 * 1024
+	}
+	totalParts := 1
+	if args.FileSize > 0 {
+		totalParts = int(math.Ceil(float64(args.FileSize) / float64(partSize)))
+		if totalParts < 1 {
+			totalParts = 1
+		}
+	}
+	storedRef := firstNonEmpty(args.DocumentID, uploadID)
+	meta := uploadMeta{
+		UploadID:         uploadID,
+		TaskID:           args.TaskID,
+		DocumentID:       args.DocumentID,
+		DatasetID:        args.DatasetID,
+		TenantID:         args.TenantID,
+		DocumentPID:      args.DocumentPID,
+		RelativePath:     args.RelativePath,
+		OriginalFilename: args.Filename,
+		StoredName:       storedFileName(args.Filename, storedRef),
+		FileSize:         args.FileSize,
+		ContentType:      args.ContentType,
+		PartSize:         partSize,
+		TotalParts:       totalParts,
+		UploadedParts:    []int{},
+		UploadState:      string(TaskStateUploading),
+		UploadScope:      strings.ToUpper(strings.TrimSpace(args.Scope)),
+		CreateUserID:     args.CreateUserID,
+		CreateUserName:   args.CreateUserName,
+	}
+	if meta.UploadScope == "" {
+		meta.UploadScope = uploadScopeTask
+	}
+	dir := uploadDirForMeta(meta, orm.UploadSession{UploadID: uploadID, TaskID: args.TaskID, DatasetID: args.DatasetID, TenantID: args.TenantID, BaseModel: orm.BaseModel{CreateUserID: args.CreateUserID}})
+	if err := os.MkdirAll(filepath.Join(dir, "parts"), 0o755); err != nil {
+		return InitUploadResponse{}, orm.UploadSession{}, fmt.Errorf("create upload dir failed")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"), mustJSON(meta), 0o644); err != nil {
+		return InitUploadResponse{}, orm.UploadSession{}, fmt.Errorf("write upload meta failed")
+	}
+	now := time.Now().UTC()
+	row := orm.UploadSession{UploadID: uploadID, TaskID: args.TaskID, DatasetID: args.DatasetID, TenantID: args.TenantID, DocumentID: args.DocumentID, UploadState: meta.UploadState, Ext: mustJSON(meta), BaseModel: orm.BaseModel{CreateUserID: args.CreateUserID, CreateUserName: args.CreateUserName, CreatedAt: now, UpdatedAt: now}}
+	if err := store.DB().WithContext(ctx).Create(&row).Error; err != nil {
+		return InitUploadResponse{}, orm.UploadSession{}, fmt.Errorf("create upload session failed")
+	}
+	return InitUploadResponse{UploadID: uploadID, TaskID: args.TaskID, DocumentID: args.DocumentID, DatasetID: args.DatasetID, StoredName: meta.StoredName, UploadMode: multipartOrSingle(totalParts), PartSize: partSize, TotalParts: totalParts, UploadState: meta.UploadState, UploadScope: meta.UploadScope}, row, nil
+}
+
+func uploadPartInternal(w http.ResponseWriter, r *http.Request, session orm.UploadSession, partNumber int) {
 	meta, dir, err := loadUploadMeta(session)
 	if err != nil {
 		common.ReplyErr(w, "load upload meta failed", http.StatusInternalServerError)
@@ -664,109 +964,10 @@ func UploadPart(w http.ResponseWriter, r *http.Request) {
 	session.UpdatedAt = time.Now().UTC()
 	_ = os.WriteFile(filepath.Join(dir, "meta.json"), mustJSON(meta), 0o644)
 	_ = store.DB().WithContext(r.Context()).Save(&session).Error
-	common.ReplyJSON(w, map[string]any{"upload_id": uploadID, "part_number": partNumber, "part_size": n, "uploaded_parts": len(meta.UploadedParts), "total_parts": meta.TotalParts, "upload_state": meta.UploadState})
+	common.ReplyJSON(w, map[string]any{"upload_id": session.UploadID, "part_number": partNumber, "part_size": n, "uploaded_parts": len(meta.UploadedParts), "total_parts": meta.TotalParts, "upload_state": meta.UploadState})
 }
 
-func CompleteUpload(w http.ResponseWriter, r *http.Request) {
-	datasetID := datasetIDFromPath(r)
-	taskID := taskIDFromPath(r)
-	uploadID := uploadIDFromPath(r)
-	if datasetID == "" || taskID == "" || uploadID == "" {
-		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-	ds, _, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetUpload)
-	if !ok {
-		replyDatasetForbidden(w)
-		return
-	}
-	var session orm.UploadSession
-	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND task_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, taskID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
-		return
-	}
-	meta, dir, err := loadUploadMeta(session)
-	if err != nil {
-		common.ReplyErr(w, "load upload meta failed", http.StatusInternalServerError)
-		return
-	}
-	if len(meta.UploadedParts) == 0 {
-		common.ReplyErr(w, "no uploaded parts", http.StatusBadRequest)
-		return
-	}
-	if meta.TotalParts > 0 && len(meta.UploadedParts) != meta.TotalParts {
-		common.ReplyErr(w, "uploaded parts are incomplete", http.StatusBadRequest)
-		return
-	}
-	finalDir := buildDatasetDocFileDir(ds.TenantID, datasetID, meta.RelativePath, session.DocumentID)
-	if err := os.MkdirAll(finalDir, 0o755); err != nil {
-		common.ReplyErr(w, "create final dir failed", http.StatusInternalServerError)
-		return
-	}
-	mergedPath := filepath.Join(dir, meta.StoredName)
-	merged, err := os.Create(mergedPath)
-	if err != nil {
-		common.ReplyErr(w, "create merged file failed", http.StatusInternalServerError)
-		return
-	}
-	var totalSize int64
-	for _, part := range meta.UploadedParts {
-		p := filepath.Join(dir, "parts", fmt.Sprintf("%06d.part", part))
-		in, openErr := os.Open(p)
-		if openErr != nil {
-			_ = merged.Close()
-			common.ReplyErr(w, "part not found", http.StatusBadRequest)
-			return
-		}
-		n, copyErr := io.Copy(merged, in)
-		_ = in.Close()
-		if copyErr != nil {
-			_ = merged.Close()
-			common.ReplyErr(w, "merge part failed", http.StatusInternalServerError)
-			return
-		}
-		totalSize += n
-	}
-	_ = merged.Close()
-	finalPath := filepath.Join(finalDir, meta.StoredName)
-	if err := os.Rename(mergedPath, finalPath); err != nil {
-		common.ReplyErr(w, "move file failed", http.StatusInternalServerError)
-		return
-	}
-	meta.UploadState = string(TaskStateUploaded)
-	meta.FileSize = totalSize
-	session.Ext = mustJSON(meta)
-	session.UploadState = meta.UploadState
-	session.UpdatedAt = time.Now().UTC()
-	_ = store.DB().WithContext(r.Context()).Save(&session).Error
-	var docRow orm.Document
-	var completeExt documentExt
-	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", session.DocumentID, datasetID).Take(&docRow).Error; err == nil {
-			completeExt = newDocumentExt(finalPath, meta.StoredName, meta.OriginalFilename, totalSize, meta.ContentType, meta.RelativePath, nil)
-		docRow.Ext = mustJSON(completeExt)
-		docRow.PDFConvertResult = completeExt.ConvertStatus
-		docRow.DisplayName = meta.OriginalFilename
-		docRow.PID = meta.DocumentPID
-		docRow.UpdatedAt = time.Now().UTC()
-		_ = store.DB().WithContext(r.Context()).Save(&docRow).Error
-	}
-	previewURL := staticFileURLFromFullPath(firstNonEmpty(strings.TrimSpace(completeExt.ParseStoredPath), finalPath))
-	common.ReplyJSON(w, CompleteUploadResponse{TaskID: taskID, UploadID: uploadID, DocumentID: session.DocumentID, StoredPath: finalPath, ParseStoredPath: strings.TrimSpace(completeExt.ParseStoredPath), ContentURL: documentContentPath(datasetID, session.DocumentID), DownloadURL: documentDownloadPath(datasetID, session.DocumentID), FileURL: previewURL, FileSize: totalSize, ConvertStatus: completeExt.ConvertStatus, ConvertError: completeExt.ConvertError})
-}
-
-func AbortUpload(w http.ResponseWriter, r *http.Request) {
-	datasetID := datasetIDFromPath(r)
-	taskID := taskIDFromPath(r)
-	uploadID := uploadIDFromPath(r)
-	if datasetID == "" || taskID == "" || uploadID == "" {
-		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-	var session orm.UploadSession
-	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND task_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, taskID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
-		return
-	}
+func abortUploadSession(ctx context.Context, session orm.UploadSession) {
 	meta, dir, err := loadUploadMeta(session)
 	if err == nil {
 		_ = os.RemoveAll(dir)
@@ -775,8 +976,92 @@ func AbortUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	session.UploadState = string(TaskStateCancelled)
 	session.UpdatedAt = time.Now().UTC()
-	_ = store.DB().WithContext(r.Context()).Save(&session).Error
-	common.ReplyJSON(w, map[string]any{"upload_id": uploadID, "upload_state": string(TaskStateCancelled)})
+	_ = store.DB().WithContext(ctx).Save(&session).Error
+}
+
+func completeUploadInternal(ctx context.Context, session orm.UploadSession, args completeUploadArgs) (CompleteUploadResponse, int, error) {
+	meta, dir, err := loadUploadMeta(session)
+	if err != nil {
+		return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("load upload meta failed")
+	}
+	if len(meta.UploadedParts) == 0 {
+		return CompleteUploadResponse{}, http.StatusBadRequest, fmt.Errorf("no uploaded parts")
+	}
+	if meta.TotalParts > 0 && len(meta.UploadedParts) != meta.TotalParts {
+		return CompleteUploadResponse{}, http.StatusBadRequest, fmt.Errorf("uploaded parts are incomplete")
+	}
+	mergedPath := filepath.Join(dir, meta.StoredName)
+	merged, err := os.Create(mergedPath)
+	if err != nil {
+		return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("create merged file failed")
+	}
+	var totalSize int64
+	for _, part := range meta.UploadedParts {
+		p := filepath.Join(dir, "parts", fmt.Sprintf("%06d.part", part))
+		in, openErr := os.Open(p)
+		if openErr != nil {
+			_ = merged.Close()
+			return CompleteUploadResponse{}, http.StatusBadRequest, fmt.Errorf("part not found")
+		}
+		n, copyErr := io.Copy(merged, in)
+		_ = in.Close()
+		if copyErr != nil {
+			_ = merged.Close()
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("merge part failed")
+		}
+		totalSize += n
+	}
+	_ = merged.Close()
+
+	switch meta.UploadScope {
+	case uploadScopeTemp:
+		finalDir := buildTempUploadFileDir(firstNonEmpty(meta.CreateUserID, session.CreateUserID), session.UploadID)
+		if err := os.MkdirAll(finalDir, 0o755); err != nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("create final dir failed")
+		}
+		finalPath := filepath.Join(finalDir, meta.StoredName)
+		if err := os.Rename(mergedPath, finalPath); err != nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("move file failed")
+		}
+		meta.UploadState = string(TaskStateUploaded)
+		meta.FileSize = totalSize
+		session.Ext = mustJSON(meta)
+		session.UploadState = meta.UploadState
+		session.UpdatedAt = time.Now().UTC()
+		_ = store.DB().WithContext(ctx).Save(&session).Error
+		return CompleteUploadResponse{UploadID: session.UploadID, StoredPath: finalPath, FileURL: staticFileURLFromFullPath(finalPath), FileSize: totalSize, UploadScope: meta.UploadScope}, http.StatusOK, nil
+	default:
+		if args.Dataset == nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("dataset context is required")
+		}
+		finalDir := buildDatasetDocFileDir(args.Dataset.TenantID, session.DatasetID, meta.RelativePath, session.DocumentID)
+		if err := os.MkdirAll(finalDir, 0o755); err != nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("create final dir failed")
+		}
+		finalPath := filepath.Join(finalDir, meta.StoredName)
+		if err := os.Rename(mergedPath, finalPath); err != nil {
+			return CompleteUploadResponse{}, http.StatusInternalServerError, fmt.Errorf("move file failed")
+		}
+		meta.UploadState = string(TaskStateUploaded)
+		meta.FileSize = totalSize
+		session.Ext = mustJSON(meta)
+		session.UploadState = meta.UploadState
+		session.UpdatedAt = time.Now().UTC()
+		_ = store.DB().WithContext(ctx).Save(&session).Error
+		var docRow orm.Document
+		var completeExt documentExt
+		if err := store.DB().WithContext(ctx).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", session.DocumentID, session.DatasetID).Take(&docRow).Error; err == nil {
+			completeExt = newDocumentExt(finalPath, meta.StoredName, meta.OriginalFilename, totalSize, meta.ContentType, meta.RelativePath, nil)
+			docRow.Ext = mustJSON(completeExt)
+			docRow.PDFConvertResult = completeExt.ConvertStatus
+			docRow.DisplayName = meta.OriginalFilename
+			docRow.PID = meta.DocumentPID
+			docRow.UpdatedAt = time.Now().UTC()
+			_ = store.DB().WithContext(ctx).Save(&docRow).Error
+		}
+		previewURL := staticFileURLFromFullPath(firstNonEmpty(strings.TrimSpace(completeExt.ParseStoredPath), finalPath))
+		return CompleteUploadResponse{TaskID: session.TaskID, UploadID: session.UploadID, DocumentID: session.DocumentID, DatasetID: session.DatasetID, StoredPath: finalPath, ParseStoredPath: strings.TrimSpace(completeExt.ParseStoredPath), ContentURL: documentContentPath(session.DatasetID, session.DocumentID), DownloadURL: documentDownloadPath(session.DatasetID, session.DocumentID), FileURL: previewURL, FileSize: totalSize, ConvertStatus: completeExt.ConvertStatus, ConvertError: completeExt.ConvertError, UploadScope: meta.UploadScope}, http.StatusOK, nil
+	}
 }
 
 func startTaskInternal(r *http.Request, datasetID, taskID string) error {
@@ -1191,7 +1476,7 @@ func updateTaskStateEndpoint(w http.ResponseWriter, r *http.Request, action stri
 func loadUploadMeta(session orm.UploadSession) (uploadMeta, string, error) {
 	var meta uploadMeta
 	_ = json.Unmarshal(session.Ext, &meta)
-	dir := buildUploadDir(session.TenantID, session.DatasetID, session.TaskID, session.UploadID)
+	dir := uploadDirForMeta(meta, session)
 	if meta.UploadID == "" {
 		b, err := os.ReadFile(filepath.Join(dir, "meta.json"))
 		if err != nil {
@@ -1201,7 +1486,28 @@ func loadUploadMeta(session orm.UploadSession) (uploadMeta, string, error) {
 			return meta, dir, err
 		}
 	}
+	if strings.TrimSpace(meta.UploadScope) == "" {
+		meta.UploadScope = uploadScopeTask
+	}
+	if strings.TrimSpace(meta.CreateUserID) == "" {
+		meta.CreateUserID = strings.TrimSpace(session.CreateUserID)
+	}
+	if strings.TrimSpace(meta.CreateUserName) == "" {
+		meta.CreateUserName = strings.TrimSpace(session.CreateUserName)
+	}
 	return meta, dir, nil
+}
+
+func uploadDirForMeta(meta uploadMeta, session orm.UploadSession) string {
+	scope := strings.ToUpper(strings.TrimSpace(meta.UploadScope))
+	switch scope {
+	case uploadScopeDataset:
+		return buildDatasetUploadDir(session.TenantID, session.DatasetID, session.UploadID)
+	case uploadScopeTemp:
+		return buildTempUploadDir(firstNonEmpty(meta.CreateUserID, session.CreateUserID), session.UploadID)
+	default:
+		return buildTaskUploadDir(session.TenantID, session.DatasetID, session.TaskID, session.UploadID)
+	}
 }
 
 func multipartOrSingle(totalParts int) string {

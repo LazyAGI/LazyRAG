@@ -62,6 +62,13 @@ class GroupDetailResponse(BaseModel):
     tenant_id: str | None = None
 
 
+class GroupBasicResponse(BaseModel):
+    """用户组基础信息"""
+    group_id: str
+    group_name: str
+    tenant_id: str | None = None
+
+
 class GroupCreateResponse(BaseModel):
     """创建用户组返回"""
     group_id: str

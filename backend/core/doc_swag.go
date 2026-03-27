@@ -244,17 +244,17 @@ func _swagListDatasetMembers() {}
 
 // @Summary  获取成员
 // @Tags      members
-// @Router    /datasets/{dataset}/members/{member} [get]
+// @Router    /datasets/{dataset}/members/{user_id} [get]
 func _swagGetDatasetMember() {}
 
 // @Summary  删除成员
 // @Tags      members
-// @Router    /datasets/{dataset}/members/{member} [delete]
+// @Router    /datasets/{dataset}/members/{user_id} [delete]
 func _swagDeleteDatasetMember() {}
 
 // @Summary  更新成员
 // @Tags      members
-// @Router    /datasets/{dataset}/members/{member} [patch]
+// @Router    /datasets/{dataset}/members/{user_id} [patch]
 func _swagUpdateDatasetMember() {}
 
 // @Summary  搜索成员

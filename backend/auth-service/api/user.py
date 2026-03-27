@@ -10,6 +10,7 @@ from schemas.user import (
     CreateUserResponse,
     OkResponse,
     ResetPasswordBody,
+    UserBasicResponse,
     UserDetailResponse,
     UserListResponse,
     UserRoleBatchBody,
@@ -88,6 +89,19 @@ def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user
         raise_error(ErrorCodes.ROLE_NOT_FOUND)
     user_service.set_user_roles_batch(uids, rid)
     return {'ok': True}
+
+
+@router.get('/{user_id}/basic', response_model=UserBasicResponse)
+def get_user_basic(user_id: str, _: User = Depends(current_user)):  # noqa: B008
+    """查询用户基础信息（已登录即可，用于服务间回填用户名）。"""
+    uid = _parse_user_id(user_id)
+    data = user_service.get_user(uid)
+    return {
+        'user_id': data['user_id'],
+        'username': data['username'],
+        'display_name': data['display_name'],
+        'tenant_id': data.get('tenant_id'),
+    }
 
 
 @router.get('/{user_id}', response_model=UserDetailResponse)

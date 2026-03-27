@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -21,6 +22,44 @@ import (
 
 //go:embed docs.html
 var swaggerUIHTML []byte
+
+func exportOpenAPIArtifacts(openAPIJSON []byte) {
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Logger.Warn().Err(err).Msg("get working directory failed; skip exporting OpenAPI artifacts")
+		return
+	}
+
+	var spec map[string]any
+	if err := json.Unmarshal(openAPIJSON, &spec); err != nil {
+		log.Logger.Warn().Err(err).Msg("decode OpenAPI json failed; skip exporting OpenAPI artifacts")
+		return
+	}
+	openAPIYAML, err := yaml.Marshal(spec)
+	if err != nil {
+		log.Logger.Warn().Err(err).Msg("marshal OpenAPI yaml failed; skip exporting OpenAPI artifacts")
+		return
+	}
+
+	outputs := map[string][]byte{
+		filepath.Join(wd, "openapi.json"): openAPIJSON,
+		filepath.Join(wd, "swagger.json"): openAPIJSON,
+		filepath.Join(wd, "..", "..", "api", "backend", "core", "swagger.json"): openAPIJSON,
+		filepath.Join(wd, "..", "..", "api", "backend", "core", "openapi.yml"): openAPIYAML,
+		filepath.Join(string(filepath.Separator), "openapi-export", "core", "swagger.json"): openAPIJSON,
+		filepath.Join(string(filepath.Separator), "openapi-export", "core", "openapi.yml"): openAPIYAML,
+	}
+	for path, body := range outputs {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			log.Logger.Warn().Err(err).Str("path", path).Msg("create OpenAPI output directory failed")
+			continue
+		}
+		if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
+			log.Logger.Warn().Err(err).Str("path", path).Msg("write OpenAPI artifact failed")
+			continue
+		}
+	}
+}
 
 // handleAPI 注册带权限要求的路由。perms 供 extract_api_permissions.py 生成 api_permissions.json（Kong RBAC），
 // 运行时不由 core 校验（由 Kong + auth-service 鉴权）。使用 gorilla/mux，同一 path 可区分方法，支持 ":action" 路径。
@@ -88,6 +127,7 @@ func main() {
 	store.Init(db.DB, readonlyDB.DB, store.MustRedisFromEnv())
 
 	r := mux.NewRouter()
+	r.UseEncodedPath()
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -105,7 +145,12 @@ func main() {
 	if err != nil {
 		log.Logger.Fatal().Err(err).Msg("build OpenAPI spec from router failed")
 	}
+	exportOpenAPIArtifacts(openAPIJSON)
 	r.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(openAPIJSON)
+	}).Methods(http.MethodGet)
+	r.HandleFunc("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(openAPIJSON)
 	}).Methods(http.MethodGet)

@@ -21,6 +21,7 @@ const (
 func buildOpenAPISpecFromRouter(r *mux.Router) ([]byte, error) {
 	spec := loadBaseOpenAPISpec()
 	mergeOpenAPISpec(spec, prefixOpenAPIPaths(manualOpenAPISpec()))
+	overlayOpenAPISpec(spec, prefixOpenAPIPaths(operationRegistryOpenAPISpec()))
 	paths := getOrCreateObject(spec, "paths")
 
 	err := r.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
@@ -185,6 +186,20 @@ func mergeOpenAPISpec(dst, src map[string]any) {
 			srcMap, srcIsMap := srcVal.(map[string]any)
 			if dstIsMap && srcIsMap {
 				mergeOpenAPISpec(dstMap, srcMap)
+				continue
+			}
+		}
+		dst[key] = srcVal
+	}
+}
+
+func overlayOpenAPISpec(dst, src map[string]any) {
+	for key, srcVal := range src {
+		if dstVal, ok := dst[key]; ok {
+			dstMap, dstIsMap := dstVal.(map[string]any)
+			srcMap, srcIsMap := srcVal.(map[string]any)
+			if dstIsMap && srcIsMap {
+				overlayOpenAPISpec(dstMap, srcMap)
 				continue
 			}
 		}

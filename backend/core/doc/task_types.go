@@ -134,13 +134,15 @@ type InitUploadRequest struct {
 
 type InitUploadResponse struct {
 	UploadID    string `json:"upload_id"`
-	TaskID      string `json:"task_id"`
-	DocumentID  string `json:"document_id"`
+	TaskID      string `json:"task_id,omitempty"`
+	DocumentID  string `json:"document_id,omitempty"`
+	DatasetID   string `json:"dataset_id,omitempty"`
 	StoredName  string `json:"stored_name"`
 	UploadMode  string `json:"upload_mode"`
 	PartSize    int64  `json:"part_size,omitempty"`
 	TotalParts  int    `json:"total_parts,omitempty"`
 	UploadState string `json:"upload_state"`
+	UploadScope string `json:"upload_scope,omitempty"`
 }
 
 type CompleteUploadRequest struct {
@@ -149,9 +151,11 @@ type CompleteUploadRequest struct {
 }
 
 type CompleteUploadResponse struct {
-	TaskID          string `json:"task_id"`
+	TaskID          string `json:"task_id,omitempty"`
 	UploadID        string `json:"upload_id"`
-	DocumentID      string `json:"document_id"`
+	DocumentID      string `json:"document_id,omitempty"`
+	UploadFileID    string `json:"upload_file_id,omitempty"`
+	DatasetID       string `json:"dataset_id,omitempty"`
 	StoredPath      string `json:"stored_path"`
 	ParseStoredPath string `json:"parse_stored_path,omitempty"`
 	ContentURL      string `json:"content_url,omitempty"`
@@ -160,6 +164,7 @@ type CompleteUploadResponse struct {
 	FileSize        int64  `json:"file_size,omitempty"`
 	ConvertStatus   string `json:"convert_status,omitempty"`
 	ConvertError    string `json:"convert_error,omitempty"`
+	UploadScope     string `json:"upload_scope,omitempty"`
 }
 
 const (
@@ -176,7 +181,7 @@ type UploadFileRequest struct {
 
 type UploadFileResponse struct {
 	UploadFileID string   `json:"upload_file_id"`
-	DatasetID    string   `json:"dataset_id"`
+	DatasetID    string   `json:"dataset_id,omitempty"`
 	Filename     string   `json:"filename"`
 	StoredName   string   `json:"stored_name"`
 	StoredPath   string   `json:"stored_path"`
@@ -189,6 +194,7 @@ type UploadFileResponse struct {
 	DownloadURL  string   `json:"download_url,omitempty"`
 	FileURL      string   `json:"file_url,omitempty"`
 	Status       string   `json:"status"`
+	UploadScope  string   `json:"upload_scope,omitempty"`
 }
 
 type UploadFilesResponse struct {
@@ -294,10 +300,10 @@ type documentExt struct {
 
 type uploadMeta struct {
 	UploadID         string   `json:"upload_id"`
-	TaskID           string   `json:"task_id"`
-	DocumentID       string   `json:"document_id"`
-	DatasetID        string   `json:"dataset_id"`
-	TenantID         string   `json:"tenant_id"`
+	TaskID           string   `json:"task_id,omitempty"`
+	DocumentID       string   `json:"document_id,omitempty"`
+	DatasetID        string   `json:"dataset_id,omitempty"`
+	TenantID         string   `json:"tenant_id,omitempty"`
 	DocumentPID      string   `json:"document_pid,omitempty"`
 	RelativePath     string   `json:"relative_path,omitempty"`
 	OriginalFilename string   `json:"original_filename"`
@@ -308,4 +314,7 @@ type uploadMeta struct {
 	TotalParts       int      `json:"total_parts,omitempty"`
 	UploadedParts    []int    `json:"uploaded_parts,omitempty"`
 	UploadState      string   `json:"upload_state,omitempty"`
+	UploadScope      string   `json:"upload_scope,omitempty"`
+	CreateUserID     string   `json:"create_user_id,omitempty"`
+	CreateUserName   string   `json:"create_user_name,omitempty"`
 }

@@ -19,15 +19,28 @@ def _load_yaml() -> dict:
         return {}
 
 
+def _normalize_codes(values: list[str] | None) -> list[str]:
+    """去除空值与重复项，保持原有顺序，确保引导逻辑可重复执行。"""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        code = (value or '').strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        normalized.append(code)
+    return normalized
+
+
 def _load_permission_groups_yaml() -> list[str]:
     data = _load_yaml()
-    return list(data.get('permission_groups', []) or [])
+    return _normalize_codes(data.get('permission_groups', []) or [])
 
 
 def _load_default_user_role_permissions() -> list[str]:
     """内置 user 角色默认拥有的权限码，来自 permission_groups.yaml。"""
     data = _load_yaml()
-    return list(data.get('default_user_role_permissions', []) or [])
+    return _normalize_codes(data.get('default_user_role_permissions', []) or [])
 
 
 def _code_to_module_action(code: str) -> tuple[str, str]:
@@ -37,11 +50,8 @@ def _code_to_module_action(code: str) -> tuple[str, str]:
 
 
 def bootstrap(db: Session) -> None:
-    codes = _load_permission_groups_yaml()
-    for code in codes:
-        code = (code or '').strip()
-        if not code:
-            continue
+    configured_permission_codes = set(_load_permission_groups_yaml())
+    for code in configured_permission_codes:
         if not PermissionGroupRepository.get_by_code(db, code):
             module, action = _code_to_module_action(code)
             PermissionGroupRepository.create(db, code=code, description='', module=module, action=action)
@@ -55,7 +65,10 @@ def bootstrap(db: Session) -> None:
     if not user_role:
         user_role = RoleRepository.create(db, 'user', built_in=True)
 
-    for _code, pg_id in all_groups.items():
+    for code in configured_permission_codes:
+        pg_id = all_groups.get(code)
+        if not pg_id:
+            continue
         exists = db.query(RolePermission).filter_by(
             role_id=system_admin_role.id,
             permission_group_id=pg_id,
@@ -64,15 +77,15 @@ def bootstrap(db: Session) -> None:
             db.add(RolePermission(role_id=system_admin_role.id, permission_group_id=pg_id))
 
     for perm_name in _load_default_user_role_permissions():
-        perm_name = (perm_name or '').strip()
-        if not perm_name or perm_name not in all_groups:
+        pg_id = all_groups.get(perm_name)
+        if not pg_id:
             continue
         exists = db.query(RolePermission).filter_by(
             role_id=user_role.id,
-            permission_group_id=all_groups[perm_name],
+            permission_group_id=pg_id,
         ).first()
         if not exists:
-            db.add(RolePermission(role_id=user_role.id, permission_group_id=all_groups[perm_name]))
+            db.add(RolePermission(role_id=user_role.id, permission_group_id=pg_id))
     db.commit()
 
     username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME', 'system-admin').strip() or 'system-admin'

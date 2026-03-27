@@ -23,6 +23,7 @@ import (
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
 	"lazyrag/core/common/readonlyorm"
+	"lazyrag/core/log"
 	"lazyrag/core/store"
 
 	"github.com/gorilla/mux"
@@ -31,6 +32,8 @@ import (
 // DocumentService implements document APIs by joining:
 // - schema A (core-owned diff): orm.documents / orm.tasks
 // - schema B (readonly, maintained by lazy-llm-server): lazy_llm_server.lazyllm_*
+
+const externalDeleteFailedMessage = "外部服务删除失败，请稍后重试"
 
 func requireDatasetPermission(r *http.Request, datasetID string, action string) (*orm.Dataset, string, bool) {
 	userID := strings.TrimSpace(store.UserID(r))
@@ -196,7 +199,7 @@ func streamLocalFile(w http.ResponseWriter, fullPath, filename, fallbackContentT
 	w.Header().Del("ETag")
 	w.Header().Del("Last-Modified")
 	if inline {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", name))
+		w.Header().Set("Content-Disposition", `inline; filename="preview.pdf"`)
 	} else {
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
 	}
@@ -205,12 +208,17 @@ func streamLocalFile(w http.ResponseWriter, fullPath, filename, fallbackContentT
 }
 
 func GetSignedStaticFile(w http.ResponseWriter, r *http.Request) {
-	relPath := strings.TrimSpace(common.PathVar(r, "path"))
-	if relPath == "" {
+	rawPath := strings.TrimSpace(common.PathVar(r, "path"))
+	if rawPath == "" {
 		common.ReplyErr(w, "missing path", http.StatusBadRequest)
 		return
 	}
-	relPath = strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+relPath)), "/")
+	decodedPath, err := url.PathUnescape(rawPath)
+	if err != nil {
+		common.ReplyErr(w, "invalid path encoding", http.StatusBadRequest)
+		return
+	}
+	relPath := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+decodedPath)), "/")
 	if relPath == "" || relPath == "." || strings.HasPrefix(relPath, "../") {
 		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
 		return
@@ -482,11 +490,23 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		replyDatasetForbidden(w)
 		return
 	}
+	var row orm.Document
+	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).Take(&row).Error; err != nil {
+		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		return
+	}
+	if err := deleteExternalDocs(r, datasetID, []orm.Document{row}); err != nil {
+		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		return
+	}
 	now := time.Now().UTC()
-	_ = store.DB().WithContext(r.Context()).
+	if err := store.DB().WithContext(r.Context()).
 		Model(&orm.Document{}).
 		Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).
-		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error
+		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
+		common.ReplyErr(w, "删除文档失败，请稍后重试", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 func UpdateDocument(w http.ResponseWriter, r *http.Request) {
@@ -695,12 +715,26 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
 		return
 	}
+	if len(req.Names) == 0 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	var rows []orm.Document
+	if err := store.DB().WithContext(r.Context()).Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).Find(&rows).Error; err != nil {
+		common.ReplyErr(w, "query documents failed", http.StatusInternalServerError)
+		return
+	}
+	if err := deleteExternalDocs(r, datasetID, rows); err != nil {
+		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		return
+	}
 	now := time.Now().UTC()
-	if len(req.Names) > 0 {
-		_ = store.DB().WithContext(r.Context()).
-			Model(&orm.Document{}).
-			Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).
-			Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error
+	if err := store.DB().WithContext(r.Context()).
+		Model(&orm.Document{}).
+		Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).
+		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
+		common.ReplyErr(w, "批量删除文档失败，请稍后重试", http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -757,17 +791,6 @@ func AllDocumentTags(w http.ResponseWriter, r *http.Request) {
 	}
 	common.ReplyJSON(w, resp{Tags: tags})
 }
-func AddTableData(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) /* TODO */ }
-func BatchDeleteTableData(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK) /* TODO */
-}
-func ModifyTableData(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-func SearchTableData(w http.ResponseWriter, r *http.Request) {
-	common.ReplyJSON(w, map[string]any{}) /* TODO */
-}
-
 // --- types (aligned to document-apis-and-tables.md; minimal subset for now) ---
 
 type DocumentTableColumn struct {
@@ -832,6 +855,62 @@ type SearchDocumentsRequest struct {
 type BatchDeleteDocumentRequest struct {
 	Parent string   `json:"parent"`
 	Names  []string `json:"names"`
+}
+
+type externalDeleteDocsRequest struct {
+	DocIDs         []string `json:"doc_ids"`
+	KbID           string   `json:"kb_id,omitempty"`
+	AlgoID         string   `json:"algo_id,omitempty"`
+	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+}
+
+func deleteExternalDocs(r *http.Request, datasetID string, rows []orm.Document) error {
+	docIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		lazyDocID := strings.TrimSpace(row.LazyllmDocID)
+		if lazyDocID == "" {
+			continue
+		}
+		docIDs = append(docIDs, lazyDocID)
+	}
+	if len(docIDs) == 0 {
+		return nil
+	}
+	req := externalDeleteDocsRequest{
+		DocIDs:         docIDs,
+		KbID:           datasetKbIDByID(datasetID),
+		AlgoID:         datasetAlgoIDByID(datasetID),
+		IdempotencyKey: newDocID(),
+	}
+	url := common.JoinURL(parsingServiceEndpoint(), "/v1/docs/delete")
+	log.Logger.Info().
+		Str("handler", "DeleteDocument").
+		Str("dataset_id", datasetID).
+		Str("external_url", url).
+		Int("doc_count", len(docIDs)).
+		Any("request_body", req).
+		Msg("calling external delete-docs request")
+	var resp map[string]any
+	if err := common.ApiPost(requestContext(r), url, req, nil, &resp, 15*time.Second); err != nil {
+		log.Logger.Error().
+			Err(err).
+			Str("handler", "DeleteDocument").
+			Str("dataset_id", datasetID).
+			Str("external_url", url).
+			Int("doc_count", len(docIDs)).
+			Any("request_body", req).
+			Msg("external delete-docs request failed")
+		return err
+	}
+	log.Logger.Info().
+		Str("handler", "DeleteDocument").
+		Str("dataset_id", datasetID).
+		Str("external_url", url).
+		Int("doc_count", len(docIDs)).
+		Any("request_body", req).
+		Any("response_body", resp).
+		Msg("external delete-docs request succeeded")
+	return nil
 }
 
 type UserInfo struct {

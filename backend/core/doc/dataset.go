@@ -250,8 +250,8 @@ func uploadFileIDFromPath(r *http.Request) string {
 	return common.PathVar(r, "upload_file_id")
 }
 
-func datasetMemberNameFromPath(r *http.Request) string {
-	return common.PathVar(r, "member")
+func userIDFromPath(r *http.Request) string {
+	return strings.TrimSpace(common.PathVar(r, "user_id"))
 }
 
 func datasetACLForUser(ds *orm.Dataset, userID string) []string {
@@ -731,6 +731,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	if st := acl.GetStore(); st != nil {
 		st.EnsureKB(kbID, displayName, userID)
+		ensureDatasetCreatorMember(st, datasetID, userID)
 	}
 
 	common.ReplyJSON(w, Dataset{
@@ -848,7 +849,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 	kbTimeout := 10 * time.Second
 	kbStart := time.Now()
 	if err := common.ApiDelete(r.Context(), kbURL, nil, nil, kbTimeout); err != nil {
-		log.Logger.Warn().
+		log.Logger.Error().
 			Err(err).
 			Str("kb_url", kbURL).
 			Str("kb_id", kbID).
@@ -856,23 +857,24 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 			Str("user_id", userID).
 			Dur("timeout", kbTimeout).
 			Dur("elapsed", time.Since(kbStart)).
-			Msg("kb service delete failed (ignored)")
-	} else {
-		log.Logger.Info().
-			Str("kb_url", kbURL).
-			Str("kb_id", kbID).
-			Str("dataset_id", datasetID).
-			Str("user_id", userID).
-			Dur("elapsed", time.Since(kbStart)).
-			Msg("kb service delete ok")
+			Msg("kb service delete failed")
+		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		return
 	}
+	log.Logger.Info().
+		Str("kb_url", kbURL).
+		Str("kb_id", kbID).
+		Str("dataset_id", datasetID).
+		Str("user_id", userID).
+		Dur("elapsed", time.Since(kbStart)).
+		Msg("kb service delete ok")
 
 	// 2) 本地软删 datasets
 	now := time.Now().UTC()
 	ds.DeletedAt = &now
 	ds.UpdatedAt = now
 	if err := corestore.DB().Save(&ds).Error; err != nil {
-		common.ReplyErr(w, "delete dataset failed", http.StatusInternalServerError)
+		common.ReplyErr(w, "删除知识库失败，请稍后重试", http.StatusInternalServerError)
 		return
 	}
 

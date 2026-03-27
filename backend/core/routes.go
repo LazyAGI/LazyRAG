@@ -3,7 +3,6 @@ package main
 import (
 	"lazyrag/core/acl"
 	"lazyrag/core/chat"
-	"lazyrag/core/db"
 	"lazyrag/core/doc"
 	"lazyrag/core/file"
 
@@ -37,33 +36,16 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/datasets/{dataset}:batchDelete", []string{"document.write"}, doc.BatchDeleteDocument)
 	handleAPI(r, "GET", "/document/creators", []string{"document.read"}, doc.AllDocumentCreators)
 	handleAPI(r, "GET", "/document/tags", []string{"document.read"}, doc.AllDocumentTags)
-	handleAPI(r, "POST", "/datasets/{dataset}/documents/{document}/table:add", []string{"document.write"}, doc.AddTableData)
-	handleAPI(r, "POST", "/datasets/{dataset}/documents/{document}/table:batchDelete", []string{"document.write"}, doc.BatchDeleteTableData)
-	handleAPI(r, "POST", "/datasets/{dataset}/documents/{document}/table:modify", []string{"document.write"}, doc.ModifyTableData)
-	handleAPI(r, "GET", "/datasets/{dataset}/documents/{document}/table:search", []string{"document.read"}, doc.SearchTableData)
-
 	// ----- 分段服务 -----
 	handleAPI(r, "GET", "/datasets/{dataset}/documents/{document}/segments", []string{"document.read"}, doc.ListSegments)
 	handleAPI(r, "GET", "/datasets/{dataset}/documents/{document}/segments/{segment}", []string{"document.read"}, doc.GetSegment)
-	handleAPI(r, "POST", "/datasets/{dataset}/documents/{document}/segments/{segment}:edit", []string{"document.write"}, doc.EditSegment)
-	handleAPI(r, "POST", "/datasets/{dataset}/documents/{document}/segments/{segment}:modifyStatus", []string{"document.write"}, doc.ModifyStatus)
-	handleAPI(r, "POST", "/datasets/{dataset}/documents/{document}/segments:search", []string{"document.read"}, doc.SearchSegments)
-	handleAPI(r, "DELETE", "/datasets/{dataset}/group/{group}/documents/{document}/segments/{segment}", []string{"document.write"}, doc.DeleteSegment)
-	handleAPI(r, "POST", "/segment/imageURIs:batchSign", []string{"document.read"}, doc.BatchSignImageURI)
-	handleAPI(r, "POST", "/segments:bulkDelete", []string{"document.write"}, doc.BulkDelete)
-	handleAPI(r, "POST", "/segments:hybrid", []string{"document.read"}, doc.HybridSearchSegments)
-	handleAPI(r, "POST", "/segments:scroll", []string{"document.read"}, doc.ScrollSegments)
 
-	// ----- 表格服务 -----
-	handleAPI(r, "GET", "/datasets/{dataset}/documents/{document}/table/meta", []string{"document.read"}, db.GetMeta)
-	handleAPI(r, "POST", "/table:findMeta", []string{"document.read"}, db.FindMeta)
-	handleAPI(r, "POST", "/table:query", []string{"document.read"}, db.QueryTable)
 
 	// ----- 数据集成员服务 -----
 	handleAPI(r, "GET", "/datasets/{dataset}/members", []string{"document.read"}, doc.ListDatasetMembers)
-	handleAPI(r, "GET", "/datasets/{dataset}/members/{member}", []string{"document.read"}, doc.GetDatasetMember)
-	handleAPI(r, "DELETE", "/datasets/{dataset}/members/{member}", []string{"document.write"}, doc.DeleteDatasetMember)
-	handleAPI(r, "PATCH", "/datasets/{dataset}/members/{member}", []string{"document.write"}, doc.UpdateDatasetMember)
+	handleAPI(r, "GET", "/datasets/{dataset}/members/{user_id}", []string{"document.read"}, doc.GetDatasetMember)
+	handleAPI(r, "DELETE", "/datasets/{dataset}/members/{user_id}", []string{"document.write"}, doc.DeleteDatasetMember)
+	handleAPI(r, "PATCH", "/datasets/{dataset}/members/{user_id}", []string{"document.write"}, doc.UpdateDatasetMember)
 	handleAPI(r, "POST", "/datasets/{dataset}/members:search", []string{"document.read"}, doc.SearchDatasetMember)
 	handleAPI(r, "POST", "/datasets/{dataset}:batchAddMember", []string{"document.write"}, doc.BatchAddDatasetMember)
 
@@ -72,6 +54,11 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks", []string{"document.write"}, doc.CreateTask)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks:search", []string{"document.read"}, doc.SearchTasks)
 	handleAPI(r, "POST", "/datasets/{dataset}/uploads", []string{"document.write"}, doc.UploadFile)
+	handleAPI(r, "POST", "/temp/uploads", []string{"document.write"}, doc.UploadTempFile)
+	handleAPI(r, "POST", "/temp/uploads:initUpload", []string{"document.write"}, doc.InitTempUpload)
+	handleAPI(r, "PUT", "/temp/uploads/{upload_id}/parts/{part_number}", []string{"document.write"}, doc.UploadTempPart)
+	handleAPI(r, "POST", "/temp/uploads/{upload_id}:complete", []string{"document.write"}, doc.CompleteTempUpload)
+	handleAPI(r, "POST", "/temp/uploads/{upload_id}:abort", []string{"document.write"}, doc.AbortTempUpload)
 	handleAPI(r, "GET", "/datasets/{dataset}/uploads/{upload_file_id}:content", []string{"document.read"}, doc.GetUploadedFileContent)
 	handleAPI(r, "GET", "/datasets/{dataset}/uploads/{upload_file_id}:download", []string{"document.read"}, doc.DownloadUploadedFile)
 	handleAPI(r, "POST", "/datasets/{dataset}/tasks:batchUpload", []string{"document.write"}, doc.BatchUploadTasks)
@@ -123,26 +110,6 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "DELETE", "/prompts/{name}", []string{"document.write"}, chat.DeletePrompt)
 	handleAPI(r, "GET", "/prompts/{name}", []string{"document.read"}, chat.GetPrompt)
 	handleAPI(r, "GET", "/prompts", []string{"document.read"}, chat.ListPrompts)
-
-	// ----- 数据库服务（RAG 数据库） -----
-	handleAPI(r, "GET", "/rag/database/tags", []string{"document.read"}, db.GetUserDatabaseTags)
-	handleAPI(r, "POST", "/rag/databases", []string{"document.read"}, db.GetUserDatabases)
-	handleAPI(r, "POST", "/rag/databases/create", []string{"document.write"}, db.CreateDatabase)
-	handleAPI(r, "GET", "/rag/databases/summary", []string{"document.read"}, db.GetUserDatabaseSummaries)
-	handleAPI(r, "POST", "/rag/databases/validate-connection", []string{"document.write"}, db.ValidateConnection)
-	handleAPI(r, "DELETE", "/rag/databases/{database_id}", []string{"document.write"}, db.DeleteDatabase)
-	handleAPI(r, "POST", "/rag/databases/{database_id}/tables", []string{"document.read"}, db.GetDatabaseTables)
-	handleAPI(r, "POST", "/rag/databases/{database_id}/tables/{table_id}/cell", []string{"document.write"}, db.UpdateTableCell)
-	handleAPI(r, "POST", "/rag/databases/{database_id}/tables/{table_id}/preview", []string{"document.read"}, db.ListTableRows)
-	handleAPI(r, "POST", "/rag/databases/{database_id}/update", []string{"document.write"}, db.UpdateDatabase)
-
-	// ----- 内部接口 -----
-	handleAPI(r, "GET", "/inner/datasets/{dataset}:internal", []string{"document.read"}, doc.GetDatasetInternal)
-	handleAPI(r, "POST", "/inner/rag:knowledgeRetrieve", []string{"qa.read"}, doc.KnowledgeRetrieve)
-
-	// ----- WriterSegmentJob -----
-	handleAPI(r, "POST", "/writerSegmentJob:submit", []string{"document.write"}, doc.Submit)
-	handleAPI(r, "GET", "/writerSegmentJobs/{writerSegmentJob}", []string{"document.read"}, doc.Get)
 
 	// ----- ACL（知识库数据权限） -----
 	handleAPI(r, "GET", "/kb/list", []string{"document.read"}, acl.ListKB)

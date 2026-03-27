@@ -8,6 +8,8 @@ permission_groups:
   - qa.read
 
 # 内置 user 角色默认拥有的权限码（须在 permission_groups 中存在）
+# 设计原则：新注册用户默认可使用对话与知识库相关基础能力，
+# 但不能访问 auth-service 的用户/角色/用户组管理接口（这些接口要求 user.admin）。
 default_user_role_permissions:
   - user.read
   - document.read
