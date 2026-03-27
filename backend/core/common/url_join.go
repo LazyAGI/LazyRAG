@@ -15,4 +15,3 @@ func JoinURL(base, path string) string {
 	}
 	return base + "/" + path
 }
-

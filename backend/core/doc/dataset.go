@@ -578,13 +578,13 @@ func isDefaultDatasetForUser(ctx context.Context, userID, datasetID string) bool
 }
 
 type kbCreateRequest struct {
-	KbID           string                 `json:"kb_id"`
-	DisplayName    string                 `json:"display_name"`
-	Description    *string                `json:"description,omitempty"`
-	OwnerID        string                 `json:"owner_id"`
-	Meta           map[string]any         `json:"meta,omitempty"`
-	AlgoID         string                 `json:"algo_id,omitempty"`
-	IdempotencyKey *string                `json:"idempotency_key,omitempty"`
+	KbID           string         `json:"kb_id"`
+	DisplayName    string         `json:"display_name"`
+	Description    *string        `json:"description,omitempty"`
+	OwnerID        string         `json:"owner_id"`
+	Meta           map[string]any `json:"meta,omitempty"`
+	AlgoID         string         `json:"algo_id,omitempty"`
+	IdempotencyKey *string        `json:"idempotency_key,omitempty"`
 }
 
 type kbUpdateRequest struct {
@@ -698,25 +698,25 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ds := orm.Dataset{
-		ID:    datasetID,
-		KbID:  kbID,
+		ID:          datasetID,
+		KbID:        kbID,
 		DisplayName: displayName,
 		Desc:        desc,
 		CoverImage:  cover,
 
 		// text not null，textDefaulttext（text ragservice text）。
-		ResourceUID: datasetID,
-		BucketName:  "",
-		OssPath:     "",
-		DatasetInfo: json.RawMessage(`{}`),
-		DatasetState: 0,
-		EmbeddingModel: "default",
+		ResourceUID:            datasetID,
+		BucketName:             "",
+		OssPath:                "",
+		DatasetInfo:            json.RawMessage(`{}`),
+		DatasetState:           0,
+		EmbeddingModel:         "default",
 		EmbeddingModelProvider: "default",
-		ShareType: 0,
-		TenantID:  "",
-		IsDemonstrate: false,
-		Type: uint8(1),
-		Ext:  extBytes,
+		ShareType:              0,
+		TenantID:               "",
+		IsDemonstrate:          false,
+		Type:                   uint8(1),
+		Ext:                    extBytes,
 		BaseModel: orm.BaseModel{
 			CreateUserID:   userID,
 			CreateUserName: userName,

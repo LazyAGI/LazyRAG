@@ -12,12 +12,12 @@ import (
 	"github.com/gorilla/mux"
 	"gopkg.in/yaml.v3"
 	"lazyrag/core/acl"
-	"lazyrag/core/store"
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
 	"lazyrag/core/common/readonlyorm"
 	"lazyrag/core/log"
 	"lazyrag/core/migrate"
+	"lazyrag/core/store"
 )
 
 //go:embed docs.html
@@ -42,12 +42,12 @@ func exportOpenAPIArtifacts(openAPIJSON []byte) {
 	}
 
 	outputs := map[string][]byte{
-		filepath.Join(wd, "openapi.json"): openAPIJSON,
-		filepath.Join(wd, "swagger.json"): openAPIJSON,
-		filepath.Join(wd, "..", "..", "api", "backend", "core", "swagger.json"): openAPIJSON,
-		filepath.Join(wd, "..", "..", "api", "backend", "core", "openapi.yml"): openAPIYAML,
+		filepath.Join(wd, "openapi.json"):                                                   openAPIJSON,
+		filepath.Join(wd, "swagger.json"):                                                   openAPIJSON,
+		filepath.Join(wd, "..", "..", "api", "backend", "core", "swagger.json"):             openAPIJSON,
+		filepath.Join(wd, "..", "..", "api", "backend", "core", "openapi.yml"):              openAPIYAML,
 		filepath.Join(string(filepath.Separator), "openapi-export", "core", "swagger.json"): openAPIJSON,
-		filepath.Join(string(filepath.Separator), "openapi-export", "core", "openapi.yml"): openAPIYAML,
+		filepath.Join(string(filepath.Separator), "openapi-export", "core", "openapi.yml"):  openAPIYAML,
 	}
 	for path, body := range outputs {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

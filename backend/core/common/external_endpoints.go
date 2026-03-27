@@ -13,4 +13,3 @@ func AlgoServiceEndpoint() string {
 	}
 	return "http://10.119.24.129:8850"
 }
-

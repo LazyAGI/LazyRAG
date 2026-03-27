@@ -408,11 +408,11 @@ type listDocumentsQueryParams struct {
 }
 
 type listTasksQueryParams struct {
-	PageToken  string `query:"page_token"`
-	PageSize   int32  `query:"page_size"`
-	TaskState  string `query:"task_state"`
-	TaskType   string `query:"task_type"`
-	DocumentID string `query:"document_id"`
+	PageToken   string `query:"page_token"`
+	PageSize    int32  `query:"page_size"`
+	TaskState   string `query:"task_state"`
+	TaskType    string `query:"task_type"`
+	DocumentID  string `query:"document_id"`
 	DocumentPID string `query:"document_pid"`
 }
 
@@ -636,10 +636,10 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: resp("Upload initialization result", doc.InitUploadResponse{})},
 		},
 		{
-			Method:     "PUT",
-			Path:       "/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}",
-			Summary:    "UploadDatasettext",
-			Tags:       []string{"tasks"},
+			Method:  "PUT",
+			Path:    "/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}",
+			Summary: "UploadDatasettext",
+			Tags:    []string{"tasks"},
 			PathParams: struct {
 				Dataset    string `path:"dataset"`
 				UploadID   string `path:"upload_id"`
@@ -675,10 +675,10 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: resp("Upload initialization result", doc.InitUploadResponse{})},
 		},
 		{
-			Method:     "PUT",
-			Path:       "/temp/uploads/{upload_id}/parts/{part_number}",
-			Summary:    "Upload temp filetext",
-			Tags:       []string{"uploads"},
+			Method:  "PUT",
+			Path:    "/temp/uploads/{upload_id}/parts/{part_number}",
+			Summary: "Upload temp filetext",
+			Tags:    []string{"uploads"},
 			PathParams: struct {
 				UploadID   string `path:"upload_id"`
 				PartNumber string `path:"part_number"`
@@ -687,20 +687,24 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: refResp("Part upload result", "UploadPartResponse")},
 		},
 		{
-			Method:      "POST",
-			Path:        "/temp/uploads/{upload_id}:complete",
-			Summary:     "textUpload",
-			Tags:        []string{"uploads"},
-			PathParams:  struct{ UploadID string `path:"upload_id"` }{},
+			Method:  "POST",
+			Path:    "/temp/uploads/{upload_id}:complete",
+			Summary: "textUpload",
+			Tags:    []string{"uploads"},
+			PathParams: struct {
+				UploadID string `path:"upload_id"`
+			}{},
 			RequestBody: jsonBodyOf(doc.CompleteUploadRequest{}, false),
 			Responses:   map[int]openAPIResponse{200: resp("Complete uploadtext", doc.CompleteUploadResponse{})},
 		},
 		{
-			Method:      "POST",
-			Path:        "/temp/uploads/{upload_id}:abort",
-			Summary:     "AborttextUpload",
-			Tags:        []string{"uploads"},
-			PathParams:  struct{ UploadID string `path:"upload_id"` }{},
+			Method:  "POST",
+			Path:    "/temp/uploads/{upload_id}:abort",
+			Summary: "AborttextUpload",
+			Tags:    []string{"uploads"},
+			PathParams: struct {
+				UploadID string `path:"upload_id"`
+			}{},
 			RequestBody: jsonBodyOf(doc.AbortUploadRequest{}, false),
 			Responses:   map[int]openAPIResponse{200: refResp("Abort uploadtext", "AbortUploadResponse")},
 		},

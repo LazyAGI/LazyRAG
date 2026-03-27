@@ -791,6 +791,7 @@ func AllDocumentTags(w http.ResponseWriter, r *http.Request) {
 	}
 	common.ReplyJSON(w, resp{Tags: tags})
 }
+
 // --- types (aligned to document-apis-and-tables.md; minimal subset for now) ---
 
 type DocumentTableColumn struct {

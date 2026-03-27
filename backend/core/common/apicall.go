@@ -71,4 +71,3 @@ func do(ctx context.Context, url, method string, body any, header map[string]str
 	}
 	return nil
 }
-

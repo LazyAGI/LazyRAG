@@ -1,8 +1,8 @@
 package readonlyorm
 
 import (
-	"reflect"
 	"os"
+	"reflect"
 	"strings"
 )
 
@@ -89,4 +89,3 @@ func requiredColumnsOf(t reflect.Type) []string {
 	}
 	return cols
 }
-

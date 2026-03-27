@@ -1,6 +1,5 @@
 package doc
 
-
 type TaskType string
 
 type TaskState string
@@ -43,13 +42,13 @@ type TaskDocumentInfo struct {
 }
 
 type TaskInfo struct {
-	TotalDocumentSize    int64 `json:"total_document_size,omitempty"`
-	TotalDocumentCount   int64 `json:"total_document_count,omitempty"`
-	SucceedDocumentSize  int64 `json:"succeed_document_size,omitempty"`
-	SucceedDocumentCount int64 `json:"succeed_document_count,omitempty"`
-	SucceedTokenCount    int64 `json:"succeed_token_count,omitempty"`
-	FailedDocumentSize   int64 `json:"failed_document_size,omitempty"`
-	FailedDocumentCount  int64 `json:"failed_document_count,omitempty"`
+	TotalDocumentSize     int64 `json:"total_document_size,omitempty"`
+	TotalDocumentCount    int64 `json:"total_document_count,omitempty"`
+	SucceedDocumentSize   int64 `json:"succeed_document_size,omitempty"`
+	SucceedDocumentCount  int64 `json:"succeed_document_count,omitempty"`
+	SucceedTokenCount     int64 `json:"succeed_token_count,omitempty"`
+	FailedDocumentSize    int64 `json:"failed_document_size,omitempty"`
+	FailedDocumentCount   int64 `json:"failed_document_count,omitempty"`
 	FilteredDocumentCount int64 `json:"filtered_document_count,omitempty"`
 }
 
@@ -221,24 +220,24 @@ type BatchUploadTasksResponse struct {
 }
 
 type TaskResponse struct {
-	Name            string             `json:"name,omitempty"`
-	TaskID          string             `json:"task_id,omitempty"`
-	DocumentID      string             `json:"document_id,omitempty"`
-	DataSourceType  string             `json:"data_source_type,omitempty"`
-	TaskState       string             `json:"task_state"`
-	Creator         string             `json:"creator,omitempty"`
-	ErrMsg          string             `json:"err_msg,omitempty"`
-	TaskInfo        TaskInfo           `json:"task_info,omitempty"`
-	DocumentInfo    []TaskDocumentInfo `json:"document_info,omitempty"`
-	Files           []TaskFile         `json:"files,omitempty"`
-	CreateTime      string             `json:"create_time,omitempty"`
-	StartTime       string             `json:"start_time,omitempty"`
-	FinishTime      string             `json:"finish_time,omitempty"`
-	DisplayName     string             `json:"display_name,omitempty"`
-	TaskType        string             `json:"task_type,omitempty"`
-	TargetDatasetID string             `json:"target_dataset_id,omitempty"`
-	TargetPID       string             `json:"target_pid,omitempty"`
-	ParseStoredPath string             `json:"parse_stored_path,omitempty"`
+	Name             string             `json:"name,omitempty"`
+	TaskID           string             `json:"task_id,omitempty"`
+	DocumentID       string             `json:"document_id,omitempty"`
+	DataSourceType   string             `json:"data_source_type,omitempty"`
+	TaskState        string             `json:"task_state"`
+	Creator          string             `json:"creator,omitempty"`
+	ErrMsg           string             `json:"err_msg,omitempty"`
+	TaskInfo         TaskInfo           `json:"task_info,omitempty"`
+	DocumentInfo     []TaskDocumentInfo `json:"document_info,omitempty"`
+	Files            []TaskFile         `json:"files,omitempty"`
+	CreateTime       string             `json:"create_time,omitempty"`
+	StartTime        string             `json:"start_time,omitempty"`
+	FinishTime       string             `json:"finish_time,omitempty"`
+	DisplayName      string             `json:"display_name,omitempty"`
+	TaskType         string             `json:"task_type,omitempty"`
+	TargetDatasetID  string             `json:"target_dataset_id,omitempty"`
+	TargetPID        string             `json:"target_pid,omitempty"`
+	ParseStoredPath  string             `json:"parse_stored_path,omitempty"`
 	PDFConvertResult string             `json:"pdf_convert_result,omitempty"`
 	ConvertRequired  bool               `json:"convert_required,omitempty"`
 	ConvertStatus    string             `json:"convert_status,omitempty"`
@@ -299,22 +298,22 @@ type documentExt struct {
 }
 
 type uploadMeta struct {
-	UploadID         string   `json:"upload_id"`
-	TaskID           string   `json:"task_id,omitempty"`
-	DocumentID       string   `json:"document_id,omitempty"`
-	DatasetID        string   `json:"dataset_id,omitempty"`
-	TenantID         string   `json:"tenant_id,omitempty"`
-	DocumentPID      string   `json:"document_pid,omitempty"`
-	RelativePath     string   `json:"relative_path,omitempty"`
-	OriginalFilename string   `json:"original_filename"`
-	StoredName       string   `json:"stored_name"`
-	FileSize         int64    `json:"file_size,omitempty"`
-	ContentType      string   `json:"content_type,omitempty"`
-	PartSize         int64    `json:"part_size,omitempty"`
-	TotalParts       int      `json:"total_parts,omitempty"`
-	UploadedParts    []int    `json:"uploaded_parts,omitempty"`
-	UploadState      string   `json:"upload_state,omitempty"`
-	UploadScope      string   `json:"upload_scope,omitempty"`
-	CreateUserID     string   `json:"create_user_id,omitempty"`
-	CreateUserName   string   `json:"create_user_name,omitempty"`
+	UploadID         string `json:"upload_id"`
+	TaskID           string `json:"task_id,omitempty"`
+	DocumentID       string `json:"document_id,omitempty"`
+	DatasetID        string `json:"dataset_id,omitempty"`
+	TenantID         string `json:"tenant_id,omitempty"`
+	DocumentPID      string `json:"document_pid,omitempty"`
+	RelativePath     string `json:"relative_path,omitempty"`
+	OriginalFilename string `json:"original_filename"`
+	StoredName       string `json:"stored_name"`
+	FileSize         int64  `json:"file_size,omitempty"`
+	ContentType      string `json:"content_type,omitempty"`
+	PartSize         int64  `json:"part_size,omitempty"`
+	TotalParts       int    `json:"total_parts,omitempty"`
+	UploadedParts    []int  `json:"uploaded_parts,omitempty"`
+	UploadState      string `json:"upload_state,omitempty"`
+	UploadScope      string `json:"upload_scope,omitempty"`
+	CreateUserID     string `json:"create_user_id,omitempty"`
+	CreateUserName   string `json:"create_user_name,omitempty"`
 }

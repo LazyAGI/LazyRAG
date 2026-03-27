@@ -509,7 +509,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 		for _, expandedItem := range expandedItems {
 			var (
 				taskRow orm.Task
-				err    error
+				err     error
 			)
 			if strings.TrimSpace(expandedItem.UploadFileID) != "" {
 				taskRow, err = createTaskFromUploadedFile(r, datasetID, userID, userName, expandedItem, tType)
@@ -2228,17 +2228,17 @@ func validateLocalMoveTarget(ctx context.Context, datasetID string, sourceDoc or
 	if !isFolderLikeDocument(sourceDoc) {
 		return nil
 	}
-		current := targetPID
-		for current != "" {
-			if current == sourceDoc.ID {
-				return fmt.Errorf("cannot move folder into its descendant")
-			}
-			var parent orm.Document
-			if err := store.DB().WithContext(ctx).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", current, datasetID).Take(&parent).Error; err != nil {
-				break
-			}
-			current = strings.TrimSpace(parent.PID)
+	current := targetPID
+	for current != "" {
+		if current == sourceDoc.ID {
+			return fmt.Errorf("cannot move folder into its descendant")
 		}
+		var parent orm.Document
+		if err := store.DB().WithContext(ctx).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", current, datasetID).Take(&parent).Error; err != nil {
+			break
+		}
+		current = strings.TrimSpace(parent.PID)
+	}
 	return nil
 }
 
