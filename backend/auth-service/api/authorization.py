@@ -1,6 +1,7 @@
 """Authorization and permission-related APIs.
 
-- POST /api/auth/authorize: used by API gateways (e.g., Kong) for RBAC authorization; decides allow/deny based on request method+path and user permissions.
+- POST /api/auth/authorize: for API gateways (e.g., Kong) RBAC.
+  Allows or denies based on request method/path and user permissions.
 """
 import json
 import logging

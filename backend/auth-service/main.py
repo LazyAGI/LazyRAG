@@ -31,7 +31,10 @@ _DOCS_PATH = f'{_API_PREFIX}/docs'
 
 app = FastAPI(
     title='Auth Service',
-    description='LazyRAG authentication and authorization service (login, registration, token, user/role/group management)',
+    description=(
+        'LazyRAG authentication and authorization service '
+        '(login, registration, token, user/role/group management)'
+    ),
     version='1.0.0',
     docs_url=_DOCS_PATH,
     redoc_url=None,
@@ -201,7 +204,8 @@ def _handle_app_exception(_, exc: AppException):
 @app.exception_handler(redis.exceptions.RedisError)
 def _handle_redis_error(_, exc: redis.exceptions.RedisError):
     from core.errors import ErrorCodes, raise_error
-    # Full stack trace must be printed here; otherwise container logs may only show "Redis authentication failed" and hide the root cause.
+    # Full stack trace must be printed here; otherwise logs may only show
+    # "Redis authentication failed" and hide the root cause.
     tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     _logger.error('redis_error type=%s message=%s\n%s', type(exc).__name__, str(exc), tb)
     print(f'redis_error type={type(exc).__name__} message={exc}\n{tb}', flush=True)
@@ -224,7 +228,10 @@ def _handle_http_exception(_, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 def _handle_validation_error(_, exc: RequestValidationError):
-    return JSONResponse(status_code=400, content={'code': 400, 'message': 'Invalid request parameters', 'data': exc.errors()})
+    return JSONResponse(
+        status_code=400,
+        content={'code': 400, 'message': 'Invalid request parameters', 'data': exc.errors()},
+    )
 
 
 def _export_openapi_artifacts() -> None:

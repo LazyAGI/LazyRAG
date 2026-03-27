@@ -20,8 +20,18 @@ def upgrade() -> None:
     op.create_table(
         'permission_groups',
         sa.Column('id', sa.Uuid(), nullable=False, comment='Primary key UUID'),
-        sa.Column('code', sa.String(length=128), nullable=False, comment='Permission code, e.g. user.read / document.add'),
-        sa.Column('description', sa.String(length=255), nullable=False, comment='Description text, e.g. query user / create document'),
+        sa.Column(
+            'code',
+            sa.String(length=128),
+            nullable=False,
+            comment='Permission code, e.g. user.read / document.add',
+        ),
+        sa.Column(
+            'description',
+            sa.String(length=255),
+            nullable=False,
+            comment='Description text, e.g. query user / create document',
+        ),
         sa.Column('module', sa.String(length=64), nullable=False, comment='Module: document / user / app / qa'),
         sa.Column('action', sa.String(length=16), nullable=False, comment='Action type: read / write / admin'),
         sa.Column(

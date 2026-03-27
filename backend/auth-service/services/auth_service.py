@@ -59,7 +59,11 @@ class AuthService:
         if not self.validate_username(username):
             raise_error(
                 ErrorCodes.INVALID_USERNAME,
-                extra_msg='Username must be at least 2 characters, start/end with alphanumeric characters, and only contain letters, numbers, . _ @ # - in the middle',
+                extra_msg=(
+                    'Username must be at least 2 characters, start/end with '
+                    'alphanumeric characters, and only contain letters, '
+                    'numbers, . _ @ # - in the middle'
+                ),
                 exc_cls=AuthError,
             )
         if not password:
@@ -67,7 +71,11 @@ class AuthService:
         if not self.validate_password(password):
             raise_error(
                 ErrorCodes.INVALID_PASSWORD,
-                extra_msg='Password must be 8-32 characters and include at least one uppercase letter, one lowercase letter, one digit, and one special character',
+                extra_msg=(
+                    'Password must be 8-32 characters and include at least one '
+                    'uppercase letter, one lowercase letter, one digit, and '
+                    'one special character'
+                ),
                 exc_cls=AuthError,
             )
         try:

@@ -29,8 +29,19 @@ class PermissionGroup(Base):
         default='',
         comment='Description text, e.g. query user / create document',
     )
-    module = mapped_column(String(64), nullable=False, default='', index=True, comment='Module: document / user / app / qa')
-    action = mapped_column(String(16), nullable=False, default='', comment='Action type: read / write / admin')
+    module = mapped_column(
+        String(64),
+        nullable=False,
+        default='',
+        index=True,
+        comment='Module: document / user / app / qa',
+    )
+    action = mapped_column(
+        String(16),
+        nullable=False,
+        default='',
+        comment='Action type: read / write / admin',
+    )
     created_at = mapped_column(
         DateTime(timezone=True),
         nullable=False,
