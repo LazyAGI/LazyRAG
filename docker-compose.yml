@@ -23,7 +23,7 @@ services:
 
   kong:
     # Use build: ./kong if the default image fails with "module 'resty.http' not found"
-    image: registry.cn-sh-01.sensecore.cn/ai-expert-service/kong-maas:cf3.9-amd
+    image: kong:3.6
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
@@ -40,7 +40,7 @@ services:
         condition: service_healthy
 
   db:
-    image: docker.m.daocloud.io/postgres:17 
+    image: postgres:16
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: "123456"
@@ -59,7 +59,7 @@ services:
       retries: 20
 
   db-bootstrap:
-    image: docker.m.daocloud.io/postgres:17
+    image: postgres:16
     depends_on:
       db:
         condition: service_healthy
@@ -70,16 +70,37 @@ services:
       - /bin/sh
       - -lc
       - |
-        psql -h db -U root -d postgres <<'SQL'
-        DO $$
-        BEGIN
-          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
-            CREATE ROLE app LOGIN CREATEDB PASSWORD 'app';
-          ELSE
-            ALTER ROLE app WITH LOGIN CREATEDB PASSWORD 'app';
-          END IF;
-        END
-        $$;
+        psql -v ON_ERROR_STOP=1 -h db -U root -d postgres <<'SQL'
+        SELECT 'CREATE ROLE app LOGIN CREATEDB PASSWORD ''app'''
+        WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app')
+        \gexec
+
+        ALTER ROLE app WITH LOGIN CREATEDB PASSWORD 'app';
+
+        SELECT 'CREATE DATABASE authservice'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'authservice')
+        \gexec
+
+        SELECT 'CREATE DATABASE core'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'core')
+        \gexec
+
+        SELECT 'CREATE DATABASE doc_task'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'doc_task')
+        \gexec
+
+        SELECT 'CREATE DATABASE app OWNER app'
+        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'app')
+        \gexec
+
+        ALTER DATABASE app OWNER TO app;
+        GRANT ALL PRIVILEGES ON DATABASE app TO app;
+        SQL
+
+        psql -v ON_ERROR_STOP=1 -h db -U root -d app <<'SQL'
+        GRANT USAGE, CREATE ON SCHEMA public TO app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO app;
         SQL
 
   redis:
@@ -101,9 +122,9 @@ services:
     # build:
     #   context: ./backend
     #   dockerfile: auth-service/Dockerfile
-    image: lazyrag-authservice:20260319-1
-    # volumes:
-    #   - ./backend/auth-service:/app
+    image: authservice:20260326-6
+    volumes:
+      - ./api/backend:/openapi-export
     expose:
       - "8000"
     ports:
@@ -134,7 +155,7 @@ services:
     # build:
     #   context: ./backend
     #   dockerfile: office-convert-service/Dockerfile
-    image: office-convert-service:20260321-2
+    image: office-convert-service:20260324-1
     expose:
       - "8080"
     environment:
@@ -152,7 +173,10 @@ services:
     # build:
     #   context: ./backend
     #   dockerfile: core/Dockerfile
-    image: core:20260323-3
+    image: core:20260326-8
+    volumes:
+      - ./api/backend:/openapi-export
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     expose:
       - "8000"
     environment:
@@ -188,7 +212,9 @@ services:
       # LAZYRAG_LAZYLLM_SCHEMA: public
       # LAZYRAG_PARSING_SERVICE_URL: http://parsing:8000
       # LAZYRAG_PROCESSOR_SERVICE_URL: http://processor-server:8001
-      LAZYRAG_CHAT_SERVICE_URL: http://10.119.17.243:8048
+      # LAZYRAG_CHAT_SERVICE_URL: http://10.119.17.243:8048
+      # LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
+      LAZYRAG_CHAT_SERVICE_URL: http://10.158.145.3:8048
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -203,11 +229,9 @@ services:
         condition: service_healthy
       office-convert-service:
         condition: service_healthy
-    volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
 
   core-dev:
-    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/deepquery/golang:1.24.6
+    image: golang:1.24-alpine
     working_dir: /app
     command: ["sleep", "infinity"]
     volumes:
@@ -232,32 +256,36 @@ services:
       office-convert-service:
         condition: service_healthy
 
-  # frontend:
-  #   build: ./frontend
-  #   ports:
-  #     - "8080:80"
-  #   depends_on:
-  #     kong:
-  #       condition: service_started
-  #     core:
-  #       condition: service_healthy
-  #     parsing:
-  #       condition: service_healthy
-  #     chat:
-  #       condition: service_healthy
+  frontend:
+    # build: ./frontend
+    image: lazyrag-frontend:latest
+    ports:
+      - "8080:80"
+    depends_on:
+      kong:
+        condition: service_started
+      core:
+        condition: service_healthy
+      # parsing:
+      #   condition: service_healthy
+      # chat:
+      #   condition: service_healthy
+    environment:
+      FRONTEND_API_PROXY_PASS: ${FRONTEND_API_PROXY_PASS:-http://kong:8000}
+      FRONTEND_API_DOCS_PROXY_PASS: ${FRONTEND_API_DOCS_PROXY_PASS:-http://kong:8000}
 
   lazyllm-doc-server:
     # build:
     #   context: .
     #   dockerfile: backend/core/doc/Dockerfile
-    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-doc-server:0323
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-doc-server:0325-1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "88:8000"
+      - "8088:8000"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     environment:
       # LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/app
       <<: [*db-conn, *upload-paths, *llm-api-keys]
@@ -381,14 +409,14 @@ services:
     #   context: ./algorithm
     #   dockerfile: Dockerfile
     #   target: default
-    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-parse-server:0323
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-parse-server:0325-1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_PORT: ${LAZYRAG_DOCUMENT_PROCESSOR_PORT:-8000}
       # LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/app
@@ -415,12 +443,12 @@ services:
     #   context: ./algorithm
     #   dockerfile: Dockerfile
     #   target: default
-    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-parse-worker:0323
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-parse-worker:0325-1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     environment:
       LAZYRAG_DOCUMENT_WORKER_PORT: ${LAZYRAG_DOCUMENT_WORKER_PORT:-8001}
       LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: ${LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS:-1}
@@ -456,11 +484,11 @@ services:
     #   context: ./algorithm
     #   dockerfile: Dockerfile
     #   target: default
-    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-algo:0323
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/lazyllm-algo:0325-1
     expose:
       - "8000"
-    volumes:
-      - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
+    # volumes:
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     # healthcheck:
     #   test: ['CMD-SHELL', 'python parsing/healthcheck.py']
     #   interval: 15s
@@ -497,11 +525,13 @@ services:
     #   context: ./algorithm
     #   dockerfile: Dockerfile
     #   target: default
-    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/chat:0323
+    image: crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/rag-sjh/chat:0325-1
     expose:
       - "8046"
     volumes:
-      - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/home/mnt/sunjinghua/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+    # volumes:
+      # - ${LAZYRAG_TIKTOKEN_HOST_DIR:-/Users/sunjinghua.vendor/sunjh/LazyRAG-SJH/LazyRAG/data/core/uploads/rag_token/tiktoken}:/root/.lazyllm/tiktoken
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s
@@ -510,9 +540,10 @@ services:
       start_period: 30s
     environment:
       LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000}
+      LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYRAG_MAX_CONCURRENCY: "10"
       LAZYRAG_LLM_PRIORITY: "0"
-      <<: *llm-api-keys
+      <<: [*llm-api-keys, *upload-paths]
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
       lazyllm-algo:
