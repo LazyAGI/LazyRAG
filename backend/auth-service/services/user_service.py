@@ -123,7 +123,11 @@ class UserService:
     def set_user_roles_batch(
         self, user_ids: list[uuid.UUID], role_id: uuid.UUID
     ) -> None:
-        """Batch assign system roles directly to specified users (independent of groups). Raise an error if any user or role does not exist."""
+        """Batch assign system roles directly to specified users.
+
+        This is independent of groups. Raise an error if any user or role
+        does not exist.
+        """
         if not user_ids:
             return
         with SessionLocal() as db:

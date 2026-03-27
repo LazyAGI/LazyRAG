@@ -158,7 +158,11 @@ class GroupService:
     def set_member_roles_batch(
         self, group_id: uuid.UUID, user_ids: list[uuid.UUID], role: str
     ) -> None:
-        """Batch update member roles in a group. user_ids can contain one or multiple values; raise error if any member is not in the group."""
+        """Batch update member roles in a group.
+
+        user_ids can contain one or multiple values; raise an error if any
+        member is not in the group.
+        """
         if not (role or '').strip():
             raise_error(ErrorCodes.ROLE_REQUIRED)
         if not user_ids:
@@ -176,7 +180,11 @@ class GroupService:
                 UserGroupRepository.set_member_role(db, row, role.strip())
 
     def get_group_permissions(self, group_id: uuid.UUID) -> list[str]:
-        """Return permission-group code list bound to the group. Group members automatically have these permissions during authorization (union with role permissions)."""
+        """Return permission-group code list bound to the group.
+
+        Group members automatically have these permissions during
+        authorization (union with role permissions).
+        """
         with SessionLocal() as db:
             g = GroupRepository.get_by_id(db, group_id)
             if not g:
@@ -184,7 +192,11 @@ class GroupService:
             return GroupPermissionRepository.get_permission_codes(db, group_id)
 
     def set_group_permissions(self, group_id: uuid.UUID, permission_groups: list[str]) -> None:
-        """Fully replace group permission groups (delete then insert, no duplicates). Members automatically get new permissions without writing user records separately."""
+        """Fully replace group permission groups (delete then insert).
+
+        No duplicates are kept. Members automatically get new permissions
+        without writing user records separately.
+        """
         with SessionLocal() as db:
             g = GroupRepository.get_by_id(db, group_id)
             if not g:

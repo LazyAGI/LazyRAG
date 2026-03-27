@@ -1,10 +1,18 @@
-"""Effective user permission calculation: role permissions ∪ group permissions, without duplicate storage, merged dynamically during authorization."""
+"""Compute effective permissions from role and group permissions.
+
+No duplicate storage; permissions are merged dynamically during authorization.
+"""
 
 
 def get_effective_permission_codes(user) -> set[str]:
     """
-    Return effective permission code set = role-bound permission groups ∪ permission groups bound to all joined groups.
-    Ensures: group permission changes take effect automatically for members; users inherit group permissions when joining; role permissions are preserved without duplicate data.
+    Return effective permission code set:
+    role-bound permission groups ∪ permission groups from joined groups.
+
+    Guarantees:
+    - Group permission updates take effect for members automatically.
+    - Users inherit group permissions when joining groups.
+    - Role permissions are preserved without duplicate data.
     """
     role_codes = set()
     role = getattr(user, 'role', None)

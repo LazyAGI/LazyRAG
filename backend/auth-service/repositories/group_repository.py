@@ -210,7 +210,11 @@ class UserGroupRepository:
 
 
 class GroupPermissionRepository:
-    """Group-to-permission-group mapping: group members automatically have group permissions during authorization (union with role permissions)."""
+    """Group-to-permission-group mapping.
+
+    Group members automatically have group permissions during authorization
+    (union with role permissions).
+    """
 
     @classmethod
     def get_permission_codes(cls, session: Session, group_id: uuid.UUID) -> list[str]:
