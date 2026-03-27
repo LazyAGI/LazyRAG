@@ -27,14 +27,14 @@ class GroupMemberRoleBody(BaseModel):
 
 
 class GroupMemberRoleBatchBody(BaseModel):
-    """批量修改组内成员角色，user_ids 支持单个或多个，与 role 一起使用"""
-    user_ids: list[str]  # UUID 字符串数组
+    """Batch update member roles in a group. user_ids supports one or multiple values and must be used with role."""
+    user_ids: list[str]  # Array of UUID strings
     role: str
 
 
-# ----- 响应 -----
+# ----- Responses -----
 class GroupItem(BaseModel):
-    """用户组列表项"""
+    """Group list item"""
     group_id: str
     group_name: str
     remark: str | None = None
@@ -42,7 +42,7 @@ class GroupItem(BaseModel):
 
 
 class GroupListResponse(BaseModel):
-    """用户组列表"""
+    """Group list"""
     groups: list[GroupItem]
     total: int
     page: int
@@ -50,7 +50,7 @@ class GroupListResponse(BaseModel):
 
 
 class GroupDetailResponse(BaseModel):
-    """用户组详情"""
+    """Group details"""
     group_id: str
     group_name: str
     remark: str | None = None
@@ -58,12 +58,12 @@ class GroupDetailResponse(BaseModel):
 
 
 class GroupCreateResponse(BaseModel):
-    """创建用户组返回"""
+    """Create group response"""
     group_id: str
 
 
 class GroupUserItem(BaseModel):
-    """组内用户项"""
+    """Group user item"""
     user_id: str
     username: str
     role: str
@@ -71,10 +71,10 @@ class GroupUserItem(BaseModel):
 
 
 class GroupUserListResponse(BaseModel):
-    """组内用户列表"""
+    """Group user list"""
     users: list[GroupUserItem]
 
 
 class OkResponse(BaseModel):
-    """通用 ok 返回"""
+    """Generic ok response"""
     ok: bool = True

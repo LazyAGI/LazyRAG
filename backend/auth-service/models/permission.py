@@ -21,27 +21,27 @@ class PermissionGroup(Base):
         unique=True,
         nullable=False,
         index=True,
-        comment='权限码，如 user.read / document.add',
+        comment='Permission code, e.g. user.read / document.add',
     )
     description = mapped_column(
         String(255),
         nullable=False,
         default='',
-        comment='中文描述，如 查询用户 / 新增文档',
+        comment='Description text, e.g. query user / create document',
     )
-    module = mapped_column(String(64), nullable=False, default='', index=True, comment='模块：document / user / app / qa')
-    action = mapped_column(String(16), nullable=False, default='', comment='动作类别：read / write / admin')
+    module = mapped_column(String(64), nullable=False, default='', index=True, comment='Module: document / user / app / qa')
+    action = mapped_column(String(16), nullable=False, default='', comment='Action type: read / write / admin')
     created_at = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        comment='创建时间',
+        comment='Created at',
     )
     updated_at = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         onupdate=func.now(),
-        comment='更新时间',
+        comment='Updated at',
     )
 
     roles = relationship(

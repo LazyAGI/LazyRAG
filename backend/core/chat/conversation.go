@@ -22,7 +22,7 @@ import (
 	"lazyrag/core/store"
 )
 
-// writeConversationJSON 直接输出 JSON（不包 code/message/data 壳），与 neutrino ragservice HTTP 网关保持一致。
+// writeConversationJSON text JSON（text code/message/data text），text neutrino ragservice HTTP text。
 func writeConversationJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -33,9 +33,9 @@ func writeConversationJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeSSEChunk 写一条 SSE 行： data: {"result":{...}}\n\n
+// writeSSEChunk text SSE text： data: {"result":{...}}\n\n
 func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, v any) {
-	// 与 neutrino ragservice 的 HTTP 网关保持一致：最外层包一层 result 字段
+	// text neutrino ragservice text HTTP text：text result text
 	wrapped := map[string]any{"result": v}
 	b, _ := json.Marshal(wrapped)
 	_, _ = w.Write([]byte("data: "))
@@ -46,13 +46,13 @@ func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, v any) {
 	}
 }
 
-// Chat 对齐 neutrino 的 chat 主入口；当前复用 conversations:chat 能力，作为统一实现。
+// Chat text neutrino text chat text；text conversations:chat text，text。
 func Chat(w http.ResponseWriter, r *http.Request) {
 	ChatConversations(w, r)
 }
 
-// ChatConversations 对应 POST /api/v1/conversations:chat
-// 1:1 复刻 neutrino ragservice 逻辑：流式/非流式、双回复、刷新不断流（与 ResumeChat/StopChatGeneration 配合）
+// ChatConversations text POST /api/v1/conversations:chat
+// 1:1 text neutrino ragservice text：text/text、text、text（text ResumeChat/StopChatGeneration text）
 func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -111,9 +111,9 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	if conv != nil {
 		displayName, _ = conv["display_name"].(string)
 	}
-	// 与 neurtrino 一致：如果前端未显式传 display_name，则根据输入自动生成默认标题
+	// text neurtrino text：text display_name，textDefaulttext
 	if displayName == "" {
-		// 将 raw["input"] 粗略转换为 []map[string]any，便于 GetDefaultDisplayName 复用 neurtrino 逻辑
+		// text raw["input"] text []map[string]any，text GetDefaultDisplayName text neurtrino text
 		var fusionInput []map[string]any
 		if in, ok := raw["input"].([]any); ok {
 			for _, it := range in {
@@ -177,7 +177,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 序列化会话级 search_config / models，保证与 neutrino 一致存储
+	// textConversationtext search_config / models，text neutrino text
 	var searchConfigJSON json.RawMessage
 	if conv != nil {
 		if sc, ok := conv["search_config"]; ok {
@@ -214,7 +214,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	handleStreamChat(w, r, db, rdb, baseURL, reqBody, convID, query, seq, dualReply)
 }
 
-// ResumeChat 对应 POST /api/v1/conversations:resumeChat
+// ResumeChat text POST /api/v1/conversations:resumeChat
 func ResumeChat(w http.ResponseWriter, r *http.Request) {
 	resumeChatStream(w, r)
 }
@@ -376,7 +376,7 @@ func sendChunk(w http.ResponseWriter, flusher http.Flusher, ch *ChatChunkRespons
 	if ch == nil {
 		return
 	}
-	// 默认补全 finish_reason，保证每帧都有值
+	// Defaulttext finish_reason，text
 	if ch.FinishReason == "" {
 		ch.FinishReason = "FINISH_REASON_UNSPECIFIED"
 	}
@@ -436,7 +436,7 @@ func resumeSingleAnswerChat(ctx context.Context, rdb *redis.Client, convID, hist
 	if err != nil && !errors.Is(err, context.Canceled) {
 		return
 	}
-	// 与 neutrino 一致：用户刷新（context.Canceled）时不清理 Redis，下次 resume 可继续从 Redis 续传
+	// text neutrino text：Usertext（context.Canceled）text Redis，text resume text Redis text
 	if errors.Is(err, context.Canceled) {
 		return
 	}
@@ -540,14 +540,14 @@ func resumeMultiAnswerChat(ctx context.Context, rdb *redis.Client, convID string
 		FinishReason:   "FINISH_REASON_STOP",
 	})
 
-	// 与 neutrino 一致：仅当客户端仍连接时清理 Redis；用户刷新时不清理，下次 resume 可续传
+	// text neutrino text：text Redis；Usertext，text resume text
 	if ctx.Err() == nil {
 		_ = clearChatData(context.Background(), rdb, convID, info.PrimaryHistoryID)
 		_ = clearChatData(context.Background(), rdb, convID, info.SecondaryHistoryID)
 	}
 }
 
-// StopChatGeneration 对应 POST /api/v1/conversations:stopChatGeneration
+// StopChatGeneration text POST /api/v1/conversations:stopChatGeneration
 func StopChatGeneration(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ConversationID string `json:"conversation_id"`
@@ -587,7 +587,7 @@ func StopChatGeneration(w http.ResponseWriter, r *http.Request) {
 	common.ReplyOK(w, nil)
 }
 
-// GetChatStatus 对应 GET /api/v1/conversations/{conversation_id}:status
+// GetChatStatus text GET /api/v1/conversations/{conversation_id}:status
 func GetChatStatus(w http.ResponseWriter, r *http.Request) {
 	convID := conversationIDFromPath(r)
 	if convID == "" {
@@ -612,7 +612,7 @@ func GetChatStatus(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{"is_generating": isGenerating})
 }
 
-// GetConversation 对应 GET /api/v1/conversations/{name}
+// GetConversation text GET /api/v1/conversations/{name}
 func GetConversation(w http.ResponseWriter, r *http.Request) {
 	name := conversationNameFromPath(r)
 	convID := conversationIDFromName(name)
@@ -630,12 +630,12 @@ func GetConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解析 search_config
+	// text search_config
 	var searchCfg any
 	if len(c.SearchConfig) > 0 {
 		_ = json.Unmarshal(c.SearchConfig, &searchCfg)
 	}
-	// 解析 models
+	// text models
 	var models []string
 	if len(c.Models) > 0 {
 		_ = json.Unmarshal(c.Models, &models)
@@ -643,7 +643,7 @@ func GetConversation(w http.ResponseWriter, r *http.Request) {
 		models = []string{c.Model}
 	}
 
-	// 统计反馈
+	// text
 	var likeCnt, unlikeCnt int64
 	db := store.DB()
 	db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 1).Count(&likeCnt)
@@ -664,7 +664,7 @@ func GetConversation(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetConversationDetail 对应 GET /api/v1/conversations/{name}:detail
+// GetConversationDetail text GET /api/v1/conversations/{name}:detail
 func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 	name := conversationNameFromPath(r)
 	convID := conversationIDFromName(name)
@@ -715,7 +715,7 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 
 	list := make([]map[string]any, 0, len(histories))
 	for _, h := range histories {
-		// 解析检索结果中的 sources，与 neutrino 的 SearchResults.Sources 对齐
+		// text sources，text neutrino text SearchResults.Sources text
 		var sources any
 		if len(h.RetrievalResult) > 0 {
 			var rr struct {
@@ -725,7 +725,7 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 				sources = rr.Sources
 			}
 		}
-		// 解析扩展字段中的 input / reasoning_content 等
+		// text input / reasoning_content text
 		var input any
 		var reasoningContent string
 		if len(h.Ext) > 0 {
@@ -754,7 +754,7 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 解析会话级元数据
+	// textConversationtext
 	var searchCfg any
 	if len(c.SearchConfig) > 0 {
 		_ = json.Unmarshal(c.SearchConfig, &searchCfg)
@@ -789,7 +789,7 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteConversation 对应 DELETE /api/v1/conversations/{name}
+// DeleteConversation text DELETE /api/v1/conversations/{name}
 func DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	name := conversationNameFromPath(r)
 	convID := conversationIDFromName(name)
@@ -812,7 +812,7 @@ func DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
-// ListConversations 对应 GET /api/v1/conversations
+// ListConversations text GET /api/v1/conversations
 func ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID := store.UserID(r)
 	if userID == "" {
@@ -844,19 +844,19 @@ func ListConversations(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]map[string]any, 0, len(list))
 	for _, c := range list {
-		// 解析 search_config
+		// text search_config
 		var searchCfg any
 		if len(c.SearchConfig) > 0 {
 			_ = json.Unmarshal(c.SearchConfig, &searchCfg)
 		}
-		// 解析 models：优先使用 models 字段，其次回退到单个 model
+		// text models：text models text，text model
 		var models []string
 		if len(c.Models) > 0 {
 			_ = json.Unmarshal(c.Models, &models)
 		} else if c.Model != "" {
 			models = []string{c.Model}
 		}
-		// 统计点赞/点踩数
+		// text/text
 		var likeCnt, unlikeCnt int64
 		db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 1).Count(&likeCnt)
 		db.Model(&orm.ChatHistory{}).Where("conversation_id = ? AND feed_back = ?", c.ID, 2).Count(&unlikeCnt)
@@ -886,7 +886,7 @@ func ListConversations(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SetChatHistory 对应 POST /api/v1/conversations:setChatHistory
+// SetChatHistory text POST /api/v1/conversations:setChatHistory
 func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SetHistoryID     string `json:"set_history_id"`
@@ -958,7 +958,7 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{"history_id": body.SetHistoryID})
 }
 
-// FeedBackChatHistory 对应 POST /api/v1/conversations:feedBackChatHistory
+// FeedBackChatHistory text POST /api/v1/conversations:feedBackChatHistory
 func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		HistoryID      string `json:"history_id"`
@@ -988,7 +988,7 @@ func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
-// GetMultiAnswersSwitchStatus 对应 GET /api/v1/conversation:switchStatus
+// GetMultiAnswersSwitchStatus text GET /api/v1/conversation:switchStatus
 func GetMultiAnswersSwitchStatus(w http.ResponseWriter, r *http.Request) {
 	userID := store.UserID(r)
 	if userID == "" {
@@ -1003,7 +1003,7 @@ func GetMultiAnswersSwitchStatus(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{"status": st})
 }
 
-// SetMultiAnswersSwitchStatus 对应 POST /api/v1/conversation:switchStatus
+// SetMultiAnswersSwitchStatus text POST /api/v1/conversation:switchStatus
 func SetMultiAnswersSwitchStatus(w http.ResponseWriter, r *http.Request) {
 	userID := store.UserID(r)
 	userName := store.UserName(r)

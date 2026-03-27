@@ -20,7 +20,7 @@ def _load_yaml() -> dict:
 
 
 def _normalize_codes(values: list[str] | None) -> list[str]:
-    """去除空值与重复项，保持原有顺序，确保引导逻辑可重复执行。"""
+    """Remove empty values and duplicates while preserving order, so bootstrap logic remains repeatable."""
     normalized: list[str] = []
     seen: set[str] = set()
     for value in values or []:
@@ -38,13 +38,13 @@ def _load_permission_groups_yaml() -> list[str]:
 
 
 def _load_default_user_role_permissions() -> list[str]:
-    """内置 user 角色默认拥有的权限码，来自 permission_groups.yaml。"""
+    """Default permission codes for the built-in user role, loaded from permission_groups.yaml."""
     data = _load_yaml()
     return _normalize_codes(data.get('default_user_role_permissions', []) or [])
 
 
 def _code_to_module_action(code: str) -> tuple[str, str]:
-    """从权限码解析出 module 与 action，如 user.read -> ('user', 'read')"""
+    """Parse module and action from a permission code, e.g. user.read -> ('user', 'read')"""
     parts = (code or '').strip().split('.', 1)
     return (parts[0] or '', parts[1] if len(parts) > 1 else '')
 

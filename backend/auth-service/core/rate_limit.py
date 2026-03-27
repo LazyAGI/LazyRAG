@@ -1,5 +1,5 @@
 """
-登录失败频率限制(同一账号连续失败N次后一段时间内拒绝登录)
+Login failure rate limiting (deny login for a period after N consecutive failures on the same account)
 """
 import time
 import redis
@@ -11,7 +11,7 @@ LOGIN_TIME_WINDOW_SECONDS = 60
 
 
 class LoginRateLimiter:
-    """按用户维度的登录失败限流器(Redis ZSET 滑动窗口)"""
+    """Per-user login failure rate limiter (Redis ZSET sliding window)"""
 
     def __init__(
         self,
@@ -25,7 +25,7 @@ class LoginRateLimiter:
         self._key_prefix = key_prefix
 
     def is_limited(self, user_id: int | str) -> bool:
-        """同一用户在时间窗口内失败次数已达上限则返回 True。"""
+        """Return True when failures for the same user reach the limit within the time window."""
         try:
             r = redis_client()
             key = f'{self._key_prefix}:{user_id}'
@@ -42,11 +42,11 @@ class LoginRateLimiter:
             except (TypeError, ValueError):
                 return False
         except redis.RedisError:
-            # Redis 不可用时不阻断登录流程(仅失去限流保护)
+            # Do not block login when Redis is unavailable (only lose rate-limit protection)
             return False
 
     def record_failure(self, user_id: int | str) -> None:
-        """记录一次登录失败。"""
+        """Record one login failure."""
         try:
             r = redis_client()
             key = f'{self._key_prefix}:{user_id}'

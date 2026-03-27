@@ -11,8 +11,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// MustRedisFromEnv 从环境变量创建 Redis 客户端并 Ping，失败时 panic。
-// 优先读取 LAZYRAG_REDIS_URL（redis://user:pass@host:port/db）。
+// MustRedisFromEnv textCreate Redis text Ping，Failedtext panic。
+// text LAZYRAG_REDIS_URL（redis://user:pass@host:port/db）。
 func MustRedisFromEnv() *redis.Client {
 	if raw := strings.TrimSpace(os.Getenv("LAZYRAG_REDIS_URL")); raw != "" {
 		u, err := url.Parse(raw)

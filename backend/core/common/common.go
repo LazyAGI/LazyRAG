@@ -11,30 +11,30 @@ import (
 	"lazyrag/core/acl"
 )
 
-// ACLCheckItem 表示待做 ACL 校验的一项资源。
+// ACLCheckItem text ACL text。
 type ACLCheckItem struct {
 	ResourceType string // kb / db
 	ResourceID   string
 	NeedPerm     string // read / write
 }
 
-// ACLExtractor 从请求中解析 (userID, items) 用于 ACL 校验。
-// items 为 nil 或空时跳过鉴权直接放行；有项时对每项调用 acl.Can，全部通过才放行。
+// ACLExtractor textRequesttext (userID, items) text ACL text。
+// items text nil textAuthorizationtext；text acl.Can，text。
 type ACLExtractor func(req *http.Request, body []byte) (userID string, items []ACLCheckItem)
 
-// Proxy 构造反向代理，将请求转发到 targetURL。
-// flushInterval 控制向客户端刷写缓冲的频率：
-//   - 0  → 仅在上游响应结束时刷写（适合普通 JSON）
-//   - -1 → 每次写入后立即刷写（适合 SSE/流式）
+// Proxy text，textRequesttext targetURL。
+// flushInterval text：
+//   - 0  → textResponsetext（text JSON）
+//   - -1 → text（text SSE/text）
 func Proxy(targetURL string, flushInterval time.Duration) http.HandlerFunc {
 	return ProxyWithACL(targetURL, flushInterval, nil)
 }
 
-// ForbiddenBody 为 403 响应的 JSON 体，与 acl.APIResponse 结构一致（code, message, data）。
+// ForbiddenBody text 403 Responsetext JSON text，text acl.APIResponse text（code, message, data）。
 const ForbiddenBody = `{"code":1,"message":"forbidden: no permission for this resource","data":null}`
 
-// ProxyWithACL 在反向代理外增加 ACL 校验：转发前先读 body，用 extractor 得到 (userID, items)。
-// items 为空则跳过鉴权；否则对每项调用 acl.Can，全部通过才转发。extractor 传 nil 则不做校验（等同 Proxy）。
+// ProxyWithACL text ACL text：text body，text extractor text (userID, items)。
+// items textAuthorization；text acl.Can，text。extractor text nil text（text Proxy）。
 func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLExtractor) http.HandlerFunc {
 	target, _ := url.Parse(targetURL)
 	rp := &httputil.ReverseProxy{
@@ -80,8 +80,8 @@ func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLEx
 	}
 }
 
-// ProxyWithACLDynamicFlush 与 ProxyWithACL 类似，但由调用方按请求（headers/body）决定本次的 flush 间隔，
-// 从而同一接口可同时支持流式与非流式。
+// ProxyWithACLDynamicFlush text ProxyWithACL text，textRequest（headers/body）text flush text，
+// text。
 func ProxyWithACLDynamicFlush(
 	targetURL string,
 	extractor ACLExtractor,
@@ -122,7 +122,7 @@ func ProxyWithACLDynamicFlush(
 			fi = flushInterval(r, body)
 		}
 
-		// 每个请求新建 proxy，以便 FlushInterval 可按请求区分。
+		// textRequesttext proxy，text FlushInterval textRequesttext。
 		rp := &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				q := req.URL.RawQuery

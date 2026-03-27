@@ -557,7 +557,7 @@ func buildDatasetMembers(r *http.Request, datasetID string, rows []acl.ACLListIt
 				User:      strings.TrimSpace(ds.CreateUserName),
 				Role: datasetRole{
 					Role:        "dataset_maintainer",
-					DisplayName: "管理者",
+					DisplayName: "text",
 				},
 			}
 			if !ds.CreatedAt.IsZero() {
@@ -565,7 +565,7 @@ func buildDatasetMembers(r *http.Request, datasetID string, rows []acl.ACLListIt
 			}
 		}
 		creator.IsCreator = true
-		creator.Role = datasetRole{Role: "dataset_maintainer", DisplayName: "管理者"}
+		creator.Role = datasetRole{Role: "dataset_maintainer", DisplayName: "text"}
 		if creator.User == "" {
 			creator.User = strings.TrimSpace(ds.CreateUserName)
 		}
@@ -868,11 +868,11 @@ func roleToPermission(role string) string {
 func permissionToRole(permission string) (string, string) {
 	switch strings.TrimSpace(permission) {
 	case acl.PermissionDatasetRead:
-		return "dataset_user", "只读者"
+		return "dataset_user", "text"
 	case acl.PermissionDatasetUpload:
-		return "dataset_uploader", "上传者"
+		return "dataset_uploader", "Uploadtext"
 	case acl.PermissionDatasetWrite:
-		return "dataset_maintainer", "管理者"
+		return "dataset_maintainer", "text"
 	default:
 		return "", ""
 	}

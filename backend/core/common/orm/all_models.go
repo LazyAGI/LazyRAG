@@ -1,9 +1,9 @@
-// all_models 提供与 orm/models.go 一致的 model 列表，供 dbmigrate migrate / create -with-ddl 生成 DDL 时使用。
-// 新增 Model 时在 models.go 定义，并在本文件 AllModelsForDDL / TableNamesForDDL 中同步追加。
+// all_models text orm/models.go text model text，text dbmigrate migrate / create -with-ddl text DDL text。
+// text Model text models.go text，text AllModelsForDDL / TableNamesForDDL text。
 
 package orm
 
-// AllModelsForDDL 返回需参与迁移的 model 实例列表，用于 DDL 生成。
+// AllModelsForDDL text model text，text DDL text。
 func AllModelsForDDL() []interface{} {
 	return []interface{}{
 		&VisibilityModel{},
@@ -26,7 +26,7 @@ func AllModelsForDDL() []interface{} {
 	}
 }
 
-// TableNamesForDDL 返回与 AllModelsForDDL 顺序一致的表名列表，用于生成 DROP TABLE（逆序）。
+// TableNamesForDDL text AllModelsForDDL text，text DROP TABLE（text）。
 func TableNamesForDDL() []string {
 	return []string{
 		"acl_visibility",

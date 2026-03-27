@@ -33,7 +33,7 @@ import (
 // - schema A (core-owned diff): orm.documents / orm.tasks
 // - schema B (readonly, maintained by lazy-llm-server): lazy_llm_server.lazyllm_*
 
-const externalDeleteFailedMessage = "外部服务删除失败，请稍后重试"
+const externalDeleteFailedMessage = "textDeleteFailed，text"
 
 func requireDatasetPermission(r *http.Request, datasetID string, action string) (*orm.Dataset, string, bool) {
 	userID := strings.TrimSpace(store.UserID(r))
@@ -504,7 +504,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		Model(&orm.Document{}).
 		Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).
 		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
-		common.ReplyErr(w, "删除文档失败，请稍后重试", http.StatusInternalServerError)
+		common.ReplyErr(w, "Delete documentFailed，text", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -733,7 +733,7 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		Model(&orm.Document{}).
 		Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).
 		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
-		common.ReplyErr(w, "批量删除文档失败，请稍后重试", http.StatusInternalServerError)
+		common.ReplyErr(w, "BatchDelete documentFailed，text", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

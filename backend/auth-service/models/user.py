@@ -27,27 +27,27 @@ class User(Base):
         index=True,
         comment='Role id, FK',
     )
-    tenant_id = mapped_column(String(64), nullable=False, default='', index=True, comment='租户 id')
-    email = mapped_column(String(255), nullable=True, index=True, comment='邮箱')
-    phone = mapped_column(String(64), nullable=False, default='', comment='手机号')
-    remark = mapped_column(String(255), nullable=False, default='', comment='备注')
-    creator = mapped_column(String(128), nullable=False, default='', comment='创建者')
+    tenant_id = mapped_column(String(64), nullable=False, default='', index=True, comment='Tenant ID')
+    email = mapped_column(String(255), nullable=True, index=True, comment='Email')
+    phone = mapped_column(String(64), nullable=False, default='', comment='Phone number')
+    remark = mapped_column(String(255), nullable=False, default='', comment='Remark')
+    creator = mapped_column(String(128), nullable=False, default='', comment='Creator')
     created_at = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-        comment='创建时间',
+        comment='Created at',
     )
     updated_at = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         onupdate=func.now(),
-        comment='更新时间',
+        comment='Updated at',
     )
-    last_login_time = mapped_column(DateTime(timezone=True), nullable=True, comment='最后登录时间')
-    updated_pwd_time = mapped_column(DateTime(timezone=True), nullable=True, comment='修改密码时间')
-    disabled = mapped_column(Boolean, nullable=False, default=False, index=True, comment='是否禁用')
-    source = mapped_column(String(32), nullable=False, default='platform', comment='用户来源')
+    last_login_time = mapped_column(DateTime(timezone=True), nullable=True, comment='Last login time')
+    updated_pwd_time = mapped_column(DateTime(timezone=True), nullable=True, comment='Password updated at')
+    disabled = mapped_column(Boolean, nullable=False, default=False, index=True, comment='Disabled')
+    source = mapped_column(String(32), nullable=False, default='platform', comment='User source')
 
     role = relationship('Role', lazy='raise')
     groups = relationship(

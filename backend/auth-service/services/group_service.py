@@ -1,4 +1,4 @@
-"""用户组业务逻辑：API 层调用本模块，本模块调用 Repository。"""
+"""Group business logic: called by API layer, and this module calls repositories."""
 import uuid
 
 from core.database import SessionLocal
@@ -158,7 +158,7 @@ class GroupService:
     def set_member_roles_batch(
         self, group_id: uuid.UUID, user_ids: list[uuid.UUID], role: str
     ) -> None:
-        """批量修改组内成员角色。user_ids 可为单个或多个，任一成员不在组内则报错。"""
+        """Batch update member roles in a group. user_ids can contain one or multiple values; raise error if any member is not in the group."""
         if not (role or '').strip():
             raise_error(ErrorCodes.ROLE_REQUIRED)
         if not user_ids:
@@ -176,7 +176,7 @@ class GroupService:
                 UserGroupRepository.set_member_role(db, row, role.strip())
 
     def get_group_permissions(self, group_id: uuid.UUID) -> list[str]:
-        """返回组绑定的权限组 code 列表。组内成员在鉴权时自动拥有这些权限（与角色权限并集）。"""
+        """Return permission-group code list bound to the group. Group members automatically have these permissions during authorization (union with role permissions)."""
         with SessionLocal() as db:
             g = GroupRepository.get_by_id(db, group_id)
             if not g:
@@ -184,7 +184,7 @@ class GroupService:
             return GroupPermissionRepository.get_permission_codes(db, group_id)
 
     def set_group_permissions(self, group_id: uuid.UUID, permission_groups: list[str]) -> None:
-        """全量设置组的权限组（先删后插，无重复）。组内成员自动拥有新权限，无需单独写用户表。"""
+        """Fully replace group permission groups (delete then insert, no duplicates). Members automatically get new permissions without writing user records separately."""
         with SessionLocal() as db:
             g = GroupRepository.get_by_id(db, group_id)
             if not g:

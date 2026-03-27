@@ -1,4 +1,4 @@
-// Package docs 嵌入仓库内维护的 OpenAPI JSON 文档。
+// Package docs text OpenAPI JSON Document。
 package docs
 
 import _ "embed"
@@ -6,5 +6,5 @@ import _ "embed"
 //go:embed swagger.json
 var doc string
 
-// SwaggerDoc 返回当前嵌入的 OpenAPI JSON 文档。
+// SwaggerDoc text OpenAPI JSON Document。
 func SwaggerDoc() string { return doc }

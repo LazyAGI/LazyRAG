@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	// defaultHTTPTimeout 与上游对话服务的默认超时时间保持一致级别，避免长对话被过早取消。
+	// defaultHTTPTimeout textDefaulttext，textUnset。
 	defaultHTTPTimeout = 10 * time.Minute
 )
 
-// HTTPPost 统一封装外部 POST 调用。
-// - ctx 允许调用方控制超时/取消；为 nil 时使用 context.Background。
-// - contentType 一般为 "application/json"。
-// 返回响应 body、HTTP 状态码以及 error（仅在网络/构造/读 body 失败时返回 error）。
+// HTTPPost text POST text。
+// - ctx text/Unset；text nil text context.Background。
+// - contentType text "application/json"。
+// textResponse body、HTTP text error（text/text/text body Failedtext error）。
 func HTTPPost(ctx context.Context, url, contentType string, body []byte) ([]byte, int, error) {
 	if ctx == nil {
 		ctx = context.Background()

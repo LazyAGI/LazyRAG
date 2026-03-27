@@ -5,12 +5,12 @@ import (
 	"strings"
 )
 
-// UserID 从请求头 X-User-Id 读取当前用户 ID。
+// UserID textRequesttext X-User-Id textUser ID。
 func UserID(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("X-User-Id"))
 }
 
-// UserName 从请求头 X-User-Name 读取当前用户名。
+// UserName textRequesttext X-User-Name textUsertext。
 func UserName(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("X-User-Name"))
 }

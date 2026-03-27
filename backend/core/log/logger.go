@@ -1,4 +1,4 @@
-// Package log 提供与 neutrino 一致的 zerolog 结构化日志，便于 docker logs 查看。
+// Package log text neutrino text zerolog textLog，text docker logs text。
 package log
 
 import (
@@ -8,10 +8,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Logger 全局 zerolog.Logger，在 main 或 dbmigrate 入口处调用 Init() 后使用
+// Logger text zerolog.Logger，text main text dbmigrate text Init() text
 var Logger zerolog.Logger
 
-// Init 初始化全局 Logger：输出到 stdout，控制台可读格式，带时间戳。便于 docker logs 查看
+// Init Initializetext Logger：text stdout，text，text。text docker logs text
 func Init() {
 	Logger = zerolog.New(zerolog.ConsoleWriter{
 		Out:        os.Stdout,
@@ -19,7 +19,7 @@ func Init() {
 	}).With().Timestamp().Logger()
 }
 
-// InitNop 将 Logger 设为 Nop，用于测试或未显式 Init 时避免写日志
+// InitNop text Logger text Nop，text Init textLog
 func InitNop() {
 	Logger = zerolog.Nop()
 }

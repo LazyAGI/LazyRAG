@@ -10,7 +10,7 @@ class RolePermissionsBody(BaseModel):
 
 
 class PermissionGroupItem(BaseModel):
-    """权限组项"""
+    """Permission group item"""
     id: str  # UUID string
     code: str
     description: str = ''
@@ -19,25 +19,25 @@ class PermissionGroupItem(BaseModel):
 
 
 class RoleItem(BaseModel):
-    """角色项"""
+    """Role item"""
     id: str  # UUID string
     name: str
     built_in: bool
 
 
 class RoleCreateResponse(BaseModel):
-    """创建角色返回"""
+    """Create role response"""
     id: str  # UUID string
     name: str
     built_in: bool
 
 
 class RolePermissionsResponse(BaseModel):
-    """角色权限查询返回"""
+    """Role permission query response"""
     role_id: str  # UUID string
     permission_groups: list[str]
 
 
 class OkResponse(BaseModel):
-    """通用 ok 返回"""
+    """Generic ok response"""
     ok: bool = True

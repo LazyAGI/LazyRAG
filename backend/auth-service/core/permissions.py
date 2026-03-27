@@ -1,10 +1,10 @@
-"""用户有效权限计算：角色权限 ∪ 所属组的权限，不重复存储，鉴权时动态合并。"""
+"""Effective user permission calculation: role permissions ∪ group permissions, without duplicate storage, merged dynamically during authorization."""
 
 
 def get_effective_permission_codes(user) -> set[str]:
     """
-    返回用户有效权限码集合 = 角色绑定的权限组 ∪ 所属各组绑定的权限组。
-    满足：组增删权限时组内用户自动生效；用户加入组时自动继承组权限；保留原角色权限且无重复数据。
+    Return effective permission code set = role-bound permission groups ∪ permission groups bound to all joined groups.
+    Ensures: group permission changes take effect automatically for members; users inherit group permissions when joining; role permissions are preserved without duplicate data.
     """
     role_codes = set()
     role = getattr(user, 'role', None)

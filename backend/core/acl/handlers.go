@@ -34,7 +34,7 @@ func validPermissionForResource(resourceType, permission string) bool {
 	return normalizePermission(resourceType, permission) != ""
 }
 
-// ListACL 对应 GET /api/kb/{kb_id}/acl
+// ListACL text GET /api/kb/{kb_id}/acl
 func ListACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	if kbID == "" {
@@ -46,7 +46,7 @@ func ListACL(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, map[string]any{"list": list})
 }
 
-// AddACL 对应 POST /api/kb/{kb_id}/acl
+// AddACL text POST /api/kb/{kb_id}/acl
 func AddACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	if kbID == "" {
@@ -79,7 +79,7 @@ func AddACL(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, map[string]any{"acl_id": aclID})
 }
 
-// UpdateACL 对应 PUT /api/kb/{kb_id}/acl/{acl_id}
+// UpdateACL text PUT /api/kb/{kb_id}/acl/{acl_id}
 func UpdateACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	aclID := PathACLID(r)
@@ -108,7 +108,7 @@ func UpdateACL(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, nil)
 }
 
-// DeleteACL 对应 DELETE /api/kb/{kb_id}/acl/{acl_id}
+// DeleteACL text DELETE /api/kb/{kb_id}/acl/{acl_id}
 func DeleteACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	aclID := PathACLID(r)
@@ -128,7 +128,7 @@ func DeleteACL(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, nil)
 }
 
-// BatchAddACL 对应 POST /api/kb/{kb_id}/acl/batch
+// BatchAddACL text POST /api/kb/{kb_id}/acl/batch
 func BatchAddACL(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	if kbID == "" {
@@ -168,7 +168,7 @@ func BatchAddACL(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, map[string]any{"count": count, "invalid_count": invalidCount, "failed_count": failedCount})
 }
 
-// GetPermission 对应 GET /api/kb/{kb_id}/permission
+// GetPermission text GET /api/kb/{kb_id}/permission
 func GetPermission(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	if kbID == "" {
@@ -180,7 +180,7 @@ func GetPermission(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, PermissionResult{Permissions: permissions, Source: source})
 }
 
-// PermissionBatch 对应 POST /api/kb/permission/batch
+// PermissionBatch text POST /api/kb/permission/batch
 func PermissionBatch(w http.ResponseWriter, r *http.Request) {
 	var body PermissionBatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -196,7 +196,7 @@ func PermissionBatch(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, list)
 }
 
-// CanHandler 对应 GET /api/kb/{kb_id}/can?action=create_doc|delete_doc|delete_kb
+// CanHandler text GET /api/kb/{kb_id}/can?action=create_doc|delete_doc|delete_kb
 func CanHandler(w http.ResponseWriter, r *http.Request) {
 	kbID := PathKbID(r)
 	if kbID == "" {
@@ -213,7 +213,7 @@ func CanHandler(w http.ResponseWriter, r *http.Request) {
 	replyOK(w, CanResult{Allowed: allowed})
 }
 
-// ListKB 对应 GET /api/kb/list?permission=read|write&keyword=&page=&page_size=
+// ListKB text GET /api/kb/list?permission=read|write&keyword=&page=&page_size=
 func ListKB(w http.ResponseWriter, r *http.Request) {
 	permissionFilter := r.URL.Query().Get("permission") // read or write
 	keyword := r.URL.Query().Get("keyword")

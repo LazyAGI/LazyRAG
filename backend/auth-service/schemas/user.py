@@ -22,9 +22,9 @@ class UserRoleBody(BaseModel):
 
 
 class UserRoleBatchBody(BaseModel):
-    """直接给用户设置系统角色（与 group 无关），user_ids 支持单个或多个"""
-    user_ids: list[str]  # 用户 UUID 字符串数组
-    role_id: str  # 角色 UUID 字符串
+    """Assign system roles directly to users (independent of groups); user_ids supports one or multiple values"""
+    user_ids: list[str]  # Array of user UUID strings
+    role_id: str  # Role UUID string
 
 
 class ResetPasswordBody(BaseModel):
@@ -32,20 +32,20 @@ class ResetPasswordBody(BaseModel):
 
 
 class UserItem(BaseModel):
-    """用户列表项"""
+    """User list item"""
     user_id: str
     username: str
     display_name: str = ''
     email: str | None = None
     phone: str | None = None
-    status: str  # 'active' | 'inactive'（由 disabled 派生）
+    status: str  # 'active' | 'inactive'(derived from disabled)
     tenant_id: str | None = None
     role_id: str  # UUID string
     role_name: str
 
 
 class UserListResponse(BaseModel):
-    """用户列表"""
+    """User list"""
     users: list[UserItem]
     total: int
     page: int
@@ -53,7 +53,7 @@ class UserListResponse(BaseModel):
 
 
 class UserDetailResponse(BaseModel):
-    """用户详情"""
+    """User details"""
     user_id: str
     username: str
     display_name: str = ''
@@ -66,5 +66,5 @@ class UserDetailResponse(BaseModel):
 
 
 class OkResponse(BaseModel):
-    """通用 ok 返回"""
+    """Generic ok response"""
     ok: bool = True

@@ -2,7 +2,7 @@ package acl
 
 import "strings"
 
-// normalizePermission 将旧权限名映射为具体权限种类，并允许按资源类型校验合法性。
+// normalizePermission textPermissiontextPermissiontext，text。
 func normalizePermission(resourceType, permission string) string {
 	p := strings.ToUpper(strings.TrimSpace(permission))
 	switch p {
@@ -107,8 +107,8 @@ func effectivePermissions(resourceType, resourceID string, userID string) (permi
 	return permissions, source
 }
 
-// PermissionFor 返回用户对资源的有效权限及来源。
-// 为兼容旧接口，这里仍返回一个聚合权限级别：none / read / write。
+// PermissionFor textUsertextPermissiontext。
+// text，textPermissiontext：none / read / write。
 func PermissionFor(resourceType, resourceID string, userID string) (permission string, source string) {
 	permissions, source := effectivePermissions(resourceType, resourceID, userID)
 	if len(permissions) == 0 {
@@ -123,7 +123,7 @@ func PermissionFor(resourceType, resourceID string, userID string) (permission s
 	return PermRead, source
 }
 
-// PermissionsFor 返回用户对资源生效的具体权限列表及来源。
+// PermissionsFor textUsertextPermissiontext。
 func PermissionsFor(resourceType, resourceID string, userID string) (permissions []string, source string) {
 	return effectivePermissions(resourceType, resourceID, userID)
 }
@@ -175,7 +175,7 @@ func actionToPermission(resourceType, action string) string {
 	}
 }
 
-// Can 统一鉴权：判断用户是否可在资源上执行指定动作或具备指定权限种类。
+// Can textAuthorization：textUsertextPermissiontext。
 func Can(userID string, resourceType, resourceID string, action string) bool {
 	if strings.TrimSpace(userID) == "" || resourceID == "" {
 		return false

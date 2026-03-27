@@ -2,14 +2,14 @@
 permission_groups:
   - user.read
   - user.write
-  - user.admin   # 仅管理员角色拥有，用于用户/角色/用户组等管理接口的网关鉴权
+  - user.admin   # Owned only by admin role, used for gateway authorization of user/role/group management APIs
   - document.read
   - document.write
   - qa.read
 
-# 内置 user 角色默认拥有的权限码（须在 permission_groups 中存在）
-# 设计原则：新注册用户默认可使用对话与知识库相关基础能力，
-# 但不能访问 auth-service 的用户/角色/用户组管理接口（这些接口要求 user.admin）。
+# Default permission codes for built-in user role (must exist in permission_groups)
+# Design principle: newly registered users can use basic conversation and knowledge-base capabilities by default,
+# but cannot access auth-service user/role/group management APIs (these APIs require user.admin).
 default_user_role_permissions:
   - user.read
   - document.read

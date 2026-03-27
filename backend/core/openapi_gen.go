@@ -11,13 +11,13 @@ import (
 const (
 	openAPITitle       = "Backend Core API"
 	openAPIVersion     = "0.1.0"
-	openAPIDescription = "LazyRAG Go backend core API - proxies to algorithm services. 经 Kong 暴露时前缀为 /api/core。"
+	openAPIDescription = "LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。"
 	apiPrefix          = "/api/core"
 )
 
-// buildOpenAPISpecFromRouter 基于静态 swagger 描述与运行时路由共同生成 OpenAPI 3.0 spec。
-// 这样既能保留手工补充的参数/请求体定义，也能保证 /docs、/openapi.json、/openapi.yaml
-// 总是覆盖到当前实际注册的路由。
+// buildOpenAPISpecFromRouter text swagger text OpenAPI 3.0 spec。
+// text/Requesttext，text /docs、/openapi.json、/openapi.yaml
+// text。
 func buildOpenAPISpecFromRouter(r *mux.Router) ([]byte, error) {
 	spec := loadBaseOpenAPISpec()
 	mergeOpenAPISpec(spec, prefixOpenAPIPaths(manualOpenAPISpec()))

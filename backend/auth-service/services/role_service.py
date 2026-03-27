@@ -1,4 +1,4 @@
-"""角色与权限组业务逻辑：API 层调用本模块，本模块调用 Repository。"""
+"""Role and permission-group business logic: called by API layer, and this module calls repositories."""
 import uuid
 
 from core.database import SessionLocal

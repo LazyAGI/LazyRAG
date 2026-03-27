@@ -1,6 +1,6 @@
-"""鉴权与权限相关接口。
+"""Authorization and permission-related APIs.
 
-- POST /api/auth/authorize：供网关（如 Kong）做 RBAC 鉴权，根据请求 method+path 与用户权限返回是否放行。
+- POST /api/auth/authorize: used by API gateways (e.g., Kong) for RBAC authorization; decides allow/deny based on request method+path and user permissions.
 """
 import json
 import logging
@@ -89,10 +89,10 @@ def _user_id_from_token(token: str) -> uuid.UUID:
 @router.post('/authorize', response_model=AuthorizeResponse)
 def authorize(body: AuthorizeBody, request: Request):
     """
-    鉴权：供网关(Kong)调用，根据请求的 method、path 与用户 Bearer token 判断是否放行
-      1. 若接口未配置所需权限则直接放行；
-      2. 否则校验用户角色与权限组，管理员或具备任一所需权限则放行；
-      3. 否则 403。
+    Authorization: called by gateway (Kong); determine allow/deny based on request method, path, and user Bearer token
+      1. If no required permission is configured for the API, allow directly;
+      2. Otherwise verify user role and permission groups; allow if admin or if any required permission is present;
+      3. Otherwise return 403.
     """
     method = (body.method or 'GET').upper()
     path = _normalize_path(body.path or '/')

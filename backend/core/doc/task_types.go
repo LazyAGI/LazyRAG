@@ -285,9 +285,9 @@ type documentExt struct {
 	ContentType      string   `json:"content_type,omitempty"`
 	RelativePath     string   `json:"relative_path,omitempty"`
 	Tags             []string `json:"tags,omitempty"`
-	// 原文件路径（可选，默认与 stored_path 一致）
+	// text（text，Defaulttext stored_path text）
 	SourceStoredPath string `json:"source_stored_path,omitempty"`
-	// 供解析使用的文件（Office 成功时为同目录下 PDF）
+	// text（Office Successtext PDF）
 	ParseStoredPath  string `json:"parse_stored_path,omitempty"`
 	ParseStoredName  string `json:"parse_stored_name,omitempty"`
 	ParseContentType string `json:"parse_content_type,omitempty"`

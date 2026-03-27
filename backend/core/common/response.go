@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// APIResponse 为 core 接口统一响应外壳：{ code, message, data }。
+// APIResponse text core textResponsetext：{ code, message, data }。
 type APIResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -31,7 +31,7 @@ func reply(w http.ResponseWriter, code int, message string, data any, statusCode
 	_ = json.NewEncoder(w).Encode(APIResponse{Code: code, Message: message, Data: data})
 }
 
-// ReplyJSON 将 v 序列化为 JSON 并写入响应，Content-Type 为 application/json。
+// ReplyJSON text v text JSON textResponse，Content-Type text application/json。
 func ReplyJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)

@@ -60,23 +60,23 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `dbmigrate: SQL migrations (类似 Flask-Migrate: migrate 生成脚本, upgrade 应用).
+	fmt.Fprint(os.Stderr, `dbmigrate: SQL migrations (text Flask-Migrate: migrate text, upgrade text).
 
-  Flask 对照:
+  Flask text:
     flask db migrate [-m "msg"]  →  dbmigrate migrate [-m "msg"]
-    flask db upgrade             →  dbmigrate upgrade  或  core 启动时自动执行 RunUp()
+    flask db upgrade             →  dbmigrate upgrade  text  core Starttext RunUp()
 
 Env: ACL_DB_DRIVER, ACL_DB_DSN, MIGRATIONS_DIR (default: ./migrations)
 
 Commands:
-  migrate [-m "message"]         生成迁移脚本（根据 orm/models 生成 DDL，需 Postgres + ACL_DB_DSN）
-  upgrade                       应用所有未执行的迁移（修改数据库）
-  create -name <name> [-with-ddl]  手动创建迁移文件（可选 -with-ddl 自动填 DDL）
-  up [-n <steps>]               同 upgrade；-n 指定步数
-  down [-n <steps>]              回滚 N 步
-  goto -version <v>              迁移到指定版本
-  version                        当前迁移版本
-  force -version <v>              将版本表设为指定版本并清除 dirty（修复失败迁移后使用）
+  migrate [-m "message"]         text（text orm/models text DDL，text Postgres + ACL_DB_DSN）
+  upgrade                       text（text）
+  create -name <name> [-with-ddl]  textCreatetext（text -with-ddl text DDL）
+  up [-n <steps>]               text upgrade；-n text
+  down [-n <steps>]              text N text
+  goto -version <v>              text
+  version                        text
+  force -version <v>              text dirty（textFailedtext）
 `)
 }
 
@@ -100,7 +100,7 @@ func dbConfigFromEnv() (driver, dsn string) {
 	return driver, dsn
 }
 
-// migrateCmd 对应 Flask 的 flask db migrate：生成带 DDL 的迁移脚本（-m 可选描述）。
+// migrateCmd text Flask text flask db migrate：text DDL text（-m text）。
 func migrateCmd(args []string) {
 	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
 	msg := fs.String("m", "auto", "migration message (used as migration name)")
@@ -151,8 +151,8 @@ func createCmdWith(name string, withDDL bool) {
 		upContent = fmt.Sprintf("-- %s\n-- +migrate Up\n\n%s", base, upSQL)
 		downContent = fmt.Sprintf("-- %s\n-- +migrate Down\n\n%s", base, downSQL)
 	} else {
-		upContent = fmt.Sprintf("-- %s\n-- +migrate Up\n-- 在此下方填写 DDL，或使用 create -name xxx -with-ddl 自动生成。\n\n", base)
-		downContent = fmt.Sprintf("-- %s\n-- +migrate Down\n-- 在此下方填写回滚 SQL。\n\n", base)
+		upContent = fmt.Sprintf("-- %s\n-- +migrate Up\n-- text DDL，text create -name xxx -with-ddl text。\n\n", base)
+		downContent = fmt.Sprintf("-- %s\n-- +migrate Down\n-- text SQL。\n\n", base)
 	}
 
 	writeIfNotExists(upPath, upContent)
@@ -161,7 +161,7 @@ func createCmdWith(name string, withDDL bool) {
 	fmt.Println(downPath)
 }
 
-// capturePostgresDDL 连接 Postgres，用 GORM 建表并捕获 SQL，返回 up（CREATE TABLE）与 down（DROP TABLE）。
+// capturePostgresDDL text Postgres，text GORM text SQL，text up（CREATE TABLE）text down（DROP TABLE）。
 func capturePostgresDDL(dsn string) (upSQL, downSQL string, err error) {
 	var statements []string
 	recorder := &sqlRecorder{collect: &statements}
@@ -324,8 +324,8 @@ func versionCmd(args []string) {
 	log.Logger.Info().Uint("version", v).Msg("version: clean")
 }
 
-// forceCmd 将 schema_migrations 设为指定版本并清除 dirty，用于修复 "Dirty database version" 报错。
-// 仅在确认数据库实际状态与该版本一致时使用（例如表已存在且与迁移一致）。
+// forceCmd text schema_migrations text dirty，text "Dirty database version" text。
+// text（text）。
 func forceCmd(args []string) {
 	fs := flag.NewFlagSet("force", flag.ExitOnError)
 	v := fs.Uint("version", 0, "version to set, e.g. 20260315095955")
@@ -415,7 +415,7 @@ func mustMigrator() *migrate.Migrate {
 func mustOpenSQL(driver, dsn string) (*sql.DB, string) {
 	switch driver {
 	case "sqlite":
-		// golang-migrate 的 sqlite3 驱动使用 mattn/go-sqlite3。
+		// golang-migrate text sqlite3 text mattn/go-sqlite3。
 		db, err := sql.Open("sqlite3", dsn)
 		if err != nil {
 			log.Logger.Error().Err(err).Msg("open sqlite failed")
@@ -423,7 +423,7 @@ func mustOpenSQL(driver, dsn string) (*sql.DB, string) {
 		}
 		return db, dsn
 	case "postgres":
-		// 使用 pgx 标准库；DSN 可为 URL 或 key=value，驱动名为 "pgx"。
+		// text pgx text；DSN text URL text key=value，text "pgx"。
 		db, err := sql.Open("pgx", dsn)
 		if err != nil {
 			log.Logger.Error().Err(err).Msg("open postgres failed")

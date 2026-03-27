@@ -11,7 +11,7 @@
   <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js"></script>
   <script>
     window.onload = function() {
-      // 经 Kong 访问时为 /api/core/docs，spec 需用 /api/core/openapi.json；直连 /docs 时用 /openapi.json
+      // text Kong text /api/core/docs，spec text /api/core/openapi.json；text /docs text /openapi.json
       var specUrl = window.location.pathname.indexOf("/api/core") === 0 ? "/api/core/openapi.json" : "/openapi.json";
       window.ui = SwaggerUIBundle({
         url: specUrl,
