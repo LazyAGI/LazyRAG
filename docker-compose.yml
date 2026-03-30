@@ -64,42 +64,9 @@ services:
     environment:
       PGPASSWORD: "123456"
     restart: "no"
-    command:
-      - /bin/sh
-      - -lc
-      - |
-        psql -v ON_ERROR_STOP=1 -h db -U root -d postgres <<'SQL'
-        SELECT 'CREATE ROLE app LOGIN CREATEDB PASSWORD ''app'''
-        WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app')
-        \gexec
-
-        ALTER ROLE app WITH LOGIN CREATEDB PASSWORD 'app';
-
-        SELECT 'CREATE DATABASE authservice'
-        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'authservice')
-        \gexec
-
-        SELECT 'CREATE DATABASE core'
-        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'core')
-        \gexec
-
-        SELECT 'CREATE DATABASE doc_task'
-        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'doc_task')
-        \gexec
-
-        SELECT 'CREATE DATABASE app OWNER app'
-        WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'app')
-        \gexec
-
-        ALTER DATABASE app OWNER TO app;
-        GRANT ALL PRIVILEGES ON DATABASE app TO app;
-        SQL
-
-        psql -v ON_ERROR_STOP=1 -h db -U root -d app <<'SQL'
-        GRANT USAGE, CREATE ON SCHEMA public TO app;
-        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app;
-        ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO app;
-        SQL
+    volumes:
+      - ./scripts/db-bootstrap.sh:/db-bootstrap.sh:ro
+    command: ["/bin/sh", "/db-bootstrap.sh"]
 
   redis:
     image: docker.m.daocloud.io/redis:7
