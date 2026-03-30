@@ -38,6 +38,7 @@ from schemas.auth import (
     RegisterBody,
     RegisterResponse,
     SuccessResponse,
+    UpdateMeBody,
     ValidateResponse,
 )
 from services.auth_service import auth_service
@@ -236,6 +237,26 @@ def me(user: User = Depends(current_user)):  # noqa: B008
         'permissions': list(get_effective_permission_codes(user)),
         'tenant_id': user.tenant_id,
     }
+
+
+@router.patch('/me', response_model=SuccessResponse)
+def update_me(
+    body: UpdateMeBody,
+    user: User = Depends(current_user),  # noqa: B008
+):
+    """用户修改自己的信息，除用户名外均可修改（display_name、email、phone、remark）。"""
+    with SessionLocal() as db:
+        updated = UserRepository.update_profile(
+            db,
+            user.id,
+            display_name=body.display_name,
+            email=body.email,
+            phone=body.phone,
+            remark=body.remark,
+        )
+        if not updated:
+            raise_error(ErrorCodes.USER_NOT_FOUND)
+    return {'success': True}
 
 
 @router.post('/change_password', response_model=SuccessResponse)

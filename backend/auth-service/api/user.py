@@ -90,7 +90,7 @@ def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user
 
 
 @router.get('/{user_id}', response_model=UserDetailResponse)
-@permission_required('user.admin')
+@permission_required('user.read')
 def get_user(user_id: str, _: User = Depends(current_user)):  # noqa: B008
     uid = _parse_user_id(user_id)
     return user_service.get_user(uid)
