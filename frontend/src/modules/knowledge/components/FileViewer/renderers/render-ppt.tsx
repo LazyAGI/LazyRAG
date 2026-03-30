@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { init } from "pptx-preview";
+import i18n from "@/i18n";
 
 interface RenderPptProps {
   fileData: ArrayBuffer;
@@ -10,14 +11,12 @@ const RenderPpt = (props: RenderPptProps) => {
 
   const showFile = useRef<HTMLDivElement>(null);
 
-  // PPTX 预览函数
   const previewPptx = useCallback(async (arrayBuffer: ArrayBuffer) => {
     if (!showFile.current) {
       return;
     }
 
     try {
-      // 创建预览容器
       const previewContainer = document.createElement("div");
       previewContainer.style.cssText = `
         width: 100%;
@@ -26,26 +25,21 @@ const RenderPpt = (props: RenderPptProps) => {
         background: #f5f5f5;
       `;
 
-      // 初始化 PPTX 预览器
       const pptxPreview = init(previewContainer, {
         width: 800,
         height: 600,
-        mode: "slide", // 列表模式
+        mode: "slide",
       });
 
-      // 预览 PPTX 文件
       await pptxPreview.preview(arrayBuffer);
 
-      // 清理 loading 并显示预览
       if (showFile.current) {
-        // 确保清理所有内容并显示预览
         showFile.current.innerHTML = "";
         showFile.current.appendChild(previewContainer);
       }
     } catch (err) {
       console.error("PPTX preview error:", err);
 
-      // 如果预览失败，显示错误信息
       showFile.current.innerHTML = "";
 
       const errorContainer = document.createElement("div");
@@ -72,7 +66,7 @@ const RenderPpt = (props: RenderPptProps) => {
       `;
 
       const title = document.createElement("h3");
-      title.textContent = "PowerPoint 文件预览失败";
+      title.textContent = i18n.t("knowledge.pptPreviewFailed");
       title.style.cssText = `
         margin: 0 0 16px 0;
         color: #d32f2f;
@@ -81,7 +75,9 @@ const RenderPpt = (props: RenderPptProps) => {
       `;
 
       const description = document.createElement("p");
-      description.textContent = `无法预览此 PowerPoint 文件。错误信息: ${err instanceof Error ? err.message : "未知错误"}`;
+      description.textContent = i18n.t("knowledge.pptPreviewFailedWithError", {
+        error: err instanceof Error ? err.message : i18n.t("knowledge.unknownError"),
+      });
       description.style.cssText = `
         margin: 0 0 20px 0;
         color: #666;
@@ -98,7 +94,9 @@ const RenderPpt = (props: RenderPptProps) => {
         font-size: 12px;
         color: #495057;
       `;
-      fileInfo.textContent = `文件大小: ${(arrayBuffer.byteLength / 1024).toFixed(1)} KB`;
+      fileInfo.textContent = i18n.t("knowledge.fileSizeLabel", {
+        size: (arrayBuffer.byteLength / 1024).toFixed(1),
+      });
 
       infoDiv.appendChild(title);
       infoDiv.appendChild(description);

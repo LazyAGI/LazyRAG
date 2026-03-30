@@ -1,6 +1,7 @@
 import { ALL_TAGS } from "@/modules/knowledge/constants/common";
 import { Select } from "antd";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface TagSelectProps {
   tags: string[];
@@ -9,12 +10,12 @@ interface TagSelectProps {
 }
 
 const TagSelect = ({ tags, value = [], onChange }: TagSelectProps) => {
+  const { t } = useTranslation();
   const MAX_TAG_LENGTH = 100;
 
   const [searchValue, setSearchValue] = useState("");
 
   function handleSearch(val: string) {
-    // 仅允许输入不超过最大长度的值
     if (val.length <= MAX_TAG_LENGTH) {
       setSearchValue(val);
     } else {
@@ -37,13 +38,12 @@ const TagSelect = ({ tags, value = [], onChange }: TagSelectProps) => {
           return { value: tag, name: tag };
         })}
       onInputKeyDown={(e) => {
-        // 阻止输入超过限制
         if (searchValue.length >= MAX_TAG_LENGTH && e.key !== "Backspace") {
           e.preventDefault();
         }
       }}
       onSelect={() => setSearchValue("")}
-      placeholder="请选择标签"
+      placeholder={t("knowledge.selectTagPlaceholder")}
     />
   );
 };

@@ -228,83 +228,31 @@ export interface CreateGroup {
  * @interface CreateOperlog
  */
 export interface CreateOperlog {
-  /**
-   * 用户ID
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   user_id: string;
-  /**
-   * 用户名
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   username?: string;
-  /**
-   * 功能模块
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   module: string;
-  /**
-   * 操作类型
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   operation: string;
-  /**
-   * 操作描述
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   description?: string;
-  /**
-   * 操作IP
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   ip?: string;
-  /**
-   * 0成功 1失败
-   * @type {number}
-   * @memberof CreateOperlog
-   */
+  
   status: number;
-  /**
-   * 错误信息
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   error_msg?: string;
-  /**
-   * 请求方法
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   method?: string;
-  /**
-   * 请求URL
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   request_url?: string;
-  /**
-   * 请求参数
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   request_params?: string;
-  /**
-   * 响应状态码
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   response_code?: string;
-  /**
-   * 服务名称
-   * @type {string}
-   * @memberof CreateOperlog
-   */
+  
   service_name: string;
 }
 /**
@@ -421,47 +369,19 @@ export type CreateUsersRoleEnum =
  * @interface ExportOperlog
  */
 export interface ExportOperlog {
-  /**
-   * 用户ID列表
-   * @type {Array<string>}
-   * @memberof ExportOperlog
-   */
+  
   user_ids?: Array<string>;
-  /**
-   * 用户名列表
-   * @type {Array<string>}
-   * @memberof ExportOperlog
-   */
+  
   usernames?: Array<string>;
-  /**
-   * 功能模块列表
-   * @type {Array<string>}
-   * @memberof ExportOperlog
-   */
+  
   modules?: Array<string>;
-  /**
-   * 操作类型列表
-   * @type {Array<string>}
-   * @memberof ExportOperlog
-   */
+  
   operations?: Array<string>;
-  /**
-   * 开始时间 ISO8601
-   * @type {string}
-   * @memberof ExportOperlog
-   */
+  
   start_time?: string;
-  /**
-   * 结束时间 ISO8601
-   * @type {string}
-   * @memberof ExportOperlog
-   */
+  
   end_time?: string;
-  /**
-   * 0成功 1失败
-   * @type {number}
-   * @memberof ExportOperlog
-   */
+  
   status?: number;
 }
 /**
@@ -575,29 +495,13 @@ export interface GroupResponse {
    * @memberof GroupResponse
    */
   member_num?: number;
-  /**
-   * 是否自动审核
-   * @type {boolean}
-   * @memberof GroupResponse
-   */
+  
   auto_review?: boolean;
-  /**
-   * 是否存在管理员
-   * @type {boolean}
-   * @memberof GroupResponse
-   */
+  
   has_admin?: boolean;
-  /**
-   * 当前用户组角色
-   * @type {string}
-   * @memberof GroupResponse
-   */
+  
   current_group_role?: string;
-  /**
-   * 是否待加入状态
-   * @type {boolean}
-   * @memberof GroupResponse
-   */
+  
   join_status?: boolean;
 }
 /**
@@ -1100,101 +1004,37 @@ export interface ModifyPwd {
  * @interface OperlogItem
  */
 export interface OperlogItem {
-  /**
-   * 日志主键
-   * @type {number}
-   * @memberof OperlogItem
-   */
+  
   id?: number;
-  /**
-   * 用户ID
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   user_id?: string;
-  /**
-   * 用户名
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   username?: string;
-  /**
-   * 功能模块
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   module?: string;
-  /**
-   * 操作类型
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   operation?: string;
-  /**
-   * 操作描述
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   description?: string;
-  /**
-   * 操作IP
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   ip?: string;
-  /**
-   * 状态 0成功 1失败
-   * @type {number}
-   * @memberof OperlogItem
-   */
+  
   status?: number;
-  /**
-   * 状态中文 成功/失败
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   status_text?: string;
-  /**
-   * 错误信息
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   error_msg?: string;
-  /**
-   * 请求方法
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   method?: string;
-  /**
-   * 请求URL
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   request_url?: string;
-  /**
-   * 请求参数
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   request_params?: string;
-  /**
-   * 响应状态码
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   response_code?: string;
-  /**
-   * 服务名称
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   service_name?: string;
-  /**
-   * 创建时间
-   * @type {string}
-   * @memberof OperlogItem
-   */
+  
   create_time?: string;
 }
 /**
@@ -1222,59 +1062,23 @@ export interface OperlogList {
  * @interface OperlogListBody
  */
 export interface OperlogListBody {
-  /**
-   * 页码
-   * @type {number}
-   * @memberof OperlogListBody
-   */
+  
   page?: number;
-  /**
-   * 每页条数
-   * @type {number}
-   * @memberof OperlogListBody
-   */
+  
   per_page?: number;
-  /**
-   * 用户ID列表
-   * @type {Array<string>}
-   * @memberof OperlogListBody
-   */
+  
   user_ids?: Array<string>;
-  /**
-   * 用户名列表
-   * @type {Array<string>}
-   * @memberof OperlogListBody
-   */
+  
   usernames?: Array<string>;
-  /**
-   * 功能模块列表
-   * @type {Array<string>}
-   * @memberof OperlogListBody
-   */
+  
   modules?: Array<string>;
-  /**
-   * 操作类型列表
-   * @type {Array<string>}
-   * @memberof OperlogListBody
-   */
+  
   operations?: Array<string>;
-  /**
-   * 开始时间 ISO8601
-   * @type {string}
-   * @memberof OperlogListBody
-   */
+  
   start_time?: string;
-  /**
-   * 结束时间 ISO8601
-   * @type {string}
-   * @memberof OperlogListBody
-   */
+  
   end_time?: string;
-  /**
-   * 0成功 1失败
-   * @type {number}
-   * @memberof OperlogListBody
-   */
+  
   status?: number;
 }
 /**
@@ -1283,29 +1087,13 @@ export interface OperlogListBody {
  * @interface OperlogPagination
  */
 export interface OperlogPagination {
-  /**
-   * 总条数
-   * @type {number}
-   * @memberof OperlogPagination
-   */
+  
   total?: number;
-  /**
-   * 当前页
-   * @type {number}
-   * @memberof OperlogPagination
-   */
+  
   current_page?: number;
-  /**
-   * 总页数
-   * @type {number}
-   * @memberof OperlogPagination
-   */
+  
   total_pages?: number;
-  /**
-   * 每页条数
-   * @type {number}
-   * @memberof OperlogPagination
-   */
+  
   per_page?: number;
 }
 /**
@@ -2091,13 +1879,7 @@ export const AuthApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * logout
-     * @summary 退出登录, jwt 使用redis黑名单方式处理
-     * @param {string} logoutChallenge The logout challenge
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     logout: async (
       logoutChallenge: string,
       options: RawAxiosRequestConfig = {},
@@ -2230,14 +2012,7 @@ export const AuthApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * Obtain login
-     * @summary 初始化登录流程
-     * @param {string} loginChallenge The login challenge
-     * @param {string} [redirect] The redirect uri
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     obtainLogin: async (
       loginChallenge: string,
       redirect?: string,
@@ -2559,13 +2334,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * logout
-     * @summary 退出登录, jwt 使用redis黑名单方式处理
-     * @param {string} logoutChallenge The logout challenge
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async logout(
       logoutChallenge: string,
       options?: RawAxiosRequestConfig,
@@ -2633,14 +2402,7 @@ export const AuthApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * Obtain login
-     * @summary 初始化登录流程
-     * @param {string} loginChallenge The login challenge
-     * @param {string} [redirect] The redirect uri
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async obtainLogin(
       loginChallenge: string,
       redirect?: string,
@@ -2822,13 +2584,7 @@ export const AuthApiFactory = function (
         .login(requestParameters.payload, requestParameters.xFields, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * logout
-     * @summary 退出登录, jwt 使用redis黑名单方式处理
-     * @param {AuthApiLogoutRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     logout(
       requestParameters: AuthApiLogoutRequest,
       options?: RawAxiosRequestConfig,
@@ -2860,13 +2616,7 @@ export const AuthApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * Obtain login
-     * @summary 初始化登录流程
-     * @param {AuthApiObtainLoginRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     obtainLogin(
       requestParameters: AuthApiObtainLoginRequest,
       options?: RawAxiosRequestConfig,
@@ -3249,14 +2999,7 @@ export class AuthApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * logout
-   * @summary 退出登录, jwt 使用redis黑名单方式处理
-   * @param {AuthApiLogoutRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof AuthApi
-   */
+  
   public logout(
     requestParameters: AuthApiLogoutRequest,
     options?: RawAxiosRequestConfig,
@@ -3291,14 +3034,7 @@ export class AuthApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * Obtain login
-   * @summary 初始化登录流程
-   * @param {AuthApiObtainLoginRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof AuthApi
-   */
+  
   public obtainLogin(
     requestParameters: AuthApiObtainLoginRequest,
     options?: RawAxiosRequestConfig,
@@ -3354,12 +3090,7 @@ export const CrccMenhuApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
-    /**
-     * 用于铁建检测是否存活的接口
-     * @summary get
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     crccMenhuHealthCheck: async (
       options: RawAxiosRequestConfig = {},
     ): Promise<RequestArgs> => {
@@ -3404,12 +3135,7 @@ export const CrccMenhuApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator =
     CrccMenhuApiAxiosParamCreator(configuration);
   return {
-    /**
-     * 用于铁建检测是否存活的接口
-     * @summary get
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async crccMenhuHealthCheck(
       options?: RawAxiosRequestConfig,
     ): Promise<
@@ -3444,12 +3170,7 @@ export const CrccMenhuApiFactory = function (
 ) {
   const localVarFp = CrccMenhuApiFp(configuration);
   return {
-    /**
-     * 用于铁建检测是否存活的接口
-     * @summary get
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     crccMenhuHealthCheck(options?: RawAxiosRequestConfig): AxiosPromise<void> {
       return localVarFp
         .crccMenhuHealthCheck(options)
@@ -3465,13 +3186,7 @@ export const CrccMenhuApiFactory = function (
  * @extends {BaseAPI}
  */
 export class CrccMenhuApi extends BaseAPI {
-  /**
-   * 用于铁建检测是否存活的接口
-   * @summary get
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof CrccMenhuApi
-   */
+  
   public crccMenhuHealthCheck(options?: RawAxiosRequestConfig) {
     return CrccMenhuApiFp(this.configuration)
       .crccMenhuHealthCheck(options)
@@ -3487,13 +3202,7 @@ export const FgaApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
-    /**
-     * Batch check relations 8版本及以上
-     * @summary 批量查询关系， 仅支持openfga1
-     * @param {BatchApplyelationModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     batchCheckRelations: async (
       payload: BatchApplyelationModel,
       options: RawAxiosRequestConfig = {},
@@ -3537,13 +3246,7 @@ export const FgaApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * Batch create relations
-     * @summary 批量创建关系
-     * @param {BatchOperationRelationModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     batchCreateRelations: async (
       payload: BatchOperationRelationModel,
       options: RawAxiosRequestConfig = {},
@@ -3587,13 +3290,7 @@ export const FgaApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * Batch delete relations
-     * @summary 批量删除关系
-     * @param {BatchOperationRelationModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     batchDeleteRelations: async (
       payload: BatchOperationRelationModel,
       options: RawAxiosRequestConfig = {},
@@ -3637,14 +3334,7 @@ export const FgaApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * Delete all relationships
-     * @summary 删除对象所有关系
-     * @param {string} instanceType
-     * @param {string} instanceId
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     deleteAllRelationships: async (
       instanceType: string,
       instanceId: string,
@@ -3693,14 +3383,7 @@ export const FgaApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * Fga Check relation
-     * @summary 校验关系
-     * @param {FgaCheckRelationModel} payload
-     * @param {string} [xFields] An optional fields mask
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fgaCheckRelation: async (
       payload: FgaCheckRelationModel,
       xFields?: string,
@@ -3803,14 +3486,7 @@ export const FgaApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * List relation tuples  <a href=\"https://github.com/openfga/python-sdk?tab=readme-ov-file#read-relationship-tuples\">详细示例参数</a>
-     * @summary list relation tuples, see
-     * @param {ListTuples} payload
-     * @param {string} [xFields] An optional fields mask
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listRelationTuples: async (
       payload: ListTuples,
       xFields?: string,
@@ -3858,13 +3534,7 @@ export const FgaApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * list relations, including inheritance
-     * @summary 列出所有关系（包括继承）
-     * @param {ListRelationsModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listRelationsIncludingInheritance: async (
       payload: ListRelationsModel,
       options: RawAxiosRequestConfig = {},
@@ -3912,14 +3582,7 @@ export const FgaApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * List tuples relations
-     * @summary 获取user和object间的所有关系
-     * @param {string} obj object dsl
-     * @param {string} user user dsl
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listTuplesRelations: async (
       obj: string,
       user: string,
@@ -3971,13 +3634,7 @@ export const FgaApiAxiosParamCreator = function (
 export const FgaApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator = FgaApiAxiosParamCreator(configuration);
   return {
-    /**
-     * Batch check relations 8版本及以上
-     * @summary 批量查询关系， 仅支持openfga1
-     * @param {BatchApplyelationModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async batchCheckRelations(
       payload: BatchApplyelationModel,
       options?: RawAxiosRequestConfig,
@@ -3999,13 +3656,7 @@ export const FgaApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * Batch create relations
-     * @summary 批量创建关系
-     * @param {BatchOperationRelationModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async batchCreateRelations(
       payload: BatchOperationRelationModel,
       options?: RawAxiosRequestConfig,
@@ -4027,13 +3678,7 @@ export const FgaApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * Batch delete relations
-     * @summary 批量删除关系
-     * @param {BatchOperationRelationModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async batchDeleteRelations(
       payload: BatchOperationRelationModel,
       options?: RawAxiosRequestConfig,
@@ -4055,14 +3700,7 @@ export const FgaApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * Delete all relationships
-     * @summary 删除对象所有关系
-     * @param {string} instanceType
-     * @param {string} instanceId
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async deleteAllRelationships(
       instanceType: string,
       instanceId: string,
@@ -4089,14 +3727,7 @@ export const FgaApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * Fga Check relation
-     * @summary 校验关系
-     * @param {FgaCheckRelationModel} payload
-     * @param {string} [xFields] An optional fields mask
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async fgaCheckRelation(
       payload: FgaCheckRelationModel,
       xFields?: string,
@@ -4161,14 +3792,7 @@ export const FgaApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * List relation tuples  <a href=\"https://github.com/openfga/python-sdk?tab=readme-ov-file#read-relationship-tuples\">详细示例参数</a>
-     * @summary list relation tuples, see
-     * @param {ListTuples} payload
-     * @param {string} [xFields] An optional fields mask
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async listRelationTuples(
       payload: ListTuples,
       xFields?: string,
@@ -4198,13 +3822,7 @@ export const FgaApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * list relations, including inheritance
-     * @summary 列出所有关系（包括继承）
-     * @param {ListRelationsModel} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async listRelationsIncludingInheritance(
       payload: ListRelationsModel,
       options?: RawAxiosRequestConfig,
@@ -4229,14 +3847,7 @@ export const FgaApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * List tuples relations
-     * @summary 获取user和object间的所有关系
-     * @param {string} obj object dsl
-     * @param {string} user user dsl
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async listTuplesRelations(
       obj: string,
       user: string,
@@ -4273,13 +3884,7 @@ export const FgaApiFactory = function (
 ) {
   const localVarFp = FgaApiFp(configuration);
   return {
-    /**
-     * Batch check relations 8版本及以上
-     * @summary 批量查询关系， 仅支持openfga1
-     * @param {FgaApiBatchCheckRelationsRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     batchCheckRelations(
       requestParameters: FgaApiBatchCheckRelationsRequest,
       options?: RawAxiosRequestConfig,
@@ -4288,13 +3893,7 @@ export const FgaApiFactory = function (
         .batchCheckRelations(requestParameters.payload, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * Batch create relations
-     * @summary 批量创建关系
-     * @param {FgaApiBatchCreateRelationsRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     batchCreateRelations(
       requestParameters: FgaApiBatchCreateRelationsRequest,
       options?: RawAxiosRequestConfig,
@@ -4303,13 +3902,7 @@ export const FgaApiFactory = function (
         .batchCreateRelations(requestParameters.payload, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * Batch delete relations
-     * @summary 批量删除关系
-     * @param {FgaApiBatchDeleteRelationsRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     batchDeleteRelations(
       requestParameters: FgaApiBatchDeleteRelationsRequest,
       options?: RawAxiosRequestConfig,
@@ -4318,13 +3911,7 @@ export const FgaApiFactory = function (
         .batchDeleteRelations(requestParameters.payload, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * Delete all relationships
-     * @summary 删除对象所有关系
-     * @param {FgaApiDeleteAllRelationshipsRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     deleteAllRelationships(
       requestParameters: FgaApiDeleteAllRelationshipsRequest,
       options?: RawAxiosRequestConfig,
@@ -4337,13 +3924,7 @@ export const FgaApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * Fga Check relation
-     * @summary 校验关系
-     * @param {FgaApiFgaCheckRelationRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fgaCheckRelation(
       requestParameters: FgaApiFgaCheckRelationRequest,
       options?: RawAxiosRequestConfig,
@@ -4375,13 +3956,7 @@ export const FgaApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * List relation tuples  <a href=\"https://github.com/openfga/python-sdk?tab=readme-ov-file#read-relationship-tuples\">详细示例参数</a>
-     * @summary list relation tuples, see
-     * @param {FgaApiListRelationTuplesRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listRelationTuples(
       requestParameters: FgaApiListRelationTuplesRequest,
       options?: RawAxiosRequestConfig,
@@ -4394,13 +3969,7 @@ export const FgaApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * list relations, including inheritance
-     * @summary 列出所有关系（包括继承）
-     * @param {FgaApiListRelationsIncludingInheritanceRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listRelationsIncludingInheritance(
       requestParameters: FgaApiListRelationsIncludingInheritanceRequest,
       options?: RawAxiosRequestConfig,
@@ -4409,13 +3978,7 @@ export const FgaApiFactory = function (
         .listRelationsIncludingInheritance(requestParameters.payload, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * List tuples relations
-     * @summary 获取user和object间的所有关系
-     * @param {FgaApiListTuplesRelationsRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listTuplesRelations(
       requestParameters: FgaApiListTuplesRelationsRequest,
       options?: RawAxiosRequestConfig,
@@ -4599,14 +4162,7 @@ export interface FgaApiListTuplesRelationsRequest {
  * @extends {BaseAPI}
  */
 export class FgaApi extends BaseAPI {
-  /**
-   * Batch check relations 8版本及以上
-   * @summary 批量查询关系， 仅支持openfga1
-   * @param {FgaApiBatchCheckRelationsRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public batchCheckRelations(
     requestParameters: FgaApiBatchCheckRelationsRequest,
     options?: RawAxiosRequestConfig,
@@ -4616,14 +4172,7 @@ export class FgaApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * Batch create relations
-   * @summary 批量创建关系
-   * @param {FgaApiBatchCreateRelationsRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public batchCreateRelations(
     requestParameters: FgaApiBatchCreateRelationsRequest,
     options?: RawAxiosRequestConfig,
@@ -4633,14 +4182,7 @@ export class FgaApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * Batch delete relations
-   * @summary 批量删除关系
-   * @param {FgaApiBatchDeleteRelationsRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public batchDeleteRelations(
     requestParameters: FgaApiBatchDeleteRelationsRequest,
     options?: RawAxiosRequestConfig,
@@ -4650,14 +4192,7 @@ export class FgaApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * Delete all relationships
-   * @summary 删除对象所有关系
-   * @param {FgaApiDeleteAllRelationshipsRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public deleteAllRelationships(
     requestParameters: FgaApiDeleteAllRelationshipsRequest,
     options?: RawAxiosRequestConfig,
@@ -4671,14 +4206,7 @@ export class FgaApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * Fga Check relation
-   * @summary 校验关系
-   * @param {FgaApiFgaCheckRelationRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public fgaCheckRelation(
     requestParameters: FgaApiFgaCheckRelationRequest,
     options?: RawAxiosRequestConfig,
@@ -4713,14 +4241,7 @@ export class FgaApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * List relation tuples  <a href=\"https://github.com/openfga/python-sdk?tab=readme-ov-file#read-relationship-tuples\">详细示例参数</a>
-   * @summary list relation tuples, see
-   * @param {FgaApiListRelationTuplesRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public listRelationTuples(
     requestParameters: FgaApiListRelationTuplesRequest,
     options?: RawAxiosRequestConfig,
@@ -4734,14 +4255,7 @@ export class FgaApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * list relations, including inheritance
-   * @summary 列出所有关系（包括继承）
-   * @param {FgaApiListRelationsIncludingInheritanceRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public listRelationsIncludingInheritance(
     requestParameters: FgaApiListRelationsIncludingInheritanceRequest,
     options?: RawAxiosRequestConfig,
@@ -4751,14 +4265,7 @@ export class FgaApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * List tuples relations
-   * @summary 获取user和object间的所有关系
-   * @param {FgaApiListTuplesRelationsRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FgaApi
-   */
+  
   public listTuplesRelations(
     requestParameters: FgaApiListTuplesRelationsRequest,
     options?: RawAxiosRequestConfig,
@@ -6774,13 +6281,7 @@ export const InternalApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
-    /**
-     * 子服务上报操作日志
-     * @summary 上报一条操作日志
-     * @param {CreateOperlog} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     internalCreateOperlog: async (
       payload: CreateOperlog,
       options: RawAxiosRequestConfig = {},
@@ -7140,13 +6641,7 @@ export const InternalApiAxiosParamCreator = function (
 export const InternalApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator = InternalApiAxiosParamCreator(configuration);
   return {
-    /**
-     * 子服务上报操作日志
-     * @summary 上报一条操作日志
-     * @param {CreateOperlog} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async internalCreateOperlog(
       payload: CreateOperlog,
       options?: RawAxiosRequestConfig,
@@ -7377,13 +6872,7 @@ export const InternalApiFactory = function (
 ) {
   const localVarFp = InternalApiFp(configuration);
   return {
-    /**
-     * 子服务上报操作日志
-     * @summary 上报一条操作日志
-     * @param {InternalApiInternalCreateOperlogRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     internalCreateOperlog(
       requestParameters: InternalApiInternalCreateOperlogRequest,
       options?: RawAxiosRequestConfig,
@@ -7687,14 +7176,7 @@ export interface InternalApiInternalListUsersRequest {
  * @extends {BaseAPI}
  */
 export class InternalApi extends BaseAPI {
-  /**
-   * 子服务上报操作日志
-   * @summary 上报一条操作日志
-   * @param {InternalApiInternalCreateOperlogRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof InternalApi
-   */
+  
   public internalCreateOperlog(
     requestParameters: InternalApiInternalCreateOperlogRequest,
     options?: RawAxiosRequestConfig,
@@ -7826,12 +7308,7 @@ export const OperlogApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
-    /**
-     * 导出操作日志为 Excel
-     * @param {ExportOperlog} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     exportOperlog: async (
       payload: ExportOperlog,
       options: RawAxiosRequestConfig = {},
@@ -7875,13 +7352,7 @@ export const OperlogApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 分页查询操作日志，请求体 JSON
-     * @param {OperlogListBody} payload
-     * @param {string} [xFields] An optional fields mask
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listOperlog: async (
       payload: OperlogListBody,
       xFields?: string,
@@ -7939,12 +7410,7 @@ export const OperlogApiAxiosParamCreator = function (
 export const OperlogApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator = OperlogApiAxiosParamCreator(configuration);
   return {
-    /**
-     * 导出操作日志为 Excel
-     * @param {ExportOperlog} payload
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async exportOperlog(
       payload: ExportOperlog,
       options?: RawAxiosRequestConfig,
@@ -7968,13 +7434,7 @@ export const OperlogApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 分页查询操作日志，请求体 JSON
-     * @param {OperlogListBody} payload
-     * @param {string} [xFields] An optional fields mask
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async listOperlog(
       payload: OperlogListBody,
       xFields?: string,
@@ -8014,12 +7474,7 @@ export const OperlogApiFactory = function (
 ) {
   const localVarFp = OperlogApiFp(configuration);
   return {
-    /**
-     * 导出操作日志为 Excel
-     * @param {OperlogApiExportOperlogRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     exportOperlog(
       requestParameters: OperlogApiExportOperlogRequest,
       options?: RawAxiosRequestConfig,
@@ -8028,12 +7483,7 @@ export const OperlogApiFactory = function (
         .exportOperlog(requestParameters.payload, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 分页查询操作日志，请求体 JSON
-     * @param {OperlogApiListOperlogRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     listOperlog(
       requestParameters: OperlogApiListOperlogRequest,
       options?: RawAxiosRequestConfig,
@@ -8091,13 +7541,7 @@ export interface OperlogApiListOperlogRequest {
  * @extends {BaseAPI}
  */
 export class OperlogApi extends BaseAPI {
-  /**
-   * 导出操作日志为 Excel
-   * @param {OperlogApiExportOperlogRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof OperlogApi
-   */
+  
   public exportOperlog(
     requestParameters: OperlogApiExportOperlogRequest,
     options?: RawAxiosRequestConfig,
@@ -8107,13 +7551,7 @@ export class OperlogApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 分页查询操作日志，请求体 JSON
-   * @param {OperlogApiListOperlogRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof OperlogApi
-   */
+  
   public listOperlog(
     requestParameters: OperlogApiListOperlogRequest,
     options?: RawAxiosRequestConfig,
@@ -8343,14 +7781,7 @@ export const UsersApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 禁用/启用用户, tag为enable时启用用户, tag为disable时禁用用户
-     * @summary disable or enable user
-     * @param {string} userId
-     * @param {string} tag
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     disableEnableUser: async (
       userId: string,
       tag: string,
@@ -8962,14 +8393,7 @@ export const UsersApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 禁用/启用用户, tag为enable时启用用户, tag为disable时禁用用户
-     * @summary disable or enable user
-     * @param {string} userId
-     * @param {string} tag
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async disableEnableUser(
       userId: string,
       tag: string,
@@ -9346,13 +8770,7 @@ export const UsersApiFactory = function (
         .deleteUser(requestParameters.userId, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 禁用/启用用户, tag为enable时启用用户, tag为disable时禁用用户
-     * @summary disable or enable user
-     * @param {UsersApiDisableEnableUserRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     disableEnableUser(
       requestParameters: UsersApiDisableEnableUserRequest,
       options?: RawAxiosRequestConfig,
@@ -9861,14 +9279,7 @@ export class UsersApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 禁用/启用用户, tag为enable时启用用户, tag为disable时禁用用户
-   * @summary disable or enable user
-   * @param {UsersApiDisableEnableUserRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof UsersApi
-   */
+  
   public disableEnableUser(
     requestParameters: UsersApiDisableEnableUserRequest,
     options?: RawAxiosRequestConfig,

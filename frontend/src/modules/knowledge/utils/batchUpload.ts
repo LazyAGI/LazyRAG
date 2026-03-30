@@ -15,7 +15,6 @@ const CHUNK_SIZE = 10 * 1024 * 1024;
 const MAX_UPLOADING_NUM = 6;
 const MAX_RETRY_COUNT = 2;
 
-// 兼容知识库和数据集上传
 export const compatibleUploadConfig = () => {
   return {
     ECompatibleFileState: {
@@ -44,17 +43,14 @@ export const compatibleUploadConfig = () => {
 };
 
 class BatchUpload {
-  // 本地任务列表
   get localTaskList(): any[] {
     return useImportKnowledgeStore.getState().taskList || [];
   }
 
-  // 本地文件列表
   get fileList(): any[] {
     return useImportKnowledgeStore.getState().fileList || [];
   }
 
-  // 等待上传的文件
   get pendingFile() {
     const file = this.fileList.find((file) => {
       const { ECompatibleFileState } = compatibleUploadConfig();
@@ -71,15 +67,11 @@ class BatchUpload {
     return this.localTaskList.find((item) => item.id === taskId);
   };
 
-  // 初始化
   public init = () => {
     this.bindEvents();
   };
 
-  /**
-   * 新增任务
-   * @param priority 优先上传
-   */
+  
   public addTask = (params: {
     task: any;
     fileList: any[];
@@ -101,7 +93,6 @@ class BatchUpload {
     });
   };
 
-  // 取消上传
   public cancelUpload = (taskId?: string) => {
     const task = this.getTaskById(taskId);
     if (!task) {
@@ -125,7 +116,6 @@ class BatchUpload {
     this.updateFileList(newFileList);
   };
 
-  // 批量获取文件上传url
   public getUploadUrl = (params: {
     task: any;
     pendingList: any[];
@@ -169,7 +159,6 @@ class BatchUpload {
       });
   };
 
-  // 批量上传等待中的文件
   private starBatchUpload = (startMode?: StartJobRequestStartModeEnum) => {
     const uploadingNum = this.fileList.reduce((prev, cur) => {
       const { ECompatibleFileState } = compatibleUploadConfig();
@@ -186,7 +175,6 @@ class BatchUpload {
     }
   };
 
-  // 上传等待中的文件
   private uploadPendingFile = (startMode?: StartJobRequestStartModeEnum) => {
     const file = this.pendingFile;
     if (!file) {
@@ -213,7 +201,6 @@ class BatchUpload {
     }
   };
 
-  // 创建分片
   private createChunk = (fileId: string) => {
     const file = this.getFileById(fileId);
     const task = this.getTaskById(file.taskId);
@@ -271,7 +258,6 @@ class BatchUpload {
       });
   };
 
-  // 上传小文件
   private directUpload = (
     fileId: string,
     startMode?: StartJobRequestStartModeEnum,
@@ -282,7 +268,6 @@ class BatchUpload {
       .then(() => {
         this.updateFile(fileId, { percent: 100 });
         const now = Date.now();
-        // 加个延迟 为了能看到进度条变化
         setTimeout(() => {
           this.updateFile(fileId, {
             state: ECompatibleFileState.Success,
@@ -311,7 +296,6 @@ class BatchUpload {
       });
   };
 
-  // 上传分片
   private chunkUpload = (chunkId: string) => {
     const chunk = this.getFileById(chunkId);
     const { ECompatibleFileState } = compatibleUploadConfig();
@@ -341,7 +325,6 @@ class BatchUpload {
       });
   };
 
-  // 分片上传完成，合并分片
   private completeChunk = (chunkId: string) => {
     const chunk = this.getFileById(chunkId);
     const parentFile = this.getFileById(chunk.parentUid);
@@ -421,7 +404,6 @@ class BatchUpload {
       });
   };
 
-  // 文件上传完成，提交任务
   private completeTask = (
     taskId: string,
     startMode?: StartJobRequestStartModeEnum,
@@ -441,7 +423,6 @@ class BatchUpload {
     const allFiles = this.fileList.filter(
       (item) => item.taskId === taskId && !item.isChunk,
     );
-    // 有未上传的文件
     const hasUploadingFile = allFiles.some((file) => {
       return [
         ECompatibleFileState.UploadPending,
@@ -457,7 +438,6 @@ class BatchUpload {
         if (cur.state === ECompatibleFileState.Fail) {
           prev.failedCount += 1;
           prev.failedSize += cur.size;
-          // 后端只存100条失败文件
           if (prev.failedFiles.length < 100) {
             prev.failedFiles.push({
               displayName: cur.path,
@@ -492,7 +472,6 @@ class BatchUpload {
       });
   };
 
-  // 更新文件信息
   private updateFile = (fileId: string, newParams: any) => {
     const newFileList = this.fileList.map((file) => {
       if (file.uid === fileId) {
@@ -520,7 +499,6 @@ class BatchUpload {
     useImportKnowledgeStore.setState({ fileList: newFileList });
   };
 
-  // 更新任务信息
   public updateTask = (newTask: any) => {
     const newTaskList = this.localTaskList.map((task) => {
       if (task.id === newTask.id) {
@@ -535,7 +513,6 @@ class BatchUpload {
     useImportKnowledgeStore.setState({ taskList: newTaskList });
   };
 
-  // 刷新浏览器
   private beforeUnload = (e: any) => {
     const hasUploadingTask = this.localTaskList.some((item) => {
       const { ECompatiblTaskState } = compatibleUploadConfig();
@@ -569,7 +546,6 @@ class BatchUpload {
     this.updateFileList(newFileList);
   };
 
-  // 刷新浏览器或切换子应用 取消本地任务
   private bindEvents = () => {
     window.addEventListener("beforeunload", this.beforeUnload);
     window.addEventListener("unload", this.unload);

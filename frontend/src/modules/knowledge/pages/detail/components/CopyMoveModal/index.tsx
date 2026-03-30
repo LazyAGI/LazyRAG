@@ -1,13 +1,13 @@
 import {
   DocumentServiceApi,
-  JobServiceApi,
+  TaskServiceApi,
 } from "@/modules/knowledge/utils/request";
 import { CommonModal } from "@/components/ui";
 import { message, TreeSelect, TreeSelectProps } from "antd";
 import { DefaultOptionType } from "antd/es/select";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TreeNode } from "../KnowledgeTable";
-import { JobJobTypeEnum } from "@/api/generated/knowledge-client";
 
 type ITreeData = Omit<DefaultOptionType, "label">;
 interface CopyMoveModalProps {
@@ -19,6 +19,7 @@ interface CopyMoveModalProps {
 
 function CopyMoveModal(props: CopyMoveModalProps) {
   const { cancelFn, currentData, action, onSuccess } = props;
+  const { t } = useTranslation();
   const {
     dataset_id = "",
     data_source_type = "DATA_SOURCE_TYPE_UNSPECIFIED",
@@ -28,7 +29,7 @@ function CopyMoveModal(props: CopyMoveModalProps) {
   const [treeData, setTreeData] = useState<ITreeData[]>([]);
   const [selectTreeData, setSelectTreeData] = useState<ITreeData>({});
 
-  console.log(selectTreeData, currentData, "当前选择的参数");
+  console.log(selectTreeData, currentData, t("knowledge.currentSelectionParams"));
 
   function updateTreeData(
     list: ITreeData[],
@@ -79,7 +80,7 @@ function CopyMoveModal(props: CopyMoveModalProps) {
   useEffect(() => {
     if (!dataset_id) return;
     const rootNode: ITreeData = {
-      title: "当前知识库",
+      title: t("knowledge.currentKnowledgeBase"),
       value: dataset_id,
       key: dataset_id,
       dataset_id: dataset_id,
@@ -112,33 +113,64 @@ function CopyMoveModal(props: CopyMoveModalProps) {
   };
 
   function successFn() {
-    JobServiceApi()
-      .jobServiceCreateJob({
-        dataset: dataset_id,
-        job: {
-          data_source_type,
-          target_dataset_id: selectTreeData?.dataset_id,
-          target_path:
-            selectTreeData?.type === "FOLDER"
-              ? selectTreeData?.display_name
-              : "",
-          target_pid:
-            selectTreeData?.value === dataset_id
-              ? ""
-              : (selectTreeData?.value as string),
-          document_ids: [document_id],
-          document_pid: p_id,
-          job_type:
-            action === "move"
-              ? JobJobTypeEnum.JobTypeMove
-              : JobJobTypeEnum.JobTypeCopy,
-        },
+    const taskType = action === "move" ? "TASK_TYPE_MOVE" : "TASK_TYPE_COPY";
+    const targetDatasetId = (selectTreeData?.dataset_id as string) || dataset_id;
+    const targetPid =
+      selectTreeData?.value === targetDatasetId
+        ? ""
+        : (selectTreeData?.value as string);
+
+    TaskServiceApi()
+      .createTasks(dataset_id, {
+        parent: `datasets/${dataset_id}`,
+        items: [
+          {
+            upload_file_id: "",
+            task: {
+              task_type: taskType,
+              data_source_type,
+              document_id: document_id,
+              target_dataset_id: targetDatasetId,
+              target_pid: targetPid,
+              target_path:
+                selectTreeData?.type === "FOLDER"
+                  ? (selectTreeData?.display_name as string)
+                  : "",
+              display_name: `${action === "move" ? t("knowledge.moveTo") : t("knowledge.copyTo")} ${currentData.display_name}`,
+            },
+          },
+        ],
       })
-      .then((res) => {
-        console.log(res);
-        message.info(action === "move" ? "移动中，请稍后" : "复制中,请稍后");
-        onSuccess?.();
-        cancelFn();
+      .then((createRes) => {
+        const tasks = createRes.data.tasks || [];
+        const taskIds = tasks.map((t) => t.task_id).filter(Boolean);
+        if (!taskIds.length) {
+          message.error(
+            action === "move"
+              ? t("knowledge.createMoveTaskFailed")
+              : t("knowledge.createCopyTaskFailed"),
+          );
+          return;
+        }
+        return TaskServiceApi()
+          .startTasks(dataset_id, { task_ids: taskIds })
+          .then(() => {
+            message.info(
+              action === "move"
+                ? t("knowledge.movingWait")
+                : t("knowledge.copyingWait"),
+            );
+            onSuccess?.();
+            cancelFn();
+          });
+      })
+      .catch((error) => {
+        console.error(error);
+        message.error(
+          action === "move"
+            ? t("knowledge.moveFailedRetry")
+            : t("knowledge.copyFailedRetry"),
+        );
       });
   }
 
@@ -151,7 +183,7 @@ function CopyMoveModal(props: CopyMoveModalProps) {
         styles={{
           popup: { root: { maxHeight: 400, overflow: "auto" } },
         }}
-        placeholder="请选择"
+        placeholder={t("knowledge.selectPlease")}
         onSelect={(_id, opt) => setSelectTreeData(opt)}
         loadData={onLoadData}
         treeData={treeData}
@@ -161,7 +193,7 @@ function CopyMoveModal(props: CopyMoveModalProps) {
 
   return (
     <CommonModal
-      title={action === "move" ? "移动到" : "复制"}
+      title={action === "move" ? t("knowledge.moveTo") : t("knowledge.copyTo")}
       contentText={renderContentFn()}
       successFn={successFn}
       cancelFn={cancelFn}

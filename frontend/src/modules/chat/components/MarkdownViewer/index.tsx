@@ -12,7 +12,6 @@ import { useEffect, useState } from "react";
 import { customSchema } from "./config";
 import rehypeRaw from "rehype-raw";
 
-// 独立的图片组件，用于处理加载失败的情况
 const ImageComponent = (props: any) => {
   const [imageLoadError, setImageLoadError] = useState(false);
   if (imageLoadError) {
@@ -50,8 +49,8 @@ const MarkdownViewer = (props: any) => {
         remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkMath]}
         rehypePlugins={[
           rehypeRaw,
-          rehypeKatex, // 先渲染数学公式
-          [rehypeSanitize, customSchema], // 使用自定义 schema 清理 HTML，支持数学公式标签
+          rehypeKatex,
+          [rehypeSanitize, customSchema],
         ]}
         components={{
           a(props: any) {

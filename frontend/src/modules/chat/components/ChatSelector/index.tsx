@@ -25,6 +25,7 @@ import KnowledgeIcon from "../../assets/icons/knowledge.svg?react";
 import "./index.scss";
 import { debounce } from "lodash";
 import { ChatConfig } from "../ChatConfigs";
+import { useTranslation } from "react-i18next";
 
 export interface ChatSelectorProps {
   chatConfig: ChatConfig;
@@ -44,6 +45,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
   (props, ref) => {
     const { chatConfig, onChange } = props;
     const [form] = Form.useForm();
+    const { t } = useTranslation();
 
     const [knowledgeBaseList, setKnowledgeBaseList] = useState<Dataset[]>([]);
     const [filteredList, setFilteredList] = useState<Dataset[]>([]);
@@ -117,7 +119,6 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
             ...new Set([...defaultIds, ...(chatConfig?.knowledgeBaseId ?? [])]),
           ];
           setSelectedIds(mergedIds);
-          // 如果存在默认知识库且 chatConfig 中没有知识库配置，自动调用 onChange 通知父组件
           if (
             defaultIds.length > 0 &&
             (!chatConfig?.knowledgeBaseId ||
@@ -137,23 +138,19 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
       setSearchValue(search);
     }, 300);
 
-    // 使用 useMemo 计算排序后的列表
     const sortedAndFilteredList = useMemo(() => {
       let list = [...knowledgeBaseList];
 
-      // 先进行搜索过滤
       if (searchValue.trim()) {
         list = list.filter((item) =>
           item.display_name?.toLowerCase().includes(searchValue.toLowerCase()),
         );
       }
 
-      // 然后进行排序：已选中的置顶
       list.sort((a, b) => {
         const aSelected = selectedIds.includes(a.dataset_id || "");
         const bSelected = selectedIds.includes(b.dataset_id || "");
 
-        // 已选中的排在前面
         if (aSelected && !bSelected) {
           return -1;
         }
@@ -161,14 +158,12 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
           return 1;
         }
 
-        // 如果都选中或都未选中，保持原有顺序
         return 0;
       });
 
       return list;
     }, [knowledgeBaseList, selectedIds, searchValue]);
 
-    // 更新 filteredList
     useEffect(() => {
       setFilteredList(sortedAndFilteredList);
     }, [sortedAndFilteredList]);
@@ -248,7 +243,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
           <div className="chat-selector-search-box">
             <Input
               suffix={<SearchOutlined style={{ color: "#999" }} />}
-              placeholder="搜索知识库"
+              placeholder={t("chat.searchKnowledge")}
               onChange={(e) => filterKnowledgeBaseListFn(e.target.value)}
               className="chat-selector-search-input"
               autoFocus
@@ -261,7 +256,6 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                 // setSearchValue('');
                 isResettingSelectionRef.current = true;
                 setKnowledgeLoading(true);
-                // 重置默认知识库后，同时取消临时选中（仅保留默认知识库）
                 KnowledgeBaseServiceApi()
                   .datasetServiceResetDefaultDatasets({ body: {} })
                   .then(() =>
@@ -292,7 +286,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
               }}
               style={{ padding: 0, marginLeft: 16 }}
             >
-              重置
+              {t("chat.reset")}
             </Button>
             {selectedIds.length !== knowledgeBaseList.length ? (
               <Button
@@ -311,7 +305,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                 }}
                 style={{ padding: 0, marginLeft: 16 }}
               >
-                全选
+                {t("chat.selectAll")}
               </Button>
             ) : (
               <Button
@@ -326,7 +320,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                   );
                 }}
               >
-                取消全选
+                {t("chat.cancelSelectAll")}
               </Button>
             )}
           </div>
@@ -351,9 +345,9 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
               );
             })}
             {knowledgeLoading ? (
-              <div className="chat-selector-empty-text">加载中,请稍后...</div>
+              <div className="chat-selector-empty-text">{t("chat.loadingWait")}</div>
             ) : !filteredList?.length ? (
-              <div className="chat-selector-empty-text">暂无数据</div>
+              <div className="chat-selector-empty-text">{t("chat.noData")}</div>
             ) : null}
           </div>
           {renderConfigBottom()}
@@ -367,8 +361,8 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
           <div className="chat-select-config-header">
             <Space size={16}>
               <SettingOutlined />
-              <span>文档设置</span>
-              {showConfig && <Tag color="warning">启用</Tag>}
+              <span>{t("chat.docSettings")}</span>
+              {showConfig && <Tag color="warning">{t("chat.enabled")}</Tag>}
             </Space>
             {showConfig ? (
               <UpOutlined onClick={() => setShowConfig(false)} />
@@ -377,7 +371,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
             )}
           </div>
           {showConfig && (
-            <Form form={form} layout="vertical">
+            <>
               <Form.Item name="creators" style={{ marginBottom: 10 }}>
                 <Select
                   mode="multiple"
@@ -386,7 +380,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                     onChange?.(selectedIds, val, form.getFieldValue("tags"))
                   }
                   allowClear
-                  placeholder="请选择文档创建人"
+                  placeholder={t("chat.selectCreator")}
                   maxTagCount="responsive"
                   popupMatchSelectWidth
                   showSearch
@@ -405,7 +399,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                     onChange?.(selectedIds, form.getFieldValue("creators"), val)
                   }
                   allowClear
-                  placeholder="请选择文档标签"
+                  placeholder={t("chat.selectTag")}
                   maxTagCount="responsive"
                   popupMatchSelectWidth
                   showSearch
@@ -420,31 +414,33 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                 onClick={() => form.resetFields()}
                 style={{ padding: 0, marginBottom: 10 }}
               >
-                重置
+                {t("chat.reset")}
               </Button>
-            </Form>
+            </>
           )}
         </div>
       );
     }
 
     return (
-      <div className="chat-selector-wrapper">
-        <Popover
-          content={renderContent()}
-          classNames={{ root: "knowledgePopover" }}
-          trigger="click"
-          open={open}
-          onOpenChange={(bool) => setOpen(bool)}
-        >
-          <div
-            className={`input-bottom-actions-left-item ${open || selectedIds.length > 0 ? "selected" : ""}`}
+      <Form form={form} component={false}>
+        <div className="chat-selector-wrapper">
+          <Popover
+            content={renderContent()}
+            classNames={{ root: "knowledgePopover" }}
+            trigger="click"
+            open={open}
+            onOpenChange={(bool) => setOpen(bool)}
           >
-            <KnowledgeIcon />
-            知识库
-          </div>
-        </Popover>
-      </div>
+            <div
+              className={`input-bottom-actions-left-item ${open || selectedIds.length > 0 ? "selected" : ""}`}
+            >
+              <KnowledgeIcon />
+              {t("chat.knowledgeBase")}
+            </div>
+          </Popover>
+        </div>
+      </Form>
     );
   },
 );

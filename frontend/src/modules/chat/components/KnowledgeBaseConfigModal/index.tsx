@@ -1,6 +1,7 @@
 /* eslint-disable react/display-name */
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { Modal, Form, Select } from "antd";
+import { useTranslation } from "react-i18next";
 import { UserInfo } from "@/api/generated/knowledge-client";
 
 import { DocumentServiceApi } from "@/modules/chat/utils/request";
@@ -18,6 +19,7 @@ const KnowledgeBaseConfigModal = forwardRef<
   ConfigImperativeProps,
   ForwardProps
 >(({ onChange }, ref) => {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [creators, setCreators] = useState<UserInfo[]>([]);
   const [tags, setTags] = useState<string[]>([]);
@@ -61,7 +63,7 @@ const KnowledgeBaseConfigModal = forwardRef<
 
   return (
     <Modal
-      title={"知识库高级配置"}
+      title={t("chat.knowledgeAdvancedConfig")}
       open={visible}
       maskClosable={false}
       onCancel={onCancel}
@@ -71,12 +73,12 @@ const KnowledgeBaseConfigModal = forwardRef<
       }}
     >
       <Form form={form} layout="vertical">
-        <Form.Item label={"文档创建人"} name="creators">
+        <Form.Item label={t("chat.documentCreator")} name="creators">
           <Select
             mode="multiple"
             tokenSeparators={[" "]}
             allowClear
-            placeholder={"请选择文档创建人"}
+            placeholder={t("chat.selectCreator")}
             popupMatchSelectWidth
             showSearch
             style={{ flex: 1 }}
@@ -86,12 +88,12 @@ const KnowledgeBaseConfigModal = forwardRef<
             })}
           />
         </Form.Item>
-        <Form.Item label={"文档标签"} name="tags">
+        <Form.Item label={t("chat.documentTag")} name="tags">
           <Select
             mode="multiple"
             tokenSeparators={[" "]}
             allowClear
-            placeholder={"请选择文档标签"}
+            placeholder={t("chat.selectTag")}
             popupMatchSelectWidth
             showSearch
             optionLabelProp="value"

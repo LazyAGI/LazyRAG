@@ -1,5 +1,6 @@
 import React, { useState, forwardRef, useImperativeHandle } from "react";
 import { Upload, message, Tooltip } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   RcFile,
   UploadChangeParam,
@@ -8,8 +9,7 @@ import {
 } from "antd/es/upload/interface";
 
 import "./index.scss";
-import { FileServiceApi } from "@/modules/chat/utils/request";
-import { FileServiceApiFileServiceUploadFileRequest } from "@/api/generated/file-client";
+import { uploadFileInChunks } from "@/modules/chat/utils/chunkUpload";
 
 export interface ImageUploadImperativeProps {
   removeFile: (uid?: string) => void;
@@ -25,7 +25,7 @@ interface Props {
   icon: React.ReactNode;
   updateFiles: (files: RcFile[]) => void;
   listNum: number;
-  /** 上传前预处理：文档/图片互斥、Toast 等。返回 null 则按原逻辑处理 */
+  
   onBeforeAddFiles?: (
     newFiles: File[],
     currentFiles: (RcFile & { uri?: string })[],
@@ -47,44 +47,44 @@ export type OnBeforeAddFilesResult = {
 
 const ImageUpload = forwardRef<ImageUploadImperativeProps, Props>(
   (props, ref) => {
+    const { t } = useTranslation();
     const { max, types, icon, updateFiles, listNum, onBeforeAddFiles } = props;
     const [files, setFiles] = useState<FileItem[]>([]);
     const [uploadingCount, setUploadingCount] = useState(0);
 
-    // 提取文件类型验证函数（支持 File 和 UploadFile 类型）
     const validateFileType = (
       file: File | UploadFile,
       allowedTypes: string[],
     ): boolean => {
       const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
       if (!allowedTypes.includes(ext)) {
-        message.warning(`仅支持上传${allowedTypes.join(",")}格式的文件`);
+        message.warning(
+          t("chat.unsupportedFileType", { types: allowedTypes.join(",") }),
+        );
         return false;
       }
       return true;
     };
 
-    // 提取文件大小验证函数（支持 File 和 UploadFile 类型）
     const validateFileSize = (file: File | UploadFile): boolean => {
       const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
       const currentFileSizeMB = (file.size ?? 0) / 1024 / 1024;
 
       if (allowedImageTypes.includes(ext)) {
         if (currentFileSizeMB > 5) {
-          message.error("上传文件大小不能超过 5 MB");
+          message.error(t("chat.uploadSizeLimit5MB"));
           return false;
         }
       }
       if (allowedFileTypes.includes(ext)) {
         if (currentFileSizeMB > 100) {
-          message.error("上传文件大小不能超过 100 MB");
+          message.error(t("chat.uploadSizeLimit100MB"));
           return false;
         }
       }
       return true;
     };
 
-    // 提取文件数量限制检查函数（支持 FileItem、RcFile 和 UploadFile 类型）
     const checkFileCountLimit = (
       currentFiles: FileItem[],
       newFile: FileItem | RcFile | UploadFile,
@@ -100,51 +100,48 @@ const ImageUpload = forwardRef<ImageUploadImperativeProps, Props>(
       // });
 
       // if ((tempGroup?.file?.length ?? 0) > 3) {
-      //   message.warning('最多只能上传 3个文件');
       //   return false;
       // }
       // if ((tempGroup?.image?.length ?? 0) > 3) {
-      //   message.warning('最多只能上传 3 张图片');
       //   return false;
       // }
 
       if ([...currentFiles, newFile].length > 3) {
-        message.warning("最多只能上传 3个文件、图片");
+        message.warning(t("chat.maxThreeFilesAndImages"));
         return false;
       }
 
       if (currentFiles.length >= maxCount) {
         // const ext = newFile.name.substring(newFile.name.lastIndexOf('.')).toLowerCase();
-        // const maxTips1 = allowedImageTypes.includes(ext) ? '最多上传 3 张图片' : '最多只能上传 3个文件';
-        message.warning("最多只能上传 3个文件、图片");
+        message.warning(t("chat.maxThreeFilesAndImages"));
         return false;
       }
 
       return true;
     };
 
-    // 提取文件上传函数（支持 RcFile 和 UploadFile 类型）
     const uploadFile = (
       file: RcFile | UploadFile,
       onSuccess?: (uri: string) => void,
       onError?: () => void,
     ) => {
       setUploadingCount((prev) => prev + 1);
-      const data = {
-        file,
-        purpose: "chat",
-        path: `/chat/${new Date().getTime()}/${file.name}`,
-      } as unknown as FileServiceApiFileServiceUploadFileRequest;
-
-      FileServiceApi()
-        .fileServiceUploadFile(data, { timeout: 1 * 60 * 1000 })
-        .then((res) => {
+      
+      uploadFileInChunks(file as File, {
+        timeout: 2 * 60 * 1000,
+        onProgress: (progress) => {
+          console.log(
+            t("chat.uploadProgressLog", { percentage: progress.percentage }),
+          );
+        },
+      })
+        .then((storedPath) => {
           setUploadingCount((prev) => prev - 1);
-          onSuccess?.(res.data.filename || "");
+          onSuccess?.(storedPath);
         })
         .catch((error) => {
-          console.error("文件上传失败:", error);
-          message.error("文件上传失败，请重试");
+          console.error(t("chat.fileUploadFailedLog"), error);
+          message.error(t("chat.fileUploadFailedRetry"));
           setUploadingCount((prev) => prev - 1);
           onError?.();
         });
@@ -214,11 +211,12 @@ const ImageUpload = forwardRef<ImageUploadImperativeProps, Props>(
         const current = [...files];
         const result = onBeforeAddFiles?.(droppedFiles, current);
         if (result) {
-          result.toasts.forEach((t) => {
-            if (t.includes("不支持")) {
-              message.warning(t);
+          const docExclusive = t("chat.docImageExclusive");
+          result.toasts.forEach((toastText) => {
+            if (toastText === docExclusive) {
+              message.warning(toastText);
             } else {
-              message.info(t);
+              message.info(toastText);
             }
           });
           if (result.clearFirst) {
@@ -241,11 +239,12 @@ const ImageUpload = forwardRef<ImageUploadImperativeProps, Props>(
       const current = [...files];
       const result = onBeforeAddFiles?.([file as unknown as File], current);
       if (result) {
-        result.toasts.forEach((t) => {
-          if (t.includes("不支持")) {
-            message.warning(t);
+        const docExclusive = t("chat.docImageExclusive");
+        result.toasts.forEach((toastText) => {
+          if (toastText === docExclusive) {
+            message.warning(toastText);
           } else {
-            message.info(t);
+            message.info(toastText);
           }
         });
         if (result.clearFirst) {
@@ -284,7 +283,7 @@ const ImageUpload = forwardRef<ImageUploadImperativeProps, Props>(
 
     return (
       <Upload {...uploadProps}>
-        <Tooltip placement="top" title="请勿上传超过3个文件、图片">
+        <Tooltip placement="top" title={t("chat.uploadTooltipLimit")}>
           {icon}
         </Tooltip>
       </Upload>

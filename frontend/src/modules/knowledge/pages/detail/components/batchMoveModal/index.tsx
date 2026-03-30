@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { message, Modal, TreeSelect } from "antd";
+import { useTranslation } from "react-i18next";
 import type { DefaultOptionType } from "antd/es/select";
 import {
   DocumentServiceApi,
-  JobServiceApi,
+  TaskServiceApi,
 } from "@/modules/knowledge/utils/request";
-import {
-  DocTypeEnum,
-  JobDataSourceTypeEnum,
-  JobJobTypeEnum,
-} from "@/api/generated/knowledge-client";
+import { DocTypeEnum } from "@/api/generated/knowledge-client";
 import type { BatchMoveDocument } from "../KnowledgeTable";
 
 type TreeOption = Omit<DefaultOptionType, "label"> & {
@@ -36,13 +33,14 @@ const BatchMoveModal = ({
   onCancel,
   onSuccess,
 }: BatchMoveModalProps) => {
+  const { t } = useTranslation();
   const [treeData, setTreeData] = useState<TreeOption[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<TreeOption | null>(null);
   const [loading, setLoading] = useState(false);
 
   const rootNode = useMemo<TreeOption>(
     () => ({
-      title: "当前知识库",
+      title: t("knowledge.currentKnowledgeBase"),
       value: datasetId,
       key: datasetId,
       dataset_id: datasetId,
@@ -82,11 +80,11 @@ const BatchMoveModal = ({
 
   const handleOk = async () => {
     if (!selectedFileCount || documents.length === 0) {
-      message.warning("请至少选择一个文件");
+      message.warning(t("knowledge.selectAtLeastOneFile"));
       return;
     }
     if (!selectedTarget?.value) {
-      message.warning("请选择移动目标");
+      message.warning(t("knowledge.selectMoveTarget"));
       return;
     }
     const targetPid =
@@ -95,7 +93,7 @@ const BatchMoveModal = ({
       (doc) => doc.parentId === targetPid,
     );
     if (allAlreadyInTarget) {
-      message.warning("所选文件已在当前目标目录，无需移动");
+      message.warning(t("knowledge.alreadyInTarget"));
       return;
     }
     const dataSourceTypes = new Set(
@@ -103,29 +101,46 @@ const BatchMoveModal = ({
     );
     const moveDataSourceType =
       dataSourceTypes.size === 1
-        ? (Array.from(dataSourceTypes)[0] as JobDataSourceTypeEnum)
-        : JobDataSourceTypeEnum.DataSourceTypeUnspecified;
+        ? Array.from(dataSourceTypes)[0]
+        : "DATA_SOURCE_TYPE_UNSPECIFIED";
+
     try {
       setLoading(true);
-      await JobServiceApi().jobServiceCreateJob({
-        dataset: datasetId,
-        job: {
-          data_source_type: moveDataSourceType,
-          target_dataset_id: datasetId,
-          target_pid: targetPid,
-          target_path:
-            selectedTarget.type === DocTypeEnum.Folder
-              ? selectedTarget.title
-              : "",
-          document_ids: documents.map((doc) => doc.documentId),
-          job_type: JobJobTypeEnum.JobTypeMove,
-        },
+      const createRes = await TaskServiceApi().createTasks(datasetId, {
+        parent: `datasets/${datasetId}`,
+        items: [
+          {
+            upload_file_id: "",
+            task: {
+              task_type: "TASK_TYPE_MOVE",
+              data_source_type: moveDataSourceType,
+              document_ids: documents.map((doc) => doc.documentId),
+              target_dataset_id: datasetId,
+              target_pid: targetPid,
+              target_path:
+                selectedTarget.type === DocTypeEnum.Folder
+                  ? selectedTarget.title
+                  : "",
+              display_name: t("knowledge.batchMoveTaskName", { count: documents.length }),
+            },
+          },
+        ],
       });
-      message.info("移动中，请稍后");
+
+      const tasks = createRes.data.tasks || [];
+      const taskIds = tasks.map((t) => t.task_id).filter(Boolean);
+      if (!taskIds.length) {
+        message.error(t("knowledge.createMoveTaskFailed"));
+        return;
+      }
+
+      await TaskServiceApi().startTasks(datasetId, { task_ids: taskIds });
+      message.info(t("knowledge.movingWait"));
       onSuccess();
       onCancel();
     } catch (error) {
-      console.error("Failed to create batch move job:", error);
+      console.error("Failed to create batch move task:", error);
+      message.error(t("knowledge.moveFailedRetry"));
     } finally {
       setLoading(false);
     }
@@ -134,7 +149,7 @@ const BatchMoveModal = ({
   return (
     <Modal
       open={open}
-      title="批量移动"
+      title={t("knowledge.batchMoveTitle")}
       centered
       width={720}
       maskClosable={false}
@@ -144,17 +159,16 @@ const BatchMoveModal = ({
       cancelButtonProps={{ disabled: loading }}
     >
       <div style={{ marginBottom: 16, color: "var(--color-text-description)" }}>
-        已选择 <span style={{ fontWeight: 600 }}>{selectedFileCount}</span>{" "}
-        个文档（不含文件夹）
+        {t("knowledge.selectedDocCount", { count: selectedFileCount })}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ minWidth: 60 }}>移动到：</span>
+        <span style={{ minWidth: 60 }}>{t("knowledge.moveToLabel")}</span>
         <TreeSelect
           style={{ width: "100%" }}
           treeData={treeData}
           value={selectedTarget?.value}
           treeDefaultExpandedKeys={[datasetId]}
-          placeholder="输入或选择..."
+          placeholder={t("knowledge.inputOrSelect")}
           onSelect={(_value, option) => setSelectedTarget(option as TreeOption)}
           onChange={(_value, _label, extra) => {
             const node = extra?.triggerNode;

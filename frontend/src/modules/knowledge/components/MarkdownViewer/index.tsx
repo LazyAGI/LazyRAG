@@ -16,7 +16,6 @@ const MarkdownViewer = (props: any) => {
   const { children, className = "" } = props;
   const [loading, setLoading] = useState(true);
 
-  // 转义HTML代码，确保HTML显示为源代码而不是被渲染
   const escapeHtml = (text: string) => {
     return text
       .replace(/&/g, "&amp;")
@@ -26,7 +25,6 @@ const MarkdownViewer = (props: any) => {
       .replace(/'/g, "&#39;");
   };
 
-  // 处理内容中的HTML代码
   const processContent = (content: string) => {
     return content.replace(/<[^>]*>/g, (match) => {
       return escapeHtml(match);

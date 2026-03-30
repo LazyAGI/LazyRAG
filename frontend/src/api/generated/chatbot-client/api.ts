@@ -1363,29 +1363,13 @@ export interface ListConversationsResponse {
    */
   next_page_token?: string;
 }
-/**
- * 列出 Prompts 响应 包含提示词列表和分页信息的响应消息
- * @export
- * @interface ListPromptsResponse
- */
+
 export interface ListPromptsResponse {
-  /**
-   * 提示词列表 包含当前页的所有提示词资源
-   * @type {Array<Prompt>}
-   * @memberof ListPromptsResponse
-   */
+  
   prompts?: Array<Prompt>;
-  /**
-   * 下一页令牌 如果有更多数据，可用于获取下一页；如果为空则表示已到最后一页
-   * @type {string}
-   * @memberof ListPromptsResponse
-   */
+  
   next_page_token?: string;
-  /**
-   * 总记录数 满足查询条件的提示词总数量
-   * @type {number}
-   * @memberof ListPromptsResponse
-   */
+  
   total?: number;
 }
 /**
@@ -1488,41 +1472,17 @@ export interface PresignAttachmentResponse {
    */
   uri?: string;
 }
-/**
- * Prompt 资源定义 Prompt 表示一个提示词资源，包含其基本信息和内容
- * @export
- * @interface Prompt
- */
+
 export interface Prompt {
-  /**
-   * Prompt 资源名，例如 \"prompts/{prompt_id}\" 遵循 Google API 资源命名规范
-   * @type {string}
-   * @memberof Prompt
-   */
+  
   name: string;
-  /**
-   * Prompt 的唯一业务标识 用于业务逻辑中标识特定的提示词
-   * @type {string}
-   * @memberof Prompt
-   */
+  
   id: string;
-  /**
-   * Prompt 的内容 存储提示词的具体文本内容
-   * @type {string}
-   * @memberof Prompt
-   */
+  
   content: string;
-  /**
-   * Prompt 的标题 提示词的显示名称，用于用户界面展示
-   * @type {string}
-   * @memberof Prompt
-   */
+  
   display_name: string;
-  /**
-   * 是否为该用户的置顶 Prompt 用于标识该 Prompt 是否被当前用户置顶
-   * @type {boolean}
-   * @memberof Prompt
-   */
+  
   is_default?: boolean;
 }
 /**
@@ -1808,17 +1768,9 @@ export interface SetChatHistoryResponse {
    */
   history_id?: string;
 }
-/**
- * 置顶 Prompt 请求 用于将指定提示词设置为默认（置顶）的请求消息
- * @export
- * @interface SetDefaultPromptRequest
- */
+
 export interface SetDefaultPromptRequest {
-  /**
-   * Prompt 资源名 格式：prompts/{prompt_id}
-   * @type {string}
-   * @memberof SetDefaultPromptRequest
-   */
+  
   name: string;
 }
 /**
@@ -1934,17 +1886,9 @@ export interface StopChatGenerationRequest {
    */
   conversation_id: string;
 }
-/**
- * 取消置顶 Prompt 请求 用于取消指定提示词的默认（置顶）状态的请求消息
- * @export
- * @interface UnsetDefaultPromptRequest
- */
+
 export interface UnsetDefaultPromptRequest {
-  /**
-   * Prompt 资源名 格式：prompts/{prompt_id}
-   * @type {string}
-   * @memberof UnsetDefaultPromptRequest
-   */
+  
   name: string;
 }
 
@@ -7821,12 +7765,7 @@ export const PromptServiceApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
-    /**
-     * 创建prompt  创建一个新的提示词资源
-     * @param {Prompt} prompt
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceCreatePrompt: async (
       prompt: Prompt,
       options: RawAxiosRequestConfig = {},
@@ -7870,12 +7809,7 @@ export const PromptServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 删除prompt  删除指定的提示词资源
-     * @param {string} prompt The prompt id.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceDeletePrompt: async (
       prompt: string,
       options: RawAxiosRequestConfig = {},
@@ -7915,12 +7849,7 @@ export const PromptServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 获取prompt  获取指定的提示词资源详细信息
-     * @param {string} prompt The prompt id.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceGetPrompt: async (
       prompt: string,
       options: RawAxiosRequestConfig = {},
@@ -7960,13 +7889,7 @@ export const PromptServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 获取prompt列表  获取提示词资源列表，支持分页
-     * @param {number} [pageSize] 页面大小，指定返回的最大记录数 如果未指定或为 0，服务端将使用默认值
-     * @param {string} [pageToken] 分页令牌，用于获取下一页数据 从上一次请求的响应中获取
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceListPrompts: async (
       pageSize?: number,
       pageToken?: string,
@@ -8010,13 +7933,7 @@ export const PromptServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 置顶prompt  将指定的提示词设置为默认（置顶）
-     * @param {string} prompt The prompt id.
-     * @param {SetDefaultPromptRequest} setDefaultPromptRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceSetDefaultPrompt: async (
       prompt: string,
       setDefaultPromptRequest: SetDefaultPromptRequest,
@@ -8070,13 +7987,7 @@ export const PromptServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 取消置顶prompt  取消指定提示词的默认（置顶）状态
-     * @param {string} prompt The prompt id.
-     * @param {UnsetDefaultPromptRequest} unsetDefaultPromptRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceUnsetDefaultPrompt: async (
       prompt: string,
       unsetDefaultPromptRequest: UnsetDefaultPromptRequest,
@@ -8130,14 +8041,7 @@ export const PromptServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 更新prompt  更新指定的提示词资源，支持部分字段更新
-     * @param {string} prompt The prompt id.
-     * @param {Prompt} prompt2
-     * @param {string} [updateMask] 字段掩码，指定要更新的字段 如果未提供，将更新所有字段
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceUpdatePrompt: async (
       prompt: string,
       prompt2: Prompt,
@@ -8203,12 +8107,7 @@ export const PromptServiceApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator =
     PromptServiceApiAxiosParamCreator(configuration);
   return {
-    /**
-     * 创建prompt  创建一个新的提示词资源
-     * @param {Prompt} prompt
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async promptServiceCreatePrompt(
       prompt: Prompt,
       options?: RawAxiosRequestConfig,
@@ -8233,12 +8132,7 @@ export const PromptServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 删除prompt  删除指定的提示词资源
-     * @param {string} prompt The prompt id.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async promptServiceDeletePrompt(
       prompt: string,
       options?: RawAxiosRequestConfig,
@@ -8263,12 +8157,7 @@ export const PromptServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 获取prompt  获取指定的提示词资源详细信息
-     * @param {string} prompt The prompt id.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async promptServiceGetPrompt(
       prompt: string,
       options?: RawAxiosRequestConfig,
@@ -8290,13 +8179,7 @@ export const PromptServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 获取prompt列表  获取提示词资源列表，支持分页
-     * @param {number} [pageSize] 页面大小，指定返回的最大记录数 如果未指定或为 0，服务端将使用默认值
-     * @param {string} [pageToken] 分页令牌，用于获取下一页数据 从上一次请求的响应中获取
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async promptServiceListPrompts(
       pageSize?: number,
       pageToken?: string,
@@ -8326,13 +8209,7 @@ export const PromptServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 置顶prompt  将指定的提示词设置为默认（置顶）
-     * @param {string} prompt The prompt id.
-     * @param {SetDefaultPromptRequest} setDefaultPromptRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async promptServiceSetDefaultPrompt(
       prompt: string,
       setDefaultPromptRequest: SetDefaultPromptRequest,
@@ -8359,13 +8236,7 @@ export const PromptServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 取消置顶prompt  取消指定提示词的默认（置顶）状态
-     * @param {string} prompt The prompt id.
-     * @param {UnsetDefaultPromptRequest} unsetDefaultPromptRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async promptServiceUnsetDefaultPrompt(
       prompt: string,
       unsetDefaultPromptRequest: UnsetDefaultPromptRequest,
@@ -8392,14 +8263,7 @@ export const PromptServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 更新prompt  更新指定的提示词资源，支持部分字段更新
-     * @param {string} prompt The prompt id.
-     * @param {Prompt} prompt2
-     * @param {string} [updateMask] 字段掩码，指定要更新的字段 如果未提供，将更新所有字段
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async promptServiceUpdatePrompt(
       prompt: string,
       prompt2: Prompt,
@@ -8442,12 +8306,7 @@ export const PromptServiceApiFactory = function (
 ) {
   const localVarFp = PromptServiceApiFp(configuration);
   return {
-    /**
-     * 创建prompt  创建一个新的提示词资源
-     * @param {PromptServiceApiPromptServiceCreatePromptRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceCreatePrompt(
       requestParameters: PromptServiceApiPromptServiceCreatePromptRequest,
       options?: RawAxiosRequestConfig,
@@ -8456,12 +8315,7 @@ export const PromptServiceApiFactory = function (
         .promptServiceCreatePrompt(requestParameters.prompt, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 删除prompt  删除指定的提示词资源
-     * @param {PromptServiceApiPromptServiceDeletePromptRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceDeletePrompt(
       requestParameters: PromptServiceApiPromptServiceDeletePromptRequest,
       options?: RawAxiosRequestConfig,
@@ -8470,12 +8324,7 @@ export const PromptServiceApiFactory = function (
         .promptServiceDeletePrompt(requestParameters.prompt, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 获取prompt  获取指定的提示词资源详细信息
-     * @param {PromptServiceApiPromptServiceGetPromptRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceGetPrompt(
       requestParameters: PromptServiceApiPromptServiceGetPromptRequest,
       options?: RawAxiosRequestConfig,
@@ -8484,12 +8333,7 @@ export const PromptServiceApiFactory = function (
         .promptServiceGetPrompt(requestParameters.prompt, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 获取prompt列表  获取提示词资源列表，支持分页
-     * @param {PromptServiceApiPromptServiceListPromptsRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceListPrompts(
       requestParameters: PromptServiceApiPromptServiceListPromptsRequest = {},
       options?: RawAxiosRequestConfig,
@@ -8502,12 +8346,7 @@ export const PromptServiceApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 置顶prompt  将指定的提示词设置为默认（置顶）
-     * @param {PromptServiceApiPromptServiceSetDefaultPromptRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceSetDefaultPrompt(
       requestParameters: PromptServiceApiPromptServiceSetDefaultPromptRequest,
       options?: RawAxiosRequestConfig,
@@ -8520,12 +8359,7 @@ export const PromptServiceApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 取消置顶prompt  取消指定提示词的默认（置顶）状态
-     * @param {PromptServiceApiPromptServiceUnsetDefaultPromptRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceUnsetDefaultPrompt(
       requestParameters: PromptServiceApiPromptServiceUnsetDefaultPromptRequest,
       options?: RawAxiosRequestConfig,
@@ -8538,12 +8372,7 @@ export const PromptServiceApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 更新prompt  更新指定的提示词资源，支持部分字段更新
-     * @param {PromptServiceApiPromptServiceUpdatePromptRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     promptServiceUpdatePrompt(
       requestParameters: PromptServiceApiPromptServiceUpdatePromptRequest,
       options?: RawAxiosRequestConfig,
@@ -8608,18 +8437,10 @@ export interface PromptServiceApiPromptServiceGetPromptRequest {
  * @interface PromptServiceApiPromptServiceListPromptsRequest
  */
 export interface PromptServiceApiPromptServiceListPromptsRequest {
-  /**
-   * 页面大小，指定返回的最大记录数 如果未指定或为 0，服务端将使用默认值
-   * @type {number}
-   * @memberof PromptServiceApiPromptServiceListPrompts
-   */
+  
   readonly pageSize?: number;
 
-  /**
-   * 分页令牌，用于获取下一页数据 从上一次请求的响应中获取
-   * @type {string}
-   * @memberof PromptServiceApiPromptServiceListPrompts
-   */
+  
   readonly pageToken?: string;
 }
 
@@ -8685,11 +8506,7 @@ export interface PromptServiceApiPromptServiceUpdatePromptRequest {
    */
   readonly prompt2: Prompt;
 
-  /**
-   * 字段掩码，指定要更新的字段 如果未提供，将更新所有字段
-   * @type {string}
-   * @memberof PromptServiceApiPromptServiceUpdatePrompt
-   */
+  
   readonly updateMask?: string;
 }
 
@@ -8700,13 +8517,7 @@ export interface PromptServiceApiPromptServiceUpdatePromptRequest {
  * @extends {BaseAPI}
  */
 export class PromptServiceApi extends BaseAPI {
-  /**
-   * 创建prompt  创建一个新的提示词资源
-   * @param {PromptServiceApiPromptServiceCreatePromptRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof PromptServiceApi
-   */
+  
   public promptServiceCreatePrompt(
     requestParameters: PromptServiceApiPromptServiceCreatePromptRequest,
     options?: RawAxiosRequestConfig,
@@ -8716,13 +8527,7 @@ export class PromptServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 删除prompt  删除指定的提示词资源
-   * @param {PromptServiceApiPromptServiceDeletePromptRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof PromptServiceApi
-   */
+  
   public promptServiceDeletePrompt(
     requestParameters: PromptServiceApiPromptServiceDeletePromptRequest,
     options?: RawAxiosRequestConfig,
@@ -8732,13 +8537,7 @@ export class PromptServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 获取prompt  获取指定的提示词资源详细信息
-   * @param {PromptServiceApiPromptServiceGetPromptRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof PromptServiceApi
-   */
+  
   public promptServiceGetPrompt(
     requestParameters: PromptServiceApiPromptServiceGetPromptRequest,
     options?: RawAxiosRequestConfig,
@@ -8748,13 +8547,7 @@ export class PromptServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 获取prompt列表  获取提示词资源列表，支持分页
-   * @param {PromptServiceApiPromptServiceListPromptsRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof PromptServiceApi
-   */
+  
   public promptServiceListPrompts(
     requestParameters: PromptServiceApiPromptServiceListPromptsRequest = {},
     options?: RawAxiosRequestConfig,
@@ -8768,13 +8561,7 @@ export class PromptServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 置顶prompt  将指定的提示词设置为默认（置顶）
-   * @param {PromptServiceApiPromptServiceSetDefaultPromptRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof PromptServiceApi
-   */
+  
   public promptServiceSetDefaultPrompt(
     requestParameters: PromptServiceApiPromptServiceSetDefaultPromptRequest,
     options?: RawAxiosRequestConfig,
@@ -8788,13 +8575,7 @@ export class PromptServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 取消置顶prompt  取消指定提示词的默认（置顶）状态
-   * @param {PromptServiceApiPromptServiceUnsetDefaultPromptRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof PromptServiceApi
-   */
+  
   public promptServiceUnsetDefaultPrompt(
     requestParameters: PromptServiceApiPromptServiceUnsetDefaultPromptRequest,
     options?: RawAxiosRequestConfig,
@@ -8808,13 +8589,7 @@ export class PromptServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 更新prompt  更新指定的提示词资源，支持部分字段更新
-   * @param {PromptServiceApiPromptServiceUpdatePromptRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof PromptServiceApi
-   */
+  
   public promptServiceUpdatePrompt(
     requestParameters: PromptServiceApiPromptServiceUpdatePromptRequest,
     options?: RawAxiosRequestConfig,

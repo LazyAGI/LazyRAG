@@ -3,25 +3,18 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { Dataset, DatasetAclEnum } from "@/api/generated/knowledge-client";
 
 interface DatasetPermissionState {
-  // 当前知识库详情
   currentDataset: Dataset | null;
 
-  // 设置当前知识库
   setCurrentDataset: (dataset: Dataset | null) => void;
 
-  // 判断是否有写权限
   hasWritePermission: () => boolean;
 
-  // 判断是否只有读权限
   hasOnlyReadPermission: () => boolean;
 
-  // 判断是否有上传权限
   hasUploadPermission: () => boolean;
 
-  // 清除权限信息
   clearDataset: () => void;
 
-  // 获取当前知识库详情
   getDatasetDetail: () => Dataset | null;
 }
 

@@ -18,7 +18,6 @@ export const downloadUrl = (url: string, target?: string) => {
   document.body.removeChild(a);
 };
 
-// 批量下载 iframe
 export const downloadFile = (url: string) => {
   const iframe = document.createElement("iframe");
   iframe.style.display = "none";

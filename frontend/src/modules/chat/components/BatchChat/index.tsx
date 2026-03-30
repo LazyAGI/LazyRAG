@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Alert,
   Button,
@@ -50,14 +51,18 @@ export interface BatchChatImperativeProps {
   onOpen: () => void;
 }
 
-let timer: number | undefined;
+let timer: ReturnType<typeof setInterval> | undefined;
 const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
   (props, ref) => {
+    const { t } = useTranslation();
     const { cancelFn } = props;
     const batchChatTask = localStorage.getItem("batchChatTask");
     const batchChatJobId = localStorage.getItem("batchChatJobId");
     const [visible, setVisible] = useState(false);
-    const items = [{ title: "导入数据" }, { title: "导出结果" }];
+    const items = [
+      { title: t("chat.importData") },
+      { title: t("chat.exportResult") },
+    ];
     const [current, setCurrent] = useState(0);
     const templateUrl = new URL("/批量对话模板.xlsx", import.meta.url).href;
     const [form] = Form.useForm();
@@ -73,11 +78,12 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
       useState<BatchChatJob>({} as BatchChatJob);
 
     function getDatabaseBaseList() {
-      DatabaseBaseServiceApi()
-        .databaseServiceGetUserDatabaseSummaries({})
-        .then((res) => {
-          setDatabaseBaseList((res.data as UserDatabaseSummary[]) || []);
-        });
+      // DatabaseBaseServiceApi()
+      //   .databaseServiceGetUserDatabaseSummaries({})
+      //   .then((res) => {
+      //     setDatabaseBaseList((res.data as UserDatabaseSummary[]) || []);
+      //   });
+      setDatabaseBaseList([]);
     }
 
     function getKnowledgeBaseList() {
@@ -121,7 +127,7 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
     function onFinish(values: any) {
       const { knowledge, database } = values;
       if (!uploadFile?.uid?.length) {
-        message.error("请上传文件");
+        message.error(t("chat.uploadFileRequired"));
         return;
       }
       ChatServiceApi()
@@ -159,16 +165,16 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
 
     const columns = [
       {
-        title: "序号",
+        title: t("chat.sequence"),
         dataIndex: "index",
         width: 100,
       },
       {
-        title: "问题",
+        title: t("chat.question"),
         dataIndex: "question",
       },
       {
-        title: "答案",
+        title: t("chat.answer"),
         dataIndex: "answer",
       },
     ];
@@ -185,7 +191,7 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
         .fileServicePresignAttachment({
           presignAttachmentRequest: {
             file: file.name,
-            file_size: file.size + "",
+            file_size: file.size,
           },
         })
         .then((res) => {
@@ -202,7 +208,7 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
 
     return (
       <Modal
-        title="批量对话"
+        title={t("chat.batchChat")}
         width={1000}
         open={visible}
         maskClosable={false}
@@ -219,25 +225,17 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                 onFinish={onFinish}
                 initialValues={initialValues}
               >
-                <Form.Item label="知识库" name="knowledge">
+                <Form.Item label={t("chat.configKnowledgeBase")} name="knowledge">
                   <Select
                     options={knowledgeBaseList.map((knowledgeBase) => ({
                       value: knowledgeBase.dataset_id,
                       label: knowledgeBase.display_name,
                     }))}
-                    placeholder="请选择知识库"
+                    placeholder={t("chat.selectKnowledgeBase")}
                   />
                 </Form.Item>
-                {/* <Form.Item label="数据库" name="database">
-                <Select
-                  options={databaseBaseList.map((db) => ({
-                    value: db.id,
-                    label: db.name,
-                  }))}
-                  placeholder="请选择数据库"
-                />
-              </Form.Item> */}
-                <Form.Item label="文件" name="file">
+                {}
+                <Form.Item label={t("chat.file")} name="file">
                   <Dragger
                     showUploadList={false}
                     maxCount={1}
@@ -247,7 +245,7 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                       if (!uploadFile?.uid?.length) {
                         uploadFileChange(info.file as RcFile);
                       } else {
-                        message.warning("最多上传1个文件");
+                        message.warning(t("chat.maxUploadOneFile"));
                       }
                     }}
                     className="drag-upload-container"
@@ -256,13 +254,13 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                       <InboxOutlined />
                     </p>
                     <p className="ant-upload-text">
-                      <span style={{ marginRight: 4 }}>点击或者拖拽上传</span>
+                      <span style={{ marginRight: 4 }}>{t("chat.clickOrDragUpload")}</span>
                       <RiskTip />
                     </p>
                     <p className="ant-upload-hint">
-                      上传文件格式： .xlsx ，大小不超过 {5} MB。
+                      {t("chat.uploadExcelHint")}
                       <br />
-                      excel 文件仅识别第一个表单，如有多个表单，请分次导入
+                      {t("chat.uploadExcelHint2")}
                     </p>
                   </Dragger>
                 </Form.Item>
@@ -287,13 +285,13 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                       <Alert
                         message={
                           <span>
-                            可查看
+                            {t("common.view")}
                             <a
                               href={templateUrl}
                               target="_self"
                               download="批量对话模板.xlsx"
                             >
-                              模板
+                              {t("chat.template")}
                             </a>
                           </span>
                         }
@@ -302,9 +300,9 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                       />
                     </div>
                     <div>
-                      <Button onClick={() => setVisible(false)}>取消</Button>
+                      <Button onClick={() => setVisible(false)}>{t("common.cancel")}</Button>
                       <Button type="primary" htmlType="submit" className="ml-4">
-                        确定
+                        {t("common.confirm")}
                       </Button>
                     </div>
                   </div>
@@ -320,7 +318,12 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                     description={
                       <div className="flex items-center justify-center gap-4">
                         <Spin indicator={<LoadingOutlined spin />} />
-                        <p>{`返回结果中: ${batchChatTaskResult.success_num ?? 0}/${batchChatTaskResult.total_num ?? 0},请耐心等待`}</p>
+                        <p>
+                          {t("chat.processingResult", {
+                            success: batchChatTaskResult.success_num ?? 0,
+                            total: batchChatTaskResult.total_num ?? 0,
+                          })}
+                        </p>
                       </div>
                     }
                   />
@@ -336,7 +339,13 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                 <div>
                   {loading && (
                     <Alert
-                      message={`共${batchChatTaskResult.total_num}条记录，当前预览只展示前 ${batchChatTaskResult.total_num! >= 10 ? 10 : batchChatTaskResult.total_num} 条记录`}
+                      message={t("chat.previewTopRecords", {
+                        total: batchChatTaskResult.total_num,
+                        count:
+                          batchChatTaskResult.total_num! >= 10
+                            ? 10
+                            : batchChatTaskResult.total_num,
+                      })}
                       type="warning"
                       showIcon
                     />
@@ -356,7 +365,7 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                         setVisible(false);
                       }}
                     >
-                      关闭
+                      {t("common.close")}
                     </Button>
                   )}
                   <Button
@@ -369,23 +378,20 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                       setCurrent(0);
                       form.resetFields();
                       setUploadFile(undefined);
-                      // 取消
                       if (loading) {
                         setVisible(false);
                       }
                     }}
                   >
-                    {loading ? "取消" : "重新导入"}
+                    {loading ? t("common.cancel") : t("chat.reimport")}
                   </Button>
                   <Button
                     type="primary"
                     onClick={() => {
                       if (loading) {
-                        // 最小化
                         localStorage.setItem("batchChatTask", "true");
                         cancelFn("true");
                       } else {
-                        // 导出结果
                         if (batchChatTaskResult?.result_file_uri) {
                           downloadUrl(batchChatTaskResult?.result_file_uri);
                         }
@@ -396,7 +402,7 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
                     }}
                     className="ml-4"
                   >
-                    {loading ? "最小化" : "导出结果"}
+                    {loading ? t("chat.minimize") : t("chat.exportResultAction")}
                   </Button>
                 </div>
               </div>

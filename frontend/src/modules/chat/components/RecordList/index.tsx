@@ -16,6 +16,7 @@ import {
 } from "@/api/generated/chatbot-client";
 import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { useChatThinkStore } from "@/modules/chat/store/chatThink";
 import { useChatNewMessageStore } from "@/modules/chat/store/chatNewMessage";
@@ -40,6 +41,7 @@ const { Search } = Input;
 
 const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
   (props, ref) => {
+    const { t } = useTranslation();
     const { currentSessionId, onSelected, onRemove } = props;
     const [historyList, setHistoryList] = useState<Conversation[]>([]);
     const [keyword, setKeyword] = useState("");
@@ -57,7 +59,6 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
     }));
 
     useEffect(() => {
-      // 如果当前会话 ID 不在历史列表中，则重新获取历史记录，新建会话时会触发此逻辑。
       if (
         !historyList?.some(
           (history) => history.conversation_id === currentSessionId,
@@ -105,7 +106,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
           conversation: data.conversation_id || "",
         })
         .then(() => {
-          message.success("删除会话成功");
+          message.success(t("chat.deleteConversationSuccess"));
           getHistory({ isFirst: true });
           document.getElementById("scrollableDiv")?.scrollTo({ top: 0 });
         })
@@ -130,7 +131,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
           if (uris?.length) {
             downloadUrl(uris[0]);
           } else {
-            message.warning("没有可导出的会话记录");
+            message.warning(t("chat.noConversationToExport"));
           }
         })
         .finally(() => {
@@ -198,7 +199,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
 
     return (
       <div className="record-container">
-        <div className="list-title">会话历史</div>
+        <div className="list-title">{t("chat.chatHistory")}</div>
         <div
           style={{
             display: "flex",
@@ -208,7 +209,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
           }}
         >
           <Search
-            placeholder="搜索对话"
+            placeholder={t("chat.searchConversation")}
             allowClear
             onSearch={(value: string) => {
               getHistory({ searchText: value, isFirst: true });
@@ -225,14 +226,14 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
                     if (checkedList?.length) {
                       exportHistoryFn();
                     } else {
-                      message.warning("请先选择要导出的会话");
+                      message.warning(t("chat.selectConversationToExport"));
                     }
                   }}
                 >
-                  导出
+                  {t("chat.export")}
                 </Button>
                 <Button type="text" onClick={() => setShowBatchExport(false)}>
-                  取消
+                  {t("common.cancel")}
                 </Button>
               </>
             ) : (
@@ -241,7 +242,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
                 style={{ padding: 0 }}
                 onClick={() => setShowBatchExport(true)}
               >
-                批量
+                {t("chat.batch")}
               </Button>
             )}
           </div>
@@ -265,7 +266,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
                 )
               }
             >
-              全选
+              {t("chat.selectAll")}
             </Checkbox>
           </div>
         )}

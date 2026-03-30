@@ -1,5 +1,6 @@
 import { Modal, Form, Input, Select, message } from "antd";
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { createUserApi, createRoleApi } from "@/modules/signin/utils/request";
 import {
   passwordRules,
@@ -19,6 +20,7 @@ interface CreateUserModalProps {
 }
 
 const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUserModalProps) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [roles, setRoles] = useState<RoleItem[]>([]);
@@ -27,7 +29,6 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
     try {
       const api = createRoleApi();
       const res = await api.listRolesApiAuthserviceRoleGet();
-      // 解析后端包装格式 { code: 200, message: "success", data: RoleItem[] }
       const resData = res.data as any;
       const roleList = resData.data || resData || [];
       setRoles(roleList);
@@ -74,7 +75,7 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
           userId: editingUser.user_id,
           userRoleBody: { role_id: values.role },
         });
-        message.success("修改角色成功");
+        message.success(t("admin.updateUserRoleSuccess"));
       } else {
         await userApi.createUserApiAuthserviceUserPost({
           createUserBody: {
@@ -84,12 +85,12 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
             ...(values.email ? { email: values.email } : {}),
           },
         });
-        message.success("用户创建成功");
+        message.success(t("admin.createUserSuccess"));
       }
       onSuccess();
     } catch (error: any) {
       console.error("Operation failed:", error);
-      const errorMsg = error.response?.data?.message || error.message || "操作失败";
+      const errorMsg = error.response?.data?.message || error.message || t("common.failed");
       message.error(errorMsg);
     } finally {
       setLoading(false);
@@ -98,7 +99,7 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
 
   return (
     <Modal
-      title={editingUser ? "编辑角色" : "新建用户"}
+      title={editingUser ? t("admin.editUserRole") : t("admin.createUser")}
       open={visible}
       onCancel={onCancel}
       onOk={() => form.submit()}
@@ -112,17 +113,18 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
       >
         <Form.Item
           name="username"
-          label="用户名"
+          label={t("admin.username")}
           rules={[
             ...usernameRules,
-            { max: USERNAME_MAX_LENGTH, message: `用户名不能超过 ${USERNAME_MAX_LENGTH} 个字符` },
+            { max: USERNAME_MAX_LENGTH, message: t("admin.usernameMax", { max: USERNAME_MAX_LENGTH }) },
           ]}
         >
           <Input
-            placeholder={`请输入用户名，最多 ${USERNAME_MAX_LENGTH} 个字符`}
+            placeholder={t("admin.enterUsernameWithMax", { max: USERNAME_MAX_LENGTH })}
             disabled={!!editingUser}
             maxLength={USERNAME_MAX_LENGTH}
             showCount
+            autoComplete="username"
           />
         </Form.Item>
 
@@ -130,50 +132,53 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
           <>
             <Form.Item
               name="email"
-              label="邮箱"
+              label={t("admin.email")}
               rules={[
-                { type: "email", message: "请输入有效的邮箱地址" },
-                { max: EMAIL_MAX_LENGTH, message: `邮箱不能超过 ${EMAIL_MAX_LENGTH} 个字符` },
+                { type: "email", message: t("admin.enterValidEmail") },
+                { max: EMAIL_MAX_LENGTH, message: t("admin.emailMax", { max: EMAIL_MAX_LENGTH }) },
               ]}
             >
               <Input
-                placeholder={`请输入邮箱，最多 ${EMAIL_MAX_LENGTH} 个字符`}
+                placeholder={t("admin.enterEmailWithMax", { max: EMAIL_MAX_LENGTH })}
                 maxLength={EMAIL_MAX_LENGTH}
                 showCount
+                autoComplete="email"
               />
             </Form.Item>
 
             <Form.Item
               name="password"
-              label="密码"
+              label={t("auth.password")}
               rules={passwordRules}
             >
               <Input.Password
-                placeholder={`请输入密码，最多 ${PASSWORD_MAX_LENGTH} 个字符`}
+                placeholder={t("auth.pleaseInputPasswordSet")}
                 maxLength={PASSWORD_MAX_LENGTH}
+                autoComplete="new-password"
               />
             </Form.Item>
 
             <Form.Item
               name="confirmPassword"
-              label="确认密码"
-              dependencies={['password']}
+              label={t("auth.confirmPassword")}
+              dependencies={["password"]}
               hasFeedback
               rules={[
-                { required: true, message: "请确认密码" },
+                { required: true, message: t("admin.confirmPasswordRequired") },
                 ({ getFieldValue }) => ({
                   validator(_, value) {
-                    if (!value || getFieldValue('password') === value) {
+                    if (!value || getFieldValue("password") === value) {
                       return Promise.resolve();
                     }
-                    return Promise.reject(new Error('两次输入的密码不一致!'));
+                    return Promise.reject(new Error(t("auth.passwordNotMatch")));
                   },
                 }),
               ]}
             >
               <Input.Password
-                placeholder={`请再次输入密码，最多 ${PASSWORD_MAX_LENGTH} 个字符`}
+                placeholder={t("admin.confirmPasswordWithMax", { max: PASSWORD_MAX_LENGTH })}
                 maxLength={PASSWORD_MAX_LENGTH}
+                autoComplete="new-password"
               />
             </Form.Item>
           </>
@@ -181,10 +186,10 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
 
         <Form.Item
           name="role"
-          label="角色"
-          rules={[{ required: true, message: "请选择角色" }]}
+          label={t("admin.role")}
+          rules={[{ required: true, message: t("admin.selectRoleRequired") }]}
         >
-          <Select placeholder="请选择角色">
+          <Select placeholder={t("admin.selectRole")}>
             {roles.map((role: any) => (
               <Select.Option key={role.id} value={role.id}>
                 {role.name}

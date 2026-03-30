@@ -11,7 +11,7 @@
   white-space: pre-wrap;
 }
 
-/* 修复表格前出现大量空行的问题：限制表格前的空白高度 */
+
 .rag-markdown table {
   margin-top: 16px !important;
 }
@@ -21,7 +21,7 @@
   margin-bottom: 0;
 }
 
-/* 移除表格前的多余空段落 */
+
 .rag-markdown p:empty + table {
   margin-top: 16px;
 }

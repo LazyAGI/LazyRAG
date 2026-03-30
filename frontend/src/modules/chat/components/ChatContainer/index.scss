@@ -17,9 +17,9 @@
 
   .chat-box {
     flex: 1;
-    min-width: 350px; /* 修改为单回复的最小宽度，让子元素决定具体宽度 */
-    max-width: 1400px; /* 防止过宽 */
-    margin: 0 auto; /* 居中显示 */
+    min-width: 350px; 
+    max-width: 1400px; 
+    margin: 0 auto; 
     display: flex;
     overflow: hidden;
     flex-direction: column;
@@ -42,6 +42,12 @@
       display: flex;
       flex-direction: column;
       gap: 24px;
+
+      .user-message-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-end;
+      }
 
       .chat-time {
         font-size: 12px;

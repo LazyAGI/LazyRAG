@@ -34,7 +34,7 @@ class FileUtils {
     return fetch(url, {
       method: "put",
       body: file,
-      signal: this.timeoutSignal(5 * 60 * 1000), // 5分钟超时
+      signal: this.timeoutSignal(5 * 60 * 1000),
     }).then((response) => {
       return response.ok ? response : Promise.reject({});
     });
@@ -56,9 +56,13 @@ class FileUtils {
     if (!uri) {
       return "";
     }
-    const url = new URL(uri);
-    const pathname = url.pathname;
-    return this.getSuffix(pathname);
+    try {
+      const url = new URL(uri, window.location.origin);
+      const pathname = url.pathname;
+      return this.getSuffix(pathname);
+    } catch {
+      return this.getSuffix(uri.split("?")[0] || uri);
+    }
   };
 
   // Normalize file extension to lowercase in a path

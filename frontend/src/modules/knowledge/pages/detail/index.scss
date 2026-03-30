@@ -1,3 +1,17 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .search-input {
   border: solid 1px var(--coldgrey-2);
   border-radius: 6px;
@@ -13,7 +27,6 @@
   }
 }
 
-// 标签横向滚动容器样式
 .tags-scroll-container {
   display: flex;
   gap: 4px;
@@ -23,7 +36,6 @@
   padding-bottom: 2px;
   -webkit-overflow-scrolling: touch;
 
-  // Webkit 浏览器滚动条样式
   &::-webkit-scrollbar {
     height: 6px;
   }
@@ -42,7 +54,6 @@
     }
   }
 
-  // Firefox 滚动条样式
   scrollbar-width: thin;
   scrollbar-color: #d1d1d1 #f1f1f1;
 }

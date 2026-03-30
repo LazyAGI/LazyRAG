@@ -1,41 +1,24 @@
 import "./index.scss";
+import { useTranslation } from "react-i18next";
 
 const CURRENT_ENV_TITLE =
-  import.meta.env.VITE_APP_CHAT_TITLE ||
-  "LazyRAG —— 让知识“即问即答” ✨🔮";
+  import.meta.env.VITE_APP_CHAT_TITLE || "";
 
 const InitialCard = () => {
+  const { t } = useTranslation();
+  const title = CURRENT_ENV_TITLE || t("chat.initialTitle");
+
   const infoList = [
-    {
-      icon: "💬",
-      title: "智能对话交互",
-      text: "基于前沿大模型，深度融合私有知识，提供精准的多轮上下文理解能力。",
-    },
-    {
-      icon: "📚",
-      title: "全源知识集成",
-      text: "支持从知识库、结构化/非结构化文档的深度融合，构建企业专属知识大脑。",
-    },
-    {
-      icon: "📈",
-      title: "闭环反馈优化",
-      text: "支持用户反馈与点赞点踩机制，通过真实对话数据持续迭代问答质量。",
-    },
-    {
-      icon: "🛠️",
-      title: "即插即用接入",
-      text: "提供低代码操作平台与标准 API 接口，分钟级集成至现有业务系统。",
-    },
-    {
-      icon: "🔐",
-      title: "安全协作管控",
-      text: "完善的角色权限隔离与数据分级管理，确保企业核心资产安全高效共享。",
-    },
+    { icon: "💬", title: t("chat.feature1Title"), text: t("chat.feature1Text") },
+    { icon: "📚", title: t("chat.feature2Title"), text: t("chat.feature2Text") },
+    { icon: "📈", title: t("chat.feature3Title"), text: t("chat.feature3Text") },
+    { icon: "🛠️", title: t("chat.feature4Title"), text: t("chat.feature4Text") },
+    { icon: "🔐", title: t("chat.feature5Title"), text: t("chat.feature5Text") },
   ];
 
   return (
     <div className="chat-initial-card">
-      <div className="chat-initial-card-title">{CURRENT_ENV_TITLE}</div>
+      <div className="chat-initial-card-title">{title}</div>
       {infoList.map((item, index) => {
         return (
           <div className="chat-initial-info-item" key={index}>

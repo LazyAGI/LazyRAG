@@ -1,5 +1,6 @@
 import { Empty, Tabs, TabsProps } from "antd";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
@@ -29,6 +30,7 @@ const KnowledgeTabs = (props: {
   onGetItemInfo?: (data: Segment) => void;
 }) => {
   const { knowledgeDetail, onGetItemInfo } = props;
+  const { t } = useTranslation();
 
   const [activeKey, setActiveKey] = useState("");
   const [parsers, setParsers] = useState<ParserConfig[]>([]);
@@ -80,7 +82,7 @@ const KnowledgeTabs = (props: {
             break;
           }
           initTabs.push({
-            label: "文档切片",
+            label: t("knowledge.segmentDocument"),
             children: (
               <SegmentTab
                 detail={knowledgeDetail}
@@ -105,7 +107,7 @@ const KnowledgeTabs = (props: {
           break;
         case ParserConfigTypeEnum.ParseTypeSummary:
           initTabs.push({
-            label: "文档总结",
+            label: t("knowledge.segmentSummary"),
             children: (
               <div className="summary-container">
                 <SummaryTab
@@ -122,7 +124,7 @@ const KnowledgeTabs = (props: {
           break;
         case ParserConfigTypeEnum.ParseTypeQa:
           initTabs.push({
-            label: "文档问答对",
+            label: t("knowledge.segmentQa"),
             children: (
               <QaTab
                 detail={knowledgeDetail}
@@ -135,7 +137,7 @@ const KnowledgeTabs = (props: {
           break;
         case ParserConfigTypeEnum.ParseTypeImageCaption:
           initTabs.push({
-            label: "图片信息提取",
+            label: t("knowledge.imageCaption"),
             children: (
               <SegmentTab
                 detail={knowledgeDetail}
@@ -160,9 +162,9 @@ const KnowledgeTabs = (props: {
   }
 
   return loading ? (
-    <Rendering text={"加载中..."} />
+    <Rendering text={t("common.loading")} />
   ) : parsers.length < 1 ? (
-    <Empty description={"暂无内容"} style={{ marginTop: 80 }} />
+    <Empty description={t("knowledge.noContent")} style={{ marginTop: 80 }} />
   ) : (
     <Tabs
       type="editable-card"

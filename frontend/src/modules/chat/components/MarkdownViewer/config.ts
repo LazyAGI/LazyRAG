@@ -1,11 +1,9 @@
 import { defaultSchema } from "rehype-sanitize";
 
-// 自定义 sanitize schema，允许 KaTeX 数学公式所需的所有标签和属性
 export const customSchema: typeof defaultSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
-    // 允许所有元素使用 class 和 style 属性（KaTeX 需要）
     "*": [
       ...(defaultSchema.attributes?.["*"] || []),
       "class",
@@ -13,10 +11,8 @@ export const customSchema: typeof defaultSchema = {
       "style",
       "id",
     ],
-    // 允许 span 和 div 元素的所有 KaTeX 属性
     span: ["class", "className", "style", "aria-hidden", "role"],
     div: ["class", "className", "style"],
-    // 允许 math 和 semantics 元素及其属性
     math: ["xmlns", "display", "class"],
     semantics: ["class"],
     mrow: ["class"],
@@ -35,7 +31,6 @@ export const customSchema: typeof defaultSchema = {
     munder: ["class"],
     mover: ["class"],
     annotation: ["encoding"],
-    // SVG 元素属性
     svg: [
       "xmlns",
       "width",
@@ -51,7 +46,6 @@ export const customSchema: typeof defaultSchema = {
   },
   tagNames: [
     ...(defaultSchema.tagNames || []),
-    // 添加 KaTeX 使用的 MathML 标签
     "math",
     "semantics",
     "mrow",
@@ -73,7 +67,6 @@ export const customSchema: typeof defaultSchema = {
     "mtable",
     "mtr",
     "mtd",
-    // 添加其他可能需要的标签
     "svg",
     "path",
     "g",

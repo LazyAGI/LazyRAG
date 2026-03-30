@@ -39,15 +39,9 @@ import FileUtils from "@/modules/knowledge/utils/file";
 import { ListPageTable } from "@/components/ui";
 import EditTags from "@/modules/knowledge/pages/detail/components/KnowledgeTable/editTags";
 import type { TreeNode } from "@/modules/knowledge/pages/detail/components/KnowledgeTable";
+import { useTranslation } from "react-i18next";
 
 import "./index.scss";
-
-const DocumentStageEnum = {
-  [DocDocumentStageEnum.DocumentUploaded]: "未解析",
-  [DocDocumentStageEnum.DocumentParsing]: "解析中",
-  [DocDocumentStageEnum.DocumentParseSuccessfully]: "已解析",
-  [DocDocumentStageEnum.DocumentParsingFailed]: "解析失败",
-};
 
 type DocRow = {
   dataset_id?: string;
@@ -68,6 +62,14 @@ type DocRow = {
 const KnowledgePage: FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
+  const { t } = useTranslation();
+
+  const DocumentStageEnum = {
+    [DocDocumentStageEnum.DocumentUploaded]: t("knowledge.stageUploaded"),
+    [DocDocumentStageEnum.DocumentParsing]: t("knowledge.stageParsing"),
+    [DocDocumentStageEnum.DocumentParseSuccessfully]: t("knowledge.stageParsed"),
+    [DocDocumentStageEnum.DocumentParsingFailed]: t("knowledge.stageFailed"),
+  };
 
   const confirmRef = useRef<ConfirmImperativeProps>(null);
   const createUpdateRef = useRef<UpdateImperativeProps>(null);
@@ -90,7 +92,6 @@ const KnowledgePage: FC = () => {
   }, []);
 
   useEffect(() => {
-    // 当 knowledgeType 变化时，重新获取数据
     if (knowledgeType) {
       getTableData(1, pagination.pageSize);
     }
@@ -107,10 +108,9 @@ const KnowledgePage: FC = () => {
     getTableData(pagination.current, pagination.pageSize);
   };
 
-  // 知识库列表
   const columns: ColumnsType<Dataset> = [
     {
-      title: "知识库名称/ID",
+      title: t("knowledge.nameId"),
       dataIndex: "display_name",
       width: 350,
       render: (name: string, data: Dataset) => {
@@ -122,7 +122,7 @@ const KnowledgePage: FC = () => {
               style={{ maxWidth: "100%" }}
               onClick={() => {
                 navigate({
-                  pathname: `/detail/${data.dataset_id}`,
+                  pathname: `/lib/knowledge/detail/${data.dataset_id}`,
                 });
               }}
             >
@@ -143,7 +143,7 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "描述",
+      title: t("common.description"),
       dataIndex: "desc",
       ellipsis: {
         showTitle: false,
@@ -156,7 +156,7 @@ const KnowledgePage: FC = () => {
       ),
     },
     {
-      title: "标签",
+      title: t("knowledge.tags"),
       dataIndex: "tags",
       width: 180,
       render: (knowledgeBaseTags: string[]) => {
@@ -170,7 +170,7 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "更新日期",
+      title: t("knowledge.updateDate"),
       dataIndex: "update_time",
       width: 180,
       render: (time: string) => {
@@ -178,7 +178,7 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "解析大小",
+      title: t("knowledge.parseSize"),
       dataIndex: "document_size",
       width: 100,
       render: (document_size: string) => {
@@ -186,12 +186,12 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "文件数量",
+      title: t("knowledge.fileCount"),
       dataIndex: "document_count",
       width: 100,
     },
     {
-      title: "操作",
+      title: t("common.actions"),
       key: "action",
       width: 160,
       fixed: "right",
@@ -208,18 +208,18 @@ const KnowledgePage: FC = () => {
                 createUpdateRef.current?.onOpen(data);
               }}
             >
-              编辑
+              {t("common.edit")}
             </Button>
             <Button
               className="link-btn"
               type="link"
               onClick={() =>
                 navigate({
-                  pathname: `/auth/${data.dataset_id}`,
+                  pathname: `/lib/knowledge/auth/${data.dataset_id}`,
                 })
               }
             >
-              授权
+              {t("knowledge.authorize")}
             </Button>
             <Button
               className="link-btn"
@@ -228,14 +228,13 @@ const KnowledgePage: FC = () => {
               onClick={() =>
                 confirmRef.current?.onOpen({
                   id: data.dataset_id || "",
-                  title: `删除知识库【${data.display_name}】`,
-                  content:
-                    "删除操作一旦确认无法撤回，此知识库相关应用将失效！请输入下述文字进行再次确认：",
-                  confirmText: "确认删除此知识库，我已知悉删除后的影响",
+                  title: t("knowledge.deleteTitle", { name: data.display_name }),
+                  content: t("knowledge.deleteContent"),
+                  confirmText: t("knowledge.deleteConfirmText"),
                 })
               }
             >
-              删除
+              {t("common.delete")}
             </Button>
           </Flex>
         );
@@ -243,10 +242,9 @@ const KnowledgePage: FC = () => {
     },
   ];
 
-  // 知识列表
   const knowledgeColumns: ColumnsType<DocRow> = [
     {
-      title: "知识名称",
+      title: t("knowledge.docName"),
       dataIndex: "display_name",
       width: 350,
       render: (name: string, record) => {
@@ -260,7 +258,6 @@ const KnowledgePage: FC = () => {
                 const documentId = record?.document_id;
                 const datasetId = record?.dataset_id;
                 const relPathtype = record?.type;
-                // 如果是文件夹，跳转到知识库详情页
                 if (relPathtype === "FOLDER") {
                   navigate({ pathname: `/detail/${datasetId}` });
                 } else {
@@ -282,7 +279,7 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "标签",
+      title: t("knowledge.tags"),
       dataIndex: "tags",
       width: 120,
       render: (rowTags: string[] | undefined, record: DocRow) => {
@@ -350,7 +347,7 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "所在目录",
+      title: t("knowledge.directory"),
       dataIndex: "rel_path",
       width: 120,
       render: (rel_path: string) => {
@@ -375,7 +372,7 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "解析状态",
+      title: t("knowledge.parseStatus"),
       dataIndex: "document_stage",
       width: 120,
       render: (document_stage: string) => {
@@ -385,18 +382,18 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "知识类型",
+      title: t("knowledge.docType"),
       dataIndex: "type",
       width: 120,
       render: (type: string, record: DocRow) => {
         if (type === DocTypeEnum.Folder) {
-          return "文件夹";
+          return t("knowledge.folder");
         }
-        return FileUtils.getSuffix(record.display_name || "") || "未知";
+        return FileUtils.getSuffix(record.display_name || "") || t("knowledge.unknown");
       },
     },
     {
-      title: "大小",
+      title: t("knowledge.size"),
       dataIndex: "document_size",
       width: 120,
       render: (_: number, record: DocRow) => {
@@ -404,13 +401,13 @@ const KnowledgePage: FC = () => {
       },
     },
     {
-      title: "更新日期",
+      title: t("knowledge.updateDate"),
       dataIndex: "update_time",
       width: 180,
       render: (text: string) => moment(text).format(TIME_FORMAT),
     },
     {
-      title: "更新人",
+      title: t("knowledge.updater"),
       dataIndex: "creator",
       width: 120,
     },
@@ -427,7 +424,6 @@ const KnowledgePage: FC = () => {
       });
   }
 
-  // 统一的成功和错误处理函数
   const handleSuccess = (
     data: Dataset[],
     total: number,
@@ -440,7 +436,6 @@ const KnowledgePage: FC = () => {
     });
   };
 
-  // 初始化数据
   const initData = () => {
     setDataSource([]);
     setPagination({
@@ -451,77 +446,74 @@ const KnowledgePage: FC = () => {
   };
 
   function getTableData(page = 1, pageSize = pagination.pageSize) {
-    form.validateFields().then((values) => {
-      // 更新分页状态
-      const newPagination = {
-        ...pagination,
-        current: page,
-        pageSize: pageSize,
-      };
-      setPagination(newPagination);
+    const values = form.getFieldsValue();
 
-      // 生成 pageToken
-      const pageToken = UIUtils.generatePageToken({
-        page: page - 1,
-        pageSize: pageSize || 10,
-        total: pagination.total || 0,
-      });
+    const newPagination = {
+      ...pagination,
+      current: page,
+      pageSize: pageSize,
+    };
+    setPagination(newPagination);
 
-      setLoading(true);
-
-      // 根据类型调用不同的 API
-      if (knowledgeType === "knowledgeBase") {
-        KnowledgeBaseServiceApi()
-          .datasetServiceListDatasets({
-            pageToken,
-            pageSize: pageSize,
-            keyword: values.keyword,
-            tags: values?.tags === ALL_TAGS ? [] : [values?.tags],
-          })
-          .then((res) => {
-            handleSuccess(
-              res.data.datasets || [],
-              res.data.total_size || 0,
-              newPagination,
-            );
-          })
-          .catch(() => {
-            initData();
-          })
-          .finally(() => {
-            setLoading(false);
-          });
-      } else {
-        DocumentServiceApi()
-          .documentServiceSearchAllDocuments({
-            searchAllDocumentsRequest: {
-              page_token: pageToken,
-              page_size: pageSize,
-              keyword: values.keyword || "",
-            },
-          })
-          .then((res) => {
-            handleSuccess(
-              (res.data.documents as unknown as Dataset[]) || [],
-              res.data.total_size || 0,
-              newPagination,
-            );
-          })
-          .catch(() => {
-            initData();
-          })
-          .finally(() => {
-            setLoading(false);
-          });
-      }
+    const pageToken = UIUtils.generatePageToken({
+      page: page - 1,
+      pageSize: pageSize || 10,
+      total: pagination.total || 0,
     });
+
+    setLoading(true);
+
+    if (knowledgeType === "knowledgeBase") {
+      KnowledgeBaseServiceApi()
+        .datasetServiceListDatasets({
+          pageToken,
+          pageSize: pageSize,
+          keyword: values.keyword,
+          tags: values?.tags && values.tags !== ALL_TAGS ? [values.tags] : [],
+        })
+        .then((res) => {
+          handleSuccess(
+            res.data.datasets || [],
+            res.data.total_size || 0,
+            newPagination,
+          );
+        })
+        .catch(() => {
+          initData();
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    } else {
+      DocumentServiceApi()
+        .documentServiceSearchAllDocuments({
+          searchAllDocumentsRequest: {
+            page_token: pageToken,
+            page_size: pageSize,
+            keyword: values.keyword || "",
+          },
+        })
+        .then((res) => {
+          handleSuccess(
+            (res.data.documents as unknown as Dataset[]) || [],
+            res.data.total_size || 0,
+            newPagination,
+          );
+        })
+        .catch(() => {
+          initData();
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
   }
 
   function onDelete(id: string) {
     KnowledgeBaseServiceApi()
       .datasetServiceDeleteDataset({ dataset: id })
       .then(() => {
-        message.success("删除知识库成功！");
+        message.success(t("knowledge.deleteSuccess"));
         getTags();
         getTableData();
       });
@@ -537,7 +529,7 @@ const KnowledgePage: FC = () => {
             dataset2: data,
           })
           .then(() => {
-            message.success("编辑知识库成功");
+            message.success(t("knowledge.editSuccess"));
             getTags();
             getTableData();
           });
@@ -547,7 +539,7 @@ const KnowledgePage: FC = () => {
           dataset: data,
         })
         .then(() => {
-          message.success(`${data.dataset_id ? "编辑" : "创建"}知识库成功`);
+          message.success(data.dataset_id ? t("knowledge.editSuccess") : t("knowledge.createSuccess"));
           getTags();
           getTableData();
         });
@@ -566,16 +558,16 @@ const KnowledgePage: FC = () => {
 
   return (
     <div className="knowledge-list-page">
-      <div className="knowledge-title">知识库</div>
+      <div className="knowledge-title">{t("layout.knowledgeBase")}</div>
       <Form className="list-header" form={form}>
         <ListPageHeader
           placeholder={
             knowledgeType === "knowledgeBase"
-              ? "知识库名称/描述/标签"
-              : "搜索文档名称、标签、更新人"
+              ? t("knowledge.searchPlaceholder")
+              : t("knowledge.searchDocPlaceholder")
           }
           searchKey="keyword"
-          btnText={"创建知识库"}
+          btnText={t("knowledge.createKnowledgeBase")}
           onClick={() => {
             createUpdateRef.current?.onOpen();
           }}
@@ -586,15 +578,18 @@ const KnowledgePage: FC = () => {
             <>
               {knowledgeType === "knowledgeBase" && (
                 <Form.Item
-                  label="标签"
+                  label={t("knowledge.tags")}
                   name="tags"
                   style={{ marginBottom: 0 }}
                   initialValue={ALL_TAGS}
                 >
                   <Select
                     className="ghost-custom-border !w-[260px]"
-                    options={tags.map((tag) => ({ label: tag, value: tag }))}
-                    placeholder="请选择知识库标签"
+                    options={tags.map((tag) => ({
+                      label: tag === ALL_TAGS ? t("knowledge.allTags") : tag,
+                      value: tag,
+                    }))}
+                    placeholder={t("knowledge.selectTag")}
                     allowClear
                     variant="borderless"
                     onChange={() => {
@@ -609,15 +604,13 @@ const KnowledgePage: FC = () => {
             <Select
               className="ghost-custom-border !w-[100px]"
               options={[
-                { key: "knowledgeBase", value: "知识库" },
-                { key: "knowledge", value: "知识" },
+                { key: "knowledgeBase", value: t("layout.knowledgeBase") },
+                { key: "knowledge", value: t("knowledge.knowledge") },
               ].map(({ key, value }) => ({ label: value, value: key }))}
               variant="borderless"
               onChange={(key) => {
-                // 切换类型时清空搜索框和标签
                 form.resetFields(["keyword", "tags"]);
                 initData();
-                // 重置标签为默认值
                 form.setFieldsValue({ tags: ALL_TAGS });
                 setKnowledgeType(key);
               }}
@@ -630,14 +623,16 @@ const KnowledgePage: FC = () => {
         rowKey={
           knowledgeType === "knowledgeBase" ? "dataset_id" : "document_id"
         }
-        columns={knowledgeType === "knowledgeBase" ? columns : knowledgeColumns}
+        columns={
+          (knowledgeType === "knowledgeBase" ? columns : knowledgeColumns) as ColumnsType<any>
+        }
         loading={loading}
         dataSource={dataSource}
         expandable={{ showExpandColumn: false }}
         pagination={{
           ...pagination,
           showSizeChanger: true,
-          showTotal: (total: number) => `共 ${total} 条`,
+          showTotal: (total: number) => t("common.totalItems", { total }),
         }}
         onChange={onTableChange}
         scroll={{

@@ -1,6 +1,7 @@
 import { Avatar, Button, Divider, Flex, message, Spin, Tooltip } from "antd";
 import { trim } from "lodash";
 import { useEffect, useReducer } from "react";
+import { useTranslation } from "react-i18next";
 
 import "./index.scss";
 import {
@@ -26,27 +27,23 @@ const BotAvatarIcon = new URL(
   import.meta.url,
 ).href;
 
-// ==================== 类型定义 ====================
 interface FeedbackState {
-  showModal: boolean; // 反馈弹窗显示状态
-  isSubmitting: boolean; // 提交中状态，防止重复提交
-  localFeedbackType: string | undefined; // 本地反馈类型，用于立即更新UI
-  targetHistoryId: string | undefined; // 当前操作的目标 history_id
+  showModal: boolean;
+  isSubmitting: boolean;
+  localFeedbackType: string | undefined;
+  targetHistoryId: string | undefined;
 }
 
 type FeedbackAction =
-  | { type: "OPEN_MODAL"; historyId: string } // 打开反馈弹窗
-  | { type: "CLOSE_MODAL" } // 关闭反馈弹窗
-  | { type: "SUBMIT_START" } // 开始提交
-  | { type: "SUBMIT_SUCCESS"; feedbackType: string } // 提交成功
-  | { type: "SUBMIT_FAIL" } // 提交失败
-  | { type: "SYNC_FROM_SERVER"; feedbackType: string | undefined }; // 同步服务器状态
+  | { type: "OPEN_MODAL"; historyId: string }
+  | { type: "CLOSE_MODAL" }
+  | { type: "SUBMIT_START" }
+  | { type: "SUBMIT_SUCCESS"; feedbackType: string }
+  | { type: "SUBMIT_FAIL" }
+  | { type: "SYNC_FROM_SERVER"; feedbackType: string | undefined };
 
 // ==================== Reducer ====================
-/**
- * 反馈状态管理 Reducer
- * 集中管理所有反馈相关的状态转换逻辑
- */
+
 function feedbackReducer(
   state: FeedbackState,
   action: FeedbackAction,
@@ -100,6 +97,7 @@ function feedbackReducer(
 }
 
 const AssistantMessage = (props: any) => {
+  const { t } = useTranslation();
   const {
     item,
     index,
@@ -113,7 +111,6 @@ const AssistantMessage = (props: any) => {
     onPreferenceSelect,
     isLatestDualAnswer,
   } = props;
-  // ==================== 状态管理（使用 useReducer） ====================
   const [feedbackState, dispatch] = useReducer(feedbackReducer, {
     showModal: false,
     isSubmitting: false,
@@ -121,14 +118,12 @@ const AssistantMessage = (props: any) => {
     targetHistoryId: undefined,
   });
 
-  // 判断是否已经反馈过（点赞或点踩）
   const hasFeedback =
     feedbackState.localFeedbackType ===
       FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike ||
     feedbackState.localFeedbackType ===
       FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike;
 
-  // 监听服务器返回的 feed_back，同步更新本地状态（用于刷新页面或切换会话后恢复状态）
   useEffect(() => {
     dispatch({ type: "SYNC_FROM_SERVER", feedbackType: item?.feed_back });
   }, [item?.feed_back]);
@@ -137,7 +132,7 @@ const AssistantMessage = (props: any) => {
     return (
       <div className="chat-assistant-msg-chat-loading">
         <Spin size="small" />
-        <span>{"正在生成回答，请稍候..."}</span>
+        <span>{t("chat.generatingAnswer")}</span>
       </div>
     );
   }
@@ -188,7 +183,7 @@ const AssistantMessage = (props: any) => {
                 className="knowledgeName"
                 onClick={() => {
                   if (source?.dataset_id === "default") {
-                    message.error("临时文件不支持跳转知识库查看");
+                    message.error(t("chat.tempFileNotSupportJump"));
                     return;
                   }
                   const url = `/appplatform/lib/knowledge/knowledge/${source.dataset_id}/${source.document_id}?group_name=${source.group_name}&segement_id=${source.segement_id}&number=${source.segment_number}&from=chat`;
@@ -204,19 +199,12 @@ const AssistantMessage = (props: any) => {
     );
   }
 
-  // ==================== 工具函数 ====================
-  /**
-   * 创建更新后的消息对象（不可变更新，避免直接修改props）
-   * @param feedbackType 反馈类型（点赞/点踩）
-   * @param targetHistoryId 目标消息的history_id（用于多回答模式）
-   * @returns 更新后的新对象
-   */
+  
   const createUpdatedItem = (
     feedbackType: FeedBackChatHistoryRequestTypeEnum,
     targetHistoryId?: string,
   ) => {
     if (targetHistoryId && item.answers) {
-      // 多回答模式：更新对应答案的 feed_back
       const updatedAnswers = item.answers.map((ans: any) =>
         ans.history_id === targetHistoryId
           ? { ...ans, feed_back: feedbackType }
@@ -224,33 +212,24 @@ const AssistantMessage = (props: any) => {
       );
       return { ...item, answers: updatedAnswers };
     }
-    // 单回答模式：更新顶层的 feed_back
     return { ...item, feed_back: feedbackType };
   };
 
-  // ==================== 反馈相关函数 ====================
-  /**
-   * 处理点赞操作
-   * @param type 反馈类型
-   * @param historyId 可选，用于多回答模式指定具体答案
-   */
+  
   function onFeedBack(
     type: FeedBackChatHistoryRequestTypeEnum,
     historyId?: string,
   ) {
-    // 1. 前端拦截：已反馈过的不允许再次操作
     if (hasFeedback) {
       return;
     }
 
-    // 2. 获取目标 history_id
     const targetHistoryId = historyId || item.history_id;
     if (!targetHistoryId) {
-      message.error("history_id 不存在，无法提交反馈");
+      message.error(t("chat.historyIdMissingFeedback"));
       return;
     }
 
-    // 3. 双回复模式需检查对应答案的反馈状态
     let currentFeedBack: string | undefined;
     if (historyId && item.answers) {
       const answer = item.answers.find(
@@ -261,7 +240,6 @@ const AssistantMessage = (props: any) => {
       currentFeedBack = item.feed_back;
     }
 
-    // 如果已经有反馈状态（点赞或点踩），不允许修改
     if (
       currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike ||
       currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
@@ -271,31 +249,24 @@ const AssistantMessage = (props: any) => {
 
     dispatch({ type: "SUBMIT_START" });
 
-    // 4. 调用后端 API 提交反馈
     ChatServiceApi()
       .conversationServiceFeedBackChatHistory({
         feedBackChatHistoryRequest: { history_id: targetHistoryId, type },
       })
       .then(() => {
-        // 5. 更新父组件状态（不可变更新）
         const updatedItem = createUpdatedItem(type, historyId);
         updateMessage(updatedItem);
 
-        // 6. 提交成功，立即更新本地状态让图标样式即时响应
         dispatch({ type: "SUBMIT_SUCCESS", feedbackType: type });
       })
       .catch(() => {
-        message.error("反馈失败，请重试");
+        message.error(t("chat.feedbackFailedRetry"));
         dispatch({ type: "SUBMIT_FAIL" });
       });
   }
 
-  /**
-   * 处理点踩按钮点击（显示反馈弹窗）
-   * @param historyId 可选，用于多回答模式指定具体答案
-   */
+  
   function handleDislikeClick(historyId?: string) {
-    // 1. 双回复模式需检查对应答案的反馈状态
     let currentFeedBack: string | undefined;
     if (historyId && item.answers) {
       const answer = item.answers.find(
@@ -306,7 +277,6 @@ const AssistantMessage = (props: any) => {
       currentFeedBack = item.feed_back;
     }
 
-    // 如果已经有反馈状态（点赞或点踩），不允许修改
     if (
       currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike ||
       currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
@@ -314,40 +284,30 @@ const AssistantMessage = (props: any) => {
       return;
     }
 
-    // 2. 获取目标 history_id
     const targetHistoryId = historyId || item.history_id;
     if (!targetHistoryId) {
-      message.error("history_id 不存在，无法提交反馈");
+      message.error(t("chat.historyIdMissingFeedback"));
       return;
     }
 
-    // 3. 打开反馈弹窗并保存 historyId
     dispatch({ type: "OPEN_MODAL", historyId: targetHistoryId });
   }
 
-  /**
-   * 处理点踩反馈提交（带原因和期望答案）
-   * @param _reasons 不满意的原因列表
-   * @param _comment 期望的答案
-   */
+  
   function handleFeedbackSubmit(_reasons: string[], _comment: string) {
-    // 1. 获取目标 history_id
     const targetHistoryId = feedbackState.targetHistoryId || item.history_id;
     if (!targetHistoryId) {
-      message.error("history_id 不存在，无法提交反馈");
+      message.error(t("chat.historyIdMissingFeedback"));
       dispatch({ type: "CLOSE_MODAL" });
       return;
     }
 
-    // 2. 防止重复提交
     if (feedbackState.isSubmitting) {
       return;
     }
 
-    // 3. 开始提交
     dispatch({ type: "SUBMIT_START" });
 
-    // 4. 调用后端 API 提交点踩反馈
     ChatServiceApi()
       .conversationServiceFeedBackChatHistory({
         feedBackChatHistoryRequest: {
@@ -358,22 +318,20 @@ const AssistantMessage = (props: any) => {
         } as any,
       })
       .then(() => {
-        // 5. 更新父组件状态（不可变更新）
         const updatedItem = createUpdatedItem(
           FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike,
           item.answers ? targetHistoryId : undefined,
         );
         updateMessage(updatedItem);
 
-        // 6. 提交成功，更新状态并关闭弹窗
         dispatch({
           type: "SUBMIT_SUCCESS",
           feedbackType: FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike,
         });
-        message.success("感谢您的反馈");
+        message.success(t("chat.thanksFeedback"));
       })
       .catch(() => {
-        message.error("反馈提交失败，请重试");
+        message.error(t("chat.feedbackSubmitFailedRetry"));
         dispatch({ type: "SUBMIT_FAIL" });
       });
   }
@@ -400,7 +358,6 @@ const AssistantMessage = (props: any) => {
       .then(() => {
         item.answer_preference = preference;
         item.selected_answer_index = selectedIndex;
-        // 将选中回答的内容复制到顶层字段，以便切换到单回复布局时能正确显示
         if (selectedAnswer) {
           item.delta = selectedAnswer.content || "";
           item.reasoning_content = selectedAnswer.reasoning_content || "";
@@ -409,15 +366,13 @@ const AssistantMessage = (props: any) => {
           item.thinking_duration_s = selectedAnswer.thinking_duration_s;
         }
         updateMessage(item);
-        // 回答偏好选择后，更新模型选择并提示（前端处理，不调用后端）
         onPreferenceSelect?.(preference, sessionId);
       })
       .catch(() => {
-        message.error("反馈失败，请重试");
+        message.error(t("chat.feedbackFailedRetry"));
       });
   }
 
-  // 为单个回答渲染知识库来源（用于多回答模式）
   function renderAnswerKnowledgeBase(answerIndex: number) {
     const answer = item.answers?.[answerIndex];
     if (!answer) {
@@ -442,7 +397,7 @@ const AssistantMessage = (props: any) => {
                 className="knowledgeName"
                 onClick={() => {
                   if (source?.dataset_id === "default") {
-                    message.error("临时文件不支持跳转知识库查看");
+                    message.error(t("chat.tempFileNotSupportJump"));
                     return;
                   }
                   const url = `/appplatform/lib/knowledge/knowledge/${source.dataset_id}/${source.document_id}?group_name=${source.group_name}&segement_id=${source.segement_id}&number=${source.segment_number}&from=chat`;
@@ -458,15 +413,12 @@ const AssistantMessage = (props: any) => {
     );
   }
 
-  // 为单个回答渲染底部工具栏（用于多回答模式）
-  // showFullToolbar: 是否显示完整工具栏（包括重新生成、点赞等），false则只显示复制按钮
   function renderAnswerFooter(answerIndex: number, showFullToolbar = false) {
     const answer = item.answers?.[answerIndex];
     if (!answer) {
       return null;
     }
 
-    // 使用答案的 history_id 和 feed_back
     const answerHistoryId = answer.history_id;
     const answerFeedBack = answer.feed_back || item.feed_back;
 
@@ -478,18 +430,18 @@ const AssistantMessage = (props: any) => {
         />
         <div className="chat-assistant-msg-tool-chat-toolbar">
           <div>
-            <Tooltip title={"复制"}>
+            <Tooltip title={t("chat.copy")}>
               <Button
                 className="tool-btn"
                 icon={<CopyOutlined />}
                 onClick={() => {
                   navigator.clipboard.writeText(answer.content.trim());
-                  message.success("复制成功");
+                  message.success(t("chat.copySuccess"));
                 }}
               />
             </Tooltip>
             {showFullToolbar && index === length - 1 && (
-              <Tooltip title={"重新生成"}>
+              <Tooltip title={t("chat.regenerate")}>
                 <Button
                   className="tool-btn"
                   icon={<ReloadOutlined />}
@@ -573,25 +525,24 @@ const AssistantMessage = (props: any) => {
     );
   }
 
-  // 为单回答模式渲染底部工具栏
   function renderFooter() {
     return (
       <>
         <Divider className="chat-assistant-msg-tool-divider" />
         <div className="chat-assistant-msg-tool-chat-toolbar">
           <div>
-            <Tooltip title={"复制"}>
+            <Tooltip title={t("chat.copy")}>
               <Button
                 className="tool-btn"
                 icon={<CopyOutlined />}
                 onClick={() => {
                   navigator.clipboard.writeText(item.delta.trim());
-                  message.success("复制成功");
+                  message.success(t("chat.copySuccess"));
                 }}
               />
             </Tooltip>
             {index === length - 1 && (
-              <Tooltip title={"重新生成"}>
+              <Tooltip title={t("chat.regenerate")}>
                 <Button
                   className="tool-btn"
                   icon={<ReloadOutlined />}
@@ -679,7 +630,7 @@ const AssistantMessage = (props: any) => {
     ) {
       return (
         <Button className="stop-btn" onClick={stopGeneration}>
-          {"停止生成"}
+          {t("chat.stopGenerate")}
         </Button>
       );
     }
@@ -695,7 +646,7 @@ const AssistantMessage = (props: any) => {
             style={{ marginLeft: 10 }}
             onClick={regenerate}
           >
-            {"重新生成"}
+            {t("chat.regenerate")}
           </Button>
         </>
       );
@@ -703,11 +654,9 @@ const AssistantMessage = (props: any) => {
     return null;
   }
 
-  // 检查是否有多个回答
   const hasMultipleAnswers =
     item.answers && Array.isArray(item.answers) && item.answers.length >= 2;
 
-  // 检查多回答模式下是否有内容
   const hasMultipleAnswersContent =
     hasMultipleAnswers &&
     item.answers.some(
@@ -717,21 +666,18 @@ const AssistantMessage = (props: any) => {
           trim(answer.reasoning_content)?.length > 0),
     );
 
-  // 判断是否应该显示 loading
   const shouldShowLoading =
     !(item.delta && trim(item.delta)?.length > 0) &&
     !(item.reasoning_content && trim(item.reasoning_content)?.length > 0) &&
-    !hasMultipleAnswersContent && // 🔥 使用新的判断条件
+    !hasMultipleAnswersContent &&
     item.finish_reason ===
       ChatConversationsResponseFinishReasonEnum.FinishReasonUnspecified;
 
-  // 判断是否应该使用多问答样式：有多个回答且用户还未选择
   const shouldUseMultiAnswerStyle =
     hasMultipleAnswers &&
     (item.selected_answer_index === undefined ||
       item.selected_answer_index === null);
 
-  // 渲染双回复布局
   if (shouldUseMultiAnswerStyle) {
     return (
       <div className="chat-assistant-msg-multi-answer-wrap">
@@ -744,13 +690,12 @@ const AssistantMessage = (props: any) => {
           <div className="chat-bot">
             {shouldShowLoading
               ? renderLoading()
-              : // 多回答模式：只渲染 thinking，不渲染 delta
-                renderText({ ...item, delta: "" })}
+              : renderText({ ...item, delta: "" })}
             {item.finish_reason ===
               ChatConversationsResponseFinishReasonEnum.FinishReasonUnknown &&
               renderError()}
 
-            {/* 显示多回答 - 在流式返回时也显示 */}
+            {}
             <MultiAnswerDisplay
               key={item.history_id || item.id || `multi-answer-${index}`}
               answers={item.answers}
@@ -760,7 +705,6 @@ const AssistantMessage = (props: any) => {
                 reasoningContent?: string,
                 answerIndex?: number,
               ) => {
-                // 为每个回答生成唯一的 key
                 const answer = item.answers[answerIndex || 0];
                 const uniqueKey = answer?.history_id || `answer_${answerIndex}`;
 
@@ -769,10 +713,10 @@ const AssistantMessage = (props: any) => {
                     ...item,
                     delta: content,
                     reasoning_content: reasoningContent,
-                    sources: answer?.sources || [], // 使用每个回答独立的 sources
-                    thinking_duration_s: answer?.thinking_duration_s, // 使用每个回答独立的思考时间
+                    sources: answer?.sources || [],
+                    thinking_duration_s: answer?.thinking_duration_s,
                   },
-                  uniqueKey, // 传入唯一的 key
+                  uniqueKey,
                 );
               }}
               onSelectAnswer={onSelectAnswer}
@@ -812,7 +756,6 @@ const AssistantMessage = (props: any) => {
     );
   }
 
-  // 渲染单回复布局
   return (
     <div className="chat-assistant-msg-single-answer-wrap">
       <Avatar
@@ -831,13 +774,13 @@ const AssistantMessage = (props: any) => {
             ChatConversationsResponseFinishReasonEnum.FinishReasonUnknown &&
             renderError()}
 
-          {/* 知识库来源 - 单回答模式 */}
+          {}
           {item.finish_reason ===
             ChatConversationsResponseFinishReasonEnum.FinishReasonStop &&
             !item.onboardingInfo &&
             renderKnowledgeBase()}
 
-          {/* 底部工具栏 - 单回答模式 */}
+          {}
           {item.finish_reason ===
             ChatConversationsResponseFinishReasonEnum.FinishReasonStop &&
             !item.onboardingInfo &&

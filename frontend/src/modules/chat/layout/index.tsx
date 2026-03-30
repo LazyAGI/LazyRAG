@@ -2,8 +2,6 @@ import { ReactNode } from "react";
 import { ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 
-import AppRouter from "../router";
-
 const Layout = ({
   token = {},
   children,
@@ -13,7 +11,7 @@ const Layout = ({
 }) => {
   return (
     <ConfigProvider theme={{ token }} locale={zhCN}>
-      {children != null ? children : <AppRouter />}
+      {children}
     </ConfigProvider>
   );
 };

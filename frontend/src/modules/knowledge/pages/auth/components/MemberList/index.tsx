@@ -1,22 +1,26 @@
 import { Button, Spin, message, Modal, Select, Flex, Input } from "antd";
+import type { SelectProps } from "antd";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import moment from "moment";
-import {
-  Dataset,
-  DatasetAclEnum,
-  DatasetMember,
-  Role,
-} from "@/api/generated/knowledge-client";
+import { Dataset, DatasetAclEnum } from "@/api/generated/knowledge-client";
+import type {
+  DatasetMember as CoreDatasetMember,
+  DatasetRole as CoreDatasetRole,
+} from "@/api/generated/core-client";
 import { useNavigate } from "react-router-dom";
 
-import { MemberType } from "@/modules/knowledge/constants/common";
+import {
+  MemberType,
+  ROLE_TITLE_MAP,
+  ROLE_TYPE_INFO,
+} from "@/modules/knowledge/constants/common";
 import AddUserModal, { IAddUserModalRef } from "../AddUserModal";
 import {
   KnowledgeBaseServiceApi,
   MemberServiceApi,
 } from "@/modules/knowledge/utils/request";
 import { ListPageTable } from "@/components/ui";
-const { Option } = Select;
 const { confirm } = Modal;
 const { Search } = Input;
 
@@ -25,6 +29,8 @@ interface IProps {
   detail: Dataset | undefined;
 }
 
+type MemberRecord = CoreDatasetMember & Member;
+
 interface Member {
   id: string;
   type: MemberType;
@@ -32,8 +38,9 @@ interface Member {
 }
 
 const MemberList = (props: IProps) => {
+  const { t } = useTranslation();
   const [searchValue, setSearchValue] = useState("");
-  const [dataSource, setDataSource] = useState<(DatasetMember & Member)[]>([]);
+  const [dataSource, setDataSource] = useState<MemberRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
     current: 1,
@@ -41,6 +48,7 @@ const MemberList = (props: IProps) => {
     showSizeChanger: false,
   });
   const [currentDetail, setCurrentDetail] = useState<Dataset>();
+  const [updatingMemberId, setUpdatingMemberId] = useState<string>();
 
   const addUserModalRef = useRef<IAddUserModalRef>();
 
@@ -49,8 +57,13 @@ const MemberList = (props: IProps) => {
   const { memberType, detail } = props;
 
   const isGroup = memberType === MemberType.GROUP;
+  const roleOptions: SelectProps["options"] = ROLE_TYPE_INFO.map((item) => ({
+    value: item.id,
+    label: item.title,
+    // disabled: item.id === RoleType.OWNER,
+  }));
 
-  const showDataSource = dataSource.filter((item: DatasetMember & Member) => {
+  const showDataSource = dataSource.filter((item: MemberRecord) => {
     return (
       !searchValue ||
       item?.display_name?.toLowerCase().includes(searchValue?.toLowerCase())
@@ -59,35 +72,51 @@ const MemberList = (props: IProps) => {
 
   const columns = [
     {
-      title: isGroup ? "用户组名称" : "用户名称",
+      title: isGroup ? t("knowledge.groupName") : t("knowledge.userName"),
       dataIndex: "display_name",
     },
     {
-      title: "角色",
+      title: t("knowledge.role"),
       dataIndex: "role",
       width: 156,
-      render: (role: Role) => {
+      render: (role: CoreDatasetRole, record: MemberRecord) => {
+        const canEditRole =
+          currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) &&
+          !isCreator(record) &&
+          !isGroup;
+
         return (
-          <Select value={role?.display_name} disabled style={{ width: "100%" }}>
-            <Option key={role.role} value={role.display_name}>
-              {role.display_name}
-            </Option>
-          </Select>
+          <Select
+            value={role?.role}
+            disabled={!canEditRole}
+            loading={updatingMemberId === record.id}
+            options={
+              canEditRole
+                ? roleOptions
+                : [
+                    {
+                      value: role?.role,
+                      label: ROLE_TITLE_MAP[role?.role || ""] || role?.display_name || role?.role,
+                    },
+                  ]
+            }
+            style={{ width: "100%" }}
+            onChange={(value) => handleUpdateRole(record, value as string)}
+          />
         );
       },
     },
     // TODO remove date this version.
     // {
-    //   title: '更新日期',
     //   dataIndex: 'create_time',
     //   width: 200,
     //   render: (text: string) => (moment(text).isValid() ? moment(text).format('YYYY-MM-DD HH:mm:ss') : ''),
     // },
     {
-      title: "操作",
+      title: t("common.actions"),
       key: "action",
       width: 102,
-      render: (record: DatasetMember & Member) => {
+      render: (record: MemberRecord) => {
         return (
           currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) && (
             <Button
@@ -96,7 +125,7 @@ const MemberList = (props: IProps) => {
               onClick={() => handleDelete(record)}
               style={{ padding: 0, minWidth: "auto" }}
             >
-              删除
+              {t("common.delete")}
             </Button>
           )
         );
@@ -133,7 +162,7 @@ const MemberList = (props: IProps) => {
       })
       .then((res) => {
         const list = (res.data.dataset_members || [])
-          .map((item: DatasetMember) => {
+          .map((item: CoreDatasetMember) => {
             const groupUser = !!item.group_id;
             return {
               ...item,
@@ -158,20 +187,56 @@ const MemberList = (props: IProps) => {
       });
   }
 
-  function isCreator(record: DatasetMember & Member) {
-    return record.role.role === "dataset_owner";
+  function isCreator(record: MemberRecord) {
+    return !!currentDetail?.creator && record.user === currentDetail.creator;
   }
 
-  function handleDelete(record: DatasetMember & Member) {
-    // 检查是否是创建者，如果是则不允许删除
+  function handleUpdateRole(record: MemberRecord, nextRole: string) {
+    if (!record.role || record.role.role === nextRole) {
+      return;
+    }
+
+    setUpdatingMemberId(record.id);
+    MemberServiceApi()
+      .datasetMemberServiceUpdateDatasetMember({
+        dataset: record.dataset_id || "",
+        userId: record.id,
+        datasetMember: {
+          role: {
+            role: nextRole,
+            display_name: ROLE_TITLE_MAP[nextRole] || nextRole,
+          },
+        },
+        updateMask: "role",
+      })
+      .then(() => {
+        message.success(t("common.saveSuccess"));
+        fetchDetail();
+      })
+      .catch((err) => {
+        console.error("Update knowledge base member role error: ", err);
+      })
+      .finally(() => {
+        setUpdatingMemberId(undefined);
+      });
+  }
+
+  function handleDelete(record: MemberRecord) {
     if (isCreator(record)) {
-      message.error("无法删除创建者权限");
+      message.error(t("knowledge.deleteOwnerPermissionDenied"));
       return;
     }
 
     confirm({
-      title: "提示",
-      content: `确定删除${isGroup ? "用户组" : "用户"} ${record.display_name} 的知识库 ${record.role.display_name} 相应权限？`,
+      title: t("knowledge.deletePermissionTitle"),
+      content: t("knowledge.deletePermissionContent", {
+        type: isGroup ? t("knowledge.groups") : t("knowledge.users"),
+        name: record.display_name,
+        role:
+          ROLE_TITLE_MAP[record.role?.role || ""] ||
+          record.role?.display_name ||
+          "-",
+      }),
       centered: true,
       okType: "danger",
       onOk() {
@@ -179,11 +244,15 @@ const MemberList = (props: IProps) => {
           MemberServiceApi()
             .datasetMemberServiceDeleteDatasetMember({
               dataset: record.dataset_id || "",
-              member: `type/${isGroup ? "group" : "user"}/id/${record.id}/role/${record.role.role}`,
+              userId: record.id,
             })
             .then(() => {
               resolve("");
-              message.success(`删除知识库${isGroup ? "用户组" : "用户"}成功`);
+              message.success(
+                isGroup
+                  ? t("knowledge.deleteGroupSuccess")
+                  : t("knowledge.deleteUserSuccess"),
+              );
               fetchDetail();
             })
             .catch((err) => {
@@ -203,8 +272,9 @@ const MemberList = (props: IProps) => {
     KnowledgeBaseServiceApi()
       .datasetServiceGetDataset({ dataset: currentDetail?.dataset_id || "" })
       .then((res) => {
-        setCurrentDetail(res.data);
-        getTableData(res.data);
+        const nextDetail = res.data as unknown as Dataset;
+        setCurrentDetail(nextDetail);
+        getTableData(nextDetail);
       })
       .catch((err) => {
         if (err?.response?.data?.code === 10104) {
@@ -227,7 +297,7 @@ const MemberList = (props: IProps) => {
         }}
       >
         <Search
-          placeholder={isGroup ? "用户组名称" : "用户名称"}
+          placeholder={isGroup ? t("knowledge.groupName") : t("knowledge.userName")}
           onSearch={onSearch}
           style={{ width: 300 }}
           allowClear
@@ -242,12 +312,12 @@ const MemberList = (props: IProps) => {
               })
             }
           >
-            {`添加${isGroup ? "用户组" : "用户"}`}
+            {isGroup ? t("knowledge.addGroup") : t("knowledge.addUser")}
           </Button>
         )}
       </Flex>
       <ListPageTable
-        columns={columns}
+        columns={columns as any}
         dataSource={showDataSource}
         rowKey="user_id"
         pagination={pagination}

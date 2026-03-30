@@ -1,5 +1,6 @@
-import { forwardRef, useImperativeHandle, useState } from "react";
+import { forwardRef, useImperativeHandle, useState, useEffect, useMemo } from "react";
 import { Modal, Button, Input, Divider, Form, message, Tag, Tabs } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   DeleteOutlined,
   EditOutlined,
@@ -7,8 +8,6 @@ import {
   PushpinFilled,
   PushpinOutlined,
 } from "@ant-design/icons";
-import { useEffect } from "react";
-
 import { PromptServiceApi } from "@/modules/chat/utils/request";
 import "./index.scss";
 import {
@@ -31,35 +30,22 @@ export interface PromptImperativeProps {
 
 const { TextArea } = Input;
 
-// 预置的提示词模板（置顶且不可编辑）
-const PRESET_PROMPTS: Array<
-  Pick<Prompt, "id" | "display_name" | "content"> & { isPreset: boolean }
-> = [
-  {
-    id: "preset-1",
-    display_name: "通用问答助手",
-    content:
-      "请根据我提供的文档内容，简洁明了地回答我的问题。如果文档中没有相关信息，请直接告知。",
-    isPreset: true,
-  },
-  {
-    id: "preset-2",
-    display_name: "文档摘要提取",
-    content:
-      "请帮我总结一下这份文档的核心内容，并列出其中的关键要点。",
-    isPreset: true,
-  },
-  {
-    id: "preset-3",
-    display_name: "结构化信息提取",
-    content:
-      "请从文档中提取出所有的日期、参与方和主要结论，并以表格的形式呈现。",
-    isPreset: true,
-  },
-];
+const PRESET_PROMPT_IDS = ["preset-1", "preset-2", "preset-3"] as const;
 
 const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
   ({ onSelectPrompt }, ref) => {
+    const { t } = useTranslation();
+
+    const presetPrompts = useMemo(
+      () =>
+        PRESET_PROMPT_IDS.map((id, index) => ({
+          id,
+          display_name: t(`chat.presetPrompt${index + 1}Name`),
+          content: t(`chat.presetPrompt${index + 1}Content`),
+          isPreset: true as const,
+        })),
+      [t],
+    );
     const [visible, setVisible] = useState(false);
     const [addModalVisible, setAddModalVisible] = useState(false);
     const [isEdit, setIsEdit] = useState(false);
@@ -87,7 +73,6 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
 
     function onOpen() {
       setVisible(true);
-      // 每次打开弹窗时重新拉取列表，保证图一/图二等多处入口看到的数据一致
       fetchPromptList();
     }
 
@@ -105,7 +90,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
       PromptServiceApi()
         .promptServiceDeletePrompt({ prompt: id })
         .then(() => {
-          message.success("删除提示词成功");
+          message.success(t("chat.deletePromptSuccess"));
           fetchPromptList();
         });
     }
@@ -133,7 +118,11 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
           ? PromptServiceApi().promptServiceUpdatePrompt
           : PromptServiceApi().promptServiceCreatePrompt;
         API(data as any).then(() => {
-          message.success(`${isEdit ? "编辑" : "新建"}提示词成功`);
+          message.success(
+            t("chat.createPromptSuccess", {
+              action: isEdit ? t("common.edit") : t("chat.newTemplate"),
+            }),
+          );
           onAddModalClose();
           fetchPromptList();
         });
@@ -196,12 +185,11 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
       return null;
     }
 
-    // 自定义模版 Tab 内容
     const renderCustomTab = () => (
       <div className="prompt-tab-content">
         <div className="prompt-add-card" onClick={() => showAddPromptModal()}>
           <PlusOutlined className="prompt-add-icon" />
-          <span className="prompt-add-text">新建模版</span>
+          <span className="prompt-add-text">{t("chat.newTemplate")}</span>
         </div>
         <div className="prompt-list">
           {promptList.map((prompt, index) => (
@@ -228,7 +216,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
                     onClick={() => selectPrompt(prompt.content)}
                     style={{ padding: 0 }}
                   >
-                    使用
+                    {t("chat.use")}
                   </Button>
                 </div>
               </div>
@@ -241,15 +229,14 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
       </div>
     );
 
-    // 预置模版 Tab 内容
     const renderPresetTab = () => (
       <div className="prompt-tab-content">
         <div className="prompt-list">
-          {PRESET_PROMPTS.map((prompt) => (
+          {presetPrompts.map((prompt) => (
             <div key={prompt.id} className="prompt-item">
               <div className="prompt-title">
                 <div className="prompt-name">
-                  <Tag color="geekblue">预置</Tag>
+                  <Tag color="geekblue">{t("chat.preset")}</Tag>
                   <span className="prompt-name-text">
                     {prompt.display_name}
                   </span>
@@ -260,7 +247,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
                     onClick={() => selectPrompt(prompt.content)}
                     style={{ padding: 0 }}
                   >
-                    使用
+                    {t("chat.use")}
                   </Button>
                 </div>
               </div>
@@ -275,12 +262,12 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
     const tabItems = [
       {
         key: "custom",
-        label: "自定义模版",
+        label: t("chat.customTemplate"),
         children: renderCustomTab(),
       },
       {
         key: "preset",
-        label: "预置模版",
+        label: t("chat.presetTemplate"),
         children: renderPresetTab(),
       },
     ];
@@ -288,7 +275,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
     return (
       <>
         <Modal
-          title="提示词模版"
+          title={t("chat.promptTemplateTitle")}
           className="prompt-modal"
           width={624}
           open={visible}
@@ -297,7 +284,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
           onCancel={() => setVisible(false)}
           footer={[
             <Button key="cancel" onClick={() => setVisible(false)}>
-              取消
+              {t("common.cancel")}
             </Button>,
           ]}
         >
@@ -310,33 +297,33 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
           </div>
         </Modal>
         <Modal
-          title={`${isEdit ? "编辑" : "新增"} 提示词模板`}
+          title={isEdit ? t("chat.editPromptTemplate") : t("chat.addPromptTemplate")}
           open={addModalVisible}
           maskClosable={false}
           closable
-          okText="保存"
+          okText={t("common.save")}
           onCancel={onAddModalClose}
           onOk={onAddModalSave}
         >
           <Form form={form}>
             <Form.Item
               name="display_name"
-              label={"标题"}
-              rules={[{ required: true, message: "请输入提示词标题" }]}
+              label={t("chat.promptTitle")}
+              rules={[{ required: true, message: t("chat.enterPromptTitle") }]}
             >
               <Input
-                placeholder={"请输入提示词标题"}
+                placeholder={t("chat.enterPromptTitle")}
                 showCount
                 maxLength={100}
               />
             </Form.Item>
             <Form.Item
               name="content"
-              label={"内容"}
-              rules={[{ required: true, message: "请输入提示词内容" }]}
+              label={t("chat.promptContent")}
+              rules={[{ required: true, message: t("chat.enterPromptContent") }]}
             >
               <TextArea
-                placeholder={"请输入提示词内容"}
+                placeholder={t("chat.enterPromptContent")}
                 rows={5}
                 showCount
                 maxLength={800}

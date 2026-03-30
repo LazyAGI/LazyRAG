@@ -1,7 +1,6 @@
 import { isObject } from "lodash";
 
 class UIUtils {
-  // 格式化json字符串
   public static jsonParser = (content: unknown, defaultValue = {}) => {
     try {
       if (typeof content === "string") {

@@ -14,18 +14,14 @@ export function useAutoImageFigure() {
         return;
       }
 
-      // 创建 figure
       const figure = document.createElement("figure");
       figure.className = "mdx-figure";
 
-      // 创建 caption
       const caption = document.createElement("figcaption");
       caption.innerText = alt;
 
-      // 标记避免重复处理
       img.setAttribute("data-has-figure", "true");
 
-      // 把 figure 放到原 p 位置
       parent.insertBefore(figure, img);
       parent.removeChild(img);
 
@@ -63,7 +59,6 @@ type DiffEntry = {
 //   }, '');
 // }
 
-// 辅助：直接使用 diffChars 生成 diff 再格式化输出
 // export function markCharsFn(str1: string, str2: string): string {
 //   const diffRes = diffChars(str1, str2) as unknown as DiffEntry[];
 //   return formatDiffArray(diffRes);

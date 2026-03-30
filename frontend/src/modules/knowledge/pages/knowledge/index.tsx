@@ -1,5 +1,6 @@
 import { message, Tag, Row, Col } from "antd";
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { CopyOutlined } from "@ant-design/icons";
 import moment from "moment";
@@ -13,20 +14,26 @@ import {
   DocumentServiceApi,
   SegmentServiceApi,
   KnowledgeBaseServiceApi,
+  normalizeProxyableUrl,
 } from "@/modules/knowledge/utils/request";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
 import { DetailPageHeader } from "@/components/ui";
 import "./index.scss";
 
+type KnowledgeDetail = Doc & {
+  file_url?: string;
+  download_file_url?: string;
+};
+
 const Detail = () => {
-  const [knowledgeDetail, setKnowledgeDetail] = useState<Doc>();
+  const { t } = useTranslation();
+  const [knowledgeDetail, setKnowledgeDetail] = useState<KnowledgeDetail>();
 
   const { knowledgeBaseId = "", knowledgeId = "" } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [segmentDetail, setSegmentDetail] = useState<Segment>();
 
-  // 使用权限 store
   const {
     getDatasetDetail: getKbDetail,
     setCurrentDataset,
@@ -55,12 +62,10 @@ const Detail = () => {
       });
   }, [knowledgeBaseId, knowledgeId]);
 
-  // 获取知识库权限信息
   const getDatasetDetail = useCallback(() => {
     KnowledgeBaseServiceApi()
       .datasetServiceGetDataset({ dataset: knowledgeBaseId })
       .then((res) => {
-        // 更新权限 store
         setCurrentDataset(res.data);
       });
   }, [knowledgeBaseId, setCurrentDataset]);
@@ -70,7 +75,6 @@ const Detail = () => {
     getDatasetDetail();
 
     return () => {
-      // 组件卸载时清除权限信息
       clearDataset();
     };
   }, [getDetail, getDatasetDetail, clearDataset]);
@@ -94,13 +98,23 @@ const Detail = () => {
     getSegmentDetail();
   }, [group, segmentId, getSegmentDetail]);
 
+  const previewFile = useMemo(() => {
+    const filePath = knowledgeDetail?.file_url;
+    if (!filePath) {
+      return "";
+    }
+
+    const fileUrl = `${window.location.origin}/api/core${filePath}`;
+    return normalizeProxyableUrl(fileUrl);
+  }, [knowledgeDetail?.download_file_url, knowledgeDetail?.file_url]);
+
   return (
     <div className="knowledge-container !h-full !items-start">
       <DetailPageHeader
         breadcrumbs={[
-          { title: "知识库", href: "/appplatform/lib/knowledge/list" },
+          { title: t("layout.knowledgeBase"), href: "/appplatform/lib/knowledge/list" },
           {
-            title: getKbDetail()?.display_name || "知识库详情",
+            title: getKbDetail()?.display_name || t("knowledge.detail"),
             href: `/appplatform/lib/knowledge/detail/${getKbDetail()?.dataset_id}`,
           },
           { title: knowledgeDetail?.display_name },
@@ -131,29 +145,29 @@ const Detail = () => {
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(knowledgeId);
-                  message.success("复制成功");
+                  message.success(t("knowledge.copySuccess"));
                 } catch {
-                  message.success("复制失败，请手动复制");
+                  message.error(t("knowledge.copyFailedManual"));
                 }
               }}
             />
           </div>
         }
         extraContent={[
-          { label: "来源", value: "本地文件" },
+          { label: t("knowledge.source"), value: t("knowledge.localFile") },
           {
-            label: "创建时间",
+            label: t("knowledge.createTime"),
             value: moment(knowledgeDetail?.create_time).format(TIME_FORMAT),
           },
           {
-            label: "创建人",
+            label: t("knowledge.creator"),
             value: knowledgeDetail?.creator || "-",
           },
           {
-            label: "原始文件",
+            label: t("knowledge.originalFile"),
             value: (
               <a
-                href={knowledgeDetail?.uri}
+                href={previewFile}
                 rel="noreferrer noopener"
                 target="_blank"
                 title={knowledgeDetail?.display_name}
@@ -164,16 +178,16 @@ const Detail = () => {
             hidden: !hasWritePermission,
           },
           {
-            label: "更新时间",
+            label: t("knowledge.updateTime"),
             value: moment(knowledgeDetail?.update_time).format(TIME_FORMAT),
           },
           {
-            label: "大小",
+            label: t("knowledge.size"),
             value:
               FileUtils.formatFileSize(knowledgeDetail?.document_size) || "-",
           },
           {
-            label: "标签",
+            label: t("knowledge.tags"),
             value:
               knowledgeDetail?.tags && knowledgeDetail?.tags.length > 0
                 ? knowledgeDetail.tags.map((tag) => (
@@ -189,14 +203,14 @@ const Detail = () => {
         <Col span={15}>
           <div className="h-full overflow-hidden">
             <FileViewer
-              file={knowledgeDetail?.convert_file_uri || knowledgeDetail?.uri}
+              file={previewFile}
               fileName={knowledgeDetail?.display_name || ""}
               segment={segmentDetail}
             />
           </div>
         </Col>
         <Col span={9}>
-          <div className="h-full overflow-hidden pb-1">
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', paddingBottom: '4px' }}>
             {knowledgeDetail && (
               <KnowledgeTabs
                 knowledgeDetail={knowledgeDetail}

@@ -1,7 +1,6 @@
 import { ReactNode } from "react";
 import zhCN from "antd/locale/zh_CN";
 import { ConfigProvider } from "antd";
-import AppRouter from "../router";
 
 const Layout = ({
   token = {},
@@ -12,9 +11,7 @@ const Layout = ({
 }) => {
   return (
     <ConfigProvider theme={{ token }} locale={zhCN}>
-      <div className="micro-knowledge-page">
-        {children != null ? children : <AppRouter />}
-      </div>
+      <div className="micro-knowledge-page">{children}</div>
     </ConfigProvider>
   );
 };

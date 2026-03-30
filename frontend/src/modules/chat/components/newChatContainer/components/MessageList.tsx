@@ -34,12 +34,11 @@ const MessageList: React.FC<MessageListProps> = ({
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // 使用传入的 ref 或者本地 ref
   const contentRef = chatContentRef || scrollContainerRef;
 
   const renderUser = (item: any) => {
     return (
-      <div className="flex items-end justify-end">
+      <div className="user-message-row">
         {item.create_time && (
           <div className="chat-time">
             {dayjs(item.create_time).format("MM/DD HH:mm")}

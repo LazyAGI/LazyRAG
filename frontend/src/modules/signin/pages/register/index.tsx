@@ -6,6 +6,7 @@ import {
   passwordRules,
   usernameRules,
 } from "@/modules/signin/utils/formRules";
+import { useTranslation } from "react-i18next";
 
 interface RegisterFormValues {
   username: string;
@@ -19,6 +20,7 @@ const Register = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   const onFinish = async (values: RegisterFormValues) => {
     setLoading(true);
@@ -28,13 +30,13 @@ const Register = () => {
         password: values.password,
         confirm_password: values.confirmPassword,
         email: values.email || undefined,
-        captcha: values.captcha, // 添加验证码
+        captcha: values.captcha,
       } as any);
-      message.success("注册成功，请登录");
+      message.success(t("auth.registerSuccess"));
       navigate("/login", { state: { username: values.username } });
     } catch (error: any) {
       if (!error?.response && !error?.request) {
-        message.error(error?.message || "注册失败，请重试");
+        message.error(error?.message || t("auth.registerFailed"));
       }
     } finally {
       setLoading(false);
@@ -51,7 +53,7 @@ const Register = () => {
           textAlign: 'center',
           marginBottom: '20px'
         }}>
-          新用户注册
+          {t("auth.newUserRegister")}
         </h2>
       </div>
       <Form
@@ -64,70 +66,72 @@ const Register = () => {
       >
         <Form.Item
           name="username"
-          label="用户名"
+          label={t("auth.username")}
           rules={usernameRules}
         >
-          <Input placeholder="请输入用户名" />
+          <Input placeholder={t("auth.pleaseInputUsername")} autoComplete="username" />
         </Form.Item>
 
         <Form.Item
           name="email"
-          label="电子邮箱"
+          label={t("auth.email")}
           rules={[
-            { type: "email", message: "邮箱格式不正确" },
+            { type: "email", message: t("auth.invalidEmail") },
           ]}
         >
-          <Input placeholder="example@email.com（选填）" />
+          <Input placeholder={t("auth.pleaseInputEmail")} autoComplete="email" />
         </Form.Item>
 
         <Form.Item
           name="password"
-          label="设置密码"
+          label={t("auth.setPassword")}
           rules={passwordRules}
         >
           <Input.Password 
-            placeholder="请输入密码" 
+            placeholder={t("auth.pleaseInputPasswordSet")} 
+            autoComplete="new-password"
           />
         </Form.Item>
 
         <Form.Item
           name="confirmPassword"
-          label="确认密码"
+          label={t("auth.confirmPassword")}
           dependencies={['password']}
           rules={[
-            { required: true, message: "请再次输入密码" },
+            { required: true, message: t("auth.pleaseInputConfirmPassword") },
             ({ getFieldValue }) => ({
               validator(_, value) {
                 if (!value || getFieldValue('password') === value) {
                   return Promise.resolve();
                 }
-                return Promise.reject(new Error('两次输入的密码不一致'));
+                return Promise.reject(new Error(t("auth.passwordNotMatch")));
               },
             }),
           ]}
         >
           <Input.Password 
-            placeholder="请再次输入密码" 
+            placeholder={t("auth.pleaseInputConfirmPassword")} 
+            autoComplete="new-password"
           />
         </Form.Item>
 
         <Form.Item
           name="captcha"
-          label="验证码"
-          rules={[{ required: true, message: "请输入验证码" }]}
+          label={t("auth.captcha")}
+          rules={[{ required: true, message: t("auth.pleaseInputCaptcha") }]}
         >
           <div style={{ display: 'flex', gap: '8px' }}>
-            <Input placeholder="请输入验证码" style={{ flex: 1 }} />
-            <Button style={{ width: '120px' }}>获取验证码</Button>
+            <Input placeholder={t("auth.pleaseInputCaptcha")} style={{ flex: 1 }} />
+            <Button style={{ width: '120px' }}>{t("auth.getCaptcha")}</Button>
           </div>
         </Form.Item>
 
         <Form.Item style={{ marginTop: '16px', marginBottom: 0 }}>
           <Button type="primary" htmlType="submit" block loading={loading}>
-            立即注册
+            {t("auth.register")}
           </Button>
           <div style={{ textAlign: 'center', marginTop: '12px', color: '#86909c', fontSize: '13px' }}>
-            已有账号？ <a style={{ color: '#1677ff', fontWeight: 500 }} onClick={() => navigate("/login")}>返回登录</a>
+            {t("auth.hasAccount")} <a style={{ color: '#1677ff', fontWeight: 500 }} onClick={() => navigate("/login")}>{t("auth.backToLogin")}</a>
           </div>
         </Form.Item>
       </Form>

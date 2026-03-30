@@ -1,18 +1,13 @@
-# OpenAPI 接口生成 - 快速开始
 
-## 配置已完成 ✅
 
 您的项目已经成功配置了 OpenAPI 接口自动生成功能。
 
-## 一分钟快速开始
 
-### 1. 启动项目（自动生成接口）
 ```bash
 npm run dev
 ```
 **说明**：项目启动时会自动生成 Auth 服务的 TypeScript 接口代码
 
-### 2. 使用生成的接口
 
 ```typescript
 // 导入生成的 API 类
@@ -39,20 +34,15 @@ async function login() {
 }
 ```
 
-## 可用命令
 
 ```bash
-# 启动开发服务器（自动生成接口）
 npm run dev
 
-# 手动生成 auth 接口
 npm run gen:auth
 
-# 生成所有接口
 npm run gen:openapi
 ```
 
-## 文件位置
 
 | 类型 | 路径 | 说明 |
 |------|------|------|
@@ -61,7 +51,6 @@ npm run gen:openapi
 | 使用示例 | `src/api/auth-example.ts` | 完整的使用示例代码 |
 | 详细文档 | `scripts/openapi/README.md` | 完整配置和使用文档 |
 
-## 生成的 API 类
 
 根据您的 OpenAPI 规范，已生成以下 API 类：
 
@@ -71,7 +60,6 @@ npm run gen:openapi
 - ✅ **GroupApi** - 用户组管理接口
 - ✅ **AuthorizationApi** - 授权相关接口
 
-## 完整示例
 
 参考 `src/api/auth-example.ts` 文件，其中包含：
 
@@ -85,7 +73,6 @@ npm run gen:openapi
 - ✅ 创建用户
 - ✅ 角色列表
 
-## 下一步
 
 1. **开始使用接口**
    - 复制 `src/api/auth-example.ts` 中的代码
@@ -100,7 +87,6 @@ npm run gen:openapi
    - 修改 `scripts/openapi/generate-api.mjs` 配置
    - 运行生成命令
 
-## 常见问题
 
 **Q: 修改生成的代码会怎样？**  
 A: 不要修改生成的代码，因为下次生成时会被覆盖。如需自定义，创建包装类。

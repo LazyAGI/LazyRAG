@@ -11,6 +11,7 @@ import {
 } from "antd";
 import type { TableColumnsType } from "antd";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { createGroupApi, createUserApi } from "@/modules/signin/utils/request";
 import type {
   GroupItem,
@@ -149,17 +150,20 @@ interface GroupMemberListItem extends GroupUserItem {
   tenant_ids?: string | string[];
 }
 
-const getMemberRoleMeta = (role?: GroupMemberRole | string) => {
+const getMemberRoleMeta = (
+  role: GroupMemberRole | string | undefined,
+  t: (key: string) => string,
+) => {
   switch ((role || "").trim().toLowerCase()) {
     case GroupMemberRole.Admin:
       return {
         color: "orange",
-        label: "组管理员",
+        label: t("admin.groupAdmin"),
       };
     case GroupMemberRole.Member:
       return {
         color: "blue",
-        label: "成员",
+        label: t("admin.member"),
       };
     default:
       return {
@@ -177,28 +181,24 @@ const ManageMembersModal = ({
   onCancel,
   onSuccess,
 }: ManageMembersModalProps) => {
+  const { t } = useTranslation();
   useStyles("manage-members-modal-styles", manageMembersModalCss);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "add">(defaultViewMode);
 
-  // 数据状态
   const [allUsers, setAllUsers] = useState<UserItem[]>([]);
   const [currentMembers, setCurrentMembers] = useState<GroupMemberListItem[]>([]);
 
-  // 穿梭框左右侧选中的 key (user_id)
   const [leftSelectedKeys, setLeftSelectedKeys] = useState<string[]>([]);
   const [rightSelectedKeys, setRightSelectedKeys] = useState<string[]>([]);
 
-  // 右侧（待提交添加的）用户列表
   const [pendingAddUsers, setPendingAddUsers] = useState<UserItem[]>([]);
 
-  // 搜索关键字
   const [leftSearch, setLeftSearch] = useState("");
   const [rightSearch, setRightSearch] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
 
-  // 获取所有用户 (带 200 限制规避)
   const fetchAllUsers = useCallback(async () => {
     if (!isAdmin) return;
     try {
@@ -225,7 +225,6 @@ const ManageMembersModal = ({
     }
   }, [isAdmin]);
 
-  // 获取当前组成员
   const fetchMembers = useCallback(async () => {
     if (!group) return;
     setLoading(true);
@@ -235,13 +234,12 @@ const ManageMembersModal = ({
         await groupApi.listGroupUsersApiAuthserviceGroupGroupIdUserGet({
           groupId: group.group_id,
         });
-      console.log(res)
       const resData = res.data as any;
       const members = (resData.users || resData.data?.users || []) as GroupMemberListItem[];
       setCurrentMembers(members);
     } catch (error) {
       console.error("Failed to fetch members:", error);
-      AntdMessage.error("获取成员列表失败");
+      AntdMessage.error(t("admin.fetchMembersFailed"));
     } finally {
       setLoading(false);
     }
@@ -254,7 +252,6 @@ const ManageMembersModal = ({
       if (isAdmin) {
         fetchAllUsers();
       }
-      // 重置状态
       setPendingAddUsers([]);
       setLeftSelectedKeys([]);
       setRightSelectedKeys([]);
@@ -264,7 +261,6 @@ const ManageMembersModal = ({
     }
   }, [visible, group, isAdmin, defaultViewMode, fetchAllUsers, fetchMembers]);
 
-  // 左侧待选列表：(全量用户 - 当前成员 - 已移到右侧的用户) 过滤搜索词
   const leftDataSource = useMemo(() => {
     return allUsers.filter((user) => {
       const isMember = currentMembers.some((m) => m.user_id === user.user_id);
@@ -276,14 +272,12 @@ const ManageMembersModal = ({
     });
   }, [allUsers, currentMembers, pendingAddUsers, leftSearch]);
 
-  // 右侧已选列表：(已移到右侧的用户) 过滤搜索词
   const rightDataSource = useMemo(() => {
     return pendingAddUsers.filter((user) =>
       user.username.toLowerCase().includes(rightSearch.toLowerCase()),
     );
   }, [pendingAddUsers, rightSearch]);
 
-  // 移向右侧
   const moveToRight = () => {
     const usersToMove = leftDataSource.filter((u) =>
       leftSelectedKeys.includes(u.user_id),
@@ -292,7 +286,6 @@ const ManageMembersModal = ({
     setLeftSelectedKeys([]);
   };
 
-  // 移向左侧
   const moveToLeft = () => {
     setPendingAddUsers((prev) =>
       prev.filter((u) => !rightSelectedKeys.includes(u.user_id)),
@@ -300,11 +293,10 @@ const ManageMembersModal = ({
     setRightSelectedKeys([]);
   };
 
-  // 提交保存添加
   const handleConfirmAdd = async () => {
     if (!group) return;
     if (pendingAddUsers.length === 0) {
-      AntdMessage.warning("请选择要添加的用户");
+      AntdMessage.warning(t("admin.selectUsersToAdd"));
       return;
     }
     setSaving(true);
@@ -314,20 +306,19 @@ const ManageMembersModal = ({
         groupId: group.group_id,
         groupAddUsersBody: { user_ids: pendingAddUsers.map((u) => u.user_id) },
       });
-      AntdMessage.success("添加成员成功");
+      AntdMessage.success(t("admin.addMembersSuccess"));
       setPendingAddUsers([]);
       fetchMembers();
       setViewMode("list");
       onSuccess?.();
     } catch (error: any) {
       console.error("Add members failed:", error);
-      AntdMessage.error(error.response?.data?.message || "添加成员失败");
+      AntdMessage.error(error.response?.data?.message || t("admin.addMembersFailed"));
     } finally {
       setSaving(false);
     }
   };
 
-  // 移除成员
   const handleRemoveMember = async (userId: string) => {
     if (!group) return;
     try {
@@ -336,18 +327,18 @@ const ManageMembersModal = ({
         groupId: group.group_id,
         groupRemoveUsersBody: { user_ids: [userId] },
       });
-      AntdMessage.success("移除成员成功");
+      AntdMessage.success(t("admin.removeMemberSuccess"));
       fetchMembers();
       onSuccess?.();
     } catch (error: any) {
       console.error("Remove member failed:", error);
-      AntdMessage.error(error.response?.data?.message || "移除成员失败");
+      AntdMessage.error(error.response?.data?.message || t("admin.removeMemberFailed"));
     }
   };
 
   const userColumns: TableColumnsType<UserItem> = [
     {
-      title: "用户名",
+      title: t("admin.username"),
       dataIndex: "username",
       key: "username",
       width: 220,
@@ -360,7 +351,7 @@ const ManageMembersModal = ({
       ),
     },
     {
-      title: "邮箱",
+      title: t("admin.email"),
       dataIndex: "email",
       key: "email",
       width: 240,
@@ -369,7 +360,7 @@ const ManageMembersModal = ({
       ),
     },
     {
-      title: "角色",
+      title: t("admin.role"),
       dataIndex: "role_name",
       key: "role_name",
       width: 120,
@@ -383,7 +374,7 @@ const ManageMembersModal = ({
 
   const memberBaseColumns: TableColumnsType<GroupMemberListItem> = [
     {
-      title: "用户名",
+      title: t("admin.username"),
       dataIndex: "username",
       key: "username",
       width: 220,
@@ -396,7 +387,7 @@ const ManageMembersModal = ({
       ),
     },
     {
-      title: "邮箱",
+      title: t("admin.email"),
       dataIndex: "email",
       key: "email",
       width: 240,
@@ -405,12 +396,12 @@ const ManageMembersModal = ({
       ),
     },
     {
-      title: "角色",
+      title: t("admin.role"),
       dataIndex: "role",
       key: "role",
       width: 120,
       render: (role?: GroupMemberRole | string) => {
-        const { color, label } = getMemberRoleMeta(role);
+        const { color, label } = getMemberRoleMeta(role, t);
         return <AntdTag color={color}>{label}</AntdTag>;
       },
     },
@@ -421,15 +412,15 @@ const ManageMembersModal = ({
     ...(isAdmin
       ? [
           {
-            title: "操作",
+            title: t("admin.actions"),
             key: "action",
             width: 80,
             render: (_: unknown, record: GroupMemberListItem) => (
               <AntdPopconfirm
-                title="确定移除该成员吗？"
+                title={t("admin.removeMemberConfirm")}
                 onConfirm={() => handleRemoveMember(record.user_id)}
-                okText="确定"
-                cancelText="取消"
+                okText={t("common.confirm")}
+                cancelText={t("common.cancel")}
               >
                 <AntdButton
                   type="link"
@@ -437,7 +428,7 @@ const ManageMembersModal = ({
                   size="small"
                   icon={<DeleteOutlined />}
                 >
-                  移除
+                  {t("admin.removeMember")}
                 </AntdButton>
               </AntdPopconfirm>
             ),
@@ -458,7 +449,7 @@ const ManageMembersModal = ({
       title={
         <AntdSpace>
           <UsergroupAddOutlined />
-          <span>{group?.group_name} - 成员管理</span>
+          <span>{t("admin.manageMembersTitle", { groupName: group?.group_name })}</span>
         </AntdSpace>
       }
       open={visible}
@@ -467,12 +458,12 @@ const ManageMembersModal = ({
         viewMode === "list"
           ? [
               <AntdButton key="close" onClick={onCancel}>
-                关闭
+                {t("admin.close")}
               </AntdButton>,
             ]
           : [
               <AntdButton key="cancel" onClick={() => setViewMode("list")}>
-                取消
+                {t("common.cancel")}
               </AntdButton>,
               <AntdButton
                 key="submit"
@@ -480,7 +471,7 @@ const ManageMembersModal = ({
                 loading={saving}
                 onClick={handleConfirmAdd}
               >
-                确定添加
+                {t("admin.confirmAdd")}
               </AntdButton>,
             ]
       }
@@ -499,7 +490,7 @@ const ManageMembersModal = ({
         <>
           <div className="manage-members-modal__toolbar">
             <AntdInput
-              placeholder="搜索成员姓名或邮箱"
+              placeholder={t("admin.searchMemberNameOrEmail")}
               prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
               value={memberSearch}
               onChange={(e) => setMemberSearch(e.target.value)}
@@ -512,7 +503,7 @@ const ManageMembersModal = ({
                 icon={<PlusOutlined />}
                 onClick={() => setViewMode("add")}
               >
-                添加成员
+                {t("admin.addMembers")}
               </AntdButton>
             )}
           </div>
@@ -535,10 +526,10 @@ const ManageMembersModal = ({
               onClick={() => setViewMode("list")}
               style={{ marginBottom: "12px" }}
             >
-              返回成员列表
+              {t("admin.backToMemberList")}
             </AntdButton>
             <div style={{ color: "#666" }}>
-              请选择待选用户，并添加至{" "}
+              {t("admin.selectUsersForGroup")} 
               <span style={{ color: "#1890ff", fontWeight: "bold" }}>
                 {group?.group_name}
               </span>
@@ -546,17 +537,17 @@ const ManageMembersModal = ({
           </div>
 
           <div className="manage-members-modal__transfer">
-            {/* 左侧：待选择 */}
+            {}
             <div className="manage-members-modal__panel">
               <div className="manage-members-modal__panel-header">
                 <span style={{ fontWeight: "bold" }}>
-                  {leftDataSource.length} 项
+                  {t("admin.itemsCount", { count: leftDataSource.length })}
                 </span>
-                <span style={{ color: "#999" }}>待选择</span>
+                <span style={{ color: "#999" }}>{t("admin.available")}</span>
               </div>
               <div className="manage-members-modal__search">
                 <AntdInput
-                  placeholder="搜索待选用户"
+                  placeholder={t("admin.searchAvailableUsers")}
                   prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
                   value={leftSearch}
                   onChange={(e) => setLeftSearch(e.target.value)}
@@ -584,7 +575,7 @@ const ManageMembersModal = ({
               </div>
             </div>
 
-            {/* 中间：操作按钮 */}
+            {}
             <div className="manage-members-modal__actions">
               <AntdButton
                 icon={<RightOutlined />}
@@ -600,17 +591,17 @@ const ManageMembersModal = ({
               />
             </div>
 
-            {/* 右侧：已选择 */}
+            {}
             <div className="manage-members-modal__panel">
               <div className="manage-members-modal__panel-header">
                 <span style={{ fontWeight: "bold" }}>
-                  {rightDataSource.length} 项
+                  {t("admin.itemsCount", { count: rightDataSource.length })}
                 </span>
-                <span style={{ color: "#999" }}>已选择</span>
+                <span style={{ color: "#999" }}>{t("admin.selected")}</span>
               </div>
               <div className="manage-members-modal__search">
                 <AntdInput
-                  placeholder="搜索已选用户"
+                  placeholder={t("admin.searchSelectedUsers")}
                   prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
                   value={rightSearch}
                   onChange={(e) => setRightSearch(e.target.value)}
@@ -633,7 +624,7 @@ const ManageMembersModal = ({
                   locale={{
                     emptyText: (
                       <div className="manage-members-modal__empty">
-                        暂无已选用用户
+                        {t("admin.noSelectedUsers")}
                       </div>
                     ),
                   }}

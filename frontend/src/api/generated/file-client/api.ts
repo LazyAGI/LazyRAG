@@ -39,86 +39,34 @@ import {
   operationServerMap,
 } from "./base";
 
-/**
- * 删除文件响应
- * @export
- * @interface DeleteFileResponse
- */
+
 export interface DeleteFileResponse {
-  /**
-   * 文件唯一编号
-   * @type {string}
-   * @memberof DeleteFileResponse
-   */
+  
   id?: string;
-  /**
-   * 是否删除成功
-   * @type {boolean}
-   * @memberof DeleteFileResponse
-   */
+  
   deleted?: boolean;
 }
-/**
- * 下载文件响应
- * @export
- * @interface DownloadFileResponse
- */
+
 export interface DownloadFileResponse {
-  /**
-   * 文件内容
-   * @type {string}
-   * @memberof DownloadFileResponse
-   */
+  
   content?: string;
 }
-/**
- * 文件信息
- * @export
- * @interface FileInfo
- */
+
 export interface FileInfo {
-  /**
-   * 文件唯一编号
-   * @type {string}
-   * @memberof FileInfo
-   */
+  
   id?: string;
-  /**
-   * 文件大小
-   * @type {string}
-   * @memberof FileInfo
-   */
+  
   bytes?: string;
-  /**
-   * 创建时间
-   * @type {string}
-   * @memberof FileInfo
-   */
+  
   created_at?: string;
-  /**
-   * 过期时间
-   * @type {string}
-   * @memberof FileInfo
-   */
+  
   expires_at?: string;
-  /**
-   * 文件名称, lazy615 版本是带路径名称的相对object path
-   * @type {string}
-   * @memberof FileInfo
-   */
+  
   filename?: string;
-  /**
-   * 业务名称 a. finetune b. rag, c. ...
-   * @type {string}
-   * @memberof FileInfo
-   */
+  
   purpose?: string;
 }
-/**
- * 列出文件响应
- * @export
- * @interface ListFilesResponse
- */
+
 export interface ListFilesResponse {
   /**
    * file list
@@ -136,13 +84,7 @@ export const FileServiceApiAxiosParamCreator = function (
   configuration?: Configuration,
 ) {
   return {
-    /**
-     * 删除文件  DEL {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-     * @summary 删除文件
-     * @param {string} fileId 文件唯一编号
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceDeleteFile: async (
       fileId: string,
       options: RawAxiosRequestConfig = {},
@@ -182,13 +124,7 @@ export const FileServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 下载文件内容  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}/content
-     * @summary 下载文件内容
-     * @param {string} fileId 文件唯一编号
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceDownloadFile: async (
       fileId: string,
       options: RawAxiosRequestConfig = {},
@@ -228,13 +164,7 @@ export const FileServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 获取单个文件信息  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-     * @summary 查询文件详情
-     * @param {string} fileId 文件唯一编号
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceGetFile: async (
       fileId: string,
       options: RawAxiosRequestConfig = {},
@@ -274,16 +204,7 @@ export const FileServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 列出所有文件  GET {juicefs-s3-gateway.sensetime.com}/v1/files
-     * @summary 列出所有文件
-     * @param {string} [after] 过滤用途, 显示该id之后的文件
-     * @param {string} [limit] 分页
-     * @param {string} [purpose] 业务名称，支持 \&quot;fine-tune\&quot;, \&quot;rag\&quot;, \&quot;chat\&quot;, \&quot;aireview\&quot;, \&quot;aiwrite\&quot;, \&quot;aippt\&quot;, \&quot;aigenerated\&quot;
-     * @param {string} [prefix] 查询前缀
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceListFiles: async (
       after?: string,
       limit?: string,
@@ -337,15 +258,7 @@ export const FileServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * 上传文件  POST {juicefs-s3-gateway.sensetime.com}/v1/files
-     * @summary 上传文件
-     * @param {File} file 文件内容
-     * @param {string} purpose 业务名称，支持 \\\&quot;fine-tune\\\&quot;, \\\&quot;rag\\\&quot;, \\\&quot;chat\\\&quot;, \\\&quot;aireview\\\&quot;, \\\&quot;aiwrite\\\&quot;, \\\&quot;aippt\\\&quot;, \\\&quot;aigenerated\\\&quot;
-     * @param {string} [path] 文件路径名称，形如 /rag/hello/world.pdf, 前缀需和purpose一致
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceUploadFile: async (
       file: File,
       purpose: string,
@@ -416,13 +329,7 @@ export const FileServiceApiFp = function (configuration?: Configuration) {
   const localVarAxiosParamCreator =
     FileServiceApiAxiosParamCreator(configuration);
   return {
-    /**
-     * 删除文件  DEL {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-     * @summary 删除文件
-     * @param {string} fileId 文件唯一编号
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async fileServiceDeleteFile(
       fileId: string,
       options?: RawAxiosRequestConfig,
@@ -447,13 +354,7 @@ export const FileServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 下载文件内容  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}/content
-     * @summary 下载文件内容
-     * @param {string} fileId 文件唯一编号
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async fileServiceDownloadFile(
       fileId: string,
       options?: RawAxiosRequestConfig,
@@ -481,13 +382,7 @@ export const FileServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 获取单个文件信息  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-     * @summary 查询文件详情
-     * @param {string} fileId 文件唯一编号
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async fileServiceGetFile(
       fileId: string,
       options?: RawAxiosRequestConfig,
@@ -509,16 +404,7 @@ export const FileServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 列出所有文件  GET {juicefs-s3-gateway.sensetime.com}/v1/files
-     * @summary 列出所有文件
-     * @param {string} [after] 过滤用途, 显示该id之后的文件
-     * @param {string} [limit] 分页
-     * @param {string} [purpose] 业务名称，支持 \&quot;fine-tune\&quot;, \&quot;rag\&quot;, \&quot;chat\&quot;, \&quot;aireview\&quot;, \&quot;aiwrite\&quot;, \&quot;aippt\&quot;, \&quot;aigenerated\&quot;
-     * @param {string} [prefix] 查询前缀
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async fileServiceListFiles(
       after?: string,
       limit?: string,
@@ -552,15 +438,7 @@ export const FileServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * 上传文件  POST {juicefs-s3-gateway.sensetime.com}/v1/files
-     * @summary 上传文件
-     * @param {File} file 文件内容
-     * @param {string} purpose 业务名称，支持 \\\&quot;fine-tune\\\&quot;, \\\&quot;rag\\\&quot;, \\\&quot;chat\\\&quot;, \\\&quot;aireview\\\&quot;, \\\&quot;aiwrite\\\&quot;, \\\&quot;aippt\\\&quot;, \\\&quot;aigenerated\\\&quot;
-     * @param {string} [path] 文件路径名称，形如 /rag/hello/world.pdf, 前缀需和purpose一致
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async fileServiceUploadFile(
       file: File,
       purpose: string,
@@ -603,13 +481,7 @@ export const FileServiceApiFactory = function (
 ) {
   const localVarFp = FileServiceApiFp(configuration);
   return {
-    /**
-     * 删除文件  DEL {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-     * @summary 删除文件
-     * @param {FileServiceApiFileServiceDeleteFileRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceDeleteFile(
       requestParameters: FileServiceApiFileServiceDeleteFileRequest,
       options?: RawAxiosRequestConfig,
@@ -618,13 +490,7 @@ export const FileServiceApiFactory = function (
         .fileServiceDeleteFile(requestParameters.fileId, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 下载文件内容  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}/content
-     * @summary 下载文件内容
-     * @param {FileServiceApiFileServiceDownloadFileRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceDownloadFile(
       requestParameters: FileServiceApiFileServiceDownloadFileRequest,
       options?: RawAxiosRequestConfig,
@@ -633,13 +499,7 @@ export const FileServiceApiFactory = function (
         .fileServiceDownloadFile(requestParameters.fileId, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 获取单个文件信息  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-     * @summary 查询文件详情
-     * @param {FileServiceApiFileServiceGetFileRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceGetFile(
       requestParameters: FileServiceApiFileServiceGetFileRequest,
       options?: RawAxiosRequestConfig,
@@ -648,13 +508,7 @@ export const FileServiceApiFactory = function (
         .fileServiceGetFile(requestParameters.fileId, options)
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 列出所有文件  GET {juicefs-s3-gateway.sensetime.com}/v1/files
-     * @summary 列出所有文件
-     * @param {FileServiceApiFileServiceListFilesRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceListFiles(
       requestParameters: FileServiceApiFileServiceListFilesRequest = {},
       options?: RawAxiosRequestConfig,
@@ -669,13 +523,7 @@ export const FileServiceApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * 上传文件  POST {juicefs-s3-gateway.sensetime.com}/v1/files
-     * @summary 上传文件
-     * @param {FileServiceApiFileServiceUploadFileRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     fileServiceUploadFile(
       requestParameters: FileServiceApiFileServiceUploadFileRequest,
       options?: RawAxiosRequestConfig,
@@ -698,11 +546,7 @@ export const FileServiceApiFactory = function (
  * @interface FileServiceApiFileServiceDeleteFileRequest
  */
 export interface FileServiceApiFileServiceDeleteFileRequest {
-  /**
-   * 文件唯一编号
-   * @type {string}
-   * @memberof FileServiceApiFileServiceDeleteFile
-   */
+  
   readonly fileId: string;
 }
 
@@ -712,11 +556,7 @@ export interface FileServiceApiFileServiceDeleteFileRequest {
  * @interface FileServiceApiFileServiceDownloadFileRequest
  */
 export interface FileServiceApiFileServiceDownloadFileRequest {
-  /**
-   * 文件唯一编号
-   * @type {string}
-   * @memberof FileServiceApiFileServiceDownloadFile
-   */
+  
   readonly fileId: string;
 }
 
@@ -726,11 +566,7 @@ export interface FileServiceApiFileServiceDownloadFileRequest {
  * @interface FileServiceApiFileServiceGetFileRequest
  */
 export interface FileServiceApiFileServiceGetFileRequest {
-  /**
-   * 文件唯一编号
-   * @type {string}
-   * @memberof FileServiceApiFileServiceGetFile
-   */
+  
   readonly fileId: string;
 }
 
@@ -740,32 +576,16 @@ export interface FileServiceApiFileServiceGetFileRequest {
  * @interface FileServiceApiFileServiceListFilesRequest
  */
 export interface FileServiceApiFileServiceListFilesRequest {
-  /**
-   * 过滤用途, 显示该id之后的文件
-   * @type {string}
-   * @memberof FileServiceApiFileServiceListFiles
-   */
+  
   readonly after?: string;
 
-  /**
-   * 分页
-   * @type {string}
-   * @memberof FileServiceApiFileServiceListFiles
-   */
+  
   readonly limit?: string;
 
-  /**
-   * 业务名称，支持 \&quot;fine-tune\&quot;, \&quot;rag\&quot;, \&quot;chat\&quot;, \&quot;aireview\&quot;, \&quot;aiwrite\&quot;, \&quot;aippt\&quot;, \&quot;aigenerated\&quot;
-   * @type {string}
-   * @memberof FileServiceApiFileServiceListFiles
-   */
+  
   readonly purpose?: string;
 
-  /**
-   * 查询前缀
-   * @type {string}
-   * @memberof FileServiceApiFileServiceListFiles
-   */
+  
   readonly prefix?: string;
 }
 
@@ -775,25 +595,13 @@ export interface FileServiceApiFileServiceListFilesRequest {
  * @interface FileServiceApiFileServiceUploadFileRequest
  */
 export interface FileServiceApiFileServiceUploadFileRequest {
-  /**
-   * 文件内容
-   * @type {File}
-   * @memberof FileServiceApiFileServiceUploadFile
-   */
+  
   readonly file: File;
 
-  /**
-   * 业务名称，支持 \\\&quot;fine-tune\\\&quot;, \\\&quot;rag\\\&quot;, \\\&quot;chat\\\&quot;, \\\&quot;aireview\\\&quot;, \\\&quot;aiwrite\\\&quot;, \\\&quot;aippt\\\&quot;, \\\&quot;aigenerated\\\&quot;
-   * @type {string}
-   * @memberof FileServiceApiFileServiceUploadFile
-   */
+  
   readonly purpose: string;
 
-  /**
-   * 文件路径名称，形如 /rag/hello/world.pdf, 前缀需和purpose一致
-   * @type {string}
-   * @memberof FileServiceApiFileServiceUploadFile
-   */
+  
   readonly path?: string;
 }
 
@@ -804,14 +612,7 @@ export interface FileServiceApiFileServiceUploadFileRequest {
  * @extends {BaseAPI}
  */
 export class FileServiceApi extends BaseAPI {
-  /**
-   * 删除文件  DEL {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-   * @summary 删除文件
-   * @param {FileServiceApiFileServiceDeleteFileRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FileServiceApi
-   */
+  
   public fileServiceDeleteFile(
     requestParameters: FileServiceApiFileServiceDeleteFileRequest,
     options?: RawAxiosRequestConfig,
@@ -821,14 +622,7 @@ export class FileServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 下载文件内容  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}/content
-   * @summary 下载文件内容
-   * @param {FileServiceApiFileServiceDownloadFileRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FileServiceApi
-   */
+  
   public fileServiceDownloadFile(
     requestParameters: FileServiceApiFileServiceDownloadFileRequest,
     options?: RawAxiosRequestConfig,
@@ -838,14 +632,7 @@ export class FileServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 获取单个文件信息  GET {juicefs-s3-gateway.sensetime.com}/v1/files/{id}
-   * @summary 查询文件详情
-   * @param {FileServiceApiFileServiceGetFileRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FileServiceApi
-   */
+  
   public fileServiceGetFile(
     requestParameters: FileServiceApiFileServiceGetFileRequest,
     options?: RawAxiosRequestConfig,
@@ -855,14 +642,7 @@ export class FileServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 列出所有文件  GET {juicefs-s3-gateway.sensetime.com}/v1/files
-   * @summary 列出所有文件
-   * @param {FileServiceApiFileServiceListFilesRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FileServiceApi
-   */
+  
   public fileServiceListFiles(
     requestParameters: FileServiceApiFileServiceListFilesRequest = {},
     options?: RawAxiosRequestConfig,
@@ -878,14 +658,7 @@ export class FileServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * 上传文件  POST {juicefs-s3-gateway.sensetime.com}/v1/files
-   * @summary 上传文件
-   * @param {FileServiceApiFileServiceUploadFileRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof FileServiceApi
-   */
+  
   public fileServiceUploadFile(
     requestParameters: FileServiceApiFileServiceUploadFileRequest,
     options?: RawAxiosRequestConfig,

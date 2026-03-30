@@ -1,9 +1,7 @@
-/**
- * 简易 Markdown 编辑占位：与 @mdxeditor/editor 同接口（value/onChange）。
- * 若需完整 MDX 编辑器，可安装 @mdxeditor/editor 并恢复原实现。
- */
+
 import { useState, useEffect } from "react";
 import { Input } from "antd";
+import { useTranslation } from "react-i18next";
 
 const { TextArea } = Input;
 
@@ -13,6 +11,7 @@ interface IProps {
 }
 
 const MdxEditor = (props: IProps) => {
+  const { t } = useTranslation();
   const { value = "", onChange } = props;
   const [local, setLocal] = useState(value);
 
@@ -29,7 +28,7 @@ const MdxEditor = (props: IProps) => {
           setLocal(v);
           onChange(v);
         }}
-        placeholder="Markdown 内容"
+        placeholder={t("knowledge.markdownPlaceholder")}
         autoSize={{ minRows: 6 }}
         style={{ width: "100%" }}
       />

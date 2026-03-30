@@ -130,33 +130,6 @@ paths:
                 $ref: '#/components/schemas/MeResponse'
       security:
       - HTTPBearer: []
-    patch:
-      tags:
-      - auth
-      summary: Update Me
-      description: 用户修改自己的信息，除用户名外均可修改（display_name、email、phone、remark）。
-      operationId: update_me_api_authservice_auth_me_patch
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateMeBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SuccessResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
   /api/authservice/auth/change_password:
     post:
       tags:
@@ -1592,31 +1565,6 @@ components:
       type: object
       title: SuccessResponse
       description: 通用成功返回(如修改密码、登出)
-    UpdateMeBody:
-      properties:
-        display_name:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Display Name
-        email:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Email
-        phone:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Phone
-        remark:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Remark
-      type: object
-      title: UpdateMeBody
-      description: 用户修改自己的信息（除用户名外均可选更新）
     UserDetailResponse:
       properties:
         user_id:

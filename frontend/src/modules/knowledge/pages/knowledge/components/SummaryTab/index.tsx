@@ -11,7 +11,6 @@ const SummaryTab = (props: { detail: Doc; type: string }) => {
   const segmentListRef = useRef<SegmentListImperativeProps>(null);
   const [pageToken, setPageToken] = useState("");
 
-  // 使用权限 store - 只有写权限才允许编辑
   const hasWritePermission = useDatasetPermissionStore((state) =>
     state.hasWritePermission(),
   );

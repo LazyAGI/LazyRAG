@@ -8,7 +8,7 @@ export enum MemberType {
 
 // Knowledge base user type.
 export enum RoleType {
-  OWNER = "dataset_owner",
+  MAINTAINER = "dataset_maintainer",
   USER = "dataset_user",
   UPLOADER = "dataset_uploader",
 }
@@ -154,10 +154,16 @@ export const STATUS_COLORS = {
   warning: "rgba(249, 150, 2, 1)",
 };
 
+export const ROLE_TITLE_MAP: Record<string, string> = {
+  [RoleType.MAINTAINER]: "管理者",
+  [RoleType.USER]: "只读者",
+  [RoleType.UPLOADER]: "上传者",
+};
+
 export const ROLE_TYPE_INFO = [
-  { id: RoleType.OWNER, title: "管理者" },
-  { id: RoleType.USER, title: "只读者" },
-  { id: RoleType.UPLOADER, title: "上传者" },
+  { id: RoleType.MAINTAINER, title: ROLE_TITLE_MAP[RoleType.MAINTAINER] },
+  { id: RoleType.USER, title: ROLE_TITLE_MAP[RoleType.USER] },
+  { id: RoleType.UPLOADER, title: ROLE_TITLE_MAP[RoleType.UPLOADER] },
 ];
 
 export const RUNNING_TASK_STATES = [
@@ -165,4 +171,4 @@ export const RUNNING_TASK_STATES = [
   JobJobStateEnum.Parsing,
 ];
 
-export const ALL_TAGS = "全部";
+export const ALL_TAGS = "__ALL__";

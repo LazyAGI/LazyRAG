@@ -3,7 +3,12 @@ import AppRouter from "./router";
 
 function App() {
   return (
-    <HashRouter>
+    <HashRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <AppRouter />
     </HashRouter>
   );

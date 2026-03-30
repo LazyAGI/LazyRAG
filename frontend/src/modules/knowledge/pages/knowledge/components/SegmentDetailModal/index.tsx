@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Modal } from "antd";
 import { forwardRef, useImperativeHandle, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Segment } from "@/api/generated/knowledge-client";
 
 import SegmentContent from "@/modules/knowledge/pages/knowledge/components/SegmentContent";
@@ -14,6 +15,7 @@ export interface ISegmentDetailModalRef {
 const SegmentDetailModal = forwardRef(
   (props: { onClose: () => void; editable: boolean }, ref) => {
     const { editable, onClose } = props;
+    const { t } = useTranslation();
 
     const [visible, setVisible] = useState(false);
     const [segment, setSegment] = useState<Segment | null>(null);
@@ -65,7 +67,7 @@ const SegmentDetailModal = forwardRef(
             <span className="pageNumber">#{segment?.number || 0}</span>
           </div>
         }
-        title={editable ? "详情（←编辑 | 预览→）" : "详情"}
+        title={editable ? t("knowledge.segmentDetailEditable") : t("knowledge.segmentDetail")}
         onCancel={handleClose}
         width={editable ? 1280 : 640}
         style={{ minHeight: 380 }}

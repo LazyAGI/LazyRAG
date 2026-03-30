@@ -1,43 +1,12 @@
 import { forwardRef, useImperativeHandle, useState } from "react";
 import { Modal, Form, Input, Select } from "antd";
+import { useTranslation } from "react-i18next";
 import { Dataset, Algo } from "@/api/generated/knowledge-client";
 
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
 import TagSelect from "../TagSelect";
 
 const { TextArea } = Input;
-const INDUSTRY_OPTIONS = [
-  "无",
-  "通用",
-  "经调",
-  "行车",
-  "线路",
-  "站场",
-  "轨道",
-  "地质",
-  "路基",
-  "桥梁",
-  "隧道",
-  "工经",
-  "供变电",
-  "接触网",
-  "电力",
-  "信息",
-  "信号",
-  "通信",
-  "环保",
-  "室外给排水",
-  "风景园林",
-  "机械",
-  "车辆",
-  "机务",
-  "动车",
-  "建筑",
-  "结构",
-  "暖通",
-  "室内给排水",
-  "测绘",
-].map((label) => ({ label, value: label }));
 
 export interface ForwardProps {
   onUpdate: (dataset: Dataset) => Promise<void>;
@@ -49,6 +18,7 @@ export interface UpdateImperativeProps {
 
 const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
   ({ onUpdate }, ref) => {
+    const { t } = useTranslation();
     const [visible, setVisible] = useState(false);
     const [loading, setLoading] = useState(false);
     const [data, setData] = useState<Dataset>();
@@ -119,7 +89,7 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
     return (
       <Modal
         open={visible}
-        title={`${data ? "编辑" : "创建"}知识库`}
+        title={data ? t("knowledge.edit") + t("layout.knowledgeBase") : t("knowledge.createKnowledgeBase")}
         centered
         onCancel={onCancel}
         onOk={onOk}
@@ -129,50 +99,42 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
         <Form form={form} layout="vertical">
           <Form.Item
             name="display_name"
-            label={"知识库名称"}
+            label={t("knowledge.nameId")}
             required
             rules={[
-              { required: true, message: "请输入知识库名称" },
+              { required: true, message: t("common.pleaseInput") + t("layout.knowledgeBase") + t("knowledge.nameId") },
 
               {
                 pattern: /^[\u4e00-\u9fa5a-zA-Z0-9-_\.]{1,100}$/, // eslint-disable-line
-                message: "名称支持中英文、数字、-、_、.，长度不超过 100 个字符",
+                message: t("knowledge.knowledgeNameRule"),
               },
             ]}
           >
             <Input
               placeholder={
-                "名称支持中英文、数字、-、_、.，长度不超过 100 个字符"
+                t("knowledge.knowledgeNameRule")
               }
               maxLength={100}
             />
           </Form.Item>
           <Form.Item
             name="desc"
-            label={"知识库描述"}
+            label={t("knowledge.knowledgeDesc")}
             required
-            rules={[{ required: true, message: "请输入知识库描述" }]}
+            rules={[{ required: true, message: t("knowledge.inputKnowledgeDesc") }]}
           >
             <TextArea
-              placeholder={"长度不超过 300 个字符"}
+              placeholder={t("knowledge.maxLength300Chars")}
               showCount
               maxLength={300}
               autoSize={{ minRows: 2, maxRows: 6 }}
             />
           </Form.Item>
           <Form.Item
-            name="industry"
-            label="知识库专业"
-            initialValue={undefined}
-            rules={[{ required: true, message: "请选择知识库专业" }]}
-          >
-            <Select options={INDUSTRY_OPTIONS} placeholder="请选择知识库专业" />
-          </Form.Item>
-          <Form.Item
             name="algo_id"
-            label="解析算法"
+            label={t("knowledge.parseAlgorithm")}
             initialValue={null}
-            rules={[{ required: true, message: "请选择解析算法" }]}
+            rules={[{ required: true, message: t("knowledge.selectParseAlgorithm") }]}
           >
             <Select
               options={algorithm.map((item) => ({
@@ -180,13 +142,13 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
                 value: item.algo_id,
               }))}
               disabled={!!data?.dataset_id}
-              placeholder="请选择解析算法"
+              placeholder={t("knowledge.selectParseAlgorithm")}
             />
           </Form.Item>
           <Form.Item
             name="tags"
-            label={"知识库标签"}
-            rules={[{ required: true, message: "请选择知识库标签" }]}
+            label={t("knowledge.knowledgeTags")}
+            rules={[{ required: true, message: t("knowledge.selectKnowledgeTags") }]}
           >
             <TagSelect tags={tags} />
           </Form.Item>

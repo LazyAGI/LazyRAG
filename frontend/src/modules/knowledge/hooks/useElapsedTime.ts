@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface IProps {
   startTime?: number | string;
-  endTime?: number | string; // 没有endTime表示任务还没完成
+  endTime?: number | string;
 }
 
 interface IResult {
@@ -49,7 +49,6 @@ const useElapsedTime = (props: IProps) => {
     }
   };
 
-  // 可能会有小于0的情况
   const formatTime = (obj: IResult) => {
     const newResult = {} as IResult;
     Object.entries(obj).map(([key, value]) => {

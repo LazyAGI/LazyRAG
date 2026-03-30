@@ -1,5 +1,6 @@
 import { FC, ReactElement } from "react";
 import { Input, Select, Form, Button } from "antd";
+import { useTranslation } from "react-i18next";
 import "./index.scss";
 
 const { Search } = Input;
@@ -18,33 +19,34 @@ interface Props {
 
   prefix?: ReactElement | string;
 
-  /** 排序数据项 */
+  
   sortOption?: OptionItem[];
   sortDefaultValue?: string;
 
-  /** 表单字段 */
+  
   searchKey: string;
   sortKey?: string;
 
-  /** 按钮信息 */
+  
   btnText?: string;
   onClick?: () => void;
   onSearch: () => void;
 }
 
 const ListPageHeaderComponent: FC<Props> = ({
-  placeholder = "请输入",
+  placeholder = "",
   extra,
   sortOption,
   sortDefaultValue,
   searchKey = "keyword",
   sortKey = "sort",
-  btnText = "创建",
+  btnText = "",
   allowClear = true,
   onClick,
   onSearch,
   prefix,
 }) => {
+  const { t } = useTranslation();
   const defaultSortValue = sortDefaultValue
     ? sortDefaultValue
     : sortOption && sortOption?.length > 0
@@ -53,9 +55,9 @@ const ListPageHeaderComponent: FC<Props> = ({
   return (
     <div className="filter-container">
       {prefix}
-      <Form.Item name={searchKey} label="搜索" style={{ marginBottom: 0 }}>
+      <Form.Item name={searchKey} label={t("common.search")} style={{ marginBottom: 0 }}>
         <Search
-          placeholder={placeholder}
+          placeholder={placeholder || t("common.pleaseInput")}
           allowClear={allowClear}
           className="search-input ghost-custom-border"
           variant="borderless"
@@ -66,7 +68,7 @@ const ListPageHeaderComponent: FC<Props> = ({
       <div className="right-box">
         {sortOption && sortOption.length > 0 && (
           <div className="sort-box">
-            <span>按</span>
+            <span>{t("common.sortBy")}</span>
             <Form.Item name={sortKey} noStyle initialValue={defaultSortValue}>
               <Select
                 options={sortOption}
@@ -75,12 +77,12 @@ const ListPageHeaderComponent: FC<Props> = ({
                 onSearch={onSearch}
               />
             </Form.Item>
-            <span>排序</span>
+            <span>{t("common.sort")}</span>
           </div>
         )}
         {btnText && onClick && (
           <Button type="primary" onClick={onClick}>
-            {btnText}
+            {btnText || t("common.create")}
           </Button>
         )}
       </div>

@@ -1502,60 +1502,24 @@ export interface EditSegmentResponse {
    */
   segment?: Segment;
 }
-/**
- * Export segments request. 导出切片请求。
- * @export
- * @interface ExportSegmentsRequest
- */
+
 export interface ExportSegmentsRequest {
-  /**
-   * Page size (optional, default: 1,000,000, max: 1,000,000) Note: export will be split into multiple Excel files (max 10,000 rows each) and packed in ZIP. 单次导出数量（选填，默认：1,000,000，上限：1,000,000） 注意：导出会拆分为多个 Excel（每个最多 10,000 行）并打包成 ZIP。
-   * @type {number}
-   * @memberof ExportSegmentsRequest
-   */
+  
   page_size?: number;
-  /**
-   * Page token for multi-request export continuation (optional). Note: This token is returned by this export API (not rag-store\'s internal token), and should be passed back verbatim for the next request. 断点续传 token（选填）。 注意：该 token 由导出接口返回（不是 rag-store 内部 token），下次请求原样传回即可。
-   * @type {string}
-   * @memberof ExportSegmentsRequest
-   */
+  
   page_token?: string;
-  /**
-   * Start time for filtering documents by updated_at (optional, ISO 8601 format) 起始时间：按文档 updated_at 过滤（选填，ISO 8601 / RFC3339 字符串）
-   * @type {string}
-   * @memberof ExportSegmentsRequest
-   */
+  
   start_time?: string;
-  /**
-   * End time for filtering documents by updated_at (optional, ISO 8601 format) 结束时间：按文档 updated_at 过滤（选填，ISO 8601 / RFC3339 字符串）
-   * @type {string}
-   * @memberof ExportSegmentsRequest
-   */
+  
   end_time?: string;
 }
-/**
- * Export segments response. 导出切片响应。
- * @export
- * @interface ExportSegmentsResponse
- */
+
 export interface ExportSegmentsResponse {
-  /**
-   * Download URLs for the exported ZIP file(s). 导出文件下载链接列表（预签名 URL）。
-   * @type {Array<string>}
-   * @memberof ExportSegmentsResponse
-   */
+  
   uris?: Array<string>;
-  /**
-   * Next page token for continuation. Empty means export is completed. 下一页 token，用于续传；为空表示导出完成。
-   * @type {string}
-   * @memberof ExportSegmentsResponse
-   */
+  
   page_token?: string;
-  /**
-   * Page size (actual number of rows exported in this response) page_size（本次实际导出的行数）
-   * @type {number}
-   * @memberof ExportSegmentsResponse
-   */
+  
   page_size?: number;
 }
 /**
@@ -12736,16 +12700,7 @@ export const JobServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * Create a knowledge import job where users can import local knowledge,  web knowledge, Notion knowledge, Ones knowledge, and Feishu knowledge.  The system will automatically extract the content of files as knowledge  entries.
-     * @summary create job
-     * @param {string} dataset The dataset id.
-     * @param {Job} job
-     * @param {string} [jobId] Job id
-     * @param {boolean} [crossDataset] 留的后门，用于跨数据集复制
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     jobServiceCreateJob: async (
       dataset: string,
       job: Job,
@@ -13673,16 +13628,7 @@ export const JobServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * Create a knowledge import job where users can import local knowledge,  web knowledge, Notion knowledge, Ones knowledge, and Feishu knowledge.  The system will automatically extract the content of files as knowledge  entries.
-     * @summary create job
-     * @param {string} dataset The dataset id.
-     * @param {Job} job
-     * @param {string} [jobId] Job id
-     * @param {boolean} [crossDataset] 留的后门，用于跨数据集复制
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async jobServiceCreateJob(
       dataset: string,
       job: Job,
@@ -14627,11 +14573,7 @@ export interface JobServiceApiJobServiceCreateJobRequest {
    */
   readonly jobId?: string;
 
-  /**
-   * 留的后门，用于跨数据集复制
-   * @type {boolean}
-   * @memberof JobServiceApiJobServiceCreateJob
-   */
+  
   readonly crossDataset?: boolean;
 }
 
@@ -15955,13 +15897,7 @@ export const SegmentServiceApiAxiosParamCreator = function (
         options: localVarRequestOptions,
       };
     },
-    /**
-     * Export segments to ZIP (contains one or more Excel files) and return download URL(s).  导出切片为 ZIP（包含一个或多个 Excel），并返回下载链接。
-     * @summary export segments and return download URL(s) for ZIP file(s)
-     * @param {ExportSegmentsRequest} exportSegmentsRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     segmentServiceExportSegments: async (
       exportSegmentsRequest: ExportSegmentsRequest,
       options: RawAxiosRequestConfig = {},
@@ -16594,13 +16530,7 @@ export const SegmentServiceApiFp = function (configuration?: Configuration) {
           configuration,
         )(axios, localVarOperationServerBasePath || basePath);
     },
-    /**
-     * Export segments to ZIP (contains one or more Excel files) and return download URL(s).  导出切片为 ZIP（包含一个或多个 Excel），并返回下载链接。
-     * @summary export segments and return download URL(s) for ZIP file(s)
-     * @param {ExportSegmentsRequest} exportSegmentsRequest
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     async segmentServiceExportSegments(
       exportSegmentsRequest: ExportSegmentsRequest,
       options?: RawAxiosRequestConfig,
@@ -16985,13 +16915,7 @@ export const SegmentServiceApiFactory = function (
         )
         .then((request) => request(axios, basePath));
     },
-    /**
-     * Export segments to ZIP (contains one or more Excel files) and return download URL(s).  导出切片为 ZIP（包含一个或多个 Excel），并返回下载链接。
-     * @summary export segments and return download URL(s) for ZIP file(s)
-     * @param {SegmentServiceApiSegmentServiceExportSegmentsRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
+    
     segmentServiceExportSegments(
       requestParameters: SegmentServiceApiSegmentServiceExportSegmentsRequest,
       options?: RawAxiosRequestConfig,
@@ -17528,14 +17452,7 @@ export class SegmentServiceApi extends BaseAPI {
       .then((request) => request(this.axios, this.basePath));
   }
 
-  /**
-   * Export segments to ZIP (contains one or more Excel files) and return download URL(s).  导出切片为 ZIP（包含一个或多个 Excel），并返回下载链接。
-   * @summary export segments and return download URL(s) for ZIP file(s)
-   * @param {SegmentServiceApiSegmentServiceExportSegmentsRequest} requestParameters Request parameters.
-   * @param {*} [options] Override http request option.
-   * @throws {RequiredError}
-   * @memberof SegmentServiceApi
-   */
+  
   public segmentServiceExportSegments(
     requestParameters: SegmentServiceApiSegmentServiceExportSegmentsRequest,
     options?: RawAxiosRequestConfig,

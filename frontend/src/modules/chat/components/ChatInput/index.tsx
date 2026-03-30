@@ -37,11 +37,9 @@ import ShowChatFileList from "../ShowChatFileList";
 import { formatFileSize } from "@/modules/chat/utils";
 import { useChatThinkStore } from "@/modules/chat/store/chatThink";
 import { useChatNewMessageStore } from "@/modules/chat/store/chatNewMessage";
+import { useTranslation } from "react-i18next";
 
 const { TextArea } = Input;
-
-const TOAST_PRIORITY_FILE = "本次回答将优先基于上传的文件进行回答";
-const TOAST_DOC_IMAGE_EXCLUSIVE = "不支持同时传入文档与图片";
 
 function getSuffix(f: { name: string }) {
   return f.name.substring(f.name.lastIndexOf(".")).toLowerCase();
@@ -53,11 +51,12 @@ function isDoc(f: { name: string }) {
   return allowedFileTypes.includes(getSuffix(f));
 }
 
-/** 上传前预处理：文档/图片互斥、Toast。不修改知识库选择。 */
+
 function preprocessUpload(
   newFiles: File[],
   currentFiles: { name: string }[],
   hasKB: boolean,
+  t: (key: string) => string,
 ): OnBeforeAddFilesResult {
   const hasImage = currentFiles.some(isImage);
   const hasDoc = currentFiles.some(isDoc);
@@ -72,31 +71,29 @@ function preprocessUpload(
   if (newHasBoth) {
     filesToAdd = newDocs;
     clearFirst = currentFiles.length > 0;
-    toasts.push(TOAST_DOC_IMAGE_EXCLUSIVE);
+    toasts.push(t("chat.docImageExclusive"));
     if (hasKB) {
-      toasts.push(TOAST_PRIORITY_FILE);
+      toasts.push(t("chat.priorityFile"));
     }
   } else if (hasDoc && newImages.length > 0) {
-    // 已有文档再传图片：仅提示，不替换、不添加
     clearFirst = false;
     filesToAdd = [];
-    toasts.push(TOAST_DOC_IMAGE_EXCLUSIVE);
+    toasts.push(t("chat.docImageExclusive"));
     if (hasKB) {
-      toasts.push(TOAST_PRIORITY_FILE);
+      toasts.push(t("chat.priorityFile"));
     }
   } else if (hasImage && newDocs.length > 0) {
-    // 已有图片再传文档：仅提示，不替换、不添加
     clearFirst = false;
     filesToAdd = [];
-    toasts.push(TOAST_DOC_IMAGE_EXCLUSIVE);
+    toasts.push(t("chat.docImageExclusive"));
     if (hasKB) {
-      toasts.push(TOAST_PRIORITY_FILE);
+      toasts.push(t("chat.priorityFile"));
     }
   } else {
     clearFirst = false;
     filesToAdd = newFiles;
     if (hasKB && newFiles.length > 0) {
-      toasts.push(TOAST_PRIORITY_FILE);
+      toasts.push(t("chat.priorityFile"));
     }
   }
 
@@ -126,8 +123,8 @@ interface ChatInputProps {
   chatConfig?: ChatConfig;
   setChatConfig?: (chatConfig: ChatConfig) => void;
   setChatConfigFn?: (chatConfig: ChatConfig) => void;
-  sessionId?: string; // 当前会话ID，用于暂存和恢复输入内容
-  isStreaming?: boolean; // 流式输出时禁用模型选择
+  sessionId?: string;
+  isStreaming?: boolean;
 }
 
 export interface ChatFileList {
@@ -187,9 +184,9 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
     const [isUploading, setIsUploading] = useState(false);
     const { setThink } = useChatThinkStore();
     const { setNewMessage } = useChatNewMessageStore();
+    const { t } = useTranslation();
     const [text, setText] = useState("");
     const previousSessionIdRef = useRef<string | undefined>(undefined);
-    // 标记消息已发送，用于在 effect cleanup 时跳过保存
     const hasSentMessageRef = useRef(false);
 
     const [fileList, setFileList] = useState<ChatFileList[]>([]);
@@ -197,11 +194,9 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
     const { saveInputContent, getInputContent, clearInputContent } =
       useChatInputStore();
 
-    // 使用 lodash 的 debounce 创建防抖保存函数
     const debouncedSaveInput = useMemo(
       () =>
         debounce((conversationId: string, content: string) => {
-          // 如果内容为空，则从 store 中移除该会话的存储对象
           if (!content || content.trim() === "") {
             clearInputContent(conversationId);
           } else {
@@ -214,17 +209,15 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
     const clearMultiData = useCallback(() => {
       setFileList([]);
       fileListRef.current?.clear();
-      // 通知父组件高度可能已变化
       setTimeout(() => onHeightChange?.(), 0);
     }, [onHeightChange]);
 
-    // 暴露清理文件的方法和 DOM 元素给父组件
     useImperativeHandle(
       ref,
       () => ({
         clearFiles: () => {
           clearMultiData();
-          clearPendingMessage(); // 同时清空 store 中的待发送消息
+          clearPendingMessage();
         },
         element: innerRef.current,
         uploadFiles: (files: File[]) => {
@@ -234,7 +227,6 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       [clearPendingMessage, clearMultiData],
     );
 
-    // 监听 sessionId 变化，从 store 恢复输入内容
     useEffect(() => {
       if (
         sessionId !== undefined &&
@@ -242,12 +234,9 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       ) {
         const previousId = previousSessionIdRef.current;
 
-        // 取消防抖，立即保存上一个会话的输入内容
         debouncedSaveInput.cancel();
 
-        // 保存上一个会话的输入内容
         if (previousId !== undefined) {
-          // 如果内容为空，则从 store 中移除该会话的存储对象
           const previousValue = value || "";
           if (!previousValue || previousValue.trim() === "") {
             clearInputContent(previousId);
@@ -255,7 +244,6 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
             saveInputContent(previousId, previousValue);
           }
 
-          // 如果从临时ID切换到真实ID，将临时ID的内容迁移到真实ID
           if (
             previousId.startsWith("temp_") &&
             !sessionId.startsWith("temp_")
@@ -268,7 +256,6 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
           }
         }
 
-        // 恢复当前会话的输入内容
         const savedContent = getInputContent(sessionId);
         if (savedContent !== value) {
           onChange(savedContent);
@@ -286,19 +273,15 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       debouncedSaveInput,
     ]);
 
-    // 组件卸载时取消防抖并立即保存当前会话的输入内容
     useEffect(() => {
       return () => {
-        // 取消防抖
         debouncedSaveInput.cancel();
 
-        // 如果消息已发送，跳过保存逻辑（内容已在 handleSend 中清理）
         if (hasSentMessageRef.current) {
           hasSentMessageRef.current = false;
           return;
         }
 
-        // 保存或清除当前会话的输入内容
         if (sessionId !== undefined) {
           const currentValue = value || "";
           if (!currentValue || currentValue.trim() === "") {
@@ -316,14 +299,12 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       debouncedSaveInput,
     ]);
 
-    // 监听上传状态变化
     useEffect(() => {
       const checkUploadStatus = () => {
         const uploadingCount = fileListRef.current?.getUploadingCount() || 0;
         setIsUploading(uploadingCount > 0);
       };
 
-      // 每500毫秒检查一次上传状态
       const interval = setInterval(checkUploadStatus, 500);
 
       return () => clearInterval(interval);
@@ -352,7 +333,6 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
         data.push(obj);
       }
       setFileList(data);
-      // 通知父组件高度可能已变化
       setTimeout(() => onHeightChange?.(), 0);
     };
 
@@ -360,7 +340,6 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       fileListRef.current?.removeFile(uid);
       const list = [...fileList].filter((item) => item.uid !== uid);
       setFileList(list);
-      // 通知父组件高度可能已变化
       setTimeout(() => onHeightChange?.(), 0);
     };
 
@@ -373,20 +352,19 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       setChatConfig?.(tempData);
       setChatConfigFn?.(tempData);
 
-      // 若已有上传文件，且用户从"无知识库"切换到"有知识库"，提示优先使用文件
       const hadNoKB = (chatConfig?.knowledgeBaseId?.length ?? 0) === 0;
       const nowHasKB = knowledgeBaseId.length > 0;
       const hasFiles = fileList.length > 0;
       if (hadNoKB && nowHasKB && hasFiles) {
-        message.info(TOAST_PRIORITY_FILE);
+        message.info(t("chat.priorityFile"));
       }
     };
 
     const hasKB = (chatConfig?.knowledgeBaseId?.length ?? 0) > 0;
     const onBeforeAddFiles = useCallback(
       (newFiles: File[], currentFiles: { name: string }[]) =>
-        preprocessUpload(newFiles, currentFiles, hasKB),
-      [hasKB],
+        preprocessUpload(newFiles, currentFiles, hasKB, t),
+      [hasKB, t],
     );
 
     const handleSend = () => {
@@ -403,40 +381,31 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       };
 
       if (!isChatContent) {
-        // 如果在 newChat 页面，存储消息到 store 并切换到 chatContent 页面
         setPendingMessage(sendParams);
         setIsChatContent?.(true);
       } else {
-        // 如果在 chatContent 页面，直接发送消息
         onSend?.(sendParams);
         clearMultiData();
       }
 
-      // 标记消息已发送，用于在 effect cleanup 时跳过保存
       hasSentMessageRef.current = true;
 
-      // 发送消息后，清除当前会话的输入内容（如果提供了 sessionId），并清空输入框
       if (sessionId !== undefined) {
-        // 先取消可能尚未执行的防抖保存，以避免再次把旧内容写回本地存储
         debouncedSaveInput.cancel();
         clearInputContent(sessionId);
       }
-      // 清空输入框内容
       onChange("");
       setText("");
     };
 
-    // 处理输入框内容变化（带防抖保存）
     const handleInputChange = (text: string) => {
       onChange(text);
       setText(text);
-      // 使用 lodash 的 debounce 保存到 store（如果提供了 sessionId）
       if (sessionId !== undefined) {
         debouncedSaveInput(sessionId, text);
       }
     };
 
-    // 处理剪贴板粘贴事件
     const handlePaste = useCallback(
       (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         const clipboardData = e.clipboardData;
@@ -449,22 +418,18 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
         const invalidFiles: File[] = [];
         let hasAnyFile = false;
 
-        // 遍历剪贴板项
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
 
-          // 检查是否为文件类型
           if (item.kind === "file") {
             hasAnyFile = true;
             const file = item.getAsFile();
             if (file) {
-              // 检查文件扩展名是否在允许的类型中
               const fileName = file.name || `pasted-file-${Date.now()}`;
               const suffix = fileName.includes(".")
                 ? fileName.substring(fileName.lastIndexOf(".")).toLowerCase()
                 : "";
 
-              // 如果是图片但没有扩展名，根据 MIME 类型添加扩展名
               let finalFile = file;
               if (!suffix && file.type.startsWith("image/")) {
                 const ext = file.type.split("/")[1] || "png";
@@ -472,43 +437,36 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                 finalFile = new File([file], newFileName, { type: file.type });
               }
 
-              // 检查文件类型是否允许
               const finalSuffix = finalFile.name
                 .substring(finalFile.name.lastIndexOf("."))
                 .toLowerCase();
               if (allowedUploadTypes.includes(finalSuffix)) {
-                // 检查是否超过最大文件数量限制
                 if (fileList.length + files.length < 3) {
                   files.push(finalFile);
                 } else {
-                  message.warning("最多只能上传 3 个文件");
+                  message.warning(t("chat.maxFilesWarning"));
                 }
               } else {
-                // 记录不符合要求的文件
                 invalidFiles.push(finalFile);
               }
             }
           }
         }
 
-        // 如果检测到任何文件，都需要阻止默认粘贴行为（防止文件名被插入到输入框）
         if (hasAnyFile) {
           e.preventDefault();
           e.stopPropagation();
 
-          // 如果有不符合要求的文件，显示错误提示
           if (invalidFiles.length > 0) {
             message.warning(
-              `仅支持上传${allowedUploadTypes.join(",")}格式的文件`,
+              t("chat.unsupportedFileType").replace("{types}", allowedUploadTypes.join(",")),
             );
           }
 
-          // 如果有符合要求的文件，进行上传
           if (files.length > 0) {
             fileListRef.current?.uploadFiles(files);
           }
         }
-        // 如果没有文件，让默认的文本粘贴行为正常进行
       },
       [fileList.length],
     );
@@ -523,7 +481,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                 autoSize={{ minRows: 2, maxRows: 5 }}
                 className="message-input"
                 placeholder={
-                  placeholder || "请输入您的问题，支持多轮对话、图文理解等"
+                  placeholder || t("chat.inputPlaceholder")
                 }
                 value={value}
                 onChange={(e) => handleInputChange(e.target.value)}
@@ -551,7 +509,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                       }}
                     >
                       <AddIcon />
-                      新增对话
+                      {t("chat.newChat")}
                     </div>
                   )}
                   <ChatSelector
@@ -563,24 +521,18 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                     className={`input-bottom-actions-left-item ${showHistoryList ? "selected" : ""}`}
                     onClick={openHistory}
                   >
-                    对话历史
+                    {t("chat.chatHistory")}
                   </div>
                   <div
                     className={"input-bottom-actions-left-item"}
                     onClick={() => promptRef.current?.onOpen()}
                   >
-                    提示词模板
+                    {t("chat.promptTemplate")}
                   </div>
                 </div>
 
                 <div className="input-bottom-actions-right">
-                  {/* <Tooltip title="批量对话">
-                    <Button
-                      type="text"
-                      icon={<BatchChatIcon />}
-                      onClick={() => batchChatRef.current?.onOpen()}
-                    />
-                  </Tooltip> */}
+                  {}
                   <div className="input-bottom-actions-right-item">
                     <ImageUpload
                       updateFiles={updateImageList}
@@ -610,7 +562,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
         <BatchChatComponent
           ref={batchChatRef}
           cancelFn={(bool) => {
-            console.log(bool, "是否展示小红点");
+
           }}
         />
       </div>

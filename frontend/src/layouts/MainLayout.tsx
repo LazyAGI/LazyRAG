@@ -18,39 +18,13 @@ import {
 } from "@/modules/signin/utils/request";
 import { validatePassword } from "@/modules/signin/utils/formRules";
 import logoImage from "@/public/Lazy.png";
+import { useTranslation } from "react-i18next";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import "./index.scss";
 
 const { Content, Sider } = Layout;
 
 type MenuItem = Required<MenuProps>["items"][number];
-
-const allMenuItems: any[] = [
-  {
-    key: "agent",
-    label: "智能体",
-    type: "group",
-    children: [
-      { key: "/agent/chat", label: "知识问答", icon: <MessageFilled /> },
-    ],
-  },
-  {
-    key: "lib",
-    label: "资源库",
-    type: "group",
-    children: [
-      { key: "/lib/knowledge", label: "知识库", icon: <AppstoreOutlined /> },
-    ],
-  },
-  {
-    key: "system",
-    label: "系统管理",
-    type: "group",
-    children: [
-      { key: "/admin/users", label: "用户管理", icon: <UserOutlined />, role: "admin" },
-      { key: "/admin/groups", label: "用户组管理", icon: <TeamOutlined /> },
-    ],
-  },
-];
 
 function isAdminRole(role?: string) {
   const normalizedRole = (role || "").trim().toLowerCase();
@@ -67,7 +41,7 @@ interface ProfileFormValues {
   displayName?: string;
   email?: string;
   phone?: string;
-  remark?: string; // 添加描述字段
+  remark?: string;
   roleName?: string;
   status?: string;
   currentPassword?: string;
@@ -82,7 +56,27 @@ function normalizeFieldValue(value?: string | null) {
 export default function MainLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [profileForm] = Form.useForm<ProfileFormValues>();
+
+  const allMenuItems: MenuItem[] = [
+    {
+      key: "agent",
+      label: t("layout.agent"),
+      type: "group",
+      children: [
+        { key: "/agent/chat", label: t("layout.knowledgeQA"), icon: <MessageFilled /> },
+      ],
+    },
+    {
+      key: "lib",
+      label: t("layout.resourceLib"),
+      type: "group",
+      children: [
+        { key: "/lib/knowledge", label: t("layout.knowledgeBase"), icon: <AppstoreOutlined /> },
+      ],
+    },
+  ];
   const pathname = location.pathname || "/agent/chat";
 
   const userInfo = AgentAppsAuth.getUserInfo();
@@ -91,33 +85,25 @@ export default function MainLayout() {
   const userName = userInfo?.username || "";
 
   const [selectKeys, setSelectKeys] = useState<string[]>([
-    pathname.startsWith("/lib")
-      ? "/lib/knowledge"
-      : pathname.startsWith("/admin/users") && canViewSystemMenu
-      ? "/admin/users"
-      : pathname.startsWith("/admin/groups")
-      ? "/admin/groups"
-      : "/agent/chat",
+    pathname.startsWith("/lib") ? "/lib/knowledge" : "/agent/chat",
   ]);
 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileDetail, setProfileDetail] = useState<UserDetailResponse | null>(
     null,
   );
-  const menuItems = allMenuItems
-    .map((group) => {
-      const filteredChildren = group.children?.filter((child: any) => {
-        if (child.role === "admin" && !canViewSystemMenu) return false;
-        return true;
-      });
-      if (filteredChildren?.length > 0) {
-        return { ...group, children: filteredChildren };
-      }
-      return null;
-    })
-    .filter(Boolean) as MenuItem[];
+  const menuItems = allMenuItems;
+
+  const settingsMenuItems = [
+    {
+      key: "/admin",
+      label: t("layout.systemManagement"),
+      icon: <TeamOutlined className="settings-popover-icon" />,
+    },
+  ];
   const logoSrc =
     (import.meta.env as ImportMetaEnv & { VITE_APP_LOGO?: string })
       .VITE_APP_LOGO || "";
@@ -126,24 +112,30 @@ export default function MainLayout() {
     let key = "/agent/chat";
     if (pathname.startsWith("/lib")) {
       key = "/lib/knowledge";
-    } else if (pathname.startsWith("/admin/users") && canViewSystemMenu) {
-      key = "/admin/users";
-    } else if (pathname.startsWith("/admin/groups")) {
-      key = "/admin/groups";
     }
     setSelectKeys([key]);
-  }, [canViewSystemMenu, pathname]);
+  }, [pathname]);
 
   useEffect(() => {
-    if (pathname.startsWith("/admin/users") && !canViewSystemMenu) {
+    if (pathname.startsWith("/admin") && !canViewSystemMenu) {
       navigate("/agent/chat", { replace: true });
+      return;
     }
-  }, [canViewSystemMenu, navigate, pathname]);
+
+    if (pathname.startsWith("/admin") && !isLoggedIn) {
+      navigate("/login", { replace: true });
+    }
+  }, [canViewSystemMenu, isLoggedIn, navigate, pathname]);
 
   const onMenuClick: MenuProps["onClick"] = (e) => {
     const targetPath = e.key as string;
     if (selectKeys.includes(targetPath)) return;
     setSelectKeys([targetPath]);
+    navigate(targetPath);
+  };
+
+  const handleSettingsNavigate = (targetPath: string) => {
+    setSettingsOpen(false);
     navigate(targetPath);
   };
 
@@ -154,10 +146,11 @@ export default function MainLayout() {
   };
 
   const handleGoLogin = () => {
+    setSettingsOpen(false);
     navigate("/login");
   };
 
-  const currentPasswordRule = ({ getFieldValue }: any) => ({
+    const currentPasswordRule = ({ getFieldValue }: any) => ({
     validator(_: any, value: string) {
       const newPassword = getFieldValue("newPassword");
       const confirmPassword = getFieldValue("confirmPassword");
@@ -165,7 +158,7 @@ export default function MainLayout() {
         return Promise.resolve();
       }
       if (!value) {
-        return Promise.reject(new Error("请输入当前密码"));
+        return Promise.reject(new Error(t("profile.pleaseInputCurrentPasswordRequired")));
       }
       return Promise.resolve();
     },
@@ -179,7 +172,7 @@ export default function MainLayout() {
         return Promise.resolve();
       }
       if (!value) {
-        return Promise.reject(new Error("请输入新密码"));
+        return Promise.reject(new Error(t("profile.pleaseInputNewPasswordRequired")));
       }
       return validatePassword(value);
     },
@@ -193,10 +186,10 @@ export default function MainLayout() {
         return Promise.resolve();
       }
       if (!value) {
-        return Promise.reject(new Error("请确认新密码"));
+        return Promise.reject(new Error(t("profile.pleaseConfirmNewPassword")));
       }
       if (value !== newPassword) {
-        return Promise.reject(new Error("两次输入的密码不一致"));
+        return Promise.reject(new Error(t("profile.passwordNotMatch")));
       }
       return Promise.resolve();
     },
@@ -208,7 +201,7 @@ export default function MainLayout() {
       displayName: detail.display_name || "",
       email: detail.email || "",
       phone: detail.phone || "",
-      remark: (detail as any).remark || "", // 处理可能缺失的 remark
+      remark: (detail as any).remark || "",
       roleName: detail.role_name || "",
       status: detail.status || "",
       currentPassword: "",
@@ -248,7 +241,7 @@ export default function MainLayout() {
     try {
       const values = await profileForm.validateFields();
       if (!profileDetail?.user_id) {
-        message.error("未获取到当前用户信息");
+        message.error(t("profile.noUserInfo"));
         return;
       }
 
@@ -284,7 +277,7 @@ export default function MainLayout() {
       const shouldUpdatePassword = Boolean(currentPassword || newPassword);
 
       if (!shouldUpdateProfile && !shouldUpdatePassword) {
-        message.info("未检测到需要保存的变更");
+      message.info(t("profile.noChanges"));
         return;
       }
 
@@ -299,7 +292,7 @@ export default function MainLayout() {
       }
 
       await refreshCurrentProfile();
-      message.success("账号信息已更新");
+      message.success(t("profile.updateSuccess"));
       handleCloseProfile();
     } catch (error: any) {
       if (!error?.errorFields) {
@@ -339,27 +332,62 @@ export default function MainLayout() {
           />
           <div className="sider-bar-bottom">
             <div className="bottom-item">
-              <SettingOutlined className="bottom-icon" />
-              <Popover
-                content={
-                  <div className="settings-popover">
-                    {isLoggedIn ? (
-                      <Button type="text" onClick={handleLogout}>
-                        退出登录
-                      </Button>
-                    ) : (
-                      <Button type="text" onClick={handleGoLogin}>
-                        前往登录
-                      </Button>
-                    )}
-                  </div>
-                }
-                arrow={false}
-                placement="top"
-              >
-                <span className="bottom-text">设置</span>
-              </Popover>
+              <LanguageSwitcher />
             </div>
+            <Popover
+              content={
+                <div className="settings-popover">
+                  {settingsMenuItems.map((item) => (
+                    <Button
+                      key={item.key}
+                      type="text"
+                      className="settings-popover-button"
+                      onClick={() => handleSettingsNavigate(item.key)}
+                    >
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </Button>
+                  ))}
+                  {isLoggedIn ? (
+                    <Button
+                      type="text"
+                      className="settings-popover-button"
+                      onClick={handleLogout}
+                    >
+                      <span>{t("layout.logout")}</span>
+                    </Button>
+                  ) : (
+                    <Button
+                      type="text"
+                      className="settings-popover-button"
+                      onClick={handleGoLogin}
+                    >
+                      <span>{t("layout.goLogin")}</span>
+                    </Button>
+                  )}
+                </div>
+              }
+              arrow={false}
+              placement="top"
+              trigger="click"
+              open={settingsOpen}
+              onOpenChange={setSettingsOpen}
+            >
+              <div
+                className="bottom-item settings-trigger"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSettingsOpen((open) => !open);
+                  }
+                }}
+              >
+                <SettingOutlined className="bottom-icon" />
+                <span className="bottom-text">{t("layout.settings")}</span>
+              </div>
+            </Popover>
             {userName && (
               <div
                 className="bottom-item user-item"
@@ -388,7 +416,7 @@ export default function MainLayout() {
         </Content>
       </Layout>
       <Modal
-        title="个人信息"
+        title={t("profile.title")}
         open={profileModalOpen}
         onCancel={handleCloseProfile}
         onOk={handleProfileSubmit}
@@ -401,53 +429,62 @@ export default function MainLayout() {
           layout="vertical"
           disabled={profileLoading || profileSubmitting}
         >
-          <Form.Item name="username" label="用户名">
-            <Input disabled />
+          <Form.Item name="username" label={t("profile.username")}>
+            <Input disabled autoComplete="username" />
           </Form.Item>
-          <Form.Item name="displayName" label="昵称">
-            <Input placeholder="请输入昵称" />
+          <Form.Item name="displayName" label={t("profile.nickname")}>
+            <Input placeholder={t("profile.pleaseInputNickname")} autoComplete="nickname" />
           </Form.Item>
           <Form.Item
             name="email"
-            label="邮箱"
-            rules={[{ type: "email", message: "请输入有效的邮箱格式" }]}
+            label={t("profile.email")}
+            rules={[{ type: "email", message: t("profile.invalidEmail") }]}
           >
-            <Input placeholder="请输入邮箱" />
+            <Input placeholder={t("profile.pleaseInputEmail")} autoComplete="email" />
           </Form.Item>
-          <Form.Item name="phone" label="手机号">
-            <Input placeholder="请输入手机号" />
+          <Form.Item name="phone" label={t("profile.phone")}>
+            <Input placeholder={t("profile.pleaseInputPhone")} autoComplete="tel" />
           </Form.Item>
-          <Form.Item name="remark" label="描述">
-            <Input.TextArea placeholder="请输入描述" />
+          <Form.Item name="remark" label={t("profile.description")}>
+            <Input.TextArea placeholder={t("profile.pleaseInputDescription")} />
           </Form.Item>
-          <Form.Item name="roleName" label="角色">
+          <Form.Item name="roleName" label={t("profile.role")}>
             <Input disabled />
           </Form.Item>
-          <Form.Item name="status" label="状态">
+          <Form.Item name="status" label={t("profile.status")}>
             <Input disabled />
           </Form.Item>
           <Form.Item
             name="currentPassword"
-            label="当前密码"
+            label={t("profile.currentPassword")}
             rules={[currentPasswordRule]}
           >
-            <Input.Password placeholder="如需修改密码，请输入当前密码" />
+            <Input.Password
+              placeholder={t("profile.pleaseInputCurrentPassword")}
+              autoComplete="current-password"
+            />
           </Form.Item>
           <Form.Item
             name="newPassword"
-            label="新密码"
+            label={t("profile.newPassword")}
             dependencies={["currentPassword", "confirmPassword"]}
             rules={[passwordRequiredRule]}
           >
-            <Input.Password placeholder="不修改密码可留空" />
+            <Input.Password
+              placeholder={t("profile.pleaseInputNewPassword")}
+              autoComplete="new-password"
+            />
           </Form.Item>
           <Form.Item
             name="confirmPassword"
-            label="确认新密码"
+            label={t("profile.confirmNewPassword")}
             dependencies={["currentPassword", "newPassword"]}
             rules={[confirmPasswordRule]}
           >
-            <Input.Password placeholder="请再次输入新密码" />
+            <Input.Password
+              placeholder={t("profile.pleaseInputConfirmPassword")}
+              autoComplete="new-password"
+            />
           </Form.Item>
         </Form>
       </Modal>

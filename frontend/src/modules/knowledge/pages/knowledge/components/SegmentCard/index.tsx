@@ -34,9 +34,7 @@ const SegmentCard = (props: IProps) => {
   } = props;
 
   function onChange(checked: boolean) {
-    // 优先使用 onUpdateStatus（immer + 对比方案）
     if (onUpdateStatus) {
-      // 1. 发起 API 请求（获取 Promise）
       const apiPromise = SegmentServiceApi()
         .segmentServiceModifyStatus({
           dataset: segment.dataset_id || "",
@@ -45,13 +43,10 @@ const SegmentCard = (props: IProps) => {
           modifyStatusRequest: { is_active: checked, name: "", group: group },
         })
         .then(() => {
-          // API 成功，什么都不做（等待后续的数据对比）
         });
 
-      // 2. 立即触发本地更新 + 传递 API Promise（保持滚动位置）
       onUpdateStatus(segment.segment_id || "", checked, apiPromise);
     } else {
-      // 降级方案：传统刷新
       SegmentServiceApi()
         .segmentServiceModifyStatus({
           dataset: segment.dataset_id || "",

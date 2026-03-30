@@ -78,7 +78,7 @@
   background-color: #fff;
 }
 
-/* 统一表单样式，仅作用于登录页容器内 */
+
 .dashboard-page .ant-form-item {
   margin-bottom: 12px !important;
 }
@@ -109,7 +109,7 @@
   align-items: center !important;
 }
 
-/* 彻底修复双线问题：当输入框在包装器内部时，禁用其所有边框 */
+
 .dashboard-page .ant-input-affix-wrapper .ant-input {
   border: none !important;
   border-bottom: none !important;
@@ -124,7 +124,7 @@
   box-shadow: none !important;
 }
 
-/* 只有最外层容器在聚焦时显示下划线 */
+
 .dashboard-page .ant-input:focus,
 .dashboard-page .ant-input-affix-wrapper-focused,
 .dashboard-page .ant-select-focused .ant-select-selector {
@@ -147,7 +147,7 @@
   letter-spacing: 1px;
 }
 
-/* 验证码对齐优化 */
+
 .captcha-item {
   .ant-row {
     display: flex;

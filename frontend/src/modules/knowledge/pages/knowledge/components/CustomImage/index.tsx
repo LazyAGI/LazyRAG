@@ -1,6 +1,5 @@
 import { ImgHTMLAttributes } from "react";
 
-// 占位：1x1 透明像素，避免依赖 assets
 const DEFAULT_ERROR_IMAGE =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 

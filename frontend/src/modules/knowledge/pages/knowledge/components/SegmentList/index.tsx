@@ -1,5 +1,6 @@
 import { Empty } from "antd";
 import { forwardRef, useImperativeHandle, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Segment } from "@/api/generated/knowledge-client";
 import { Virtuoso } from "react-virtuoso";
 
@@ -35,6 +36,7 @@ interface IProps {
 
 const SegmentList = forwardRef<SegmentListImperativeProps, IProps>(
   (props, ref) => {
+    const { t } = useTranslation();
     const {
       segments,
       group,
@@ -49,36 +51,40 @@ const SegmentList = forwardRef<SegmentListImperativeProps, IProps>(
       loading = false,
       scrollToId,
     } = props;
-
     const segmentDetailRef = useRef<ISegmentDetailModalRef>(null);
-
+    console.log("segments", segments);
     useImperativeHandle(ref, () => ({
       openDetail,
     }));
 
     function openDetail(data: Segment, name: string) {
-      // 优先使用 onGetItemInfo 回调来定位原文位置
       if (onGetItemInfo) {
         onGetItemInfo(data);
       } else if (contentReadOnly) {
-        // 如果没有 onGetItemInfo 回调，且为只读模式，则打开详情弹窗
         segmentDetailRef.current?.handleOpen(data, name);
       }
     }
 
     if (loading) {
-      return <Rendering text={"加载中..."} />;
+      return <Rendering text={t("common.loading")} />;
     }
 
     if (!segments || segments.length < 1) {
-      return <Empty description={"暂无内容"} style={{ marginTop: 80 }} />;
+      return (
+        <Empty
+          description={t("knowledge.noContent")}
+          style={{ marginTop: 80 }}
+        />
+      );
     }
 
     return (
       <div
         className="segmentList"
         id={`scrollableDiv-${group}`}
-        style={{ height: editable ? "calc(100% - 40px)" : "100%" }}
+        style={{ 
+          height: editable ? "calc(100% - 40px)" : "100%"
+        }}
       >
         <Virtuoso
           style={{ height: "100%", width: "100%" }}

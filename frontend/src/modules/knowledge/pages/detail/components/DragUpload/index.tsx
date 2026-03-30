@@ -1,4 +1,5 @@
 import { Alert, message } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   DeleteOutlined,
   FileZipOutlined,
@@ -47,6 +48,7 @@ export interface IDragUploadProps {
 }
 
 const DragUpload = (props: IDragUploadProps) => {
+  const { t } = useTranslation();
   const {
     value = [],
     onChange = () => {},
@@ -137,11 +139,11 @@ const DragUpload = (props: IDragUploadProps) => {
 
       if (hasSubFolder) {
         message.warning(
-          "zip压缩包仅支持根目录的文件，一级及以上文件夹将被忽略",
+          t("knowledge.zipRootOnly"),
         );
       }
       if (hasInvalidType) {
-        message.warning("仅传入pdf、docx、doc格式的文件");
+        message.warning(t("knowledge.supportedDocTypes"));
       }
 
       if (hasOversizeFile) {
@@ -149,7 +151,7 @@ const DragUpload = (props: IDragUploadProps) => {
           ...prev,
           [file.uid]: {
             loading: false,
-            error: "压缩包中单个文件不能超过500MB",
+            error: t("knowledge.zipSingleFileMax"),
           },
         }));
         return;
@@ -158,7 +160,7 @@ const DragUpload = (props: IDragUploadProps) => {
       if (totalSize > ZIP_TOTAL_MAX_SIZE) {
         setZipStatusMap((prev) => ({
           ...prev,
-          [file.uid]: { loading: false, error: "文件过大，请拆分后上传" },
+          [file.uid]: { loading: false, error: t("knowledge.fileTooLargeSplit") },
         }));
         return;
       }
@@ -173,44 +175,37 @@ const DragUpload = (props: IDragUploadProps) => {
           ...prev,
           [file.uid]: {
             loading: false,
-            error: "压缩包已加密，暂不支持加密文件",
+            error: t("knowledge.zipEncryptedUnsupported"),
           },
         }));
         return;
       }
       setZipStatusMap((prev) => ({
         ...prev,
-        [file.uid]: { loading: false, error: "文件已损坏" },
+        [file.uid]: { loading: false, error: t("knowledge.fileDamaged") },
       }));
     }
   };
 
   const handleChange = (fileList: any[]) => {
-    // 获取路径中的根文件夹名称 (例如: 'folder/file.txt' -> 'folder')
     const getRootFolderName = (path: string) => {
       const parts = path?.split("/") || [];
       return parts.length > 1 ? parts[0] : null;
     };
 
-    // 确定唯一允许的根文件夹：
-    // 1. 优先使用已存在文件列表(value)中的根文件夹
-    // 2. 若无，则使用新上传列表(fileList)中的第一个文件夹
     const rootFolder =
       value.map((i) => getRootFolderName(i.path)).find(Boolean) ||
       fileList.map((i) => getRootFolderName(i.path)).find(Boolean);
 
     let filteredFileList = fileList;
     if (rootFolder) {
-      // 检查文件是否不属于当前根文件夹
       const isInvalidFile = (item: any) => {
         const folder = getRootFolderName(item.path);
-        // 如果该文件在某个文件夹内，且该文件夹不是当前的 rootFolder，则视为非法
         return folder && folder !== rootFolder;
       };
 
-      // 如果存在非法文件，弹出警告并过滤
       if (fileList.some(isInvalidFile)) {
-        message.warning("仅支持单次选择1个文件夹");
+        message.warning(t("knowledge.onlyOneFolder"));
         filteredFileList = fileList.filter((item) => !isInvalidFile(item));
       }
     }
@@ -234,7 +229,9 @@ const DragUpload = (props: IDragUploadProps) => {
 
       if (maxFileSize && item.size > maxFileSize) {
         errorList.push(
-          `单个文件不能超过${FileUtils.formatFileSize(maxFileSize, 0)}`,
+          t("knowledge.singleFileMax", {
+            size: FileUtils.formatFileSize(maxFileSize, 0),
+          }),
         );
         return;
       }
@@ -251,13 +248,17 @@ const DragUpload = (props: IDragUploadProps) => {
 
       totalSize += item.size;
       if (maxSize && totalSize > maxSize) {
-        errorList.push(`总大小不能超过${FileUtils.formatFileSize(maxSize, 0)}`);
+        errorList.push(
+          t("knowledge.totalSizeMax", {
+            size: FileUtils.formatFileSize(maxSize, 0),
+          }),
+        );
         return;
       }
 
       totalCount += 1;
       if (!singleUpload && maxCount && totalCount > maxCount) {
-        errorList.push(`总数量不能超过${maxCount}个`);
+        errorList.push(t("knowledge.totalCountMax", { count: maxCount }));
         return;
       }
 
@@ -265,7 +266,7 @@ const DragUpload = (props: IDragUploadProps) => {
     });
 
     if (hasInvalidType) {
-      errorList.push(invalidTypeMessage || "文件格式不支持");
+      errorList.push(invalidTypeMessage || t("knowledge.fileFormatUnsupported"));
     }
 
     uniq(errorList).forEach((err) => {
@@ -286,7 +287,6 @@ const DragUpload = (props: IDragUploadProps) => {
   const addSelectFiles = (files: FileList | null) => {
     const newFileList: any[] = [];
     for (const file of Array.from(files || [])) {
-      // 过滤 mac/系统隐藏文件，避免“上传成功但仍提示格式不支持”
       const relativePath = file.webkitRelativePath || file.name;
       const fileName = relativePath.split("/").pop() || "";
       if (fileName === ".DS_Store" || fileName.startsWith("._")) {
@@ -341,7 +341,7 @@ const DragUpload = (props: IDragUploadProps) => {
       }
     }
     if (hasBlockedEntry) {
-      message.error(invalidDropMessage || "拖拽内容不支持");
+      message.error(invalidDropMessage || t("knowledge.dropContentUnsupported"));
     }
   };
 
@@ -407,9 +407,11 @@ const DragUpload = (props: IDragUploadProps) => {
             <span style={{ marginRight: 4 }}>
               {title || (
                 <>
-                  拖拽至此上传或{" "}
+                  {t("knowledge.dragUploadOr")}{" "}
                   <span className="drag-text">
-                    {selectDirectory ? "选择文件夹" : "选择文件"}
+                    {selectDirectory
+                      ? t("knowledge.selectFolder")
+                      : t("knowledge.selectFileBtn")}
                   </span>
                 </>
               )}
@@ -431,7 +433,7 @@ const DragUpload = (props: IDragUploadProps) => {
       </label>
       {showAlert && (
         <Alert
-          message="已过滤嵌套文件夹"
+          message={t("knowledge.filteredNestedFolder")}
           type="warning"
           showIcon
           closable

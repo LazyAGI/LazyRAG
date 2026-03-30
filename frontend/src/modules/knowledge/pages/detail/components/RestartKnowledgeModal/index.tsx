@@ -1,7 +1,8 @@
 import { Ref, forwardRef, useImperativeHandle, useState } from "react";
 import { Modal, Form, message, TreeSelect } from "antd";
-import type { Job, ParserConfig } from "@/api/generated/knowledge-client";
-import { JobServiceApi } from "@/modules/knowledge/utils/request";
+import { useTranslation } from "react-i18next";
+import type { ParserConfig } from "@/api/generated/knowledge-client";
+import { TaskServiceApi } from "@/modules/knowledge/utils/request";
 
 interface IData {
   dataset: string;
@@ -25,6 +26,7 @@ const RestartKnowledgeModal = (
   ref: Ref<unknown> | undefined,
 ) => {
   const { parsers, onFinish } = props;
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [modalInfo, setModalInfo] = useState<IData>();
@@ -53,22 +55,37 @@ const RestartKnowledgeModal = (
       const { dataset, ids } = modalInfo;
       const { reparse_groups } = (await form.validateFields()) || {};
 
-      await JobServiceApi().jobServiceCreateJob({
-        dataset,
-        job: {
-          document_ids: ids.filter((i) => !!i),
-          // reparse: true,
-          job_type: "JOB_TYPE_REPARSE",
-          reparse_groups: reparse_groups.filter(
-            (v: string) => !allParseList.includes(v),
-          ),
-        } as Job,
+      const createRes = await TaskServiceApi().createTasks(dataset, {
+        parent: `datasets/${dataset}`,
+        items: [
+          {
+            upload_file_id: "",
+            task: {
+              task_type: "TASK_TYPE_REPARSE",
+              document_ids: ids.filter((i) => !!i),
+              display_name: t("knowledge.reparseTaskName", { count: ids.length }),
+              reparse_groups: reparse_groups.filter(
+                (v: string) => !allParseList.includes(v),
+              ),
+            },
+          },
+        ],
       });
-      message.success("创建重解析任务成功");
+
+      const tasks = createRes.data.tasks || [];
+      const taskIds = tasks.map((t) => t.task_id).filter(Boolean);
+      if (!taskIds.length) {
+        message.error(t("knowledge.createReparseTaskFailed"));
+        return;
+      }
+
+      await TaskServiceApi().startTasks(dataset, { task_ids: taskIds });
+      message.success(t("knowledge.createReparseTaskSuccess"));
       onFinish?.();
       onCancel();
     } catch (error) {
       console.log(error);
+      message.error(t("knowledge.createReparseTaskFailed"));
     } finally {
       setLoading(false);
     }
@@ -89,11 +106,11 @@ const RestartKnowledgeModal = (
       <Form form={form} layout="vertical">
         <Form.Item
           name="reparse_groups"
-          label={"重解析切片"}
-          rules={[{ required: true, message: "请选择重解析切片" }]}
+          label={t("knowledge.restartSlice")}
+          rules={[{ required: true, message: t("knowledge.selectRestartSlice") }]}
           required
         >
-          <TreeSelect multiple treeData={formatOptions(parsers || [])} />
+          <TreeSelect multiple treeData={formatOptions(parsers || [], t)} />
         </Form.Item>
       </Form>
     </Modal>
@@ -101,16 +118,10 @@ const RestartKnowledgeModal = (
 };
 
 const parseTypeMap = {
-  // 这版没有预览标签暂时屏蔽.
-  // PARSE_TYPE_CONVERT: '预览',
-  PARSE_TYPE_SPLIT: "文档切片",
-  PARSE_TYPE_QA: "文档问答对",
-  PARSE_TYPE_SUMMARY: "文档总结",
-  PARSE_TYPE_IMAGE_CAPTION: "图片信息提取",
 };
 
-/** 格式化切片筛选 */
-function formatOptions(parsers: Array<ParserConfig>) {
+
+function formatOptions(parsers: Array<ParserConfig>, t: (key: string, options?: any) => string) {
   if (!parsers || !parsers.length) {
     return [];
   }
@@ -119,8 +130,8 @@ function formatOptions(parsers: Array<ParserConfig>) {
     value: string | undefined;
   }[] = [];
   const options = [
-    { title: "全部切片", value: "all" },
-    { title: "文档切片", value: "document" },
+    { title: t("knowledge.segmentAll"), value: "all" },
+    { title: t("knowledge.segmentDocument"), value: "document" },
   ];
 
   parsers.forEach((p) => {
@@ -130,8 +141,13 @@ function formatOptions(parsers: Array<ParserConfig>) {
         value: p.name,
       });
     } else if (parseTypeMap[p.type as keyof typeof parseTypeMap]) {
+      const parseKeyMap = {
+        PARSE_TYPE_QA: "knowledge.segmentQa",
+        PARSE_TYPE_SUMMARY: "knowledge.segmentSummary",
+        PARSE_TYPE_IMAGE_CAPTION: "knowledge.imageCaption",
+      } as const;
       options.push({
-        title: parseTypeMap[p.type as keyof typeof parseTypeMap],
+        title: t(parseKeyMap[p.type as keyof typeof parseKeyMap] || "knowledge.segmentDocument"),
         value: p?.name || "",
       });
     }

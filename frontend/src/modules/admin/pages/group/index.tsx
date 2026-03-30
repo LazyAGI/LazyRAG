@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Table, Button, Space, Popconfirm, message, Input, Tooltip, Typography } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -19,6 +20,7 @@ const { Paragraph } = Typography;
 const NAME_COLUMN_WIDTH = 220;
 
 const GroupManagement = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isMemberModalVisible, setIsMemberModalVisible] = useState(false);
@@ -71,7 +73,7 @@ const GroupManagement = () => {
       });
     } catch (error) {
       console.error("Failed to fetch groups:", error);
-      message.error("获取用户组列表失败");
+      message.error(t("admin.fetchGroupsFailed"));
     } finally {
       setLoading(false);
     }
@@ -90,10 +92,10 @@ const GroupManagement = () => {
     try {
       const api = createGroupApi();
       await api.deleteGroupApiAuthserviceGroupGroupIdDelete({ groupId });
-      message.success("删除成功");
+      message.success(t("admin.deleteSuccess"));
       fetchGroups(pagination.current, pagination.pageSize, searchTerm);
     } catch (error) {
-      message.error("删除失败");
+      message.error(t("admin.deleteFailed"));
     }
   };
 
@@ -121,7 +123,7 @@ const GroupManagement = () => {
     try {
       const api = createUsersServiceApi();
       await api.userApplyToJoinGroups({ groupId: group.group_id });
-      message.success(`已提交加入 ${group.group_name} 的申请`);
+      message.success(t("admin.applyJoinGroupSuccess", { groupName: group.group_name }));
     } catch (error) {
       console.error("Failed to apply join group:", error);
     } finally {
@@ -146,7 +148,7 @@ const GroupManagement = () => {
 
   const columns = [
     {
-      title: "用户组名称",
+      title: t("admin.groupName"),
       dataIndex: "group_name",
       key: "group_name",
       width: NAME_COLUMN_WIDTH,
@@ -190,16 +192,16 @@ const GroupManagement = () => {
       ),
     },
     {
-      title: "描述",
+      title: t("admin.description"),
       dataIndex: "remark",
       key: "remark",
       width: 360,
       render: (remark: string) => renderEllipsisText(remark),
     },
     {
-      title: "操作",
+      title: t("admin.actions"),
       key: "action",
-      width: isUserAdmin ? 400 : 140,
+      width: isUserAdmin ? 200 : 140,
       render: (_: any, record: GroupItem) => (
         <Space size={4} wrap>
           {isUserAdmin ? (
@@ -210,14 +212,7 @@ const GroupManagement = () => {
                 icon={<UsergroupAddOutlined />}
                 onClick={() => handleAddMembers(record)}
               >
-                添加成员
-              </Button>
-              <Button
-                type="link"
-                size="small"
-                onClick={() => handleManagePermissions(record)}
-              >
-                权限管理
+                {t("admin.addMembers")}
               </Button>
               <Button
                 type="link"
@@ -225,13 +220,13 @@ const GroupManagement = () => {
                 icon={<EditOutlined />}
                 onClick={() => handleEdit(record)}
               >
-                编辑
+                {t("common.edit")}
               </Button>
               <Popconfirm
-                title="确定删除该用户组吗？"
+                title={t("admin.deleteGroupConfirm")}
                 onConfirm={() => handleDelete(record.group_id)}
-                okText="确定"
-                cancelText="取消"
+                okText={t("common.confirm")}
+                cancelText={t("common.cancel")}
               >
                 <Button
                   type="link"
@@ -239,7 +234,7 @@ const GroupManagement = () => {
                   danger
                   icon={<DeleteOutlined />}
                 >
-                  删除
+                  {t("common.delete")}
                 </Button>
               </Popconfirm>
             </>
@@ -251,7 +246,7 @@ const GroupManagement = () => {
               loading={applyingGroupId === record.group_id}
               onClick={() => handleApplyJoinGroup(record)}
             >
-              申请入组
+              {t("admin.applyJoinGroup")}
             </Button>
           )}
         </Space>
@@ -282,10 +277,10 @@ const GroupManagement = () => {
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <TeamOutlined style={{ fontSize: "20px" }} />
-            <h2 style={{ margin: 0 }}>用户组管理</h2>
+            <h2 style={{ margin: 0 }}>{t("admin.groupManagement")}</h2>
           </div>
           <Input.Search
-            placeholder="搜索用户组名称"
+            placeholder={t("admin.searchGroupName")}
             allowClear
             onSearch={handleSearch}
             style={{ width: 250 }}
@@ -300,7 +295,7 @@ const GroupManagement = () => {
               setIsModalVisible(true);
             }}
           >
-            新建用户组
+            {t("admin.newGroup")}
           </Button>
         )}
       </div>
@@ -315,7 +310,7 @@ const GroupManagement = () => {
         pagination={{
           ...pagination,
           showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`,
+          showTotal: (total) => t("common.totalItems", { total }),
         }}
         onChange={handleTableChange}
       />

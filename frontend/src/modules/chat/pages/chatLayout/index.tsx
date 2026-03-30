@@ -1,4 +1,5 @@
 import { FC, useRef, useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { message } from "antd";
 import { AgentAppsAuth } from "@/components/auth";
 import {
@@ -9,7 +10,6 @@ import {
   Query,
 } from "@/api/generated/chatbot-client";
 
-// 直接使用 openapi 的 ChatHistory 类型，已包含所有需要的字段
 type ChatHistory = BaseChatHistory;
 
 import ChatContainerComponent, {
@@ -32,7 +32,7 @@ import { CloseOutlined } from "@ant-design/icons";
 import { useChatMessageStore } from "@/modules/chat/store/chatMessage";
 import {
   useModelSelectionStore,
-  MODEL_OPTIONS,
+  MODEL_API_LABELS,
   parseModelSelectionFromModels,
 } from "@/modules/chat/store/modelSelection";
 import { allowedUploadTypes } from "@/modules/chat/components/ImageUpload";
@@ -44,6 +44,7 @@ interface IChatLayoutProps {
 }
 
 const ChatLayout: FC<IChatLayoutProps> = (props) => {
+  const { t } = useTranslation();
   const { setIsChatContent, initchatConfig, setChatConfigFn } = props;
   const [sessionId, setSessionId] = useState("");
   const [chatConfig, setChatConfig] = useState<ChatConfig>(
@@ -56,7 +57,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
 
   const chatRef = useRef<ChatImperativeProps>(null);
 
-  // 拖拽相关状态
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -65,10 +65,8 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     setChatConfig(initchatConfig);
   }, [initchatConfig]);
 
-  // 在组件首次加载时检查是否有待发送的消息
   useEffect(() => {
     if (pendingMessage) {
-      // 等待组件完全渲染后再发送消息
       const timer = setTimeout(() => {
         chatRef.current?.sendMessage(pendingMessage);
         clearPendingMessage();
@@ -79,13 +77,11 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     return undefined;
   }, [pendingMessage, clearPendingMessage]);
 
-  // 刷新后续传：有保存的会话 id 时恢复当前对话页（无论是否正在生成）
   useEffect(() => {
     const conversationId = sessionStorage.getItem(CHAT_RESUME_CONVERSATION_KEY);
     if (!conversationId) {
       return;
     }
-    // 临时 id（未收到 SSE 返回的真实 id）无法用于 getChatStatus，先尝试拉取会话列表以解析真实 id
     const resolveConversationId = (id: string): Promise<string> => {
       if (!id || !id.startsWith("temp_")) {
         return Promise.resolve(id);
@@ -114,7 +110,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
       })
       .catch(() => ({ resolvedId: conversationId, isGenerating: false }))
       .then(({ resolvedId, isGenerating }) => {
-        // 无论是否正在生成，都加载会话详情并停留在当前对话页
         setIsChatContent(true);
         return ChatServiceApi()
           .conversationServiceGetConversationDetail({
@@ -137,7 +132,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         setChatConfigFn(tempData);
         setSessionId(resolvedId);
 
-        // 从后端 conversation.models 解析并设置模型选择
         const modelSelection = parseModelSelectionFromModels(
           (conversation as any)?.models,
         );
@@ -168,7 +162,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
               create_time: record.create_time || "",
             });
             const isLastRecord = record === lastHistory;
-            // 只有当是最后一条记录且 result 为空或部分时，才标记为正在生成中
             const isActuallyGenerating =
               isLastRecord && (!record.result || record.result === "");
             const assistantMsg: any = {
@@ -266,11 +259,9 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
   ) {
     const modelSelection = getModelSelection(sessionId);
 
-    // 若本次请求带有上传文件（图片/文档），忽略知识库选择；不修改用户已选/置顶的知识库
     const hasUploadedFiles = input?.some(
       (q: Query) => q.input_type === "image" || q.input_type === "file",
     );
-    // DeepSeek 不接入知识库；LazyRAG 根据用户是否选择知识库确定
     const useKnowledgeBase =
       modelSelection === "value_engineering" || modelSelection === "both";
     const datasetList =
@@ -299,14 +290,12 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
             tags: chatConfig?.tags,
           },
         },
-        // 使用 models 指定模型：双模比较传两个，单模型传一个（LazyRAG 大模型 / DeepSeek）
         models:
           modelSelection === "both"
-            ? [MODEL_OPTIONS[0].label, MODEL_OPTIONS[1].label] // ["LazyRAG 大模型", "DeepSeek"]
+            ? [MODEL_API_LABELS.lazyRag, MODEL_API_LABELS.deepSeek]
             : modelSelection === "value_engineering"
-              ? [MODEL_OPTIONS[0].label]
-              : [MODEL_OPTIONS[1].label],
-        // 是否开启思考模式
+              ? [MODEL_API_LABELS.lazyRag]
+              : [MODEL_API_LABELS.deepSeek],
         // enable_thinking: think ? true : false,
         stream: true,
         input,
@@ -334,7 +323,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
   }
 
   function setConversationId(id: string) {
-    // 允许设置为空字符串（新对话）
     if (id === sessionId) {
       return;
     }
@@ -359,7 +347,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         setChatConfig(tempData);
         setChatConfigFn(tempData);
 
-        // 从后端 conversation.models 解析并设置模型选择
         const modelSelection = parseModelSelectionFromModels(
           (conversation as any)?.models,
         );
@@ -415,10 +402,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
               thinking_time_s: record.thinking_time_s,
             };
 
-            // 根据 second_result、second_id 判断是否展示双回复
-            // 只需要 second_result 和 second_id 存在即可，second_reasoning_content 可以为空
             if (record.second_result && record.second_id) {
-              // 有双回复数据，构造 answers 数组
               assistantMessage.answers = [
                 {
                   content: record.result || "",
@@ -426,19 +410,18 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
                   history_id: record.id,
                   reasoning_content: record.reasoning_content || "",
                   sources: record.sources,
-                  thinking_duration_s: record.thinking_time_s, // 第一个回答的思考时间
+                  thinking_duration_s: record.thinking_time_s,
                 },
                 {
                   content: record.second_result,
                   index: 1,
                   history_id: record.second_id,
                   reasoning_content: record.second_reasoning_content || "",
-                  sources: record.sources, // 如果第二个回复有独立的 sources，需要从 record.second_sources 获取
-                  thinking_duration_s: record.second_thinking_time_s, // 第二个回答的思考时间
+                  sources: record.sources,
+                  thinking_duration_s: record.second_thinking_time_s,
                 },
               ];
 
-              // 清除顶层的 reasoning_content 和 delta，避免重复显示
               assistantMessage.reasoning_content = "";
               assistantMessage.delta = "";
             }
@@ -464,13 +447,11 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     return dataObject.message;
   }
 
-  // 检查文件类型是否支持
   const isFileTypeSupported = (file: File): boolean => {
     const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
     return allowedUploadTypes.includes(ext);
   };
 
-  // 处理拖拽进入
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -480,7 +461,6 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     }
   };
 
-  // 处理拖拽离开
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -490,13 +470,11 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     }
   };
 
-  // 处理拖拽悬停
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
   };
 
-  // 处理文件放置
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -509,16 +487,13 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
       return;
     }
 
-    // 检查是否有不支持的文件类型
     const unsupportedFiles = files.filter((file) => !isFileTypeSupported(file));
 
     if (unsupportedFiles.length > 0) {
-      message.error("不支持上传该类型文件");
+      message.error(t("chat.unsupportedFileTypeDrag"));
       return;
     }
 
-    // 调用 ChatContainerComponent 的 uploadFiles 方法
-    // 通过 ref 访问 ChatContainerComponent 内部的 chatInputRef
     (chatRef.current as any)?.uploadFiles?.(files);
   };
 
@@ -530,15 +505,13 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {/* 拖拽蒙层 */}
+      {}
       {isDragging && (
         <div className="drag-overlay">
           <div className="drag-overlay-content">
             <div className="drag-icon">📁</div>
-            <div className="drag-text">文件拖动到此处即可上传</div>
-            <div className="drag-hint">
-              支持的文件格式：PDF、Word文档（DOC、DOCX）、PPTX、图片（PNG、JPG）
-            </div>
+            <div className="drag-text">{t("chat.dragToUpload")}</div>
+            <div className="drag-hint">{t("chat.dragSupportedFormats")}</div>
           </div>
         </div>
       )}

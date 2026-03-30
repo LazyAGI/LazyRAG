@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Modal, Button, Input, Space, message } from "antd";
 import { CloseOutlined } from "@ant-design/icons";
+import { useTranslation } from "react-i18next";
 import "./index.scss";
 
 const { TextArea } = Input;
@@ -9,20 +10,20 @@ interface FeedbackModalProps {
   visible: boolean;
   onCancel: () => void;
   onSubmit: (reason: string[], comment: string) => void;
-  /** 提交中时禁用提交按钮，防止重复提交 */
+  
   submitLoading?: boolean;
 }
 
-const FEEDBACK_OPTIONS = [
-  "没有理解问题",
-  "没有完成任务",
-  "编造事实",
-  "废话太多",
-  "没有创意",
-  "文风不好",
-  "信息陈旧",
-  "其它",
-];
+const FEEDBACK_OPTION_IDS = [
+  "didNotUnderstand",
+  "didNotCompleteTask",
+  "fabricatedFacts",
+  "tooVerbose",
+  "notCreative",
+  "poorWritingStyle",
+  "outdatedInfo",
+  "other",
+] as const;
 
 const FeedbackModal = ({
   visible,
@@ -30,6 +31,11 @@ const FeedbackModal = ({
   onSubmit,
   submitLoading = false,
 }: FeedbackModalProps) => {
+  const { t } = useTranslation();
+  const feedbackOptions = FEEDBACK_OPTION_IDS.map((id) => ({
+    id,
+    label: t(`chatFeedback.${id}`),
+  }));
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [comment, setComment] = useState("");
 
@@ -49,20 +55,17 @@ const FeedbackModal = ({
   };
 
   const handleSubmit = () => {
-    // 验证是否至少选择了一个标签
     if (selectedReasons.length === 0) {
-      message.error("请至少选择一个不满意的原因");
+      message.error(t("chat.atLeastOneUnsatisfiedReason"));
       return;
     }
     if (submitLoading) {
       return;
     }
     onSubmit(selectedReasons, comment);
-    // 不在此处重置表单，等父组件 API 成功/失败后再关闭并重置
   };
 
   const handleCancel = () => {
-    // 重置状态
     setSelectedReasons([]);
     setComment("");
     onCancel();
@@ -78,24 +81,24 @@ const FeedbackModal = ({
       className="feedback-modal"
     >
       <div className="feedback-modal-content">
-        <h3 className="feedback-title">你觉得什么让你不满意？</h3>
-        <p className="feedback-subtitle">请选择理由帮助我们做得更好</p>
+        <h3 className="feedback-title">{t("chat.feedbackAskUnsatisfied")}</h3>
+        <p className="feedback-subtitle">{t("chat.feedbackSubtitle")}</p>
         <Space wrap className="feedback-options">
-          {FEEDBACK_OPTIONS.map((option: string) => (
+          {feedbackOptions.map(({ id, label }) => (
             <Button
-              key={option}
-              type={selectedReasons.includes(option) ? "primary" : "default"}
-              onClick={() => handleReasonClick(option)}
+              key={id}
+              type={selectedReasons.includes(label) ? "primary" : "default"}
+              onClick={() => handleReasonClick(label)}
               className="feedback-option-btn"
             >
-              {option}
+              {label}
             </Button>
           ))}
         </Space>
 
         <div className="feedback-comment">
           <TextArea
-            placeholder="你期望的回答"
+            placeholder={t("chat.expectedAnswer")}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={6}
@@ -108,7 +111,7 @@ const FeedbackModal = ({
 
         <div className="feedback-actions">
           <Button onClick={handleCancel} disabled={submitLoading}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             type="primary"
@@ -116,7 +119,7 @@ const FeedbackModal = ({
             loading={submitLoading}
             disabled={submitLoading}
           >
-            提交反馈
+            {t("chat.submitFeedback")}
           </Button>
         </div>
       </div>

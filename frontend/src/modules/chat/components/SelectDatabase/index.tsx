@@ -1,7 +1,6 @@
 import { Popover, Tooltip } from "antd";
-import { memo, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import DatabaseIcon from "../../assets/icons/database.svg?react";
-import { DatabaseBaseServiceApi } from "@/modules/chat/utils/request";
 import { UserDatabaseSummary } from "@/api/generated/knowledge-client";
 import { CheckOutlined } from "@ant-design/icons";
 import "./index.scss";
@@ -24,11 +23,12 @@ function SelectDatabase(props: SelectDatabaseProps) {
   }, [currentDatabase]);
 
   function getDatabaseBaseList() {
-    DatabaseBaseServiceApi()
-      .databaseServiceGetUserDatabaseSummaries({})
-      .then((res) => {
-        setDatabaseBaseList((res?.data as UserDatabaseSummary[]) || []);
-      });
+    // DatabaseBaseServiceApi()
+    //   .databaseServiceGetUserDatabaseSummaries({})
+    //   .then((res) => {
+    //     setDatabaseBaseList((res?.data as UserDatabaseSummary[]) || []);
+    //   });
+    setDatabaseBaseList([]);
   }
 
   useEffect(() => {

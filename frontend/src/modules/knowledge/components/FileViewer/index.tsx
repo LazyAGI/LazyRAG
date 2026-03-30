@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Spin, message, Empty } from "antd";
+import { useTranslation } from "react-i18next";
+import { AgentAppsAuth } from "@/components/auth";
 import FileUtils from "@/modules/knowledge/utils/file";
 import { Segment } from "@/api/generated/knowledge-client";
 import {
   RenderHtml,
   RenderTxt,
-  RenderOffice,
   RenderPpt,
   RenderExcel,
+  RenderWord,
 } from "./renderers";
 
 import { RenderPdf } from "@/components/ui";
+import { normalizeProxyableUrl } from "@/modules/knowledge/utils/request";
 
 import "./index.scss";
 
@@ -21,11 +24,14 @@ interface FileViewerProps {
 }
 
 const FileViewer = (props: FileViewerProps) => {
+  const { t } = useTranslation();
   const { file, segment } = props;
+  const resolvedFileUrl = useMemo(() => normalizeProxyableUrl(file), [file]);
   const [loading, setLoading] = useState(false);
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
   const [meta, setMeta] = useState<Record<string, unknown> | null>(null);
   const [content, setContent] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!segment) {
@@ -38,7 +44,7 @@ const FileViewer = (props: FileViewerProps) => {
         const parsedMeta = JSON.parse(segment.meta);
         setMeta(parsedMeta);
       } catch {
-        const uiMessage = "加载失败，请重新加载";
+        const uiMessage = t("knowledge.loadingFailedReload");
         message.error(uiMessage);
         setMeta(null);
       }
@@ -53,9 +59,11 @@ const FileViewer = (props: FileViewerProps) => {
     }
   }, [segment?.meta, segment?.content]);
 
-  // 计算文件类型
   const fileType = useMemo(() => {
-    const suffix = FileUtils.getFileTypeFromURI(file as string);
+    const suffixFromUrl = FileUtils.getFileTypeFromURI(resolvedFileUrl || (file as string));
+    const suffixFromName = FileUtils.getFileTypeFromURI(props.fileName || "");
+    const suffix = suffixFromUrl || suffixFromName;
+
     if (["txt", "md", "json", "log", "csv"].includes(suffix)) {
       return "text";
     }
@@ -75,69 +83,82 @@ const FileViewer = (props: FileViewerProps) => {
       return "excel";
     }
     return "unknown";
-  }, [file]);
+  }, [file, props.fileName, resolvedFileUrl]);
 
-  // 统一获取文件数据的函数
-  const getFileData = async (
-    fileInput: string | ArrayBuffer | File | Blob,
-  ): Promise<ArrayBuffer> => {
-    try {
-      if (fileInput instanceof ArrayBuffer) {
-        return Promise.resolve(fileInput);
-      }
-      if (fileInput instanceof File || fileInput instanceof Blob) {
-        return await fileInput.arrayBuffer();
-      }
-      if (typeof fileInput === "string") {
-        const response = await fetch(fileInput, {
-          signal: FileUtils.timeoutSignal(5 * 60 * 1000), // 5分钟超时
-        });
-        if (!response.ok) {
-          throw new Error("Network response was not ok");
+  const getFileData = useCallback(
+    async (
+      fileInput: string | ArrayBuffer | File | Blob,
+    ): Promise<ArrayBuffer> => {
+      try {
+        if (fileInput instanceof ArrayBuffer) {
+          return Promise.resolve(fileInput);
         }
-        return await response.arrayBuffer();
+        if (fileInput instanceof File || fileInput instanceof Blob) {
+          return await fileInput.arrayBuffer();
+        }
+        if (typeof fileInput === "string") {
+          const authHeaders = AgentAppsAuth.getAuthHeaders();
+          const headers = new Headers();
+
+          Object.entries(authHeaders).forEach(([key, value]) => {
+            if (value) {
+              headers.set(key, value);
+            }
+          });
+
+          const response = await fetch(fileInput, {
+            headers: headers.keys().next().done ? undefined : headers,
+            signal: FileUtils.timeoutSignal(5 * 60 * 1000),
+          });
+          if (!response.ok) {
+            throw new Error(`Network response was not ok: ${response.status}`);
+          }
+          return await response.arrayBuffer();
+        }
+        throw new Error("Unsupported file input type");
+      } catch (err) {
+        throw new Error(
+          `Failed to read file: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
-      throw new Error("Unsupported file input type");
-    } catch (err) {
-      throw new Error(
-        `Failed to read file: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  };
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!file) {
+    if (!resolvedFileUrl) {
       setFileData(null);
+      setPreviewError(null);
       return;
     }
     setLoading(true);
-    getFileData(file as string | ArrayBuffer | File | Blob)
+    setPreviewError(null);
+    getFileData(resolvedFileUrl as string | ArrayBuffer | File | Blob)
       .then((data) => {
         setFileData(data);
         setLoading(false);
       })
       .catch(() => {
-        const uiMessage = "加载失败，请重新加载";
+        const uiMessage = t("knowledge.loadingFailedReload");
         message.error(uiMessage);
+        setPreviewError(uiMessage);
         setLoading(false);
         setFileData(null);
       });
-  }, [file]);
+  }, [resolvedFileUrl, getFileData]);
 
-  // 渲染加载中
   const renderLoading = useMemo(() => {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2">
         <Spin spinning={loading} />
-        <p className="text-gray-500">数据加载中...</p>
+        <p className="text-gray-500">{t("knowledge.dataLoading")}</p>
       </div>
     );
   }, [loading]);
 
-  // 渲染空状态
   const renderEmpty = useMemo(() => {
-    return <Empty description="暂无数据" />;
-  }, []);
+    return <Empty description={previewError || t("common.noData")} />;
+  }, [previewError]);
 
   const renderFile = useMemo(() => {
     if (!fileData) {
@@ -153,7 +174,7 @@ const FileViewer = (props: FileViewerProps) => {
           <RenderPdf
             className="scroll-container"
             style={{
-              height: "calc(100vh - 210px)",
+              height: "calc(100vh - 150px)",
             }}
             fileData={fileData}
             metadata={meta}
@@ -162,10 +183,8 @@ const FileViewer = (props: FileViewerProps) => {
         );
       case "docx":
         return (
-          <RenderOffice
+          <RenderWord
             fileData={fileData}
-            fileType={fileType}
-            metadata={meta}
             content={content}
           />
         );
@@ -193,11 +212,11 @@ const FileViewer = (props: FileViewerProps) => {
               fontSize: "14px",
             }}
           >
-            暂不支持该文件格式预览
+            {t("knowledge.previewUnsupported")}
           </div>
         );
     }
-  }, [fileData, content]);
+  }, [fileData, content, fileType, meta]);
 
   return (
     <>

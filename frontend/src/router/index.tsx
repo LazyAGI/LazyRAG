@@ -13,6 +13,7 @@ import KnowledgeList from "@/modules/knowledge/pages/list";
 import KnowledgeAuth from "@/modules/knowledge/pages/auth";
 import KnowledgeDetail from "@/modules/knowledge/pages/detail";
 import Knowledge from "@/modules/knowledge/pages/knowledge";
+import AdminLayout from "@/modules/admin/AdminLayout";
 import UserManagement from "@/modules/admin/pages/user";
 import GroupManagement from "@/modules/admin/pages/group";
 import GroupDetail from "@/modules/admin/pages/group/detail.tsx";
@@ -44,9 +45,12 @@ export default function AppRouter() {
               element={<Knowledge />}
             />
           </Route>
-          <Route path="admin/users" element={<UserManagement />} />
-          <Route path="admin/groups" element={<GroupManagement />} />
-          <Route path="admin/groups/:id" element={<GroupDetail />} />
+        </Route>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Navigate to="users" replace />} />
+          <Route path="users" element={<UserManagement />} />
+          <Route path="groups" element={<GroupManagement />} />
+          <Route path="groups/:id" element={<GroupDetail />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

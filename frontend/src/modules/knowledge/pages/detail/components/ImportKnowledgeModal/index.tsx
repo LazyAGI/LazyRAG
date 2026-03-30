@@ -1,4 +1,5 @@
 import { Button, Form, message, Modal } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   forwardRef,
   Ref,
@@ -9,23 +10,20 @@ import {
 
 import { DataSourceType } from "@/modules/knowledge/constants/common";
 import DragUpload from "../DragUpload";
-import batchUpload from "@/modules/knowledge/utils/batchUpload";
 import {
   DocumentServiceApi,
-  JobServiceApi,
+  TaskServiceApi,
+  uploadLargeFileToDataset,
 } from "@/modules/knowledge/utils/request";
 import TagSelect from "@/modules/knowledge/components/TagSelect";
-import {
-  JobDataSourceTypeEnum,
-  JobJobStateEnum,
-  StartJobRequestStartModeEnum,
-} from "@/api/generated/knowledge-client";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
 
 const ALLOWED_FILE_TYPES = ["pdf", "docx", "doc"];
 const SINGLE_FILE_MAX_SIZE = 500 * 1024 * 1024;
 const TOTAL_FILE_MAX_SIZE = 1 * 1024 * 1024 * 1024;
 const ZIP_FILE_TYPES = ["zip"];
+
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10MB
 
 type ImportMode = "file" | "folder" | "zip";
 
@@ -56,24 +54,21 @@ const InitData = {
 };
 
 const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
+  const { t } = useTranslation();
   const [data, setData] = useState<IData>(InitData);
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
   const [hasZipError, setHasZipError] = useState(false);
-  // 读权限
   const hasOnlyReadPermission = useDatasetPermissionStore((state) =>
     state.hasOnlyReadPermission(),
   );
-  // 上传权限
   const hasUploadPermission = useDatasetPermissionStore((state) =>
     state.hasUploadPermission(),
   );
-  // 写权限
   const hasWritePermission = useDatasetPermissionStore((state) =>
     state.hasWritePermission(),
   );
-  // 是否只有读权限
   const isOnlyRead =
     (hasOnlyReadPermission || hasUploadPermission) && !hasWritePermission;
 
@@ -117,45 +112,88 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
     setLoading(false);
   }
 
-  function submit(values: any) {
+  async function submit(values: any) {
     setLoading(true);
-    JobServiceApi()
-      .jobServiceCreateJob({
-        dataset: data.dataset_id,
-        job: {
-          data_source_type: JobDataSourceTypeEnum.LocalFile,
-          document_pid: data.p_id,
-          document_tags: values.tags,
-          // files: values.urlList.map((url: string) => { return { target_path: url } })
-        },
-      })
-      .then((res) => {
-        message.success("创建上传任务成功");
-        handleClose();
-        onOk();
-        const fileList = values.fileList.map((file: any) => ({
-          ...file,
-          taskId: res.data.job_id,
-        }));
-        const task = {
-          datasetId: data.dataset_id,
-          id: res.data.job_id,
-          taskState: JobJobStateEnum.Creating,
-        };
-        let startMode;
-        if (hasWritePermission) {
-          startMode = StartJobRequestStartModeEnum.Default;
-        } else if (hasUploadPermission) {
-          startMode = StartJobRequestStartModeEnum.Upload;
+    const fileList: File[] = (values.fileList || []).map((f: any) => f.originFile ?? f);
+
+    const smallFiles = fileList.filter((f) => f.size <= LARGE_FILE_THRESHOLD);
+    const largeFiles = fileList.filter((f) => f.size > LARGE_FILE_THRESHOLD);
+
+    try {
+      const allUploadFileIds: string[] = [];
+
+      if (smallFiles.length > 0) {
+        const formData = new FormData();
+        smallFiles.forEach((file) => {
+          formData.append("files", file);
+        });
+        if (data.p_id) {
+          formData.append("document_pid", data.p_id);
         }
-        batchUpload.addTask({ task, fileList, startMode });
-      })
-      .catch((err) => {
-        console.error(err);
-      })
-      .finally(() => {
-        setLoading(false);
+        if (values.tags?.length) {
+          formData.append("document_tags", JSON.stringify(values.tags));
+        }
+
+        const uploadRes = await TaskServiceApi().uploadFiles(data.dataset_id, formData);
+        const uploadedFiles = uploadRes.data.files || [];
+        if (!uploadedFiles.length) {
+          message.error(t("knowledge.uploadResultMissing"));
+          return;
+        }
+        uploadedFiles.forEach((f) => allUploadFileIds.push(f.upload_file_id));
+      }
+
+      for (const file of largeFiles) {
+        const uploadFileId = await uploadLargeFileToDataset(data.dataset_id, file, {
+          documentPid: data.p_id,
+        });
+        allUploadFileIds.push(uploadFileId);
+      }
+
+      if (!allUploadFileIds.length) {
+        message.error(t("knowledge.uploadResultMissing"));
+        return;
+      }
+
+      const items = allUploadFileIds.map((upload_file_id) => {
+        const item: { upload_file_id: string; task?: { document_tags?: string[] } } = {
+          upload_file_id,
+        };
+        if (values.tags?.length) {
+          item.task = { document_tags: values.tags };
+        }
+        return item;
       });
+
+      const createRes = await TaskServiceApi().createTasks(data.dataset_id, { items });
+      const taskIds = (createRes.data.tasks || [])
+        .map((t) => t.task_id)
+        .filter(Boolean) as string[];
+
+      if (!taskIds.length) {
+        message.error(t("knowledge.createTaskFailed"));
+        return;
+      }
+
+      const startMode = hasWritePermission
+        ? "DEFAULT"
+        : hasUploadPermission
+          ? "UPLOAD"
+          : undefined;
+      await TaskServiceApi().startTasks(data.dataset_id, {
+        task_ids: taskIds,
+        ...(startMode ? { start_mode: startMode } : {}),
+      });
+
+      message.success(t("knowledge.uploadAndCreateTaskSuccess"));
+      handleClose();
+      onOk();
+    } catch (err) {
+      console.error(err);
+      message.error(t("knowledge.uploadFailedRetry"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   // function changeSourceType() {
@@ -166,7 +204,7 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
     <Modal
       open={visible}
       destroyOnHidden
-      title={"导入文件"}
+      title={t("knowledge.importFileTitle")}
       onCancel={handleClose}
       centered
       width={896}
@@ -175,14 +213,16 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
       maskClosable={false}
       footer={
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <Button onClick={handleClose}>{"取消"}</Button>
+          <Button onClick={handleClose}>{t("common.cancel")}</Button>
           <Button
             type="primary"
             disabled={loading || hasZipError}
             onClick={() => form.submit()}
             style={{ marginLeft: 16 }}
           >
-            {isOnlyRead ? "上传知识文件" : "解析并导入"}
+            {isOnlyRead
+              ? t("knowledge.uploadKnowledgeFile")
+              : t("knowledge.parseAndImport")}
           </Button>
         </div>
       }
@@ -209,7 +249,7 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
             return (
               <Form.Item
                 name="fileList"
-                rules={[{ required: true, message: "请选择文件" }]}
+                rules={[{ required: true, message: t("knowledge.selectFile") }]}
               >
                 <DragUpload
                   disabled={loading}
@@ -225,39 +265,35 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
                   disableDragFolder={!isDirectoryMode}
                   invalidTypeMessage={
                     isDirectoryMode
-                      ? "仅传入pdf、docx、doc格式的文件"
+                      ? t("knowledge.supportedDocTypes")
                       : isZipMode
-                        ? "请上传zip格式的压缩包"
-                        : "请上传pdf、docx、doc格式的文件"
+                        ? t("knowledge.importZip")
+                        : t("knowledge.supportedDocTypes")
                   }
                   invalidDropMessage={
                     isDirectoryMode
-                      ? "请上传文件夹"
+                      ? t("knowledge.importFolder")
                       : isZipMode
-                        ? "请上传zip格式的压缩包"
-                        : "请上传pdf、docx、doc格式的文件"
+                        ? t("knowledge.importZip")
+                        : t("knowledge.supportedDocTypes")
                   }
                   description={
                     <>
                       {isDirectoryMode
-                        ? "支持导入文件夹"
+                        ? t("knowledge.supportedFolderImport")
                         : isZipMode
-                          ? "支持zip类型的文件"
-                          : "支持pdf、docx、doc类型的文件"}
+                          ? t("knowledge.supportedZipFile")
+                          : t("knowledge.supportedDocTypes")}
                       <br />
                       {isZipMode && (
                         <>
-                          {
-                            "zip压缩包仅支持根目录的文件，一级及以上文件夹将被忽略"
-                          }
+                          {t("knowledge.zipRootOnly")}
                           <br />
                         </>
                       )}
-                      {
-                        "单次上传限制300个文件，单个文件大小不超过500MB，总大小不超过1GB"
-                      }
+                      {t("knowledge.uploadLimitHint")}
                       <br />
-                      {"扫描版pdf单次建议控制在100页以内"}
+                      {t("knowledge.scannedPdfHint")}
                     </>
                   }
                 />
@@ -267,8 +303,7 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
         </Form.Item>
         <Form.Item
           name="tags"
-          label={"文档标签"}
-          // rules={[{ required: true, message: '请选择文档标签' }]}
+          label={t("knowledge.tags")}
         >
           <TagSelect tags={tags} />
         </Form.Item>

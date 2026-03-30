@@ -1,13 +1,11 @@
-/**
- * Chat 问答模块 - LazyRAG 知识问答
- * 完整 UI 可从 tieyiyuan apps/chat 迁移：拷贝 NewChatPage、newChatContainer、ChatInput 等，
- * 并将 @repo/shared-openapi 改为 @/api/generated，@repo/shared-* 改为 @/components。
- */
+
 import { Button, Input } from "antd";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AgentAppsAuth } from "@/components/auth";
 
 export default function ChatPage() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
 
   return (
@@ -20,27 +18,27 @@ export default function ChatPage() {
           marginBottom: 24,
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 20 }}>知识问答</h1>
+        <h1 style={{ margin: 0, fontSize: 20 }}>{t("chat.knowledgeQA")}</h1>
         <Button
           type="link"
           onClick={() => {
             AgentAppsAuth.logout();
           }}
         >
-          退出
+          {t("chat.exit")}
         </Button>
       </div>
       <p style={{ color: "#666", marginBottom: 16 }}>
-        请输入您的问题，支持多轮对话、图文理解等
+        {t("chat.inputPlaceholder")}
       </p>
       <Input.TextArea
-        placeholder="请输入您的问题，支持多轮对话、图文理解等"
+        placeholder={t("chat.inputPlaceholder")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         rows={3}
         style={{ marginBottom: 16 }}
       />
-      <Button type="primary">发送</Button>
+      <Button type="primary">{t("chat.send")}</Button>
     </div>
   );
 }

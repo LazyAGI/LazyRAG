@@ -1,6 +1,7 @@
 import { Tabs } from "antd";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
 
 import { MemberType } from "@/modules/knowledge/constants/common";
@@ -9,6 +10,7 @@ import { Dataset } from "@/api/generated/knowledge-client";
 import { DetailPageHeader } from "@/components/ui";
 
 const Authorize = () => {
+  const { t } = useTranslation();
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -34,10 +36,10 @@ const Authorize = () => {
       <DetailPageHeader
         className="mb-4"
         breadcrumbs={[
-          { title: "知识库", href: "/appplatform/lib/knowledge/list" },
+          { title: t("layout.knowledgeBase"), href: "/appplatform/lib/knowledge/list" },
           { title: detail?.display_name },
         ]}
-        title={`${detail?.display_name} 知识库授权`}
+        title={t("knowledge.authorizeTitle", { name: detail?.display_name })}
         onBack={() => {
           navigate(-1);
         }}
@@ -52,12 +54,12 @@ const Authorize = () => {
         }}
         className="w-full"
       >
-        <Tabs.TabPane tab={"用户"} key={`${MemberType.USER}`}>
+        <Tabs.TabPane tab={t("knowledge.users")} key={`${MemberType.USER}`}>
           {detail && (
             <MemberList memberType={MemberType.USER} detail={detail} />
           )}
         </Tabs.TabPane>
-        <Tabs.TabPane tab={"用户组"} key={`${MemberType.GROUP}`}>
+        <Tabs.TabPane tab={t("knowledge.groups")} key={`${MemberType.GROUP}`}>
           {detail && (
             <MemberList memberType={MemberType.GROUP} detail={detail} />
           )}

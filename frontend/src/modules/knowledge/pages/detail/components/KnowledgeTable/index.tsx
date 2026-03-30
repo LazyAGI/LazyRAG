@@ -16,6 +16,7 @@ import {
 import {
   DocumentServiceApi,
   JobServiceApi,
+  normalizeProxyableUrl,
 } from "@/modules/knowledge/utils/request";
 import {
   Button,
@@ -24,6 +25,7 @@ import {
   Modal,
   Dropdown,
   Tooltip,
+  Table,
   TablePaginationConfig,
   Tag,
 } from "antd";
@@ -44,7 +46,9 @@ import {
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { cloneDeep } from "lodash";
+import { useTranslation } from "react-i18next";
 import { ColumnType } from "antd/es/table";
+import { AgentAppsAuth } from "@/components/auth";
 import FileUtils from "@/modules/knowledge/utils/file";
 import RenameModel, {
   RenameFormItem,
@@ -58,13 +62,11 @@ import UIUtils from "@/modules/knowledge/utils/ui";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
 import type { Job } from "@/api/generated/knowledge-client";
 
-import { ListPageTable } from "@/components/ui";
 import CopyMoveModal from "../CopyMoveModal";
 import EditTags from "./editTags";
 import BatchEditTags from "../batchEditTags";
 import BatchMoveModal from "../batchMoveModal";
 
-// 扩展 Doc 类型以支持树形结构
 export interface TreeNode extends Doc {
   key: string;
   title: string;
@@ -110,20 +112,50 @@ interface Props {
 }
 
 const DocumentStageEnum = {
-  [DocDocumentStageEnum.DocumentUploaded]: "未解析",
-  [DocDocumentStageEnum.DocumentParsing]: "解析中",
-  [DocDocumentStageEnum.DocumentParseSuccessfully]: "已解析",
-  [DocDocumentStageEnum.DocumentParsingFailed]: "解析失败",
-  [DocDocumentStageEnum.DocumentParsingCancelled]: "解析取消",
-  [DocDocumentStageEnum.DocumentQueued]: "排队中",
-  [DocDocumentStageEnum.DocumentCrawling]: "爬取中",
-  [DocDocumentStageEnum.DocumentCrawlingFailed]: "爬取失败",
-  [DocDocumentStageEnum.DocumentFailed]: "失败",
-  [DocDocumentStageEnum.DocumentCrawlingQueued]: "爬取排队",
-};
+  WAITING: "knowledge.pending",
+  WORKING: "knowledge.processing",
+  SUCCESS: "common.success",
+  FAILED: "common.failed",
+  CANCELED: "knowledge.stageCanceled",
+  DELETING: "knowledge.stageDeleting",
+  DELETED: "knowledge.stageDeleted",
+
+  [DocDocumentStageEnum.DocumentUploaded]: "knowledge.pending",
+  [DocDocumentStageEnum.DocumentQueued]: "knowledge.pending",
+  [DocDocumentStageEnum.DocumentCrawlingQueued]: "knowledge.pending",
+  [DocDocumentStageEnum.DocumentParsing]: "knowledge.processing",
+  [DocDocumentStageEnum.DocumentCrawling]: "knowledge.processing",
+  [DocDocumentStageEnum.DocumentParseSuccessfully]: "common.success",
+  [DocDocumentStageEnum.DocumentParsingFailed]: "common.failed",
+  [DocDocumentStageEnum.DocumentCrawlingFailed]: "common.failed",
+  [DocDocumentStageEnum.DocumentFailed]: "common.failed",
+  [DocDocumentStageEnum.DocumentParsingCancelled]: "knowledge.stageCanceled",
+} as const;
+
+const DocumentStageTagColorMap = {
+  WAITING: "default",
+  WORKING: "processing",
+  SUCCESS: "success",
+  FAILED: "error",
+  CANCELED: "warning",
+  DELETING: "processing",
+  DELETED: "default",
+
+  [DocDocumentStageEnum.DocumentUploaded]: "default",
+  [DocDocumentStageEnum.DocumentQueued]: "default",
+  [DocDocumentStageEnum.DocumentCrawlingQueued]: "default",
+  [DocDocumentStageEnum.DocumentParsing]: "processing",
+  [DocDocumentStageEnum.DocumentCrawling]: "processing",
+  [DocDocumentStageEnum.DocumentParseSuccessfully]: "success",
+  [DocDocumentStageEnum.DocumentParsingFailed]: "error",
+  [DocDocumentStageEnum.DocumentCrawlingFailed]: "error",
+  [DocDocumentStageEnum.DocumentFailed]: "error",
+  [DocDocumentStageEnum.DocumentParsingCancelled]: "warning",
+} as const;
 
 const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
   const { detail, onImportKnowledge, getDetail, getImportingTotal } = props;
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [tableData, setTableData] = useState<TreeNode[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
@@ -144,7 +176,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
   const [showTagEditModal, setShowTagEditModal] = useState(false);
   const [tagEditRecord, setTagEditRecord] = useState<TreeNode | null>(null);
 
-  // 批量标签编辑状态管理
   const [batchTagEditState, setBatchTagEditState] = useState({
     showModal: false,
     documentIds: [] as string[],
@@ -157,7 +188,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     selectedFileCount: 0,
   });
 
-  // 使用权限 store
   const hasWritePermission = useDatasetPermissionStore((state) =>
     state.hasWritePermission(),
   );
@@ -168,7 +198,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     state.hasUploadPermission(),
   );
 
-  // 递归获取所有子节点的 key
   const getAllChildrenKeys = (node: TreeNode): string[] => {
     const keys: string[] = [];
     if (node.children) {
@@ -182,7 +211,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     return keys;
   };
 
-  /** 文件夹是否全选：有子项时看子项是否全选，无子项时看自身是否选中 */
+  
   const isFolderFullySelected = (node: TreeNode): boolean => {
     const childKeys = getAllChildrenKeys(node);
     if (childKeys.length === 0) {
@@ -191,7 +220,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     return childKeys.every((k) => selectedRowKeys.includes(k));
   };
 
-  // 获取所有数据的 key
   const getAllKeys = (data: TreeNode[]): string[] => {
     const keys: string[] = [];
     data.forEach((item) => {
@@ -203,7 +231,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     return keys;
   };
 
-  // 处理全选/取消全选
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedRowKeys(getAllKeys(tableData));
@@ -212,7 +239,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     }
   };
 
-  // 处理单个选择
   const handleSelect = (record: TreeNode, selected: boolean) => {
     if (!record.document_id) return;
 
@@ -223,7 +249,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
       keys = [...new Set([...keys, ...selfAndChildren])];
     } else {
       keys = keys.filter((k) => !selfAndChildren.includes(k));
-      // 取消子项时同步移除祖先文件夹，避免批量操作误删整棵子树
       const ancestorIds = TreeUtils.findAncestorFolderIds(
         tableData,
         record.document_id!,
@@ -233,7 +258,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     setSelectedRowKeys(keys);
   };
 
-  // 处理展开/收起
   const handleExpand = (expanded: boolean, record: TreeNode) => {
     if (!record.document_id) {
       return;
@@ -242,16 +266,13 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     let newExpandedRowKeys = [...expandedRowKeys];
 
     if (expanded) {
-      // 展开节点
       newExpandedRowKeys.push(record.document_id);
-      // 加载子节点数据
       getDocumentData({
         pId: record.document_id,
         level: record.level + 1,
         parentNode: record,
       });
     } else {
-      // 收起节点
       newExpandedRowKeys = newExpandedRowKeys.filter(
         (key) => key !== record.document_id,
       );
@@ -260,15 +281,19 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     setExpandedRowKeys(newExpandedRowKeys);
   };
 
-  // 删除知识
   const handleDelete = (records: TreeNode[]) => {
     if (records.length === 0) {
-      message.warning("请选择要删除的知识");
+      message.warning(t("knowledge.selectAtLeastOneFile"));
       return;
     }
     Modal.confirm({
-      title: "删除知识",
-      content: `确定删除${records.length > 1 ? "" : `【${records[0].display_name}】`}知识，删除会同时把子知识同步删除，确定删除吗？`,
+      title: t("knowledge.deleteDoc"),
+      content:
+        records.length > 1
+          ? t("knowledge.deleteDocConfirm")
+          : t("knowledge.deleteDocConfirmWithName", {
+              name: `【${records[0].display_name}】`,
+            }),
       onOk: () => {
         DocumentServiceApi()
           .documentServiceBatchDeleteDocument({
@@ -279,20 +304,19 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
             },
           })
           .then(() => {
-            message.success("删除成功");
+            message.success(t("knowledge.deleteDocSuccess"));
             setSelectedRowKeys([]);
             setExpandedRowKeys([]);
             getDocumentData({ pId: "", level: 0, page: 1 });
             getDetail();
           })
           .catch(() => {
-            message.error("删除失败");
+            message.error(t("knowledge.deleteDocFailed"));
           });
       },
     });
   };
 
-  // 重命名知识和文件夹
   const onRename = (data: RenameFormItem): Promise<void> => {
     if (!currentNode) {
       return Promise.resolve();
@@ -311,14 +335,12 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
         },
       })
       .then(() => {
-        // 刷新后自动同步展开态，避免双击问题。
         if (!currentNode.isLeaf && currentNode.document_id) {
           setExpandedRowKeys((prev) =>
             prev.filter((key) => key !== currentNode.document_id),
           );
         }
         if (currentNode.isLeaf) {
-          // 子级文件编辑后刷新根列表，避免继续携带 p_id。
           if (currentNode.p_id) {
             setExpandedRowKeys((prev) =>
               prev.filter((key) => key !== currentNode.p_id),
@@ -343,22 +365,18 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     return Promise.resolve();
   };
 
-  // 打开标签编辑弹窗
   const handleOpenTagEdit = (record: TreeNode) => {
     setTagEditRecord(record);
     setShowTagEditModal(true);
   };
 
-  // 关闭标签编辑弹窗
   const handleCloseTagEdit = () => {
     setShowTagEditModal(false);
     setTagEditRecord(null);
   };
 
-  // 标签编辑成功后的回调
   const handleTagEditSuccess = () => {
     if (tagEditRecord) {
-      // 若修改的是文件夹且当前处于展开态：更新成功后收起该文件夹，避免出现“子项已收回但三角仍展开”的不一致
       if (
         tagEditRecord.type === DocTypeEnum.Folder &&
         tagEditRecord.document_id &&
@@ -498,21 +516,21 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
 
   const doOpenBatchEditTags = async () => {
     if (selectedRowKeys.length === 0) {
-      message.warning("请至少选择一个文件");
+      message.warning(t("knowledge.selectAtLeastOneFile"));
       return;
     }
     const key = "batchEditTagsResolving";
     message.open({
       key,
       type: "loading",
-      content: "正在统计已选中文档数量...",
+      content: t("knowledge.countingSelectedFiles"),
       duration: 0,
     });
     try {
       const { selectedFileCount, folderIds, documentIds } =
         await resolveBatchEditTagsMeta(selectedRowKeys);
       if (selectedFileCount === 0) {
-        message.warning("所选内容下没有可操作的文件");
+        message.warning(t("knowledge.noOperableFiles"));
         return;
       }
       setBatchTagEditState({
@@ -537,25 +555,25 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
 
   const doOpenBatchMove = async () => {
     if (!hasWritePermission) {
-      message.warning("当前账号没有写权限");
+      message.warning(t("knowledge.noWritePermission"));
       return;
     }
     if (selectedRowKeys.length === 0) {
-      message.warning("请至少选择一个文件");
+      message.warning(t("knowledge.selectAtLeastOneFile"));
       return;
     }
     const key = "batchMoveResolving";
     message.open({
       key,
       type: "loading",
-      content: "正在统计已选中文档数量...",
+      content: t("knowledge.countingSelectedFiles"),
       duration: 0,
     });
     try {
       const { selectedFileCount, documents } =
         await resolveBatchMoveMeta(selectedRowKeys);
       if (selectedFileCount === 0) {
-        message.warning("所选内容下没有可移动的文件");
+        message.warning(t("knowledge.noMovableFiles"));
         return;
       }
       setBatchMoveState({
@@ -568,18 +586,62 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     }
   };
 
-  // 下载知识（提前定义供操作列快捷按钮使用）
-  const onDownload = (record: TreeNode) => {
-    const link = document.createElement("a");
-    link.target = "_blank";
-    link.href = record.uri || "";
-    link.download = record.display_name || "";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const onDownload = async (record: TreeNode) => {
+    const downloadFileUrl = (record as any).download_file_url || record.uri || "";
+
+    if (!downloadFileUrl) {
+      message.error(t("knowledge.fileUrlMissing"));
+      return;
+    }
+
+    const fileUrl = `${window.location.origin}/api/core${downloadFileUrl}`;
+
+    const resolvedFileUrl = normalizeProxyableUrl(fileUrl);
+
+    const loadingKey = "download-" + record.document_id;
+    message.loading({ content: t("knowledge.downloading"), key: loadingKey });
+
+    try {
+      const authHeaders = AgentAppsAuth.getAuthHeaders();
+      const headers = new Headers();
+
+      Object.entries(authHeaders).forEach(([key, value]) => {
+        if (value) {
+          headers.set(key, value);
+        }
+      });
+
+      const response = await fetch(resolvedFileUrl, {
+        headers: headers.keys().next().done ? undefined : headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`下载失败: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = record.display_name || "download";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+
+      message.success({ content: t("knowledge.downloadSuccess"), key: loadingKey });
+    } catch (error) {
+      console.error("下载失败:", error);
+      message.error({
+        content:
+          error instanceof Error ? error.message : t("knowledge.downloadFailedRetry"),
+        key: loadingKey,
+      });
+    }
   };
 
-  // 表格列配置
   const columns = [
     {
       title: (
@@ -596,19 +658,25 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
             }
             onChange={(e) => handleSelectAll(e.target.checked)}
           />
-          <span className="ml-3">知识</span>
+          <span style={{ marginLeft: "12px" }}>知识</span>
         </div>
       ),
       dataIndex: "display_name",
-      width: 500,
+      width: 300,
       render: (text: string, record: TreeNode) => {
         const isFolder = record.type === DocTypeEnum.Folder;
         const isExpanded = expandedRowKeys.includes(record.document_id || "");
 
         return (
           <div
-            className="flex w-full items-center gap-2"
-            style={{ paddingLeft: record.level * 20 }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              paddingLeft: record.level * 20,
+              flexWrap: 'nowrap',
+              width: '100%',
+            }}
           >
             <Button
               icon={
@@ -653,27 +721,36 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
               }
             />
             <Tooltip title={text} placement="topLeft">
-              <a
-                className="flex-1"
+              <span
+                style={{
+                  flex: '1 1 0',
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                  color: "#1890ff",
+                  minWidth: 0,
+                  display: 'inline-block',
+                }}
                 onClick={() => {
                   if (record.type === DocTypeEnum.Folder) {
                     handleExpand(!isExpanded, record);
                     return;
                   }
                   navigate({
-                    pathname: `/knowledge/${detail.dataset_id}/${record.document_id}`,
+                    pathname: `/lib/knowledge/knowledge/${detail.dataset_id}/${record.document_id}`,
                   });
                 }}
               >
-                <span>{text}</span>
-              </a>
+                {text}
+              </span>
             </Tooltip>
           </div>
         );
       },
     },
     {
-      title: "标签",
+      title: t("knowledge.tags"),
       dataIndex: "tags",
       width: 120,
       render: (tags: string[], record: TreeNode) => {
@@ -745,7 +822,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
       },
     },
     {
-      title: "所在目录",
+      title: t("knowledge.directory"),
       dataIndex: "rel_path",
       width: 120,
       render: (rel_path: string) => {
@@ -762,28 +839,40 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
       },
     },
     {
-      title: "解析状态",
+      title: t("knowledge.parseStatus"),
       dataIndex: "document_stage",
       width: 120,
       render: (document_stage: string) => {
-        return DocumentStageEnum[
-          document_stage as keyof typeof DocumentStageEnum
-        ];
+        const text =
+          (DocumentStageEnum[document_stage as keyof typeof DocumentStageEnum]
+            ? t(
+                DocumentStageEnum[
+                  document_stage as keyof typeof DocumentStageEnum
+                ],
+              )
+            : document_stage) ||
+          "-";
+        const color =
+          DocumentStageTagColorMap[
+            document_stage as keyof typeof DocumentStageTagColorMap
+          ] || "default";
+
+        return <Tag color={color}>{text}</Tag>;
       },
     },
     {
-      title: "知识类型",
+      title: t("knowledge.docType"),
       dataIndex: "type",
       width: 120,
       render: (type: string, record: TreeNode) => {
         if (type === DocTypeEnum.Folder) {
-          return "文件夹";
+          return t("knowledge.folder");
         }
-        return FileUtils.getSuffix(record.display_name || "") || "未知";
+        return FileUtils.getSuffix(record.display_name || "") || t("knowledge.unknown");
       },
     },
     {
-      title: "大小",
+      title: t("knowledge.size"),
       dataIndex: "document_size",
       width: 120,
       render: (_: number, record: TreeNode) => {
@@ -791,18 +880,18 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
       },
     },
     {
-      title: "更新日期",
+      title: t("knowledge.updateDate"),
       dataIndex: "update_time",
       width: 180,
       render: (text: string) => moment(text).format(TIME_FORMAT),
     },
     {
-      title: "更新人",
+      title: t("knowledge.updater"),
       dataIndex: "creator",
       width: 120,
     },
     {
-      title: "操作",
+      title: t("common.actions"),
       key: "action",
       width: 140,
       fixed: "right",
@@ -813,7 +902,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
 
         const downloadBtn = (
           <Button type="link" size="small" onClick={() => onDownload(record)}>
-            下载
+            {t("knowledge.download")}
           </Button>
         );
         const importBtn = (
@@ -831,11 +920,10 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
               });
             }}
           >
-            导入文件
+            {t("knowledge.importFile")}
           </Button>
         );
 
-        // 只读者或上传者（无写权限）：文件可下载，上传者还可对文件夹导入，无更多操作
         if (!hasWritePermission) {
           if (record.isLeaf) return downloadBtn;
           return hasUploadPermission ? importBtn : null;
@@ -849,43 +937,41 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
         const defaultItems: MenuProps["items"] = [
           {
             key: "rename",
-            label: "编辑",
+            label: t("common.edit"),
           },
           {
             key: "copy",
-            label: "复制",
+            label: t("knowledge.copyTo"),
             disabled: !detail?.acl?.includes("DATASET_READ"),
           },
           {
             key: "move",
-            label: "移动",
+            label: t("knowledge.moveTo"),
             disabled: !detail?.acl?.includes("DATASET_WRITE"),
           },
         ];
 
         const isLeftItems: MenuProps["items"] = [...defaultItems];
-        // 非解析中状态，添加解析和重新解析操作
         if (!isParsePending) {
-          // 未解析状态，添加解析操作，否则未重新解析
           if (isUnParse) {
             isLeftItems.push({
               key: "parse",
-              label: "解析",
+              label: t("knowledge.parse"),
             });
           } else {
             isLeftItems.push({
               key: "reparse",
-              label: "重新解析",
+              label: t("knowledge.reparse"),
             });
           }
         }
-        isLeftItems.push({ key: "delete", label: "删除", danger: true });
+        isLeftItems.push({ key: "delete", label: t("common.delete"), danger: true });
         const notLeafItems: MenuProps["items"] = [
           {
             key: "rename",
-            label: "编辑",
+            label: t("common.edit"),
           },
-          { key: "delete", label: "删除", danger: true },
+          { key: "delete", label: t("common.delete"), danger: true },
         ];
         return (
           <div>
@@ -905,7 +991,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
                 icon={<DownOutlined />}
                 iconPosition="end"
               >
-                更多
+                {t("knowledge.more")}
               </Button>
             </Dropdown>
           </div>
@@ -929,7 +1015,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     setSelectedRowKeys([]);
   };
 
-  // 更多操作
   const handleMenuClick = (e: { key: string }, record: TreeNode) => {
     if (!e.key) {
       return;
@@ -945,33 +1030,40 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
           record.data_source_type === DocDataSourceTypeEnum.LocalFile
             ? FileUtils.getSuffix(record.display_name || "", true)
             : "";
-        const reg = new RegExp(suffix + "$");
+        const reg = new RegExp(suffix.replace(/\./g, "\\.") + "$", "i");
+        const nameMaxLen = !record.isLeaf
+          ? 30
+          : Math.max(300 - suffix.length, 1);
         knowledgeRenameRef.current?.onOpen({
-          title: "编辑",
+          title: t("common.edit"),
           form: {
-            name: !record.isLeaf ? "编辑文件夹名称" : "编辑知识名称",
+            name: !record.isLeaf
+              ? t("knowledge.editFolderName")
+              : t("knowledge.editKnowledgeName"),
             namePlaceholder: !record.isLeaf
-              ? "仅支持中英文、数字、下划线，长度不超过30个字符"
-              : "请输入知识名称",
-            nameLen: 30,
+              ? t("knowledge.folderNameRule")
+              : t("knowledge.inputKnowledgeName"),
+            nameLen: nameMaxLen,
             nameRules: [
               {
                 required: true,
                 validator: (_: unknown, value: string): Promise<void> => {
                   if (!value) {
                     return Promise.reject(
-                      !record.isLeaf ? "清输入文件夹名称" : "请输入知识名称",
+                      !record.isLeaf
+                        ? t("knowledge.inputFolderName")
+                        : t("knowledge.inputKnowledgeName"),
                     );
                   }
                   if (!record.isLeaf) {
                     if (!FOLDER_NAME_REG.test(value) || value.length > 30) {
                       return Promise.reject(
-                        "仅支持中英文、数字、下划线，长度不超过30个字符",
+                        t("knowledge.folderNameRule"),
                       );
                     }
                   } else {
                     if (value.length + suffix.length > 300) {
-                      return Promise.reject("长度不超过 300 字符");
+                      return Promise.reject(t("knowledge.maxLength300"));
                     }
                   }
                   return Promise.resolve();
@@ -1001,7 +1093,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
             } as unknown as Job,
           })
           .then(() => {
-            message.success("创建解析任务成功");
+            message.success(t("knowledge.parseTaskCreated"));
           })
           .catch((error) => {
             console.log(error);
@@ -1014,7 +1106,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
         break;
       case "reparse":
         restartKnowledgeRef.current?.onOpen({
-          title: "重新解析",
+          title: t("knowledge.reparse"),
           dataset: record?.dataset_id || "",
           ids: [record?.document_id || ""],
         });
@@ -1047,7 +1139,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     }
   };
 
-  // 获取文档数据 - 合并了加载子节点和获取表格数据的功能
   const getDocumentData = async (params: {
     pId: string;
     level: number;
@@ -1064,11 +1155,9 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     } = params;
 
     try {
-      // 只在根级别（pId 为空）使用分页
       const isRootLevel = !pId && !parentNode;
       const currentPageSize = customPageSize || pagination.pageSize || 10;
 
-      // 构建请求参数
       const searchParams: {
         parent: string;
         p_id: string;
@@ -1079,10 +1168,9 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
         parent: "",
         p_id: pId,
         keyword,
-        page_size: isRootLevel ? currentPageSize : 10000, // 子节点加载所有数据
+        page_size: isRootLevel ? currentPageSize : 10000,
       };
 
-      // 根级别使用分页 token
       if (isRootLevel && page) {
         const updatedPagination = {
           ...pagination,
@@ -1110,7 +1198,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
         loaded: false,
       }));
       if (parentNode) {
-        // 加载子节点数据
         setTableData((prevData) => {
           const newData = cloneDeep(prevData);
           const updateNode = (nodes: TreeNode[]): TreeNode[] => {
@@ -1130,7 +1217,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
           };
           return updateNode(newData);
         });
-        // 如果父节点已选中，则把子节点也选中
         if (
           parentNode.document_id &&
           selectedRowKeys.includes(parentNode.document_id)
@@ -1143,14 +1229,11 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
           );
         }
       } else {
-        // 获取表格数据（根级别）
         if (isRootLevel) {
-          // 根级列表刷新后清理展开态，避免出现“子项已收回但图标仍展开”导致需要点击两次的问题。
           setExpandedRowKeys([]);
         }
         setTableData(documents as TreeNode[]);
         setExpandedRowKeys([]);
-        // 更新总数
         if (isRootLevel && res.data.total_size !== undefined) {
           setPagination((prev) => ({ ...prev, total: res.data.total_size }));
         }
@@ -1160,7 +1243,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     }
   };
 
-  // 下载选中知识 - 批量下载
   const downloadCheckedKnowledge = () => {
     if (selectedRowKeys.length === 0) {
       return;
@@ -1176,10 +1258,9 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     records.forEach((record) => onDownload(record));
   };
 
-  // 重解析选中知识 - 批量重解析
   const restartCheckedKnowledge = () => {
     if (selectedRowKeys.length === 0) {
-      message.warning("请至少选择一个文件");
+      message.warning(t("knowledge.selectAtLeastOneFile"));
       return;
     }
     const records = selectedRowKeys.map((key) =>
@@ -1189,11 +1270,11 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
       ),
     );
     if (records.length === 0) {
-      message.warning("请至少选择一个文件");
+      message.warning(t("knowledge.selectAtLeastOneFile"));
       return;
     }
     restartKnowledgeRef.current?.onOpen({
-      title: "重解析",
+      title: t("knowledge.reparse"),
       dataset: detail.dataset_id!,
       ids: records.map((record) => record.document_id || ""),
     });
@@ -1214,7 +1295,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     });
   };
 
-  // 处理分页变化
   const onTableChange = (newPagination: TablePaginationConfig) => {
     setPagination({
       current: newPagination.current,
@@ -1230,7 +1310,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     });
   };
 
-  // 暴露给父组件的方法
   useImperativeHandle(ref, () => ({
     getTableData: (params) => {
       getDocumentData({
@@ -1242,7 +1321,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
     treeData: tableData,
     deleteKnowledge: () => {
       if (selectedRowKeys.length === 0) {
-        message.warning("请至少选择一个文件");
+        message.warning(t("knowledge.selectAtLeastOneFile"));
         return;
       }
       handleDelete(
@@ -1270,7 +1349,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
 
   useEffect(() => {
     if (detail.dataset_id) {
-      // 重置分页到第一页
       setPagination({ current: 1, pageSize: 10, total: 0 });
       getDocumentData({ pId: "", level: 0, page: 1 });
     }
@@ -1278,30 +1356,28 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
   }, [detail.dataset_id]);
 
   useEffect(() => {
-    // 搜索时重置分页到第一页
     setPagination((prev) => ({ ...prev, current: 1 }));
     getDocumentData({ pId: "", level: 0, page: 1 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keyword]);
 
   return (
-    <div className="h-full w-full overflow-hidden">
-      <ListPageTable
-        columns={columns as unknown as ColumnType<Record<string, unknown>>[]}
+    <div style={{ width: "100%", minWidth: 0 }}>
+      <Table<TreeNode>
+        columns={columns as ColumnType<TreeNode>[]}
         dataSource={tableData}
         pagination={{
           ...pagination,
           showSizeChanger: true,
-          showTotal: (total: number) => `共 ${total} 条`,
+          showTotal: (total: number) => t("knowledge.totalCount", { total }),
         }}
         onChange={onTableChange}
         rowKey="document_id"
-        scroll={{ y: "calc(100vh - 380px)" }}
+        scroll={{ x: 1600, y: "calc(100vh - 380px)" }}
         expandable={{
           expandedRowKeys,
-          onExpand: (expanded, record) =>
-            handleExpand(expanded, record as TreeNode),
-          expandIcon: () => null, // 隐藏默认的展开图标
+          onExpand: (expanded, record) => handleExpand(expanded, record),
+          expandIcon: () => null,
         }}
       />
       <RenameModel ref={knowledgeRenameRef} onSubmit={onRename} />
@@ -1328,7 +1404,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
           }}
         />
       )}
-      {/* 标签编辑弹窗 */}
+      {}
       <EditTags
         open={showTagEditModal}
         record={tagEditRecord}
@@ -1336,7 +1412,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
         onCancel={handleCloseTagEdit}
         onSuccess={handleTagEditSuccess}
       />
-      {/* 批量标签编辑弹窗 */}
+      {}
       <BatchEditTags
         open={batchTagEditState.showModal}
         selectedFileCount={batchTagEditState.selectedFileCount}

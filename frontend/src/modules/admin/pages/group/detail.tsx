@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, type CSSProperties } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, Table, Button, Space, Input, Tag, Popconfirm, message, Typography, Row, Col } from "antd";
+import { useTranslation } from "react-i18next";
 import { 
   PlusOutlined, 
   SearchOutlined, 
@@ -22,6 +23,7 @@ const breakTextStyle: CSSProperties = {
 };
 
 const GroupDetail = () => {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -61,7 +63,7 @@ const GroupDetail = () => {
       setGroup(data);
     } catch (error) {
       console.error("Failed to fetch group detail:", error);
-      message.error("获取用户组详情失败");
+      message.error(t("admin.fetchGroupDetailFailed"));
     } finally {
       setLoading(false);
     }
@@ -78,7 +80,7 @@ const GroupDetail = () => {
       setMembers(memberList);
     } catch (error) {
       console.error("Failed to fetch group members:", error);
-      message.error("获取成员列表失败");
+      message.error(t("admin.fetchMembersFailed"));
     } finally {
       setMemberLoading(false);
     }
@@ -92,7 +94,7 @@ const GroupDetail = () => {
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    message.success("已复制到剪贴板");
+    message.success(t("admin.copiedToClipboard"));
   };
 
   const handleRemoveMember = async (userId: string) => {
@@ -103,11 +105,11 @@ const GroupDetail = () => {
         groupId: id,
         groupRemoveUsersBody: { user_ids: [userId] }
       });
-      message.success("移除成员成功");
+      message.success(t("admin.removeMemberSuccess"));
       fetchMembers();
     } catch (error) {
       console.error("Failed to remove member:", error);
-      message.error("移除成员失败");
+      message.error(t("admin.removeMemberFailed"));
     }
   };
 
@@ -119,12 +121,12 @@ const GroupDetail = () => {
 
   const columns = [
     {
-      title: "用户名",
+      title: t("admin.username"),
       dataIndex: "username",
       key: "username",
     },
     {
-      title: "备注",
+      title: t("admin.remark"),
       dataIndex: "remark",
       key: "remark",
       render: (text: string) => (
@@ -134,35 +136,35 @@ const GroupDetail = () => {
       ),
     },
     {
-      title: "角色",
+      title: t("admin.role"),
       dataIndex: "role",
       key: "role",
       render: (role: string) => (
         <Tag color={role === "admin" ? "orange" : "blue"}>
-          {role === "admin" ? "组管理员" : "成员"}
+          {role === "admin" ? t("admin.groupAdmin") : t("admin.member")}
         </Tag>
       ),
     },
     {
-      title: "加入时间",
+      title: t("admin.joinedAt"),
       dataIndex: "created_at",
       key: "created_at",
       render: (text: string) => text || "-",
     },
     {
-      title: "操作",
+      title: t("admin.actions"),
       key: "action",
       width: 200,
       render: (_: any, record: GroupUserItem) => (
         <Space size="middle">
-          {/* 这里可以添加 "设为组管理员" 的逻辑，如果 API 支持 */}
+          {}
           <Popconfirm
-            title="确定要将该用户从组中移除吗？"
+            title={t("admin.removeMemberFromGroupConfirm")}
             onConfirm={() => handleRemoveMember(record.user_id)}
-            okText="确定"
-            cancelText="取消"
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
           >
-            <Button type="link" danger size="small">移除成员</Button>
+            <Button type="link" danger size="small">{t("admin.removeMember")}</Button>
           </Popconfirm>
         </Space>
       ),
@@ -177,25 +179,25 @@ const GroupDetail = () => {
     <div style={{ padding: "24px" }}>
       <DetailPageHeader
         breadcrumbs={[
-          { 
-            title: <span style={{ cursor: "pointer" }} onClick={() => navigate("/admin/groups")}>用户组</span> 
+          {
+            title: <span style={{ cursor: "pointer" }} onClick={() => navigate("/admin/groups")}>{t("admin.groupManagement")}</span>
           },
-          { title: "用户组详情" }
+          { title: t("admin.groupDetail") }
         ]}
-        title={group?.group_name || "用户组详情"}
+        title={group?.group_name || t("admin.groupDetail")}
         onBack={() => navigate("/admin/groups")}
       />
 
       <Card 
         loading={loading}
-        title="基本信息" 
-        extra={isUserAdmin && <Button icon={<EditOutlined />} onClick={() => setIsEditModalVisible(true)}>编辑</Button>}
+        title={t("admin.basicInfo")}
+        extra={isUserAdmin && <Button icon={<EditOutlined />} onClick={() => setIsEditModalVisible(true)}>{t("common.edit")}</Button>}
         style={{ marginTop: "24px" }}
       >
         <Row gutter={[24, 16]}>
           <Col span={12}>
             <Space direction="vertical" size={4} style={{ width: "100%" }}>
-              <Text type="secondary">用户组名</Text>
+              <Text type="secondary">{t("admin.groupName")}</Text>
               <Space>
                 <Text strong style={breakTextStyle}>{group?.group_name}</Text>
                 <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(group?.group_name || "")} />
@@ -204,7 +206,7 @@ const GroupDetail = () => {
           </Col>
           <Col span={12}>
             <Space direction="vertical" size={4} style={{ width: "100%" }}>
-              <Text type="secondary">用户组ID</Text>
+              <Text type="secondary">{t("admin.groupId")}</Text>
               <Space>
                 <Text style={breakTextStyle}>{group?.group_id}</Text>
                 <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(group?.group_id || "")} />
@@ -213,23 +215,23 @@ const GroupDetail = () => {
           </Col>
           <Col span={12}>
             <Space direction="vertical" size={4} style={{ width: "100%" }}>
-              <Text type="secondary">备注</Text>
+              <Text type="secondary">{t("admin.remark")}</Text>
               <Text style={breakTextStyle}>{group?.remark || "-"}</Text>
             </Space>
           </Col>
           <Col span={12}>
             <Space direction="vertical" size={4} style={{ width: "100%" }}>
-              <Text type="secondary">成员数量</Text>
+              <Text type="secondary">{t("admin.memberCount")}</Text>
               <Text>{members.length}</Text>
             </Space>
           </Col>
         </Row>
       </Card>
 
-      <Card title="用户组管理" style={{ marginTop: "24px" }}>
+      <Card title={t("admin.memberManagement")} style={{ marginTop: "24px" }}>
         <div style={{ marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Input
-            placeholder="请输入用户名"
+            placeholder={t("admin.searchUsername")}
             prefix={<SearchOutlined />}
             style={{ width: 250 }}
             value={memberSearch}
@@ -238,7 +240,7 @@ const GroupDetail = () => {
           />
           {isUserAdmin && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsAddMemberModalVisible(true)}>
-              添加成员
+              {t("admin.addMembers")}
             </Button>
           )}
         </div>
@@ -247,7 +249,7 @@ const GroupDetail = () => {
           dataSource={filteredMembers}
           rowKey="user_id"
           loading={memberLoading}
-          pagination={{ showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
+          pagination={{ showSizeChanger: true, showTotal: (total) => t("common.totalItems", { total }) }}
         />
       </Card>
 

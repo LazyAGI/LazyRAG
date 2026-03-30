@@ -3,10 +3,10 @@ import {
   Button,
   Badge,
   Dropdown,
-  Menu,
   Tooltip,
   Input,
   Tag,
+  Space,
 } from "antd";
 import type { MenuProps } from "antd";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -19,13 +19,14 @@ import {
   DownOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Dataset,
   DatasetAclEnum,
   DocTypeEnum,
 } from "@/api/generated/knowledge-client";
 
-import { RUNNING_TASK_STATES } from "@/modules/knowledge/constants/common";
+import Polling from "@/modules/knowledge/utils/polling";
 import RenameModel, {
   RenameFormItem,
   RenameModalRef,
@@ -40,7 +41,6 @@ import ImportKnowledgeModal, {
 import ImportTaskManage, {
   IImportTaskManageRef,
 } from "./components/ImportTaskManage";
-import Polling from "@/modules/knowledge/utils/polling";
 import TreeUtils from "@/modules/knowledge/utils/tree";
 import ConfirmModal, {
   ConfirmImperativeProps,
@@ -49,7 +49,7 @@ import CreateUpdateModal, {
   UpdateImperativeProps,
 } from "@/modules/knowledge/components/UpdateModal";
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
-import { DocumentServiceApi, JobServiceApi } from "../../utils/request";
+import { DocumentServiceApi, TaskServiceApi } from "../../utils/request";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
 
 import { DetailPageHeader } from "@/components/ui";
@@ -59,6 +59,7 @@ import "./index.scss";
 const { Search } = Input;
 
 const Detail = () => {
+  const { t } = useTranslation();
   const knowledgeListRef = useRef<IKnowledgeListRef>(null);
   const createFolderRef = useRef<RenameModalRef>(null);
   const importKnowledgeRef = useRef<IImportKnowledgeModalRef>();
@@ -76,7 +77,6 @@ const Detail = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // 使用权限 store
   const { setCurrentDataset, clearDataset } = useDatasetPermissionStore();
 
   const getDetail = useCallback(() => {
@@ -84,18 +84,17 @@ const Detail = () => {
       .datasetServiceGetDataset({ dataset: id })
       .then((res) => {
         setDetail(res.data);
-        // 更新权限 store
         setCurrentDataset(res.data);
       });
   }, [id, setCurrentDataset]);
 
   useEffect(() => {
+    console.log("searchParams", searchParams);
     getDetail();
     getImportingTotal();
 
     return () => {
       pollingRef.current.cancel();
-      // 组件卸载时清除权限信息
       clearDataset();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,21 +104,18 @@ const Detail = () => {
     pollingRef.current.cancel();
     pollingRef.current.start({
       interval: 10 * 1000,
-      request: () =>
-        JobServiceApi().jobServiceSearchJobs({
-          dataset: id,
-          searchJobsRequest: {
-            parent: `datasets/{${id}}`,
-            job_status: RUNNING_TASK_STATES,
-          },
-        }),
+      request: () => TaskServiceApi().listTasks(id),
       onSuccess: ({ data = {} }) => {
-        const newTaskList = data.jobs || [];
+        const RUNNING_STATES = ["WAITING", "WORKING"];
+        const allTasks = data.tasks || [];
+        const newTaskList = allTasks.filter((t: any) =>
+          RUNNING_STATES.includes(t.task_state),
+        );
         if (newTaskList.length === 0) {
           pollingRef.current.cancel();
         }
         compareTaskChange(newTaskList, importingTaskListRef.current);
-        setImportingTotal(data.total_size || 0);
+        setImportingTotal(newTaskList.length);
         importingTaskListRef.current = newTaskList;
       },
     });
@@ -127,7 +123,7 @@ const Detail = () => {
 
   function compareTaskChange(newTaskList: any[], prevTaskList: any[]) {
     const completeTasks = prevTaskList.filter(
-      (item) => !newTaskList.some((i) => item.job_id === i.job_id),
+      (item) => !newTaskList.some((i) => item.task_id === i.task_id),
     );
     if (!completeTasks.length) {
       return;
@@ -141,7 +137,7 @@ const Detail = () => {
     // There are multiple tasks to complete or the root node needs to be updated.
     if (
       completeTasks.length > 1 ||
-      completeTasks.find((item) => !item.document_pid)
+      completeTasks.find((item) => !item.target_pid)
     ) {
       knowledgeListRef.current?.getTableData();
       return;
@@ -152,7 +148,7 @@ const Detail = () => {
     const parentNode: TreeNode | undefined = TreeUtils.findNode(
       knowledgeListRef.current?.treeData || [],
       (node: TreeNode) => {
-        return node.document_id === task.document_pid;
+        return node.document_id === task.target_pid;
       },
     );
     if (!parentNode) {
@@ -187,7 +183,7 @@ const Detail = () => {
         },
       })
       .then(() => {
-        message.success("创建文件夹成功");
+        message.success(t("knowledge.createFolderSuccess"));
         knowledgeListRef.current?.getTableData();
       });
   }
@@ -199,7 +195,7 @@ const Detail = () => {
         dataset2: data,
       })
       .then(() => {
-        message.success("编辑知识库成功");
+        message.success(t("knowledge.editSuccess"));
         getDetail();
       });
   }
@@ -208,7 +204,7 @@ const Detail = () => {
     KnowledgeBaseServiceApi()
       .datasetServiceDeleteDataset({ dataset: knowledgeBaseId })
       .then(() => {
-        message.success("删除知识库成功！");
+        message.success(t("knowledge.deleteSuccess"));
         navigate({
           pathname: "/list",
         });
@@ -219,19 +215,26 @@ const Detail = () => {
     knowledgeListRef.current?.refresh(value);
   }
 
-  // 写权限
   const hasWritePermission = useDatasetPermissionStore((state) =>
     state.hasWritePermission(),
   );
 
-  // 上传权限
   const hasUploadPermission = useDatasetPermissionStore((state) =>
     state.hasUploadPermission(),
   );
   const canImport = hasUploadPermission || hasWritePermission;
 
   return (
-    <div className="knowledge-container !items-start">
+    <div
+      className="knowledge-detail-page"
+      style={{
+        width: "100%",
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",
+        paddingBottom: "24px",
+      }}
+    >
       <DetailPageHeader
         title={detail?.display_name}
         titleExtra={
@@ -249,9 +252,9 @@ const Detail = () => {
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(detail?.dataset_id || "");
-                  message.success("复制成功");
+                  message.success(t("knowledge.copySuccess"));
                 } catch {
-                  message.success("复制失败，请手动复制");
+                  message.error(t("knowledge.copyFailedManual"));
                 }
               }}
             />
@@ -260,7 +263,7 @@ const Detail = () => {
         settingsMenu={
           detail?.acl?.includes(DatasetAclEnum.DatasetWrite) && (
             <div>
-              <Tooltip title={"编辑"}>
+              <Tooltip title={t("common.edit")}>
                 <Button
                   icon={<EditOutlined />}
                   style={{ marginLeft: "12px", width: "24px", height: "24px" }}
@@ -269,28 +272,29 @@ const Detail = () => {
                   }}
                 />
               </Tooltip>
-              <Tooltip title={"授权"}>
+              <Tooltip title={t("knowledge.authorize")}>
                 <Button
                   icon={<SettingOutlined />}
                   style={{ marginLeft: "12px", width: "24px", height: "24px" }}
                   onClick={() =>
                     navigate({
-                      pathname: `/auth/${id}`,
+                      pathname: `/lib/knowledge/auth/${id}`,
                     })
                   }
                 />
               </Tooltip>
-              <Tooltip title={"删除"}>
+              <Tooltip title={t("common.delete")}>
                 <Button
                   icon={<DeleteOutlined />}
                   style={{ marginLeft: "12px", width: "24px", height: "24px" }}
                   onClick={() =>
                     confirmRef.current?.onOpen({
                       id,
-                      title: `删除知识库【${detail?.display_name}】`,
-                      content:
-                        "删除操作一旦确认无法撤回，此知识库相关应用将失效！请输入下述文字进行再次确认：",
-                      confirmText: "确认删除此知识库，我已知悉删除后的影响",
+                      title: t("knowledge.deleteTitle", {
+                        name: detail?.display_name,
+                      }),
+                      content: t("knowledge.deleteContent"),
+                      confirmText: t("knowledge.deleteConfirmText"),
                     })
                   }
                 />
@@ -299,13 +303,13 @@ const Detail = () => {
           )
         }
         breadcrumbs={[
-          { title: "知识库", href: "/appplatform/lib/knowledge/list" },
+          { title: t("layout.knowledgeBase"), href: "/appplatform/lib/knowledge/list" },
           { title: detail?.display_name },
         ]}
         description={detail?.desc}
         extraContent={[
           {
-            label: "标签",
+            label: t("knowledge.tags"),
             value:
               detail?.tags && detail?.tags.length > 0
                 ? detail.tags.map((tag) => (
@@ -327,47 +331,44 @@ const Detail = () => {
           }
         }}
       />
-      <div className="my-4 mt-6 w-full">
+      <div className="toolbar my-4 mt-6 w-full">
         <Search
           className="search-input"
-          placeholder="搜索文档名称、标签、更新人"
+          placeholder={t("knowledge.searchDocPlaceholder")}
           allowClear
           variant="borderless"
           onSearch={onSearch}
           style={{
             width: 300,
-            marginRight: "10px",
           }}
         />
         {canImport && (
-          <>
+          <div className="toolbar-actions">
             {hasWritePermission && (
               <Button
                 color="primary"
                 variant="outlined"
-                className="mx-4"
                 ghost
                 onClick={() => {
                   createFolderRef.current?.onOpen({
-                    title: "创建文件夹",
+                    title: t("knowledge.createFolder"),
                     form: {
-                      name: "文件夹名称",
-                      namePlaceholder:
-                        "仅支持中英文、数字、下划线，长度不超过30个字符",
+                      name: t("knowledge.folderName"),
+                      namePlaceholder: t("knowledge.folderNameRule"),
                       nameLen: 30,
                       nameRules: [
                         {
                           required: true,
                           validator: (_: any, value: string) => {
                             if (!value) {
-                              return Promise.reject("请输入文件夹名称");
+                              return Promise.reject(t("knowledge.inputFolderName"));
                             }
                             if (
                               !/^[a-zA-Z\d\u4e00-\u9fa5_]+$/.test(value) ||
                               value.length > 30
                             ) {
                               return Promise.reject(
-                                "仅支持中英文、数字、下划线，长度不超过30个字符",
+                                t("knowledge.folderNameRule"),
                               );
                             }
                             return Promise.resolve();
@@ -381,79 +382,89 @@ const Detail = () => {
                   });
                 }}
               >
-                创建文件夹
+                {t("knowledge.createFolder")}
               </Button>
             )}
             <Badge count={importingTotal} size="small" style={{ zIndex: 2 }}>
-              <Button.Group className="button-group">
+              <Space.Compact>
                 <Button
                   type="primary"
                   onClick={() => openImportModal({ importMode: "file" })}
                 >
-                  导入文件
+                  {t("knowledge.importFile")}
                 </Button>
                 <Dropdown
-                  overlay={
-                    <Menu>
-                      <Menu.Item
-                        key="importFile"
-                        onClick={() => {
-                          openImportModal({ importMode: "file" });
-                        }}
-                      >
-                        导入文件
-                      </Menu.Item>
-                      <Menu.Item
-                        key="importFolder"
-                        onClick={() => {
-                          openImportModal({
-                            selectDirectory: true,
-                            importMode: "folder",
-                          });
-                        }}
-                      >
-                        导入文件夹
-                      </Menu.Item>
-                      <Menu.Item
-                        key="importZip"
-                        onClick={() => {
-                          openImportModal({ importMode: "zip" });
-                        }}
-                      >
-                        导入压缩包
-                      </Menu.Item>
-                      <Menu.Item
-                        key="taskManage"
-                        onClick={() => {
-                          importTaskRef.current?.handleOpen(detail);
-                        }}
-                      >
-                        解析任务管理
-                        {importingTotal > 0 && (
-                          <Badge
-                            count={importingTotal}
-                            size="small"
-                            offset={[-4, 6]}
-                          >
-                            <span
-                              style={{
-                                marginLeft: importingTotal >= 10 ? 6 : 12,
-                                opacity: 0,
-                              }}
-                            >
-                              {importingTotal}
-                            </span>
-                          </Badge>
-                        )}
-                      </Menu.Item>
-                    </Menu>
-                  }
+                  menu={{
+                    items: [
+                      {
+                        key: "importFile",
+                        label: t("knowledge.importFile"),
+                      },
+                      {
+                        key: "importFolder",
+                        label: t("knowledge.importFolder"),
+                      },
+                      {
+                        key: "importZip",
+                        label: t("knowledge.importZip"),
+                      },
+                      {
+                        key: "taskManage",
+                        label: (
+                          <>
+                            {t("knowledge.taskManageParse")}
+                            {importingTotal > 0 && (
+                              <Badge
+                                count={importingTotal}
+                                size="small"
+                                offset={[-4, 6]}
+                              >
+                                <span
+                                  style={{
+                                    marginLeft: importingTotal >= 10 ? 6 : 12,
+                                    opacity: 0,
+                                  }}
+                                >
+                                  {importingTotal}
+                                </span>
+                              </Badge>
+                            )}
+                          </>
+                        ),
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (key === "importFile") {
+                        openImportModal({ importMode: "file" });
+                        return;
+                      }
+
+                      if (key === "importFolder") {
+                        openImportModal({
+                          selectDirectory: true,
+                          importMode: "folder",
+                        });
+                        return;
+                      }
+
+                      if (key === "importZip") {
+                        openImportModal({ importMode: "zip" });
+                        return;
+                      }
+
+                      if (key === "taskManage") {
+                        importTaskRef.current?.handleOpen(detail);
+                      }
+                    },
+                  }}
                 >
-                  <Button type="primary">
-                    <DownOutlined />
-                  </Button>
+                  <span style={{ display: "inline-flex" }}>
+                    <Button type="primary">
+                      <DownOutlined />
+                    </Button>
+                  </span>
                 </Dropdown>
-              </Button.Group>
+              </Space.Compact>
             </Badge>
             {hasWritePermission && (
               <Dropdown
@@ -461,28 +472,28 @@ const Detail = () => {
                   items: [
                     {
                       key: "batchMove",
-                      label: "批量移动",
+                      label: t("knowledge.batchMove"),
                       onClick: () => {
                         knowledgeListRef.current?.openBatchMove?.();
                       },
                     },
                     {
                       key: "batchDelete",
-                      label: "批量删除",
+                      label: t("knowledge.batchDelete"),
                       onClick: () => {
                         knowledgeListRef.current?.deleteKnowledge();
                       },
                     },
                     {
                       key: "batchReparse",
-                      label: "批量重解析",
+                      label: t("knowledge.batchReparse"),
                       onClick: () => {
                         knowledgeListRef.current?.restartCheckedKnowledge();
                       },
                     },
                     {
                       key: "batchEditTags",
-                      label: "批量编辑标签",
+                      label: t("knowledge.batchEditTags"),
                       onClick: () => {
                         knowledgeListRef.current?.openBatchEditTags?.();
                       },
@@ -491,20 +502,19 @@ const Detail = () => {
                 }}
                 trigger={["click"]}
               >
-                <Button.Group
-                  className="button-group"
-                  style={{ marginLeft: "16px" }}
-                >
-                  <Button variant="outlined" color="primary" ghost>
-                    批量操作
-                  </Button>
-                  <Button variant="outlined" color="primary" ghost>
-                    <DownOutlined />
-                  </Button>
-                </Button.Group>
+                <span style={{ display: "inline-flex" }}>
+                  <Space.Compact>
+                    <Button variant="outlined" color="primary" ghost>
+                      {t("knowledge.batchActions")}
+                    </Button>
+                    <Button variant="outlined" color="primary" ghost>
+                      <DownOutlined />
+                    </Button>
+                  </Space.Compact>
+                </span>
               </Dropdown>
             )}
-          </>
+          </div>
         )}
       </div>
       {detail && (
@@ -537,11 +547,8 @@ const Detail = () => {
         ref={importTaskRef}
         onClose={(hasSuspended) => {
           if (hasSuspended) {
-            // 中止成功后，先清空任务列表缓存，避免 compareTaskChange 触发额外的刷新
             importingTaskListRef.current = [];
-            // 刷新导入任务数量
             getImportingTotal();
-            // 刷新文档列表（p_id 为空，刷新根目录）
             knowledgeListRef.current?.getTableData({ pId: "", level: 0 });
           } else {
             getImportingTotal();

@@ -24,14 +24,12 @@ const SegmentContent = (props: IProps) => {
   }, [segment]);
 
   const debounceUpdate = (data: string) => {
-    // 清除之前的定时器
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
     const resText = replaceImagesWithKeys(data, segment?.image_keys ?? []);
 
-    // 设置新的定时器
     debounceTimerRef.current = setTimeout(() => {
       SegmentServiceApi().segmentServiceEditSegment({
         dataset: segment.dataset_id || "",
@@ -42,7 +40,6 @@ const SegmentContent = (props: IProps) => {
     }, 500);
   };
 
-  // 组件卸载时清理定时器
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {

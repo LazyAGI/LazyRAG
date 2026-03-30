@@ -1,8 +1,18 @@
-# Build stage (optional: run pnpm build before docker build, or use multi-stage)
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
 FROM nginx:alpine
+WORKDIR /usr/share/nginx/html
 
-# Copy built SPA from dist/ (run: pnpm build before docker build)
-COPY dist/ /usr/share/nginx/html/
-COPY default.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist/ /usr/share/nginx/html/
+COPY default.conf.template /etc/nginx/templates/default.conf.template
 
-# Legacy static app is in legacy/; use Dockerfile.legacy to serve that instead.
+EXPOSE 80

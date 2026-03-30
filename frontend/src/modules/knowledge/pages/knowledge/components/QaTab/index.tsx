@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Doc, Segment } from "@/api/generated/knowledge-client";
 import { SegmentServiceApi } from "@/modules/knowledge/utils/request";
 import { Button, Modal, Tooltip } from "antd";
@@ -16,12 +17,12 @@ const paginationInit = {
 
 const QaTab = (props: { detail: Doc; type: string }) => {
   const { detail, type } = props;
+  const { t } = useTranslation();
   const [segments, setSegments] = useState<Segment[]>([]);
   const [pagination, setPagination] =
     useState<TablePaginationConfig>(paginationInit);
   const [loading, setLoading] = useState(false);
 
-  // 使用权限 store
   const hasWritePermission = useDatasetPermissionStore((state) =>
     state.hasWritePermission(),
   );
@@ -63,8 +64,8 @@ const QaTab = (props: { detail: Doc; type: string }) => {
 
   function onDelete(segment_id: string) {
     Modal.confirm({
-      title: "删除",
-      content: "确定删除该问答对吗？",
+      title: t("common.delete"),
+      content: t("knowledge.deleteQaConfirm"),
       onOk: () => {
         SegmentServiceApi()
           .segmentServiceDeleteSegment({
@@ -88,7 +89,7 @@ const QaTab = (props: { detail: Doc; type: string }) => {
 
   const columns = [
     {
-      title: "问题",
+      title: t("knowledge.question"),
       dataIndex: "content",
       ellipsis: {
         showTitle: false,
@@ -102,7 +103,7 @@ const QaTab = (props: { detail: Doc; type: string }) => {
       },
     },
     {
-      title: "答案",
+      title: t("knowledge.answer"),
       dataIndex: "answer",
       ellipsis: {
         showTitle: false,
@@ -116,11 +117,10 @@ const QaTab = (props: { detail: Doc; type: string }) => {
       },
     },
     {
-      title: "操作",
+      title: t("common.actions"),
       key: "action",
       width: 60,
       render: (record: Segment) => {
-        // 只有写权限才显示删除按钮
         if (!hasWritePermission) {
           return null;
         }
@@ -133,7 +133,7 @@ const QaTab = (props: { detail: Doc; type: string }) => {
               onDelete(record.segment_id || "");
             }}
           >
-            删除
+            {t("common.delete")}
           </Button>
         );
       },
@@ -154,7 +154,7 @@ const QaTab = (props: { detail: Doc; type: string }) => {
             pageSize: pagination.pageSize,
             showSizeChanger: true,
             total: pagination.total,
-            showTotal: (total) => `共 ${total} 条`,
+            showTotal: (total) => t("knowledge.totalCount", { total }),
             pageSizeOptions: [10, 20, 50, 100],
             onChange: (page, pageSize) => {
               if (

@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useState } from "react";
 import { Modal, Input } from "antd";
+import { useTranslation } from "react-i18next";
 import "./index.scss";
 
 interface ModalInfo {
@@ -19,6 +20,7 @@ export interface ConfirmImperativeProps {
 
 const ConfirmModalComponent = forwardRef<ConfirmImperativeProps, ForwardProps>(
   ({ onClick }, ref) => {
+    const { t } = useTranslation();
     const [visible, setVisible] = useState(false);
     const [modalInfo, setModalInfo] = useState<ModalInfo | null>();
     const [value, setValue] = useState("");
@@ -40,11 +42,11 @@ const ConfirmModalComponent = forwardRef<ConfirmImperativeProps, ForwardProps>(
 
     const isSuccess = () => {
       if (!value) {
-        setErrorText("请输入");
+        setErrorText(t("knowledge.inputRequired"));
         return false;
       }
       if (value !== modalInfo?.confirmText) {
-        setErrorText("输入不一致");
+        setErrorText(t("knowledge.inputMismatch"));
         return false;
       }
       return true;
@@ -56,12 +58,14 @@ const ConfirmModalComponent = forwardRef<ConfirmImperativeProps, ForwardProps>(
         open={visible}
         maskClosable={false}
         onCancel={onCancel}
+        okText={t("common.confirm")}
+        cancelText={t("common.cancel")}
         okType="danger"
         onOk={() => {
           if (errorText || !isSuccess()) {
             return false;
           }
-          onClick(modalInfo?.id);
+          onClick(modalInfo?.id || "");
           onCancel();
         }}
       >

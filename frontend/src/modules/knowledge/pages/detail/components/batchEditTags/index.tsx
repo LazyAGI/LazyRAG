@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Form, message, Modal, Radio, Select, Space, Tooltip } from "antd";
+import { useTranslation } from "react-i18next";
 import { InfoCircleOutlined } from "@ant-design/icons";
 import { DocumentServiceApi } from "@/modules/knowledge/utils/request";
 import { BatchUpdateDocumentTagsRequestModeEnum } from "@/api/generated/knowledge-client";
@@ -32,6 +33,7 @@ const BatchEditTags = ({
   onCancel,
   onSuccess,
 }: BatchEditTagsProps) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm<{ mode: EditMode; tags: string[] }>();
   const [tagOptions, setTagOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -76,23 +78,22 @@ const BatchEditTags = ({
 
   const handleOk = async () => {
     if (!selectedFileCount) {
-      message.warning("请至少选择一个文件");
+      message.warning(t("knowledge.selectAtLeastOneFile"));
       return;
     }
     try {
       const { mode, tags } = await form.validateFields();
       const pickedTags = normalizeTags(tags || []);
       if (pickedTags.length > 10) {
-        message.warning("最多允许选择10个标签");
+        message.warning(t("knowledge.maxTenTags"));
         return;
       }
 
-      // 验证单个标签长度
       const invalidTags = pickedTags.filter(
         (tag) => tag.length > MAX_TAG_LENGTH,
       );
       if (invalidTags.length > 0) {
-        message.error(`单个标签不能超过${MAX_TAG_LENGTH}个字符`);
+        message.error(t("knowledge.singleTagMaxLength", { count: MAX_TAG_LENGTH }));
         return;
       }
 
@@ -107,10 +108,10 @@ const BatchEditTags = ({
       const truncated = res.data.truncated_docs ?? 0;
       if (mode === "append" && truncated > 0) {
         message.success(
-          `已更新${affected}个文件的标签，其中${truncated}个文件的原标签被裁减`,
+          t("knowledge.batchTagsUpdatedTruncated", { affected, truncated }),
         );
       } else {
-        message.success(`已更新${affected}个文件的标签`);
+        message.success(t("knowledge.batchTagsUpdated", { affected }));
       }
 
       onSuccess();
@@ -128,7 +129,7 @@ const BatchEditTags = ({
   return (
     <Modal
       open={open}
-      title="批量设置标签"
+      title={t("knowledge.batchSetTags")}
       centered
       onCancel={onCancel}
       onOk={handleOk}
@@ -150,20 +151,19 @@ const BatchEditTags = ({
             color: "var(--color-text-description)",
           }}
         >
-          已选择 <span style={{ fontWeight: 600 }}>{selectedFileCount}</span>{" "}
-          个文档（不含文件夹）
+          {t("knowledge.selectedDocCount", { count: selectedFileCount })}
         </div>
 
         <Form.Item
-          label="修改方式"
+          label={t("knowledge.editMode")}
           name="mode"
-          rules={[{ required: true, message: "请选择修改方式" }]}
+          rules={[{ required: true, message: t("knowledge.selectEditMode") }]}
         >
           <Radio.Group>
             <Space size={48}>
               <Radio value="append">
-                追加标签
-                <Tooltip title="在原有标签的基础上，追加本次选择标签，请确保各文档的追加后标签不超过10个。">
+                {t("knowledge.appendTags")}
+                <Tooltip title={t("knowledge.appendTagsTip")}>
                   <InfoCircleOutlined
                     style={{
                       marginLeft: 6,
@@ -173,8 +173,8 @@ const BatchEditTags = ({
                 </Tooltip>
               </Radio>
               <Radio value="overwrite">
-                覆盖标签
-                <Tooltip title="覆盖原有标签，标签总数不超过10个">
+                {t("knowledge.overwriteTags")}
+                <Tooltip title={t("knowledge.overwriteTagsTip")}>
                   <InfoCircleOutlined
                     style={{
                       marginLeft: 6,
@@ -188,9 +188,9 @@ const BatchEditTags = ({
         </Form.Item>
 
         <Form.Item
-          label="选择标签"
+          label={t("knowledge.selectTags")}
           name="tags"
-          rules={[{ required: true, message: "请选择标签" }]}
+          rules={[{ required: true, message: t("knowledge.selectTagRequired") }]}
           normalize={(value?: string[]) => {
             const normalized = normalizeTags(value || []);
             const filtered = normalized.filter(
@@ -202,21 +202,22 @@ const BatchEditTags = ({
           <Select
             mode="tags"
             tokenSeparators={[","]}
-            placeholder="输入或选择..."
+            placeholder={t("knowledge.inputOrSelect")}
             options={selectOptions}
             maxCount={10}
             onChange={(value) => {
               if ((value || []).length > 10) {
-                message.warning("最多允许选择10个标签", 3);
+                message.warning(t("knowledge.maxTenTags"), 3);
                 return;
               }
-              // 检查单个标签长度
               const invalidTags = (value || []).filter(
                 (tag: string) => tag && tag.length > MAX_TAG_LENGTH,
               );
               if (invalidTags.length > 0) {
-                message.warning(`单个标签不能超过${MAX_TAG_LENGTH}个字符`, 3);
-                // 移除超过长度的标签
+                message.warning(
+                  t("knowledge.singleTagMaxLength", { count: MAX_TAG_LENGTH }),
+                  3,
+                );
                 const validTags = (value || []).filter(
                   (tag: string) => !tag || tag.length <= MAX_TAG_LENGTH,
                 );

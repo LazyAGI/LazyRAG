@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { Modal, Form, Input, Select } from "antd";
+import { useTranslation } from "react-i18next";
 import { DocumentServiceApi } from "@/modules/knowledge/utils/request";
 
 export interface IFormLabel {
@@ -31,6 +32,7 @@ export interface RenameFormItem {
 
 const RenameModel = forwardRef<RenameModalRef, ForwardProps>(
   ({ onSubmit }, ref) => {
+    const { t } = useTranslation();
     const [visible, setVisible] = useState(false);
     const [loading, setLoading] = useState(false);
     const [modalInfo, setModalInfo] = useState<
@@ -109,7 +111,7 @@ const RenameModel = forwardRef<RenameModalRef, ForwardProps>(
             />
           </Form.Item>
           {modalInfo?.nameAdd && (
-            <Form.Item name="tags" label={"文档标签"}>
+            <Form.Item name="tags" label={t("knowledge.tags")}>
               <Select
                 mode="tags"
                 tokenSeparators={[","]}

@@ -1,7 +1,11 @@
-import { Modal, Table, Button, Checkbox, message, Space } from "antd";
+import { Modal, Table, Checkbox, message } from "antd";
 import { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { createGroupApi, createRoleApi } from "@/modules/signin/utils/request";
-import type { GroupItem, PermissionGroupItem } from "@/api/generated/auth-client";
+import type {
+  GroupItem,
+  PermissionGroupItem,
+} from "@/api/generated/auth-client";
 import { LockOutlined, SaveOutlined } from "@ant-design/icons";
 
 interface ManagePermissionsModalProps {
@@ -11,10 +15,18 @@ interface ManagePermissionsModalProps {
   onCancel: () => void;
 }
 
-const ManagePermissionsModal = ({ visible, group, isAdmin, onCancel }: ManagePermissionsModalProps) => {
+const ManagePermissionsModal = ({
+  visible,
+  group,
+  isAdmin,
+  onCancel,
+}: ManagePermissionsModalProps) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [allPermissions, setAllPermissions] = useState<PermissionGroupItem[]>([]);
+  const [allPermissions, setAllPermissions] = useState<PermissionGroupItem[]>(
+    [],
+  );
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
 
   const fetchData = useCallback(async () => {
@@ -23,22 +35,25 @@ const ManagePermissionsModal = ({ visible, group, isAdmin, onCancel }: ManagePer
     try {
       const groupApi = createGroupApi();
       const roleApi = createRoleApi();
-      
+
       const [allPermsRes, groupPermsRes] = await Promise.all([
         roleApi.listPermissionGroupsApiAuthserviceRolePermissionGroupsGet(),
         groupApi.getGroupPermissionsApiAuthserviceGroupGroupIdPermissionsGet({
           groupId: group.group_id,
-        })
+        }),
       ]);
 
       const allPerms = (allPermsRes.data as any).data || allPermsRes.data || [];
-      const groupPerms = (groupPermsRes.data as any).data?.permission_groups || groupPermsRes.data?.permission_groups || [];
+      const groupPerms =
+        (groupPermsRes.data as any).data?.permission_groups ||
+        groupPermsRes.data?.permission_groups ||
+        [];
 
       setAllPermissions(allPerms);
       setSelectedPermissions(groupPerms);
     } catch (error) {
       console.error("Failed to fetch permissions:", error);
-      message.error("获取权限列表失败");
+      message.error(t("admin.fetchPermissionsFailed"));
     } finally {
       setLoading(false);
     }
@@ -55,15 +70,17 @@ const ManagePermissionsModal = ({ visible, group, isAdmin, onCancel }: ManagePer
     setSaving(true);
     try {
       const groupApi = createGroupApi();
-      await groupApi.setGroupPermissionsApiAuthserviceGroupGroupIdPermissionsPut({
-        groupId: group.group_id,
-        groupPermissionsBody: { permission_groups: selectedPermissions },
-      });
-      message.success("保存权限成功");
+      await groupApi.setGroupPermissionsApiAuthserviceGroupGroupIdPermissionsPut(
+        {
+          groupId: group.group_id,
+          groupPermissionsBody: { permission_groups: selectedPermissions },
+        },
+      );
+      message.success(t("admin.savePermissionsSuccess"));
       onCancel();
     } catch (error) {
       console.error("Save permissions failed:", error);
-      message.error("保存权限失败");
+      message.error(t("admin.savePermissionsFailed"));
     } finally {
       setSaving(false);
     }
@@ -71,42 +88,42 @@ const ManagePermissionsModal = ({ visible, group, isAdmin, onCancel }: ManagePer
 
   const handleToggle = (code: string) => {
     if (!isAdmin) return;
-    setSelectedPermissions(prev => 
-      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    setSelectedPermissions((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
     );
   };
 
   const columns = [
     {
-      title: "模块",
+      title: t("admin.module"),
       dataIndex: "module",
       key: "module",
       width: 120,
     },
     {
-      title: "操作",
+      title: t("admin.action"),
       dataIndex: "action",
       key: "action",
       width: 100,
     },
     {
-      title: "编码",
+      title: t("admin.code"),
       dataIndex: "code",
       key: "code",
       width: 150,
     },
     {
-      title: "描述",
+      title: t("admin.description"),
       dataIndex: "description",
       key: "description",
     },
     {
-      title: "已启用",
+      title: t("admin.enabled"),
       key: "enabled",
       width: 80,
       render: (_: any, record: PermissionGroupItem) => (
-        <Checkbox 
-          checked={selectedPermissions.includes(record.code)} 
+        <Checkbox
+          checked={selectedPermissions.includes(record.code)}
           onChange={() => handleToggle(record.code)}
           disabled={!isAdmin}
         />
@@ -119,14 +136,14 @@ const ManagePermissionsModal = ({ visible, group, isAdmin, onCancel }: ManagePer
       title={
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <LockOutlined />
-          <span>用户组权限：{group?.group_name}</span>
+          <span>{t("admin.managePermissionsTitle", { groupName: group?.group_name })}</span>
         </div>
       }
       open={visible}
       onCancel={onCancel}
       onOk={handleSave}
-      okText="保存"
-      cancelText="取消"
+      okText={t("common.save")}
+      cancelText={t("common.cancel")}
       footer={isAdmin ? undefined : null}
       confirmLoading={saving}
       width={800}

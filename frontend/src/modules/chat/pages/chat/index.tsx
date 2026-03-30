@@ -1,4 +1,5 @@
 import { FC, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AgentAppsAuth } from "@/components/auth";
 import {
   ChatConversationsRequestActionEnum,
@@ -8,7 +9,6 @@ import {
   Query,
 } from "@/api/generated/chatbot-client";
 
-// 直接使用 openapi 的 ChatHistory 类型，已包含所有需要的字段
 type ChatHistory = BaseChatHistory;
 
 import ChatContainerComponent, {
@@ -29,6 +29,7 @@ import { useEffect } from "react";
 import { useConversationSettings } from "@/modules/chat/store/conversationSettings";
 
 const ChatPage: FC = () => {
+  const { t } = useTranslation();
   const [sessionId, setSessionId] = useState("");
   const [chatConfig, setChatConfig] = useState<ChatConfig>();
   const { enableMultipleAnswers, fetchSwitchStatus } =
@@ -38,7 +39,6 @@ const ChatPage: FC = () => {
   const recordListRef = useRef<RecordListImperativeProps>(null);
   const previousSessionIdRef = useRef<string>("");
 
-  // 进入 chat 界面时获取双回复开关状态
   useEffect(() => {
     fetchSwitchStatus();
   }, [fetchSwitchStatus]);
@@ -48,7 +48,6 @@ const ChatPage: FC = () => {
     action: ChatConversationsRequestActionEnum,
     callbacks: Record<string, (e: CustomEvent) => void>,
   ) {
-    // 若本次请求带有上传文件（图片/文档），忽略知识库选择；不修改用户已选/置顶的知识库
     const hasUploadedFiles = input?.some(
       (q: Query) => q.input_type === "image" || q.input_type === "file",
     );
@@ -75,10 +74,9 @@ const ChatPage: FC = () => {
             tags: chatConfig?.tags,
           },
         },
-        // 使用 models 指定模型：双答时传 LazyRAG 大模型和 DeepSeek，单答时传 LazyRAG 大模型
         models: enableMultipleAnswers
-          ? ["LazyRAG 大模型", "DeepSeek"]
-          : ["LazyRAG 大模型"],
+          ? ["LazyRAG", "DeepSeek"]
+          : ["LazyRAG"],
         stream: true,
         input,
       }),
@@ -93,9 +91,7 @@ const ChatPage: FC = () => {
     setSessionId(id);
   }
 
-  // 监听 sessionId 变化，当新增对话（从非空变为空字符串）时刷新会话历史
   useEffect(() => {
-    // 只在从非空变为空时刷新，避免首次加载时触发
     if (
       sessionId === "" &&
       previousSessionIdRef.current !== "" &&
@@ -171,14 +167,11 @@ const ChatPage: FC = () => {
               thinking_time_s: record.thinking_time_s,
             };
 
-            // 根据 second_result、second_id 判断是否展示双回复
-            // 只需要 second_result 和 second_id 存在即可，second_reasoning_content 可以为空
             if (
               enableMultipleAnswers &&
               record.second_result &&
               record.second_id
             ) {
-              // 有双回复数据，构造 answers 数组
               assistantMessage.answers = [
                 {
                   content: record.result || "",
@@ -186,19 +179,18 @@ const ChatPage: FC = () => {
                   history_id: record.id,
                   reasoning_content: record.reasoning_content || "",
                   sources: record.sources,
-                  thinking_duration_s: record.thinking_time_s, // 第一个回答的思考时间
+                  thinking_duration_s: record.thinking_time_s,
                 },
                 {
                   content: record.second_result,
                   index: 1,
                   history_id: record.second_id,
                   reasoning_content: record.second_reasoning_content || "",
-                  sources: record.sources, // 如果第二个回复有独立的 sources，需要从 record.second_sources 获取
-                  thinking_duration_s: record.second_thinking_time_s, // 第二个回答的思考时间
+                  sources: record.sources,
+                  thinking_duration_s: record.second_thinking_time_s,
                 },
               ];
 
-              // 清除顶层的 reasoning_content 和 delta，避免重复显示
               assistantMessage.reasoning_content = "";
               assistantMessage.delta = "";
             }
@@ -235,28 +227,20 @@ const ChatPage: FC = () => {
     });
   }
 
-  // 生成新的对话ID（使用浏览器原生API，无需外部依赖）
   function generateNewConversationId(): string {
-    // 使用浏览器原生的 crypto.randomUUID()，兼容性良好（Chrome 92+, Firefox 95+, Safari 15.4+）
     if (typeof crypto !== "undefined" && crypto.randomUUID) {
       return crypto.randomUUID();
     }
-    // 降级方案：使用时间戳 + 随机数生成唯一ID
     return `conv_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
   }
 
   function handleCreateNewChat() {
-    // 生成新的UUID作为conversation_id
     const newConversationId = generateNewConversationId();
-    // 先通知ChatContainer创建新对话（传入新的ID）
     chatRef.current?.replaceMessageList(newConversationId, []);
-    // 更新会话ID状态
     setSessionId(newConversationId);
-    // 注意：不在这里刷新会话历史，只在收到服务器返回的conversation_id时刷新（通过onNewConversationCreated）
   }
 
   function handleNewConversationCreated(_conversationId: string) {
-    // 当收到新会话的conversation_id时，刷新会话历史
     if (recordListRef.current) {
       recordListRef.current.refresh();
     }
@@ -265,7 +249,7 @@ const ChatPage: FC = () => {
   return (
     <div className="detail-container">
       <div className="left-box">
-        <div className="title">配置</div>
+        <div className="title">{t("chat.sidebarConfigTitle")}</div>
         <ChatConfigs
           configs={chatConfig || {}}
           onChange={onChatConfigChanged}

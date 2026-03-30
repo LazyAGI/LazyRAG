@@ -2,13 +2,11 @@
   overflow: auto;
   height: 100%;
 
-  // 确保编辑器内容区域有足够的空间
   .mdxeditor-root-contenteditable {
     height: calc(300px - 32px);
     padding: 8px 16px;
   }
 
-  // 强制覆盖所有可能的标题样式
   .mdxeditor-root-contenteditable h1,
   .mdxeditor-root-contenteditable h2,
   .mdxeditor-root-contenteditable h3,
@@ -21,7 +19,6 @@
   [data-lexical-editor] h4,
   [data-lexical-editor] h5,
   [data-lexical-editor] h6 {
-    // 重置Antd可能影响的样式
     font-family: inherit !important;
     font-weight: bold !important;
     color: #333 !important;
@@ -49,7 +46,6 @@
     unicode-bidi: normal !important;
   }
 
-  // 具体的字体大小设置
   .mdxeditor-root-contenteditable h1,
   [data-lexical-editor] h1 {
     font-size: 2em !important;
@@ -80,7 +76,6 @@
     font-size: 0.67em !important;
   }
 
-  // 确保编辑器内容区域样式不被覆盖
   .mdxeditor-root-contenteditable {
     font-family: inherit !important;
     font-size: inherit !important;
@@ -93,7 +88,6 @@
     overflow: auto !important;
   }
 
-  // 确保段落样式不被覆盖
   .mdxeditor-root-contenteditable p,
   [data-lexical-editor] p {
     margin: 0.5em 0 !important;
@@ -101,7 +95,6 @@
     line-height: 1.6 !important;
   }
 
-  // 确保列表样式不被覆盖
   .mdxeditor-root-contenteditable ul,
   .mdxeditor-root-contenteditable ol,
   [data-lexical-editor] ul,
@@ -115,7 +108,6 @@
     margin: 0.25em 0 !important;
   }
 
-  // 确保代码块样式不被覆盖
   .mdxeditor-root-contenteditable code,
   [data-lexical-editor] code {
     font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace !important;
@@ -139,7 +131,6 @@
     background: none !important;
     padding: 0 !important;
   }
-  // 确保引用样式不被覆盖
   .mdxeditor-root-contenteditable blockquote,
   [data-lexical-editor] blockquote {
     border-left: 4px solid #dfe2e5 !important;
@@ -148,7 +139,6 @@
     color: #6a737d !important;
   }
 
-  // 确保链接样式不被覆盖
   .mdxeditor-root-contenteditable a,
   [data-lexical-editor] a {
     color: #0366d6 !important;
@@ -160,7 +150,6 @@
     text-decoration: underline !important;
   }
 
-  // 确保图片容器样式正确
   .mdxeditor-root-contenteditable figure,
   [data-lexical-editor] figure {
     margin: 1em 0 !important;

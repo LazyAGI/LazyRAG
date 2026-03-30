@@ -1,6 +1,7 @@
 import { Form, Select, Space } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import KnowledgeBaseConfigModal, {
   ConfigImperativeProps,
 } from "../KnowledgeBaseConfigModal";
@@ -23,6 +24,7 @@ interface Props {
 }
 
 const ChatConfigs = (props: Props) => {
+  const { t } = useTranslation();
   const { configs, onChange } = props;
 
   const [form] = Form.useForm();
@@ -48,11 +50,12 @@ const ChatConfigs = (props: Props) => {
   }, [configs]);
 
   function getDatabaseBaseList() {
-    DatabaseBaseServiceApi()
-      .databaseServiceGetUserDatabaseSummaries({})
-      .then((res) => {
-        setDatabaseBaseList((res?.data as UserDatabaseSummary[]) || []);
-      });
+    // DatabaseBaseServiceApi()
+    //   .databaseServiceGetUserDatabaseSummaries({})
+    //   .then((res) => {
+    //     setDatabaseBaseList((res?.data as UserDatabaseSummary[]) || []);
+    //   });
+    setDatabaseBaseList([]);
   }
 
   function getKnowledgeBaseList() {
@@ -98,7 +101,7 @@ const ChatConfigs = (props: Props) => {
         name="knowledgeBaseId"
         label={
           <Space>
-            知识库
+            {t("chat.configKnowledgeBase")}
             <SettingOutlined
               onClick={() => configRef.current?.onOpen(configs)}
             />
@@ -106,7 +109,7 @@ const ChatConfigs = (props: Props) => {
               style={{ cursor: "pointer", color: "#006ae6" }}
               onClick={knowledgeAllSelected}
             >
-              {isAllSelected ? "取消全选" : "全选"}
+              {isAllSelected ? t("chat.cancelSelectAll") : t("chat.selectAll")}
             </div>
           </Space>
         }
@@ -120,7 +123,7 @@ const ChatConfigs = (props: Props) => {
           maxTagCount="responsive"
           showSearch
           allowClear
-          placeholder="知识库名称"
+          placeholder={t("chat.knowledgeBaseName")}
           optionFilterProp="label"
           onChange={(value) => {
             if (value.length === knowledgeBaseList.length) {
@@ -132,7 +135,10 @@ const ChatConfigs = (props: Props) => {
         />
       </Form.Item>
 
-      <Form.Item name="databaseBaseId" label={<Space>数据库</Space>}>
+      <Form.Item
+        name="databaseBaseId"
+        label={<Space>{t("chat.configDatabase")}</Space>}
+      >
         <Select
           options={databaseBaseList.map((db) => {
             return {
@@ -142,7 +148,7 @@ const ChatConfigs = (props: Props) => {
           })}
           showSearch
           allowClear
-          placeholder="数据库名称"
+          placeholder={t("chat.databaseName")}
           optionFilterProp="label"
         />
       </Form.Item>

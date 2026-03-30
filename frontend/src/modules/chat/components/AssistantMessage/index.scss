@@ -1,9 +1,6 @@
-// 单回复容器：350px-800px，居中显示
 .chat-assistant-msg-single-answer-wrap {
   display: flex;
   gap: 14px;
-  // 单回复宽度规则：首选 2/3 容器宽度，并强制落在 350-800px 区间
-  // 这样在容器较窄时不会被拉满到 100%，也能在极窄时卡住 350px。
   align-self: center;
   width: min(800px, max(350px, 66.67%)) !important;
   margin-left: auto !important;
@@ -13,14 +10,14 @@
   .chat-avatar {
     background: transparent;
     flex-shrink: 0;
-    width: 32px; /* 固定头像宽度 */
+    width: 32px; 
   }
 
   .chat-bot-box-single {
     flex: 1;
     padding-right: 0;
     overflow: hidden;
-    min-width: 0; /* 允许收缩 */
+    min-width: 0; 
   }
 
   .chat-bot {
@@ -34,11 +31,9 @@
   }
 }
 
-// 双回复容器：600px-1200px，居中显示
 .chat-assistant-msg-multi-answer-wrap {
   display: flex;
   gap: 14px;
-  // 双回复宽度强制在 600-1200px
   align-self: center;
   width: clamp(600px, 100%, 1200px) !important;
   margin-left: auto !important;
@@ -48,14 +43,14 @@
   .chat-avatar {
     background: transparent;
     flex-shrink: 0;
-    width: 32px; /* 固定头像宽度 */
+    width: 32px; 
   }
 
   .chat-bot-box-multi {
     flex: 1;
     padding-right: 38px;
     overflow: hidden;
-    min-width: 0; /* 允许收缩 */
+    min-width: 0; 
   }
 
   .chat-bot {
@@ -110,7 +105,6 @@
   }
 }
 
-// 单回复也需要这些样式
 .chat-assistant-msg-single-answer-wrap {
   .stop-btn {
     margin-top: 6px;

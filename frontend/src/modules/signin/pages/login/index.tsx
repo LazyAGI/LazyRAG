@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Form, Input, message } from "antd";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
@@ -6,8 +6,8 @@ import {
   storeLoginSession,
   unwrapLoginResponse,
 } from "@/modules/signin/utils/request";
-import { FormContext } from "../dashboard";
 import { AgentAppsAuth } from "@/components/auth";
+import { useTranslation } from "react-i18next";
 
 interface LoginForm {
   username: string;
@@ -18,10 +18,11 @@ const hashBase = () =>
   `${window.location.origin}${window.location.pathname || ""}#`;
 
 const Login = () => {
-  const form = useContext(FormContext);
+  const [form] = Form.useForm<LoginForm>();
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   const checkUserLogin = () => {
     try {
@@ -90,7 +91,7 @@ const Login = () => {
       window.location.href = hashBase() + "/agent/chat";
     } catch (error: any) {
       if (!error?.response && !error?.request) {
-        message.error(error?.message || "登录失败，请检查账号密码");
+        message.error(error?.message || t("auth.loginFailed"));
       }
     } finally {
       setLoading(false);
@@ -107,7 +108,7 @@ const Login = () => {
           textAlign: 'center',
           marginBottom: '20px'
         }}>
-          欢迎登录
+          {t("auth.welcomeLogin")}
         </h2>
       </div>
       <Form
@@ -120,22 +121,24 @@ const Login = () => {
       >
         <Form.Item
           name="username"
-          label="账号"
-          rules={[{ required: true, message: "请输入登录账号" }]}
+          label={t("auth.account")}
+          rules={[{ required: true, message: t("auth.pleaseInputAccount") }]}
         >
           <Input 
-            placeholder="请输入账号" 
+            placeholder={t("auth.pleaseInputAccount")} 
             size="large"
+            autoComplete="off"
           />
         </Form.Item>
         <Form.Item
           name="password"
-          label="密码"
-          rules={[{ required: true, message: "请输入登录密码" }]}
+          label={t("auth.password")}
+          rules={[{ required: true, message: t("auth.pleaseInputPassword") }]}
         >
           <Input.Password 
-            placeholder="请输入密码" 
+            placeholder={t("auth.pleaseInputPassword")} 
             size="large"
+            autoComplete="new-password"
           />
         </Form.Item>
         <Form.Item style={{ marginTop: '24px' }}>
@@ -146,10 +149,10 @@ const Login = () => {
             htmlType="submit"
             loading={loading}
           >
-            登录
+            {t("auth.login")}
           </Button>
           <div style={{ textAlign: "center", marginTop: "16px", color: '#86909c' }}>
-            没有账号？ <a style={{ color: '#1677ff', fontWeight: 500 }} onClick={() => navigate("/register")}>立即注册</a>
+            {t("auth.noAccount")} <a style={{ color: '#1677ff', fontWeight: 500 }} onClick={() => navigate("/register")}>{t("auth.registerNow")}</a>
           </div>
         </Form.Item>
       </Form>

@@ -1,16 +1,17 @@
 import { Form, message, Modal, Select } from "antd";
 import { debounce } from "lodash";
 import { forwardRef, Ref, useImperativeHandle, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   MemberType,
   ROLE_TYPE_INFO,
 } from "@/modules/knowledge/constants/common";
 import {
-  UsersServiceApi,
-  GroupsServiceApi,
   MemberServiceApi,
 } from "@/modules/knowledge/utils/request";
+import { axiosInstance, BASE_URL } from "@/components/request";
+import { createUserApi } from "@/modules/signin/utils/request";
 
 const { Option } = Select;
 
@@ -28,6 +29,7 @@ interface IProps {
 }
 
 const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
+  const { t } = useTranslation();
   const [data, setData] = useState<IData>();
   const [visible, setVisible] = useState(false);
   const [userList, setUserList] = useState<
@@ -83,7 +85,7 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
         }
       }
 
-      message.success("添加成功");
+      message.success(t("knowledge.addSuccess"));
       setLoading(false);
       handleClose();
       onOk();
@@ -92,23 +94,43 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
 
   function getUser(query?: string, memberType = data?.memberType) {
     if (memberType === MemberType.GROUP) {
-      GroupsServiceApi()
-        .listUserGroups({ groupName: query, perPage: 99999 })
+      axiosInstance
+        .get(`${BASE_URL}/api/authservice/group`, {
+          params: {
+            page: 1,
+            page_size: 200,
+            search: query || undefined,
+          },
+        })
         .then((res) => {
-          const list = (res.data.data.groups || []).map(
-            (item: { id: string; group_name: string }) => {
-              return { value: item.id, label: item.group_name };
+          const resData = res.data as any;
+          const list = ((resData.data?.groups || resData.groups) || []).map(
+            (item: { group_id: string; group_name: string }) => {
+              return { value: item.group_id, label: item.group_name };
             },
           );
           setUserList(list);
         });
     } else {
-      UsersServiceApi()
-        .listUsers({ userName: query, perPage: 99999 })
+      createUserApi()
+        .listUsersApiAuthserviceUserGet({
+          page: 1,
+          pageSize: 20,
+          search: query || undefined,
+        })
         .then((res) => {
-          const list = (res.data.data.users || []).map(
-            (item: { id: string; display_name: string }) => {
-              return { value: item.id, label: item.display_name };
+          const resData = res.data as any;
+          const responseData = resData.data || resData;
+          const list = (responseData.users || []).map(
+            (item: {
+              user_id: string;
+              display_name?: string;
+              username?: string;
+            }) => {
+              return {
+                value: item.user_id,
+                label: item.display_name || item.username || item.user_id,
+              };
             },
           );
           setUserList(list);
@@ -120,8 +142,8 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
     <Modal
       open={visible}
       width={500}
-      title={isGroup ? "添加用户组" : "添加用户"}
-      okText={"保存"}
+      title={isGroup ? t("knowledge.addGroup") : t("knowledge.addUser")}
+      okText={t("common.save")}
       onCancel={handleClose}
       onOk={submit}
       centered
@@ -135,19 +157,21 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
         initialValues={{ roleName: "dataset_user" }}
       >
         <Form.Item
-          label={isGroup ? "用户组名称" : "用户名称"}
+          label={isGroup ? t("knowledge.groupName") : t("knowledge.userName")}
           name="memberName"
           rules={[
             {
               required: true,
-              message: isGroup ? "请选择用户组名称" : "请选择用户名称",
+              message: isGroup
+                ? t("knowledge.selectGroupName")
+                : t("knowledge.selectUserName"),
             },
             {
               max: 20,
               type: "array",
               message: isGroup
-                ? "最多同时添加 20 个用户组"
-                : "最多同时添加 20 个用户",
+                ? t("knowledge.maxAddGroups")
+                : t("knowledge.maxAddUsers"),
             },
           ]}
         >
@@ -155,7 +179,7 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
             mode="multiple"
             tokenSeparators={[" "]}
             allowClear
-            placeholder={isGroup ? "用户组名称" : "用户名称"}
+            placeholder={isGroup ? t("knowledge.groupName") : t("knowledge.userName")}
             popupMatchSelectWidth
             virtual={true}
             showSearch
@@ -182,11 +206,11 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
           />
         </Form.Item>
         <Form.Item
-          label={"角色"}
+          label={t("knowledge.role")}
           name="roleName"
-          rules={[{ required: true, message: "请选择角色" }]}
+          rules={[{ required: true, message: t("knowledge.selectRole") }]}
         >
-          <Select placeholder={"请选择"}>
+          <Select placeholder={t("knowledge.selectPlease")}>
             {/* This version only can select user. */}
             {ROLE_TYPE_INFO.map((item) => {
               return (

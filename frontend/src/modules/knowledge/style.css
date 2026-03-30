@@ -1,6 +1,8 @@
 .micro-knowledge-page {
+  width: 100%;
+  min-width: 0;
   height: 100%;
-  padding: 24px;
+  padding: 12px;
   padding-bottom: 0;
 }
 
@@ -17,7 +19,7 @@
     border-radius: 4px;
     background-color: transparent;
   }
-  /*定义滑块 内阴影+圆角*/
+  
   &::-webkit-scrollbar-thumb {
     border-radius: 4px;
     background-color: var(--scrollbar-thumb-color);
@@ -33,8 +35,9 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  min-width: 0;
   height: calc(100vh - 48px);
-  align-items: center;
+  align-items: stretch;
   overflow: hidden;
 }
 

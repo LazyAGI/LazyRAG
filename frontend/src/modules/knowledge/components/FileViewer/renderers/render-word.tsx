@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Segment } from "@/api/generated/knowledge-client";
+import i18n from "@/i18n";
 import { Spin } from "antd";
 import "../index.scss";
 
@@ -14,7 +15,6 @@ const RenderWord = (props: WordViewerProps) => {
   const [loading, setLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 文件变化时重新渲染
   useEffect(() => {
     let isMounted = true;
 
@@ -36,7 +36,7 @@ const RenderWord = (props: WordViewerProps) => {
           });
         }
       } catch (err) {
-        console.error("加载失败:", err);
+        console.error(i18n.t("knowledge.previewLoadFailedLog"), err);
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -55,14 +55,13 @@ const RenderWord = (props: WordViewerProps) => {
     };
   }, [fileData]);
 
-  // content 变化时更新高亮
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
     }
 
-    clearHighlight(container); // 清除旧高亮
+    clearHighlight(container);
 
     if (content?.trim()) {
       highlightKeyword(container, content);
@@ -70,7 +69,6 @@ const RenderWord = (props: WordViewerProps) => {
     }
   }, [content]);
 
-  // 支持点击预览文件中的a标签或者a标签的子标签进行跳转
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
@@ -101,7 +99,7 @@ const RenderWord = (props: WordViewerProps) => {
   }, []);
 
   return (
-    <div style={{ maxWidth: 800, margin: "0 auto" }}>
+    <div style={{ maxWidth: 800, margin: "0 auto", height: "100%" }}>
       {loading && (
         <div
           style={{
@@ -126,6 +124,7 @@ const RenderWord = (props: WordViewerProps) => {
           overflowX: "auto",
           whiteSpace: "normal",
           wordBreak: "break-word",
+          minHeight: "auto",
         }}
       />
     </div>

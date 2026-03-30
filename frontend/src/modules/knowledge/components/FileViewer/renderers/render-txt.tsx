@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import i18n from "@/i18n";
 
 interface RenderTxtProps {
   fileData: ArrayBuffer;
@@ -17,7 +18,6 @@ const RenderTxt = (props: RenderTxtProps) => {
     }
   }, [fileData]);
 
-  // 计算高亮后的文本
   const highlightedText = useMemo(() => {
     if (!contentText || !originalText) {
       return originalText;
@@ -59,7 +59,7 @@ const RenderTxt = (props: RenderTxtProps) => {
           textAlign: "center",
         }}
       >
-        加载失败
+        {i18n.t("knowledge.previewLoadFailed")}
       </div>
     );
   }

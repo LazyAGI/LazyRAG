@@ -14,7 +14,7 @@ interface IProps {
 const ImportTaskManage = (props: IProps, ref: Ref<unknown> | undefined) => {
   const [data, setData] = useState({});
   const [visible, setVisible] = useState(false);
-  const hasSuspendedRef = useRef(false); // 记录是否有中止成功的操作
+  const hasSuspendedRef = useRef(false);
   const { onClose } = props;
 
   const handleOpen = (data: any) => {

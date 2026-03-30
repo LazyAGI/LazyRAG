@@ -22,7 +22,6 @@ class TreeUtils {
     return tree;
   };
 
-  // 查找当前节点
   public static findNode = (
     treeList: any,
     match: (node: any) => boolean,
@@ -44,7 +43,7 @@ class TreeUtils {
     return undefined;
   };
 
-  /** 查找目标节点的所有祖先文件夹的 document_id（取消子项选择时需同步移除父文件夹） */
+  
   public static findAncestorFolderIds = (
     tree: { document_id?: string; type?: string; children?: any[] }[],
     targetId: string,
@@ -68,7 +67,6 @@ class TreeUtils {
     return [];
   };
 
-  // 通过key查找所有父节点 返回结果包含当前节点
   public static findParents = (
     treeList: { key: string | number; children?: any[] }[],
     key: string,
@@ -88,7 +86,6 @@ class TreeUtils {
     return [];
   };
 
-  // 树状数组打平
   public static flattenTree = (
     treeList: { key: string | number; children?: any[] }[],
     nodeList: any[] = [],

@@ -1,3 +1,4 @@
+import axios from "axios";
 import {
   AuthApi,
   UserApi,
@@ -79,6 +80,12 @@ export async function storeLoginSession(
     role: loginResponse.role,
     timestamp: Date.now(),
   });
+
+  try {
+    await fetchCurrentUser();
+  } catch {
+  }
+
   return null;
 }
 
@@ -161,4 +168,31 @@ export async function changeCurrentUserPassword(
       new_password: newPassword,
     },
   });
+}
+
+export async function logoutFromServer() {
+  const refreshToken = AgentAppsAuth.getRefreshToken();
+  const accessToken = AgentAppsAuth.getAccessToken();
+  
+  if (!refreshToken) {
+    return;
+  }
+
+  try {
+    const logoutUrl = `${BASE_URL}/api/authservice/auth/logout`;
+    
+    const logoutAxios = axios.create({
+      timeout: 10000,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+    });
+    
+    await logoutAxios.post(logoutUrl, {
+      refresh_token: refreshToken,
+    });
+  } catch (error) {
+    console.error("Logout API call failed:", error);
+  }
 }

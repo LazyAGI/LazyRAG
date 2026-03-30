@@ -3,7 +3,18 @@ import { useEffect, useState } from "react";
 const styleRegistry = new Set<string>();
 
 export const injectStyles = (styleId: string, css: string) => {
-  if (styleRegistry.has(styleId) || document.getElementById(styleId)) return;
+  const existingStyle = document.getElementById(styleId) as
+    | HTMLStyleElement
+    | null;
+
+  if (existingStyle) {
+    if (existingStyle.textContent !== css) {
+      existingStyle.textContent = css;
+    }
+    styleRegistry.add(styleId);
+    return;
+  }
+
   const style = document.createElement("style");
   style.id = styleId;
   style.textContent = css;
@@ -14,9 +25,7 @@ export const injectStyles = (styleId: string, css: string) => {
 export const useStyles = (styleId: string, css: string) => {
   const [, setInjected] = useState(false);
   useEffect(() => {
-    if (!styleRegistry.has(styleId) && !document.getElementById(styleId)) {
-      injectStyles(styleId, css);
-      setInjected(true);
-    }
+    injectStyles(styleId, css);
+    setInjected(true);
   }, [styleId, css]);
 };

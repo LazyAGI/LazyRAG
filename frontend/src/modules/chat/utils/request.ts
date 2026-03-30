@@ -400,3 +400,51 @@ export function ChatFileServiceApi() {
     },
   };
 }
+
+export function TempUploadServiceApi() {
+  return {
+    initUpload(request: any, options?: RawAxiosRequestConfig) {
+      return axiosInstance.post(
+        `${coreApiBaseUrl}/temp/uploads:initUpload`,
+        request,
+        withJsonOptions(options),
+      );
+    },
+    uploadPart(
+      uploadId: string,
+      partNumber: number,
+      data: Blob,
+      options?: RawAxiosRequestConfig,
+    ) {
+      return axiosInstance.put(
+        `${coreApiBaseUrl}/temp/uploads/${encodeURIComponent(uploadId)}/parts/${partNumber}`,
+        data,
+        {
+          ...options,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            ...(options?.headers ?? {}),
+          },
+        },
+      );
+    },
+    completeUpload(
+      uploadId: string,
+      request: any,
+      options?: RawAxiosRequestConfig,
+    ) {
+      return axiosInstance.post(
+        `${coreApiBaseUrl}/temp/uploads/${encodeURIComponent(uploadId)}:complete`,
+        request,
+        withJsonOptions(options),
+      );
+    },
+    abortUpload(uploadId: string, options?: RawAxiosRequestConfig) {
+      return axiosInstance.post(
+        `${coreApiBaseUrl}/temp/uploads/${encodeURIComponent(uploadId)}:abort`,
+        {},
+        withJsonOptions(options),
+      );
+    },
+  };
+}
