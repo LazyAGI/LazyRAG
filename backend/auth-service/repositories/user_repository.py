@@ -155,3 +155,30 @@ class UserRepository:
         tenant_id: str | None = None,
     ) -> tuple[list[User], int]:
         return cls()._list_paginated(session, page, page_size, search, tenant_id)
+
+    @classmethod
+    def update_profile(
+        cls,
+        session: Session,
+        user_id: uuid.UUID,
+        *,
+        display_name: str | None = None,
+        email: str | None = None,
+        phone: str | None = None,
+        remark: str | None = None,
+    ) -> User | None:
+        """Update user profile fields (only non-None values are applied)."""
+        user = cls.get_by_id(session, user_id)
+        if not user:
+            return None
+        if display_name is not None:
+            user.display_name = display_name
+        if email is not None:
+            user.email = email
+        if phone is not None:
+            user.phone = phone
+        if remark is not None:
+            user.remark = remark
+        session.commit()
+        session.refresh(user)
+        return user

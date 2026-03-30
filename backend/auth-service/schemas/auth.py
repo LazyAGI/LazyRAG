@@ -58,6 +58,14 @@ class MeResponse(BaseModel):
     tenant_id: str | None = None
 
 
+class UpdateMeBody(BaseModel):
+    """用户修改自己的信息（除用户名外均可选更新）"""
+    display_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    remark: str | None = None
+
+
 class ChangePasswordBody(BaseModel):
     old_password: str
     new_password: str
