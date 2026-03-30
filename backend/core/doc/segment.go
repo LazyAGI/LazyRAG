@@ -92,6 +92,24 @@ func ListSegments(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, ListSegmentsResponse{Segments: segments, TotalSize: totalSize, NextPageToken: nextPageToken})
 }
 
+// SearchSegments 与 ListSegments 共用同一下游查询，keyword/order_by 等字段待下游支持后再透传。
+func SearchSegments(w http.ResponseWriter, r *http.Request) {
+	body := parseSegmentSearchInput(r)
+	datasetID, documentID, lazyDocID, algoID, group, ok := prepareSegmentRequest(w, r, "SearchSegments", body)
+	if !ok {
+		return
+	}
+	pageSize := parseSegmentPageSize(r, body)
+	page := parseSegmentPage(r, body)
+	raw, _, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "SearchSegments")
+	if err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
+	common.ReplyJSON(w, ListSegmentsResponse{Segments: segments, TotalSize: totalSize, NextPageToken: nextPageToken})
+}
+
 func GetSegment(w http.ResponseWriter, r *http.Request) {
 	datasetID, documentID, lazyDocID, algoID, group, ok := prepareSegmentRequest(w, r, "GetSegment", nil)
 	if !ok {
