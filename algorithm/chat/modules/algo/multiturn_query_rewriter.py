@@ -6,7 +6,7 @@ from lazyllm.module import ModuleBase
 from lazyllm.components import ChatPrompter
 from lazyllm.components.formatter import JsonFormatter
 
-from chat.component.memory.message import BaseMessage, SessionMemory
+from chat.utils.message import BaseMessage, SessionMemory
 
 
 MULTITURN_QUERY_REWRITE_PROMPT = """

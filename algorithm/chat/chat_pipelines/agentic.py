@@ -8,7 +8,7 @@ import lazyllm
 from lazyllm import LOG, bind, loop, pipeline, switch
 from tenacity import retry, stop_after_attempt, wait_fixed
 
-from chat.component.llm.simple_llm import SimpleLlmComponent
+from chat.modules.engineering.simple_llm import SimpleLlmComponent
 from chat.prompts.agentic import (
     EVALUATOR_PROMPT,
     EXTRACTOR_PROMPT,

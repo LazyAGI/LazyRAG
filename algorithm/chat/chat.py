@@ -247,7 +247,7 @@ async def health():
 @app.post('/api/chat/stream', summary='与知识库对话')
 async def chat(
     query: str = Body(..., description='用户问题'),  # noqa: B008
-    history: Any = Body(default=None, description='历史对话，可为 list 或省略（代理可能传为 {}）'),  # noqa: B008
+    history: List[History] = Body(default=None, description='历史对话，可为 list 或省略（代理可能传为 {}）'),  # noqa: B008
     session_id: str = Body('session_id', description='会话 ID'),  # noqa: B008
     filters: Optional[Dict[str, Any]] = Body(None, description='检索过滤条件'),  # noqa: B008
     files: Optional[List[str]] = Body(None, description='上传临时文件'),  # noqa: B008
