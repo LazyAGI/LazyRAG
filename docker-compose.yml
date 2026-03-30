@@ -351,16 +351,16 @@ services:
     restart: unless-stopped
 
   lazyllm-parse-server:
-    # build:
-    #   context: ./algorithm
-    #   dockerfile: Dockerfile
-    #   target: default
+    build:
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_PORT: ${LAZYRAG_DOCUMENT_PROCESSOR_PORT:-8000}
       <<: [*db-conn, *upload-paths, *llm-api-keys]
