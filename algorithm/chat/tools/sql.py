@@ -121,10 +121,8 @@ class SqlGenerator(ModuleBase):
         self._llm = llm
 
     def extract_sql_from_response(self, str_response: str) -> str:
-        # Remove the triple backticks if present
         matches = self._pattern.findall(str_response)
         if matches:
-            # Return the first match
             extracted_content = matches[0].strip()
             return extracted_content if not self.sql_post_func else self.sql_post_func(extracted_content)
         else:

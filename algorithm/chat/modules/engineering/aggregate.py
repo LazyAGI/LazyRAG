@@ -3,7 +3,7 @@ import itertools
 from typing import Tuple, List
 from lazyllm.tools.rag import DocNode
 
-from .url import is_valid_path, get_url_basename
+from chat.utils.url import is_valid_path, get_url_basename
 
 
 def shorten_image_urls(markdown: str) -> Tuple[str, List[str]]:

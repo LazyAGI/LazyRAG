@@ -7,23 +7,23 @@ from concurrent.futures import ThreadPoolExecutor
 import lazyllm
 from lazyllm import LOG, bind, loop, pipeline, switch
 from tenacity import retry, stop_after_attempt, wait_fixed
-from component.llm.simple_llm import SimpleLlmComponent
-from pipelines.utils.prompt import (
+
+from chat.component.llm.simple_llm import SimpleLlmComponent
+from chat.prompts.agentic import (
     EVALUATOR_PROMPT,
     EXTRACTOR_PROMPT,
     GENERATE_PROMPT,
-    # GENERATE_PROMPT_ZH,
     PLANREFINE_PROMPT,
     PLANNER_PROMPT,
     TOOLCALL_PROMPT,
 )
-from pipelines.utils.tool_registry import (
+from chat.modules.engineering.tool_registry import (
     get_all_tool_schemas,
     get_tool_instance,
     get_tool_schema,
 )
-from component.formatter.output_parser import CustomOutputParser
-from pipelines.utils.workflow_utils import (
+from chat.modules.engineering.output_parser import CustomOutputParser
+from chat.modules.engineering.workflow_utils import (
     PlanStep,
     TaskContext,
     tool_schema_to_string,
@@ -477,7 +477,7 @@ if __name__ == '__main__':
             'files': [],
             'stream': False,
             'priority': 1,
-            'document_url': 'http://10.119.16.66:9011,tyy_0302',
+            'document_url': 'http://10.119.16.66:9007,tyy_0302',
         },
     }
     res = agentic_rag(global_params=global_params, tool_params=tool_params, stream=False)

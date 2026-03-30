@@ -1,8 +1,8 @@
 from typing import AsyncIterator, AsyncGenerator, Dict, List, Tuple
 from lazyllm import ModuleBase
 
-from chat.component.utils.stream_scanner import BasePlugin, CitationPlugin, ImagePlugin, IncrementalScanner
-from chat.component.utils.url import get_url_basename
+from chat.utils.stream_scanner import BasePlugin, CitationPlugin, ImagePlugin, IncrementalScanner
+from chat.utils.url import get_url_basename
 
 # ============================================================
 # CustomOutputParser

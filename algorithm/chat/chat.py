@@ -17,9 +17,9 @@ from lazyllm import LOG, once_wrapper
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from pipelines.agentic_rag import agentic_rag  # noqa: E402
-from pipelines.rag_pipeline import get_rag_ppl  # noqa: E402
-from component.tools.sensitive_filter import SensitiveFilter  # noqa: E402
+from chat.chat_pipelines.agentic import agentic_rag  # noqa: E402
+from chat.chat_pipelines.naive import get_rag_ppl  # noqa: E402
+from chat.modules.engineering.sensitive_filter import SensitiveFilter  # noqa: E402
 
 load_dotenv()
 # ---------------------------------------------------------------------------
@@ -225,36 +225,6 @@ def _log_chat_request(
         f'[filters={filters}] [files={other_files}] [image_files={image_files}] '
         f'[databases={databases_str}] [cost={cost}] [response={response_str}]'
     )
-
-
-class ChatServer:
-    def __init__(self):
-        self._on_server_start()
-
-    @once_wrapper
-    def _on_server_start(self):
-        try:
-            self.query_ppl = query_ppl_map
-            self.query_ppl_stream = query_ppl_stream_map
-            self.query_ppl_reasoning = agentic_rag
-            self.sensitive_filter = SensitiveFilter(SENSITIVE_WORDS_PATH)
-            if self.sensitive_filter.loaded:
-                LOG.info(
-                    f'[ChatServer] [SENSITIVE_FILTER] Successfully loaded '
-                    f'{self.sensitive_filter.keyword_count} sensitive keywords'
-                )
-            else:
-                LOG.warning('[ChatServer] [SENSITIVE_FILTER] Failed to load, filter disabled')
-
-            LOG.info('[ChatServer] [SERVER_START]')
-        except Exception as exc:
-            LOG.exception('[ChatServer] [SERVER_START_ERROR]')
-            raise exc
-
-
-chat_server = ChatServer()
-MAX_CONCURRENCY = int(os.getenv('MAX_CONCURRENCY', 10))
-rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
 @app.get('/health', summary='Health check')

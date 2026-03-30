@@ -2,30 +2,28 @@
 # flake8: noqa: F821
 import os
 from pathlib import Path
-from functools import partial
 import lazyllm
+from typing import List
+import asyncio
+import yaml
 from lazyllm import Document, Retriever, LOG
 from lazyllm import pipeline, parallel, bind, ifs, switch, _0
 from lazyllm.tools.rag import TempDocRetriever
-from typing import List
-import asyncio
-
+from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
+from lazyllm.tools.common import StreamCallHelper
 import sys
 from pathlib import Path
 
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from chat.component.llm.simple_llm import SimpleLlmComponent
-from chat.component.rerank.join import RRFJoinComponent
-from chat.component.rerank.custom_rerank import Qwen3Reranker
-from chat.component.embedding.bge_embedding import BgeM3Online
-
-from chat.component.rewrite.multiturn_query_rewriter import MultiturnQueryRewriter
-from chat.component.utils.adaptive_k import AdaptiveKComponent
-from chat.component.utils.aggregate import AggregateComponent
-from chat.component.formatter.prompt_formatter import RAGContextFormatter
-from chat.component.formatter.output_parser import CustomOutputParser
+from chat.modules.engineering.simple_llm import SimpleLlmComponent
+from chat.modules.algo.multiturn_query_rewriter import MultiturnQueryRewriter
+from chat.modules.algo.adaptive_topk import AdaptiveKComponent
+from chat.modules.engineering.aggregate import AggregateComponent
+from chat.modules.algo.prompt_formatter import RAGContextFormatter
+from chat.modules.engineering.output_parser import CustomOutputParser
+from chat.modules.engineering.load_model import get_model
 
 
 USE_MULTIMODAL = False
@@ -35,6 +33,13 @@ RERANKER_QWEN3_URL = os.getenv("RERANKER_QWEN3_URL", "http://10.119.24.104:8331"
 
 LLM_QWEN3_MOE_URL = os.getenv("LLM_QWEN3_MOE_URL", "http://10.119.21.177:8000")
 LLM_QWEN3_MOE_MODEL_NAME = os.getenv("LLM_QWEN3_MOE_MODEL_NAME", "lazyllm")   # Qwen3-30B-A3B-Instruct
+
+CONFIG_PATH = os.getenv("CONFIG_PATH", f"{base_dir}/chat/chat_pipelines/configs/auto_model.yaml")
+cfg = yaml.safe_load(CONFIG_PATH)
+
+dense_embed_model = os.getenv("DENSE_EMBED_MODEL", "bgem3_emb_dense_custom")
+reranker_model = os.getenv("RERANKER_MODEL", "qwen3_reranker_custom")
+
 
 normal_llm = lazyllm.OnlineChatModule(
         base_url='http://10.119.29.126:25121/v1/',
@@ -57,6 +62,10 @@ instruct_llm = lazyllm.OnlineChatModule(
     source="openai",
     stream=False
 )
+
+bge_embed_dense = get_model(dense_embed_model, cfg)
+reranker = get_model(reranker_model, cfg)
+
 
 
 # 默认检索器配置
@@ -103,12 +112,6 @@ def setup_retrievers(url: str, retriever_configs: List[dict]) -> List[Retriever]
     return [Retriever(document, **config) for config in retriever_configs]
 
 def get_ppl_tmp_retriever():
-    bge_embed_dense = BgeM3Online(
-        embed_url=f"http://10.119.27.151:2269/embed",
-        embed_model_name="BAAI/bge-m3",
-        skip_auth=True,
-        api_key="null")
-
     def parse_input(input, **kwargs):
         files = kwargs.get('files', [])
         return files
@@ -128,8 +131,9 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = default_retriever_c
             search_ppl.divert = ifs((lambda _, x: bool(x.get('files'))) | bind(x=search_ppl.input),
                                     tpath=tmp_retriever | bind(files=search_ppl.input['files']),
                                     fpath=parallel(*[(retriever | bind(filters=search_ppl.input['filters'])) for retriever in retrievers]))
-            search_ppl.join = RRFJoinComponent(top_k=50)
-            search_ppl.reranker = Qwen3Reranker('Qwen3Reranker', url=f"{RERANKER_QWEN3_URL}/v1/rerank") | bind(
+            search_ppl.merge_results = lambda *args: args 
+            search_ppl.join = RRFFusion(top_k=50) 
+            search_ppl.reranker = reranker | bind(
                 query=search_ppl.input["query"], template="file_name: {file_name}\ntitle: {title}\ncontent: {text}", topk=topk)
             search_ppl.adaptive_k = AdaptiveKComponent(bias=2, k_max=k_max, gap_tau=0.2)
     return search_ppl
@@ -139,6 +143,9 @@ def get_ppl_llm_generate(stream=False):
         with pipeline() as ppl:
             ppl.aggregate = AggregateComponent()
             ppl.formatter = RAGContextFormatter() | bind(query=ppl.kwargs['query'], nodes=ppl.aggregate)
+            # ppl.answer = ifs((lambda _, stream: stream) | bind(stream=stream),
+            #                  tpath=StreamCallHelper(normal_llm) | bind(stream=stream, llm_chat_history=[], files=[], priority=1),
+            #                  fpath=normal_llm | bind(stream=stream, llm_chat_history=[], files=[], priority=1))
             ppl.answer = SimpleLlmComponent(llm=normal_llm) | \
                 bind(stream=stream, llm_chat_history=[], files=[], priority=1)
             ppl.parser = CustomOutputParser(llm_type_think=LLM_TYPE_THINK) | bind(
@@ -174,16 +181,59 @@ def get_rag_ppl(url: str, retriever_configs: List[dict] = default_retriever_conf
 
 if __name__ == "__main__":
     url = "http://10.119.16.66:9003,research_center_0131_a"
+    
+    def test_no_stream():
+        rag_ppl = get_rag_ppl(url, stream=False)
+        params = {
+            "filters": {},
+            "query": "大枣山药枸杞汤的主要食材是什么", 
+            "files": [],
+            "history": [],
+            "debug": False
+        }
+        result = rag_ppl(params)
+        print(result['sources'])
+        print('--------------------------------')
+        print(result['text'])
+        
+        rag_ppl = get_rag_ppl(url, stream=True)
+        params = {
+            "filters": {},
+            "query": "大枣山药枸杞汤的主要食材是什么", 
+            "files": [],
+            "history": [],
+            "debug": False
+        }
+        result = rag_ppl(params)
+        print(result['sources'])
+        print('--------------------------------')
+        print(result['text'])
+    
+    def test_stream():
+        import asyncio
+        async def main():
+            rag_ppl = get_rag_ppl(url, stream=True)
+            params = {
+                "filters": {},
+                "query": "大枣山药枸杞汤的主要食材是什么", 
+                "files": [],
+                "history": [],
+                "debug": False
+            }
+            result = rag_ppl(params)
+            think = ""
+            text = ""
+            sources = []
 
-    rag_ppl = get_rag_ppl(url, stream=False)
-    params = {
-        "filters": {},
-        "query": "大枣山药枸杞汤的主要食材是什么", 
-        "files": [],
-        "history": [],
-        "debug": False
-    }
-    result = rag_ppl(params)
-    print(result['sources'])
-    print('--------------------------------')
-    print(result['text'])
+            async for chunk in result:
+                print(chunk)
+                if chunk.get("think") is not None:
+                    think += chunk.get("think", "")
+                if chunk.get("text") is not None:
+                    text += chunk.get("text", "")
+                if chunk.get("sources") is not None:
+                    sources.extend(chunk.get("sources", []))
+            print(f"think: {think}")
+            print(f"text: {text}")
+            print(f"sources: {sources}")
+        asyncio.run(main())

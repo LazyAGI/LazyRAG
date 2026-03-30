@@ -5,7 +5,6 @@ Full chat endpoint test requires Document/LLM mocks - run with services up for i
 """
 import pytest
 
-# Import chat module - may fail if lazyllm/Document init requires external services
 try:
     from chat.chat import History, ChatResponse, _normalize_history
     CHAT_AVAILABLE = True
@@ -48,7 +47,6 @@ def test_chat_endpoint_accepts_history_as_object():
     from fastapi.testclient import TestClient
     from chat.chat import app
     client = TestClient(app)
-    # Body that previously caused: "Input should be a valid list", "input": {}
     body = {
         'query': 'hello',
         'history': {},
@@ -57,11 +55,9 @@ def test_chat_endpoint_accepts_history_as_object():
         'files': None,
     }
     response = client.post('/api/chat', json=body)
-    # Should not be 422 Unprocessable Entity (validation error)
     assert response.status_code != 422, (
         f'Chat must accept history={{}}; got 422: {response.json()}'
     )
-    # May be 500 if Document/LLM unavailable; that is acceptable for this test
     if response.status_code == 422:
         data = response.json()
         assert 'history' not in str(data.get('detail', [])), (

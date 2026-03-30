@@ -1,3 +1,4 @@
+"""Adaptive top-k selection for retrieved nodes (scores + optional token budget)."""
 from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -40,18 +41,18 @@ def _fit_by_budget(nodes: Sequence[Any],
             break
         acc += t
         k += 1
-    return max(k, 1)  # 避免 k=0
+    return max(k, 1)
 
 
 # ------------- 主函数 -----------------
 
 
 def adaptive_k_select_from_nodes(
-    nodes: Sequence[Any],                          # 已按相关度降序排序的 DocNode 列表
+    nodes: Sequence[Any],
     *,
     get_score: Callable[[Any], float] = lambda n: n.relevance_score,
-    get_token_len: Optional[Callable[[Any], int]] = None,  # 如 lambda n: n.token_len
-    assume_sorted_desc: bool = True,               # 若=False，会按 score 再次降序排序
+    get_token_len: Optional[Callable[[Any], int]] = None,
+    assume_sorted_desc: bool = True,
     max_tokens: Optional[int] = None,
     bias: int = 2,
     search_pct: float = 1.0,
@@ -73,16 +74,13 @@ def adaptive_k_select_from_nodes(
     if N == 0:
         return [], 0, dict(max_gap=0.0, argmax_idx=-1, scores_head=[], tokens_used=0, k_before_budget=0)
 
-    # 0) 确保降序
     if assume_sorted_desc:
         nodes_sorted = list(nodes)
     else:
         nodes_sorted = sorted(nodes, key=get_score, reverse=True)
 
-    # 1) 分数字序列
     scores = [float(get_score(n)) for n in nodes_sorted]
 
-    # N==1 的边界
     if N == 1:
         k = 1
         tokens_used = int(get_token_len(nodes_sorted[0])) if get_token_len else 0
@@ -91,18 +89,13 @@ def adaptive_k_select_from_nodes(
             tokens_used=tokens_used, k_before_budget=1
         )
 
-    # 2) 平滑（可选）
     s_sm = _moving_average(scores, smooth_w) if smooth_w > 1 else scores
 
-    # 3) 在前 search_pct 范围内寻找最大落差
-    # 允许的最大差分位置为 0..(N-2)，长度为 (N-1)
     M = max(1, min(N - 1, int((N - 1) * search_pct)))
     gaps = [s_sm[i] - s_sm[i + 1] for i in range(M)]
-    # 若所有 gaps 相等，argmax 取首个
     argmax_idx = max(range(M), key=lambda i: gaps[i])
     max_gap = gaps[argmax_idx] if M > 0 else 0.0
 
-    # 4) 显著性检查 & 回退
     if (gap_tau is not None) and (max_gap < gap_tau):
         k0 = default_k
         by_budget = _fit_by_budget(nodes_sorted, get_token_len, max_tokens)
@@ -110,7 +103,6 @@ def adaptive_k_select_from_nodes(
             k0 = by_budget
         k = _clamp(k0, k_min, k_max or N)
     else:
-        # 5) 自适应 k + 缓冲 bias
         k = argmax_idx + 1 + bias
         if k_max is not None:
             k = min(k, k_max)
@@ -118,7 +110,6 @@ def adaptive_k_select_from_nodes(
 
     k_before_budget = k
 
-    # 6) 应用 token 预算（二次截断）
     if max_tokens is not None and get_token_len is not None:
         by_budget = _fit_by_budget(nodes_sorted, get_token_len, max_tokens)
         if by_budget > 0:
