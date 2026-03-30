@@ -8,7 +8,7 @@
     "dev": "vite --clearScreen false",
     "build": "vite build",
     "preview": "vite preview",
-    "gen:openapi": "export PATH=\"/opt/homebrew/opt/openjdk@17/bin:$PATH\" && node scripts/openapi/generate-api.mjs",
+    "gen:openapi": "node scripts/openapi/generate-api.mjs",
     "gen:auth": "bash scripts/openapi/generate-auth.sh",
     "lint": "eslint \"src/**/*.{ts,tsx}\""
   },
