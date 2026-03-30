@@ -7,6 +7,12 @@ RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     gcc \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libxcb1 \
     python3-dev \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -23,13 +29,30 @@ COPY . .
 ENV PYTHONPATH=/app/lazyllm:/app
 CMD ["python", "parsing/parsing.py"]
 
-# Stage: mineru - base + requirements.txt + mineru + code.
+# Stage: mineru - base + requirements.txt + configurable mineru extra + code.
 # Submodule lazyllm is copied via COPY . . and its parent dir is prepended to PYTHONPATH so
 # "import lazyllm" resolves to /app/lazyllm/lazyllm/ (submodule) instead of pip-installed lazyllm.
 FROM base AS mineru
+ARG MINERU_VERSION=2.7.1
+ARG MINERU_PACKAGE_VARIANT=pipeline
+ARG MINERU_PREINSTALL_CPU_TORCH=1
+ARG MINERU_TORCH_VERSION=2.11.0
+ARG MINERU_TORCHVISION_VERSION=0.26.0
+ARG MINERU_NUMPY_VERSION=1.26.4
+ARG MINERU_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+ARG MINERU_PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir 'mineru[all]==2.7.1' -i https://mirrors.aliyun.com/pypi/simple/
+RUN if [ "$MINERU_PREINSTALL_CPU_TORCH" = "1" ]; then \
+        pip install --no-cache-dir \
+        --index-url "$MINERU_PYTORCH_INDEX_URL" \
+        "torch==${MINERU_TORCH_VERSION}+cpu" \
+        "torchvision==${MINERU_TORCHVISION_VERSION}+cpu"; \
+    fi
+RUN pip install --no-cache-dir "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERSION}" -i "$MINERU_PYPI_INDEX_URL"
+RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
+        pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
+    fi
 COPY . .
 ENV PYTHONPATH=/app/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]

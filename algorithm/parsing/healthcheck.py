@@ -1,16 +1,14 @@
 import os
 import sys
-import urllib.request
 
 import requests
 
-ALGO_ID = 'algo1'
+ALGO_ID = 'general_algo'
 
 
 def _ensure_ok(url: str) -> None:
-    with urllib.request.urlopen(url, timeout=3) as response:
-        if not (200 <= response.status < 300):
-            raise RuntimeError(f'unhealthy endpoint: {url} status={response.status}')
+    response = requests.get(url, timeout=3)
+    response.raise_for_status()
 
 
 def main() -> int:

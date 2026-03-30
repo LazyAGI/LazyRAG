@@ -65,7 +65,7 @@ MAX_CONCURRENCY = int(os.getenv('LAZYRAG_MAX_CONCURRENCY', 10))
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
-doc = Document(url=os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000'), name='algo1')
+doc = Document(url=os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000'), name='general_algo')
 _default_prompt = (
     'You are a RAG assistant. Answer the user question `{query}` using '
     'history `{history}` and references `{references}`.'

@@ -12,7 +12,7 @@ from lazyllm.tools.rag.parsing_service.base import AddDocRequest, FileInfo
 from lazyllm.tools.rag.utils import BaseResponse, gen_docid
 
 UPLOAD_DIR = os.environ.get('LAZYRAG_UPLOAD_DIR', '/app/uploads')
-DEFAULT_ALGO_ID = os.environ.get('LAZYRAG_DEFAULT_ALGO_ID', 'algo1')
+DEFAULT_ALGO_ID = os.environ.get('LAZYRAG_DEFAULT_ALGO_ID', 'general_algo')
 DEFAULT_GROUP = os.environ.get('LAZYRAG_DEFAULT_GROUP', 'block')
 PROCESSOR_PORT = os.environ.get('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '8000')
 

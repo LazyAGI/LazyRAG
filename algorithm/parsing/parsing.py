@@ -10,10 +10,11 @@ from lazyllm.tools.rag import Document, MineruPDFReader, PDFReader
 from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
-from lazyllm.tools.rag.transform import SentenceSplitter
+
+from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
 
-ALGO_ID = 'algo1'
+ALGO_ID = 'general_algo'
 
 
 def _require_env(name: str) -> str:
@@ -46,7 +47,7 @@ def _build_store_config():
                     'use_ssl': True,
                     'verify_certs': False,
                     'user': os.getenv('LAZYRAG_OPENSEARCH_USER', 'admin'),
-                    'password': os.getenv('LAZYRAG_OPENSEARCH_PASSWORD', 'admin'),
+                    'password': os.getenv('LAZYRAG_OPENSEARCH_PASSWORD', 'LazyRAG_OpenSearch123!'),
                 },
             },
         },
@@ -59,7 +60,12 @@ def _build_pdf_reader():
     if ocr_type in ('none', None, ''):
         return PDFReader()
     if ocr_type == 'mineru':
-        return MineruPDFReader(ocr_url)
+        return MineruPDFReader(
+            url=ocr_url, 
+            backend=os.getenv('LAZYRAG_MINERU_BACKEND', 'pipeline'),
+            post_func=NodeParser(),
+            timeout=3600
+        )
     if ocr_type == 'paddleocr':
         return PaddleOCRPDFReader(url=ocr_url)
     raise ValueError(f'Unsupported LAZYRAG_OCR_SERVER_TYPE: {ocr_type!r}')
@@ -93,7 +99,7 @@ def _wait_for_algorithm_registration(processor_url: str, algo_id: str, timeout: 
             data = response.json().get('data', [])
             if any(item.get('algo_id') == algo_id for item in data):
                 return
-        except Exception:
+        except requests.exceptions.RequestException:
             pass
         if deadline is not None and time.time() >= deadline:
             raise RuntimeError(f'timed out waiting for algorithm registration: {algo_id}')
@@ -115,13 +121,12 @@ def build_document() -> Document:
     )
 
     docs.add_reader('*.pdf', _build_pdf_reader())
-    docs.create_node_group(
-        name='block',
-        display_name='段落切片',
-        group_type=NodeGroupType.CHUNK,
-        transform=SentenceSplitter(chunk_size=512, chunk_overlap=50),
-    )
+    docs.create_node_group(name='block', display_name='段落切片',
+                           group_type=NodeGroupType.CHUNK, transform=GeneralParser(max_length=2048, split_by='\n'))
+    docs.create_node_group(name="line", display_name='句子切片',
+                           group_type=NodeGroupType.CHUNK, transform=LineSplitter, parent="block")
     docs.activate_group('block')
+    docs.activate_group('line')
     return docs
 
 
