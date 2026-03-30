@@ -125,7 +125,7 @@ def main() -> None:
     runtime_callback_url = _resolve_runtime_callback_url(args.callback_url)
     if runtime_callback_url:
         try:
-            doc_server._dispatch('set_runtime_callback_url', runtime_callback_url)
+            doc_server.set_runtime_callback_url(runtime_callback_url)
         except Exception as exc:
             print(f'Failed to set runtime callback url: {exc}', flush=True)
     base_url = doc_server.url.rsplit('/', 1)[0]

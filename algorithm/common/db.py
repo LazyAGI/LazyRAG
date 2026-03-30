@@ -15,9 +15,9 @@ def parse_db_url(url: Optional[str]) -> Optional[Dict[str, Any]]:
         u = urlparse(url)
         db_type = (u.scheme or 'postgresql').split('+')[0]
         if db_type != 'postgresql':
-            return None
+            raise ValueError(f'unsupported database scheme: {u.scheme or db_type}')
         if not u.hostname:
-            return None
+            raise ValueError('database host is required')
         return {
             'db_type': 'postgresql',
             'user': unquote(u.username) if u.username else '',
@@ -26,8 +26,8 @@ def parse_db_url(url: Optional[str]) -> Optional[Dict[str, Any]]:
             'port': u.port or 5432,
             'db_name': (u.path or '/').lstrip('/') or 'app',
         }
-    except (ValueError, AttributeError, TypeError):
-        return None
+    except (AttributeError, TypeError) as exc:
+        raise ValueError('invalid database url') from exc
 
 
 def get_shared_database_url() -> Optional[str]:
@@ -38,12 +38,24 @@ def get_shared_database_url() -> Optional[str]:
 
 def get_shared_db_config() -> Optional[Dict[str, Any]]:
     """Get db_config for DocServer / DocumentProcessor / Worker from the shared DB env."""
-    return parse_db_url(get_shared_database_url())
+    database_url = get_shared_database_url()
+    return parse_db_url(database_url) if database_url else None
 
 
 def require_shared_db_config(service_name: str) -> Dict[str, Any]:
     """Return shared db_config or raise a clear error when it is missing."""
-    db_config = get_shared_db_config()
+    database_url = get_shared_database_url()
+    if database_url is None:
+        raise RuntimeError(
+            f'{service_name} requires a shared database configuration. '
+            f'Set {SHARED_DB_ENV_KEY} to a valid PostgreSQL URL.'
+        )
+    try:
+        db_config = parse_db_url(database_url)
+    except ValueError as exc:
+        raise RuntimeError(
+            f'{service_name} requires a valid PostgreSQL URL in {SHARED_DB_ENV_KEY}: {exc}'
+        ) from exc
     if db_config is None:
         raise RuntimeError(
             f'{service_name} requires a shared database configuration. '

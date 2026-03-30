@@ -20,6 +20,7 @@ import os
 import threading
 import time
 from typing import Any, Dict
+from urllib.parse import unquote, urlparse
 
 import requests
 
@@ -32,36 +33,34 @@ FIXED_DB_ROOT = '.lazyllm/.dbs/'
 DEFAULT_OPENAPI_PATH = os.path.join(FIXED_DB_ROOT, 'doc_service.openapi.json')
 
 
-# def _make_db_config(db_name: str) -> Dict[str, Any]:
-#     return {
-#         'db_type': 'sqlite',
-#         'user': None,
-#         'password': None,
-#         'host': None,
-#         'port': None,
-#         'db_name': db_name,
-#     }
-# def _prepare_runtime_paths() -> Dict[str, str]:
-#     os.makedirs(FIXED_DB_ROOT, exist_ok=True)
-#     paths = {
-#         'root_dir': FIXED_DB_ROOT,
-#         'storage_dir': os.path.join(FIXED_DB_ROOT, 'uploads'),
-#         'store_dir': os.path.join(FIXED_DB_ROOT, 'store'),
-#         'parser_db': os.path.join(FIXED_DB_ROOT, 'parser.sqlite'),
-#         'doc_db': os.path.join(FIXED_DB_ROOT, 'doc_service.sqlite'),
-#     }
-#     os.makedirs(paths['storage_dir'], exist_ok=True)
-#     os.makedirs(paths['store_dir'], exist_ok=True)
-#     return paths
-
-def _make_db_config(db_name: str) -> Dict[str, Any]:
+def _parse_database_url(url: str) -> Dict[str, Any]:
+    parsed = urlparse(url)
+    db_type = (parsed.scheme or 'postgresql').split('+')[0]
+    if db_type != 'postgresql':
+        raise ValueError(f'unsupported database scheme: {parsed.scheme or db_type}')
+    if not parsed.hostname:
+        raise ValueError('database host is required')
     return {
         'db_type': 'postgresql',
-        'user': 'root',
-        'password': '123456',
-        'host': '172.21.0.2',
-        'port': 5432,
-        'db_name': db_name,
+        'user': unquote(parsed.username) if parsed.username else '',
+        'password': unquote(parsed.password) if parsed.password else '',
+        'host': parsed.hostname,
+        'port': parsed.port or 5432,
+        'db_name': (parsed.path or '/').lstrip('/') or 'app',
+    }
+
+
+def _make_db_config(db_name: str) -> Dict[str, Any]:
+    database_url = os.getenv('LAZYRAG_DATABASE_URL')
+    if database_url:
+        return _parse_database_url(database_url)
+    return {
+        'db_type': 'sqlite',
+        'user': None,
+        'password': None,
+        'host': None,
+        'port': None,
+        'db_name': os.path.join(FIXED_DB_ROOT, f'{db_name}.sqlite'),
     }
 
 
@@ -135,7 +134,7 @@ def _start_full_stack(args):
         num_workers=args.num_workers,
     )
     parser.start()
-    parser_base_url = parser._impl._url.rsplit('/', 1)[0]
+    parser_base_url = parser.url.rsplit('/', 1)[0]
     _wait_http_ok(f'{parser_base_url}/health')
 
     store_conf = _build_store_conf(paths['store_dir'])
