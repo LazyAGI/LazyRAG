@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import jsPreviewDocx, { JsDocxPreview } from "@js-preview/docx";
 import "@js-preview/docx/lib/index.css";
-import jsPreviewExcel, { JsExcelPreview } from "@js-preview/excel";
 import { Segment } from "@/api/generated/knowledge-client";
 import i18n from "@/i18n";
 
-type JsPreviewType = JsDocxPreview | JsExcelPreview;
+// @js-preview/excel 通过 index.html <script> 加载 UMD，运行时挂载到 window.jsPreviewExcel
+declare const jsPreviewExcel: typeof import("@js-preview/excel").default;
+
+type JsPreviewType = JsDocxPreview | import("@js-preview/excel").JsExcelPreview;
 
 interface RenderOfficeProps {
   fileData: ArrayBuffer;
@@ -26,12 +28,13 @@ const RenderOffice = (props: RenderOfficeProps) => {
     [metadata],
   );
 
-  const getReaderType = useCallback(() => {
+  const getReaderType = useCallback(async () => {
     switch (fileType) {
       case "docx":
         return jsPreviewDocx;
       case "excel":
-        return jsPreviewExcel;
+        // UMD 已通过 index.html <script> 加载，直接从全局变量读取
+        return (window as unknown as { jsPreviewExcel: typeof jsPreviewExcel }).jsPreviewExcel;
       default:
         return null;
     }
@@ -96,7 +99,7 @@ const RenderOffice = (props: RenderOfficeProps) => {
     try {
       setLoading(true);
 
-      const readerType = getReaderType();
+      const readerType = await getReaderType();
       if (!readerType || !showFile.current) {
         return;
       }

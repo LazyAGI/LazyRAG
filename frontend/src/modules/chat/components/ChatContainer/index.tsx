@@ -119,6 +119,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     const saveTimerRef = useRef<number | null>(null);
     const conversationMessagesCache = useRef<Map<string, any[]>>(new Map());
     const newConversationIdsRef = useRef<Set<string>>(new Set());
+    const chatBoxRef = useRef<HTMLDivElement>(null);
 
     const [showDot, setShowDot] = useState(batchChatTask);
 
@@ -667,7 +668,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
         return;
       }
       requestAnimationFrame(() => {
-        const container = document.querySelector(".chat-box");
+        const container = chatBoxRef.current;
         if (container) {
           container.scrollTop = container.scrollHeight;
         }
@@ -963,7 +964,8 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     };
 
     const handleScroll = () => {
-      const el = document.querySelector(".chat-box") as HTMLElement;
+      const el = chatBoxRef.current;
+      if (!el) return;
 
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (distance <= 50) {
@@ -975,7 +977,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
 
     return (
       <div className="chat-chat-container">
-        <div className="chat-box" onScroll={handleScroll}>
+        <div className="chat-box" ref={chatBoxRef} onScroll={handleScroll}>
           <div
             className="message-container chat-content"
             // onWheel={(e) => onChatListWheel(e.deltaY)}

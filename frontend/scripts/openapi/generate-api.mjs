@@ -1,6 +1,6 @@
 /**
  * Generate API clients from OpenAPI specs.
- * Local specs live in scripts/openapi/specs, external specs come from tieyiyuan.
+ * Local specs live in scripts/openapi/specs.
  * Output: src/api/generated/<name>-client
  */
 import { execSync } from "child_process";
@@ -13,11 +13,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const cwdPath = process.cwd();
-// From lazyRag/LazyRAG/frontend go up to workspace root then into tieyiyuan api
-const inputDirname = path.resolve(
-  cwdPath,
-  "../../../tieyiyuan/neutrino/api/public/appplatform/api",
-);
 const outputDirname = path.resolve(cwdPath, "src/api/generated");
 const localSpecsDir = path.resolve(cwdPath, "scripts/openapi/specs");
 
@@ -31,26 +26,6 @@ const apis = [
     name: "core",
     input: path.resolve(localSpecsDir, "core.yaml"),
     output: path.resolve(outputDirname, "core-client"),
-  },
-  {
-    name: "authservice",
-    input: path.resolve(inputDirname, "authservice/v1/openapi.yaml"),
-    output: path.resolve(outputDirname, "authservice-client"),
-  },
-  {
-    name: "chatbot",
-    input: path.resolve(inputDirname, "chatbot/openapi.yaml"),
-    output: path.resolve(outputDirname, "chatbot-client"),
-  },
-  {
-    name: "knowledge",
-    input: path.resolve(inputDirname, "rag/openapi.yaml"),
-    output: path.resolve(outputDirname, "knowledge-client"),
-  },
-  {
-    name: "file",
-    input: path.resolve(inputDirname, "fileservice/openapi.yaml"),
-    output: path.resolve(outputDirname, "file-client"),
   },
 ];
 
@@ -84,6 +59,26 @@ function hashFile(filePath) {
   return createHash("sha256").update(content).digest("hex");
 }
 
+/**
+ * Patch generated base.ts to use VITE_API_BASE_URL env variable instead of
+ * the hardcoded "http://localhost" that the OpenAPI generator emits by default.
+ */
+function patchBasePath(outputDir) {
+  const baseTsPath = path.resolve(outputDir, 'base.ts');
+  if (!fs.existsSync(baseTsPath)) return;
+
+  const original = fs.readFileSync(baseTsPath, 'utf-8');
+  const patched = original.replace(
+    /export const BASE_PATH\s*=\s*"[^"]*"\.replace\(.*?\);/,
+    'export const BASE_PATH = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ? import.meta.env.VITE_API_BASE_URL.replace(/\\/+$/, "") : "http://localhost";',
+  );
+
+  if (patched !== original) {
+    fs.writeFileSync(baseTsPath, patched, 'utf-8');
+    console.log(`🔧 Patched BASE_PATH in ${path.relative(cwdPath, baseTsPath)}`);
+  }
+}
+
 let updated = false;
 for (const api of selectedApis) {
   if (!fs.existsSync(api.input)) {
@@ -108,6 +103,7 @@ for (const api of selectedApis) {
       `pnpm exec openapi-generator-cli generate --skip-validate-spec -c scripts/openapi/openapi-generator-config.json -i "${api.input}" -o "${api.output}"`,
       { stdio: "inherit", cwd: cwdPath },
     );
+    patchBasePath(api.output);
     cache[api.name] = currentHash;
     updated = true;
   } catch (error) {

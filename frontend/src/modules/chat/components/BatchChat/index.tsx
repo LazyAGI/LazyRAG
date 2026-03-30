@@ -200,9 +200,21 @@ const BatchChatComponent = forwardRef<BatchChatImperativeProps, ForwardProps>(
           fetch(uri!, {
             method: "PUT",
             body: file,
-          }).then((data) => {
-            console.log(data, "上传成功");
-          });
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error(`Upload failed with status ${response.status}`);
+              }
+            })
+            .catch((err) => {
+              console.error('File upload failed:', err);
+              setFileId('');
+              message.error(t('chat.uploadFailed'));
+            });
+        })
+        .catch((err) => {
+          console.error('Failed to get presign URL:', err);
+          message.error(t('chat.uploadFailed'));
         });
     }
 

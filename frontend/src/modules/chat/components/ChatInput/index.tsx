@@ -41,6 +41,8 @@ import { useTranslation } from "react-i18next";
 
 const { TextArea } = Input;
 
+const MAX_UPLOAD_FILES = 3;
+
 function getSuffix(f: { name: string }) {
   return f.name.substring(f.name.lastIndexOf(".")).toLowerCase();
 }
@@ -441,7 +443,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                 .substring(finalFile.name.lastIndexOf("."))
                 .toLowerCase();
               if (allowedUploadTypes.includes(finalSuffix)) {
-                if (fileList.length + files.length < 3) {
+                if (fileList.length + files.length < MAX_UPLOAD_FILES) {
                   files.push(finalFile);
                 } else {
                   message.warning(t("chat.maxFilesWarning"));
@@ -459,7 +461,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
 
           if (invalidFiles.length > 0) {
             message.warning(
-              t("chat.unsupportedFileType").replace("{types}", allowedUploadTypes.join(",")),
+              t("chat.unsupportedFileType", { types: allowedUploadTypes.join(",") }),
             );
           }
 
@@ -539,7 +541,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                       listNum={fileList.length}
                       ref={fileListRef}
                       types={allowedUploadTypes}
-                      max={3}
+                      max={MAX_UPLOAD_FILES}
                       onBeforeAddFiles={onBeforeAddFiles}
                       icon={<Button icon={<AttachmentIcon />} type="text" />}
                     />

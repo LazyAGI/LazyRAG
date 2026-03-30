@@ -173,14 +173,14 @@ export async function changeCurrentUserPassword(
 export async function logoutFromServer() {
   const refreshToken = AgentAppsAuth.getRefreshToken();
   const accessToken = AgentAppsAuth.getAccessToken();
-  
+
   if (!refreshToken) {
     return;
   }
 
   try {
     const logoutUrl = `${BASE_URL}/api/authservice/auth/logout`;
-    
+
     const logoutAxios = axios.create({
       timeout: 10000,
       headers: {
@@ -188,7 +188,7 @@ export async function logoutFromServer() {
         "Authorization": `Bearer ${accessToken}`,
       },
     });
-    
+
     await logoutAxios.post(logoutUrl, {
       refresh_token: refreshToken,
     });

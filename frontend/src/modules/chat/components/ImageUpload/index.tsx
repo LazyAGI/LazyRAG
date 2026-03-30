@@ -106,7 +106,7 @@ const ImageUpload = forwardRef<ImageUploadImperativeProps, Props>(
       //   return false;
       // }
 
-      if ([...currentFiles, newFile].length > 3) {
+      if ([...currentFiles, newFile].length > maxCount) {
         message.warning(t("chat.maxThreeFilesAndImages"));
         return false;
       }
