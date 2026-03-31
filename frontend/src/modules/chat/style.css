@@ -1,0 +1,11 @@
+:root {
+  font-size: 16px;
+}
+
+.clickable-icon {
+  cursor: pointer;
+}
+
+.clickable-icon:hover {
+  color: var(--color-primary-hover);
+}

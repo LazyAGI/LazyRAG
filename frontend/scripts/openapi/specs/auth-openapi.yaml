@@ -1,0 +1,1756 @@
+openapi: 3.1.0
+info:
+  title: Auth Service
+  description: LazyRAG 认证与授权服务（登录、注册、Token、用户/角色/组管理）
+  version: 1.0.0
+paths:
+  /api/authservice/auth/health:
+    get:
+      tags:
+      - auth
+      summary: Health
+      description: 系统健康检查接口，用于监控服务存活状态
+      operationId: health_api_authservice_auth_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/authservice/auth/register:
+    post:
+      tags:
+      - auth
+      summary: Register
+      description: 用户注册：校验用户名、密码格式及确认密码一致后创建账号，默认角色为 user。
+      operationId: register_api_authservice_auth_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/auth/login:
+    post:
+      tags:
+      - auth
+      summary: Login
+      description: 用户登录：校验用户名密码并通过登录失败限流后，颁发 access_token 与 refresh_token。
+      operationId: login_api_authservice_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/auth/refresh:
+    post:
+      tags:
+      - auth
+      summary: Refresh
+      description: 刷新 Token：用有效的 refresh_token 换取新的 access_token 与 refresh_token，旧
+        refresh_token 随即失效。
+      operationId: refresh_api_authservice_auth_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/auth/validate:
+    post:
+      tags:
+      - auth
+      summary: Validate
+      description: 校验 Token：验证请求头中的 Bearer token 是否有效，并返回用户 id、角色、租户及权限列表，供网关或前端做鉴权。
+      operationId: validate_api_authservice_auth_validate_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidateResponse'
+      security:
+      - HTTPBearer: []
+  /api/authservice/auth/me:
+    get:
+      tags:
+      - auth
+      summary: Me
+      description: 当前用户信息：根据 Bearer token 返回当前登录用户的 id、用户名、邮箱、状态、角色及有效权限列表（角色权限 ∪
+        组权限）。
+      operationId: me_api_authservice_auth_me_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+      security:
+      - HTTPBearer: []
+  /api/authservice/auth/change_password:
+    post:
+      tags:
+      - auth
+      summary: Change Password
+      description: 修改密码：校验旧密码后，将当前用户密码更新为新密码（新密码需符合强度要求）。
+      operationId: change_password_api_authservice_auth_change_password_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/authservice/auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Logout
+      description: 登出：若请求体携带 refresh_token，则服务端使该 refresh_token 失效，前端应清除本地 token。
+      operationId: logout_api_authservice_auth_logout_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/authservice/auth/authorize:
+    post:
+      tags:
+      - authorization
+      summary: Authorize
+      description: "鉴权：供网关(Kong)调用，根据请求的 method、path 与用户 Bearer token 判断是否放行\n  1.\
+        \ 若接口未配置所需权限则直接放行；\n  2. 否则校验用户角色与权限组，管理员或具备任一所需权限则放行；\n  3. 否则 403。"
+      operationId: authorize_api_authservice_auth_authorize_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizeBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/user:
+    post:
+      tags:
+      - user
+      summary: Create User
+      description: System-admin creates a user. Default role is user; can assign any
+        role for high-privilege users.
+      operationId: create_user_api_authservice_user_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateUserResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - user
+      summary: List Users
+      description: 分页查询用户列表，支持按关键词、租户筛选
+      operationId: list_users_api_authservice_user_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 20
+          title: Page Size
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: tenant_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/user/role:
+    patch:
+      tags:
+      - user
+      summary: Set User Roles Batch
+      description: 直接给指定用户设置系统角色（与 group 无关），支持 user_ids 批量。
+      operationId: set_user_roles_batch_api_authservice_user_role_patch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRoleBatchBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/authservice/user/{user_id}:
+    get:
+      tags:
+      - user
+      summary: Get User
+      description: 查询用户详情（需 user.admin）。
+      operationId: get_user_api_authservice_user__user_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - user
+      summary: Set User Role
+      description: 修改指定用户的角色
+      operationId: set_user_role_api_authservice_user__user_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRoleBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/user/{user_id}/reset_password:
+    patch:
+      tags:
+      - user
+      summary: Reset Password
+      description: 重置指定用户的密码，新密码需符合强度要求
+      operationId: reset_password_api_authservice_user__user_id__reset_password_patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/role/permission-groups:
+    get:
+      tags:
+      - role
+      summary: List Permission Groups
+      description: 查询所有权限组列表(id、name)，用于角色配置权限时选择
+      operationId: list_permission_groups_api_authservice_role_permission_groups_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PermissionGroupItem'
+                type: array
+                title: Response List Permission Groups Api Authservice Role Permission
+                  Groups Get
+      security:
+      - HTTPBearer: []
+  /api/authservice/role:
+    get:
+      tags:
+      - role
+      summary: List Roles
+      description: 查询所有角色列表(id、name、built_in)
+      operationId: list_roles_api_authservice_role_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/RoleItem'
+                type: array
+                title: Response List Roles Api Authservice Role Get
+      security:
+      - HTTPBearer: []
+    post:
+      tags:
+      - role
+      summary: Create Role
+      description: 创建新角色，名称不可与已有角色重复
+      operationId: create_role_api_authservice_role_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleCreateBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleCreateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/authservice/role/{role_id}:
+    delete:
+      tags:
+      - role
+      summary: Delete Role
+      description: 删除指定角色，内置角色不可删除
+      operationId: delete_role_api_authservice_role__role_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: role_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Role Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/role/{role_id}/permissions:
+    get:
+      tags:
+      - role
+      summary: Get Role Permissions
+      description: 查询指定角色已绑定的权限组名称列表
+      operationId: get_role_permissions_api_authservice_role__role_id__permissions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: role_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Role Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RolePermissionsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - role
+      summary: Set Role Permissions
+      description: 设置指定角色的权限组(全量覆盖)，管理员角色不可修改
+      operationId: set_role_permissions_api_authservice_role__role_id__permissions_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: role_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Role Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RolePermissionsBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/group:
+    get:
+      tags:
+      - group
+      summary: List Groups
+      description: 分页查询用户组列表，支持按关键词、租户筛选
+      operationId: list_groups_api_authservice_group_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 20
+          title: Page Size
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: tenant_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - group
+      summary: Create Group
+      description: 创建用户组，需填写组名、备注、租户等
+      operationId: create_group_api_authservice_group_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupCreateBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupCreateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/group/{group_id}:
+    get:
+      tags:
+      - group
+      summary: Get Group
+      description: 查询指定用户组详情(组名、备注、租户等)
+      operationId: get_group_api_authservice_group__group_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupDetailResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - group
+      summary: Update Group
+      description: 更新指定用户组(组名、备注、租户)；需 user.admin(由网关鉴权)。
+      operationId: update_group_api_authservice_group__group_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupUpdateBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - group
+      summary: Delete Group
+      description: 删除指定用户组
+      operationId: delete_group_api_authservice_group__group_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/group/{group_id}/permissions:
+    get:
+      tags:
+      - group
+      summary: Get Group Permissions
+      description: 查询组绑定的权限组；组内成员鉴权时自动拥有这些权限（与角色权限并集）。
+      operationId: get_group_permissions_api_authservice_group__group_id__permissions_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupPermissionsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - group
+      summary: Set Group Permissions
+      description: 全量设置组的权限组；组内成员自动拥有新权限，无需单独写用户表。
+      operationId: set_group_permissions_api_authservice_group__group_id__permissions_put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupPermissionsBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/group/{group_id}/user:
+    get:
+      tags:
+      - group
+      summary: List Group Users
+      description: 查询指定用户组内的成员列表(用户 id、用户名、组内角色、租户)
+      operationId: list_group_users_api_authservice_group__group_id__user_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupUserListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - group
+      summary: Add Group Users
+      description: 将指定用户批量加入用户组，可指定组内角色(默认 member)，已存在则跳过
+      operationId: add_group_users_api_authservice_group__group_id__user_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupAddUsersBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/group/{group_id}/user/remove:
+    post:
+      tags:
+      - group
+      summary: Remove Group Users
+      description: 从用户组中批量移除指定用户
+      operationId: remove_group_users_api_authservice_group__group_id__user_remove_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupRemoveUsersBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/authservice/group/{group_id}/user/role:
+    patch:
+      tags:
+      - group
+      summary: Set Member Roles Batch
+      description: 修改组内成员角色（支持批量）。user_ids 传一个或多个用户 UUID，与 role 一起使用。
+      operationId: set_member_roles_batch_api_authservice_group__group_id__user_role_patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: group_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Group Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupMemberRoleBatchBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AuthorizeBody:
+      properties:
+        method:
+          type: string
+          title: Method
+        path:
+          type: string
+          title: Path
+      type: object
+      required:
+      - method
+      - path
+      title: AuthorizeBody
+    AuthorizeResponse:
+      properties:
+        allowed:
+          type: boolean
+          title: Allowed
+      type: object
+      required:
+      - allowed
+      title: AuthorizeResponse
+      description: 鉴权结果
+    ChangePasswordBody:
+      properties:
+        old_password:
+          type: string
+          title: Old Password
+        new_password:
+          type: string
+          title: New Password
+      type: object
+      required:
+      - old_password
+      - new_password
+      title: ChangePasswordBody
+    CreateUserBody:
+      properties:
+        username:
+          type: string
+          title: Username
+        password:
+          type: string
+          title: Password
+        role_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role Id
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        tenant_id:
+          type: string
+          title: Tenant Id
+          default: ''
+        disabled:
+          type: boolean
+          title: Disabled
+          default: false
+      type: object
+      required:
+      - username
+      - password
+      title: CreateUserBody
+    CreateUserResponse:
+      properties:
+        user_id:
+          type: string
+          title: User Id
+        username:
+          type: string
+          title: Username
+        role_id:
+          type: string
+          title: Role Id
+        role_name:
+          type: string
+          title: Role Name
+      type: object
+      required:
+      - user_id
+      - username
+      - role_id
+      - role_name
+      title: CreateUserResponse
+    GroupAddUsersBody:
+      properties:
+        user_ids:
+          items:
+            type: string
+          type: array
+          title: User Ids
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+      type: object
+      required:
+      - user_ids
+      title: GroupAddUsersBody
+    GroupCreateBody:
+      properties:
+        group_name:
+          type: string
+          title: Group Name
+        remark:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remark
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      required:
+      - group_name
+      title: GroupCreateBody
+    GroupCreateResponse:
+      properties:
+        group_id:
+          type: string
+          title: Group Id
+      type: object
+      required:
+      - group_id
+      title: GroupCreateResponse
+      description: 创建用户组返回
+    GroupDetailResponse:
+      properties:
+        group_id:
+          type: string
+          title: Group Id
+        group_name:
+          type: string
+          title: Group Name
+        remark:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remark
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      required:
+      - group_id
+      - group_name
+      title: GroupDetailResponse
+      description: 用户组详情
+    GroupItem:
+      properties:
+        group_id:
+          type: string
+          title: Group Id
+        group_name:
+          type: string
+          title: Group Name
+        remark:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remark
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      required:
+      - group_id
+      - group_name
+      title: GroupItem
+      description: 用户组列表项
+    GroupListResponse:
+      properties:
+        groups:
+          items:
+            $ref: '#/components/schemas/GroupItem'
+          type: array
+          title: Groups
+        total:
+          type: integer
+          title: Total
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+      type: object
+      required:
+      - groups
+      - total
+      - page
+      - page_size
+      title: GroupListResponse
+      description: 用户组列表
+    GroupMemberRoleBatchBody:
+      properties:
+        user_ids:
+          items:
+            type: string
+          type: array
+          title: User Ids
+        role:
+          type: string
+          title: Role
+      type: object
+      required:
+      - user_ids
+      - role
+      title: GroupMemberRoleBatchBody
+      description: 批量修改组内成员角色，user_ids 支持单个或多个，与 role 一起使用
+    GroupPermissionsBody:
+      properties:
+        permission_groups:
+          items:
+            type: string
+          type: array
+          title: Permission Groups
+      type: object
+      required:
+      - permission_groups
+      title: GroupPermissionsBody
+      description: 组权限全量设置：权限组 code 列表，与角色权限并集后生效，不重复存储
+    GroupPermissionsResponse:
+      properties:
+        permission_groups:
+          items:
+            type: string
+          type: array
+          title: Permission Groups
+      type: object
+      required:
+      - permission_groups
+      title: GroupPermissionsResponse
+      description: 组绑定的权限组 code 列表
+    GroupRemoveUsersBody:
+      properties:
+        user_ids:
+          items:
+            type: string
+          type: array
+          title: User Ids
+      type: object
+      required:
+      - user_ids
+      title: GroupRemoveUsersBody
+    GroupUpdateBody:
+      properties:
+        group_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Group Name
+        remark:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Remark
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      title: GroupUpdateBody
+    GroupUserItem:
+      properties:
+        user_id:
+          type: string
+          title: User Id
+        username:
+          type: string
+          title: Username
+        role:
+          type: string
+          title: Role
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      required:
+      - user_id
+      - username
+      - role
+      title: GroupUserItem
+      description: 组内用户项
+    GroupUserListResponse:
+      properties:
+        users:
+          items:
+            $ref: '#/components/schemas/GroupUserItem'
+          type: array
+          title: Users
+      type: object
+      required:
+      - users
+      title: GroupUserListResponse
+      description: 组内用户列表
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+          default: ok
+        timestamp:
+          type: number
+          title: Timestamp
+      type: object
+      required:
+      - timestamp
+      title: HealthResponse
+      description: 健康检查返回
+    LoginBody:
+      properties:
+        username:
+          type: string
+          title: Username
+        password:
+          type: string
+          title: Password
+      type: object
+      required:
+      - username
+      - password
+      title: LoginBody
+    LoginResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        refresh_token:
+          type: string
+          title: Refresh Token
+        token_type:
+          type: string
+          title: Token Type
+          default: bearer
+        role:
+          type: string
+          title: Role
+        expires_in:
+          type: integer
+          title: Expires In
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      required:
+      - access_token
+      - refresh_token
+      - role
+      - expires_in
+      title: LoginResponse
+      description: 登录成功返回
+    LogoutBody:
+      properties:
+        refresh_token:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refresh Token
+      type: object
+      title: LogoutBody
+    MeResponse:
+      properties:
+        user_id:
+          type: string
+          title: User Id
+        username:
+          type: string
+          title: Username
+        display_name:
+          type: string
+          title: Display Name
+          default: ''
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        status:
+          type: string
+          title: Status
+        role:
+          type: string
+          title: Role
+        permissions:
+          items:
+            type: string
+          type: array
+          title: Permissions
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      required:
+      - user_id
+      - username
+      - status
+      - role
+      - permissions
+      title: MeResponse
+      description: 当前用户信息
+    OkResponse:
+      properties:
+        ok:
+          type: boolean
+          title: Ok
+          default: true
+      type: object
+      title: OkResponse
+      description: 通用 ok 返回
+    PermissionGroupItem:
+      properties:
+        id:
+          type: string
+          title: Id
+        code:
+          type: string
+          title: Code
+        description:
+          type: string
+          title: Description
+          default: ''
+        module:
+          type: string
+          title: Module
+          default: ''
+        action:
+          type: string
+          title: Action
+          default: ''
+      type: object
+      required:
+      - id
+      - code
+      title: PermissionGroupItem
+      description: 权限组项
+    RefreshBody:
+      properties:
+        refresh_token:
+          type: string
+          title: Refresh Token
+      type: object
+      required:
+      - refresh_token
+      title: RefreshBody
+    RegisterBody:
+      properties:
+        username:
+          type: string
+          title: Username
+        password:
+          type: string
+          title: Password
+        confirm_password:
+          type: string
+          title: Confirm Password
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+      type: object
+      required:
+      - username
+      - password
+      - confirm_password
+      title: RegisterBody
+    RegisterResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+        user_id:
+          type: string
+          title: User Id
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+        role:
+          type: string
+          title: Role
+      type: object
+      required:
+      - user_id
+      - role
+      title: RegisterResponse
+      description: 注册成功返回
+    ResetPasswordBody:
+      properties:
+        new_password:
+          type: string
+          title: New Password
+      type: object
+      required:
+      - new_password
+      title: ResetPasswordBody
+    RoleCreateBody:
+      properties:
+        name:
+          type: string
+          title: Name
+      type: object
+      required:
+      - name
+      title: RoleCreateBody
+    RoleCreateResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        built_in:
+          type: boolean
+          title: Built In
+      type: object
+      required:
+      - id
+      - name
+      - built_in
+      title: RoleCreateResponse
+      description: 创建角色返回
+    RoleItem:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        built_in:
+          type: boolean
+          title: Built In
+      type: object
+      required:
+      - id
+      - name
+      - built_in
+      title: RoleItem
+      description: 角色项
+    RolePermissionsBody:
+      properties:
+        permission_groups:
+          items:
+            type: string
+          type: array
+          title: Permission Groups
+      type: object
+      required:
+      - permission_groups
+      title: RolePermissionsBody
+    RolePermissionsResponse:
+      properties:
+        role_id:
+          type: string
+          title: Role Id
+        permission_groups:
+          items:
+            type: string
+          type: array
+          title: Permission Groups
+      type: object
+      required:
+      - role_id
+      - permission_groups
+      title: RolePermissionsResponse
+      description: 角色权限查询返回
+    SuccessResponse:
+      properties:
+        success:
+          type: boolean
+          title: Success
+          default: true
+      type: object
+      title: SuccessResponse
+      description: 通用成功返回(如修改密码、登出)
+    UserDetailResponse:
+      properties:
+        user_id:
+          type: string
+          title: User Id
+        username:
+          type: string
+          title: Username
+        display_name:
+          type: string
+          title: Display Name
+          default: ''
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        status:
+          type: string
+          title: Status
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+        role_id:
+          type: string
+          title: Role Id
+        role_name:
+          type: string
+          title: Role Name
+      type: object
+      required:
+      - user_id
+      - username
+      - status
+      - role_id
+      - role_name
+      title: UserDetailResponse
+      description: 用户详情
+    UserItem:
+      properties:
+        user_id:
+          type: string
+          title: User Id
+        username:
+          type: string
+          title: Username
+        display_name:
+          type: string
+          title: Display Name
+          default: ''
+        email:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Email
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        status:
+          type: string
+          title: Status
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+        role_id:
+          type: string
+          title: Role Id
+        role_name:
+          type: string
+          title: Role Name
+      type: object
+      required:
+      - user_id
+      - username
+      - status
+      - role_id
+      - role_name
+      title: UserItem
+      description: 用户列表项
+    UserListResponse:
+      properties:
+        users:
+          items:
+            $ref: '#/components/schemas/UserItem'
+          type: array
+          title: Users
+        total:
+          type: integer
+          title: Total
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+      type: object
+      required:
+      - users
+      - total
+      - page
+      - page_size
+      title: UserListResponse
+      description: 用户列表
+    UserRoleBatchBody:
+      properties:
+        user_ids:
+          items:
+            type: string
+          type: array
+          title: User Ids
+        role_id:
+          type: string
+          title: Role Id
+      type: object
+      required:
+      - user_ids
+      - role_id
+      title: UserRoleBatchBody
+      description: 直接给用户设置系统角色（与 group 无关），user_ids 支持单个或多个
+    UserRoleBody:
+      properties:
+        role_id:
+          type: string
+          title: Role Id
+      type: object
+      required:
+      - role_id
+      title: UserRoleBody
+    ValidateResponse:
+      properties:
+        sub:
+          type: string
+          title: Sub
+        role:
+          type: string
+          title: Role
+        tenant_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tenant Id
+        permissions:
+          items:
+            type: string
+          type: array
+          title: Permissions
+      type: object
+      required:
+      - sub
+      - role
+      - permissions
+      title: ValidateResponse
+      description: 校验 Token 返回
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

@@ -1,0 +1,213 @@
+# Variables that need to be configured in the repository:
+## vars.REGISTRY && vars.REGISTRY_NAMESPACE && 
+## secrets.REGISTRY_USERNAME && secrets.REGISTRY_PASSWORD
+
+# Creates images for both linux/amd64 and linux/arm64 platforms
+
+name: Docker Release
+
+on:
+  push:
+    branches:
+      - main
+      - "v*"
+    tags:
+      - "v*"
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.mdx"
+      - ".agents/**"
+      - "skills/**"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to backfill (for example v2026.3.22)
+        required: true
+        type: string
+      service:
+        description: JSON array of services to build (e.g. [ "backend", "frontend", "mineru", "processor-server", "processor-worker", "parsing", "chat", "auth-service" ] or ["all"])
+        required: false
+        default: '["all"]'
+        type: string
+
+concurrency:
+  group: docker-release-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # GitLab container registry host, defaults to registry.gitlab.com
+  REGISTRY: ${{ vars.REGISTRY || 'registry.gitlab.com' }}
+  # Namespace/repository path in GitLab registry (group/project)
+  REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE || github.repository }}
+  
+
+
+jobs:
+  docker-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: auth-service
+            dockerfile: backend/auth-service/Dockerfile
+            context: backend
+            image: lazyrag-auth-service
+          - service: backend
+            dockerfile: backend/core/Dockerfile
+            context: backend
+            image: lazyrag-backend
+          - service: frontend
+            dockerfile: frontend/Dockerfile
+            context: frontend
+            image: lazyrag-frontend
+          - service: mineru
+            dockerfile: algorithm/Dockerfile
+            context: algorithm
+            target: mineru
+            image: lazyrag-mineru
+          - service: processor-server
+            dockerfile: algorithm/Dockerfile
+            context: algorithm
+            target: default
+            image: lazyrag-processor-server
+          - service: processor-worker
+            dockerfile: algorithm/Dockerfile
+            context: algorithm
+            target: default
+            image: lazyrag-processor-worker
+          - service: parsing
+            dockerfile: algorithm/Dockerfile
+            context: algorithm
+            target: default
+            image: lazyrag-parsing
+          - service: chat
+            dockerfile: algorithm/Dockerfile
+            context: algorithm
+            target: default
+            image: lazyrag-chat
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+
+      - name: Detect changed services
+        id: changes
+        shell: bash
+        run: |
+          set -e
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            git fetch origin main --depth=2
+            CHANGED=$(git diff --name-only origin/main...HEAD)
+          else
+            CHANGED=""
+          fi
+
+          SERVICES=""
+
+          [[ "$CHANGED" == *"backend/auth-service"* ]] && SERVICES="$SERVICES auth-service"
+          [[ "$CHANGED" == *"backend/core"* ]] && SERVICES="$SERVICES backend"
+          [[ "$CHANGED" == *"frontend"* ]] && SERVICES="$SERVICES frontend"
+          [[ "$CHANGED" == *"algorithm"* ]] && SERVICES="$SERVICES mineru processor-server processor-worker parsing chat"
+
+          echo "services=$SERVICES"
+          echo "services=$SERVICES" >> $GITHUB_OUTPUT
+
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        if: |
+          (github.event_name == 'workflow_dispatch' &&
+            (
+              contains(fromJson(inputs.service), 'all') ||
+              contains(fromJson(inputs.service), matrix.service)
+            )
+          )
+          ||
+          (github.ref_type == 'tag')
+          ||
+          (github.event_name == 'push' && github.ref_type != 'tag' &&
+            contains(steps.changes.outputs.services, matrix.service)
+          )
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="main-${GITHUB_SHA::7}"
+          fi
+          echo "value=${TAG}" >> "${GITHUB_OUTPUT}"
+
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        if: ${{ steps.tag.outputs.value != '' }}
+
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        if: ${{ steps.tag.outputs.value != '' }}
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+
+      - name: Build and push ${{ matrix.service }} - linux/amd64
+        uses: docker/build-push-action@v6
+        if: ${{ steps.tag.outputs.value != '' }}
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: true
+          provenance: false
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-amd64
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest-amd64
+
+      - name: Build and push ${{ matrix.service }} - linux/arm64 
+        uses: docker/build-push-action@v6
+        if: ${{ steps.tag.outputs.value != '' }}
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: true
+          provenance: false
+          platforms: linux/arm64 
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-arm64
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest-arm64
+            
+      - name: Create and push manifest
+        if: ${{ steps.tag.outputs.value != '' }}
+        run: |          
+          IMAGE="${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}"
+          
+          echo "Waiting for images to be available..."
+          sleep 30
+          
+          # Create manifest
+          docker manifest create $IMAGE:${{ steps.tag.outputs.value }} \
+            --amend $IMAGE:${{ steps.tag.outputs.value }}-arm64 \
+            --amend $IMAGE:${{ steps.tag.outputs.value }}-amd64 || true
+          docker manifest push $IMAGE:${{ steps.tag.outputs.value }}
+          
+          # Create latest manifest
+          docker manifest create $IMAGE:latest \
+            --amend $IMAGE:latest-arm64 \
+            --amend $IMAGE:latest-amd64 || true
+          docker manifest push $IMAGE:latest

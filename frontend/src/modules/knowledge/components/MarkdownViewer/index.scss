@@ -1,0 +1,34 @@
+.md-segment-index {
+  display: inline-flex;
+  background-color: var(--color-primary);
+  border-radius: 6px;
+  color: white;
+  justify-content: center;
+  align-items: center;
+  width: 15px;
+  height: 15px;
+  vertical-align: middle;
+  margin: 0 3px;
+  font-size: smaller;
+}
+
+.md-content-card {
+  border-radius: 4px;
+
+  background-color: var(--blue-1);
+
+  .md-content-card-content {
+    padding: 16px 24px 12px;
+    max-height: 60vh;
+    overflow: auto;
+
+    word-wrap: break-word;
+    white-space: pre-wrap;
+
+    > img {
+      display: block;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+  }
+}

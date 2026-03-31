@@ -49,6 +49,7 @@ services:
 
   auth-service:
     build:
+      network: host
       context: ./backend
       dockerfile: auth-service/Dockerfile
     expose:
@@ -71,6 +72,7 @@ services:
 
   core:
     build:
+      network: host
       context: ./backend
       dockerfile: core/Dockerfile
     expose:
@@ -128,20 +130,13 @@ services:
           - doc-server
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
     ports:
-      - "8080:80"
-    depends_on:
-      kong:
-        condition: service_started
-      core:
-        condition: service_healthy
-      lazyllm-doc-server:
-        condition: service_healthy
-      lazyllm-algo:
-        condition: service_healthy
-      chat:
-        condition: service_healthy
+      - "8090:80"
+    environment:
+      FRONTEND_API_PROXY_PASS: ${FRONTEND_API_PROXY_PASS:-http://kong:8000}
+      FRONTEND_API_DOCS_PROXY_PASS: ${FRONTEND_API_DOCS_PROXY_PASS:-http://kong:8000}
 
   # ---------- Algorithm stack: MinerU/PaddleOCR -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
   # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru extra/backend are configured by env.
@@ -149,6 +144,7 @@ services:
     profiles:
       - mineru
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: mineru
@@ -234,6 +230,7 @@ services:
 
   lazyllm-parse-server:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
@@ -262,6 +259,7 @@ services:
 
   lazyllm-parse-worker:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
@@ -296,6 +294,7 @@ services:
 
   lazyllm-algo:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
@@ -332,6 +331,7 @@ services:
 
   chat:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default

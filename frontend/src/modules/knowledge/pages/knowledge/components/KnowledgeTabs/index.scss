@@ -1,0 +1,29 @@
+.card-container {
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column;
+
+  .ant-tabs-nav {
+    margin-bottom: 8px;
+    flex-shrink: 0;
+  }
+
+  .ant-tabs-content-holder {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .ant-tabs-content,
+  .ant-tabs-tabpane {
+    height: 100%;
+  }
+
+  .ant-tabs-tabpane {
+    & > div {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+  }
+}
