@@ -465,6 +465,13 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	page := filtered[offset:end]
 
 	out := make([]Dataset, 0, len(page))
+	// 批量统计所有 dataset 的文件数量和大小，避免 N+1 查询
+	dsIDs := make([]string, 0, len(page))
+	for _, ds := range page {
+		dsIDs = append(dsIDs, ds.ID)
+	}
+	statsMap := calcDatasetStatsBatch(r.Context(), dsIDs)
+
 	for _, ds := range page {
 		datasetACL := datasetACLForUser(&ds, userID)
 		algo := parseDatasetAlgo(ds.Ext)
@@ -477,6 +484,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 				parserCache[algo.AlgoID] = parsers
 			}
 		}
+		stats := statsMap[ds.ID]
 		out = append(out, Dataset{
 			Name:           "datasets/" + ds.ID,
 			DatasetID:      ds.ID,
@@ -484,9 +492,9 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			Desc:           ds.Desc,
 			CoverImage:     ds.CoverImage,
 			State:          stateToPB(ds.DatasetState),
-			IsEmpty:        false,
-			DocumentCount:  0,
-			DocumentSize:   0,
+			IsEmpty:        stats.DocumentCount == 0,
+			DocumentCount:  stats.DocumentCount,
+			DocumentSize:   stats.DocumentSize,
 			SegmentCount:   0,
 			TokenCount:     0,
 			Parsers:        parsers,
@@ -790,6 +798,7 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 	if len(parsers) == 0 {
 		parsers = fetchParsersByAlgoID(r.Context(), algo.AlgoID)
 	}
+	stats := calcDatasetStats(r.Context(), ds.ID)
 	common.ReplyJSON(w, Dataset{
 		Name:           "datasets/" + ds.ID,
 		DatasetID:      ds.ID,
@@ -797,9 +806,9 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		Desc:           ds.Desc,
 		CoverImage:     ds.CoverImage,
 		State:          stateToPB(ds.DatasetState),
-		IsEmpty:        false,
-		DocumentCount:  0,
-		DocumentSize:   0,
+		IsEmpty:        stats.DocumentCount == 0,
+		DocumentCount:  stats.DocumentCount,
+		DocumentSize:   stats.DocumentSize,
 		SegmentCount:   0,
 		TokenCount:     0,
 		Parsers:        parsers,
@@ -1007,6 +1016,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	datasetACL := datasetACLForUser(&ds, userID)
+	stats := calcDatasetStats(r.Context(), ds.ID)
 	common.ReplyJSON(w, Dataset{
 		Name:           "datasets/" + ds.ID,
 		DatasetID:      ds.ID,
@@ -1014,9 +1024,9 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		Desc:           ds.Desc,
 		CoverImage:     ds.CoverImage,
 		State:          stateToPB(ds.DatasetState),
-		IsEmpty:        false,
-		DocumentCount:  0,
-		DocumentSize:   0,
+		IsEmpty:        stats.DocumentCount == 0,
+		DocumentCount:  stats.DocumentCount,
+		DocumentSize:   stats.DocumentSize,
 		SegmentCount:   0,
 		TokenCount:     0,
 		Parsers:        parseDatasetParsers(ds.Ext),
@@ -1132,4 +1142,59 @@ func UnsetDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+type datasetStats struct {
+	DocumentCount int64
+	DocumentSize  int64
+}
+
+// calcDatasetStats 统计指定 dataset 下的文件数量和总大小（不含文件夹类型的 document）。
+// file_size 存储在 document.ext JSON 中，在 Go 层做内存聚合。
+func calcDatasetStats(ctx context.Context, datasetID string) datasetStats {
+	var docs []orm.Document
+	if err := corestore.DB().WithContext(ctx).
+		Select("ext").
+		Where("dataset_id = ? AND deleted_at IS NULL", datasetID).
+		Find(&docs).Error; err != nil {
+		return datasetStats{}
+	}
+	var count, size int64
+	for _, d := range docs {
+		if isFolderLikeDocument(d) {
+			continue
+		}
+		var ext documentExt
+		_ = json.Unmarshal(d.Ext, &ext)
+		count++
+		size += ext.FileSize
+	}
+	return datasetStats{DocumentCount: count, DocumentSize: size}
+}
+
+// calcDatasetStatsBatch 批量统计多个 dataset，一次查询避免 N+1。
+func calcDatasetStatsBatch(ctx context.Context, datasetIDs []string) map[string]datasetStats {
+	if len(datasetIDs) == 0 {
+		return map[string]datasetStats{}
+	}
+	var docs []orm.Document
+	if err := corestore.DB().WithContext(ctx).
+		Select("dataset_id, ext").
+		Where("dataset_id IN ? AND deleted_at IS NULL", datasetIDs).
+		Find(&docs).Error; err != nil {
+		return map[string]datasetStats{}
+	}
+	result := make(map[string]datasetStats, len(datasetIDs))
+	for _, d := range docs {
+		if isFolderLikeDocument(d) {
+			continue
+		}
+		var ext documentExt
+		_ = json.Unmarshal(d.Ext, &ext)
+		s := result[d.DatasetID]
+		s.DocumentCount++
+		s.DocumentSize += ext.FileSize
+		result[d.DatasetID] = s
+	}
+	return result
 }

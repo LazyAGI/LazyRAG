@@ -1,11 +1,14 @@
 package doc
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"mime/multipart"
 	"net/http"
@@ -495,6 +498,34 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := make([]TaskResponse, 0, len(req.Items))
+
+	// Pre-allocate one new folder per unique relative_path prefix across all items in
+	// this request. This ensures that:
+	//   - multiple files sharing the same prefix in one request land in the same folder
+	//   - a second request with the same prefix creates a separate, independent folder
+	folderByPrefix := make(map[string]string) // prefix -> folderID
+	for i := range req.Items {
+		item := &req.Items[i]
+		if item.UploadFileID == "" {
+			continue
+		}
+		relPath := strings.TrimSpace(item.Task.RelativePath)
+		if relPath == "" || strings.TrimSpace(item.Task.DocumentPID) != "" {
+			continue
+		}
+		normalized := strings.ReplaceAll(relPath, "\\", "/")
+		parts := strings.SplitN(normalized, "/", 2)
+		if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" {
+			continue
+		}
+		prefix := strings.TrimSpace(parts[0])
+		if _, exists := folderByPrefix[prefix]; !exists {
+			folderByPrefix[prefix] = createTopLevelFolder(r.Context(), datasetID, userID, userName, relPath)
+		}
+		item.Task.DocumentPID = folderByPrefix[prefix]
+		item.Task.RelativePath = "" // consumed — no need to re-derive in createTaskFromUploadedFile
+	}
+
 	for _, item := range req.Items {
 		tType := string(item.Task.TaskType)
 		if tType == "" {
@@ -507,20 +538,23 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 
 		expandedItems := expandCreateTaskItems(item, tType)
 		for _, expandedItem := range expandedItems {
-			var (
-				taskRow orm.Task
-				err     error
-			)
 			if strings.TrimSpace(expandedItem.UploadFileID) != "" {
-				taskRow, err = createTaskFromUploadedFile(r, datasetID, userID, userName, expandedItem, tType)
+				taskRows, err := createTaskFromUploadedFile(r, datasetID, userID, userName, expandedItem, tType)
+				if err != nil {
+					common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				for _, t := range taskRows {
+					resp = append(resp, buildTaskResponse(r, t))
+				}
 			} else {
-				taskRow, err = createTaskFromExistingDocument(r, datasetID, userID, userName, expandedItem, tType)
+				taskRow, err := createTaskFromExistingDocument(r, datasetID, userID, userName, expandedItem, tType)
+				if err != nil {
+					common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				resp = append(resp, buildTaskResponse(r, taskRow))
 			}
-			if err != nil {
-				common.ReplyErr(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			resp = append(resp, buildTaskResponse(r, taskRow))
 		}
 	}
 	common.ReplyJSON(w, CreateTasksResponse{Tasks: resp})
@@ -1234,6 +1268,7 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 		}
 		var docRow orm.Document
 		if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.DocID, datasetID).Take(&docRow).Error; err != nil {
+			log.Printf("[startTask] document not found task=%s doc=%s dataset=%s err=%v", taskID, taskRow.DocID, datasetID, err)
 			resultsByTaskID[taskID] = StartTaskResult{TaskID: taskID, DocumentID: taskRow.DocID, DisplayName: taskRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: "document not found"}
 			continue
 		}
@@ -1900,10 +1935,10 @@ func createUploadedFileRecord(r *http.Request, ds *orm.Dataset, datasetID, userI
 	return row, ext, nil
 }
 
-func createTaskFromUploadedFile(r *http.Request, datasetID, userID, userName string, item CreateTaskItem, tType string) (orm.Task, error) {
+func createTaskFromUploadedFile(r *http.Request, datasetID, userID, userName string, item CreateTaskItem, tType string) ([]orm.Task, error) {
 	uploadFileID := strings.TrimSpace(item.UploadFileID)
 	if uploadFileID == "" {
-		return orm.Task{}, fmt.Errorf("upload_file_id is required")
+		return nil, fmt.Errorf("upload_file_id is required")
 	}
 	taskID := strings.TrimSpace(item.TaskID)
 	if taskID == "" {
@@ -1912,19 +1947,43 @@ func createTaskFromUploadedFile(r *http.Request, datasetID, userID, userName str
 	now := time.Now().UTC()
 	var uploaded0 orm.UploadedFile
 	if err := store.DB().WithContext(r.Context()).Where("upload_file_id = ? AND deleted_at IS NULL", uploadFileID).Take(&uploaded0).Error; err != nil {
-		return orm.Task{}, fmt.Errorf("upload file not found")
+		return nil, fmt.Errorf("upload file not found")
 	}
-	if strings.TrimSpace(uploaded0.DatasetID) != datasetID {
-		return orm.Task{}, fmt.Errorf("upload file does not belong to current dataset")
+	if strings.TrimSpace(uploaded0.DatasetID) != "" && strings.TrimSpace(uploaded0.DatasetID) != datasetID {
+		return nil, fmt.Errorf("upload file does not belong to current dataset")
 	}
 	if strings.TrimSpace(uploaded0.CreateUserID) != userID {
-		return orm.Task{}, fmt.Errorf("upload file does not belong to current user")
+		return nil, fmt.Errorf("upload file does not belong to current user")
 	}
 	if strings.TrimSpace(uploaded0.Status) != UploadedFileStateUploaded {
-		return orm.Task{}, fmt.Errorf("upload file is not available for binding")
+		return nil, fmt.Errorf("upload file is not available for binding")
 	}
 	var upExt uploadedFileExt
 	_ = json.Unmarshal(uploaded0.Ext, &upExt)
+
+	documentPID := firstNonEmpty(strings.TrimSpace(item.Task.DocumentPID), strings.TrimSpace(upExt.DocumentPID))
+	relativePath := firstNonEmpty(strings.TrimSpace(item.Task.RelativePath), strings.TrimSpace(upExt.RelativePath))
+	if relativePath != "" && documentPID == "" {
+		documentPID = createTopLevelFolder(r.Context(), datasetID, userID, userName, relativePath)
+	}
+
+	if strings.ToLower(filepath.Ext(upExt.OriginalFilename)) == ".zip" {
+		if documentPID == "" {
+			zipFolderName := strings.TrimSuffix(upExt.OriginalFilename, filepath.Ext(upExt.OriginalFilename))
+			zipFolderName = strings.TrimSpace(zipFolderName)
+			if zipFolderName == "" {
+				zipFolderName = "zip-upload"
+			}
+			virtualRelPath := zipFolderName + "/__placeholder__"
+			documentPID = createTopLevelFolder(r.Context(), datasetID, userID, userName, virtualRelPath)
+		}
+		tasks, err := createTasksFromZipUpload(r, datasetID, userID, userName, uploadFileID, upExt, documentPID, item.Task.DocumentTags)
+		if err != nil {
+			return nil, err
+		}
+		return tasks, nil
+	}
+
 	documentID := strings.TrimSpace(item.Task.DocumentID)
 	if documentID == "" {
 		if len(item.Task.DocumentIDs) == 1 {
@@ -1940,7 +1999,6 @@ func createTaskFromUploadedFile(r *http.Request, datasetID, userID, userName str
 	if displayName == "" {
 		displayName = documentID
 	}
-	documentPID := firstNonEmpty(strings.TrimSpace(item.Task.DocumentPID), strings.TrimSpace(upExt.DocumentPID))
 	tags := item.Task.DocumentTags
 	if len(tags) == 0 {
 		tags = append([]string(nil), upExt.DocumentTags...)
@@ -1953,7 +2011,7 @@ func createTaskFromUploadedFile(r *http.Request, datasetID, userID, userName str
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("upload_file_id = ? AND deleted_at IS NULL", uploadFileID).Take(&uploaded).Error; err != nil {
 			return fmt.Errorf("upload file not found")
 		}
-		if strings.TrimSpace(uploaded.DatasetID) != datasetID {
+		if strings.TrimSpace(uploaded.DatasetID) != "" && strings.TrimSpace(uploaded.DatasetID) != datasetID {
 			return fmt.Errorf("upload file does not belong to current dataset")
 		}
 		if strings.TrimSpace(uploaded.CreateUserID) != userID {
@@ -1983,10 +2041,174 @@ func createTaskFromUploadedFile(r *http.Request, datasetID, userID, userName str
 		return nil
 	})
 	if err != nil {
-		return orm.Task{}, err
+		return nil, err
 	}
 	recalcAffectedFolderStats(r.Context(), datasetID, documentPID)
-	return created, nil
+	return []orm.Task{created}, nil
+}
+
+func createTasksFromZipUpload(r *http.Request, datasetID, userID, userName, uploadFileID string, upExt uploadedFileExt, documentPID string, tags []string) ([]orm.Task, error) {
+	log.Printf("[zip] createTasksFromZipUpload start uploadFileID=%s storedPath=%s documentPID=%s", uploadFileID, upExt.StoredPath, documentPID)
+	zipBytes, err := os.ReadFile(upExt.StoredPath)
+	if err != nil {
+		return nil, fmt.Errorf("read zip file failed: %w", err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("parse zip file failed: %w", err)
+	}
+
+	type zipEntry struct {
+		f    *zip.File
+		name string
+	}
+	var entries []zipEntry
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		name := strings.Trim(filepath.ToSlash(f.Name), "/")
+		if name == "" {
+			continue
+		}
+		// skip macOS metadata: __MACOSX/ prefix or ._* resource fork files
+		if strings.HasPrefix(name, "__MACOSX/") {
+			continue
+		}
+		base := filepath.Base(name)
+		if strings.HasPrefix(base, "._") {
+			continue
+		}
+		entries = append(entries, zipEntry{f: f, name: name})
+	}
+	log.Printf("[zip] collected %d file entries from zip (after filtering macOS metadata)", len(entries))
+
+	// test/a.pdf, test/b.pdf  → topDir="test"
+	// a.pdf, b.pdf            → topDir=""
+	// test/a.pdf, other/b.pdf → topDir=""
+	topDir := ""
+	for i, e := range entries {
+		parts := strings.SplitN(e.name, "/", 2)
+		if len(parts) < 2 {
+			topDir = ""
+			break
+		}
+		if i == 0 {
+			topDir = parts[0]
+		} else if parts[0] != topDir {
+			topDir = ""
+			break
+		}
+	}
+	log.Printf("[zip] topDir detected: %q", topDir)
+
+	now := time.Now().UTC()
+	tasks := make([]orm.Task, 0)
+
+	for _, e := range entries {
+		name := e.name
+		// strip common top-level directory
+		if topDir != "" {
+			name = strings.TrimPrefix(name, topDir+"/")
+		}
+		// only keep first-level files: no "/" in path (direct children, ignore subdirectory files)
+		if strings.Contains(name, "/") || name == "" {
+			log.Printf("[zip] skip entry %q (after strip: %q)", e.name, name)
+			continue
+		}
+		filename := name
+		log.Printf("[zip] processing entry %q -> filename=%q", e.name, filename)
+
+		rc, err := e.f.Open()
+		if err != nil {
+			continue
+		}
+
+		documentID := newDocID()
+		taskID := newTaskID()
+		storedName := storedFileName(filename, documentID)
+		finalDir := filepath.Join(filepath.Dir(upExt.StoredPath), "zip_extracted", documentID)
+		if err := os.MkdirAll(finalDir, 0o755); err != nil {
+			_ = rc.Close()
+			return nil, fmt.Errorf("create dir failed")
+		}
+		finalPath := filepath.Join(finalDir, storedName)
+		out, err := os.Create(finalPath)
+		if err != nil {
+			_ = rc.Close()
+			return nil, fmt.Errorf("create file failed")
+		}
+		size, err := io.Copy(out, rc)
+		_ = out.Close()
+		_ = rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("save file failed")
+		}
+
+		if len(tags) == 0 {
+			tags = append([]string(nil), upExt.DocumentTags...)
+		}
+		docExt := newDocumentExt(finalPath, storedName, filename, size, "", "", tags)
+		docRow := orm.Document{
+			ID:               documentID,
+			DatasetID:        datasetID,
+			DisplayName:      filename,
+			PID:              documentPID,
+			Tags:             mustJSON(tags),
+			FileID:           documentID,
+			PDFConvertResult: docExt.ConvertStatus,
+			Ext:              mustJSON(docExt),
+			BaseModel:        orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now},
+		}
+		tExt := taskExt{
+			TaskType:       string(TaskTypeParseUploaded),
+			DocumentPID:    documentPID,
+			DisplayName:    filename,
+			DataSourceType: "LOCAL_FILE",
+			Files:          []TaskFile{{DisplayName: filename, StoredName: storedName, StoredPath: finalPath, FileSize: size}},
+			DocumentTags:   tags,
+		}
+		taskRow := orm.Task{
+			ID:          taskID,
+			DocID:       documentID,
+			KbID:        datasetID,
+			AlgoID:      datasetAlgoIDByID(datasetID),
+			DatasetID:   datasetID,
+			TaskType:    string(TaskTypeParseUploaded),
+			DocumentPID: documentPID,
+			DisplayName: filename,
+			Ext:         mustJSON(tExt),
+			BaseModel:   orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now},
+		}
+		log.Printf("[zip] attempting to create doc=%s task=%s dataset=%s pid=%s file=%s", documentID, taskID, datasetID, documentPID, filename)
+		if err := store.DB().WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&docRow).Error; err != nil {
+				log.Printf("[zip] create document FAILED doc=%s err=%v", documentID, err)
+				return fmt.Errorf("create document failed: %w", err)
+			}
+			log.Printf("[zip] create document OK doc=%s", documentID)
+			if err := tx.Create(&taskRow).Error; err != nil {
+				log.Printf("[zip] create task FAILED task=%s err=%v", taskID, err)
+				return fmt.Errorf("create task failed: %w", err)
+			}
+			log.Printf("[zip] create task OK task=%s", taskID)
+			return nil
+		}); err != nil {
+			log.Printf("[zip] transaction FAILED doc=%s task=%s err=%v", documentID, taskID, err)
+			return nil, err
+		}
+		log.Printf("[zip] transaction OK doc=%s task=%s", documentID, taskID)
+		recalcAffectedFolderStats(r.Context(), datasetID, documentPID)
+		tasks = append(tasks, taskRow)
+	}
+
+	// mark original zip uploaded_file as BOUND
+	store.DB().WithContext(r.Context()).Model(&orm.UploadedFile{}).
+		Where("upload_file_id = ? AND deleted_at IS NULL", uploadFileID).
+		Updates(map[string]any{"status": UploadedFileStateBound, "updated_at": now})
+
+	log.Printf("[zip] createTasksFromZipUpload done, created %d tasks", len(tasks))
+	return tasks, nil
 }
 
 func createTaskFromExistingDocument(r *http.Request, datasetID, userID, userName string, item CreateTaskItem, tType string) (orm.Task, error) {
@@ -2599,3 +2821,85 @@ func datasetAlgoIDByID(datasetID string) string {
 	}
 	return parseDatasetAlgo(ds.Ext).AlgoID
 }
+
+// ensureTopLevelFolder 从 relative_path 中提取第一级目录名（如 "test/subdir/a.doc" -> "test"），
+// 在数据库中查找或创建对应的 FOLDER document，返回其 ID。
+// 若 relative_path 为空或只有文件名（无目录层级），返回 ""。
+// createTopLevelFolder always creates a new FOLDER document at the dataset root,
+// named after the first path component of relativePath.
+// Unlike the old "ensure" approach, it never reuses an existing folder —
+// each call produces a distinct folder so that separate uploads stay independent.
+func createTopLevelFolder(ctx context.Context, datasetID, userID, userName string, relativePath string) string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(relativePath), "\\", "/")
+	parts := strings.SplitN(normalized, "/", 2)
+	if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" {
+		return ""
+	}
+	folderName := strings.TrimSpace(parts[0])
+
+	folderID := newDocID()
+	now := time.Now().UTC()
+	folder := orm.Document{
+		ID:          folderID,
+		DatasetID:   datasetID,
+		DisplayName: folderName,
+		PID:         "",
+		FileID:      "",
+		Ext:         json.RawMessage(`{}`),
+		BaseModel: orm.BaseModel{
+			CreateUserID:   userID,
+			CreateUserName: userName,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}
+	if err := store.DB().WithContext(ctx).Create(&folder).Error; err != nil {
+		return ""
+	}
+	return folderID
+}
+
+// ensureTopLevelFolder finds an existing root-level folder with the same name in the
+// same dataset, or creates one if none exists. Use this only when you need idempotent
+// folder lookup within a single upload batch (e.g. multiple files sharing the same
+// relative_path prefix submitted together in one CreateTask call).
+func ensureTopLevelFolder(ctx context.Context, datasetID, userID, userName string, relativePath string) string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(relativePath), "\\", "/")
+	parts := strings.SplitN(normalized, "/", 2)
+	if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" {
+		return ""
+	}
+	folderName := strings.TrimSpace(parts[0])
+
+	// look for an existing root-level FOLDER document with the same name
+	var existing orm.Document
+	err := store.DB().WithContext(ctx).
+		Where("dataset_id = ? AND display_name = ? AND p_id = '' AND deleted_at IS NULL", datasetID, folderName).
+		Take(&existing).Error
+	if err == nil {
+		return existing.ID
+	}
+
+	// not found — create a new one
+	folderID := newDocID()
+	now := time.Now().UTC()
+	folder := orm.Document{
+		ID:          folderID,
+		DatasetID:   datasetID,
+		DisplayName: folderName,
+		PID:         "",
+		FileID:      "",
+		Ext:         json.RawMessage(`{}`),
+		BaseModel: orm.BaseModel{
+			CreateUserID:   userID,
+			CreateUserName: userName,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}
+	if err := store.DB().WithContext(ctx).Create(&folder).Error; err != nil {
+		return ""
+	}
+	return folderID
+}
+
