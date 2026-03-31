@@ -1,0 +1,87 @@
+.feedback-modal {
+  .ant-modal-body {
+    padding: 24px;
+  }
+
+  .feedback-modal-content {
+    .feedback-title {
+      font-size: 18px;
+      font-weight: 500;
+      color: #1f1f1f;
+      margin: 0 0 8px 0;
+    }
+
+    .feedback-subtitle {
+      font-size: 14px;
+      color: #8f8f8f;
+      margin: 0 0 20px 0;
+    }
+
+    .feedback-options {
+      margin-bottom: 20px;
+      width: 100%;
+
+      .feedback-option-btn {
+        border-radius: 4px;
+        height: 32px;
+        padding: 0 16px;
+        font-size: 14px;
+
+        &.ant-btn-primary {
+          background-color: #e6f4ff;
+          border-color: #91caff;
+          color: #1677ff;
+
+          &:hover {
+            background-color: #bae0ff;
+            border-color: #69b1ff;
+          }
+        }
+
+        &.ant-btn-default {
+          background-color: #f5f5f5;
+          border-color: #d9d9d9;
+          color: #595959;
+
+          &:hover {
+            background-color: #e6e6e6;
+            border-color: #b8b8b8;
+          }
+        }
+      }
+    }
+
+    .feedback-comment {
+      margin-bottom: 20px;
+
+      .ant-input {
+        resize: none;
+        border-radius: 6px;
+
+        &::placeholder {
+          color: #bfbfbf;
+        }
+      }
+    }
+
+    .feedback-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+
+      .ant-btn {
+        height: 36px;
+        padding: 0 20px;
+        border-radius: 6px;
+      }
+
+      .ant-btn-primary {
+        background-color: #1677ff;
+
+        &:hover {
+          background-color: #4096ff;
+        }
+      }
+    }
+  }
+}

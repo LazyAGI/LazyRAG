@@ -1,0 +1,14 @@
+.language-switcher {
+  min-width: 80px;
+
+  .ant-select-selector {
+    background: transparent !important;
+    border: none !important;
+    color: inherit;
+    box-shadow: none !important;
+  }
+
+  .ant-select-arrow {
+    color: inherit;
+  }
+}

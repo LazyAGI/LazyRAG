@@ -1,0 +1,320 @@
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 10%;
+  }
+  25% {
+    background-position: 50% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  75% {
+    background-position: 50% 100%;
+  }
+  100% {
+    background-position: 0% 10%;
+  }
+}
+
+@keyframes blobMove {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  25% {
+    transform: translate(-10%, -60%) scale(1.05);
+  }
+  50% {
+    transform: translate(-90%, -40%) scale(0.95);
+  }
+  75% {
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+}
+
+.new-chat-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+
+  .drag-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease-in-out;
+
+    .drag-overlay-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 48px;
+      border: 2px dashed #4689ff;
+      border-radius: 16px;
+      background: rgba(70, 137, 255, 0.05);
+      max-width: 500px;
+      text-align: center;
+
+      .drag-icon {
+        font-size: 64px;
+        animation: bounce 1s ease-in-out infinite;
+      }
+
+      .drag-text {
+        font-size: 20px;
+        font-weight: 600;
+        color: #323c47;
+        line-height: 1.5;
+      }
+
+      .drag-hint {
+        font-size: 14px;
+        color: #8a94a6;
+        line-height: 1.6;
+      }
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes bounce {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  .new-chat-main {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    // Background blur effect
+    .blur-background {
+      position: absolute;
+      top: -109px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 554px;
+      height: 341px;
+
+      pointer-events: none;
+      border-radius: 50%;
+    }
+    .chat-content-container {
+      position: relative;
+      // Main content
+      .chat-content {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 48px;
+        width: 812px;
+
+        border-radius: 12px;
+        padding: 0;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+      .bg {
+        position: absolute;
+        width: 554px;
+        height: 341px;
+        // left: calc(50% - 554px / 2 - 177px);
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 1;
+        background: linear-gradient(357.24deg, #e6ecff 28.84%, #ffffff 131.15%);
+        filter: blur(65px);
+        animation:
+          gradientShift 8s ease-in-out infinite,
+          blobMove 12s ease-in-out infinite;
+      }
+    }
+
+    // Tags section
+    .tags-section {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      max-width: 800px;
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 8px;
+        border-radius: 4px;
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          Arial,
+          sans-serif;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.67;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 1px solid;
+
+        &:hover {
+          opacity: 0.9;
+          transform: translateY(-2px);
+        }
+
+        &.tag-orange {
+          background-color: #fff7e6;
+          border-color: #ffd591;
+          color: #fa8c16;
+        }
+
+        &.tag-volcano {
+          background-color: #fff2e8;
+          border-color: #ffbb96;
+          color: #fa541c;
+        }
+
+        &.tag-blue {
+          background-color: #f0fbff;
+          border-color: #d1dfff;
+          color: #4689ff;
+        }
+
+        &.tag-geekblue {
+          background-color: #f0f5ff;
+          border-color: #adc6ff;
+          color: #2f54eb;
+        }
+
+        &.tag-purple {
+          background-color: #f9f0ff;
+          border-color: #d3adf7;
+          color: #722ed1;
+        }
+      }
+    }
+    // Greeting section
+    .greeting-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+
+      .greeting-emoji {
+        width: 60px;
+        height: 60px;
+        background: radial-gradient(
+          circle,
+          rgba(255, 200, 100, 0.3) 0%,
+          transparent 70%
+        );
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 32px;
+
+        &::before {
+          content: "👋";
+        }
+      }
+
+      .greeting-text {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        font-size: 34px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: #323c47;
+        text-align: center;
+        margin: 0;
+        max-width: 700px;
+      }
+    }
+
+    // Input section
+    .input-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      width: 100%;
+    }
+  }
+
+  // Disclaimer section - Absolutely positioned at bottom
+  .disclaimer-section {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+
+    .tip-box {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .disclaimer-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    .disclaimer-text {
+      font-family:
+        "Inter",
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        "Helvetica Neue",
+        Arial,
+        sans-serif;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.67;
+      color: #b8c3d7;
+      white-space: nowrap;
+    }
+  }
+}

@@ -1,0 +1,18 @@
+.statusTagWrap {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.statusTag {
+  height: 22px;
+  border-radius: 4px;
+  padding: 0 8px;
+
+  font-size: 12px;
+  color: rgb(31 202 125 / 100%);
+  line-height: 22px;
+
+  background: rgb(31 202 125 / 10%);
+  transition: all 0.3s;
+}
