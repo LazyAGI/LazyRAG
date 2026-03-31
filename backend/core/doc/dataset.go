@@ -465,7 +465,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	page := filtered[offset:end]
 
 	out := make([]Dataset, 0, len(page))
-	// 批量统计所有 dataset 的文件数量和大小，避免 N+1 查询
+	// Batch-calculate file counts and total sizes for all datasets, avoiding N+1 queries.
 	dsIDs := make([]string, 0, len(page))
 	for _, ds := range page {
 		dsIDs = append(dsIDs, ds.ID)
@@ -1149,8 +1149,9 @@ type datasetStats struct {
 	DocumentSize  int64
 }
 
-// calcDatasetStats 统计指定 dataset 下的文件数量和总大小（不含文件夹类型的 document）。
-// file_size 存储在 document.ext JSON 中，在 Go 层做内存聚合。
+// calcDatasetStats calculates the number of files and the total size under a dataset
+// (excluding folder-like documents).
+// file_size is stored in document.ext (JSON); we aggregate it in memory in Go.
 func calcDatasetStats(ctx context.Context, datasetID string) datasetStats {
 	var docs []orm.Document
 	if err := corestore.DB().WithContext(ctx).
@@ -1172,7 +1173,7 @@ func calcDatasetStats(ctx context.Context, datasetID string) datasetStats {
 	return datasetStats{DocumentCount: count, DocumentSize: size}
 }
 
-// calcDatasetStatsBatch 批量统计多个 dataset，一次查询避免 N+1。
+// calcDatasetStatsBatch calculates stats for multiple datasets in one query to avoid N+1.
 func calcDatasetStatsBatch(ctx context.Context, datasetIDs []string) map[string]datasetStats {
 	if len(datasetIDs) == 0 {
 		return map[string]datasetStats{}

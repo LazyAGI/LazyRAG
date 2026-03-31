@@ -92,7 +92,8 @@ func ListSegments(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, ListSegmentsResponse{Segments: segments, TotalSize: totalSize, NextPageToken: nextPageToken})
 }
 
-// SearchSegments 与 ListSegments 共用同一下游查询，keyword/order_by 等字段待下游支持后再透传。
+// SearchSegments shares the same downstream query with ListSegments. Fields like
+// keyword/order_by will be forwarded once supported by the downstream service.
 func SearchSegments(w http.ResponseWriter, r *http.Request) {
 	body := parseSegmentSearchInput(r)
 	datasetID, documentID, lazyDocID, algoID, group, ok := prepareSegmentRequest(w, r, "SearchSegments", body)

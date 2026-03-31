@@ -52,11 +52,11 @@ func strconvBase36(v int64) string {
 	return string(b[i:])
 }
 
-// GetDefaultDisplayName text neurtrino text：
-// 1. text input text text；
-// 2. text uri；
-// 3. text conversationID；
-// 4. text 255 text rune。
+// GetDefaultDisplayName:
+// 1. Use the first non-empty "text" from input.
+// 2. Otherwise use the first non-empty "uri".
+// 3. Otherwise fall back to conversationID.
+// 4. Truncate to at most 255 runes.
 func GetDefaultDisplayName(conversationID string, input []map[string]any) string {
 	tempContent := ""
 	for _, q := range input {
@@ -80,7 +80,6 @@ func GetDefaultDisplayName(conversationID string, input []map[string]any) string
 	return string(runes)
 }
 
-// newConversationID text UUID v4，Conversation ID text neutrino text。
 func newConversationID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
@@ -356,8 +355,6 @@ func handleStreamChat(
 	chatCtx, chatCancel := context.WithCancel(context.Background())
 	defer chatCancel()
 	if rdb != nil {
-		// text neutrino text：text/text Redis text chatCtx，
-		// text reqCtx Unset，text generating text，resume text。
 		_ = setChatInput(chatCtx, rdb, convID, historyID, query, seq)
 		_ = setChatStatus(chatCtx, rdb, convID, historyID, "generating", "")
 		if dualReply {
@@ -455,7 +452,6 @@ func streamSingleAnswer(
 		if reqCtx.Err() == nil {
 			writeSSEChunk(w, flusher, chunk)
 		}
-		// text neutrino text：Redis text chatCtx，textUsertext reqCtx Unsettext chunk text，resume text
 		if rdb != nil {
 			_ = appendChatChunk(chatCtx, rdb, convID, historyID, chunk)
 		}
@@ -545,7 +541,6 @@ func streamDualAnswer(
 			})
 			writeMu.Unlock()
 		}
-		// text neutrino text：Redis text chatCtx，text reqCtx Unsettext chunk text
 		if rdb != nil {
 			_ = appendChatChunk(chatCtx, rdb, convID, historyID, &ChatChunkResponse{
 				ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: historyID,

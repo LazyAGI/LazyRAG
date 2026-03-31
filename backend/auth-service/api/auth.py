@@ -244,7 +244,7 @@ def update_me(
     body: UpdateMeBody,
     user: User = Depends(current_user),  # noqa: B008
 ):
-    """用户修改自己的信息，除用户名外均可修改（display_name、email、phone、remark）。"""
+    """Update current user's profile (all fields except username)."""
     with SessionLocal() as db:
         updated = UserRepository.update_profile(
             db,

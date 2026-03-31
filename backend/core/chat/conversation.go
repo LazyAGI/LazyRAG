@@ -22,7 +22,6 @@ import (
 	"lazyrag/core/store"
 )
 
-// writeConversationJSON text JSON（text code/message/data text），text neutrino ragservice HTTP text。
 func writeConversationJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -35,7 +34,6 @@ func writeConversationJSON(w http.ResponseWriter, status int, v any) {
 
 // writeSSEChunk text SSE text： data: {"result":{...}}\n\n
 func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, v any) {
-	// text neutrino ragservice text HTTP text：text result text
 	wrapped := map[string]any{"result": v}
 	b, _ := json.Marshal(wrapped)
 	_, _ = w.Write([]byte("data: "))
@@ -46,13 +44,11 @@ func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, v any) {
 	}
 }
 
-// Chat text neutrino text chat text；text conversations:chat text，text。
 func Chat(w http.ResponseWriter, r *http.Request) {
 	ChatConversations(w, r)
 }
 
 // ChatConversations text POST /api/v1/conversations:chat
-// 1:1 text neutrino ragservice text：text/text、text、text（text ResumeChat/StopChatGeneration text）
 func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -111,9 +107,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	if conv != nil {
 		displayName, _ = conv["display_name"].(string)
 	}
-	// text neurtrino text：text display_name，textDefaulttext
 	if displayName == "" {
-		// text raw["input"] text []map[string]any，text GetDefaultDisplayName text neurtrino text
 		var fusionInput []map[string]any
 		if in, ok := raw["input"].([]any); ok {
 			for _, it := range in {
@@ -177,7 +171,6 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// textConversationtext search_config / models，text neutrino text
 	var searchConfigJSON json.RawMessage
 	if conv != nil {
 		if sc, ok := conv["search_config"]; ok {
@@ -436,7 +429,6 @@ func resumeSingleAnswerChat(ctx context.Context, rdb *redis.Client, convID, hist
 	if err != nil && !errors.Is(err, context.Canceled) {
 		return
 	}
-	// text neutrino text：Usertext（context.Canceled）text Redis，text resume text Redis text
 	if errors.Is(err, context.Canceled) {
 		return
 	}
@@ -540,7 +532,6 @@ func resumeMultiAnswerChat(ctx context.Context, rdb *redis.Client, convID string
 		FinishReason:   "FINISH_REASON_STOP",
 	})
 
-	// text neutrino text：text Redis；Usertext，text resume text
 	if ctx.Err() == nil {
 		_ = clearChatData(context.Background(), rdb, convID, info.PrimaryHistoryID)
 		_ = clearChatData(context.Background(), rdb, convID, info.SecondaryHistoryID)
@@ -715,7 +706,6 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 
 	list := make([]map[string]any, 0, len(histories))
 	for _, h := range histories {
-		// text sources，text neutrino text SearchResults.Sources text
 		var sources any
 		if len(h.RetrievalResult) > 0 {
 			var rr struct {

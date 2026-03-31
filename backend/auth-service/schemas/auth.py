@@ -59,7 +59,7 @@ class MeResponse(BaseModel):
 
 
 class UpdateMeBody(BaseModel):
-    """用户修改自己的信息（除用户名外均可选更新）"""
+    """Update current user's profile (all fields except username are optional)."""
     display_name: str | None = None
     email: str | None = None
     phone: str | None = None

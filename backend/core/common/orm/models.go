@@ -62,7 +62,6 @@ func (UserGroupModel) TableName() string { return "acl_user_groups" }
 
 // ----- Chat / Prompt text -----
 
-// Prompt text，text neutrino text prompts。
 type Prompt struct {
 	ID      string `gorm:"column:id;type:varchar(64);primaryKey"`
 	Name    string `gorm:"column:name;type:varchar(255);uniqueIndex;not null"`
@@ -73,7 +72,6 @@ type Prompt struct {
 
 func (Prompt) TableName() string { return "prompts" }
 
-// DefaultPrompt text，text neutrino text default_prompts。
 type DefaultPrompt struct {
 	ID         int    `gorm:"column:id;primaryKey;autoIncrement"`
 	PromptID   string `gorm:"column:prompt_id;type:varchar(64);not null"`
@@ -84,7 +82,6 @@ type DefaultPrompt struct {
 
 func (DefaultPrompt) TableName() string { return "default_prompts" }
 
-// MultiAnswersSwitch text，text neutrino text multi_answers_switches。
 type MultiAnswersSwitch struct {
 	ID     int32 `gorm:"column:id;primaryKey;autoIncrement"`
 	Status int32 `gorm:"column:status;not null;default:0"`
@@ -94,7 +91,6 @@ type MultiAnswersSwitch struct {
 
 func (MultiAnswersSwitch) TableName() string { return "multi_answers_switches" }
 
-// Conversation text，text neutrino text conversations；channel_id textDefaulttext。
 type Conversation struct {
 	ID            string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	DisplayName   string          `gorm:"column:display_name;type:varchar(255)"`
@@ -111,7 +107,6 @@ type Conversation struct {
 
 func (Conversation) TableName() string { return "conversations" }
 
-// ChatHistory text，text neutrino text chat_histories。
 type ChatHistory struct {
 	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	Seq             int             `gorm:"column:seq;not null"`
@@ -131,7 +126,6 @@ type ChatHistory struct {
 
 func (ChatHistory) TableName() string { return "chat_histories" }
 
-// MultiAnswersChatHistory text，text neutrino text multi_answers_chat_histories。
 type MultiAnswersChatHistory struct {
 	ID              string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	Seq             int             `gorm:"column:seq;not null"`

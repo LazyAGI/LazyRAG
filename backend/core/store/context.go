@@ -6,7 +6,7 @@ import (
 	"lazyrag/core/common"
 )
 
-// UserID textRequesttext X-User-Id textUser ID，text neutrino text。
+// UserID returns request header X-User-Id.
 func UserID(r *http.Request) string {
 	return common.UserID(r)
 }

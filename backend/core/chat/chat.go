@@ -1,5 +1,4 @@
 // chat text /api/chat text /api/chat_stream text，
-// text neutrino external/chat.go text ChatService text。
 package chat
 
 import (
@@ -23,13 +22,11 @@ const (
 	defaultTTFB         = 3 * time.Minute
 )
 
-// ChatMessage text neutrino external.ChatMessage text。
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// DatasetFilters text neutrino external.DatasetFilters text（text）。
 type DatasetFilters struct {
 	Subject    []string `json:"subject,omitempty"`
 	DatasetIDs []string `json:"kb_id,omitempty"`
@@ -37,7 +34,6 @@ type DatasetFilters struct {
 	Creators   []string `json:"creator,omitempty"`
 }
 
-// LazyChatRequest text neutrino external.LazyChatRequest text，text /api/chat text /api/chat_stream。
 type LazyChatRequest struct {
 	Query          string          `json:"query"`
 	History        []ChatMessage   `json:"history,omitempty"`
@@ -161,7 +157,6 @@ func (c *ChatService) StreamChat(ctx context.Context, req *LazyChatRequest) (<-c
 	return lazyStreamHandler(ctx, resp), nil
 }
 
-// lazyStreamHandler text neutrino text：text，text JSON text LazyChatResponse。
 func lazyStreamHandler(ctx context.Context, resp *http.Response) <-chan *LazyStreamData {
 	scanner := bufio.NewScanner(resp.Body)
 	dataChan := make(chan *LazyStreamData)
@@ -180,7 +175,6 @@ func lazyStreamHandler(ctx context.Context, resp *http.Response) <-chan *LazyStr
 			data := &LazyStreamData{}
 			var streamResp LazyChatResponse
 			if err := json.Unmarshal([]byte(text), &streamResp); err != nil {
-				// textFailedtext，text neutrino text
 				data.RawText = text
 			} else {
 				data.Resp = &streamResp
