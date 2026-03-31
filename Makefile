@@ -1,6 +1,11 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
 .PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build down clear
 
+ifneq (,$(wildcard .env))
+include .env
+export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env)
+endif
+
 # ---------------------------------------------------------------------------
 # Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)
 # ---------------------------------------------------------------------------
@@ -36,6 +41,7 @@ LAZYRAG_DOCUMENT_SERVER_PORT ?= 8000
 LAZYRAG_OCR_SERVER_TYPE ?= none
 # Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080, none->placeholder
 LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
+LAZYRAG_MINERU_UPLOAD_MODE ?=
 
 # Vector / segment stores (required when using Processor/Worker). Default URIs use built-in services.
 # If user provides external URIs, milvus/opensearch are not deployed.
@@ -84,6 +90,7 @@ export LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES LAZYRAG_DOCUMENT_WORKER_
 export LAZYRAG_DOCUMENT_WORKER_POLL_MODE
 export LAZYRAG_DOCUMENT_PROCESSOR_URL LAZYRAG_DOCUMENT_SERVICE_URL LAZYRAG_PARSING_SERVICE_URL
 export LAZYRAG_DOCUMENT_SERVER_PORT LAZYRAG_OCR_SERVER_TYPE LAZYRAG_OCR_SERVER_URL
+export LAZYRAG_MINERU_UPLOAD_MODE
 export LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG_OPENSEARCH_PASSWORD
 export LAZYRAG_MINERU_SERVER_PORT LAZYRAG_MINERU_VERSION LAZYRAG_MINERU_PACKAGE_VARIANT
 export LAZYRAG_MINERU_PREINSTALL_CPU_TORCH LAZYRAG_MINERU_TORCH_VERSION LAZYRAG_MINERU_TORCHVISION_VERSION

@@ -2,6 +2,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 import requests
 
@@ -15,6 +16,24 @@ from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
 
 ALGO_ID = 'general_algo'
+
+
+def _parse_bool_env(name: str) -> bool | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if value in ('1', 'true', 'yes', 'on'):
+        return True
+    if value in ('0', 'false', 'no', 'off'):
+        return False
+    raise ValueError(f'{name} must be a boolean string, got: {value!r}')
+
+
+def _default_mineru_upload_mode(ocr_url: str) -> bool:
+    hostname = (urlparse(ocr_url).hostname or '').lower()
+    # Only the in-network MinerU service can resolve the same container path.
+    return hostname != 'mineru'
 
 
 def _require_env(name: str) -> str:
@@ -60,9 +79,13 @@ def _build_pdf_reader():
     if ocr_type in ('none', None, ''):
         return PDFReader()
     if ocr_type == 'mineru':
+        upload_mode = _parse_bool_env('LAZYRAG_MINERU_UPLOAD_MODE')
+        if upload_mode is None:
+            upload_mode = _default_mineru_upload_mode(ocr_url)
         return MineruPDFReader(
-            url=ocr_url, 
+            url=ocr_url,
             backend=os.getenv('LAZYRAG_MINERU_BACKEND', 'pipeline'),
+            upload_mode=upload_mode,
             post_func=NodeParser(),
             timeout=3600
         )

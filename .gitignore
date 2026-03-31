@@ -1,6 +1,7 @@
 backend/auth-service/api_permissions.json
 .vscode/settings.json
 backend/core/core
+.env
 
 .flake8-python.path
 __pycache__
