@@ -557,7 +557,7 @@ func buildDatasetMembers(r *http.Request, datasetID string, rows []acl.ACLListIt
 				User:      strings.TrimSpace(ds.CreateUserName),
 				Role: datasetRole{
 					Role:        "dataset_maintainer",
-					DisplayName: "text",
+					DisplayName: "管理者",
 				},
 			}
 			if !ds.CreatedAt.IsZero() {
@@ -565,7 +565,7 @@ func buildDatasetMembers(r *http.Request, datasetID string, rows []acl.ACLListIt
 			}
 		}
 		creator.IsCreator = true
-		creator.Role = datasetRole{Role: "dataset_maintainer", DisplayName: "text"}
+		creator.Role = datasetRole{Role: "dataset_maintainer", DisplayName: "管理者"}
 		if creator.User == "" {
 			creator.User = strings.TrimSpace(ds.CreateUserName)
 		}
@@ -779,11 +779,16 @@ func fetchUserNames(r *http.Request, userIDs []string) map[string]string {
 				Username    string `json:"username"`
 				DisplayName string `json:"display_name"`
 			} `json:"data"`
+			// auth-service 直接返回对象（非 data 包裹）
+			UserID      string `json:"user_id"`
+			Username    string `json:"username"`
+			DisplayName string `json:"display_name"`
 		}
-		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/user/"+url.PathEscape(userID)+"/basic", authRequestHeaders(r), &resp, 3*time.Second); err != nil {
+		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/user/"+url.PathEscape(userID), authRequestHeaders(r), &resp, 3*time.Second); err != nil {
 			continue
 		}
-		name := strings.TrimSpace(firstNonEmpty(resp.Data.DisplayName, resp.Data.Username))
+		// 兼容两种响应格式：直接字段 或 data 包裹
+		name := strings.TrimSpace(firstNonEmpty(resp.DisplayName, resp.Username, resp.Data.DisplayName, resp.Data.Username))
 		if name != "" {
 			out[userID] = name
 		}
@@ -805,11 +810,15 @@ func fetchGroupNames(r *http.Request, groupIDs []string) map[string]string {
 				GroupID   string `json:"group_id"`
 				GroupName string `json:"group_name"`
 			} `json:"data"`
+			// auth-service 直接返回对象（非 data 包裹）
+			GroupID   string `json:"group_id"`
+			GroupName string `json:"group_name"`
 		}
-		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/group/"+url.PathEscape(groupID)+"/basic", authRequestHeaders(r), &resp, 3*time.Second); err != nil {
+		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/group/"+url.PathEscape(groupID), authRequestHeaders(r), &resp, 3*time.Second); err != nil {
 			continue
 		}
-		name := strings.TrimSpace(resp.Data.GroupName)
+		// 兼容两种响应格式：直接字段 或 data 包裹
+		name := strings.TrimSpace(firstNonEmpty(resp.GroupName, resp.Data.GroupName))
 		if name != "" {
 			out[groupID] = name
 		}
@@ -868,11 +877,11 @@ func roleToPermission(role string) string {
 func permissionToRole(permission string) (string, string) {
 	switch strings.TrimSpace(permission) {
 	case acl.PermissionDatasetRead:
-		return "dataset_user", "text"
+		return "dataset_user", "只读者"
 	case acl.PermissionDatasetUpload:
-		return "dataset_uploader", "Uploadtext"
+		return "dataset_uploader", "上传者"
 	case acl.PermissionDatasetWrite:
-		return "dataset_maintainer", "text"
+		return "dataset_maintainer", "管理者"
 	default:
 		return "", ""
 	}

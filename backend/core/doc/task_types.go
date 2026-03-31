@@ -56,6 +56,7 @@ type TaskPayload struct {
 	DataSourceType  string     `json:"data_source_type,omitempty"`
 	TaskType        TaskType   `json:"task_type,omitempty"`
 	DocumentPID     string     `json:"document_pid,omitempty"`
+	RelativePath    string     `json:"relative_path,omitempty"`
 	DisplayName     string     `json:"display_name,omitempty"`
 	DocumentID      string     `json:"document_id,omitempty"`
 	DocumentIDs     []string   `json:"document_ids,omitempty"`
