@@ -1,0 +1,46 @@
+import { defineConfig, Plugin } from "vite";
+import react from "@vitejs/plugin-react";
+import svgr from "vite-plugin-svgr";
+import path from "node:path";
+
+const devProxyTarget =
+  process.env.VITE_PROXY_TARGET || "http://localhost:8000";
+
+function jsPreviewExcelShimPlugin(): Plugin {
+  const RESOLVED_ID = "\0virtual:js-preview-excel-shim";
+
+  return {
+    name: "js-preview-excel-shim",
+    enforce: "pre",
+    resolveId(id) {
+      if (id === "@js-preview/excel") return RESOLVED_ID;
+    },
+    load(id) {
+      if (id === RESOLVED_ID) {
+        return `const jsPreviewExcel = window.jsPreviewExcel;\nexport default jsPreviewExcel;\n`;
+      }
+    },
+  };
+}
+
+export default defineConfig({
+  plugins: [jsPreviewExcelShimPlugin(), react(), svgr()],
+  base: "/",
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+    },
+  },
+  server: {
+    port: 5173,
+    proxy: {
+      "/api": {
+        target: devProxyTarget,
+        changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    outDir: "dist",
+  },
+});

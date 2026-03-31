@@ -1,0 +1,54 @@
+@use './default.scss';
+
+.ant-layout,
+.ant-layout-sider {
+  background-color: var(--neutral-light-2);
+}
+
+.ant-layout {
+  height: 100vh;
+  overflow: hidden;
+
+  .ant-layout-content {
+    height: 100%;
+  }
+}
+
+.ant-menu {
+  background-color: transparent;
+  border: none !important;
+
+  .ant-menu-item-group {
+    margin-top: 32px;
+  }
+
+  .ant-menu-item-group-list {
+    padding: 0 16px !important;
+
+    .ant-menu-item {
+      padding: 0 16px !important;
+
+      .ant-menu-title-content {
+        margin-left: 8px;
+      }
+    }
+  }
+
+  .ant-menu-item {
+    margin: 4px 0;
+    border-radius: 8px;
+    color: var(--coldgrey-8);
+    border: solid 0.5px transparent;
+  }
+
+  .ant-menu-item:not(.ant-menu-item-selected):hover,
+  .ant-menu-item-selected {
+    background-color: var(--blue-2) !important;
+    color: var(--blue-7) !important;
+    border: solid 0.5px var(--blue-4);
+
+    .ant-menu-title-content {
+      font-weight: 600;
+    }
+  }
+}

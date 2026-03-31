@@ -44,9 +44,8 @@ services:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: "123456"
 
-    ports:
-      - "9002:5432"
-
+    expose:
+      - "5432"
     volumes:
       - ./volumes/db:/var/lib/postgresql/data
       - ./db-init:/docker-entrypoint-initdb.d
@@ -82,14 +81,13 @@ services:
 
   auth-service:
     build:
+      network: host
       context: ./backend
       dockerfile: auth-service/Dockerfile
     volumes:
       - ./api/backend:/openapi-export
     expose:
       - "8000"
-    ports:
-      - "9001:8000"
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     environment:
       LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/authservice
@@ -129,6 +127,7 @@ services:
 
   core:
     build:
+      network: host
       context: ./backend
       dockerfile: core/Dockerfile
     volumes:
@@ -196,9 +195,10 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
-    ports:
-      - "8080:80"
+    build:
+      context: ./frontend
+    expose:
+      - "80"
     depends_on:
       kong:
         condition: service_started
@@ -214,8 +214,8 @@ services:
       dockerfile: backend/core/doc/Dockerfile
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports:
-      - "8088:8000"
+    expose:
+      - "8000"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
@@ -252,6 +252,7 @@ services:
     profiles:
       - mineru
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: mineru
@@ -319,6 +320,7 @@ services:
 
   lazyllm-parse-server:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
@@ -350,6 +352,7 @@ services:
 
   lazyllm-parse-worker:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
@@ -387,6 +390,7 @@ services:
 
   lazyllm-algo:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
@@ -423,6 +427,7 @@ services:
 
   chat:
     build:
+      network: host
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
@@ -500,8 +505,6 @@ services:
       retries: 3
     expose:
       - '19530'
-    ports:
-      - '19530:19530'
     depends_on:
       milvus-etcd:
         condition: service_healthy
@@ -538,9 +541,6 @@ services:
       start_period: 60s
     expose:
       - '9200'
-    ports:
-      - '9200:9200'
-      - '9600:9600'
 
 volumes:
   pgdata:

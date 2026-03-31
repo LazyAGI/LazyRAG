@@ -1,5 +1,10 @@
 FROM crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/deepquery/golang:1.24.6 AS build
 WORKDIR /app
+
+# 配置国内源
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
 COPY core/ ./
 
 # Allow overriding Go module proxy / network proxy at build time.

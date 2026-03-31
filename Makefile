@@ -12,7 +12,7 @@ export DOCKER_BUILDKIT ?= 0
 #        make down                         →  docker compose down
 #        make down COMPOSE_PROJECT=myproj  →  docker compose -p myproj down
 # ---------------------------------------------------------------------------
-_COMPOSE := docker compose $(if $(COMPOSE_PROJECT),-p $(COMPOSE_PROJECT),)
+_COMPOSE := DOCKER_BUILDKIT=0 docker compose $(if $(COMPOSE_PROJECT),-p $(COMPOSE_PROJECT),)
 
 # ---------------------------------------------------------------------------
 # Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)

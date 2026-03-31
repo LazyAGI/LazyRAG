@@ -1,5 +1,18 @@
-FROM nginx:alpine
+FROM node:20-alpine AS builder
+WORKDIR /app
 
-COPY index.html /usr/share/nginx/html/index.html
-COPY docs.html /usr/share/nginx/html/docs.html
-COPY default.conf /etc/nginx/conf.d/default.conf
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+RUN pnpm build
+
+FROM nginx:alpine
+WORKDIR /usr/share/nginx/html
+
+COPY --from=builder /app/dist/ /usr/share/nginx/html/
+COPY default.conf.template /etc/nginx/templates/default.conf.template
+
+EXPOSE 80
