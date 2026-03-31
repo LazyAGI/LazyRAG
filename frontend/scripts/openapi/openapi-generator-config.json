@@ -1,0 +1,14 @@
+{
+  "generatorName": "typescript-axios",
+  "skipValidateSpec": true,
+  "additionalProperties": {
+    "useSingleRequestParameter": true,
+    "hideGenerationTimestamp": true,
+    "modelPropertyNaming": "original",
+    "axiosVersion": "1.6.8"
+  },
+  "globalProperties": {
+    "apiDocs": false,
+    "modelDocs": false
+  }
+}
