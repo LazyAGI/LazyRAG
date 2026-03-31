@@ -1,0 +1,22 @@
+.chatSelectDatabaseBox {
+  width: 300px;
+  max-height: 300px;
+  overflow: auto;
+
+  .selected {
+    background-color: #f0f5ff;
+  }
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+}

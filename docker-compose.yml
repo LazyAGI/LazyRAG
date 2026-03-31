@@ -93,18 +93,13 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
     ports:
-      - "8080:80"
-    depends_on:
-      kong:
-        condition: service_started
-      core:
-        condition: service_healthy
-      parsing:
-        condition: service_healthy
-      chat:
-        condition: service_healthy
+      - "8090:80"
+    environment:
+      FRONTEND_API_PROXY_PASS: ${FRONTEND_API_PROXY_PASS:-http://kong:8000}
+      FRONTEND_API_DOCS_PROXY_PASS: ${FRONTEND_API_DOCS_PROXY_PASS:-http://kong:8000}
 
   # ---------- Algorithm stack: MinerU/PaddleOCR -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
   # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru adds mineru[all], others use base+code only.

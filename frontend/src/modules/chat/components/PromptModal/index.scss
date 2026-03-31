@@ -1,0 +1,135 @@
+.prompt-modal {
+  .prompt-modal-container {
+    min-height: 400px;
+  }
+
+  .prompt-modal-tabs {
+    .ant-tabs-nav {
+      margin-bottom: 16px;
+    }
+
+    .ant-tabs-tab {
+      padding: 8px 0;
+    }
+  }
+
+  .prompt-tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 360px;
+  }
+
+  .prompt-add-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px 16px;
+    border: 1px dashed #d9d9d9;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background-color: #fafafa;
+
+    &:hover {
+      border-color: #1890ff;
+      color: #1890ff;
+      background-color: #f0f7ff;
+    }
+
+    .prompt-add-icon {
+      font-size: 20px;
+    }
+
+    .prompt-add-text {
+      font-size: 14px;
+    }
+  }
+
+  .prompt-list {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex: 1;
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  .prompt-item {
+    display: flex;
+    width: 100%;
+    min-height: 80px;
+    padding: 16px 8px;
+    flex-direction: column;
+    cursor: pointer;
+
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.04);
+
+      .prompt-title {
+        .prompt-actions {
+          display: flex;
+          gap: 16px;
+          align-items: center;
+        }
+      }
+    }
+
+    .prompt-title {
+      height: 26px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      .prompt-name {
+        max-width: 70%;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        .prompt-index {
+          font-weight: bold;
+          flex-shrink: 0;
+        }
+
+        .prompt-name-text {
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+      }
+
+      .prompt-actions {
+        display: none;
+        flex-shrink: 0;
+      }
+    }
+
+    .prompt-content {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: rgba(0, 0, 0, 0.45);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  .clickable-icon {
+    cursor: pointer;
+    color: rgba(0, 0, 0, 0.45);
+
+    &:hover {
+      color: #1890ff;
+    }
+  }
+}

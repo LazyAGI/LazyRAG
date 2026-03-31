@@ -1,0 +1,62 @@
+.contentCard {
+  border-radius: 4px;
+
+  background-color: #f0fbff;
+
+  .content {
+    padding: 16px 24px 12px;
+    max-height: 60vh;
+    overflow: auto;
+
+    word-wrap: break-word;
+    white-space: pre-wrap;
+
+    > img {
+      display: block;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+  }
+}
+
+.modalFooter {
+  display: flex;
+  align-items: center;
+  height: 22px;
+
+  color: #5f6b7e;
+  text-align: left;
+
+  &.jumpable {
+    > span {
+      cursor: pointer;
+
+      &:hover {
+        color: #4689ff;
+      }
+    }
+  }
+}
+
+.divider {
+  width: 0;
+  height: 100%;
+  margin: 0 8px;
+  border-left: 1px solid #dfe6ef;
+
+  cursor: default;
+}
+
+.footerLabel {
+  margin-right: 8px;
+  max-width: 300px;
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pageNumber {
+  margin-left: auto;
+}

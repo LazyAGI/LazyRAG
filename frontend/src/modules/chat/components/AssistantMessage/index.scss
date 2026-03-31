@@ -1,0 +1,221 @@
+.chat-assistant-msg-single-answer-wrap {
+  display: flex;
+  gap: 14px;
+  align-self: center;
+  width: min(800px, max(350px, 66.67%)) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box;
+
+  .chat-avatar {
+    background: transparent;
+    flex-shrink: 0;
+    width: 32px; 
+  }
+
+  .chat-bot-box-single {
+    flex: 1;
+    padding-right: 0;
+    overflow: hidden;
+    min-width: 0; 
+  }
+
+  .chat-bot {
+    flex-shrink: 0;
+    width: 100%;
+    border-radius: 0 12px 12px;
+    padding: 16px;
+    box-shadow: 0 2px 20px 0 rgb(182 212 228 / 25%);
+    background: #fff;
+    box-sizing: border-box;
+  }
+}
+
+.chat-assistant-msg-multi-answer-wrap {
+  display: flex;
+  gap: 14px;
+  align-self: center;
+  width: clamp(600px, 100%, 1200px) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box;
+
+  .chat-avatar {
+    background: transparent;
+    flex-shrink: 0;
+    width: 32px; 
+  }
+
+  .chat-bot-box-multi {
+    flex: 1;
+    padding-right: 38px;
+    overflow: hidden;
+    min-width: 0; 
+  }
+
+  .chat-bot {
+    flex-shrink: 0;
+    width: 100%;
+    margin-right: var(--chat-gap);
+    border-radius: 0 12px 12px;
+    padding: 16px;
+    box-shadow: 0 2px 20px 0 rgb(182 212 228 / 25%);
+    background: #fff;
+    box-sizing: border-box;
+  }
+
+  .stop-btn {
+    margin-top: 6px;
+    border: none;
+    padding: 0;
+    min-width: auto;
+    height: auto;
+    color: #0b70e7;
+    font-feature-settings:
+      "liga" off,
+      "clig" off;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: 20px;
+  }
+
+  .onboarding-info {
+    ul {
+      margin-bottom: 0;
+      padding: 0;
+    }
+
+    li {
+      display: flex;
+      align-items: center;
+      margin-top: 4px;
+      list-style: none;
+
+      &::before {
+        width: 6px;
+        height: 6px;
+        margin-right: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background-color: #006ae6;
+        content: "";
+      }
+    }
+  }
+}
+
+.chat-assistant-msg-single-answer-wrap {
+  .stop-btn {
+    margin-top: 6px;
+    border: none;
+    padding: 0;
+    min-width: auto;
+    height: auto;
+    color: #0b70e7;
+    font-feature-settings:
+      "liga" off,
+      "clig" off;
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 400;
+    line-height: 20px;
+  }
+
+  .onboarding-info {
+    ul {
+      margin-bottom: 0;
+      padding: 0;
+    }
+
+    li {
+      display: flex;
+      align-items: center;
+      margin-top: 4px;
+      list-style: none;
+
+      &::before {
+        width: 6px;
+        height: 6px;
+        margin-right: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background-color: #006ae6;
+        content: "";
+      }
+    }
+  }
+}
+
+.chat-assistant-msg-chat-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-assistant-msg-knowledge-info {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 4px 8px;
+  padding-bottom: 0;
+  background-color: #f2f6f9;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.chat-assistant-msg-knowledge {
+  margin-bottom: 4px;
+  border-right: 1px solid #dfe6ef;
+  margin-right: 10px;
+  padding-right: 16px;
+  &:last-of-type {
+    border-right: 0;
+    margin-right: 0;
+    padding-right: 0;
+  }
+
+  .knowledgeName {
+    color: #5f6b7e;
+    cursor: pointer;
+    &:hover {
+      color: #4689ff;
+    }
+  }
+}
+
+.chat-assistant-msg-tool-divider {
+  margin-top: 16px;
+  margin-bottom: 0;
+}
+
+.chat-assistant-msg-tool-chat-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  color: #8d9ab2;
+  font-feature-settings:
+    "liga" off,
+    "clig" off;
+
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+
+  .tool-btn {
+    border: none;
+    padding: 0;
+    width: 16px;
+    min-width: auto;
+    margin-right: 12px;
+
+    svg {
+      width: 16px;
+      height: 16px;
+
+      font-size: 16px;
+    }
+  }
+}

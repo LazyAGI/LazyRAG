@@ -1,0 +1,113 @@
+.file-viewer-container {
+  position: relative;
+  height: calc(100vh - 210px);
+  .file-viewer-content {
+    height: 100%;
+  }
+
+  .vue-office-excel {
+    height: 100%;
+    .vue-office-excel-main {
+      height: 100%;
+    }
+    .x-spreadsheet {
+      display: flex !important;
+      flex-direction: column !important;
+      height: 100% !important;
+      .x-spreadsheet-sheet {
+        flex: 1 !important;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+    }
+  }
+  .vue-office-docx .docx-wrapper {
+    padding: 0.625rem !important;
+  }
+  .vue-office-docx section {
+    padding: 0.3125rem 0.625rem !important;
+    font-size: 0.75rem !important;
+  }
+  .vue-office-docx section,
+  .vue-office-docx section article {
+    width: 100% !important;
+  }
+  .vue-office-docx section table,
+  .vue-office-docx section div,
+  .vue-office-docx section img {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  p.docx-num-1-0 {
+    margin-left: 0.3125rem !important;
+  }
+}
+
+.file-viewer-text-container {
+  height: 100%;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  & > pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 16px;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+}
+
+.pptx-preview-wrapper {
+  background: #000 !important;
+  position: relative !important;
+  margin: 0 auto !important;
+  overflow: auto !important;
+
+  .pptx-preview-slide-wrapper {
+    background: #fff !important;
+    margin: 0 auto 10px !important;
+    overflow: hidden !important;
+    position: relative !important;
+
+    .slide-master-wrapper,
+    .slide-layout-wrapper,
+    .slide-wrapper {
+      position: absolute !important;
+      left: 0 !important;
+      top: 0 !important;
+      transform-origin: 0 0 !important;
+    }
+  }
+
+  .pptx-preview-wrapper-next {
+    position: absolute !important;
+    bottom: 20px !important;
+    z-index: 100 !important;
+    cursor: pointer !important;
+    width: 40px !important;
+    height: 40px !important;
+    background: #666666 !important;
+    border-radius: 100% !important;
+
+    div {
+      width: 10px !important;
+      height: 10px !important;
+      border-left: 2px solid #fff !important;
+      border-bottom: 2px solid #fff !important;
+      position: absolute !important;
+      top: 15px !important;
+      left: 15px !important;
+    }
+  }
+
+  .pptx-preview-wrapper-pagination {
+    position: absolute !important;
+    bottom: 33px !important;
+    right: 20px !important;
+    color: #666666 !important;
+    font-size: 14px !important;
+    z-index: 100 !important;
+  }
+}
