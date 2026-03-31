@@ -42,16 +42,5 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    rollupOptions: {
-      external: ["@js-preview/excel"],
-      output: {
-        globals: {
-          "@js-preview/excel": "jsPreviewExcel",
-        },
-      },
-    },
-  },
-  optimizeDeps: {
-    exclude: ["@js-preview/excel"],
   },
 });

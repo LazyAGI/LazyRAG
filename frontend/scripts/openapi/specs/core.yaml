@@ -1295,7 +1295,7 @@ components:
                     type: string
             type: object
 info:
-    description: LazyRAG Go backend core API - proxies to algorithm services. 经 Kong 暴露时前缀为 /api/core。
+    description: LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。
     title: Backend Core API
     version: 0.1.0
 openapi: 3.0.3
@@ -1385,8 +1385,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConversationSwitchStatusResponse'
-                    description: 多答案开关状态
-            summary: 获取多答案开关状态
+                    description: Multi-answer switch status
+            summary: Get multi-answer switch status
         post:
             requestBody:
                 content:
@@ -1401,8 +1401,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConversationSwitchStatusResponse'
-                    description: 设置后的多答案开关状态
-            summary: 设置多答案开关状态
+                    description: SettextMulti-answer switch status
+            summary: SetMulti-answer switch status
     /api/core/conversations:
         get:
             parameters:
@@ -1427,8 +1427,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConversationListResponse'
-                    description: 会话列表
-            summary: 会话列表
+                    description: Conversation list
+            summary: Conversation list
     /api/core/conversations/{conversation_id}:status:
         get:
             parameters:
@@ -1443,8 +1443,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConversationChatStatusResponse'
-                    description: 对话状态
-            summary: 获取对话状态
+                    description: Conversation status
+            summary: Get conversation status
     /api/core/conversations/{name}:
         delete:
             parameters:
@@ -1459,8 +1459,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 删除成功
-            summary: 删除会话
+                    description: Deleted successfully
+            summary: Delete conversation
         get:
             parameters:
                 - in: path
@@ -1474,8 +1474,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConversationItem'
-                    description: 会话详情
-            summary: 获取会话
+                    description: Conversationtext
+            summary: Get conversation
     /api/core/conversations/{name}:detail:
         get:
             parameters:
@@ -1490,11 +1490,11 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConversationDetailResponse'
-                    description: 会话详情与历史
-            summary: 获取会话详情
+                    description: Conversation details and history
+            summary: Get conversationtext
     /api/core/conversations:chat:
         post:
-            description: 发起或继续会话对话
+            description: textConversationtext
             requestBody:
                 content:
                     application/json:
@@ -1503,7 +1503,7 @@ paths:
             responses:
                 "200":
                     description: Chat response
-            summary: 会话对话 (requires qa.read)
+            summary: Conversationtext (requires qa.read)
     /api/core/conversations:feedBackChatHistory:
         post:
             requestBody:
@@ -1513,16 +1513,16 @@ paths:
                             $ref: '#/components/schemas/ConversationFeedbackRequest'
                             properties:
                                 expected_answer:
-                                    description: 期望答案
+                                    description: text
                                     type: string
                                 history_id:
-                                    description: 历史记录 ID
+                                    description: text ID
                                     type: string
                                 reason:
-                                    description: 反馈原因
+                                    description: text
                                     type: string
                                 type:
-                                    description: 反馈类型
+                                    description: text
                                     format: int32
                                     type: integer
                             required:
@@ -1536,11 +1536,11 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 反馈成功
-            summary: 反馈会话历史
+                    description: Feedback succeeded
+            summary: Feedback conversation history
     /api/core/conversations:resumeChat:
         post:
-            description: 恢复正在进行的对话流式输出
+            description: Resumetext
             requestBody:
                 content:
                     application/json:
@@ -1548,10 +1548,10 @@ paths:
                             $ref: '#/components/schemas/ConversationResumeRequest'
                             properties:
                                 conversation_id:
-                                    description: 会话 ID
+                                    description: Conversation ID
                                     type: string
                                 history_id:
-                                    description: 可选，指定恢复的历史消息 ID
+                                    description: text，textResumetext ID
                                     type: string
                             required:
                                 - conversation_id
@@ -1563,8 +1563,8 @@ paths:
                         text/event-stream:
                             schema:
                                 $ref: '#/components/schemas/ChatChunkResponse'
-                    description: SSE 流式响应数据项为 result 包裹的 ChatChunkResponse
-            summary: 恢复对话流
+                    description: SSE streaming response item is ChatChunkResponse wrapped by result
+            summary: Resume conversation stream
     /api/core/conversations:setChatHistory:
         post:
             requestBody:
@@ -1574,10 +1574,10 @@ paths:
                             $ref: '#/components/schemas/ConversationSetHistoryRequest'
                             properties:
                                 deleted_history_id:
-                                    description: 要删除的历史记录 ID
+                                    description: textDeletetext ID
                                     type: string
                                 set_history_id:
-                                    description: 保留的历史记录 ID
+                                    description: text ID
                                     type: string
                             required:
                                 - set_history_id
@@ -1590,11 +1590,11 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/SetChatHistoryResponse'
-                    description: 设置结果
-            summary: 设置会话历史
+                    description: Set result
+            summary: Set conversation history
     /api/core/conversations:stopChatGeneration:
         post:
-            description: 停止当前会话的流式生成
+            description: textConversationtext
             requestBody:
                 content:
                     application/json:
@@ -1602,10 +1602,10 @@ paths:
                             $ref: '#/components/schemas/ConversationStopRequest'
                             properties:
                                 conversation_id:
-                                    description: 会话 ID
+                                    description: Conversation ID
                                     type: string
                                 history_id:
-                                    description: 可选，指定要停止的历史消息 ID
+                                    description: text，text ID
                                     type: string
                             required:
                                 - conversation_id
@@ -1617,8 +1617,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 停止成功
-            summary: 停止对话生成
+                    description: Stopped successfully
+            summary: Stop conversation generation
     /api/core/dataset/algos:
         get:
             responses:
@@ -1627,8 +1627,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListAlgosResponse'
-                    description: 算法列表
-            summary: 数据集算法列表
+                    description: Algorithm list
+            summary: Dataset algorithm list
     /api/core/dataset/tags:
         get:
             parameters:
@@ -1648,8 +1648,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/AllDatasetTagsResponse'
-                    description: 数据集标签
-            summary: 数据集标签
+                    description: Dataset tags
+            summary: Dataset tags
     /api/core/datasets:
         get:
             parameters:
@@ -1686,8 +1686,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListDatasetsResponse'
-                    description: 数据集列表
-            summary: 数据集列表
+                    description: Dataset list
+            summary: Dataset list
             tags:
                 - datasets
         post:
@@ -1710,8 +1710,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Dataset'
-                    description: 创建后的数据集
-            summary: 创建数据集
+                    description: Created dataset
+            summary: Create dataset
             tags:
                 - datasets
     /api/core/datasets/{dataset}:
@@ -1728,8 +1728,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 删除成功
-            summary: 删除数据集
+                    description: Deleted successfully
+            summary: Delete dataset
             tags:
                 - datasets
         get:
@@ -1745,8 +1745,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Dataset'
-                    description: 数据集详情
-            summary: 获取数据集
+                    description: Dataset details
+            summary: Get dataset
             tags:
                 - datasets
         patch:
@@ -1769,8 +1769,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Dataset'
-                    description: 更新后的数据集
-            summary: 更新数据集
+                    description: Updated dataset
+            summary: Update dataset
             tags:
                 - datasets
     /api/core/datasets/{dataset}/documents:
@@ -1797,8 +1797,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListDocumentsResponse'
-                    description: 文档列表
-            summary: 文档列表
+                    description: Document list
+            summary: Document list
             tags:
                 - documents
         post:
@@ -1820,8 +1820,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Doc'
-                    description: 创建后的文档
-            summary: 创建文档
+                    description: Created document
+            summary: Create document
             tags:
                 - documents
     /api/core/datasets/{dataset}/documents/{document}:
@@ -1843,8 +1843,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 删除成功
-            summary: 删除文档
+                    description: Deleted successfully
+            summary: Delete document
             tags:
                 - documents
         get:
@@ -1865,8 +1865,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Doc'
-                    description: 文档详情
-            summary: 获取文档
+                    description: Document details
+            summary: Get document
             tags:
                 - documents
         patch:
@@ -1893,8 +1893,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Doc'
-                    description: 更新后的文档
-            summary: 更新文档
+                    description: Updated document
+            summary: Update document
             tags:
                 - documents
     /api/core/datasets/{dataset}/documents/{document}/segments:
@@ -1936,6 +1936,23 @@ paths:
                 "200":
                     description: OK
             summary: GET /datasets/{dataset}/documents/{document}/segments/{segment}
+    /api/core/datasets/{dataset}/documents/{document}/segments:search:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/segments:search
     /api/core/datasets/{dataset}/documents/{document}:content:
         get:
             parameters:
@@ -1956,8 +1973,8 @@ paths:
                             schema:
                                 format: binary
                                 type: string
-                    description: 文档二进制内容
-            summary: 预览文档内容
+                    description: Document binary content
+            summary: Preview document content
     /api/core/datasets/{dataset}/documents/{document}:download:
         get:
             parameters:
@@ -1978,8 +1995,8 @@ paths:
                             schema:
                                 format: binary
                                 type: string
-                    description: 文档下载内容
-            summary: 下载文档
+                    description: Document download content
+            summary: Download document
     /api/core/datasets/{dataset}/documents:search:
         post:
             parameters:
@@ -2000,8 +2017,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListDocumentsResponse'
-                    description: 文档搜索结果
-            summary: 搜索文档
+                    description: Document search results
+            summary: Search documents
             tags:
                 - documents
     /api/core/datasets/{dataset}/members:
@@ -2018,8 +2035,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListDatasetMembersResponse'
-                    description: 成员列表
-            summary: 数据集成员列表
+                    description: Member list
+            summary: Dataset member list
     /api/core/datasets/{dataset}/members/{user_id}:
         delete:
             parameters:
@@ -2039,8 +2056,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 删除成功
-            summary: 按用户 ID 删除数据集成员
+                    description: Deleted successfully
+            summary: textUser ID Delete datasetMember
         get:
             parameters:
                 - in: path
@@ -2059,8 +2076,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/DatasetMember'
-                    description: 成员详情
-            summary: 按用户 ID 获取数据集成员
+                    description: Member details
+            summary: textUser ID Get datasetMember
         patch:
             parameters:
                 - in: path
@@ -2085,8 +2102,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/DatasetMember'
-                    description: 更新后的成员
-            summary: 按用户 ID 更新数据集成员
+                    description: Updated member
+            summary: textUser ID Update datasetMember
     /api/core/datasets/{dataset}/members:search:
         post:
             parameters:
@@ -2107,8 +2124,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListDatasetMembersResponse'
-                    description: 成员搜索结果
-            summary: 搜索数据集成员
+                    description: Member search results
+            summary: Search dataset members
     /api/core/datasets/{dataset}/tasks:
         get:
             parameters:
@@ -2153,8 +2170,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListTasksResponse'
-                    description: 任务列表
-            summary: 任务列表
+                    description: Task list
+            summary: Task list
             tags:
                 - tasks
         post:
@@ -2176,8 +2193,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/CreateTasksResponse'
-                    description: 创建的任务
-            summary: 创建任务
+                    description: Created task
+            summary: Create task
             tags:
                 - tasks
     /api/core/datasets/{dataset}/tasks/{task}:
@@ -2199,8 +2216,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 删除成功
-            summary: 删除任务
+                    description: Deleted successfully
+            summary: Delete task
             tags:
                 - tasks
         get:
@@ -2221,8 +2238,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/TaskResponse'
-                    description: 任务详情
-            summary: 获取任务
+                    description: Task details
+            summary: Get task
             tags:
                 - tasks
     /api/core/datasets/{dataset}/tasks/{task}:resume:
@@ -2250,8 +2267,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/StartTasksResponse'
-                    description: 恢复结果
-            summary: 恢复任务
+                    description: Resume result
+            summary: Resume task
             tags:
                 - tasks
     /api/core/datasets/{dataset}/tasks/{task}:suspend:
@@ -2279,8 +2296,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 暂停成功
-            summary: 暂停任务
+                    description: Suspended successfully
+            summary: Suspend task
             tags:
                 - tasks
     /api/core/datasets/{dataset}/tasks:batchUpload:
@@ -2315,8 +2332,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/BatchUploadTasksResponse'
-                    description: 创建的任务列表
-            summary: 批量上传并创建任务
+                    description: CreatetextTask list
+            summary: BatchUploadtextCreate task
     /api/core/datasets/{dataset}/tasks:search:
         post:
             parameters:
@@ -2337,8 +2354,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListTasksResponse'
-                    description: 任务搜索结果
-            summary: 按任务 ID 搜索任务
+                    description: Task search results
+            summary: Search tasks by task ID
             tags:
                 - tasks
     /api/core/datasets/{dataset}/tasks:start:
@@ -2361,8 +2378,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/StartTasksResponse'
-                    description: 启动结果
-            summary: 启动任务
+                    description: Start result
+            summary: Start task
             tags:
                 - tasks
     /api/core/datasets/{dataset}/uploads:
@@ -2397,8 +2414,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/UploadFilesResponse'
-                    description: 上传文件结果
-            summary: 上传文件
+                    description: Upload filetext
+            summary: Upload file
     /api/core/datasets/{dataset}/uploads/{upload_file_id}:content:
         get:
             parameters:
@@ -2419,8 +2436,8 @@ paths:
                             schema:
                                 format: binary
                                 type: string
-                    description: 已上传文件二进制内容
-            summary: 预览已上传文件
+                    description: textUpload filetext
+            summary: PreviewtextUpload file
     /api/core/datasets/{dataset}/uploads/{upload_file_id}:download:
         get:
             parameters:
@@ -2441,8 +2458,8 @@ paths:
                             schema:
                                 format: binary
                                 type: string
-                    description: 已上传文件下载内容
-            summary: 下载已上传文件
+                    description: textUpload fileDownloadtext
+            summary: DownloadtextUpload file
     /api/core/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}:
         put:
             parameters:
@@ -2474,8 +2491,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/UploadPartResponse'
-                    description: 分片上传结果
-            summary: 上传数据集分片
+                    description: Part upload result
+            summary: UploadDatasettext
             tags:
                 - tasks
     /api/core/datasets/{dataset}/uploads/{upload_id}:abort:
@@ -2503,8 +2520,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/AbortUploadResponse'
-                    description: 中止上传结果
-            summary: 中止上传
+                    description: Abort uploadtext
+            summary: Abort upload
             tags:
                 - tasks
     /api/core/datasets/{dataset}/uploads/{upload_id}:complete:
@@ -2532,8 +2549,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/CompleteUploadResponse'
-                    description: 完成上传结果
-            summary: 完成上传
+                    description: Complete uploadtext
+            summary: Complete upload
             tags:
                 - tasks
     /api/core/datasets/{dataset}/uploads:initUpload:
@@ -2556,8 +2573,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/InitUploadResponse'
-                    description: 上传初始化结果
-            summary: 初始化数据集上传
+                    description: Upload initialization result
+            summary: Initialize dataset upload
             tags:
                 - tasks
     /api/core/datasets/{dataset}:batchAddMember:
@@ -2580,8 +2597,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/BatchAddDatasetMemberResponse'
-                    description: 添加后的成员
-            summary: 批量添加数据集成员
+                    description: Added members
+            summary: Batch add dataset members
     /api/core/datasets/{dataset}:batchDelete:
         post:
             parameters:
@@ -2602,8 +2619,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 删除成功
-            summary: 批量删除文档
+                    description: Deleted successfully
+            summary: BatchDelete document
             tags:
                 - documents
     /api/core/datasets/{dataset}:setDefault:
@@ -2626,8 +2643,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 设置成功
-            summary: 设为默认数据集
+                    description: Set successfully
+            summary: Set as default dataset
             tags:
                 - datasets
     /api/core/datasets/{dataset}:unsetDefault:
@@ -2650,8 +2667,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 取消成功
-            summary: 取消默认数据集
+                    description: Unset successfully
+            summary: Unset default dataset
             tags:
                 - datasets
     /api/core/document/creators:
@@ -2662,8 +2679,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/DocumentCreatorsResponse'
-                    description: 创建者列表
-            summary: 文档创建者列表
+                    description: Creator list
+            summary: Document creator list
     /api/core/document/tags:
         get:
             responses:
@@ -2672,8 +2689,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/DocumentTagsResponse'
-                    description: 文档标签列表
-            summary: 文档标签列表
+                    description: Document tag list
+            summary: Document tag list
     /api/core/documents:search:
         post:
             requestBody:
@@ -2688,8 +2705,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListDocumentsResponse'
-                    description: 全局文档搜索结果
-            summary: 全局搜索文档
+                    description: textDocument search results
+            summary: textSearch documents
             tags:
                 - documents
     /api/core/health:
@@ -2724,7 +2741,7 @@ paths:
                                             $ref: '#/components/schemas/ACLListData'
                                       type: object
                     description: OK
-            summary: ACL 列表
+            summary: ACL list
         post:
             parameters:
                 - in: path
@@ -2751,7 +2768,7 @@ paths:
                                             $ref: '#/components/schemas/AddACLData'
                                       type: object
                     description: OK
-            summary: 添加 ACL
+            summary: Add ACL
     /api/core/kb/{kb_id}/acl/{acl_id}:
         delete:
             parameters:
@@ -2777,7 +2794,7 @@ paths:
                                             $ref: '#/components/schemas/EmptyObject'
                                       type: object
                     description: OK
-            summary: 删除 ACL
+            summary: Delete ACL
         put:
             parameters:
                 - in: path
@@ -2808,7 +2825,7 @@ paths:
                                             $ref: '#/components/schemas/EmptyObject'
                                       type: object
                     description: OK
-            summary: 更新 ACL
+            summary: Update ACL
     /api/core/kb/{kb_id}/acl/batch:
         post:
             parameters:
@@ -2835,7 +2852,7 @@ paths:
                                             $ref: '#/components/schemas/BatchAddACLData'
                                       type: object
                     description: OK
-            summary: 批量添加 ACL
+            summary: BatchAdd ACL
     /api/core/kb/{kb_id}/authorization:
         get:
             parameters:
@@ -2856,7 +2873,7 @@ paths:
                                             $ref: '#/components/schemas/GetKBAuthorizationResponse'
                                       type: object
                     description: OK
-            summary: 获取知识库授权信息
+            summary: Get knowledge base authorization
         post:
             parameters:
                 - in: path
@@ -2882,7 +2899,7 @@ paths:
                                             $ref: '#/components/schemas/SetKBAuthorizationData'
                                       type: object
                     description: OK
-            summary: 设置知识库授权信息
+            summary: Set knowledge base authorization
     /api/core/kb/{kb_id}/can:
         get:
             parameters:
@@ -2903,7 +2920,7 @@ paths:
                                             $ref: '#/components/schemas/CanResult'
                                       type: object
                     description: OK
-            summary: 检查知识库操作权限
+            summary: Check knowledge base operation permission
     /api/core/kb/{kb_id}/permission:
         get:
             parameters:
@@ -2924,7 +2941,7 @@ paths:
                                             $ref: '#/components/schemas/PermissionResult'
                                       type: object
                     description: OK
-            summary: 查询知识库权限
+            summary: Query knowledge base permissions
     /api/core/kb/grant-principals:
         get:
             responses:
@@ -2939,7 +2956,7 @@ paths:
                                             $ref: '#/components/schemas/ListGrantPrincipalsResponse'
                                       type: object
                     description: OK
-            summary: 获取可授权主体
+            summary: Get grantable principals
     /api/core/kb/list:
         get:
             parameters:
@@ -2975,7 +2992,7 @@ paths:
                                             $ref: '#/components/schemas/KBListResult'
                                       type: object
                     description: OK
-            summary: 知识库列表
+            summary: Knowledge base list
     /api/core/kb/permission/batch:
         post:
             requestBody:
@@ -2998,7 +3015,7 @@ paths:
                                             type: array
                                       type: object
                     description: OK
-            summary: 批量查询知识库权限
+            summary: Batch query knowledge base permissions
     /api/core/list_files:
         get:
             description: Proxies to parsing service.
@@ -3064,8 +3081,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/PromptListResponse'
-                    description: 提示词列表
-            summary: 提示词列表
+                    description: Prompt list
+            summary: Prompt list
         post:
             requestBody:
                 content:
@@ -3080,8 +3097,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/PromptItem'
-                    description: 创建后的提示词
-            summary: 创建提示词
+                    description: Created prompt
+            summary: Create prompt
     /api/core/prompts/{name}:
         delete:
             parameters:
@@ -3096,8 +3113,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 删除成功
-            summary: 删除提示词
+                    description: Deleted successfully
+            summary: Delete prompt
         get:
             parameters:
                 - in: path
@@ -3111,8 +3128,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/PromptItem'
-                    description: 提示词详情
-            summary: 获取提示词
+                    description: Prompt details
+            summary: Get prompt
         patch:
             parameters:
                 - in: path
@@ -3133,8 +3150,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/PromptItem'
-                    description: 更新后的提示词
-            summary: 更新提示词
+                    description: Updated prompt
+            summary: Update prompt
     /api/core/prompts/{name}:setDefault:
         post:
             parameters:
@@ -3149,8 +3166,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 设置成功
-            summary: 设为默认提示词
+                    description: Set successfully
+            summary: Set as default prompt
     /api/core/prompts/{name}:unsetDefault:
         post:
             parameters:
@@ -3165,8 +3182,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EmptyObject'
-                    description: 取消成功
-            summary: 取消默认提示词
+                    description: Unset successfully
+            summary: Unset default prompt
     /api/core/static-files/{path:.*}:
         get:
             parameters:
@@ -3199,8 +3216,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/UploadFilesResponse'
-                    description: 上传文件结果
-            summary: 上传临时文件
+                    description: Upload filetext
+            summary: Upload temp file
     /api/core/temp/uploads/{upload_id}/parts/{part_number}:
         put:
             parameters:
@@ -3227,8 +3244,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/UploadPartResponse'
-                    description: 分片上传结果
-            summary: 上传临时文件分片
+                    description: Part upload result
+            summary: Upload temp filetext
             tags:
                 - uploads
     /api/core/temp/uploads/{upload_id}:abort:
@@ -3251,8 +3268,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/AbortUploadResponse'
-                    description: 中止上传结果
-            summary: 中止临时文件上传
+                    description: Abort uploadtext
+            summary: AborttextUpload
             tags:
                 - uploads
     /api/core/temp/uploads/{upload_id}:complete:
@@ -3275,8 +3292,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/CompleteUploadResponse'
-                    description: 完成上传结果
-            summary: 完成临时文件上传
+                    description: Complete uploadtext
+            summary: textUpload
             tags:
                 - uploads
     /api/core/temp/uploads:initUpload:
@@ -3293,8 +3310,8 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/InitUploadResponse'
-                    description: 上传初始化结果
-            summary: 初始化临时文件分片上传
+                    description: Upload initialization result
+            summary: Initialize temp multipart upload
             tags:
                 - uploads
     /api/core/upload_files:
