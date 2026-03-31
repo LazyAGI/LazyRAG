@@ -64,16 +64,6 @@ llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
     The output language should be the same as the input language.')
 llm_gen = SimpleLlmComponent(llm=llm_instruct)
 
-# llm_instruct_think = lazyllm.OnlineChatModule(
-#             base_url='http://10.119.30.4:8000/v1/',
-#             model='Qwen3-30B-A3B-Thinking-2507',
-#             api_key=os.getenv('LLM_API_KEY', 'null'),
-#             source='openai'
-#         )
-# llm_instruct_think._prompt._set_model_configs(system='You are a task assistant, \
-#     and you must strictly follow the given requirements to complete the tasks.The \
-#     output language should be the same as the input language.')
-
 
 # utils
 def _parse_llm_res(res: str):
@@ -85,28 +75,6 @@ def _parse_llm_res(res: str):
         res = match.group(1).strip()
     res = json.loads(res)
     return res
-
-
-def _show_search_process(state: TaskContext, action: str = 'init'):
-    print('=' * 100 + '\n')
-    LOG.info(f'🔍 【SHOW SEARCH PROCESS】 Task ID: {state.query}, Action: {action}')
-    steps = state.executed_steps
-    for step in steps:
-        print(step.step_id)
-        print(step.status)
-        print(step.goal)
-        print(step.tool)
-        print(step.inference)
-        print('=' * 100 + '\n')
-    steps = state.pending_steps
-    for step in steps:
-        print(step.step_id)
-        print(step.status)
-        print(step.goal)
-        print(step.tool)
-        print(step.inference)
-        print('*' * 100 + '\n')
-
 
 # agents
 def do_search(state: TaskContext):
@@ -136,9 +104,6 @@ def do_search(state: TaskContext):
         params['querys'].append(original_query)
     raw_results, formatted_results = tool_instance(**params, static_params=static_params)
     add_reasoning_process_stream(state, f'🔍 【RETRIEVER】 Retrieved {len(formatted_results)} nodes\n')
-    # for node in formatted_results:
-    #     add_reasoning_process_stream(state, f'{node}\n')
-    # add_reasoning_process_stream(state, '\n')
 
     state.pending_steps[0].formatted_results = formatted_results
     state.pending_steps[0].raw_results = raw_results
@@ -426,12 +391,14 @@ async def astream_iterator(agent, state):
                 await asyncio.sleep(0.1)
 
 
+agent = get_ppl_agentic()
+
+
 def agentic_rag(global_params, tool_params, stream=False, **kwargs):
     state = TaskContext()
     query = global_params.get('query', '')
     if not query:
         raise ValueError('query is required')
-    agent = get_ppl_agentic()
     global_params['stream'] = stream
     for key, value in kwargs.items():
         global_params[key] = value
@@ -459,44 +426,3 @@ def agentic_rag(global_params, tool_params, stream=False, **kwargs):
         res = CustomOutputParser().forward(answer, aggregate=agg_nodes, stream=False)
         res['recall'] = relevant_nodes
         return res  # , relevant_nodes, round_num
-
-
-if __name__ == '__main__':
-
-    # query = "What university did the author of 1967: The Last Good Year attend?"
-    # kb_id = 'kb-ms-0128'
-
-    # global_params = {'query': query, 'document_url': 'http://127.0.0.1:8525'}
-    # tool_params = {'kb_search': {'filters': {'kb_id': [kb_id]}, 'files': [], 'stream': False, 'priority': 1}}
-
-    query = '徐汇区在推进6所学校集中开竣工过程中，如何通过“全链条服务”保障教育民生项目高效落地？'
-    global_params = {'query': query}
-    tool_params = {
-        'kb_search': {
-            'filters': {},
-            'files': [],
-            'stream': False,
-            'priority': 1,
-            'document_url': 'http://10.119.16.66:9007,tyy_0302',
-        },
-    }
-    res = agentic_rag(global_params=global_params, tool_params=tool_params, stream=False)
-    print(res['text'])
-
-    async def get_ans():
-        iter = agentic_rag(global_params=global_params, tool_params=tool_params, stream=True)
-        think = ''
-        answer = ''
-        sources = []
-        async for chunk in iter:
-            # print(chunk)
-            if chunk.get('think'):
-                think += chunk.get('think')
-            if chunk.get('text'):
-                answer += chunk.get('text')
-            if chunk.get('sources'):
-                sources.extend(chunk.get('sources'))
-        print(think)
-        print(answer)
-        # print(sources)
-    # asyncio.run(get_ans())
