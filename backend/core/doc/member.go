@@ -779,7 +779,7 @@ func fetchUserNames(r *http.Request, userIDs []string) map[string]string {
 				Username    string `json:"username"`
 				DisplayName string `json:"display_name"`
 			} `json:"data"`
-			// auth-service 直接返回对象（非 data 包裹）
+			// auth-service may return the object directly (not wrapped by "data").
 			UserID      string `json:"user_id"`
 			Username    string `json:"username"`
 			DisplayName string `json:"display_name"`
@@ -787,7 +787,7 @@ func fetchUserNames(r *http.Request, userIDs []string) map[string]string {
 		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/user/"+url.PathEscape(userID), authRequestHeaders(r), &resp, 3*time.Second); err != nil {
 			continue
 		}
-		// 兼容两种响应格式：直接字段 或 data 包裹
+		// Support both response formats: top-level fields or "data" wrapper.
 		name := strings.TrimSpace(firstNonEmpty(resp.DisplayName, resp.Username, resp.Data.DisplayName, resp.Data.Username))
 		if name != "" {
 			out[userID] = name
@@ -810,14 +810,14 @@ func fetchGroupNames(r *http.Request, groupIDs []string) map[string]string {
 				GroupID   string `json:"group_id"`
 				GroupName string `json:"group_name"`
 			} `json:"data"`
-			// auth-service 直接返回对象（非 data 包裹）
+			// auth-service may return the object directly (not wrapped by "data").
 			GroupID   string `json:"group_id"`
 			GroupName string `json:"group_name"`
 		}
 		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/group/"+url.PathEscape(groupID), authRequestHeaders(r), &resp, 3*time.Second); err != nil {
 			continue
 		}
-		// 兼容两种响应格式：直接字段 或 data 包裹
+		// Support both response formats: top-level fields or "data" wrapper.
 		name := strings.TrimSpace(firstNonEmpty(resp.GroupName, resp.Data.GroupName))
 		if name != "" {
 			out[groupID] = name

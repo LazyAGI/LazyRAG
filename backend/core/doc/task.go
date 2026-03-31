@@ -2903,4 +2903,3 @@ func ensureTopLevelFolder(ctx context.Context, datasetID, userID, userName strin
 	}
 	return folderID
 }
-
