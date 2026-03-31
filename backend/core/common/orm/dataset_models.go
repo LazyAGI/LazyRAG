@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Dataset text neutrino ragservice text datasets text（Knowledge basetext）。
+// Dataset
 // text ragservice DDL text，text dbmigrate text/text DDL。
 type Dataset struct {
 	ID string `gorm:"primaryKey;column:id;type:varchar(255)"`
@@ -43,7 +43,7 @@ type Dataset struct {
 
 func (Dataset) TableName() string { return "datasets" }
 
-// DefaultDataset text neutrino ragservice text default_datasets text（UserDefaultKnowledge base）。
+// DefaultDataset
 type DefaultDataset struct {
 	ID int64 `gorm:"primaryKey;column:id;autoIncrement"`
 

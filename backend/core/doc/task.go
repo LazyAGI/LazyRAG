@@ -2822,9 +2822,10 @@ func datasetAlgoIDByID(datasetID string) string {
 	return parseDatasetAlgo(ds.Ext).AlgoID
 }
 
-// ensureTopLevelFolder 从 relative_path 中提取第一级目录名（如 "test/subdir/a.doc" -> "test"），
-// 在数据库中查找或创建对应的 FOLDER document，返回其 ID。
-// 若 relative_path 为空或只有文件名（无目录层级），返回 ""。
+// ensureTopLevelFolder extracts the first-level directory name from relative_path
+// (e.g. "test/subdir/a.doc" -> "test"), then finds or creates the corresponding
+// FOLDER document in the database and returns its ID.
+// If relative_path is empty or has no directory component, it returns "".
 // createTopLevelFolder always creates a new FOLDER document at the dataset root,
 // named after the first path component of relativePath.
 // Unlike the old "ensure" approach, it never reuses an existing folder —

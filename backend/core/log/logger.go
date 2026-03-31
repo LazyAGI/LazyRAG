@@ -1,4 +1,4 @@
-// Package log text neutrino text zerolog textLog，text docker logs text。
+// Package log provides a console logger (zerolog).
 package log
 
 import (

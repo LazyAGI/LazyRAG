@@ -33,7 +33,6 @@ func conversationNameFromPath(r *http.Request) string {
 	return common.PathVar(r, "name")
 }
 
-// writePromptJSON text JSON（text code/message/data text），text neutrino ragservice HTTP text。
 func writePromptJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -188,7 +187,6 @@ func DeletePrompt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "delete failed", http.StatusInternalServerError)
 		return
 	}
-	// text neurtrino text：200 + text JSON
 	writePromptJSON(w, http.StatusOK, nil)
 }
 

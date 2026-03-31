@@ -50,7 +50,6 @@ def create_access_token(
     payload: dict[str, Any] = {
         # Keep 'sub' for existing token verification logic in deps.py/authorization.py
         'sub': subject,
-        # Neutrino-aligned fields
         'tenant_id': tenant_id,
         'tenant_code': 'default',
         'user_id': subject,

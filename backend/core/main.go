@@ -123,7 +123,7 @@ func main() {
 	acl.InitStore(db)
 	log.Logger.Info().Str("driver", driver).Msg("ACL store initialized")
 
-	// text/PrompttextInitialize（DB + Redis）。DB text ACL text；Redis textConversationtext/text/text（text neutrino text）。
+	// text/PrompttextInitialize（DB + Redis）。DB text ACL text；Redis textConversationtext/text/text。
 	store.Init(db.DB, readonlyDB.DB, store.MustRedisFromEnv())
 
 	r := mux.NewRouter()
