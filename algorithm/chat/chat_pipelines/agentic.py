@@ -1,13 +1,21 @@
+# flake8: noqa: E402
 import asyncio
 import copy
 import itertools
 import json
 import re
+import os
+import yaml
 from concurrent.futures import ThreadPoolExecutor
-import lazyllm
 from lazyllm import LOG, bind, loop, pipeline, switch
 from tenacity import retry, stop_after_attempt, wait_fixed
+import sys
+from pathlib import Path
 
+base_dir = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(base_dir))
+
+from chat.modules.engineering.load_model import get_model
 from chat.modules.engineering.simple_llm import SimpleLlmComponent
 from chat.prompts.agentic import (
     EVALUATOR_PROMPT,
@@ -43,22 +51,14 @@ def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'in
 
 
 # llms
-llm = lazyllm.OnlineChatModule(
-        base_url='http://10.119.29.126:25121/v1/',
-        model='lazyllm',  # LLM_QWEN3_32B
-        api_key='null',
-        source='openai',
-    )
+CONFIG_PATH = os.getenv('CONFIG_PATH', f'{base_dir}/chat/chat_pipelines/configs/auto_model.yaml')
+cfg = yaml.safe_load(CONFIG_PATH)
+llm = get_model('qwen3_32b_custom', cfg)
 llm._prompt._set_model_configs(system='You are an intelligent assistant, \
                                strictly following user instructions to execute tasks.')
 # llm_gen = SimpleLlmComponent(llm=llm)
 
-llm_instruct = lazyllm.OnlineChatModule(
-        base_url='http://10.119.21.177:8000/v1/',
-        model='lazyllm',
-        api_key='null',
-        source='openai'
-    )
+llm_instruct = get_model('qwen3_moe_custom', cfg)
 llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
     and you must strictly follow the given requirements to complete the tasks.\
     The output language should be the same as the input language.')
@@ -75,6 +75,27 @@ def _parse_llm_res(res: str):
         res = match.group(1).strip()
     res = json.loads(res)
     return res
+
+def _show_search_process(state: TaskContext, action: str = 'init'):
+    LOG.debug('=' * 100 + '\n')
+    LOG.debug(f'🔍 【SHOW SEARCH PROCESS】 Task ID: {state.query}, Action: {action}')
+    steps = state.executed_steps
+    for step in steps:
+        LOG.debug(step.step_id)
+        LOG.debug(step.status)
+        LOG.debug(step.goal)
+        LOG.debug(step.tool)
+        LOG.debug(step.inference)
+        LOG.debug('=' * 100 + '\n')
+    steps = state.pending_steps
+    for step in steps:
+        LOG.debug(step.step_id)
+        LOG.debug(step.status)
+        LOG.debug(step.goal)
+        LOG.debug(step.tool)
+        LOG.debug(step.inference)
+        LOG.debug('*' * 100 + '\n')
+
 
 # agents
 def do_search(state: TaskContext):

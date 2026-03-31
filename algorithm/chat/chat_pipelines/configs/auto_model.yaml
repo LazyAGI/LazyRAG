@@ -1,4 +1,18 @@
 # 本地部署模型
+qwen3_32b_custom:
+  - source: openai
+    type: llm
+    url: http://10.119.29.126:25121/v1/
+    name: lazyllm
+    skip_auth: true
+
+qwen3_moe_custom:
+  - source: openai
+    type: llm
+    url: http://10.119.21.177:8000/v1/
+    name: lazyllm
+    skip_auth: true
+
 bgem3_emb_dense_custom:
   - source: bgem3embed
     type: embed
