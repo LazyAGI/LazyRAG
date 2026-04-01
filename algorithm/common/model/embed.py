@@ -8,8 +8,7 @@ class BgeM3Embed(LazyLLMOnlineEmbedModuleBase):
 
     def __init__(self, embed_url: str = '', embed_model_name: str = 'custom', api_key: str = None,
                  skip_auth: bool = True, batch_size: int = 16, **kw):
-        super().__init__(model_series='bge', embed_url=embed_url, api_key='' if skip_auth else (api_key or ''),
-                         embed_model_name=embed_model_name,
+        super().__init__(embed_url, '' if skip_auth else (api_key or ''), embed_model_name,
                          skip_auth=skip_auth, batch_size=batch_size, **kw)
 
     def _set_embed_url(self):
