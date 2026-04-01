@@ -9,12 +9,13 @@ from lazyllm import Retriever
 from lazyllm import pipeline, parallel, bind, ifs
 from lazyllm.tools.rag import TempDocRetriever
 from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
-from lazyllm.tools.common import StreamCallHelper
 import sys
 from pathlib import Path
 
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
+
+from common.model import get_model
 
 from chat.modules.engineering.simple_llm import SimpleLlmComponent
 from chat.modules.algo.multiturn_query_rewriter import MultiturnQueryRewriter
@@ -22,7 +23,6 @@ from chat.modules.algo.adaptive_topk import AdaptiveKComponent
 from chat.modules.engineering.aggregate import AggregateComponent
 from chat.modules.algo.prompt_formatter import RAGContextFormatter
 from chat.modules.engineering.output_parser import CustomOutputParser
-from chat.modules.engineering.load_model import get_model
 
 USE_MULTIMODAL = False
 LLM_TYPE_THINK = False

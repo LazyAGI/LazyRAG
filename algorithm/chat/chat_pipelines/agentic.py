@@ -15,7 +15,8 @@ from pathlib import Path
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from chat.modules.engineering.load_model import get_model
+from common.model import get_model
+
 from chat.modules.engineering.simple_llm import SimpleLlmComponent
 from chat.prompts.agentic import (
     EVALUATOR_PROMPT,
