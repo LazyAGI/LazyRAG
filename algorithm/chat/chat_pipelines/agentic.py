@@ -5,7 +5,6 @@ import itertools
 import json
 import re
 import os
-import yaml
 from concurrent.futures import ThreadPoolExecutor
 from lazyllm import LOG, bind, loop, pipeline, switch
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -15,7 +14,7 @@ from pathlib import Path
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from common.model import get_model
+from common.model import get_auto_model_config_path, get_model
 
 from chat.modules.engineering.simple_llm import SimpleLlmComponent
 from chat.prompts.agentic import (
@@ -52,8 +51,8 @@ def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'in
 
 
 # llms
-CONFIG_PATH = os.getenv('CONFIG_PATH', f'{base_dir}/chat/chat_pipelines/configs/auto_model.yaml')
-cfg = yaml.safe_load(CONFIG_PATH)
+CONFIG_PATH = get_auto_model_config_path()
+cfg = CONFIG_PATH
 llm = get_model('qwen3_32b_custom', cfg)
 llm._prompt._set_model_configs(system='You are an intelligent assistant, \
                                strictly following user instructions to execute tasks.')

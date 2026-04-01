@@ -4,18 +4,16 @@ import os
 from pathlib import Path
 import lazyllm
 from typing import List
-import yaml
 from lazyllm import Retriever
 from lazyllm import pipeline, parallel, bind, ifs
 from lazyllm.tools.rag import TempDocRetriever
 from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 import sys
-from pathlib import Path
 
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from common.model import get_model
+from common.model import get_auto_model_config_path, get_model
 
 from chat.modules.engineering.simple_llm import SimpleLlmComponent
 from chat.modules.algo.multiturn_query_rewriter import MultiturnQueryRewriter
@@ -27,8 +25,8 @@ from chat.modules.engineering.output_parser import CustomOutputParser
 USE_MULTIMODAL = False
 LLM_TYPE_THINK = False
 
-CONFIG_PATH = os.getenv("CONFIG_PATH", f"{base_dir}/chat/chat_pipelines/configs/auto_model.yaml")
-cfg = yaml.safe_load(CONFIG_PATH)
+CONFIG_PATH = get_auto_model_config_path()
+cfg = CONFIG_PATH
 
 dense_embed_model = os.getenv('DENSE_EMBED_MODEL', 'bgem3_emb_dense_custom')
 reranker_model = os.getenv('RERANKER_MODEL', 'qwen3_reranker_custom')
@@ -77,16 +75,21 @@ default_retriever_configs = [
     },
 ]
 
-def get_remote_docment(url):
-    url = url.split(',')
-    if len(url) == 1:
-        url, name = url[0], '__default__'
-    else:
-        url, name = url[0], url[1]
-    return lazyllm.Document(url=f'{url}/_call', name=name, )
+def parse_document_url(url: str) -> tuple[str, str]:
+    parts = [part.strip() for part in url.split(',', 1)]
+    if len(parts) == 1 or not parts[1]:
+        return parts[0], '__default__'
+    return parts[0], parts[1]
+
+def get_remote_document(url: str):
+    base_url, name = parse_document_url(url)
+    return lazyllm.Document(url=f'{base_url}/_call', name=name)
+
+def get_remote_docment(url: str):
+    return get_remote_document(url)
 
 def setup_retrievers(url: str, retriever_configs: List[dict]) -> List[Retriever]:
-    document = get_remote_docment(url)
+    document = get_remote_document(url)
     return [Retriever(document, **config) for config in retriever_configs]
 
 def get_ppl_tmp_retriever():

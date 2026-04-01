@@ -45,12 +45,18 @@ MULTIMODAL_MODE = os.getenv('MULTIMODAL_MODE', 'True').lower() == 'true'
 SENSITIVE_FILTER_RESPONSE_TEXT = '对不起，我还没有学会回答这个问题。如果你有其他问题，我非常乐意为你提供帮助。'
 # 支持的图片扩展名
 IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg')
+DEFAULT_ALGO_SERVICE_URL = os.getenv('LAZYRAG_ALGO_SERVICE_URL', 'http://lazyllm-algo:8000').rstrip('/')
+DEFAULT_ALGO_DATASET_NAME = os.getenv('LAZYRAG_ALGO_DATASET_NAME', 'general_algo')
+DEFAULT_CHAT_DATASET = os.getenv('LAZYRAG_DEFAULT_CHAT_DATASET', 'algo')
 
 # ---------------------------------------------------------------------------
 # 临时方案 待jiahao重构doc服务
 # ---------------------------------------------------------------------------
 
 url_map: Dict[str, str] = {
+    'algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
+    'default': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
+    'general_algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
     'research_center': 'http://10.119.16.66:9003,research_center_0131_a',
     'quantum': 'http://10.119.16.66:9002,quantum_0131_a',
     'tyy': 'http://10.119.16.66:9007,tyy_0302',
@@ -254,7 +260,7 @@ async def chat(
     debug: Optional[bool] = Body(False, description='是否开启debug模式'),  # noqa: B008
     reasoning: Optional[bool] = Body(False, description='是否开启推理'),  # noqa: B008
     databases: Optional[List[Dict]] = Body([], description='关联数据库'),  # noqa: B008
-    dataset: Optional[str] = Body('debug', description='数据库名称'),  # noqa: B008   临时方案，待jiahao重构doc服务
+    dataset: Optional[str] = Body(DEFAULT_CHAT_DATASET, description='数据库名称'),  # noqa: B008   临时方案，待jiahao重构doc服务
     priority: Optional[int] = Body(  # noqa: B008
         None,
         description='请求优先级，用于vllm调度。数值越大优先级越高，默认从环境变量LAZYRAG_LLM_PRIORITY读取',

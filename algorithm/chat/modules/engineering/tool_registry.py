@@ -6,7 +6,7 @@ import os
 import itertools
 import lazyllm
 from lazyllm.tools.rag import Retriever
-from chat.chat_pipelines.naive import get_ppl_search
+from chat.chat_pipelines.naive import get_ppl_search, parse_document_url
 
 DOCUMENT_URL = os.getenv('LAZYLLM_DOCUMENT_URL', 'http://127.0.0.1:8525')
 
@@ -154,8 +154,9 @@ class KBSearch(BaseTool):
     def file_search(self, file_names: List[str], static_params: dict = None, topk: int = 3) -> List[str]:
         filters = static_params.get('filters', {}) if static_params else {}
         document_url = static_params.get('document_url', DOCUMENT_URL) if static_params else DOCUMENT_URL
-        name = static_params.get('name', '__default__')
-        doc = lazyllm.Document(url=f'{document_url}/_call', name=name)
+        base_url, default_name = parse_document_url(document_url)
+        name = static_params.get('name', default_name) if static_params else default_name
+        doc = lazyllm.Document(url=f'{base_url}/_call', name=name)
         retriever = Retriever(doc, group_name='filename', embed_keys=['bge_m3_sparse'], topk=topk)
 
         file_ids = []

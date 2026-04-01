@@ -1,15 +1,17 @@
 import os
 from urllib.parse import urlparse
 
-from lazyllm import OnlineEmbeddingModule
 from lazyllm.tools.rag import Document, MineruPDFReader, PDFReader
 from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
+from common.model import build_bge_m3_embed, get_auto_model_config_path
 from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
 ALGO_ID = 'general_algo'
+DEFAULT_DENSE_EMBED_MODEL = os.getenv('DENSE_EMBED_MODEL', 'bgem3_emb_dense_custom')
+DEFAULT_SPARSE_EMBED_MODEL = os.getenv('SPARSE_EMBED_MODEL', 'bgem3_emb_sparse_custom')
 
 
 def _parse_bool_env(name: str) -> bool | None:
@@ -95,11 +97,16 @@ def _build_pdf_reader():
 def build_document() -> Document:
     processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
     server_port = get_algo_server_port()
+    config_path = get_auto_model_config_path()
+    embed = {
+        'bge_m3_dense': build_bge_m3_embed(DEFAULT_DENSE_EMBED_MODEL, config_path),
+        'bge_m3_sparse': build_bge_m3_embed(DEFAULT_SPARSE_EMBED_MODEL, config_path),
+    }
 
     docs = Document(
         dataset_path=None,
         name=ALGO_ID,
-        embed=OnlineEmbeddingModule(),
+        embed=embed,
         store_conf=_build_store_config(),
         manager=DocumentProcessor(url=processor_url),
         doc_fields=[],
@@ -111,6 +118,6 @@ def build_document() -> Document:
                            group_type=NodeGroupType.CHUNK, transform=GeneralParser(max_length=2048, split_by='\n'))
     docs.create_node_group(name="line", display_name='句子切片',
                            group_type=NodeGroupType.CHUNK, transform=LineSplitter, parent="block")
-    docs.activate_group('block')
-    docs.activate_group('line')
+    docs.activate_group('block', embed_keys=list(embed))
+    docs.activate_group('line', embed_keys=list(embed))
     return docs
