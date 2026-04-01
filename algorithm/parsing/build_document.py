@@ -19,6 +19,8 @@ def _parse_bool_env(name: str) -> bool | None:
     if value is None:
         return None
     value = value.strip().lower()
+    if value == '':
+        return None
     if value in ('1', 'true', 'yes', 'on'):
         return True
     if value in ('0', 'false', 'no', 'off'):
@@ -51,10 +53,24 @@ def _build_store_config():
             'type': 'milvus',
             'kwargs': {
                 'uri': milvus_uri,
-                'index_kwargs': {
-                    'index_type': 'FLAT',
-                    'metric_type': 'COSINE',
-                },
+                'index_kwargs': [
+                    {
+                        'embed_key': 'bge_m3_dense',
+                        'index_type': 'IVF_FLAT',
+                        'metric_type': 'COSINE',
+                        'params': {
+                            'nlist': 128,
+                        }
+                    },
+                    {
+                        'embed_key': 'bge_m3_sparse',
+                        'index_type': 'SPARSE_INVERTED_INDEX',
+                        'metric_type': 'IP',
+                        'params': {
+                            'nlist': 128,
+                        }
+                    }
+                ],
             },
         },
         'segment_store': {
