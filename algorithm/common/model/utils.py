@@ -1,6 +1,8 @@
 import functools
+import hashlib
 import os
 import re
+import tempfile
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,6 +86,20 @@ def load_auto_model_config(config_path: str | None = None) -> Dict[str, Any]:
     resolved_path = Path(config_path or get_auto_model_config_path())
     with resolved_path.open('r', encoding='utf-8') as file:
         return yaml.safe_load(file) or {}
+
+
+@functools.lru_cache(maxsize=64)
+def _write_runtime_auto_model_config(serialized_config: str) -> str:
+    config = yaml.safe_load(serialized_config)
+    model_name = config['model']
+    digest = hashlib.sha256(serialized_config.encode('utf-8')).hexdigest()[:16]
+    safe_model_name = re.sub(r'[^A-Za-z0-9_.-]+', '-', model_name).strip('-') or 'runtime-model'
+    target_dir = Path(tempfile.gettempdir()) / 'lazyrag-runtime-auto-model'
+    target_dir.mkdir(parents=True, exist_ok=True)
+    config_path = target_dir / f'{safe_model_name}-{digest}.yaml'
+    with config_path.open('w', encoding='utf-8') as file:
+        yaml.safe_dump({model_name: [config]}, file, sort_keys=False)
+    return str(config_path)
 
 
 def _strip_optional_string(value: Any) -> Any:
@@ -402,7 +418,9 @@ def build_model(model_config: Any):
         return AutoModel(model=model_config, config=get_auto_model_config_path())
     config = deepcopy(model_config)
     model_name = config.pop('model')
-    return AutoModel(model=model_name, config=False, **config)
+    config['model'] = model_name
+    serialized_config = yaml.safe_dump(config, sort_keys=True)
+    return AutoModel(model=model_name, config=_write_runtime_auto_model_config(serialized_config))
 
 
 def build_embedding_models(settings: RuntimeModelSettings | None = None) -> Dict[str, Any]:

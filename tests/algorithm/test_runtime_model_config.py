@@ -1,8 +1,11 @@
 import textwrap
+from pathlib import Path
 
 import pytest
+import yaml
 
-from common.model import get_runtime_model_settings, load_runtime_model_config
+from common.model import build_model, get_runtime_model_settings, load_runtime_model_config
+import common.model.utils as model_utils
 
 
 @pytest.fixture(autouse=True)
@@ -188,3 +191,37 @@ def test_runtime_model_settings_falls_back_to_legacy_models_without_explicit_run
     ]
     assert settings.temp_doc_embed_key == 'bge_m3_dense'
     assert settings.file_search_embed_key == 'bge_m3_sparse'
+
+
+def test_build_model_uses_automodel_config_path_for_runtime_entry(monkeypatch):
+    captured = {}
+
+    def fake_auto_model(*, model, config, **kwargs):
+        captured['model'] = model
+        captured['config'] = config
+        captured['kwargs'] = kwargs
+        return 'fake-model'
+
+    monkeypatch.setattr(model_utils, 'AutoModel', fake_auto_model)
+
+    result = build_model({
+        'source': 'bgem3embed',
+        'type': 'embed',
+        'model': 'bgem3_emb_dense_custom',
+        'url': 'http://127.0.0.1:2269/embed',
+        'skip_auth': True,
+    })
+
+    assert result == 'fake-model'
+    assert captured['model'] == 'bgem3_emb_dense_custom'
+    assert captured['kwargs'] == {}
+    generated = yaml.safe_load(Path(captured['config']).read_text(encoding='utf-8'))
+    assert generated == {
+        'bgem3_emb_dense_custom': [{
+            'source': 'bgem3embed',
+            'type': 'embed',
+            'model': 'bgem3_emb_dense_custom',
+            'url': 'http://127.0.0.1:2269/embed',
+            'skip_auth': True,
+        }]
+    }
