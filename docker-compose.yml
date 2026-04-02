@@ -130,7 +130,8 @@ services:
           - doc-server
 
   frontend:
-    image: lazyrag-frontend:arm64
+    build:
+      context: ./frontend
     ports:
       - "8090:80"
     environment:
