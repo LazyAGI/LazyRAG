@@ -132,7 +132,7 @@ services:
   frontend:
     image: lazyrag-frontend:arm64
     ports:
-      - "8070:80"
+      - "8090:80"
     environment:
       FRONTEND_API_PROXY_PASS: ${FRONTEND_API_PROXY_PASS:-http://kong:8000}
       FRONTEND_API_DOCS_PROXY_PASS: ${FRONTEND_API_DOCS_PROXY_PASS:-http://kong:8000}
