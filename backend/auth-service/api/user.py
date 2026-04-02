@@ -9,6 +9,7 @@ from models import User
 from schemas.user import (
     CreateUserBody,
     CreateUserResponse,
+    DisableUserBody,
     OkResponse,
     ResetPasswordBody,
     UserDetailResponse,
@@ -109,6 +110,17 @@ def set_user_role(
     except (ValueError, TypeError):
         raise_error(ErrorCodes.ROLE_NOT_FOUND)
     user_service.set_user_role(uid, rid)
+    return {'ok': True}
+
+
+@router.patch('/{user_id}/disable', response_model=OkResponse)
+@permission_required('user.admin')
+def disable_user(
+    user_id: str,
+    body: DisableUserBody,
+    _: User = Depends(current_user),  # noqa: B008
+):
+    user_service.disable_user(_parse_user_id(user_id), body.disabled)
     return {'ok': True}
 
 

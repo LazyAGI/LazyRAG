@@ -31,9 +31,12 @@ class ResetPasswordBody(BaseModel):
     new_password: str
 
 
+class DisableUserBody(BaseModel):
+    disabled: bool = True
+
+
 class UserItem(BaseModel):
     """User list item"""
-    user_id: str
     username: str
     display_name: str = ''
     email: str | None = None

@@ -170,6 +170,8 @@ def refresh(body: RefreshBody):
         user = UserRepository.get_by_id(db, user_id, load_role=True)
         if not user:
             raise_error(ErrorCodes.UNAUTHORIZED)
+        if user.disabled:
+            raise_error(ErrorCodes.USER_DISABLED)
         role_name = user.role.name
         tenant_id = user.tenant_id
         username = user.username
