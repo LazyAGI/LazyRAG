@@ -76,7 +76,6 @@ class UserService:
             users, total = UserRepository.list_paginated(db, page, page_size, search, tenant_id)
             items = [
                 {
-                    'user_id': str(u.id),
                     'username': u.username,
                     'display_name': u.display_name or u.username,
                     'email': u.email,
@@ -139,6 +138,15 @@ class UserService:
                 if not user:
                     raise_error(ErrorCodes.USER_NOT_FOUND, extra_msg=str(uid))
                 user.role_id = role.id
+            db.commit()
+
+    def disable_user(self, user_id: uuid.UUID, disabled: bool = True) -> None:
+        """Disable or enable a user. Raises if user not found."""
+        with SessionLocal() as db:
+            user = UserRepository.get_by_id(db, user_id)
+            if not user:
+                raise_error(ErrorCodes.USER_NOT_FOUND)
+            user.disabled = disabled
             db.commit()
 
     def reset_password(self, user_id: uuid.UUID, new_password: str) -> None:

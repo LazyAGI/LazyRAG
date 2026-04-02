@@ -50,6 +50,8 @@ def current_user(user_id: uuid.UUID = Depends(current_user_id)) -> User:  # noqa
         )
     if not user:
         raise_error(ErrorCodes.UNAUTHORIZED)
+    if user.disabled:
+        raise_error(ErrorCodes.USER_DISABLED)
     return user
 
 
