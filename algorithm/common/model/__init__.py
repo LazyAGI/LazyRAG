@@ -1,12 +1,29 @@
 from .embed import BgeM3Embed
 from .reranker import Qwen3Rerank
-from .utils import build_bge_m3_embed, get_auto_model_config_path, get_model, load_auto_model_config
+from .utils import (
+    DEFAULT_EMBED_KEYS,
+    RuntimeModelSettings,
+    build_embedding_models,
+    build_model,
+    get_auto_model_config_path,
+    get_model,
+    get_runtime_model_config_path,
+    get_runtime_model_settings,
+    load_auto_model_config,
+    load_runtime_model_config,
+)
 
 __all__ = [
     'BgeM3Embed',
     'Qwen3Rerank',
-    'build_bge_m3_embed',
+    'DEFAULT_EMBED_KEYS',
+    'RuntimeModelSettings',
+    'build_embedding_models',
+    'build_model',
     'get_auto_model_config_path',
     'get_model',
-    'load_auto_model_config'
+    'get_runtime_model_config_path',
+    'get_runtime_model_settings',
+    'load_auto_model_config',
+    'load_runtime_model_config',
 ]

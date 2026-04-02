@@ -112,6 +112,14 @@ db
 - Docker 与 Docker Compose
 - （可选）Go 1.22（backend/core）、Python 3.11+ 与 flake8，用于本地开发与 lint
 
+## 运行时模型配置
+
+- 默认配置文件为 `algorithm/configs/runtime_models.yaml`。
+- 直接在该文件中配置 `llm`、`llm_instruct`、`reranker`、`embed_1~embed_3` 的 `source/api_key/model/type/url`。
+- 建议把真实密钥写成环境变量引用，例如 `${LAZYLLM_SILICONFLOW_API_KEY}`，不要提交明文密钥。
+- 需要用临时配置联调时，可设置 `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`；`docker-compose.yml` 已将仓库 `tmp/` 挂载到容器内 `/app/tmp`。
+- 若只配置 `embed_1`，系统会自动按单路 embedding 建索引、入库和检索；若启用 `embed_2/embed_3`，解析与检索会使用同一套 `embed_key`。
+
 ## 快速开始
 
 **完整栈（默认部署 Milvus + OpenSearch）：**

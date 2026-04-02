@@ -112,6 +112,14 @@ Frontend
 - Docker and Docker Compose
 - (Optional) Go 1.22 for `backend/core`, Python 3.11+ and flake8 for local dev/lint
 
+## Runtime Model Config
+
+- The default runtime config file is `algorithm/configs/runtime_models.yaml`.
+- Configure `llm`, `llm_instruct`, `reranker`, and `embed_1~embed_3` directly with `source/api_key/model/type/url`.
+- Keep real secrets out of git. Prefer env placeholders such as `${LAZYLLM_SILICONFLOW_API_KEY}`.
+- For local debugging with a temporary config file, set `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`; `docker-compose.yml` mounts the repository `tmp/` directory into `/app/tmp` inside the containers.
+- If only `embed_1` is configured, indexing, ingestion, and retrieval run in single-embedding mode automatically. Enabling `embed_2/embed_3` keeps parsing and retrieval on the same `embed_key` set.
+
 ## Quick Start
 
 **Full stack (Milvus + OpenSearch deployed by default):**
