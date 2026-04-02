@@ -152,3 +152,39 @@ def test_runtime_model_config_requires_env_when_placeholder_has_no_default(tmp_p
 
     with pytest.raises(ValueError, match='TEST_API_KEY'):
         load_runtime_model_config(str(config_path))
+
+
+def test_runtime_model_settings_falls_back_to_legacy_models_without_explicit_runtime_config(monkeypatch):
+    monkeypatch.delenv('LAZYRAG_MODEL_CONFIG_PATH', raising=False)
+    monkeypatch.setenv('LLM_MODEL', 'legacy-llm')
+    monkeypatch.setenv('LLM_INSTRUCT_MODEL', 'legacy-llm-instruct')
+    monkeypatch.setenv('RERANKER_MODEL', 'legacy-reranker')
+    monkeypatch.setenv('DENSE_EMBED_MODEL', 'legacy-dense')
+    monkeypatch.setenv('SPARSE_EMBED_MODEL', 'legacy-sparse')
+
+    settings = get_runtime_model_settings()
+
+    assert settings.llm == 'legacy-llm'
+    assert settings.llm_instruct == 'legacy-llm-instruct'
+    assert settings.reranker == 'legacy-reranker'
+    assert settings.embed_keys == ['bge_m3_dense', 'bge_m3_sparse']
+    assert settings.embeddings == {
+        'bge_m3_dense': 'legacy-dense',
+        'bge_m3_sparse': 'legacy-sparse',
+    }
+    assert settings.index_kwargs == [
+        {
+            'embed_key': 'bge_m3_dense',
+            'index_type': 'IVF_FLAT',
+            'metric_type': 'COSINE',
+            'params': {'nlist': 128},
+        },
+        {
+            'embed_key': 'bge_m3_sparse',
+            'index_type': 'SPARSE_INVERTED_INDEX',
+            'metric_type': 'IP',
+            'params': {'nlist': 128},
+        },
+    ]
+    assert settings.temp_doc_embed_key == 'bge_m3_dense'
+    assert settings.file_search_embed_key == 'bge_m3_sparse'

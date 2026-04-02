@@ -13,9 +13,23 @@ from lazyllm import AutoModel
 DEFAULT_AUTO_MODEL_CONFIG_PATH = Path(__file__).resolve().parents[2] / 'configs' / 'auto_model.yaml'
 DEFAULT_RUNTIME_MODEL_CONFIG_PATH = Path(__file__).resolve().parents[2] / 'configs' / 'runtime_models.yaml'
 DEFAULT_EMBED_KEYS = ('embed_1', 'embed_2', 'embed_3')
+LEGACY_DENSE_EMBED_KEY = 'bge_m3_dense'
+LEGACY_SPARSE_EMBED_KEY = 'bge_m3_sparse'
+LEGACY_LLM_MODEL = 'qwen3_32b_custom'
+LEGACY_LLM_INSTRUCT_MODEL = 'qwen3_moe_custom'
+LEGACY_RERANKER_MODEL = 'qwen3_reranker_custom'
+LEGACY_DENSE_EMBED_MODEL = 'bgem3_emb_dense_custom'
+LEGACY_SPARSE_EMBED_MODEL = 'bgem3_emb_sparse_custom'
 DEFAULT_EMBED_INDEX_KWARGS = {
     'index_type': 'IVF_FLAT',
     'metric_type': 'COSINE',
+    'params': {
+        'nlist': 128,
+    },
+}
+LEGACY_SPARSE_EMBED_INDEX_KWARGS = {
+    'index_type': 'SPARSE_INVERTED_INDEX',
+    'metric_type': 'IP',
     'params': {
         'nlist': 128,
     },
@@ -25,10 +39,10 @@ _ENV_PATTERN = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
 
 @dataclass(frozen=True)
 class RuntimeModelSettings:
-    llm: Dict[str, Any]
-    llm_instruct: Dict[str, Any]
-    reranker: Dict[str, Any]
-    embeddings: Dict[str, Dict[str, Any]]
+    llm: Any
+    llm_instruct: Any
+    reranker: Any
+    embeddings: Dict[str, Any]
     embed_keys: List[str]
     index_kwargs: List[Dict[str, Any]]
     retriever_configs: List[Dict[str, Any]]
@@ -38,6 +52,10 @@ class RuntimeModelSettings:
 
 def get_runtime_model_config_path() -> str:
     return os.getenv('LAZYRAG_MODEL_CONFIG_PATH') or str(DEFAULT_RUNTIME_MODEL_CONFIG_PATH)
+
+
+def has_explicit_runtime_model_config() -> bool:
+    return bool(os.getenv('LAZYRAG_MODEL_CONFIG_PATH'))
 
 
 def get_auto_model_config_path() -> str:
@@ -268,9 +286,80 @@ def _normalize_retriever_configs(retrieval: Dict[str, Any], embed_keys: List[str
     return normalized_configs
 
 
+def _build_legacy_runtime_model_settings() -> RuntimeModelSettings:
+    dense_model = os.getenv('DENSE_EMBED_MODEL', LEGACY_DENSE_EMBED_MODEL)
+    sparse_model = os.getenv('SPARSE_EMBED_MODEL', LEGACY_SPARSE_EMBED_MODEL)
+    llm_model = os.getenv('LLM_MODEL', LEGACY_LLM_MODEL)
+    llm_instruct_model = os.getenv('LLM_INSTRUCT_MODEL', LEGACY_LLM_INSTRUCT_MODEL)
+    reranker_model = os.getenv('RERANKER_MODEL', LEGACY_RERANKER_MODEL)
+
+    embeddings: Dict[str, Any] = {LEGACY_DENSE_EMBED_KEY: dense_model}
+    index_kwargs: List[Dict[str, Any]] = [
+        _normalize_index_kwargs(LEGACY_DENSE_EMBED_KEY, None),
+    ]
+    retriever_configs: List[Dict[str, Any]] = [
+        {
+            'group_name': 'line',
+            'embed_keys': [LEGACY_DENSE_EMBED_KEY],
+            'topk': 20,
+            'target': 'block',
+        },
+        {
+            'group_name': 'block',
+            'embed_keys': [LEGACY_DENSE_EMBED_KEY],
+            'topk': 20,
+        },
+    ]
+    file_search_embed_key = LEGACY_DENSE_EMBED_KEY
+    embed_keys = [LEGACY_DENSE_EMBED_KEY]
+
+    if sparse_model:
+        embeddings[LEGACY_SPARSE_EMBED_KEY] = sparse_model
+        index_kwargs.append(_normalize_index_kwargs(
+            LEGACY_SPARSE_EMBED_KEY,
+            LEGACY_SPARSE_EMBED_INDEX_KWARGS,
+        ))
+        retriever_configs[1:1] = [{
+            'group_name': 'line',
+            'embed_keys': [LEGACY_SPARSE_EMBED_KEY],
+            'topk': 20,
+            'target': 'block',
+        }]
+        retriever_configs.append({
+            'group_name': 'block',
+            'embed_keys': [LEGACY_SPARSE_EMBED_KEY],
+            'topk': 20,
+        })
+        embed_keys.append(LEGACY_SPARSE_EMBED_KEY)
+        file_search_embed_key = LEGACY_SPARSE_EMBED_KEY
+
+    return RuntimeModelSettings(
+        llm=llm_model,
+        llm_instruct=llm_instruct_model,
+        reranker=reranker_model,
+        embeddings=embeddings,
+        embed_keys=embed_keys,
+        index_kwargs=index_kwargs,
+        retriever_configs=retriever_configs,
+        temp_doc_embed_key=LEGACY_DENSE_EMBED_KEY,
+        file_search_embed_key=file_search_embed_key,
+    )
+
+
 @functools.lru_cache(maxsize=8)
 def get_runtime_model_settings(config_path: str | None = None) -> RuntimeModelSettings:
-    config = load_runtime_model_config(config_path)
+    if not config_path and not has_explicit_runtime_model_config():
+        return _build_legacy_runtime_model_settings()
+    try:
+        config = load_runtime_model_config(config_path)
+    except Exception as exc:
+        if config_path or has_explicit_runtime_model_config():
+            raise
+        lazyllm.LOG.warning(
+            'Falling back to legacy auto_model settings because runtime model config is unavailable or invalid: %s',
+            exc,
+        )
+        return _build_legacy_runtime_model_settings()
     roles = _get_runtime_roles(config)
     embeddings, embed_keys, index_kwargs = _normalize_embed_configs(roles)
 
@@ -308,7 +397,9 @@ def get_runtime_model_settings(config_path: str | None = None) -> RuntimeModelSe
     )
 
 
-def build_model(model_config: Dict[str, Any]):
+def build_model(model_config: Any):
+    if isinstance(model_config, str):
+        return AutoModel(model=model_config, config=get_auto_model_config_path())
     config = deepcopy(model_config)
     model_name = config.pop('model')
     return AutoModel(model=model_name, config=False, **config)

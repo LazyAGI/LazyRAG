@@ -119,6 +119,8 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 class ChatServer:
     def __init__(self):
+        self.startup_validated = False
+        self.startup_validation_error: Optional[str] = None
         self._on_server_start()
 
     @once_wrapper
@@ -136,8 +138,20 @@ class ChatServer:
             else:
                 LOG.warning('[ChatServer] [SENSITIVE_FILTER] Failed to load, filter disabled')
 
+            if DEFAULT_CHAT_DATASET in url_map:
+                self.get_query_pipeline(DEFAULT_CHAT_DATASET)
+                self.get_query_pipeline(DEFAULT_CHAT_DATASET, stream=True)
+                self.startup_validated = True
+            else:
+                self.startup_validation_error = (
+                    f'default dataset `{DEFAULT_CHAT_DATASET}` not found in url_map'
+                )
+                raise KeyError(self.startup_validation_error)
+
             LOG.info('[ChatServer] [SERVER_START]')
         except Exception as exc:
+            self.startup_validated = False
+            self.startup_validation_error = str(exc)
             LOG.exception('[ChatServer] [SERVER_START_ERROR]')
             raise exc
 
@@ -246,7 +260,14 @@ def _log_chat_request(
 @app.get('/api/health', summary='Health check (API path)')
 async def health():
     doc_url = os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000')
-    status = {'document_server_url': doc_url, 'document_server_reachable': None}
+    status = {
+        'document_server_url': doc_url,
+        'document_server_reachable': None,
+        'default_dataset': DEFAULT_CHAT_DATASET,
+        'chat_startup_validated': chat_server.startup_validated,
+    }
+    if chat_server.startup_validation_error:
+        status['chat_startup_error'] = chat_server.startup_validation_error
     try:
         import urllib.request
         req = urllib.request.Request(doc_url.rstrip('/') + '/', method='GET')

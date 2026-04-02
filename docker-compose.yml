@@ -97,16 +97,12 @@ services:
   lazyllm-doc-server:
     build:
       network: host
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+      context: .
+      dockerfile: backend/core/doc/Dockerfile
     ports:
       - "8848:8000"
     volumes:
       - rag-uploads:/app/uploads
-      - .:/repo:ro
-      - ./backend/core/doc:/app/backend/core/doc:ro
-      - ./tmp:/app/tmp:ro
     environment:
       LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
       LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
@@ -116,9 +112,7 @@ services:
       LAZYRAG_UPLOAD_DIR: /app/uploads
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
-      PYTHONPATH: /app/lazyllm:/repo:/repo/algorithm
       <<: *llm-api-keys
-    command: ["python", "/repo/backend/core/doc/doc_server.py"]
     healthcheck:
       test: ['CMD-SHELL', 'curl -f http://localhost:8000/v1/health && curl -f http://lazyllm-parse-server:8000/health || exit 1']
       interval: 10s
