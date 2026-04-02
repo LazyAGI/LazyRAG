@@ -64,6 +64,7 @@ class GroupCreateResponse(BaseModel):
 
 class GroupUserItem(BaseModel):
     """Group user item"""
+    user_id: str
     username: str
     role: str
     tenant_id: str | None = None

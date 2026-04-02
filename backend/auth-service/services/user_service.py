@@ -76,6 +76,7 @@ class UserService:
             users, total = UserRepository.list_paginated(db, page, page_size, search, tenant_id)
             items = [
                 {
+                    'user_id': str(u.id),
                     'username': u.username,
                     'display_name': u.display_name or u.username,
                     'email': u.email,

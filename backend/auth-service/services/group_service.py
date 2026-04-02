@@ -104,6 +104,7 @@ class GroupService:
             rows = UserGroupRepository.list_by_group_id(db, group_id)
             return [
                 {
+                    'user_id': str(r.user_id),
                     'username': r.user.username,
                     'role': r.role,
                     'tenant_id': r.tenant_id,

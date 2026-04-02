@@ -37,6 +37,7 @@ class DisableUserBody(BaseModel):
 
 class UserItem(BaseModel):
     """User list item"""
+    user_id: str
     username: str
     display_name: str = ''
     email: str | None = None

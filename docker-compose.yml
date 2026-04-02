@@ -152,6 +152,9 @@ services:
       LAZYRAG_READONLY_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
       LAZYRAG_READONLY_SCHEMA: public
       LAZYRAG_READONLY_TABLES: "public.lazyllm_documents,public.lazyllm_doc_service_tasks,public.lazyllm_kb_documents"
+      ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
+      LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://doc-server:8000}
+      LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://parsing:8000}
       LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
@@ -193,6 +196,41 @@ services:
         condition: service_healthy
       office-convert-service:
         condition: service_healthy
+
+  lazyllm-doc-server:
+    build:
+      context: .
+      dockerfile: backend/core/doc/Dockerfile
+    ports:
+      - "8848:8000"
+    volumes:
+      - rag-uploads:/app/uploads
+    environment:
+      LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
+      LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
+      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
+      LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: ${LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL:-http://doc-server:8000/v1/internal/callbacks/tasks}
+      LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: /app/uploads
+      LAZYRAG_UPLOAD_DIR: /app/uploads
+      LAZYLLM_EXPECTED_LOG_MODULES: "all"
+      <<: *llm-api-keys
+    command: ["python", "backend/core/doc/doc_server.py"]
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:8000/v1/health && curl -f http://lazyllm-parse-server:8000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      lazyllm-parse-server:
+        condition: service_healthy
+      lazyllm-algo:
+        condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - doc-server
 
   frontend:
     build:
@@ -237,17 +275,17 @@ services:
         condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
-      lazyllm-parse-server:
-        condition: service_started
+      azyllm-parse-server:
+        condition: service_healthy
       lazyllm-algo:
-        condition: service_started
+        condition: service_healthy
     networks:
       default:
         aliases:
           - doc-server
 
   # ---------- Algorithm stack: MinerU/PaddleOCR -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
-  # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru adds mineru[all], others use base+code only.
+  # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru extra/backend are configured by env.
   mineru:
     profiles:
       - mineru
@@ -256,11 +294,29 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: mineru
+      args:
+        MINERU_VERSION: ${LAZYRAG_MINERU_VERSION:-2.7.1}
+        MINERU_PACKAGE_VARIANT: ${LAZYRAG_MINERU_PACKAGE_VARIANT:-pipeline}
+        MINERU_PREINSTALL_CPU_TORCH: ${LAZYRAG_MINERU_PREINSTALL_CPU_TORCH:-1}
+        MINERU_TORCH_VERSION: ${LAZYRAG_MINERU_TORCH_VERSION:-2.11.0}
+        MINERU_TORCHVISION_VERSION: ${LAZYRAG_MINERU_TORCHVISION_VERSION:-0.26.0}
+        MINERU_NUMPY_VERSION: ${LAZYRAG_MINERU_NUMPY_VERSION:-1.26.4}
+        MINERU_PYTORCH_INDEX_URL: ${LAZYRAG_MINERU_PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+        MINERU_PYPI_INDEX_URL: ${LAZYRAG_MINERU_PYPI_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
     expose:
       - "8000"
+    volumes:
+      - rag-uploads:/app/uploads
+      - mineru-model-cache:/root/.cache
+      - mineru-cache:/app/.mineru-cache
+      - mineru-images:/app/.mineru-images
     environment:
       <<: *llm-api-keys
+      LAZYLLM_EXPECTED_LOG_MODULES: "all"
       LAZYRAG_MINERU_SERVER_PORT: "8000"
+      LAZYRAG_MINERU_BACKEND: ${LAZYRAG_MINERU_BACKEND:-pipeline}
+      LAZYRAG_MINERU_CACHE_DIR: ${LAZYRAG_MINERU_CACHE_DIR:-/app/.mineru-cache}
+      LAZYRAG_MINERU_IMAGE_SAVE_DIR: ${LAZYRAG_MINERU_IMAGE_SAVE_DIR:-/app/.mineru-images}
     command: ["python", "parsing/mineru.py"]
 
   # PaddleOCR-VL document parsing service (official images).
@@ -382,7 +438,7 @@ services:
       db-bootstrap:
         condition: service_completed_successfully
       lazyllm-parse-server:
-        condition: service_started
+        condition: service_healthy
     networks:
       default:
         aliases:
@@ -409,17 +465,18 @@ services:
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
       LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
+      LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-}
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
-      LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-admin}
+      LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
       <<: *llm-api-keys
-    command: ["python", "parsing/parsing.py"]
+    command: ["python", "-m", "parsing.parsing"]
     depends_on:
       lazyllm-parse-server:
-        condition: service_started
+        condition: service_healthy
       lazyllm-parse-worker:
-        condition: service_started
+        condition: service_healthy
     networks:
       default:
         aliases:
@@ -450,7 +507,7 @@ services:
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
       lazyllm-algo:
-        condition: service_started
+        condition: service_healthy
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------
   milvus-etcd:
@@ -493,8 +550,8 @@ services:
       MINIO_REGION: us-east-1
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
-      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - milvus-data:/var/lib/milvus
     healthcheck:
@@ -546,6 +603,9 @@ volumes:
   pgdata:
   redisdata:
   rag-uploads:
+  mineru-model-cache:
+  mineru-cache:
+  mineru-images:
   milvus-etcd:
   milvus-minio:
   milvus-data:
