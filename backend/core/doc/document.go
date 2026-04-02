@@ -1006,10 +1006,6 @@ func loadCoreOnlyDocuments(ctx context.Context, datasetID, keyword, pid string, 
 	if applyPIDFilter {
 		db = db.Where("COALESCE(p_id, '') = ?", pid)
 	}
-	if keyword != "" {
-		like := "%" + strings.ToLower(strings.ReplaceAll(keyword, "%", "\\%")) + "%"
-		db = db.Where("LOWER(display_name) LIKE ?", like)
-	}
 
 	var docs []orm.Document
 	if err := db.Find(&docs).Error; err != nil {
@@ -1020,6 +1016,9 @@ func loadCoreOnlyDocuments(ctx context.Context, datasetID, keyword, pid string, 
 		row, err := mergedDocRowFromCoreOnly(ctx, doc, datasetID)
 		if err != nil {
 			return nil, err
+		}
+		if !mergedDocMatchesKeyword(row, keyword) {
+			continue
 		}
 		rows = append(rows, row)
 	}
@@ -1115,7 +1114,7 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 	baseQuery := store.LazyLLMDB().WithContext(ctx).
 		Table((readonlyorm.LazyLLMDocRow{}).TableName()).
 		Where("doc_id IN ?", docIDs)
-	if keyword != "" {
+	if keyword != "" && strings.TrimSpace(datasetID) == "" {
 		like := "%" + strings.ToLower(strings.ReplaceAll(keyword, "%", "\\%")) + "%"
 		baseQuery = baseQuery.Where("LOWER(filename) LIKE ? OR LOWER(path) LIKE ?", like, like)
 	}
@@ -1285,10 +1284,7 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 		if relPath == "" {
 			relPath = relativePathFromFullPath(base.Path)
 		}
-		if likeKeyword != "" && !strings.Contains(strings.ToLower(displayName), likeKeyword) && !strings.Contains(strings.ToLower(base.Filename), likeKeyword) && !strings.Contains(strings.ToLower(base.Path), likeKeyword) {
-			continue
-		}
-		rows = append(rows, mergedDocRow{
+		row := mergedDocRow{
 			DocID:            coreDocID,
 			Filename:         base.Filename,
 			Path:             base.Path,
@@ -1308,7 +1304,11 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 			RelPath:          relPath,
 			DocumentStage:    documentStage,
 			PDFConvertResult: strings.TrimSpace(diff.PDFConvertResult),
-		})
+		}
+		if likeKeyword != "" && !mergedDocMatchesKeyword(row, likeKeyword) {
+			continue
+		}
+		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].BaseUpdatedAt.After(rows[j].BaseUpdatedAt) })
 	total := int64(len(rows))
@@ -1320,6 +1320,34 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 		end = len(rows)
 	}
 	return rows[offset:end], total, nil
+}
+
+func mergedDocMatchesKeyword(row mergedDocRow, keyword string) bool {
+	kw := strings.ToLower(strings.TrimSpace(keyword))
+	if kw == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(row.DisplayName)), kw) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(row.Filename)), kw) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(row.Path)), kw) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(row.Creator)), kw) {
+		return true
+	}
+
+	var tags []string
+	_ = json.Unmarshal(row.Tags, &tags)
+	for _, t := range tags {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(t)), kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func docFromRow(row mergedDocRow) Doc {

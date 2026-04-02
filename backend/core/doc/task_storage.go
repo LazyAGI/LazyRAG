@@ -18,6 +18,9 @@ func uploadRoot() string {
 }
 
 func parsingServiceEndpoint() string {
+	if v := strings.TrimSpace(os.Getenv("LAZYRAG_DOCUMENT_SERVICE_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
 	if v := strings.TrimSpace(os.Getenv("LAZYRAG_PARSING_SERVICE_URL")); v != "" {
 		return strings.TrimRight(v, "/")
 	}
