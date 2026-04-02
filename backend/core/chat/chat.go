@@ -15,7 +15,7 @@ import (
 
 const (
 	chatPath       = "/api/chat"
-	streamChatPath = "/api/chat_stream"
+	streamChatPath = "/api/chat/stream"
 
 	defaultDialTimeout  = 10 * time.Second
 	defaultTotalTimeout = 10 * time.Minute

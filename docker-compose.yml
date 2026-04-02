@@ -110,6 +110,7 @@ services:
 
   office-convert-service:
     build:
+      network: host
       context: ./backend
       dockerfile: office-convert-service/Dockerfile
     expose:
@@ -152,7 +153,6 @@ services:
       LAZYRAG_READONLY_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
       LAZYRAG_READONLY_SCHEMA: public
       LAZYRAG_READONLY_TABLES: "public.lazyllm_documents,public.lazyllm_doc_service_tasks,public.lazyllm_kb_documents"
-      ACL_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
       LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://doc-server:8000}
       LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://parsing:8000}
       LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
@@ -197,44 +197,11 @@ services:
       office-convert-service:
         condition: service_healthy
 
-  lazyllm-doc-server:
-    build:
-      context: .
-      dockerfile: backend/core/doc/Dockerfile
-    ports:
-      - "8848:8000"
-    volumes:
-      - rag-uploads:/app/uploads
-    environment:
-      LAZYRAG_DATABASE_URL: postgresql+psycopg://app:app@db:5432/app
-      LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
-      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
-      LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: ${LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL:-http://doc-server:8000/v1/internal/callbacks/tasks}
-      LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: /app/uploads
-      LAZYRAG_UPLOAD_DIR: /app/uploads
-      LAZYLLM_EXPECTED_LOG_MODULES: "all"
-      <<: *llm-api-keys
-    command: ["python", "backend/core/doc/doc_server.py"]
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -f http://localhost:8000/v1/health && curl -f http://lazyllm-parse-server:8000/health || exit 1']
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    depends_on:
-      db:
-        condition: service_healthy
-      lazyllm-parse-server:
-        condition: service_healthy
-      lazyllm-algo:
-        condition: service_healthy
-    networks:
-      default:
-        aliases:
-          - doc-server
-
   frontend:
     build:
       context: ./frontend
+    ports:
+      - "8080:80"
     expose:
       - "80"
     depends_on:
@@ -273,9 +240,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      db-bootstrap:
-        condition: service_completed_successfully
-      azyllm-parse-server:
+      lazyllm-parse-server:
         condition: service_healthy
       lazyllm-algo:
         condition: service_healthy

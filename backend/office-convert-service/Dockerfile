@@ -6,6 +6,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
+RUN set -ex \
+   && sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+   && sed -i 's|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources 
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libreoffice libreoffice-l10n-zh-cn curl ca-certificates fontconfig fonts-dejavu-core fonts-noto-cjk fonts-wqy-zenhei fonts-wqy-microhei \
     && fc-cache -f -v \

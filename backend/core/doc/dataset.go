@@ -400,12 +400,6 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	db := corestore.DB().Model(&orm.Dataset{}).
 		Where("deleted_at IS NULL")
 
-	if keyword != "" {
-		like := "%" + strings.ReplaceAll(keyword, "%", "\\%") + "%"
-		// NOTE: desc is a reserved keyword; use ANSI quoting for Postgres compatibility.
-		db = db.Where(`(display_name LIKE ? OR "desc" LIKE ?)`, like, like)
-	}
-
 	// order_by: "create_time desc" / "update_time desc" / "display_name asc"
 	if orderBy != "" {
 		if ob, err := normalizeDatasetOrderBy(orderBy); err == nil {
@@ -417,7 +411,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 
 	// text tags text：text（text，text DB text JSON text）
 	fetchLimit := pageSize
-	if len(wantTags) > 0 {
+	if len(wantTags) > 0 || keyword != "" {
 		fetchLimit = 1000
 		if fetchLimit < pageSize {
 			fetchLimit = pageSize
@@ -444,9 +438,19 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filtered := visible
-	if len(wantTags) > 0 {
+	if keyword != "" {
 		filtered = filtered[:0]
 		for _, ds := range visible {
+			if datasetMatchesKeyword(&ds, keyword) {
+				filtered = append(filtered, ds)
+			}
+		}
+	}
+
+	if len(wantTags) > 0 {
+		source := filtered
+		filtered = filtered[:0]
+		for _, ds := range source {
 			tags := parseDatasetTags(ds.Ext)
 			if containsAll(tags, wantTags) {
 				filtered = append(filtered, ds)
@@ -564,6 +568,29 @@ func containsAll(have []string, want []string) bool {
 		}
 	}
 	return true
+}
+
+func datasetMatchesKeyword(ds *orm.Dataset, keyword string) bool {
+	if ds == nil {
+		return false
+	}
+	kw := strings.ToLower(strings.TrimSpace(keyword))
+	if kw == "" {
+		return true
+	}
+
+	if strings.Contains(strings.ToLower(ds.DisplayName), kw) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(ds.Desc), kw) {
+		return true
+	}
+	for _, t := range parseDatasetTags(ds.Ext) {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(t)), kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func newDatasetID() string {
