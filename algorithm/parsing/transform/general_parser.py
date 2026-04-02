@@ -1,11 +1,10 @@
 import os
-import sys
 import re
 import copy
-from typing import Any, List, Union
+from typing import List
 from urllib.parse import urlparse
 
-from lazyllm import pipeline
+from lazyllm import pipeline, LOG
 from lazyllm.tools.rag import NodeTransform
 from lazyllm.tools.rag.doc_node import DocNode
 
@@ -13,11 +12,13 @@ from lazyllm.tools.rag.doc_node import DocNode
 IMAGE_PREFIX = os.getenv('RAG_IMAGE_PATH_PREFIX', '/mnt/lustre/share_data/mineru/images/')
 IMAGE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
+
 def is_url(s):
     try:
         res = urlparse(s)
-        return bool(res.scheme and (res.netloc or res.scheme == "file"))
-    except:
+        return bool(res.scheme and (res.netloc or res.scheme == 'file'))
+    except Exception as e:
+        LOG.error(f'is_url error: {e}')
         return False
 
 
@@ -25,8 +26,8 @@ class GeneralParser(NodeTransform):
 
     def __init__(self, max_length: int = 2048, split_by: str = '\n', **kwargs):
         super().__init__(**kwargs)
-        assert max_length > 0, "max_length must be greater than 0"
-        assert isinstance(split_by, str) and len(split_by) > 0, "split_by must be a non-empty string"
+        assert max_length > 0, 'max_length must be greater than 0'
+        assert isinstance(split_by, str) and len(split_by) > 0, 'split_by must be a non-empty string'
         self._max_length = max_length
         self._split_by = split_by
         self._len_split = len(split_by)
@@ -36,9 +37,9 @@ class GeneralParser(NodeTransform):
             alt_text, url = match.groups()
             if not is_url(url) and not url.startswith('lazyllm'):
                 url = os.path.join(IMAGE_PREFIX, url)
-            return f"![{alt_text}]({url})"
+            return f'![{alt_text}]({url})'
         return IMAGE_PATTERN.sub(_replace, text)
-    
+
     def _split(self, text: str) -> List[str]:
         if not text:
             return []

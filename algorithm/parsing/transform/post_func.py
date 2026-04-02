@@ -1,48 +1,44 @@
 import os
-import sys
 import copy
 import functools
 import inspect
 import itertools
 import re
-from typing import Union
-from pathlib import Path
-from typing import Any, List, Optional, Dict
+from typing import Any, List, Union
 import lazyllm
 from lazyllm import ModuleBase, LOG
 from lazyllm.tools.rag import DocNode
-from typing import List, Dict
 
 
 class ParagraphType:
-    Caption = "caption"
-    Footnote = "footnote"
-    Formula = "formula"
-    Index_text = "index_text"
-    Page_footer = "page_footer"
-    Page_header = "page_header"
-    Picture = "picture"
-    Figure = "figure"
-    Section_header = "section_header"
-    Table = "table"
-    Text = "text"
-    Title = "title"
+    Caption = 'caption'
+    Footnote = 'footnote'
+    Formula = 'formula'
+    Index_text = 'index_text'
+    Page_footer = 'page_footer'
+    Page_header = 'page_header'
+    Picture = 'picture'
+    Figure = 'figure'
+    Section_header = 'section_header'
+    Table = 'table'
+    Text = 'text'
+    Title = 'title'
 
-    Block = "block"
-    Clause_text = "clause_text"
-    Time_text = "time_text"
-    Water_mark = "water_mark"
-    Preface = "preface"
+    Block = 'block'
+    Clause_text = 'clause_text'
+    Time_text = 'time_text'
+    Water_mark = 'water_mark'
+    Preface = 'preface'
 
 
 SECTION_HEADER_PATTERNS = []
 
-NUMBER_PATTERN = [r"[一二三四五六七八九十百千万零壹贰叁肆伍陆柒捌玖拾佰仟]", r"[１２３４５６７８９0-9]", r"[a-zA-Z]"]
+NUMBER_PATTERN = [r'[一二三四五六七八九十百千万零壹贰叁肆伍陆柒捌玖拾佰仟]', r'[１２３４５６７８９0-9]', r'[a-zA-Z]']
 
 NORMAL_PATTERN_TEMPLATE = {
-    r"^(\s*第\s*{num}+\s*([{index_type}]+))(?:\s*(.+))": ["篇", "章", "卷", "回", "节", "条"],
-    r"^(\s*{num}({index_type})\s)(?:\s*(.+))": ["、"],
-    # r"^(\s*[\(（]?{num}+[\)）])(?:\s*(.+))": [''],
+    r'^(\s*第\s*{num}+\s*([{index_type}]+))(?:\s*(.+))': ['篇', '章', '卷', '回', '节', '条'],
+    r'^(\s*{num}({index_type})\s)(?:\s*(.+))': ['、'],
+    # r'^(\s*[\(（]?{num}+[\)）])(?:\s*(.+))': [''],
 }
 
 # 纯数字序号的最大层级数量 (1.1.1 NUMBER_INDEX_MAX_LEVEL = 3 )
@@ -62,21 +58,21 @@ def _generate_normal_index_patterns() -> list:
 
 def _generate_number_index_patterns() -> list:
     # 构建 纯数字index的patterns 列表
-    def _generate_index_pattern(level, model: str = "loose") -> list:
+    def _generate_index_pattern(level, model: str = 'loose') -> list:
         """生成指定层级的正则表达式"""
-        pattern_leve_temp = f"([\.．]\s*{NUMBER_PATTERN[1]}{{1,3}})"
+        pattern_leve_temp = rf'([\.．]\s*{NUMBER_PATTERN[1]}{{1,3}})'
         pattern_leve = pattern_leve_temp * level
 
-        sep = "\s?" if model == "loose" else "\s"
+        sep = r'\s?' if model == 'loose' else r'\s'
 
-        # 标准纯数字index 后随内容，开头不为："数字"、")"、"）"、"]"、"】"
-        end_with = "(?:\s*([^\d\)）\]】]\s*[^\d\)）\]】].*))"
+        # 标准纯数字index 后随内容，开头不为：'数字'、')'、'）'、']'、'】'
+        end_with = r'(?:\s*([^\d\)）\]】]\s*[^\d\)）\]】].*))'
 
         if level == 1:
             # 当层级为 1.1 时，为避免误将浮点数识别为index 要求序号后必须有空格
-            pattern = rf"^(\s*{NUMBER_PATTERN[1]}{{1,2}}{pattern_leve}{sep}){end_with}"
+            pattern = rf'^(\s*{NUMBER_PATTERN[1]}{{1,2}}{pattern_leve}{sep}){end_with}'
         else:
-            pattern = rf"^(\s*{NUMBER_PATTERN[1]}{{1,2}}{pattern_leve}{sep}){end_with}"
+            pattern = rf'^(\s*{NUMBER_PATTERN[1]}{{1,2}}{pattern_leve}{sep}){end_with}'
         return re.compile(pattern)
 
     return [_generate_index_pattern(level) for level in range(1, NUMBER_INDEX_MAX_LEVEL)][::-1]
@@ -87,7 +83,7 @@ def _generate_letter_number_index_patterns() -> list:
     patterns = []
 
     # 字母.数字.数字模式，如B.0.1, A.1.2等
-    letter_num_pattern = r"^(\s*[a-zA-Z]\.\d+\.\d+)(?:\s*(.+))"
+    letter_num_pattern = r'^(\s*[a-zA-Z]\.\d+\.\d+)(?:\s*(.+))'
     patterns.append(re.compile(letter_num_pattern))
 
     return patterns
@@ -98,17 +94,17 @@ NUMBER_PATTERNS = _generate_number_index_patterns()
 LETTER_NUMBER_PATTERNS = _generate_letter_number_index_patterns()
 INDEX_PATTERNS = NORMAL_PATTERNS + NUMBER_PATTERNS + LETTER_NUMBER_PATTERNS
 
-TIME_PATTERNS = [re.compile(r".{0,100}?\s*\n\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*\n?$"),
-                 re.compile(r"^\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*$"),
+TIME_PATTERNS = [re.compile(r'.{0,100}?\s*\n\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*\n?$'),
+                 re.compile(r'^\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*$'),
                  re.compile(
-                        r".{0,100}?\s*\n\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年"
-                        r"[一二三四五六七八九十]{1,2}月"
-                        r"[一二三四五六七八九十]{1,3}日)\s*\n?$"
+                        r'.{0,100}?\s*\n\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年'
+                        r'[一二三四五六七八九十]{1,2}月'
+                        r'[一二三四五六七八九十]{1,3}日)\s*\n?$'
                     ),
                  re.compile(
-                    r"^\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年"
-                    r"[一二三四五六七八九十]{1,2}月"
-                    r"[一二三四五六七八九十]{1,3}日)\s*$"
+                    r'^\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年'
+                    r'[一二三四五六七八九十]{1,2}月'
+                    r'[一二三四五六七八九十]{1,3}日)\s*$'
                 )
 ]
 
@@ -116,7 +112,7 @@ TIME_PATTERNS = [re.compile(r".{0,100}?\s*\n\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*
 def _reset_node_index(nodes) -> List[DocNode]:
     result = []
     for index, node in enumerate(nodes):
-        node._metadata["index"] = index
+        node._metadata['index'] = index
         result.append(node)
     return result
 
@@ -136,14 +132,15 @@ def _match(node: Union[DocNode, str], patterns: List) -> Union[re.Match, bool]:
         else:
             return False
 
+
 class LayoutNodeParser(ModuleBase):
-    '''
+    """
     通过正则表达式对节点进行分类 -> :
-    node.metadata["type"] =
+    node.metadata['type'] =
         ParagraphType.Index_text:    序号标题
         ParagraphType.Time_text:    时间戳
         ...
-    '''
+    """
 
     def __init__(self, num_workers: int = 0, return_trace: bool = False, **kwargs):
         super().__init__(return_trace=return_trace, **kwargs)
@@ -151,10 +148,10 @@ class LayoutNodeParser(ModuleBase):
     def forward(self, document: List[DocNode], **kwargs) -> List[DocNode]:
         # document 后更替为 nodes
         result_nodes = []
-        nodes = sorted(document, key=lambda x: x.metadata["file_name"])
-        for file_name, group in itertools.groupby(nodes, key=lambda x: x.metadata["file_name"]):
+        nodes = sorted(document, key=lambda x: x.metadata['file_name'])
+        for _file_name, group in itertools.groupby(nodes, key=lambda x: x.metadata['file_name']):
             grouped_nodes = list(group)
-            # grouped_nodes = _split_nodes(nodes=grouped_nodes, sep="\n\n")
+            # grouped_nodes = _split_nodes(nodes=grouped_nodes, sep='\n\n')
             grouped_nodes = _reset_node_index(nodes=grouped_nodes)
 
             if len(grouped_nodes) == 0:
@@ -167,7 +164,7 @@ class LayoutNodeParser(ModuleBase):
 
     @classmethod
     def class_name(cls) -> str:
-        return "LayoutNodeParser"
+        return 'LayoutNodeParser'
 
     def _parse_nodes(
         self,
@@ -176,11 +173,11 @@ class LayoutNodeParser(ModuleBase):
     ) -> List[DocNode]:
         result = []
         for node in nodes:
-            node._metadata["text_type"] = ParagraphType.Text
+            node._metadata['text_type'] = ParagraphType.Text
             if _match(node, TIME_PATTERNS):
-                node._metadata["text_type"] = ParagraphType.Time_text
+                node._metadata['text_type'] = ParagraphType.Time_text
             elif _match(node, INDEX_PATTERNS):
-                node._metadata["text_type"] = ParagraphType.Index_text
+                node._metadata['text_type'] = ParagraphType.Index_text
             result.append(node)
         return result
 
@@ -194,7 +191,7 @@ class TableConverterNode(ModuleBase):
 
     @classmethod
     def class_name(cls) -> str:
-        return "ProcessTableNode"
+        return 'ProcessTableNode'
 
     def _html_table_to_markdown(self, html_table) -> str:
         import pandas as pd
@@ -204,12 +201,12 @@ class TableConverterNode(ModuleBase):
         try:
             df = pd.read_html(StringIO(html_table))
             df_no_header = df[0]
-            df_no_header.columns = [""] * len(df_no_header.columns)
+            df_no_header.columns = [''] * len(df_no_header.columns)
             md = df_no_header.to_markdown(index=False)
             return md
         except Exception as e:
             LOG.info(f'[CustomMineruPDFReader] Error converting HTML table to Markdown: {e}')
-            return str(html_table)  
+            return str(html_table)
 
     def _parse_nodes(self, document: List[DocNode], **kwargs) -> List[DocNode]:
 
@@ -229,7 +226,7 @@ class TableConverterNode(ModuleBase):
                 table_image = None
                 for line in lines:
                     if line.get('type', 'text') == 'table' and line.get('image_path', None):
-                        true_image_path = os.path.join('images', line["image_path"])
+                        true_image_path = os.path.join('images', line['image_path'])
                         table_image = f'![{table_caption}]({true_image_path})'
                         break
                 # 设置table_image_map
@@ -239,11 +236,13 @@ class TableConverterNode(ModuleBase):
                 node.metadata.pop('table_body', None)
         return document
 
+
 class NodeTextClear(ModuleBase):
-    '''
+    """
     1. 主要清理可能出现的空节点
     2. 将已知的字符进行转义或删除
-    '''
+    """
+
     def __init__(self, num_workers: int = 0, **kwargs):
         super().__init__(**kwargs)
 
@@ -252,7 +251,7 @@ class NodeTextClear(ModuleBase):
 
     @classmethod
     def class_name(cls) -> str:
-        return "NodeTextClear"
+        return 'NodeTextClear'
 
     def _parse_nodes(
         self,
@@ -261,7 +260,7 @@ class NodeTextClear(ModuleBase):
     ) -> List[DocNode]:
         def _text_clear(result, node: DocNode):
             import unicodedata
-            node._content = unicodedata.normalize("NFKC", node.text)
+            node._content = unicodedata.normalize('NFKC', node.text)
             if not node.text:
                 return result
             result.append(node)
@@ -271,10 +270,10 @@ class NodeTextClear(ModuleBase):
 
 
 class GroupNodeParser(ModuleBase):
-    '''
+    """
     合并plain text 到 index text, 节点长度控制
     返回list[list[DocNode]]
-    '''
+    """
 
     def __init__(self, num_workers: int = 0, return_trace: bool = False, **kwargs):
         super().__init__(return_trace=return_trace, **kwargs)
@@ -284,7 +283,7 @@ class GroupNodeParser(ModuleBase):
 
     @classmethod
     def class_name(cls) -> str:
-        return "GroupNodeParser"
+        return 'GroupNodeParser'
 
     def _parse_nodes(
         self,
@@ -295,12 +294,12 @@ class GroupNodeParser(ModuleBase):
         node_group = []
         cur_group = []
         cur_title_list = []
-        toc_pattern = r"^目\s{0,4}[次录]$"
+        toc_pattern = r'^目\s{0,4}[次录]$'
         for node in nodes:
             if not node.text.strip():
                 continue
-            text_type = node.metadata.get("text_type", "text")
-            text_level = node.metadata.get("text_level", 0)
+            text_type = node.metadata.get('text_type', 'text')
+            text_level = node.metadata.get('text_level', 0)
 
             if text_level:  # 处理标题节点
                 if not cur_title_list:
@@ -338,13 +337,14 @@ class GroupNodeParser(ModuleBase):
                     node_group.append(cur_group[:])
                     cur_group = [node]
             elif text_type == 'index_text':
-                while cur_title_list and \
-                    not self.is_parent_child_title(cur_title_list[-1], node._content, direct_parent=False):
+                while cur_title_list and not self.is_parent_child_title(
+                    cur_title_list[-1], node._content, direct_parent=False
+                ):
                     cur_title_list.pop(-1)
                 if cur_title_list:
                     node._metadata['title'] = '\n'.join(cur_title_list)
                 if cur_group:
-                    if cur_group[-1].metadata.get("text_level", 0):
+                    if cur_group[-1].metadata.get('text_level', 0):
                         cur_group.append(node)
                     else:
                         node_group.append(cur_group[:])
@@ -434,7 +434,6 @@ class GroupNodeParser(ModuleBase):
         if current_chunks:
             result_nodes.append(self._create_split_node(current_chunks, node.metadata))
 
-
         return result_nodes
 
     def _create_split_node(self, current_chunks, metadata):
@@ -446,24 +445,26 @@ class GroupNodeParser(ModuleBase):
         metadata = copy.deepcopy(metadata)
 
         # 为table类型节点添加caption和footnote
-        is_table = metadata.get("type", "text") == "table"
+        is_table = metadata.get('type', 'text') == 'table'
         if is_table:
-            table_caption = metadata.get("table_caption", "")
-            table_footnote = metadata.get("table_footnote", "")
+            table_caption = metadata.get('table_caption', '')
+            table_footnote = metadata.get('table_footnote', '')
             if table_caption and not content.lstrip().startswith(table_caption):
-                content = f"{table_caption}\n{content}"
+                content = f'{table_caption}\n{content}'
             if table_footnote and not content.rstrip().endswith(table_footnote):
-                content = f"{content.rstrip()}\n\n{table_footnote}"
-            if metadata.get("table_image_map", None):
+                content = f'{content.rstrip()}\n\n{table_footnote}'
+            if metadata.get('table_image_map', None):
                 image_path = list(metadata['table_image_map'].values())[0]
                 metadata['table_image_map'] = {content: image_path}
 
         # 创建新节点，继承原节点的metadata
         new_node = DocNode(text=content, metadata=copy.deepcopy(metadata))
-        new_node.metadata['lines'] = [{'content': new_node._content,
-                              'bbox': new_node.metadata.get("bbox", []),
-                              'type': new_node.metadata.get('type', 'text'),
-                              'page': new_node.metadata.get('page', 0)}]
+        new_node.metadata['lines'] = [{
+            'content': new_node._content,
+            'bbox': new_node.metadata.get('bbox', []),
+            'type': new_node.metadata.get('type', 'text'),
+            'page': new_node.metadata.get('page', 0),
+        }]
 
         return new_node
 
@@ -488,7 +489,7 @@ class GroupNodeParser(ModuleBase):
 
     def _is_toc_node(self, node: DocNode) -> bool:
 
-        node_type = node.metadata.get("type")
+        node_type = node.metadata.get('type')
         if node_type == 'list':
             return True
 
@@ -506,9 +507,10 @@ class GroupNodeParser(ModuleBase):
 
 
 class MergeNodeParser(ModuleBase):
-    '''
+    """
     合并同组节点，合并bbox
-    '''
+    """
+
     def __init__(self, num_workers: int = 0, return_trace: bool = False, **kwargs):
         super().__init__(return_trace=return_trace, **kwargs)
 
@@ -517,7 +519,7 @@ class MergeNodeParser(ModuleBase):
 
     @classmethod
     def class_name(cls) -> str:
-        return "MergeNodeParser"
+        return 'MergeNodeParser'
 
     def _parse_nodes(
         self,
@@ -544,14 +546,16 @@ class MergeNodeParser(ModuleBase):
             if not node._content.strip():
                 continue
             context.append(node._content)
-            if node.metadata.get("table_image_map", None):
+            if node.metadata.get('table_image_map', None):
                 table_image_map.update(node.metadata['table_image_map'])
-            if node.metadata.get("page", None) is not None and node.metadata.get("bbox", None):
-                bboxs.append( [node.metadata.get("page")] + node.metadata.get("bbox"))
-                lines.append({'content': node._content,
-                              'bbox': node.metadata.get("bbox", []),
-                              'type': node.metadata.get('type', 'text'),
-                              'page': node.metadata.get('page', 0)})
+            if node.metadata.get('page', None) is not None and node.metadata.get('bbox', None):
+                bboxs.append([node.metadata.get('page')] + node.metadata.get('bbox'))
+                lines.append({
+                    'content': node._content,
+                    'bbox': node.metadata.get('bbox', []),
+                    'type': node.metadata.get('type', 'text'),
+                    'page': node.metadata.get('page', 0),
+                })
         if not context:
             return None
         metadata['lines'] = lines
@@ -560,9 +564,9 @@ class MergeNodeParser(ModuleBase):
 
         if bboxs:
             bbox = self._merge_bbox(bboxs)
-            metadata["bbox"] = bbox
+            metadata['bbox'] = bbox
 
-        node = DocNode(text="\n".join(context), metadata=metadata)
+        node = DocNode(text='\n'.join(context), metadata=metadata)
         return node
 
     def _merge_bbox(self, bboxs):
@@ -588,7 +592,7 @@ class GroupFilterNodeParser(ModuleBase):
 
     @classmethod
     def class_name(cls) -> str:
-        return "GroupFilterNodeParser"
+        return 'GroupFilterNodeParser'
 
     def _parse_nodes(self, nodes: List[List[DocNode]], **kwargs: Any) -> List[List[DocNode]]:
         new_nodes = []
@@ -596,10 +600,11 @@ class GroupFilterNodeParser(ModuleBase):
             if not group:
                 continue
             first_node = group[0]
-            if first_node._content.strip() and re.match(r"^目\s{0,4}[次录]$", first_node._content.strip()):
+            if first_node._content.strip() and re.match(r'^目\s{0,4}[次录]$', first_node._content.strip()):
                 continue
             new_nodes.append(group)
         return new_nodes
+
 
 class NodeParser:
     def transform(self, document: DocNode, **kwargs) -> List[Union[str, DocNode]]:
@@ -614,7 +619,7 @@ class NodeParser:
     @staticmethod
     def _parse_nodes(
         nodes,
-         **kwargs: Any,
+        **kwargs: Any,
     ) -> List[DocNode]:
 
         with lazyllm.pipeline() as parser_ppl:
@@ -623,18 +628,17 @@ class NodeParser:
             parser_ppl.layout_parser = LayoutNodeParser()
             parser_ppl.group_nodes = GroupNodeParser()
             parser_ppl.group_filter_nodes = GroupFilterNodeParser()
-            parser_ppl.merge_nodes  = MergeNodeParser()
+            parser_ppl.merge_nodes = MergeNodeParser()
 
         nodes = parser_ppl(nodes)
         embed_keys = ['file_name', 'title']
         del_keys = ['list_type', 'code_type', 'text_type', 'table_caption', 'table_footnote']
         for ind, node in enumerate(nodes):
-            node._metadata["index"] = ind
+            node._metadata['index'] = ind
             for key in del_keys:
                 node._metadata.pop(key, None)
 
-            node.excluded_embed_metadata_keys = [key for key in node._metadata.keys()
-                                                 if key not in embed_keys]
+            node.excluded_embed_metadata_keys = [key for key in node._metadata.keys() if key not in embed_keys]
             node.excluded_llm_metadata_keys = node.excluded_embed_metadata_keys[:]
 
         return nodes
@@ -648,5 +652,5 @@ def parser_code_hash():
 
     parser = NodeParser()
     parser_code = inspect.getsource(parser._parse_nodes)
-    parser_hash = sha256((parser_code).encode("utf-8")).hexdigest()
+    parser_hash = sha256((parser_code).encode('utf-8')).hexdigest()
     return parser_hash

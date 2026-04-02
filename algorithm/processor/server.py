@@ -1,4 +1,3 @@
-import os
 import signal
 import threading
 
@@ -15,6 +14,8 @@ doc_processor = DocumentProcessor(
 )
 
 _shutdown_event = threading.Event()
+
+
 def _on_signal(signum, frame):
     _shutdown_event.set()
     try:

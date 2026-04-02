@@ -1,19 +1,15 @@
-"""Sentence splitter."""
-
 import copy
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Sequence, Tuple, Union
+from typing import Callable, List, Optional, Sequence, Tuple
 from pathlib import Path
 from pydantic import Field, PrivateAttr
 
-from typing import Callable, List
 from lazyllm.tools.rag import NodeTransform
 from lazyllm.module import ModuleBase
 from lazyllm.tools.rag import DocNode
 
 
 def split_by_regex(regex: str) -> Callable[[str], List[str]]:
-    """Split text by regex."""
     import re
 
     return lambda text: re.findall(regex, text)
@@ -44,14 +40,12 @@ def split_by_sentence_tokenizer() -> Callable[[str], List[str]]:
 
 
 def split_text_keep_separator(text: str, separator: str) -> List[str]:
-    """Split text with separator and keep the separator at the end of each split."""
     parts = text.split(separator)
     result = [separator + s if i > 0 else s for i, s in enumerate(parts)]
     return [s for s in result if s]
 
 
 def split_by_sep(sep: str, keep_sep: bool = True) -> Callable[[str], List[str]]:
-    """Split text by separator."""
     if keep_sep:
         return lambda text: split_text_keep_separator(text, sep)
     else:
@@ -59,13 +53,12 @@ def split_by_sep(sep: str, keep_sep: bool = True) -> Callable[[str], List[str]]:
 
 
 def split_by_char() -> Callable[[str], List[str]]:
-    """Split text by character."""
     return lambda text: list(text)
 
 
 SENTENCE_CHUNK_OVERLAP = 200
-CHUNKING_REGEX = "[^。？\?！\\n]+[。？\?！\\n]?"
-DEFAULT_PARAGRAPH_SEP = "\n\n\n"
+CHUNKING_REGEX = r'[^。？\?！\n]+[。？\?！\n]?'
+DEFAULT_PARAGRAPH_SEP = '\n\n\n'
 
 DEFAULT_CHUNK_SIZE = 1024
 
@@ -87,7 +80,7 @@ class NormalLineSplitter(NodeTransform):
             if len(para_list[index]) > 10 or index == len(para_list) - 1:
                 out_para.append(para_list[index])
             else:
-                para_list[index + 1] = f"{para_list[index]}{para_list[index + 1]}"
+                para_list[index + 1] = f'{para_list[index]}{para_list[index + 1]}'
 
         return out_para
 
@@ -112,18 +105,18 @@ class NormalLineSplitter(NodeTransform):
 class ParagraphSplitter(ModuleBase):
     chunk_size: int = Field(
         default=DEFAULT_CHUNK_SIZE,
-        description="The token chunk size for each chunk.",
+        description='The token chunk size for each chunk.',
         gt=0,
     )
     chunk_overlap: int = Field(
         default=SENTENCE_CHUNK_OVERLAP,
-        description="The token overlap of each chunk when splitting.",
+        description='The token overlap of each chunk when splitting.',
         gte=0,
     )
-    separator: str = Field(default=" ", description="Default separator for splitting into words")
-    paragraph_separator: str = Field(default=DEFAULT_PARAGRAPH_SEP, description="Separator between paragraphs.")
+    separator: str = Field(default=' ', description='Default separator for splitting into words')
+    paragraph_separator: str = Field(default=DEFAULT_PARAGRAPH_SEP, description='Separator between paragraphs.')
     secondary_chunking_regex: str = Field(
-        default=CHUNKING_REGEX, description="Backup regex for splitting into sentences."
+        default=CHUNKING_REGEX, description='Backup regex for splitting into sentences.'
     )
 
     _chunking_tokenizer_fn: Callable[[str], List[str]] = PrivateAttr()
@@ -133,7 +126,7 @@ class ParagraphSplitter(ModuleBase):
 
     def __init__(
         self,
-        separator: str = " ",
+        separator: str = ' ',
         num_workers: int = 0,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         chunk_overlap: int = SENTENCE_CHUNK_OVERLAP,
@@ -146,14 +139,13 @@ class ParagraphSplitter(ModuleBase):
         id_func: Optional[Callable[[int, DocNode], str]] = None,
         **kwargs,
     ):
-        """Initialize with parameters."""
         if chunk_overlap > chunk_size:
             raise ValueError(
-                f"Got a larger chunk overlap ({chunk_overlap}) than chunk size " f"({chunk_size}), should be smaller."
+                f'Got a larger chunk overlap ({chunk_overlap}) than chunk size " f"({chunk_size}), should be smaller.'
             )
         self.chunk_size = chunk_size or DEFAULT_CHUNK_SIZE
         self.chunk_overlap = chunk_overlap or SENTENCE_CHUNK_OVERLAP
-        self.separator = separator or " "
+        self.separator = separator or ' '
         self.paragraph_separator = paragraph_separator or DEFAULT_PARAGRAPH_SEP
         self.secondary_chunking_regex = secondary_chunking_regex or CHUNKING_REGEX
         self._chunking_tokenizer_fn = chunking_tokenizer_fn or split_by_sentence_tokenizer()
@@ -170,7 +162,7 @@ class ParagraphSplitter(ModuleBase):
 
     @classmethod
     def class_name(cls) -> str:
-        return "ParagraphSplitter"
+        return 'ParagraphSplitter'
 
     def split_text(self, text: str) -> List[str]:
         return self._split_text(text, chunk_size=self.chunk_size)
@@ -187,7 +179,7 @@ class ParagraphSplitter(ModuleBase):
     #     self, nodes: Sequence[DocNode], show_progress: bool = False, **kwargs: Any
     # ) -> List[DocNode]:
     #     all_nodes: List[DocNode] = []
-    #     nodes_with_progress = get_tqdm_iterable(nodes, show_progress, "Parsing nodes")
+    #     nodes_with_progress = get_tqdm_iterable(nodes, show_progress, 'Parsing nodes')
     #     for node in nodes_with_progress:
     #         splits = self.split_text(node.get_content())
 
@@ -203,7 +195,7 @@ class ParagraphSplitter(ModuleBase):
 
         Has a preference for complete sentences, phrases, and minimal overlap.
         """
-        if text == "":
+        if text == '':
             return [text]
 
         splits = self._split(text, chunk_size)
@@ -220,14 +212,14 @@ class ParagraphSplitter(ModuleBase):
             if len(para_list[index]) > 10 or index == len(para_list) - 1:
                 out_para.append(para_list[index])
             else:
-                para_list[index + 1] = f"{para_list[index]}{para_list[index + 1]}"
+                para_list[index + 1] = f'{para_list[index]}{para_list[index + 1]}'
 
         return out_para
 
     def _get_sub_split_text(self, text):
         _split_fns = [
             split_by_regex(self.secondary_chunking_regex),
-            split_by_regex("[^》）\)、]+[》）\)、]?"),
+            split_by_regex(r'[^》）\)、]+[》）\)、]?'),
             split_by_sep(self.separator),
             split_by_char(),
         ]
@@ -308,9 +300,9 @@ class ParagraphSplitter(ModuleBase):
         cur_chunk_size = chunk_size + self.chunk_overlap
 
         def close_chunk() -> None:
-            nonlocal chunks, cur_chunk, last_chunk, cur_chunk_len, new_chunk
+            nonlocal cur_chunk, last_chunk, cur_chunk_len, new_chunk
 
-            chunks.append("".join([text for text, length in cur_chunk]))
+            chunks.append(''.join([text for text, length in cur_chunk]))
             last_chunk = cur_chunk
             pre_overlap = int(cur_chunk_len / 5)
             cur_chunk = []
@@ -331,10 +323,10 @@ class ParagraphSplitter(ModuleBase):
                     else:
                         if cur_chunk_len < self.chunk_overlap:
                             text, length = last_chunk[last_index]
-                            text = text[length - (self.chunk_overlap + pre_overlap - cur_chunk_len) :]
+                            text = text[length - (self.chunk_overlap + pre_overlap - cur_chunk_len):]
                             sub_splits = self._get_sub_split_text(text=text)
                             if len(sub_splits) > 1:
-                                text = "".join(sub_splits[1:])
+                                text = ''.join(sub_splits[1:])
                             else:
                                 text = sub_splits[0]
 
@@ -347,7 +339,7 @@ class ParagraphSplitter(ModuleBase):
         while len(splits) > 0:
             cur_split = splits[0]
             if cur_split.token_size > cur_chunk_size:
-                raise ValueError("Single token exceeded chunk size")
+                raise ValueError('Single token exceeded chunk size')
             if cur_chunk_len + cur_split.token_size > cur_chunk_size and not new_chunk:
                 # if adding split to current chunk exceeds chunk size: close out chunk
                 close_chunk()
@@ -368,7 +360,7 @@ class ParagraphSplitter(ModuleBase):
 
         # handle the last chunk
         if not new_chunk:
-            chunk = "".join([text for text, length in cur_chunk])
+            chunk = ''.join([text for text, length in cur_chunk])
             chunks.append(chunk)
 
         # run postprocessing to remove blank spaces
@@ -381,7 +373,7 @@ class ParagraphSplitter(ModuleBase):
         new_chunks = []
         for chunk in chunks:
             stripped_chunk = chunk.strip()
-            if stripped_chunk == "":
+            if stripped_chunk == '':
                 continue
             new_chunks.append(stripped_chunk)
         return new_chunks
