@@ -63,7 +63,6 @@ url_map: Dict[str, str] = {
     'cf': 'http://10.119.16.66:9005,cf_0304',
     '3m': 'http://10.119.16.66:9006,threem_0303',
     'crag': 'http://10.119.16.66:9001,crag_0130_a',
-    'debug': 'http://127.0.0.1:8525',
 }
 
 query_ppl_map = {name: get_rag_ppl(url=doc_url) for name, doc_url in url_map.items()}
