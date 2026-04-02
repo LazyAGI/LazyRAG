@@ -1,0 +1,83 @@
+.segmentList {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+
+  &.fullMode {
+    display: block;
+    margin-bottom: 16px;
+  }
+
+  .segmentList-virtuoso {
+    height: 100% !important;
+    width: 100% !important;
+  }
+}
+
+.fullTextContent {
+  position: relative;
+
+  margin-right: 16px;
+  margin-bottom: 4px;
+
+  word-break: break-all;
+  white-space: pre-wrap;
+
+  background-color: rgb(123 162 255 / 20%);
+
+  cursor: pointer;
+
+  &:nth-child(2n) {
+    background-color: rgb(189 240 235 / 70%);
+  }
+
+  > img {
+    max-width: 100%;
+  }
+}
+
+.fullTextNumber {
+  position: absolute;
+  right: 4px;
+  bottom: 0;
+
+  color: #8d9ab2;
+}
+
+#scrollableDiv-summary {
+  & > div {
+    height: 100%;
+  }
+  .segmentList-virtuoso {
+    & > div {
+      height: 100%;
+      & > div {
+        height: 100%;
+        & > div {
+          height: 100%;
+          .segmentCard {
+            max-height: unset;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            .content {
+              flex: 1;
+            }
+          }
+        }
+      }
+    }
+  }
+  .mdx-editor-wrapper {
+    height: 100%;
+    & > div {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      .mdxeditor-root-contenteditable {
+        flex: 1 !important;
+      }
+    }
+  }
+}

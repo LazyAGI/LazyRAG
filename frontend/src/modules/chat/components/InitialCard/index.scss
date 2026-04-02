@@ -1,0 +1,27 @@
+.chat-initial-card {
+  border-radius: 4px;
+  padding: 20px;
+
+  white-space: pre-wrap;
+
+  box-shadow: 2px 4px 8px 0 #9aa5b01a;
+  background-repeat: no-repeat;
+  background-position: top right;
+  background-image: linear-gradient(81.6deg, #fff 46.13%, #dff0ff 90.51%);
+}
+
+.chat-initial-card-title {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 36px;
+}
+
+.chat-initial-info-item {
+  margin-top: 22px;
+}
+
+.chat-initial-info-title {
+  margin-left: 4px;
+
+  font-weight: 700;
+}

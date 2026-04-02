@@ -61,7 +61,7 @@ db
 
 | 服务 | Profile | 启用条件 | 用途 |
 |-----|---------|----------|------|
-| **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` 且 URL 为 `http://mineru:8000` | MinerU PDF 解析（版面分析） |
+| **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` 且 URL 为 `http://mineru:8000` | MinerU PDF 解析（版面分析，安装 variant/backend 可配置） |
 | **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` 且 URL 为 `http://paddleocr:8080` | PaddleOCR-VL PDF 解析（需 GPU） |
 | **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI` 含 `milvus:19530` | 向量存储（embeddings） |
 | **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI` 含 `opensearch:9200` | 分段存储（文档切片） |
@@ -129,12 +129,30 @@ make up LAZYRAG_MILVUS_URI=http://your-milvus:19530 LAZYRAG_OPENSEARCH_URI=https
 make up LAZYRAG_OCR_SERVER_TYPE=mineru
 ```
 
+**启用 MinerU `all` 安装 variant：**
+```bash
+make up LAZYRAG_OCR_SERVER_TYPE=mineru LAZYRAG_MINERU_PACKAGE_VARIANT=all LAZYRAG_MINERU_PREINSTALL_CPU_TORCH=0
+```
+
+**覆盖 MinerU 运行 backend：**
+```bash
+make up LAZYRAG_OCR_SERVER_TYPE=mineru LAZYRAG_MINERU_BACKEND=hybrid-auto-engine
+```
+
 **启用 PaddleOCR（需 GPU）：**
 ```bash
 make up LAZYRAG_OCR_SERVER_TYPE=paddleocr
 ```
 
 Makefile 会根据环境变量自动选择 profile。也可直接运行 `docker compose up --build`；可选服务需通过 `--profile mineru`、`--profile paddleocr`、`--profile milvus`、`--profile opensearch` 显式启用。
+
+MinerU 配置被拆成两层：
+
+- 安装 variant：`LAZYRAG_MINERU_PACKAGE_VARIANT`，例如 `pipeline` 或 `all`。
+- 运行 backend：`LAZYRAG_MINERU_BACKEND`，例如 `pipeline` 或 `hybrid-auto-engine`。
+- 兼容性钉住：`LAZYRAG_MINERU_NUMPY_VERSION` 默认为 `1.26.4`，避免 MinerU 镜像里的 `lazyllm/spacy` 被新版本 `numpy` 破坏 ABI。
+
+对本地 macOS CPU 开发，默认组合是 `LAZYRAG_MINERU_PACKAGE_VARIANT=pipeline` 与 `LAZYRAG_MINERU_BACKEND=pipeline`。
 
 - 前端：http://localhost:8080  
 - Kong（API）：http://localhost:8000  

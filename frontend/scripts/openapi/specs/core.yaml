@@ -1,0 +1,3351 @@
+components:
+    schemas:
+        ACLApiResponse:
+            properties:
+                code:
+                    type: integer
+                data:
+                    properties: {}
+                    type: object
+                message:
+                    type: string
+            type: object
+        ACLListData:
+            properties:
+                list:
+                    items:
+                        $ref: '#/components/schemas/ACLListItem'
+                    type: array
+            type: object
+        ACLListItem:
+            properties:
+                created_at:
+                    format: date-time
+                    type: string
+                grantee_id:
+                    type: string
+                grantee_type:
+                    type: string
+                id:
+                    format: int64
+                    type: integer
+                permission:
+                    type: string
+            type: object
+        AbortUploadRequest:
+            properties:
+                reason:
+                    type: string
+            type: object
+        AbortUploadResponse:
+            properties:
+                upload_id:
+                    type: string
+                upload_state:
+                    type: string
+            type: object
+        AddACLData:
+            properties:
+                acl_id:
+                    format: int64
+                    type: integer
+            type: object
+        AddACLRequest:
+            properties:
+                expires_at:
+                    format: date-time
+                    type: string
+                grantee_id:
+                    type: string
+                grantee_type:
+                    type: string
+                permission:
+                    type: string
+            required:
+                - grantee_type
+                - grantee_id
+                - permission
+            type: object
+        Algo:
+            properties:
+                algo_id:
+                    type: string
+                description:
+                    type: string
+                display_name:
+                    type: string
+            required:
+                - algo_id
+                - description
+                - display_name
+            type: object
+        AllDatasetTagsResponse:
+            properties:
+                tags:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        AuthorizationSubjectGrant:
+            properties:
+                grantee_id:
+                    type: string
+                grantee_type:
+                    type: string
+                permissions:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        BatchAddACLData:
+            properties:
+                count:
+                    type: integer
+                failed_count:
+                    type: integer
+                invalid_count:
+                    type: integer
+            type: object
+        BatchAddACLItem:
+            properties:
+                grantee_id:
+                    type: string
+                grantee_type:
+                    type: string
+                permission:
+                    type: string
+            required:
+                - grantee_type
+                - grantee_id
+                - permission
+            type: object
+        BatchAddACLRequest:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/BatchAddACLItem'
+                    type: array
+            required:
+                - items
+            type: object
+        BatchAddDatasetMemberRequest:
+            properties:
+                group_id_list:
+                    items:
+                        type: string
+                    type: array
+                group_name_list:
+                    items:
+                        type: string
+                    type: array
+                parent:
+                    type: string
+                role:
+                    properties:
+                        role:
+                            type: string
+                    type: object
+                user_id_list:
+                    items:
+                        type: string
+                    type: array
+                user_name_list:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        BatchAddDatasetMemberResponse:
+            properties:
+                dataset_members:
+                    items:
+                        $ref: '#/components/schemas/DatasetMember'
+                    type: array
+            type: object
+        BatchDeleteDocumentRequest:
+            properties:
+                names:
+                    items:
+                        type: string
+                    type: array
+                parent:
+                    type: string
+            required:
+                - parent
+            type: object
+        BatchUploadTasksResponse:
+            properties:
+                tasks:
+                    items:
+                        $ref: '#/components/schemas/TaskResponse'
+                    type: array
+            type: object
+        CanResult:
+            properties:
+                allowed:
+                    type: boolean
+            type: object
+        ChatChunkResponse:
+            properties:
+                conversation_id:
+                    type: string
+                delta:
+                    type: string
+                finish_reason:
+                    type: string
+                history_id:
+                    type: string
+                message:
+                    type: string
+                prompt_questions:
+                    items:
+                        type: string
+                    type: array
+                reasoning_content:
+                    type: string
+                seq:
+                    type: integer
+                sources:
+                    items:
+                        properties: {}
+                        type: object
+                    type: array
+                thinking_duration_s:
+                    format: int64
+                    type: integer
+            type: object
+        CompleteUploadRequest:
+            properties:
+                auto_start:
+                    type: boolean
+                idempotency_key:
+                    type: string
+            type: object
+        CompleteUploadResponse:
+            properties:
+                content_url:
+                    type: string
+                convert_error:
+                    type: string
+                convert_status:
+                    type: string
+                dataset_id:
+                    type: string
+                document_id:
+                    type: string
+                download_url:
+                    type: string
+                file_size:
+                    format: int64
+                    type: integer
+                file_url:
+                    type: string
+                parse_stored_path:
+                    type: string
+                stored_path:
+                    type: string
+                task_id:
+                    type: string
+                upload_file_id:
+                    type: string
+                upload_id:
+                    type: string
+                upload_scope:
+                    type: string
+            required:
+                - stored_path
+                - upload_id
+            type: object
+        ConversationChatStatusResponse:
+            properties:
+                is_generating:
+                    type: boolean
+            type: object
+        ConversationDetailResponse:
+            properties:
+                conversation:
+                    $ref: '#/components/schemas/ConversationItem'
+                history:
+                    items:
+                        $ref: '#/components/schemas/ConversationHistoryItem'
+                    type: array
+            type: object
+        ConversationFeedbackRequest:
+            properties:
+                expected_answer:
+                    type: string
+                history_id:
+                    type: string
+                reason:
+                    type: string
+                type:
+                    type: integer
+            required:
+                - history_id
+                - type
+            type: object
+        ConversationHistoryItem:
+            properties:
+                create_time:
+                    type: string
+                expected_answer:
+                    type: string
+                feed_back:
+                    type: integer
+                id:
+                    type: string
+                input:
+                    properties: {}
+                    type: object
+                query:
+                    type: string
+                reason:
+                    type: string
+                reasoning_content:
+                    type: string
+                result:
+                    type: string
+                seq:
+                    type: integer
+                sources:
+                    items:
+                        properties: {}
+                        type: object
+                    type: array
+            type: object
+        ConversationItem:
+            properties:
+                chat_times:
+                    format: int64
+                    type: integer
+                conversation_id:
+                    type: string
+                create_time:
+                    type: string
+                display_name:
+                    type: string
+                models:
+                    items:
+                        type: string
+                    type: array
+                name:
+                    type: string
+                search_config:
+                    properties: {}
+                    type: object
+                total_feedback_like:
+                    format: int64
+                    type: integer
+                total_feedback_unlike:
+                    format: int64
+                    type: integer
+                update_time:
+                    type: string
+                user:
+                    type: string
+            type: object
+        ConversationListResponse:
+            properties:
+                conversations:
+                    items:
+                        $ref: '#/components/schemas/ConversationItem'
+                    type: array
+                next_page_token:
+                    type: string
+                total_size:
+                    format: int64
+                    type: integer
+            type: object
+        ConversationResumeRequest:
+            properties:
+                conversation_id:
+                    type: string
+                history_id:
+                    type: string
+            required:
+                - conversation_id
+            type: object
+        ConversationSetHistoryRequest:
+            properties:
+                deleted_history_id:
+                    type: string
+                set_history_id:
+                    type: string
+            required:
+                - set_history_id
+                - deleted_history_id
+            type: object
+        ConversationStopRequest:
+            properties:
+                conversation_id:
+                    type: string
+                history_id:
+                    type: string
+            required:
+                - conversation_id
+            type: object
+        ConversationSwitchStatusRequest:
+            properties:
+                status:
+                    type: integer
+            required:
+                - status
+            type: object
+        ConversationSwitchStatusResponse:
+            properties:
+                status:
+                    type: integer
+            type: object
+        CreateTaskItem:
+            properties:
+                cross_dataset:
+                    type: boolean
+                task:
+                    $ref: '#/components/schemas/TaskPayload'
+                task_id:
+                    type: string
+                upload_file_id:
+                    type: string
+            required:
+                - task
+            type: object
+        CreateTaskRequest:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/CreateTaskItem'
+                    type: array
+                parent:
+                    type: string
+            required:
+                - items
+            type: object
+        CreateTasksResponse:
+            properties:
+                tasks:
+                    items:
+                        $ref: '#/components/schemas/TaskResponse'
+                    type: array
+            type: object
+        Dataset:
+            properties:
+                acl:
+                    items:
+                        type: string
+                    type: array
+                algo:
+                    $ref: '#/components/schemas/Algo'
+                cover_image:
+                    type: string
+                create_time:
+                    format: date-time
+                    type: string
+                creator:
+                    type: string
+                dataset_id:
+                    type: string
+                default_dataset:
+                    type: boolean
+                desc:
+                    type: string
+                display_name:
+                    type: string
+                document_count:
+                    format: int64
+                    type: integer
+                document_size:
+                    format: int64
+                    type: integer
+                is_empty:
+                    type: boolean
+                name:
+                    type: string
+                parsers:
+                    items:
+                        $ref: '#/components/schemas/ParserConfig'
+                    type: array
+                segment_count:
+                    format: int64
+                    type: integer
+                share_type:
+                    type: string
+                state:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type: array
+                token_count:
+                    format: int64
+                    type: integer
+                type:
+                    type: string
+                update_time:
+                    format: date-time
+                    type: string
+            required:
+                - algo
+                - cover_image
+                - create_time
+                - creator
+                - dataset_id
+                - default_dataset
+                - desc
+                - display_name
+                - document_count
+                - document_size
+                - is_empty
+                - name
+                - segment_count
+                - share_type
+                - state
+                - token_count
+                - type
+                - update_time
+            type: object
+        DatasetMember:
+            properties:
+                create_time:
+                    type: string
+                dataset_id:
+                    type: string
+                group:
+                    type: string
+                group_id:
+                    type: string
+                name:
+                    type: string
+                role:
+                    $ref: '#/components/schemas/DatasetRole'
+                user:
+                    type: string
+                user_id:
+                    type: string
+            type: object
+        DatasetRole:
+            properties:
+                display_name:
+                    type: string
+                role:
+                    type: string
+            type: object
+        Doc:
+            properties:
+                child_document_count:
+                    format: int64
+                    type: integer
+                child_folder_count:
+                    format: int64
+                    type: integer
+                children:
+                    items:
+                        $ref: '#/components/schemas/Doc'
+                    type: array
+                columns:
+                    items:
+                        $ref: '#/components/schemas/DocumentTableColumn'
+                    type: array
+                convert_file_uri:
+                    type: string
+                create_time:
+                    type: string
+                creator:
+                    type: string
+                data_source_type:
+                    type: string
+                dataset_display:
+                    type: string
+                dataset_id:
+                    type: string
+                display_name:
+                    type: string
+                document_id:
+                    type: string
+                document_size:
+                    format: int64
+                    type: integer
+                document_stage:
+                    type: string
+                download_file_url:
+                    type: string
+                file_id:
+                    type: string
+                file_system_path:
+                    type: string
+                file_url:
+                    type: string
+                name:
+                    type: string
+                p_id:
+                    type: string
+                pdf_convert_result:
+                    type: string
+                recursive_document_count:
+                    format: int64
+                    type: integer
+                recursive_file_size:
+                    format: int64
+                    type: integer
+                recursive_folder_count:
+                    format: int64
+                    type: integer
+                rel_path:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type: array
+                type:
+                    type: string
+                update_time:
+                    type: string
+                uri:
+                    type: string
+            required:
+                - convert_file_uri
+                - create_time
+                - creator
+                - data_source_type
+                - dataset_display
+                - dataset_id
+                - display_name
+                - document_id
+                - document_size
+                - document_stage
+                - file_id
+                - file_system_path
+                - name
+                - p_id
+                - rel_path
+                - type
+                - update_time
+                - uri
+            type: object
+        DocumentCreatorsResponse:
+            properties:
+                creators:
+                    items:
+                        $ref: '#/components/schemas/UserInfo'
+                    type: array
+            type: object
+        DocumentTableColumn:
+            properties:
+                desc:
+                    type: string
+                display_name:
+                    type: string
+                id:
+                    type: integer
+                index_type:
+                    type: string
+                sample:
+                    type: string
+                source_column:
+                    type: string
+                type:
+                    type: string
+            required:
+                - desc
+                - display_name
+                - id
+                - index_type
+                - sample
+                - source_column
+                - type
+            type: object
+        DocumentTagsResponse:
+            properties:
+                tags:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        EmptyObject:
+            properties: {}
+            type: object
+        ErrorResponse:
+            properties:
+                code:
+                    type: integer
+                message:
+                    type: string
+            type: object
+        GetKBAuthorizationResponse:
+            properties:
+                grants:
+                    items:
+                        $ref: '#/components/schemas/AuthorizationSubjectGrant'
+                    type: array
+                kb_id:
+                    type: string
+            type: object
+        GrantPrincipal:
+            properties:
+                grantee_id:
+                    type: string
+                grantee_type:
+                    type: string
+                name:
+                    type: string
+            type: object
+        InitUploadRequest:
+            properties:
+                content_type:
+                    type: string
+                document_pid:
+                    type: string
+                file_size:
+                    format: int64
+                    type: integer
+                filename:
+                    type: string
+                idempotency_key:
+                    type: string
+                part_size:
+                    format: int64
+                    type: integer
+                relative_path:
+                    type: string
+            required:
+                - filename
+            type: object
+        InitUploadResponse:
+            properties:
+                dataset_id:
+                    type: string
+                document_id:
+                    type: string
+                part_size:
+                    format: int64
+                    type: integer
+                stored_name:
+                    type: string
+                task_id:
+                    type: string
+                total_parts:
+                    type: integer
+                upload_id:
+                    type: string
+                upload_mode:
+                    type: string
+                upload_scope:
+                    type: string
+                upload_state:
+                    type: string
+            required:
+                - stored_name
+                - upload_id
+                - upload_mode
+                - upload_state
+            type: object
+        KBListResult:
+            properties:
+                list:
+                    items:
+                        $ref: '#/components/schemas/KBListRow'
+                    type: array
+                total:
+                    format: int64
+                    type: integer
+            type: object
+        KBListRow:
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                permissions:
+                    items:
+                        type: string
+                    type: array
+                visibility:
+                    type: string
+            type: object
+        ListAlgosResponse:
+            properties:
+                algos:
+                    items:
+                        $ref: '#/components/schemas/Algo'
+                    type: array
+            type: object
+        ListDatasetMembersResponse:
+            properties:
+                dataset_members:
+                    items:
+                        $ref: '#/components/schemas/DatasetMember'
+                    type: array
+                next_page_token:
+                    type: string
+            type: object
+        ListDatasetsResponse:
+            properties:
+                datasets:
+                    items:
+                        $ref: '#/components/schemas/Dataset'
+                    type: array
+                next_page_token:
+                    type: string
+                total_size:
+                    type: integer
+            required:
+                - next_page_token
+                - total_size
+            type: object
+        ListDocumentsResponse:
+            properties:
+                documents:
+                    items:
+                        $ref: '#/components/schemas/Doc'
+                    type: array
+                next_page_token:
+                    type: string
+                total_size:
+                    type: integer
+            type: object
+        ListGrantPrincipalsResponse:
+            properties:
+                groups:
+                    items:
+                        $ref: '#/components/schemas/GrantPrincipal'
+                    type: array
+                users:
+                    items:
+                        $ref: '#/components/schemas/GrantPrincipal'
+                    type: array
+            type: object
+        ListTasksResponse:
+            properties:
+                next_page_token:
+                    type: string
+                tasks:
+                    items:
+                        $ref: '#/components/schemas/TaskResponse'
+                    type: array
+                total_size:
+                    type: integer
+            type: object
+        ParserConfig:
+            properties:
+                name:
+                    type: string
+                params:
+                    additionalProperties:
+                        properties: {}
+                        type: object
+                    properties: {}
+                    type: object
+                type:
+                    type: string
+            required:
+                - name
+                - type
+            type: object
+        PermissionBatchItem:
+            properties:
+                kb_id:
+                    type: string
+                permissions:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        PermissionBatchRequest:
+            properties:
+                kb_ids:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - kb_ids
+            type: object
+        PermissionResult:
+            properties:
+                permissions:
+                    items:
+                        type: string
+                    type: array
+                source:
+                    type: string
+            type: object
+        PromptItem:
+            properties:
+                content:
+                    type: string
+                display_name:
+                    type: string
+                id:
+                    type: string
+                is_default:
+                    type: boolean
+                name:
+                    type: string
+            type: object
+        PromptListResponse:
+            properties:
+                next_page_token:
+                    type: string
+                prompts:
+                    items:
+                        $ref: '#/components/schemas/PromptItem'
+                    type: array
+                total:
+                    format: int64
+                    type: integer
+            type: object
+        PromptPatchRequest:
+            properties:
+                content:
+                    type: string
+                display_name:
+                    type: string
+            type: object
+        PromptRequest:
+            properties:
+                content:
+                    type: string
+                display_name:
+                    type: string
+            required:
+                - display_name
+                - content
+            type: object
+        ResumeTaskRequest:
+            properties:
+                task_id:
+                    type: string
+            type: object
+        SearchDatasetMemberRequest:
+            properties:
+                is_all:
+                    type: boolean
+                name_prefix:
+                    type: string
+                page_size:
+                    type: integer
+                page_token:
+                    type: string
+                parent:
+                    type: string
+            type: object
+        SearchDocumentsRequest:
+            properties:
+                dir_path:
+                    type: string
+                keyword:
+                    type: string
+                order_by:
+                    type: string
+                p_id:
+                    type: string
+                page_size:
+                    type: integer
+                page_token:
+                    type: string
+                parent:
+                    type: string
+                recursive:
+                    type: boolean
+            type: object
+        SearchTasksRequest:
+            properties:
+                task_ids:
+                    items:
+                        type: string
+                    type: array
+                task_state:
+                    type: string
+            required:
+                - task_ids
+            type: object
+        SetChatHistoryResponse:
+            properties:
+                history_id:
+                    type: string
+            type: object
+        SetDefaultDatasetRequest:
+            properties:
+                name:
+                    type: string
+            required:
+                - name
+            type: object
+        SetKBAuthorizationData:
+            properties:
+                acl_rows:
+                    type: integer
+                kb_id:
+                    type: string
+                subject_count:
+                    type: integer
+            type: object
+        SetKBAuthorizationRequest:
+            properties:
+                grants:
+                    items:
+                        $ref: '#/components/schemas/AuthorizationSubjectGrant'
+                    type: array
+            type: object
+        StartTaskRequest:
+            properties:
+                start_mode:
+                    type: string
+                task_ids:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - task_ids
+            type: object
+        StartTaskResult:
+            properties:
+                display_name:
+                    type: string
+                document_id:
+                    type: string
+                message:
+                    type: string
+                status:
+                    type: string
+                submit_status:
+                    type: string
+                task_id:
+                    type: string
+            required:
+                - status
+                - task_id
+            type: object
+        StartTasksResponse:
+            properties:
+                failed_count:
+                    type: integer
+                requested_count:
+                    type: integer
+                started_count:
+                    type: integer
+                tasks:
+                    items:
+                        $ref: '#/components/schemas/StartTaskResult'
+                    type: array
+            required:
+                - failed_count
+                - requested_count
+                - started_count
+            type: object
+        SuspendJobRequest:
+            properties:
+                task_id:
+                    type: string
+            type: object
+        TaskDocumentInfo:
+            properties:
+                display_name:
+                    type: string
+                document_id:
+                    type: string
+                document_size:
+                    format: int64
+                    type: integer
+                document_state:
+                    type: string
+            type: object
+        TaskFile:
+            properties:
+                content_type:
+                    type: string
+                display_name:
+                    type: string
+                file_size:
+                    format: int64
+                    type: integer
+                parse_stored_path:
+                    type: string
+                relative_path:
+                    type: string
+                stored_name:
+                    type: string
+                stored_path:
+                    type: string
+            type: object
+        TaskInfo:
+            properties:
+                failed_document_count:
+                    format: int64
+                    type: integer
+                failed_document_size:
+                    format: int64
+                    type: integer
+                filtered_document_count:
+                    format: int64
+                    type: integer
+                succeed_document_count:
+                    format: int64
+                    type: integer
+                succeed_document_size:
+                    format: int64
+                    type: integer
+                succeed_token_count:
+                    format: int64
+                    type: integer
+                total_document_count:
+                    format: int64
+                    type: integer
+                total_document_size:
+                    format: int64
+                    type: integer
+            type: object
+        TaskPayload:
+            properties:
+                data_source_type:
+                    type: string
+                display_name:
+                    type: string
+                document_id:
+                    type: string
+                document_ids:
+                    items:
+                        type: string
+                    type: array
+                document_pid:
+                    type: string
+                document_tags:
+                    items:
+                        type: string
+                    type: array
+                files:
+                    items:
+                        $ref: '#/components/schemas/TaskFile'
+                    type: array
+                reparse_groups:
+                    items:
+                        type: string
+                    type: array
+                target_dataset_id:
+                    type: string
+                target_path:
+                    type: string
+                target_pid:
+                    type: string
+                task_type:
+                    type: string
+            type: object
+        TaskResponse:
+            properties:
+                convert_error:
+                    type: string
+                convert_required:
+                    type: boolean
+                convert_status:
+                    type: string
+                create_time:
+                    type: string
+                creator:
+                    type: string
+                data_source_type:
+                    type: string
+                display_name:
+                    type: string
+                document_id:
+                    type: string
+                document_info:
+                    items:
+                        $ref: '#/components/schemas/TaskDocumentInfo'
+                    type: array
+                err_msg:
+                    type: string
+                files:
+                    items:
+                        $ref: '#/components/schemas/TaskFile'
+                    type: array
+                finish_time:
+                    type: string
+                name:
+                    type: string
+                parse_stored_path:
+                    type: string
+                pdf_convert_result:
+                    type: string
+                start_time:
+                    type: string
+                target_dataset_id:
+                    type: string
+                target_pid:
+                    type: string
+                task_id:
+                    type: string
+                task_info:
+                    $ref: '#/components/schemas/TaskInfo'
+                task_state:
+                    type: string
+                task_type:
+                    type: string
+            required:
+                - task_state
+            type: object
+        TransferBinding:
+            properties:
+                display_name:
+                    type: string
+                error_message:
+                    type: string
+                mode:
+                    type: string
+                source_document_id:
+                    type: string
+                source_lazy_doc_id:
+                    type: string
+                status:
+                    type: string
+                stored_path:
+                    type: string
+                target_document_id:
+                    type: string
+                target_lazy_doc_id:
+                    type: string
+            type: object
+        UnsetDefaultDatasetRequest:
+            properties:
+                name:
+                    type: string
+            required:
+                - name
+            type: object
+        UpdateACLRequest:
+            properties:
+                expires_at:
+                    format: date-time
+                    type: string
+                permission:
+                    type: string
+            required:
+                - permission
+            type: object
+        UpdateDatasetMemberRequest:
+            properties:
+                dataset_member:
+                    $ref: '#/components/schemas/DatasetMember'
+                update_mask:
+                    properties:
+                        paths:
+                            items:
+                                type: string
+                            type: array
+                    type: object
+            type: object
+        UploadFileResponse:
+            properties:
+                content_type:
+                    type: string
+                content_url:
+                    type: string
+                dataset_id:
+                    type: string
+                document_pid:
+                    type: string
+                document_tags:
+                    items:
+                        type: string
+                    type: array
+                download_url:
+                    type: string
+                file_size:
+                    format: int64
+                    type: integer
+                file_url:
+                    type: string
+                filename:
+                    type: string
+                relative_path:
+                    type: string
+                status:
+                    type: string
+                stored_name:
+                    type: string
+                stored_path:
+                    type: string
+                upload_file_id:
+                    type: string
+                upload_scope:
+                    type: string
+            type: object
+        UploadFilesResponse:
+            properties:
+                files:
+                    items:
+                        $ref: '#/components/schemas/UploadFileResponse'
+                    type: array
+            type: object
+        UploadPartResponse:
+            properties:
+                part_number:
+                    type: integer
+                part_size:
+                    format: int64
+                    type: integer
+                total_parts:
+                    type: integer
+                upload_id:
+                    type: string
+                upload_state:
+                    type: string
+                uploaded_parts:
+                    type: integer
+            type: object
+        UserInfo:
+            properties:
+                display_name:
+                    type: string
+            type: object
+info:
+    description: LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。
+    title: Backend Core API
+    version: 0.1.0
+openapi: 3.0.3
+paths:
+    /api/core/add_files_to_group:
+        post:
+            description: Proxies to parsing service. Multipart form with files.
+            parameters:
+                - in: query
+                  name: group_name
+                  required: true
+                  schema:
+                    type: string
+                - in: query
+                  name: override
+                  schema:
+                    default: false
+                    type: boolean
+            requestBody:
+                content:
+                    multipart/form-data:
+                        schema:
+                            properties:
+                                files:
+                                    items:
+                                        format: binary
+                                        type: string
+                                    type: array
+                            type: object
+            responses:
+                "200":
+                    description: Returns file ids
+            summary: Upload files and add to knowledge base group
+    /api/core/admin:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: Admin (requires document.write)
+    /api/core/chat:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                files:
+                                    items:
+                                        type: string
+                                    type: array
+                                filters:
+                                    type: object
+                                history:
+                                    type: array
+                                query:
+                                    type: string
+                                session_id:
+                                    type: string
+                            type: object
+            responses:
+                "200":
+                    description: Chat response
+            summary: Chat with knowledge base
+    /api/core/chat/stream:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            properties:
+                                history:
+                                    type: array
+                                query:
+                                    type: string
+                                session_id:
+                                    type: string
+                            type: object
+            responses:
+                "200":
+                    description: Streaming response
+            summary: Chat with knowledge base (streaming)
+    /api/core/conversation:switchStatus:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConversationSwitchStatusResponse'
+                    description: Multi-answer switch status
+            summary: Get multi-answer switch status
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ConversationSwitchStatusRequest'
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConversationSwitchStatusResponse'
+                    description: SettextMulti-answer switch status
+            summary: SetMulti-answer switch status
+    /api/core/conversations:
+        get:
+            parameters:
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConversationListResponse'
+                    description: Conversation list
+            summary: Conversation list
+    /api/core/conversations/{conversation_id}:status:
+        get:
+            parameters:
+                - in: path
+                  name: conversation_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConversationChatStatusResponse'
+                    description: Conversation status
+            summary: Get conversation status
+    /api/core/conversations/{name}:
+        delete:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete conversation
+        get:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConversationItem'
+                    description: Conversationtext
+            summary: Get conversation
+    /api/core/conversations/{name}:detail:
+        get:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConversationDetailResponse'
+                    description: Conversation details and history
+            summary: Get conversationtext
+    /api/core/conversations:chat:
+        post:
+            description: textConversationtext
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            type: object
+            responses:
+                "200":
+                    description: Chat response
+            summary: Conversationtext (requires qa.read)
+    /api/core/conversations:feedBackChatHistory:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ConversationFeedbackRequest'
+                            properties:
+                                expected_answer:
+                                    description: text
+                                    type: string
+                                history_id:
+                                    description: text ID
+                                    type: string
+                                reason:
+                                    description: text
+                                    type: string
+                                type:
+                                    description: text
+                                    format: int32
+                                    type: integer
+                            required:
+                                - history_id
+                                - type
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Feedback succeeded
+            summary: Feedback conversation history
+    /api/core/conversations:resumeChat:
+        post:
+            description: Resumetext
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ConversationResumeRequest'
+                            properties:
+                                conversation_id:
+                                    description: Conversation ID
+                                    type: string
+                                history_id:
+                                    description: text，textResumetext ID
+                                    type: string
+                            required:
+                                - conversation_id
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        text/event-stream:
+                            schema:
+                                $ref: '#/components/schemas/ChatChunkResponse'
+                    description: SSE streaming response item is ChatChunkResponse wrapped by result
+            summary: Resume conversation stream
+    /api/core/conversations:setChatHistory:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ConversationSetHistoryRequest'
+                            properties:
+                                deleted_history_id:
+                                    description: textDeletetext ID
+                                    type: string
+                                set_history_id:
+                                    description: text ID
+                                    type: string
+                            required:
+                                - set_history_id
+                                - deleted_history_id
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SetChatHistoryResponse'
+                    description: Set result
+            summary: Set conversation history
+    /api/core/conversations:stopChatGeneration:
+        post:
+            description: textConversationtext
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ConversationStopRequest'
+                            properties:
+                                conversation_id:
+                                    description: Conversation ID
+                                    type: string
+                                history_id:
+                                    description: text，text ID
+                                    type: string
+                            required:
+                                - conversation_id
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Stopped successfully
+            summary: Stop conversation generation
+    /api/core/dataset/algos:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListAlgosResponse'
+                    description: Algorithm list
+            summary: Dataset algorithm list
+    /api/core/dataset/tags:
+        get:
+            parameters:
+                - in: name
+                  name: order_by
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AllDatasetTagsResponse'
+                    description: Dataset tags
+            summary: Dataset tags
+    /api/core/datasets:
+        get:
+            parameters:
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: order_by
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: tags
+                  required: false
+                  schema:
+                    items:
+                        type: string
+                    type: array
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListDatasetsResponse'
+                    description: Dataset list
+            summary: Dataset list
+            tags:
+                - datasets
+        post:
+            parameters:
+                - in: query
+                  name: dataset_id
+                  required: false
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/Dataset'
+                            type: object
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Dataset'
+                    description: Created dataset
+            summary: Create dataset
+            tags:
+                - datasets
+    /api/core/datasets/{dataset}:
+        delete:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete dataset
+            tags:
+                - datasets
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Dataset'
+                    description: Dataset details
+            summary: Get dataset
+            tags:
+                - datasets
+        patch:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/Dataset'
+                            type: object
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Dataset'
+                    description: Updated dataset
+            summary: Update dataset
+            tags:
+                - datasets
+    /api/core/datasets/{dataset}/documents:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListDocumentsResponse'
+                    description: Document list
+            summary: Document list
+            tags:
+                - documents
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/Doc'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Doc'
+                    description: Created document
+            summary: Create document
+            tags:
+                - documents
+    /api/core/datasets/{dataset}/documents/{document}:
+        delete:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete document
+            tags:
+                - documents
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Doc'
+                    description: Document details
+            summary: Get document
+            tags:
+                - documents
+        patch:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/Doc'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Doc'
+                    description: Updated document
+            summary: Update document
+            tags:
+                - documents
+    /api/core/datasets/{dataset}/documents/{document}/segments:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents/{document}/segments
+    /api/core/datasets/{dataset}/documents/{document}/segments/{segment}:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: segment
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /datasets/{dataset}/documents/{document}/segments/{segment}
+    /api/core/datasets/{dataset}/documents/{document}/segments:search:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents/{document}/segments:search
+    /api/core/datasets/{dataset}/documents/{document}:content:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/octet-stream:
+                            schema:
+                                format: binary
+                                type: string
+                    description: Document binary content
+            summary: Preview document content
+    /api/core/datasets/{dataset}/documents/{document}:download:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: document
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/octet-stream:
+                            schema:
+                                format: binary
+                                type: string
+                    description: Document download content
+            summary: Download document
+    /api/core/datasets/{dataset}/documents:search:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchDocumentsRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListDocumentsResponse'
+                    description: Document search results
+            summary: Search documents
+            tags:
+                - documents
+    /api/core/datasets/{dataset}/members:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListDatasetMembersResponse'
+                    description: Member list
+            summary: Dataset member list
+    /api/core/datasets/{dataset}/members/{user_id}:
+        delete:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: user_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: textUser ID Delete datasetMember
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: user_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DatasetMember'
+                    description: Member details
+            summary: textUser ID Get datasetMember
+        patch:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: user_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateDatasetMemberRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DatasetMember'
+                    description: Updated member
+            summary: textUser ID Update datasetMember
+    /api/core/datasets/{dataset}/members:search:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchDatasetMemberRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListDatasetMembersResponse'
+                    description: Member search results
+            summary: Search dataset members
+    /api/core/datasets/{dataset}/tasks:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: task_state
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: task_type
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: document_id
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: document_pid
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListTasksResponse'
+                    description: Task list
+            summary: Task list
+            tags:
+                - tasks
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateTaskRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateTasksResponse'
+                    description: Created task
+            summary: Create task
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/tasks/{task}:
+        delete:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: task
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete task
+            tags:
+                - tasks
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: task
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TaskResponse'
+                    description: Task details
+            summary: Get task
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/tasks/{task}:resume:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: task
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ResumeTaskRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/StartTasksResponse'
+                    description: Resume result
+            summary: Resume task
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/tasks/{task}:suspend:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: task
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SuspendJobRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Suspended successfully
+            summary: Suspend task
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/tasks:batchUpload:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    multipart/form-data:
+                        schema:
+                            properties:
+                                document_pid:
+                                    type: string
+                                document_tags:
+                                    type: string
+                                files:
+                                    items:
+                                        format: binary
+                                        type: string
+                                    type: array
+                                relative_path:
+                                    type: string
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BatchUploadTasksResponse'
+                    description: CreatetextTask list
+            summary: BatchUploadtextCreate task
+    /api/core/datasets/{dataset}/tasks:search:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchTasksRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListTasksResponse'
+                    description: Task search results
+            summary: Search tasks by task ID
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/tasks:start:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/StartTaskRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/StartTasksResponse'
+                    description: Start result
+            summary: Start task
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/uploads:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    multipart/form-data:
+                        schema:
+                            properties:
+                                document_pid:
+                                    type: string
+                                document_tags:
+                                    type: string
+                                files:
+                                    items:
+                                        format: binary
+                                        type: string
+                                    type: array
+                                relative_path:
+                                    type: string
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UploadFilesResponse'
+                    description: Upload filetext
+            summary: Upload file
+    /api/core/datasets/{dataset}/uploads/{upload_file_id}:content:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: upload_file_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/octet-stream:
+                            schema:
+                                format: binary
+                                type: string
+                    description: textUpload filetext
+            summary: PreviewtextUpload file
+    /api/core/datasets/{dataset}/uploads/{upload_file_id}:download:
+        get:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: upload_file_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/octet-stream:
+                            schema:
+                                format: binary
+                                type: string
+                    description: textUpload fileDownloadtext
+            summary: DownloadtextUpload file
+    /api/core/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}:
+        put:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: upload_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: part_number
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/octet-stream:
+                        schema:
+                            format: binary
+                            type: string
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UploadPartResponse'
+                    description: Part upload result
+            summary: UploadDatasettext
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/uploads/{upload_id}:abort:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: upload_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AbortUploadRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AbortUploadResponse'
+                    description: Abort uploadtext
+            summary: Abort upload
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/uploads/{upload_id}:complete:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: upload_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CompleteUploadRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CompleteUploadResponse'
+                    description: Complete uploadtext
+            summary: Complete upload
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}/uploads:initUpload:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/InitUploadRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/InitUploadResponse'
+                    description: Upload initialization result
+            summary: Initialize dataset upload
+            tags:
+                - tasks
+    /api/core/datasets/{dataset}:batchAddMember:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BatchAddDatasetMemberRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BatchAddDatasetMemberResponse'
+                    description: Added members
+            summary: Batch add dataset members
+    /api/core/datasets/{dataset}:batchDelete:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BatchDeleteDocumentRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: BatchDelete document
+            tags:
+                - documents
+    /api/core/datasets/{dataset}:setDefault:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SetDefaultDatasetRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Set successfully
+            summary: Set as default dataset
+            tags:
+                - datasets
+    /api/core/datasets/{dataset}:unsetDefault:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UnsetDefaultDatasetRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Unset successfully
+            summary: Unset default dataset
+            tags:
+                - datasets
+    /api/core/document/creators:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DocumentCreatorsResponse'
+                    description: Creator list
+            summary: Document creator list
+    /api/core/document/tags:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DocumentTagsResponse'
+                    description: Document tag list
+            summary: Document tag list
+    /api/core/documents:search:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchDocumentsRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListDocumentsResponse'
+                    description: textDocument search results
+            summary: textSearch documents
+            tags:
+                - documents
+    /api/core/health:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: Health check
+    /api/core/hello:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: Hello (requires user.read)
+    /api/core/kb/{kb_id}/acl:
+        get:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/ACLListData'
+                                      type: object
+                    description: OK
+            summary: ACL list
+        post:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AddACLRequest'
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/AddACLData'
+                                      type: object
+                    description: OK
+            summary: Add ACL
+    /api/core/kb/{kb_id}/acl/{acl_id}:
+        delete:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: acl_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/EmptyObject'
+                                      type: object
+                    description: OK
+            summary: Delete ACL
+        put:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: acl_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateACLRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/EmptyObject'
+                                      type: object
+                    description: OK
+            summary: Update ACL
+    /api/core/kb/{kb_id}/acl/batch:
+        post:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BatchAddACLRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/BatchAddACLData'
+                                      type: object
+                    description: OK
+            summary: BatchAdd ACL
+    /api/core/kb/{kb_id}/authorization:
+        get:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/GetKBAuthorizationResponse'
+                                      type: object
+                    description: OK
+            summary: Get knowledge base authorization
+        post:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SetKBAuthorizationRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/SetKBAuthorizationData'
+                                      type: object
+                    description: OK
+            summary: Set knowledge base authorization
+    /api/core/kb/{kb_id}/can:
+        get:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/CanResult'
+                                      type: object
+                    description: OK
+            summary: Check knowledge base operation permission
+    /api/core/kb/{kb_id}/permission:
+        get:
+            parameters:
+                - in: path
+                  name: kb_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/PermissionResult'
+                                      type: object
+                    description: OK
+            summary: Query knowledge base permissions
+    /api/core/kb/grant-principals:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/ListGrantPrincipalsResponse'
+                                      type: object
+                    description: OK
+            summary: Get grantable principals
+    /api/core/kb/list:
+        get:
+            parameters:
+                - in: query
+                  name: permission
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            $ref: '#/components/schemas/KBListResult'
+                                      type: object
+                    description: OK
+            summary: Knowledge base list
+    /api/core/kb/permission/batch:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PermissionBatchRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                allOf:
+                                    - $ref: '#/components/schemas/ACLApiResponse'
+                                    - properties:
+                                        data:
+                                            items:
+                                                $ref: '#/components/schemas/PermissionBatchItem'
+                                            type: array
+                                      type: object
+                    description: OK
+            summary: Batch query knowledge base permissions
+    /api/core/list_files:
+        get:
+            description: Proxies to parsing service.
+            parameters:
+                - in: query
+                  name: limit
+                  schema:
+                    type: integer
+                - in: query
+                  name: details
+                  schema:
+                    default: true
+                    type: boolean
+                - in: query
+                  name: alive
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: Returns file list with status
+            summary: List files in knowledge base
+    /api/core/list_files_in_group:
+        get:
+            parameters:
+                - in: query
+                  name: group_name
+                  schema:
+                    type: string
+                - in: query
+                  name: limit
+                  schema:
+                    type: integer
+                - in: query
+                  name: alive
+                  schema:
+                    type: boolean
+            responses:
+                "200":
+                    description: Returns file list
+            summary: List files in a knowledge base group
+    /api/core/list_kb_groups:
+        get:
+            responses:
+                "200":
+                    description: Returns group names
+            summary: List knowledge base groups
+    /api/core/prompts:
+        get:
+            parameters:
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PromptListResponse'
+                    description: Prompt list
+            summary: Prompt list
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PromptRequest'
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PromptItem'
+                    description: Created prompt
+            summary: Create prompt
+    /api/core/prompts/{name}:
+        delete:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete prompt
+        get:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PromptItem'
+                    description: Prompt details
+            summary: Get prompt
+        patch:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PromptPatchRequest'
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PromptItem'
+                    description: Updated prompt
+            summary: Update prompt
+    /api/core/prompts/{name}:setDefault:
+        post:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Set successfully
+            summary: Set as default prompt
+    /api/core/prompts/{name}:unsetDefault:
+        post:
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Unset successfully
+            summary: Unset default prompt
+    /api/core/static-files/{path:.*}:
+        get:
+            parameters:
+                - in: path
+                  name: path:.*
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /static-files/{path:.*}
+    /api/core/temp/uploads:
+        post:
+            requestBody:
+                content:
+                    multipart/form-data:
+                        schema:
+                            properties:
+                                files:
+                                    items:
+                                        format: binary
+                                        type: string
+                                    type: array
+                            type: object
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UploadFilesResponse'
+                    description: Upload filetext
+            summary: Upload temp file
+    /api/core/temp/uploads/{upload_id}/parts/{part_number}:
+        put:
+            parameters:
+                - in: path
+                  name: upload_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: part_number
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/octet-stream:
+                        schema:
+                            format: binary
+                            type: string
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UploadPartResponse'
+                    description: Part upload result
+            summary: Upload temp filetext
+            tags:
+                - uploads
+    /api/core/temp/uploads/{upload_id}:abort:
+        post:
+            parameters:
+                - in: path
+                  name: upload_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AbortUploadRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AbortUploadResponse'
+                    description: Abort uploadtext
+            summary: AborttextUpload
+            tags:
+                - uploads
+    /api/core/temp/uploads/{upload_id}:complete:
+        post:
+            parameters:
+                - in: path
+                  name: upload_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CompleteUploadRequest'
+                required: false
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CompleteUploadResponse'
+                    description: Complete uploadtext
+            summary: textUpload
+            tags:
+                - uploads
+    /api/core/temp/uploads:initUpload:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/InitUploadRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/InitUploadResponse'
+                    description: Upload initialization result
+            summary: Initialize temp multipart upload
+            tags:
+                - uploads
+    /api/core/upload_files:
+        post:
+            description: Proxies to parsing service. Multipart form with files.
+            parameters:
+                - in: query
+                  name: override
+                  schema:
+                    default: false
+                    type: boolean
+                - in: query
+                  name: metadatas
+                  schema:
+                    type: string
+                - in: query
+                  name: user_path
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    multipart/form-data:
+                        schema:
+                            properties:
+                                files:
+                                    items:
+                                        format: binary
+                                        type: string
+                                    type: array
+                            type: object
+            responses:
+                "200":
+                    description: Returns [ids, results]
+            summary: Upload files to knowledge base
+servers:
+    - description: same origin; see paths with /api/core prefix
+      url: /

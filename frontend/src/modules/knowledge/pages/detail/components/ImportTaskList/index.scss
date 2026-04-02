@@ -1,0 +1,43 @@
+.import-task-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
+  .header {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+
+    .import-task-list-title {
+      flex: 1;
+
+      font-size: 16px;
+      color: #3a3a3a;
+      font-weight: 700;
+    }
+
+    .closeIcon {
+      color: #979797;
+      font-size: 20px;
+
+      cursor: pointer;
+    }
+  }
+
+  .tab {
+    margin-bottom: 16px;
+
+    label {
+      width: 124px;
+      padding: 0;
+
+      text-align: center;
+    }
+  }
+  .ellipsis-text {
+    width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

@@ -1,0 +1,291 @@
+.mdx-editor {
+  overflow: auto;
+  height: 100%;
+
+  .mdxeditor-root-contenteditable {
+    height: calc(300px - 32px);
+    padding: 8px 16px;
+  }
+
+  .mdxeditor-root-contenteditable h1,
+  .mdxeditor-root-contenteditable h2,
+  .mdxeditor-root-contenteditable h3,
+  .mdxeditor-root-contenteditable h4,
+  .mdxeditor-root-contenteditable h5,
+  .mdxeditor-root-contenteditable h6,
+  [data-lexical-editor] h1,
+  [data-lexical-editor] h2,
+  [data-lexical-editor] h3,
+  [data-lexical-editor] h4,
+  [data-lexical-editor] h5,
+  [data-lexical-editor] h6 {
+    font-family: inherit !important;
+    font-weight: bold !important;
+    color: #333 !important;
+    line-height: 1.25 !important;
+    display: block !important;
+    margin: 0.5em 0 !important;
+    padding: 0 !important;
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    text-decoration: none !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    word-spacing: normal !important;
+    white-space: normal !important;
+    position: static !important;
+    float: none !important;
+    clear: none !important;
+    overflow: visible !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: auto !important;
+    direction: ltr !important;
+    unicode-bidi: normal !important;
+  }
+
+  .mdxeditor-root-contenteditable h1,
+  [data-lexical-editor] h1 {
+    font-size: 2em !important;
+  }
+
+  .mdxeditor-root-contenteditable h2,
+  [data-lexical-editor] h2 {
+    font-size: 1.5em !important;
+  }
+
+  .mdxeditor-root-contenteditable h3,
+  [data-lexical-editor] h3 {
+    font-size: 1.17em !important;
+  }
+
+  .mdxeditor-root-contenteditable h4,
+  [data-lexical-editor] h4 {
+    font-size: 1em !important;
+  }
+
+  .mdxeditor-root-contenteditable h5,
+  [data-lexical-editor] h5 {
+    font-size: 0.83em !important;
+  }
+
+  .mdxeditor-root-contenteditable h6,
+  [data-lexical-editor] h6 {
+    font-size: 0.67em !important;
+  }
+
+  .mdxeditor-root-contenteditable {
+    font-family: inherit !important;
+    font-size: inherit !important;
+    line-height: inherit !important;
+    color: inherit !important;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    resize: none !important;
+    overflow: auto !important;
+  }
+
+  .mdxeditor-root-contenteditable p,
+  [data-lexical-editor] p {
+    margin: 0.5em 0 !important;
+    padding: 0 !important;
+    line-height: 1.6 !important;
+  }
+
+  .mdxeditor-root-contenteditable ul,
+  .mdxeditor-root-contenteditable ol,
+  [data-lexical-editor] ul,
+  [data-lexical-editor] ol {
+    margin: 0.5em 0 !important;
+    padding-left: 2em !important;
+  }
+
+  .mdxeditor-root-contenteditable li,
+  [data-lexical-editor] li {
+    margin: 0.25em 0 !important;
+  }
+
+  .mdxeditor-root-contenteditable code,
+  [data-lexical-editor] code {
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace !important;
+    background-color: #f6f8fa !important;
+    padding: 0.2em 0.4em !important;
+    border-radius: 3px !important;
+    font-size: 0.9em !important;
+  }
+
+  .mdxeditor-root-contenteditable pre,
+  [data-lexical-editor] pre {
+    background-color: #f6f8fa !important;
+    padding: 16px !important;
+    border-radius: 6px !important;
+    overflow-x: auto !important;
+    margin: 1em 0 !important;
+  }
+
+  .mdxeditor-root-contenteditable pre code,
+  [data-lexical-editor] pre code {
+    background: none !important;
+    padding: 0 !important;
+  }
+  .mdxeditor-root-contenteditable blockquote,
+  [data-lexical-editor] blockquote {
+    border-left: 4px solid #dfe2e5 !important;
+    padding-left: 16px !important;
+    margin: 1em 0 !important;
+    color: #6a737d !important;
+  }
+
+  .mdxeditor-root-contenteditable a,
+  [data-lexical-editor] a {
+    color: #0366d6 !important;
+    text-decoration: none !important;
+  }
+
+  .mdxeditor-root-contenteditable a:hover,
+  [data-lexical-editor] a:hover {
+    text-decoration: underline !important;
+  }
+
+  .mdxeditor-root-contenteditable figure,
+  [data-lexical-editor] figure {
+    margin: 1em 0 !important;
+    text-align: center !important;
+  }
+
+  .mdxeditor-root-contenteditable figure img,
+  [data-lexical-editor] figure img {
+    margin: 0 !important;
+  }
+
+  .mdxeditor-root-contenteditable figure figcaption,
+  [data-lexical-editor] figure figcaption {
+    margin-top: 0.5em !important;
+    font-size: 0.9em !important;
+    color: #666 !important;
+    text-align: center !important;
+  }
+
+  .mdx-editor .mdxeditor-root-contenteditable ol,
+  [data-lexical-editor] ol {
+    list-style-type: decimal !important;
+    list-style-position: outside !important;
+    padding-left: 2em !important;
+  }
+
+  .mdx-editor .mdxeditor-root-contenteditable ol li,
+  [data-lexical-editor] ol li {
+    display: list-item !important;
+  }
+
+  .mdx-editor .mdxeditor-root-contenteditable ol li::marker,
+  [data-lexical-editor] ol li::marker {
+    color: inherit !important;
+    font-weight: normal !important;
+    opacity: 1 !important;
+  }
+
+  // Protect table rendering inside editor (AntD may add border-collapse: separate or remove borders)
+  .mdx-editor .mdxeditor-root-contenteditable table,
+  .mdx-editor [data-lexical-editor] table {
+    width: auto !important;
+    border-collapse: collapse !important;
+    border-spacing: 0 !important;
+    margin: 1em 0 !important;
+  }
+
+  .mdx-editor .mdxeditor-root-contenteditable table th,
+  .mdx-editor .mdxeditor-root-contenteditable table td,
+  .mdx-editor [data-lexical-editor] table th,
+  .mdx-editor [data-lexical-editor] table td {
+    border: 1px solid #dfe2e5 !important;
+    padding: 8px !important;
+    text-align: left !important;
+    background: transparent !important;
+    vertical-align: top !important;
+  }
+
+  // Thematic break / hr
+  .mdx-editor .mdxeditor-root-contenteditable hr,
+  .mdx-editor [data-lexical-editor] hr {
+    border: none !important;
+    height: 1px !important;
+    background: #e6e6e6 !important;
+    margin: 1em 0 !important;
+  }
+
+  // Emphasis and strong
+  .mdx-editor .mdxeditor-root-contenteditable strong,
+  .mdx-editor .mdxeditor-root-contenteditable b,
+  .mdx-editor [data-lexical-editor] strong,
+  .mdx-editor [data-lexical-editor] b {
+    font-weight: 600 !important;
+  }
+
+  .mdx-editor .mdxeditor-root-contenteditable em,
+  .mdx-editor .mdxeditor-root-contenteditable i,
+  .mdx-editor [data-lexical-editor] em,
+  .mdx-editor [data-lexical-editor] i {
+    font-style: italic !important;
+  }
+
+  // Ensure inline code wraps and preserves background
+  .mdx-editor .mdxeditor-root-contenteditable code,
+  .mdx-editor [data-lexical-editor] code {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    background-color: #f6f8fa !important;
+  }
+
+  // Details / summary
+  .mdx-editor .mdxeditor-root-contenteditable details,
+  .mdx-editor [data-lexical-editor] details {
+    display: block !important;
+    margin: 0.5em 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  .mdx-editor .mdxeditor-root-contenteditable summary,
+  .mdx-editor [data-lexical-editor] summary {
+    display: list-item !important;
+    cursor: pointer !important;
+  }
+
+  // Images: ensure fit and not constrained by external rules
+  .mdx-editor .mdxeditor-root-contenteditable img,
+  .mdx-editor [data-lexical-editor] img {
+    max-width: 100% !important;
+    height: auto !important;
+    display: block !important;
+    margin: 0.5em auto !important;
+    object-fit: contain !important;
+  }
+
+  // Links: preserve color and break behavior
+  .mdx-editor .mdxeditor-root-contenteditable a,
+  .mdx-editor [data-lexical-editor] a {
+    color: #0366d6 !important;
+    text-decoration: none !important;
+    word-break: break-word !important;
+  }
+
+  // Ensure nested lists keep markers (nested ol/ul)
+  .mdx-editor .mdxeditor-root-contenteditable ol ol,
+  .mdx-editor .mdxeditor-root-contenteditable ul ol,
+  .mdx-editor [data-lexical-editor] ol ol,
+  .mdx-editor [data-lexical-editor] ul ol {
+    list-style-type: decimal !important;
+    list-style-position: outside !important;
+    padding-left: 1.5em !important;
+  }
+}
+
+.mdx-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

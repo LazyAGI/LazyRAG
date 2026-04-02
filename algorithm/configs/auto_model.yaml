@@ -1,0 +1,67 @@
+# 本地部署模型
+qwen3_32b_custom:
+  - source: openai
+    type: llm
+    url: http://10.119.29.126:25121/v1/
+    name: lazyllm
+    skip_auth: true
+
+qwen3_moe_custom:
+  - source: openai
+    type: llm
+    url: http://10.119.21.177:8000/v1/
+    name: lazyllm
+    skip_auth: true
+
+bgem3_emb_dense_custom:
+  - source: bgem3embed
+    type: embed
+    url: http://10.119.27.151:2269/embed
+    skip_auth: true
+
+bgem3_emb_sparse_custom:
+  - source: bgem3embed
+    type: embed
+    url: http://10.119.27.151:2269/sparse_embed
+    skip_auth: true
+
+bge_reasoner_openai_embed:
+  - source: openai
+    type: embed
+    url: http://10.119.28.105:2280/v1/
+    name: BGE-reasoner
+    skip_auth: true
+
+bge_m3_openai_embed:
+  - source: openai
+    type: embed
+    url: http://10.119.29.245:9800/v1/
+    name: lazyllm
+    skip_auth: true
+
+qwen3_reranker_custom:
+  - source: qwen3rerank
+    type: rerank
+    url: http://10.119.24.104:8331/v1/rerank
+    name: Qwen3-Reranker-8B
+    skip_auth: true
+
+# Relay embedding via LazyLLM EmbeddingDeploy.这里不需要真实本地模型权重。
+bge_m3_dense_relay:
+  - framework: EmbeddingDeploy
+    type: embed
+    url: http://10.119.16.203:8006/generate
+    trust_remote_code: false
+
+bge_m3_sparse_relay:
+  - framework: EmbeddingDeploy
+    type: embed
+    url: http://10.119.16.203:8003/generate
+    trust_remote_code: false
+
+
+
+# 线上API模型
+text-embedding-v4:  # 模型名
+  - source: qwen
+    api_key: xxx
