@@ -153,9 +153,9 @@ services:
       LAZYRAG_READONLY_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
       LAZYRAG_READONLY_SCHEMA: public
       LAZYRAG_READONLY_TABLES: "public.lazyllm_documents,public.lazyllm_doc_service_tasks,public.lazyllm_kb_documents"
-      LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://doc-server:8000}
-      LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://parsing:8000}
-      LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
+      LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://lazyllm-doc-server:8000}
+      LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://lazyllm-parse-server:8000}
+      LAZYRAG_CHAT_SERVICE_URL: ${LAZYRAG_CHAT_SERVICE_URL:-http://chat:8046}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s

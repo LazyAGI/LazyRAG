@@ -437,25 +437,26 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	filtered := visible
+	filtered := make([]orm.Dataset, 0, len(visible))
 	if keyword != "" {
-		filtered = filtered[:0]
 		for _, ds := range visible {
 			if datasetMatchesKeyword(&ds, keyword) {
 				filtered = append(filtered, ds)
 			}
 		}
+	} else {
+		filtered = append(filtered, visible...)
 	}
 
 	if len(wantTags) > 0 {
-		source := filtered
-		filtered = filtered[:0]
-		for _, ds := range source {
+		tagFiltered := make([]orm.Dataset, 0, len(filtered))
+		for _, ds := range filtered {
 			tags := parseDatasetTags(ds.Ext)
 			if containsAll(tags, wantTags) {
-				filtered = append(filtered, ds)
+				tagFiltered = append(tagFiltered, ds)
 			}
 		}
+		filtered = tagFiltered
 	}
 
 	total := len(filtered)
@@ -655,6 +656,19 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	cover := strings.TrimSpace(body.CoverImage)
 	if displayName == "" {
 		displayName = datasetID
+	}
+	// Provide explicit feedback for duplicate dataset names under the same user.
+	var existed int64
+	if err := corestore.DB().
+		Model(&orm.Dataset{}).
+		Where("create_user_id = ? AND display_name = ? AND deleted_at IS NULL", userID, displayName).
+		Count(&existed).Error; err != nil {
+		common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
+		return
+	}
+	if existed > 0 {
+		common.ReplyErr(w, "dataset name already exists", http.StatusConflict)
+		return
 	}
 
 	algoID := strings.TrimSpace(body.Algo.AlgoID)
