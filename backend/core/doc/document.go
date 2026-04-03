@@ -695,6 +695,147 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(len(out)), NextPageToken: ""})
 }
+
+func BatchUpdateDocumentTags(w http.ResponseWriter, r *http.Request) {
+	datasetID := datasetIDFromPath(r)
+	if datasetID == "" {
+		common.ReplyErr(w, "missing dataset", http.StatusBadRequest)
+		return
+	}
+	if _, userID, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetWrite); !ok {
+		if userID == "" {
+			common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		} else {
+			replyDatasetForbidden(w)
+		}
+		return
+	}
+
+	var req BatchUpdateDocumentTagsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	parent := strings.TrimSpace(req.Parent)
+	if parent == "" {
+		common.ReplyErr(w, "parent required", http.StatusBadRequest)
+		return
+	}
+	parentDatasetID := strings.TrimPrefix(parent, "datasets/")
+	if parentDatasetID == "" || parentDatasetID != datasetID {
+		common.ReplyErr(w, "parent does not match dataset", http.StatusBadRequest)
+		return
+	}
+
+	mode := strings.TrimSpace(req.Mode)
+	if mode == "" {
+		mode = "UPDATE_MODE_UNSPECIFIED"
+	}
+	if mode != "UPDATE_MODE_UNSPECIFIED" && mode != "APPEND" && mode != "OVERWRITE" {
+		common.ReplyErr(w, "invalid mode", http.StatusBadRequest)
+		return
+	}
+
+	targetIDs := map[string]struct{}{}
+	for _, id := range req.DocumentIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			targetIDs[id] = struct{}{}
+		}
+	}
+	for _, folderID := range req.FolderIDs {
+		folderID = strings.TrimSpace(folderID)
+		if folderID == "" {
+			continue
+		}
+		subtree, err := loadDocumentSubtree(r.Context(), datasetID, folderID)
+		if err != nil {
+			common.ReplyErr(w, "folder not found", http.StatusBadRequest)
+			return
+		}
+		for _, row := range subtree {
+			if isFolderLikeDocument(row) {
+				continue
+			}
+			targetIDs[strings.TrimSpace(row.ID)] = struct{}{}
+		}
+	}
+
+	if len(targetIDs) == 0 {
+		common.ReplyJSON(w, BatchUpdateDocumentTagsResponse{AffectedFiles: 0, TruncatedDocs: 0})
+		return
+	}
+
+	ids := make([]string, 0, len(targetIDs))
+	for id := range targetIDs {
+		ids = append(ids, id)
+	}
+
+	var docs []orm.Document
+	if err := store.DB().WithContext(r.Context()).
+		Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, ids).
+		Find(&docs).Error; err != nil {
+		common.ReplyErr(w, "query documents failed", http.StatusInternalServerError)
+		return
+	}
+
+	requestTags := normalizeBatchDocumentTags(req.Tags)
+	now := time.Now().UTC()
+	affected := int32(0)
+	truncated := int32(0)
+
+	for _, docRow := range docs {
+		if isFolderLikeDocument(docRow) {
+			continue
+		}
+		affected++
+		finalTags := append([]string(nil), requestTags...)
+		if mode == "APPEND" || mode == "UPDATE_MODE_UNSPECIFIED" {
+			var existing []string
+			_ = json.Unmarshal(docRow.Tags, &existing)
+			combined := append(existing, requestTags...)
+			finalTags = normalizeBatchDocumentTags(combined)
+		}
+		if len(finalTags) > 10 {
+			finalTags = finalTags[:10]
+			truncated++
+		}
+		tagsBytes, _ := json.Marshal(finalTags)
+		if err := store.DB().WithContext(r.Context()).
+			Model(&orm.Document{}).
+			Where("dataset_id = ? AND id = ? AND deleted_at IS NULL", datasetID, docRow.ID).
+			Updates(map[string]any{"tags": tagsBytes, "updated_at": now}).Error; err != nil {
+			common.ReplyErr(w, "update document tags failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	common.ReplyJSON(w, BatchUpdateDocumentTagsResponse{
+		AffectedFiles: affected,
+		TruncatedDocs: truncated,
+	})
+}
+
+func normalizeBatchDocumentTags(tags []string) []string {
+	if len(tags) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		t := strings.TrimSpace(tag)
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}
+
 func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
 	userID := store.UserID(r)
@@ -851,6 +992,19 @@ type SearchDocumentsRequest struct {
 	PageSize  int32  `json:"page_size,omitempty"`
 	Keyword   string `json:"keyword,omitempty"`
 	Recursive bool   `json:"recursive,omitempty"`
+}
+
+type BatchUpdateDocumentTagsRequest struct {
+	Parent      string   `json:"parent"`
+	DocumentIDs []string `json:"document_ids,omitempty"`
+	FolderIDs   []string `json:"folder_ids,omitempty"`
+	Mode        string   `json:"mode"`
+	Tags        []string `json:"tags"`
+}
+
+type BatchUpdateDocumentTagsResponse struct {
+	AffectedFiles int32 `json:"affected_files,omitempty"`
+	TruncatedDocs int32 `json:"truncated_docs,omitempty"`
 }
 
 type BatchDeleteDocumentRequest struct {

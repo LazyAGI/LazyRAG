@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -139,6 +140,7 @@ func (c *ChatService) StreamChat(ctx context.Context, req *LazyChatRequest) (<-c
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("DEBUG upstream request url=", c.streamChatURL, " body=", string(bodyBytes))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.streamChatURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
@@ -147,8 +149,10 @@ func (c *ChatService) StreamChat(ctx context.Context, req *LazyChatRequest) (<-c
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
+		fmt.Println("DEBUG upstream request failed url=", c.streamChatURL, " err=", err)
 		return nil, err
 	}
+	fmt.Println("DEBUG upstream response url=", c.streamChatURL, " status=", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, errors.New("upstream /api/chat_stream returned non-200")
@@ -208,6 +212,7 @@ type upstreamStreamLine struct {
 // body textRequest JSON text map text，baseURL text endpoint（text /api/...）。
 func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any) (<-chan UpstreamStreamChunk, error) {
 	service := NewChatServiceWithEndpoint(baseURL)
+	fmt.Printf("DEBUG upstream stream request baseURL=%s params=%+v\n", baseURL, body)
 
 	req := &LazyChatRequest{}
 	if q, ok := body["query"].(string); ok {
