@@ -267,7 +267,6 @@ const GroupDetail = () => {
         visible={isAddMemberModalVisible}
         group={group as any}
         isAdmin={isUserAdmin}
-        defaultViewMode="add"
         onCancel={() => setIsAddMemberModalVisible(false)}
         onSuccess={() => {
           setIsAddMemberModalVisible(false);

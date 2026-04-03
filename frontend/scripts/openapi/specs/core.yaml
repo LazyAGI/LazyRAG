@@ -1114,6 +1114,8 @@ components:
                     items:
                         $ref: '#/components/schemas/TaskFile'
                     type: array
+                relative_path:
+                    type: string
                 reparse_groups:
                     items:
                         type: string

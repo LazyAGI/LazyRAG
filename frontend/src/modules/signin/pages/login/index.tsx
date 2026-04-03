@@ -14,9 +14,6 @@ interface LoginForm {
   password: string;
 }
 
-const hashBase = () =>
-  `${window.location.origin}${window.location.pathname || ""}#`;
-
 const Login = () => {
   const [form] = Form.useForm<LoginForm>();
   const navigate = useNavigate();
@@ -28,7 +25,7 @@ const Login = () => {
     try {
       const userInfo = AgentAppsAuth.getUserInfo();
       if (userInfo && userInfo.token) {
-        window.location.href = hashBase() + "/agent/chat";
+        navigate("/agent/chat", { replace: true });
       }
     } catch {
       // ignore
@@ -88,7 +85,7 @@ const Login = () => {
       const loginData = unwrapLoginResponse(res.data as any);
       await storeLoginSession(loginData, value.username);
       clearSigninRetryLocalCache();
-      window.location.href = hashBase() + "/agent/chat";
+      navigate("/agent/chat", { replace: true });
     } catch (error: any) {
       if (!error?.response && !error?.request) {
         message.error(error?.message || t("auth.loginFailed"));

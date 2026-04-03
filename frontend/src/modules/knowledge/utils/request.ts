@@ -434,7 +434,7 @@ export function TaskServiceApi() {
   const uploadClient = CoreDefaultApiFactory(CoreConfig, BASE_URL, axiosInstance);
 
   return {
-    
+
     uploadFiles(
       dataset: string,
       formData: FormData,
@@ -464,7 +464,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     createTasks(
       dataset: string,
       body: CreateTaskRequest,
@@ -479,7 +479,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     startTasks(
       dataset: string,
       body: StartTaskRequest,
@@ -494,7 +494,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     listTasks(
       dataset: string,
       options?: RawAxiosRequestConfig,
@@ -502,7 +502,7 @@ export function TaskServiceApi() {
       return coreClient.apiCoreDatasetsDatasetTasksGet({ dataset }, options);
     },
 
-    
+
     searchTasks(
       dataset: string,
       body: SearchTasksRequest,
@@ -517,7 +517,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     suspendTask(
       dataset: string,
       task: string,
@@ -533,7 +533,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     resumeTask(
       dataset: string,
       task: string,
@@ -548,7 +548,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     deleteTask(
       dataset: string,
       task: string,
@@ -563,7 +563,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     getTask(
       dataset: string,
       task: string,

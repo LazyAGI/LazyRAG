@@ -112,10 +112,10 @@ const Detail = () => {
     <div className="knowledge-container !h-full !items-start">
       <DetailPageHeader
         breadcrumbs={[
-          { title: t("layout.knowledgeBase"), href: "/appplatform/lib/knowledge/list" },
+          { title: t("layout.knowledgeBase"), href: "/lib/knowledge/list" },
           {
             title: getKbDetail()?.display_name || t("knowledge.detail"),
-            href: `/appplatform/lib/knowledge/detail/${getKbDetail()?.dataset_id}`,
+            href: `/lib/knowledge/detail/${getKbDetail()?.dataset_id}`,
           },
           { title: knowledgeDetail?.display_name },
         ]}

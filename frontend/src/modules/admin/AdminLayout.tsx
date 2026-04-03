@@ -31,32 +31,36 @@ export default function AdminLayout() {
   const { t } = useTranslation();
   const userInfo = AgentAppsAuth.getUserInfo();
   const isLoggedIn = Boolean(userInfo?.token);
-  const canViewSystemMenu = isAdminRole(userInfo?.role);
+  const isAdminUser = isAdminRole(userInfo?.role);
 
   const pathname = location.pathname;
-  const selectedKey = pathname.startsWith("/admin/groups")
-    ? "/admin/groups"
-    : pathname.startsWith("/admin/users")
-      ? "/admin/users"
-      : "/admin/users";
+  const selectedKey = pathname.startsWith("/admin/users")
+    ? "/admin/users"
+    : "/admin/groups";
+
+  const menuChildren: MenuItem[] = [
+    ...(isAdminUser
+      ? [
+          {
+            key: "/admin/users",
+            label: t("layout.userManagement"),
+            icon: <UserOutlined />,
+          },
+        ]
+      : []),
+    {
+      key: "/admin/groups",
+      label: t("layout.groupManagement"),
+      icon: <UsergroupAddOutlined />,
+    },
+  ];
 
   const menuItems: MenuItem[] = [
     {
       key: "system",
       label: t("layout.systemManagement"),
       type: "group",
-      children: [
-        {
-          key: "/admin/users",
-          label: t("layout.userManagement"),
-          icon: <UserOutlined />,
-        },
-        {
-          key: "/admin/groups",
-          label: t("layout.groupManagement"),
-          icon: <UsergroupAddOutlined />,
-        },
-      ],
+      children: menuChildren,
     },
   ];
 
@@ -70,8 +74,8 @@ export default function AdminLayout() {
     return <Navigate to="/login" replace />;
   }
 
-  if (!canViewSystemMenu) {
-    return <Navigate to="/agent/chat" replace />;
+  if (!isAdminUser && pathname.startsWith("/admin/users")) {
+    return <Navigate to="/admin/groups" replace />;
   }
 
   return (

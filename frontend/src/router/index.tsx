@@ -47,7 +47,7 @@ export default function AppRouter() {
           </Route>
         </Route>
         <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<Navigate to="users" replace />} />
+          <Route index element={<Navigate to="groups" replace />} />
           <Route path="users" element={<UserManagement />} />
           <Route path="groups" element={<GroupManagement />} />
           <Route path="groups/:id" element={<GroupDetail />} />
