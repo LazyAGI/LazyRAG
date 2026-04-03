@@ -26,16 +26,6 @@ const { Content, Sider } = Layout;
 
 type MenuItem = Required<MenuProps>["items"][number];
 
-function isAdminRole(role?: string) {
-  const normalizedRole = (role || "").trim().toLowerCase();
-  return (
-    normalizedRole === "admin" ||
-    normalizedRole === "system-admin" ||
-    normalizedRole === "system_admin" ||
-    normalizedRole.endsWith(".admin")
-  );
-}
-
 interface ProfileFormValues {
   username: string;
   displayName?: string;
@@ -81,7 +71,6 @@ export default function MainLayout() {
 
   const userInfo = AgentAppsAuth.getUserInfo();
   const isLoggedIn = Boolean(userInfo?.token);
-  const canViewSystemMenu = isAdminRole(userInfo?.role);
   const userName = userInfo?.username || "";
 
   const [selectKeys, setSelectKeys] = useState<string[]>([
@@ -117,15 +106,10 @@ export default function MainLayout() {
   }, [pathname]);
 
   useEffect(() => {
-    if (pathname.startsWith("/admin") && !canViewSystemMenu) {
-      navigate("/agent/chat", { replace: true });
-      return;
-    }
-
     if (pathname.startsWith("/admin") && !isLoggedIn) {
       navigate("/login", { replace: true });
     }
-  }, [canViewSystemMenu, isLoggedIn, navigate, pathname]);
+  }, [isLoggedIn, navigate, pathname]);
 
   const onMenuClick: MenuProps["onClick"] = (e) => {
     const targetPath = e.key as string;
@@ -141,7 +125,7 @@ export default function MainLayout() {
 
   const handleLogout = () => {
     AgentAppsAuth.logout(
-      window.location.origin + (window.location.pathname || "") + "#/login",
+      `${window.location.origin}${window.BASENAME || ""}/login`,
     );
   };
 

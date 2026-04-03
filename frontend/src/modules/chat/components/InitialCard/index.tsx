@@ -12,7 +12,7 @@ const InitialCard = () => {
     { icon: "💬", title: t("chat.feature1Title"), text: t("chat.feature1Text") },
     { icon: "📚", title: t("chat.feature2Title"), text: t("chat.feature2Text") },
     { icon: "📈", title: t("chat.feature3Title"), text: t("chat.feature3Text") },
-    { icon: "🛠️", title: t("chat.feature4Title"), text: t("chat.feature4Text") },
+    // { icon: "🛠️", title: t("chat.feature4Title"), text: t("chat.feature4Text") },
     { icon: "🔐", title: t("chat.feature5Title"), text: t("chat.feature5Text") },
   ];
 

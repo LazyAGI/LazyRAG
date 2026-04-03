@@ -559,6 +559,7 @@ export interface TaskPayload {
     'document_pid'?: string;
     'document_tags'?: Array<string>;
     'files'?: Array<TaskFile>;
+    'relative_path'?: string;
     'reparse_groups'?: Array<string>;
     'target_dataset_id'?: string;
     'target_path'?: string;

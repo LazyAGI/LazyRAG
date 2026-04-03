@@ -112,7 +112,7 @@ export const AgentAppsAuth = {
   },
 
   getLoginUrl(): string {
-    return `${window.location.origin}${window.location.pathname || ""}#/login`;
+    return `${window.location.origin}${window.BASENAME || ""}/login`;
   },
 
   async logout(redirectUrl?: string) {

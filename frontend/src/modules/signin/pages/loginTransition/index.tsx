@@ -55,7 +55,9 @@ const LoginTransition = () => {
   const retryWithNewChallenge = () => {
     document.cookie =
       "login_challenge=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    window.location.replace(`${window.location.origin}/#/login`);
+    window.location.replace(
+      `${window.location.origin}${window.BASENAME || ""}/login`,
+    );
   };
 
   return (

@@ -110,7 +110,7 @@ export const handleError = async (error: AxiosError) => {
       if (errMsg === "User is disabled") {
         message.error("用户被禁用");
         void AgentAppsAuth.logout(
-          `${BASE_URL || window.location.origin}/#/agent/chat`,
+          `${BASE_URL || window.location.origin}${window.BASENAME || ""}/agent/chat`,
         );
         return Promise.reject(error);
       }

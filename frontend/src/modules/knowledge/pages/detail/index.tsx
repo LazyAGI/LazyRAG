@@ -303,7 +303,7 @@ const Detail = () => {
           )
         }
         breadcrumbs={[
-          { title: t("layout.knowledgeBase"), href: "/appplatform/lib/knowledge/list" },
+          { title: t("layout.knowledgeBase"), href: "/lib/knowledge/list" },
           { title: detail?.display_name },
         ]}
         description={detail?.desc}
