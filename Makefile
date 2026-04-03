@@ -50,8 +50,8 @@ LAZYRAG_DOCUMENT_WORKER_POLL_MODE ?= direct
 
 # Parsing / OCR (none=built-in PDFReader, mineru, paddleocr)
 LAZYRAG_DOCUMENT_PROCESSOR_URL ?= http://processor-server:8000
-LAZYRAG_DOCUMENT_SERVICE_URL ?= http://doc-server:8000
-LAZYRAG_PARSING_SERVICE_URL ?= http://parsing:8000
+LAZYRAG_DOCUMENT_SERVICE_URL ?= http://lazyllm-doc-server:8000
+LAZYRAG_PARSING_SERVICE_URL ?= http://lazyllm-parse-server:8000
 LAZYRAG_DOCUMENT_SERVER_PORT ?= 8000
 LAZYRAG_OCR_SERVER_TYPE ?= none
 # Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080, none->placeholder

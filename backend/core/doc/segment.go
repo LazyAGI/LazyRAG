@@ -513,6 +513,12 @@ func mapChunkToSegment(datasetID, documentID string, item map[string]any) Segmen
 	excludedEmbedMetadataKeys := firstStringSlice(item, meta, "excluded_embed_metadata_keys")
 	excludedLLMMetadataKeys := firstStringSlice(item, meta, "excluded_llm_metadata_keys")
 	metaText := firstJSONString(item, meta, "meta")
+	// Keep meta aligned with metadata payload: serialize full metadata as string.
+	if meta != nil && len(meta) > 0 {
+		if bs, err := json.Marshal(meta); err == nil {
+			metaText = string(bs)
+		}
+	}
 	if metaText == "" {
 		metaText = firstJSONString(globalMetaMap, nil, "meta")
 	}
