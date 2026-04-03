@@ -2,27 +2,42 @@ package acl
 
 import "time"
 
-// Visibility level for a knowledge base (read visibility).
+// Knowledge basetext（textPermission）。
 const (
-	VisibilityPublic    = "public"    // anyone can read
-	VisibilityProtected = "protected" // only ACL/owner can read
-	VisibilityPrivate   = "private"   // only owner and ACL
+	VisibilityPublic    = "public"    // text
+	VisibilityProtected = "protected" // text ACL/text
+	VisibilityPrivate   = "private"   // text ACL
 )
 
-// GranteeType for ACL target.
+// ACL text。
 const (
 	GranteeUser   = "user"
-	GranteeTenant = "tenant"
+	GranteeGroup  = "group"
+	GranteeTenant = "tenant" // text，text group
 )
 
-// Permission level.
+// textPermissiontext（textAuthorizationtext）。
 const (
-	PermNone  = "none"
-	PermRead  = "read"
-	PermWrite = "write"
+	PermNone   = "none"
+	PermRead   = "read"
+	PermWrite  = "write"
+	PermUpload = "upload"
 )
 
-// Permission source for audit.
+// textPermissiontext。
+const (
+	PermissionKBRead      = "KB_READ"
+	PermissionKBWrite     = "KB_WRITE"
+	PermissionKBCreateDoc = "KB_CREATE_DOC"
+	PermissionKBDeleteDoc = "KB_DELETE_DOC"
+	PermissionKBDelete    = "KB_DELETE"
+
+	PermissionDatasetRead   = "DATASET_READ"
+	PermissionDatasetWrite  = "DATASET_WRITE"
+	PermissionDatasetUpload = "DATASET_UPLOAD"
+)
+
+// Permissiontext（text）。
 const (
 	SourceOwner     = "owner"
 	SourcePublic    = "public"
@@ -30,114 +45,173 @@ const (
 	SourceACL       = "acl"
 )
 
-// ResourceType for ACL.
+// ACL text。
 const (
-	ResourceTypeKB = "kb" // knowledge base
-	ResourceTypeDB = "db" // database
+	ResourceTypeKB = "kb" // Knowledge base
+	ResourceTypeDB = "db" // text
 )
 
-// VisibilityRow matches visibility table: id, kb_id, level (default private if missing).
+// VisibilityRow text：id、resource_id(kb_id)、level（text private）。
 type VisibilityRow struct {
 	ID         int64  `json:"id"`
-	ResourceID string `json:"resource_id"` // kb_id for kb resources
+	ResourceID string `json:"resource_id"` // kb text kb_id
 	Level      string `json:"level"`       // public / protected / private
 }
 
-// ACLRow matches ACL table. Generic for kb and db resources.
+// ACLRow text ACL text，text kb text db text。
 type ACLRow struct {
 	ID           int64      `json:"id"`
 	ResourceType string     `json:"resource_type"` // kb / db
-	ResourceID   string     `json:"resource_id"`   // kb_id or db_id
-	GranteeType  string     `json:"grantee_type"`  // user / tenant
-	TargetID     int64      `json:"target_id"`     // user_id or tenant_id
-	Permission   string     `json:"permission"`    // read / write
-	CreatedBy    int64      `json:"created_by"`
+	ResourceID   string     `json:"resource_id"`   // kb_id text db_id
+	GranteeType  string     `json:"grantee_type"`  // user / group
+	TargetID     string     `json:"target_id"`     // user_id text group_id
+	Permission   string     `json:"permission"`    // KB_READ / DATASET_WRITE / ...
+	CreatedBy    string     `json:"created_by"`
 	CreatedAt    time.Time  `json:"created_at"`
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
-// ACLListItem for list response (grantee_id in API = target_id in DB).
+// ACLListItem text（API text grantee_id text target_id）。
 type ACLListItem struct {
 	ID          int64     `json:"id"`
 	GranteeType string    `json:"grantee_type"`
-	GranteeID   int64     `json:"grantee_id"`
+	GranteeID   string    `json:"grantee_id"`
 	Permission  string    `json:"permission"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// KBInfo minimal KB metadata for list and owner check.
+// KBInfo Knowledge basetext，text。
 type KBInfo struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
-	OwnerID    int64  `json:"owner_id"`
+	OwnerID    string `json:"owner_id"`
 	Visibility string `json:"visibility"`
 }
 
-// --- API request/response DTOs ---
+// --- API Request/Response DTO ---
 
-// AddACLRequest body for POST /api/kb/{kb_id}/acl
+// AddACLRequest text POST /api/kb/{kb_id}/acl Requesttext
 type AddACLRequest struct {
-	GranteeType string     `json:"grantee_type"` // user / tenant
-	GranteeID   int64      `json:"grantee_id"`
-	Permission  string     `json:"permission"` // read / write
+	GranteeType string     `json:"grantee_type"` // user / group（text tenant）
+	GranteeID   string     `json:"grantee_id"`
+	Permission  string     `json:"permission"` // text read/write，text KB_READ / DATASET_WRITE / ...
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
-// UpdateACLRequest body for PUT /api/kb/{kb_id}/acl/{acl_id}
+// UpdateACLRequest text PUT /api/kb/{kb_id}/acl/{acl_id} Requesttext
 type UpdateACLRequest struct {
 	Permission string     `json:"permission"`
 	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
 }
 
-// BatchAddACLRequest body for POST /api/kb/{kb_id}/acl/batch
+// BatchAddACLRequest text POST /api/kb/{kb_id}/acl/batch Requesttext
 type BatchAddACLRequest struct {
 	Items []BatchAddACLItem `json:"items"`
 }
 
 type BatchAddACLItem struct {
 	GranteeType string `json:"grantee_type"`
-	GranteeID   int64  `json:"grantee_id"`
+	GranteeID   string `json:"grantee_id"`
 	Permission  string `json:"permission"`
 }
 
-// PermissionBatchRequest body for POST /api/kb/permission/batch
+// PermissionBatchRequest text POST /api/kb/permission/batch Requesttext
 type PermissionBatchRequest struct {
 	KbIDs []string `json:"kb_ids"`
 }
 
-// API response envelope: { code, message, data }
+// APIResponse textResponsetext：{ code, message, data }
 type APIResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
 }
 
-// PermissionResult for GET /api/kb/{kb_id}/permission
+// PermissionResult text GET /api/kb/{kb_id}/permission
 type PermissionResult struct {
-	Permission string `json:"permission"` // none / read / write
-	Source     string `json:"source"`     // public / protected / owner / acl
+	Permissions []string `json:"permissions"`
+	Source      string   `json:"source"` // public / protected / owner / acl
 }
 
-// PermissionBatchItem for POST /api/kb/permission/batch
+// PermissionBatchItem text POST /api/kb/permission/batch text
 type PermissionBatchItem struct {
-	KbID       string `json:"kb_id"`
-	Permission string `json:"permission"`
+	KbID        string   `json:"kb_id"`
+	Permissions []string `json:"permissions"`
 }
 
-// CanResult for GET /api/kb/{kb_id}/can
+// CanResult text GET /api/kb/{kb_id}/can
 type CanResult struct {
 	Allowed bool `json:"allowed"`
 }
 
-// KBListResult for GET /api/kb/list
+// KBListResult text GET /api/kb/list
 type KBListResult struct {
 	Total int64       `json:"total"`
 	List  []KBListRow `json:"list"`
 }
 
 type KBListRow struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Visibility string `json:"visibility"`
-	Permission string `json:"permission"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Visibility  string   `json:"visibility"`
+	Permissions []string `json:"permissions"`
+}
+
+type GroupInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	UserCount int64  `json:"user_count,omitempty"`
+}
+
+type GroupMember struct {
+	UserID string `json:"user_id"`
+}
+
+type CreateGroupRequest struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+type AddGroupUserRequest struct {
+	UserID string `json:"user_id"`
+}
+
+type ListGroupsResponse struct {
+	Groups []GroupInfo `json:"groups"`
+}
+
+type ListGroupUsersResponse struct {
+	Users []GroupMember `json:"users"`
+}
+
+// --- Authorization page DTOs ---
+
+// AuthorizationSubjectGrant describes one grantee (user/group) and all permissions granted on a KB.
+type AuthorizationSubjectGrant struct {
+	GranteeType string   `json:"grantee_type"` // user / group
+	GranteeID   string   `json:"grantee_id"`
+	Permissions []string `json:"permissions"`
+}
+
+// GetKBAuthorizationResponse is used by the authorization page to render current grants.
+type GetKBAuthorizationResponse struct {
+	KbID   string                      `json:"kb_id"`
+	Grants []AuthorizationSubjectGrant `json:"grants"`
+}
+
+// SetKBAuthorizationRequest replaces ACL grants of a KB with the submitted grants.
+type SetKBAuthorizationRequest struct {
+	Grants []AuthorizationSubjectGrant `json:"grants"`
+}
+
+// GrantPrincipal represents a selectable user/group in authorization UI.
+type GrantPrincipal struct {
+	GranteeType string `json:"grantee_type"` // user / group
+	GranteeID   string `json:"grantee_id"`
+	Name        string `json:"name,omitempty"`
+}
+
+type ListGrantPrincipalsResponse struct {
+	Users  []GrantPrincipal `json:"users"`
+	Groups []GrantPrincipal `json:"groups"`
 }

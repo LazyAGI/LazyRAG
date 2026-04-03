@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Table, Button, Space, Tag, Popconfirm, message, Modal, Form, Input, Tooltip } from "antd";
-import { PlusOutlined, DeleteOutlined, EditOutlined, KeyOutlined } from "@ant-design/icons";
+import { PlusOutlined, StopOutlined, EditOutlined, KeyOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import CreateUserModal from "./components/CreateUserModal";
 import { createUserApi } from "@/modules/signin/utils/request";
@@ -55,13 +55,23 @@ const UserManagement = () => {
     fetchUsers(1, pagination.pageSize, value);
   };
 
-  const handleDelete = async (_userId: string) => {
+  const isUserDisabled = (status?: string) =>
+    status !== "active" && status !== "enabled";
+
+  const handleDisable = async (userId: string) => {
     try {
-      // const api = createUserApi();
-      // await api.deleteUserApiUserUserIdDelete({ user_id: userId });
-      message.warning(t("admin.deleteUserUnavailable"));
+      const api = createUserApi();
+      await api.disableUserApiAuthserviceUserUserIdDisablePatch({
+        userId,
+        disableUserBody: {
+          disabled: true,
+        },
+      });
+      message.success(t("admin.disableSuccess"));
+      fetchUsers(pagination.current, pagination.pageSize, searchTerm);
     } catch (error) {
-      message.error(t("admin.deleteFailed"));
+      console.error("Disable user failed:", error);
+      message.error(t("admin.disableFailed"));
     }
   };
 
@@ -162,8 +172,8 @@ const UserManagement = () => {
       key: "status",
       width: 80,
       render: (status: string) => (
-        <Tag color={status === "active" || status === "enabled" ? "success" : "default"}>
-          {status === "active" || status === "enabled" ? t("admin.normal") : t("admin.disabled")}
+        <Tag color={!isUserDisabled(status) ? "success" : "default"}>
+          {!isUserDisabled(status) ? t("admin.normal") : t("admin.disabled")}
         </Tag>
       ),
     },
@@ -172,7 +182,10 @@ const UserManagement = () => {
       key: "action",
       fixed: 'right' as const,
       width: 240,
-      render: (_: any, record: UserItem) => (
+      render: (_: any, record: UserItem) => {
+        const disabled = isUserDisabled(record.status);
+
+        return (
         <Space size={0}>
           <Button 
             type="link" 
@@ -191,15 +204,25 @@ const UserManagement = () => {
             {t("admin.resetPassword")}
           </Button>
           <Popconfirm
-            title={t("admin.deleteUserConfirm")}
-            onConfirm={() => handleDelete(record.user_id)}
+            title={t("admin.disableUserConfirm")}
+            onConfirm={() => handleDisable(record.user_id)}
             okText={t("common.confirm")}
             cancelText={t("common.cancel")}
+            disabled={disabled}
           >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>{t("common.delete")}</Button>
+            <Button
+              type="link"
+              size="small"
+              danger={!disabled}
+              disabled={disabled}
+              icon={<StopOutlined />}
+            >
+              {disabled ? t("admin.disabled") : t("admin.disable")}
+            </Button>
           </Popconfirm>
         </Space>
-      ),
+        );
+      },
     },
   ];
 

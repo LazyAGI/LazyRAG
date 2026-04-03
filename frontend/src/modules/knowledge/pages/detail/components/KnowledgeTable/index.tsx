@@ -658,7 +658,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
             }
             onChange={(e) => handleSelectAll(e.target.checked)}
           />
-          <span style={{ marginLeft: "12px" }}>知识</span>
+          <span style={{ marginLeft: "12px" }}>{t("knowledge.knowledge")}</span>
         </div>
       ),
       dataIndex: "display_name",
