@@ -185,8 +185,7 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
         );
         const uploaded = uploadRes.data.files || [];
         if (!uploaded.length) {
-          message.error(t("knowledge.uploadResultMissing"));
-          return;
+          throw new Error(t("knowledge.uploadResultMissing"));
         }
         uploadedItems.push({
           upload_file_id: uploaded[0].upload_file_id!,
