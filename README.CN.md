@@ -122,6 +122,10 @@ db
 
 ## 快速开始
 
+环境变量配置与完整启动示例见：
+
+- [`docs/quick_start.md`](/Users/chenjiahao/Desktop/codes/LazyRAG/docs/quick_start.md)
+
 **完整栈（默认部署 Milvus + OpenSearch）：**
 ```bash
 make up
