@@ -259,13 +259,13 @@ const KnowledgePage: FC = () => {
                 const datasetId = record?.dataset_id;
                 const relPathtype = record?.type;
                 if (relPathtype === "FOLDER") {
-                  navigate({ pathname: `/detail/${datasetId}` });
+                  navigate({ pathname: `/lib/knowledge/detail/${datasetId}` });
                 } else {
                   navigate({
                     pathname:
                       documentId && datasetId
-                        ? `/knowledge/${datasetId}/${documentId}`
-                        : `/detail/${datasetId}`,
+                        ? `/lib/knowledge/knowledge/${datasetId}/${documentId}`
+                        : `/lib/knowledge/detail/${datasetId}`,
                   });
                 }
               }}

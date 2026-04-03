@@ -327,6 +327,11 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
                 rows={5}
                 showCount
                 maxLength={800}
+                style={{
+                  width: "100%",
+                  height: "132px",
+                  resize: "none",
+                }}
               />
             </Form.Item>
           </Form>

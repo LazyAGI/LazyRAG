@@ -325,6 +325,7 @@ const zhCN = {
     searchPlaceholder: "知识库名称/描述/标签",
     searchDocPlaceholder: "搜索文档名称、标签、更新人",
     createKnowledgeBase: "创建知识库",
+    editKnowledgeBase: "编辑知识库",
     selectTag: "请选择知识库标签",
     knowledge: "知识",
     allTags: "全部",

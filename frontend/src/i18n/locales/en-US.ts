@@ -337,6 +337,7 @@ const enUS = {
     searchPlaceholder: "Name / Description / Tags",
     searchDocPlaceholder: "Search by name, tags, or updater",
     createKnowledgeBase: "Create Knowledge Base",
+    editKnowledgeBase: "Edit Knowledge Base",
     selectTag: "Select knowledge base tag",
     knowledge: "Knowledge",
     allTags: "All",
