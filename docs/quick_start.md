@@ -56,13 +56,25 @@ export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=none
 ```
 
-如果要启用 MinerU：
+如果要启用本地 MinerU：
 
 ```bash
 export LAZYRAG_OCR_SERVER_TYPE=mineru
+export LAZYRAG_OCR_SERVER_URL=http://mineru:8000
 export LAZYRAG_MINERU_BACKEND=pipeline
 export LAZYRAG_MINERU_UPLOAD_MODE=true
 ```
+
+如果要复用 ECS / 内网已经部署好的 MinerU：
+
+```bash
+export LAZYRAG_OCR_SERVER_TYPE=mineru
+export LAZYRAG_OCR_SERVER_URL=http://your-inner-mineru:port
+export LAZYRAG_MINERU_UPLOAD_MODE=true
+```
+
+`http://mineru:8000` 表示使用当前 `docker compose` 启动的本地 MinerU。
+如果 `LAZYRAG_OCR_SERVER_URL` 指向外部地址，服务会复用外部 MinerU，`make up-build` 也不会自动启动本地 `mineru` profile。
 
 如果使用外部 Milvus / OpenSearch，也在启动前 export 对应变量：
 
@@ -114,6 +126,7 @@ make up-build
 ```bash
 export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=mineru
+export LAZYRAG_OCR_SERVER_URL=http://mineru:8000
 export LAZYRAG_MINERU_BACKEND=pipeline
 export LAZYRAG_MINERU_UPLOAD_MODE=true
 
@@ -169,12 +182,24 @@ make up-build
 
 ### 2. 内网已部署模型
 
-使用新的内网 runtime 配置：
+使用新的内网 runtime 配置 + 本地 MinerU：
 
 ```bash
 export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=mineru
+export LAZYRAG_OCR_SERVER_URL=http://mineru:8000
 export LAZYRAG_MINERU_BACKEND=pipeline
+export LAZYRAG_MINERU_UPLOAD_MODE=true
+
+make up-build
+```
+
+如果要复用 ECS / 内网已经部署好的 MinerU：
+
+```bash
+export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
+export LAZYRAG_OCR_SERVER_TYPE=mineru
+export LAZYRAG_OCR_SERVER_URL=http://your-inner-mineru:port
 export LAZYRAG_MINERU_UPLOAD_MODE=true
 
 make up-build
