@@ -14,7 +14,12 @@ const quiet = args.has("--quiet");
 
 let cache = {};
 if (fs.existsSync(cacheFilePath)) {
-  cache = JSON.parse(fs.readFileSync(cacheFilePath, "utf-8"));
+  try {
+    const raw = fs.readFileSync(cacheFilePath, "utf-8").trim();
+    cache = raw ? JSON.parse(raw) : {};
+  } catch {
+    cache = {};
+  }
 }
 
 const statuses = apis.map((api) => {
@@ -48,4 +53,3 @@ if (jsonOutput) {
 if (statuses.some((status) => status.stale || !status.exists)) {
   process.exit(1);
 }
-

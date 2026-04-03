@@ -3,7 +3,6 @@ import { Table, Button, Space, Tag, Popconfirm, message, Modal, Form, Input, Too
 import { PlusOutlined, StopOutlined, EditOutlined, KeyOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import CreateUserModal from "./components/CreateUserModal";
-import { axiosInstance, BASE_URL } from "@/components/request";
 import { createUserApi } from "@/modules/signin/utils/request";
 import { validatePassword } from "@/modules/signin/utils/formRules";
 import type { UserItem } from "@/api/generated/auth-client";
@@ -61,8 +60,12 @@ const UserManagement = () => {
 
   const handleDisable = async (userId: string) => {
     try {
-      await axiosInstance.patch(`${BASE_URL}/api/authservice/user/${userId}/disable`, {
-        disabled: true,
+      const api = createUserApi();
+      await api.disableUserApiAuthserviceUserUserIdDisablePatch({
+        userId,
+        disableUserBody: {
+          disabled: true,
+        },
       });
       message.success(t("admin.disableSuccess"));
       fetchUsers(pagination.current, pagination.pageSize, searchTerm);
