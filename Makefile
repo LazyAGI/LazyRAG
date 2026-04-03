@@ -36,7 +36,8 @@ LAZYRAG_AUTH_API_PERMISSIONS_FILE ?=
 # Core / ACL
 ACL_DB_DRIVER ?= postgres
 ACL_DB_DSN ?= host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC
-LAZYRAG_CHAT_SERVICE_URL ?= http://localhost:8046
+# For docker-compose, core reaches chat via service DNS name.
+LAZYRAG_CHAT_SERVICE_URL ?= http://chat:8046
 
 # Processor
 LAZYRAG_DOCUMENT_PROCESSOR_PORT ?= 8000

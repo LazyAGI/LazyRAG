@@ -15,7 +15,7 @@ func chatServiceURL() string {
 	if u := os.Getenv("LAZYRAG_CHAT_SERVICE_URL"); u != "" {
 		return u
 	}
-	return "http://localhost:8048"
+	return "http://chat:8046"
 }
 
 func extractMessageForACL(r *http.Request, body []byte) (userID string, items []common.ACLCheckItem) {

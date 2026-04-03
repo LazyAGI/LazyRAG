@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -269,11 +270,15 @@ func handleNonStreamChat(
 	seq int,
 ) {
 	pyBody, _ := json.Marshal(reqBody)
-	respBytes, _, err := common.HTTPPost(reqCtx, baseURL+"/api/chat", "application/json", pyBody)
+	upstreamURL := baseURL + "/api/chat"
+	fmt.Printf("DEBUG upstream request url=%s params=%+v\n", upstreamURL, reqBody)
+	respBytes, statusCode, err := common.HTTPPost(reqCtx, upstreamURL, "application/json", pyBody)
 	if err != nil {
+		fmt.Println("DEBUG upstream request failed url=", upstreamURL, " err=", err)
 		common.ReplyErr(w, "chat service unavailable", http.StatusBadGateway)
 		return
 	}
+	fmt.Println("DEBUG upstream response url=", upstreamURL, " status=", statusCode)
 	var pyResp struct {
 		Code int             `json:"code"`
 		Msg  string          `json:"msg"`

@@ -32,6 +32,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "DELETE", "/datasets/{dataset}/documents/{document}", []string{"document.write"}, doc.DeleteDocument)
 	handleAPI(r, "PATCH", "/datasets/{dataset}/documents/{document}", []string{"document.write"}, doc.UpdateDocument)
 	handleAPI(r, "POST", "/datasets/{dataset}/documents:search", []string{"document.read"}, doc.SearchDocuments)
+	handleAPI(r, "POST", "/datasets/{dataset}/documents:batchUpdateTags", []string{"document.write"}, doc.BatchUpdateDocumentTags)
 	handleAPI(r, "POST", "/documents:search", []string{"document.read"}, doc.SearchAllDocuments)
 	handleAPI(r, "POST", "/datasets/{dataset}:batchDelete", []string{"document.write"}, doc.BatchDeleteDocument)
 	handleAPI(r, "GET", "/document/creators", []string{"document.read"}, doc.AllDocumentCreators)
@@ -100,6 +101,8 @@ func registerAllRoutes(r *mux.Router) {
 
 	handleAPI(r, "GET", "/conversation:switchStatus", []string{"qa.read"}, chat.GetMultiAnswersSwitchStatus)
 	handleAPI(r, "POST", "/conversation:switchStatus", []string{"qa.read"}, chat.SetMultiAnswersSwitchStatus)
+	handleAPI(r, "POST", "/conversation:export", []string{"qa.read"}, chat.ExportConversations)
+	handleAPI(r, "GET", "/conversation:export/files/{file_id}", []string{"qa.read"}, chat.DownloadExportConversationFile)
 
 	// ----- Prompttext -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)
