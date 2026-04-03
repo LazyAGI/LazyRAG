@@ -3,28 +3,24 @@ package acl
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
 
-// CurrentUserID returns the current user id from request (e.g. set by auth middleware).
-// Reads X-User-Id header; 0 if missing or invalid.
-func CurrentUserID(r *http.Request) int64 {
-	s := r.Header.Get("X-User-Id")
-	if s == "" {
-		return 0
-	}
-	id, _ := strconv.ParseInt(s, 10, 64)
-	return id
+// CurrentUserID textRequesttextUser id（textAuthorizationtextSet）。
+// text X-User-Id text，text。
+func CurrentUserID(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("X-User-Id"))
 }
 
-// PathKbID returns kb_id from path. Returns empty string if missing.
+// PathKbID text kb_id，text
 func PathKbID(r *http.Request) string {
 	vars := mux.Vars(r)
 	return vars["kb_id"]
 }
 
-// PathACLID returns acl_id from path.
+// PathACLID text acl_id
 func PathACLID(r *http.Request) int64 {
 	vars := mux.Vars(r)
 	s := vars["acl_id"]
@@ -33,4 +29,16 @@ func PathACLID(r *http.Request) int64 {
 	}
 	id, _ := strconv.ParseInt(s, 10, 64)
 	return id
+}
+
+// PathGroupID text group_id。
+func PathGroupID(r *http.Request) string {
+	vars := mux.Vars(r)
+	return strings.TrimSpace(vars["group_id"])
+}
+
+// PathUserID text user_id。
+func PathUserID(r *http.Request) string {
+	vars := mux.Vars(r)
+	return strings.TrimSpace(vars["user_id"])
 }
