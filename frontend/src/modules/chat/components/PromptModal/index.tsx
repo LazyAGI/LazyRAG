@@ -65,7 +65,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
 
     function fetchPromptList() {
       PromptServiceApi()
-        .promptServiceListPrompts({ pageSize: 2 })
+        .promptServiceListPrompts({ pageSize: 9999 })
         .then((res) => {
           setPromptList(res.data.prompts ? [...res.data?.prompts] : []);
         });

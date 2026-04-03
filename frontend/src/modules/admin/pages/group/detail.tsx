@@ -23,6 +23,8 @@ const breakTextStyle: CSSProperties = {
   wordBreak: "break-word",
 };
 
+const MEMBER_TABLE_SCROLL_Y = 360;
+
 const GroupDetail = () => {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
@@ -125,11 +127,13 @@ const GroupDetail = () => {
       title: t("admin.username"),
       dataIndex: "username",
       key: "username",
+      width: 220,
     },
     {
       title: t("admin.remark"),
       dataIndex: "remark",
       key: "remark",
+      width: 260,
       render: (text: string) => (
         <Text style={breakTextStyle}>
           {text || "-"}
@@ -140,6 +144,7 @@ const GroupDetail = () => {
       title: t("admin.role"),
       dataIndex: "role",
       key: "role",
+      width: 140,
       render: (role: string) => (
         <Tag color={role === "admin" ? "orange" : "blue"}>
           {role === "admin" ? t("admin.groupAdmin") : t("admin.member")}
@@ -150,12 +155,13 @@ const GroupDetail = () => {
       title: t("admin.joinedAt"),
       dataIndex: "created_at",
       key: "created_at",
+      width: 220,
       render: (text: string) => text || "-",
     },
     {
       title: t("admin.actions"),
       key: "action",
-      width: 200,
+      width: 180,
       render: (_: any, record: GroupUserItem) => (
         <Space size="middle">
           {}
@@ -246,10 +252,13 @@ const GroupDetail = () => {
           )}
         </div>
         <Table
+          className="admin-page-table"
           columns={columns}
           dataSource={filteredMembers}
           rowKey="user_id"
           loading={memberLoading}
+          tableLayout="fixed"
+          scroll={{ x: 1020, y: MEMBER_TABLE_SCROLL_Y }}
           pagination={getLocalizedTablePagination(
             { showSizeChanger: true, showTotal: (total) => t("common.totalItems", { total }) },
             t,
