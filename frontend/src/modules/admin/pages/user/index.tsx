@@ -6,6 +6,7 @@ import CreateUserModal from "./components/CreateUserModal";
 import { createUserApi } from "@/modules/signin/utils/request";
 import { validatePassword } from "@/modules/signin/utils/formRules";
 import type { UserItem } from "@/api/generated/auth-client";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 
 const PASSWORD_MAX_LENGTH = 32;
 const USERNAME_COLUMN_WIDTH = 220;
@@ -103,6 +104,8 @@ const UserManagement = () => {
           </Form.Item>
         </Form>
       ),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
       onOk: async () => {
         try {
           const values = await resetPasswordForm.validateFields();
@@ -269,12 +272,12 @@ const UserManagement = () => {
         loading={loading}
         tableLayout="fixed"
         scroll={{ x: 800 }}
-        pagination={{
+        pagination={getLocalizedTablePagination({
           ...pagination,
           showSizeChanger: true,
           showQuickJumper: true,
           showTotal: (total) => t("common.totalItems", { total }),
-        }}
+        }, t)}
         onChange={handleTableChange}
       />
 

@@ -19,6 +19,7 @@ import {
   LeftOutlined,
   UsergroupAddOutlined,
 } from "@ant-design/icons";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import { useStyles } from "@/components/ui/useStyles";
 
 const manageMembersModalCss = `
@@ -375,11 +376,11 @@ const ManageMembersModal = ({
               loading={loading}
               tableLayout="fixed"
               scroll={{ x: 620 }}
-              pagination={{
+              pagination={getLocalizedTablePagination({
                 size: "small",
                 pageSize: 10,
                 showSizeChanger: false,
-              }}
+              }, t)}
             />
           </div>
         </div>

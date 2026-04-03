@@ -19,6 +19,8 @@ const enUS = {
     description: "Description",
     actions: "Actions",
     totalItems: "Total {{total}} items",
+    itemsPerPageSuffix: "/ page",
+    pageSize: "Page size",
   },
 
   // Auth

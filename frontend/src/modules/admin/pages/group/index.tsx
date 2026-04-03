@@ -14,6 +14,7 @@ import ManagePermissionsModal from "./components/ManagePermissionsModal";
 import { createGroupApi, createUsersServiceApi } from "@/modules/signin/utils/request";
 import { AgentAppsAuth } from "@/components/auth";
 import type { GroupItem } from "@/api/generated/auth-client";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 
 const { Paragraph } = Typography;
 const NAME_COLUMN_WIDTH = 220;
@@ -298,11 +299,11 @@ const GroupManagement = () => {
         loading={loading}
         tableLayout="fixed"
         scroll={{ x: 980 }}
-        pagination={{
+        pagination={getLocalizedTablePagination({
           ...pagination,
           showSizeChanger: true,
           showTotal: (total) => t("common.totalItems", { total }),
-        }}
+        }, t)}
         onChange={handleTableChange}
       />
 

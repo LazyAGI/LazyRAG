@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { ConfigProvider } from "antd";
-import zhCN from "antd/locale/zh_CN";
+import { useTranslation } from "react-i18next";
+import { getAntdLocale } from "@/i18n/antdLocale";
 
 const Layout = ({
   token = {},
@@ -9,8 +10,13 @@ const Layout = ({
   token?: object;
   children?: ReactNode;
 }) => {
+  const { i18n } = useTranslation();
+
   return (
-    <ConfigProvider theme={{ token }} locale={zhCN}>
+    <ConfigProvider
+      theme={{ token }}
+      locale={getAntdLocale(i18n.resolvedLanguage || i18n.language)}
+    >
       {children}
     </ConfigProvider>
   );

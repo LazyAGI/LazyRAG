@@ -12,6 +12,7 @@ import { createGroupApi } from "@/modules/signin/utils/request";
 import type { GroupDetailResponse, GroupUserItem } from "@/api/generated/auth-client";
 import { AgentAppsAuth } from "@/components/auth";
 import DetailPageHeader from "@/components/ui/DetailPageHeader";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import ManageMembersModal from "./components/ManageMembersModal";
 import CreateGroupModal from "./components/CreateGroupModal";
 
@@ -249,7 +250,10 @@ const GroupDetail = () => {
           dataSource={filteredMembers}
           rowKey="user_id"
           loading={memberLoading}
-          pagination={{ showSizeChanger: true, showTotal: (total) => t("common.totalItems", { total }) }}
+          pagination={getLocalizedTablePagination(
+            { showSizeChanger: true, showTotal: (total) => t("common.totalItems", { total }) },
+            t,
+          )}
         />
       </Card>
 

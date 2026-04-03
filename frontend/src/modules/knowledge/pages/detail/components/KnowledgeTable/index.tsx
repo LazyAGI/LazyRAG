@@ -31,6 +31,7 @@ import {
 } from "antd";
 import type { MenuProps } from "antd";
 import moment from "moment";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import {
   FOLDER_NAME_REG,
   TIME_FORMAT,
@@ -294,6 +295,8 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
           : t("knowledge.deleteDocConfirmWithName", {
               name: `【${records[0].display_name}】`,
             }),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
       onOk: () => {
         DocumentServiceApi()
           .documentServiceBatchDeleteDocument({
@@ -1366,11 +1369,11 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
       <Table<TreeNode>
         columns={columns as ColumnType<TreeNode>[]}
         dataSource={tableData}
-        pagination={{
+        pagination={getLocalizedTablePagination({
           ...pagination,
           showSizeChanger: true,
           showTotal: (total: number) => t("knowledge.totalCount", { total }),
-        }}
+        }, t)}
         onChange={onTableChange}
         rowKey="document_id"
         scroll={{ x: 1600, y: "calc(100vh - 380px)" }}

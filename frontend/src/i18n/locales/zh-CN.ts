@@ -18,6 +18,8 @@ const zhCN = {
     description: "描述",
     actions: "操作",
     totalItems: "共 {{total}} 条",
+    itemsPerPageSuffix: "条/页",
+    pageSize: "每页条数",
   },
 
   auth: {
