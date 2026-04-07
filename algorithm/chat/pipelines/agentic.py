@@ -4,8 +4,6 @@ import copy
 import itertools
 import json
 import re
-import os
-import yaml
 from concurrent.futures import ThreadPoolExecutor
 from lazyllm import LOG, bind, loop, pipeline, switch
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -15,9 +13,8 @@ from pathlib import Path
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from chat.modules.engineering.load_model import get_model
-from chat.modules.engineering.simple_llm import SimpleLlmComponent
-from chat.prompts.agentic import (
+from chat.pipelines.builders.get_models import get_automodel
+from chat.utils.agentic import (
     EVALUATOR_PROMPT,
     EXTRACTOR_PROMPT,
     GENERATE_PROMPT,
@@ -25,17 +22,14 @@ from chat.prompts.agentic import (
     PLANNER_PROMPT,
     TOOLCALL_PROMPT,
 )
-from chat.modules.engineering.tool_registry import (
+from chat.components.tools.tool_registry import (
     get_all_tool_schemas,
     get_tool_instance,
     get_tool_schema,
 )
-from chat.modules.engineering.output_parser import CustomOutputParser
-from chat.modules.engineering.workflow_utils import (
-    PlanStep,
-    TaskContext,
-    tool_schema_to_string,
-)
+from chat.components.generate.output_parser import CustomOutputParser
+from chat.utils.schema import PlanStep, TaskContext
+from chat.utils.helpers import tool_schema_to_string
 
 
 # global params and func
@@ -51,18 +45,14 @@ def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'in
 
 
 # llms
-CONFIG_PATH = os.getenv('CONFIG_PATH', f'{base_dir}/chat/chat_pipelines/configs/auto_model.yaml')
-cfg = yaml.safe_load(CONFIG_PATH)
-llm = get_model('qwen3_32b_custom', cfg)
+llm = get_automodel('qwen3_32b_custom')
 llm._prompt._set_model_configs(system='You are an intelligent assistant, \
                                strictly following user instructions to execute tasks.')
-# llm_gen = SimpleLlmComponent(llm=llm)
-
-llm_instruct = get_model('qwen3_moe_custom', cfg)
+llm_instruct = get_automodel('qwen3_moe_custom')
 llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
     and you must strictly follow the given requirements to complete the tasks.\
     The output language should be the same as the input language.')
-llm_gen = SimpleLlmComponent(llm=llm_instruct)
+llm_gen = get_automodel('qwen3_moe_custom', wrap_simple_llm=True)
 
 
 # utils

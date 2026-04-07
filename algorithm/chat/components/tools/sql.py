@@ -9,11 +9,15 @@ from lazyllm.components import ChatPrompter
 from lazyllm.tools.utils import chat_history_to_str
 from lazyllm.tools.sql import SqlManager
 
-from chat.component.tools.encrypt_sql_manager import EncryptSqlManager
-
-
 ENCRYPT_SQL_MANAGER = os.getenv('ENCRYPT_SQL_MANAGER') == 'True'
-SQLManager = EncryptSqlManager if ENCRYPT_SQL_MANAGER else SqlManager
+if ENCRYPT_SQL_MANAGER:
+    try:
+        from chat.services.tools.encrypt_sql_manager import EncryptSqlManager as _EncryptSqlManager
+    except ImportError:
+        _EncryptSqlManager = SqlManager
+    SQLManager = _EncryptSqlManager
+else:
+    SQLManager = SqlManager
 
 
 sql_query_instruct_template = """

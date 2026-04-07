@@ -5,7 +5,6 @@ import requests
 
 from lazyllm import LOG
 from lazyllm.tools.rag.doc_node import DocNode, MetadataMode
-from lazyllm import AutoModel
 from lazyllm.module.llms.onlinemodule.base import LazyLLMOnlineEmbedModuleBase, LazyLLMOnlineRerankModuleBase
 
 
@@ -235,8 +234,3 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
         results = scored_nodes[:top_k] if top_k > 0 else scored_nodes
         LOG.debug(f'Rerank use `{self._embed_model_name}` and get nodes: {results}')
         return results
-
-
-def get_model(model_name, cfg):
-    m = AutoModel(model=model_name, config=cfg)
-    return m
