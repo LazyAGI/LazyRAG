@@ -14,6 +14,8 @@ def _answer_llm():
 
 
 def get_ppl_llm_generate(stream=False):
+    from chat.config import LLM_TYPE_THINK
+    
     with lazyllm.save_pipeline_result():
         with pipeline() as ppl:
             ppl.aggregate = AggregateComponent()
