@@ -18,15 +18,13 @@ def get_ppl_llm_generate(stream=False):
         with pipeline() as ppl:
             ppl.aggregate = AggregateComponent()
             ppl.formatter = RAGContextFormatter() | bind(query=ppl.kwargs['query'], nodes=ppl.aggregate)
-            
             ppl.answer = _answer_llm() | \
                 bind(stream=stream, llm_chat_history=[], files=[], priority=1)
-            
             ppl.parser = CustomOutputParser(llm_type_think=LLM_TYPE_THINK) | bind(
                 stream=stream,
                 recall_result=ppl.input,
                 aggregate=ppl.aggregate,
                 image_files=[],
                 debug=ppl.kwargs['debug'])
-    
+
     return ppl

@@ -4,9 +4,11 @@ from lazyllm.tools.rag import TempDocRetriever
 from chat.pipelines.builders.get_models import get_automodel
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
 
+
 class SearchRetrievalParts(NamedTuple):
     kb_retrievers: List[Retriever]
     tmp_retriever_pipeline: object
+
 
 def get_remote_docment(url: str) -> Document:
     url = url.split(',')
@@ -15,6 +17,7 @@ def get_remote_docment(url: str) -> Document:
     else:
         url, name = url[0], url[1]
     return Document(url=f'{url}/_call', name=name)
+
 
 def get_retriever(url: str, retriever_configs: List[dict], *,
                            tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK

@@ -10,7 +10,7 @@ from chat.config import DEFAULT_RETRIEVER_CONFIGS
 def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
     if retriever_configs is None:
         retriever_configs = DEFAULT_RETRIEVER_CONFIGS
-    
+
     with lazyllm.save_pipeline_result():
         with pipeline() as rag_ppl:
             rag_ppl.rewriter = ifs(
@@ -29,5 +29,5 @@ def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
                 query=rag_ppl.input['query'],
                 history=rag_ppl.input['history'],
                 debug=rag_ppl.input['debug'],)
-    
+
     return rag_ppl

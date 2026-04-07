@@ -15,11 +15,14 @@ from chat.app.core.chat_server import chat_server
 
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
+
 def _sse_line(payload: Dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str) + '\n\n'
 
+
 def _resp(code: int, msg: str, data: Any, cost: float) -> Dict[str, Any]:
     return {'code': code, 'msg': msg, 'data': data, 'cost': cost}
+
 
 def check_sensitive_content(
     query: str, session_id: str, start_time: float
@@ -61,7 +64,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
     return {
         'query': query, 'history': hist, 'filters': filters if RAG_MODE and filters else {},
         'files': other_files, 'image_files': image_files if MULTIMODAL_MODE and image_files else [],
-        'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority,
+        'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority
     }
 
 
@@ -79,10 +82,10 @@ def log_chat_request(query: str, session_id: str,filters: Optional[Dict[str, Any
 
 
 async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
-                     session_id: str, filters: Optional[Dict[str, Any]],
-                     files: Optional[List[str]], debug: Optional[bool], reasoning: Optional[bool],
-                     databases: Optional[List[Dict[str, Any]]], dataset: Optional[str],
-                     priority: Optional[int], is_stream: bool) -> Union[Dict[str, Any], StreamingResponse]:
+                      session_id: str, filters: Optional[Dict[str, Any]],
+                      files: Optional[List[str]], debug: Optional[bool], reasoning: Optional[bool],
+                      databases: Optional[List[Dict[str, Any]]], dataset: Optional[str],
+                      priority: Optional[int], is_stream: bool) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
 
@@ -192,6 +195,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         return StreamingResponse(
             event_stream(*stream_call), media_type='text/event-stream'
         )
+
 
 async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, Any],
                         query: str, filters: Optional[Dict[str, Any]], priority: Any) -> Any:

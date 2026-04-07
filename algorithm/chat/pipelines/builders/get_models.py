@@ -39,8 +39,7 @@ class _StreamingLlmModule(ModuleBase):
 
     def share(self, prompt: PrompterBase = None, format: FormatterBase = None,
               stream: Optional[bool] = None, history: List[List[str]] = None,
-              copy_static_params: bool = False,
-            ):
+              copy_static_params: bool = False):
         self.llm = self.llm.share(
             prompt=prompt,
             format=format,

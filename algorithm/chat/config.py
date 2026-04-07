@@ -18,7 +18,7 @@ LAZYRAG_LLM_PRIORITY = (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHAT_DIR = PROJECT_ROOT / 'chat'
 
-CONFIG_PATH = os.getenv("CONFIG_PATH", str(CHAT_DIR / "auto_model.yaml"))
+CONFIG_PATH = os.getenv("CONFIG_PATH", str(CHAT_DIR / 'auto_model.yaml'))
 
 USE_MULTIMODAL = False
 LLM_TYPE_THINK = False

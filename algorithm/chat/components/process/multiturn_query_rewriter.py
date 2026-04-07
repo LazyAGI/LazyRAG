@@ -9,6 +9,7 @@ from lazyllm.components.formatter import JsonFormatter
 from chat.utils.schema import BaseMessage, SessionMemory
 from chat.prompts.rewrite import MULTITURN_QUERY_REWRITE_PROMPT
 
+
 class RewriterInput(BaseModel):
     """
     多轮对话 Query 改写器 的输入结构

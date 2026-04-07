@@ -6,9 +6,11 @@ from chat.components.process import AdaptiveKComponent, ContextExpansionComponen
 from chat.pipelines.builders import get_automodel, get_retriever, get_remote_docment
 from chat.config import DEFAULT_RETRIEVER_CONFIGS
 
+
 def _adaptive_get_token_len(n: Any) -> int:
     txt = getattr(n, 'text', '') or ''
     return max(1, len(txt) // 4)
+
 
 def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_max=10):
     if retriever_configs is None:
