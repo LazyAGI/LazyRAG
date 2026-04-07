@@ -483,6 +483,7 @@ func streamSingleAnswer(
 		return
 	}
 	var fullText string
+	var fullReasoning string
 	var sources []any
 	thinkingDone := false
 	thinkStart := time.Now()
@@ -501,6 +502,7 @@ func streamSingleAnswer(
 	})
 	for d := range ch {
 		fullText += d.Text
+		fullReasoning += d.ReasoningText
 		if len(d.Sources) > 0 {
 			sources = d.Sources
 		}
@@ -535,6 +537,9 @@ func streamSingleAnswer(
 		}
 	}
 	now := time.Now()
+	extPayload, _ := json.Marshal(map[string]any{
+		"reasoning_content": fullReasoning,
+	})
 	if target.IsRegeneration && target.Existing != nil {
 		_ = db.Model(&orm.ChatHistory{}).Where("id = ?", historyID).Updates(map[string]any{
 			"seq":              seq,
@@ -545,7 +550,7 @@ func streamSingleAnswer(
 			"feed_back":        0,
 			"reason":           "",
 			"expected_answer":  "",
-			"ext":              nil,
+			"ext":              extPayload,
 			"update_time":      now,
 		}).Error
 	} else {
@@ -556,6 +561,7 @@ func streamSingleAnswer(
 			RawContent:     query,
 			Content:        query,
 			Result:         fullText,
+			Ext:            extPayload,
 			TimeMixin:      orm.TimeMixin{CreateTime: now, UpdateTime: now},
 		}).Error
 	}
@@ -577,7 +583,7 @@ func streamSingleAnswer(
 			HistoryID:         historyID,
 			Sources:           sources,
 			PromptQuestions:   []string{},
-			ReasoningContent:  "",
+			ReasoningContent:  fullReasoning,
 			ThinkingDurationS: int64(time.Since(thinkStart).Seconds()),
 		})
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))
