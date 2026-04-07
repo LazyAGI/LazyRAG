@@ -114,7 +114,7 @@ func manualSchemas() map[string]any {
 			prop("recursive", boolSchema()),
 		),
 		"BatchDeleteDocumentRequest": objReq([]string{"parent", "names"}, prop("parent", strSchema()), prop("names", array(strSchema()))),
-		"UserInfo":                   obj(prop("display_name", strSchema())),
+		"UserInfo":                   obj(prop("id", strSchema()), prop("name", strSchema())),
 		"DocumentCreatorsResponse":   obj(prop("creators", array(refSchema("UserInfo")))),
 		"DocumentTagsResponse":       obj(prop("tags", array(strSchema()))),
 		"DatasetRole":                obj(prop("role", strSchema()), prop("display_name", strSchema())),

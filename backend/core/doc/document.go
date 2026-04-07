@@ -371,7 +371,7 @@ func ListDocuments(w http.ResponseWriter, r *http.Request) {
 
 	next := ""
 	if offset+len(rows) < int(total) {
-		next = strconv.Itoa(offset + len(rows))
+		next = encodeDatasetPageToken(offset+len(rows), int(pageSize), int(total))
 	}
 
 	relPaths := buildDocumentTreeRelPaths(r.Context(), rows)
@@ -629,9 +629,12 @@ func SearchDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := 0
 	if strings.TrimSpace(req.PageToken) != "" {
-		if v, err := strconv.Atoi(strings.TrimSpace(req.PageToken)); err == nil && v >= 0 {
-			offset = v
+		v, err := parseDatasetPageToken(req.PageToken)
+		if err != nil {
+			common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+			return
 		}
+		offset = v
 	}
 	keyword := strings.TrimSpace(req.Keyword)
 	pid := firstNonEmpty(strings.TrimSpace(req.PID), parseDocumentPIDFromParentName(strings.TrimSpace(req.Parent)))
@@ -651,7 +654,7 @@ func SearchDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if offset+len(rows) < int(total) {
-		next = strconv.Itoa(offset + len(rows))
+		next = encodeDatasetPageToken(offset+len(rows), int(pageSize), int(total))
 	}
 	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(total), NextPageToken: next})
 }
@@ -681,12 +684,12 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 
 	offset := 0
 	if strings.TrimSpace(req.PageToken) != "" {
-		if v, err := strconv.Atoi(strings.TrimSpace(req.PageToken)); err == nil && v >= 0 {
-			offset = v
-		} else {
+		v, err := parseDatasetPageToken(req.PageToken)
+		if err != nil {
 			common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
 			return
 		}
+		offset = v
 	}
 	pageSize := req.PageSize
 	if pageSize <= 0 {
@@ -717,7 +720,7 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if offset+len(rows) < int(total) {
-		next = strconv.Itoa(offset + len(rows))
+		next = encodeDatasetPageToken(offset+len(rows), int(pageSize), int(total))
 	}
 	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(total), NextPageToken: next})
 }
@@ -909,20 +912,26 @@ func AllDocumentCreators(w http.ResponseWriter, r *http.Request) {
 	type resp struct {
 		Creators []UserInfo `json:"creators"`
 	}
-	var names []string
+	type creatorRow struct {
+		ID   string
+		Name string
+	}
+	var rows []creatorRow
 	_ = store.DB().WithContext(r.Context()).
 		Model(&orm.Document{}).
+		Select("create_user_id AS id", "create_user_name AS name").
 		Where("deleted_at IS NULL").
-		Distinct().
-		Pluck("create_user_name", &names).Error
-	sort.Strings(names)
-	out := make([]UserInfo, 0, len(names))
-	for _, n := range names {
-		nn := strings.TrimSpace(n)
-		if nn == "" {
+		Group("create_user_id, create_user_name").
+		Order("create_user_name ASC").
+		Find(&rows).Error
+	out := make([]UserInfo, 0, len(rows))
+	for _, row := range rows {
+		id := strings.TrimSpace(row.ID)
+		name := strings.TrimSpace(row.Name)
+		if id == "" && name == "" {
 			continue
 		}
-		out = append(out, UserInfo{DisplayName: nn})
+		out = append(out, UserInfo{ID: id, Name: name})
 	}
 	common.ReplyJSON(w, resp{Creators: out})
 }
@@ -1096,7 +1105,8 @@ func deleteExternalDocs(r *http.Request, datasetID string, rows []orm.Document) 
 }
 
 type UserInfo struct {
-	DisplayName string `json:"display_name,omitempty"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 func newDocID() string {
