@@ -5,6 +5,7 @@ from chat.pipelines.builders import get_automodel
 from chat.prompts.rag_answer import RAG_ANSWER_SYSTEM
 from chat.config import LLM_TYPE_THINK
 
+
 def _answer_llm():
     wrapped = get_automodel('qwen3_32b_custom', wrap_simple_llm=True)
     inner = wrapped.llm

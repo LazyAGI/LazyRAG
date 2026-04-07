@@ -20,8 +20,8 @@ def get_remote_docment(url: str) -> Document:
 
 
 def get_retriever(url: str, retriever_configs: List[dict], *,
-                           tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK
-                        ) -> SearchRetrievalParts:
+                  tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK
+                ) -> SearchRetrievalParts:
     document = get_remote_docment(url)
     kb_retrievers = [Retriever(document, **cfg) for cfg in retriever_configs]
 

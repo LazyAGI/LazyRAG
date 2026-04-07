@@ -63,7 +63,7 @@ class ContextExpansionComponent:
                 if attempt < _RPC_RETRIES:
                     time.sleep(_RPC_RETRY_DELAY)
                 else:
-                    LOG.warning("[CtxExpand] RPC 全部失败 uid=%s: %s", node.uid, e)
+                    LOG.warning('[CtxExpand] RPC 全部失败 uid=%s: %s', node.uid, e)
                     return []
         window = window if isinstance(window, list) else ([window] if window else [])
         neighbors = [

@@ -68,7 +68,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
     }
 
 
-def log_chat_request(query: str, session_id: str,filters: Optional[Dict[str, Any]],
+def log_chat_request(query: str, session_id: str, filters: Optional[Dict[str, Any]],
                      other_files: List[str], databases: Optional[List[Dict[str, Any]]],
                      image_files: List[str], cost: float,
                      response: Any = None, log_type: str = 'KB_CHAT') -> None:
