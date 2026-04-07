@@ -31,7 +31,33 @@
     font-style: normal;
     font-weight: 600;
     line-height: 22px;
-    margin-bottom: 8px;
+    margin-bottom: 0;
+  }
+
+  .record-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .record-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .record-toolbar-search {
+    min-width: 0;
+  }
+
+  .record-toolbar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    white-space: nowrap;
   }
 
   .record {
@@ -109,5 +135,18 @@
 
   .selected {
     padding-left: 16px;
+  }
+}
+
+@media (max-width: 900px) {
+  .record-container {
+    .record-toolbar {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+
+    .record-toolbar-actions {
+      justify-content: flex-start;
+    }
   }
 }

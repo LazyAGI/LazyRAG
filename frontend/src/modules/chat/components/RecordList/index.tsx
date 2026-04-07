@@ -199,52 +199,48 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
 
     return (
       <div className="record-container">
-        <div className="list-title">{t("chat.chatHistory")}</div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 16,
-          }}
-        >
-          <Search
-            placeholder={t("chat.searchConversation")}
-            allowClear
-            onSearch={(value: string) => {
-              getHistory({ searchText: value, isFirst: true });
-              setKeyword(value);
-            }}
-          />
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            {showBatchExport ? (
-              <>
+        <div className="record-header">
+          <div className="list-title">{t("chat.chatHistory")}</div>
+          <div className="record-toolbar">
+            <Search
+              className="record-toolbar-search"
+              placeholder={t("chat.searchConversation")}
+              allowClear
+              onSearch={(value: string) => {
+                getHistory({ searchText: value, isFirst: true });
+                setKeyword(value);
+              }}
+            />
+            <div className="record-toolbar-actions">
+              {showBatchExport ? (
+                <>
+                  <Button
+                    type="link"
+                    icon={<CloudDownloadOutlined />}
+                    onClick={() => {
+                      if (checkedList?.length) {
+                        exportHistoryFn();
+                      } else {
+                        message.warning(t("chat.selectConversationToExport"));
+                      }
+                    }}
+                  >
+                    {t("chat.export")}
+                  </Button>
+                  <Button type="text" onClick={() => setShowBatchExport(false)}>
+                    {t("common.cancel")}
+                  </Button>
+                </>
+              ) : (
                 <Button
                   type="link"
-                  icon={<CloudDownloadOutlined />}
-                  onClick={() => {
-                    if (checkedList?.length) {
-                      exportHistoryFn();
-                    } else {
-                      message.warning(t("chat.selectConversationToExport"));
-                    }
-                  }}
+                  style={{ padding: 0 }}
+                  onClick={() => setShowBatchExport(true)}
                 >
-                  {t("chat.export")}
+                  {t("chat.batch")}
                 </Button>
-                <Button type="text" onClick={() => setShowBatchExport(false)}>
-                  {t("common.cancel")}
-                </Button>
-              </>
-            ) : (
-              <Button
-                type="link"
-                style={{ padding: 0 }}
-                onClick={() => setShowBatchExport(true)}
-              >
-                {t("chat.batch")}
-              </Button>
-            )}
+              )}
+            </div>
           </div>
         </div>
         {showBatchExport && (

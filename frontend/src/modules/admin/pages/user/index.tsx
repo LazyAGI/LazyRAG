@@ -1,11 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { Table, Button, Space, Tag, Popconfirm, message, Modal, Form, Input, Tooltip } from "antd";
-import { PlusOutlined, StopOutlined, EditOutlined, KeyOutlined } from "@ant-design/icons";
+import {
+  PlusOutlined,
+  StopOutlined,
+  CheckCircleOutlined,
+  EditOutlined,
+  KeyOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import CreateUserModal from "./components/CreateUserModal";
 import { createUserApi } from "@/modules/signin/utils/request";
 import { validatePassword } from "@/modules/signin/utils/formRules";
 import type { UserItem } from "@/api/generated/auth-client";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 
 const PASSWORD_MAX_LENGTH = 32;
 const USERNAME_COLUMN_WIDTH = 220;
@@ -59,19 +66,31 @@ const UserManagement = () => {
     status !== "active" && status !== "enabled";
 
   const handleDisable = async (userId: string) => {
+    await handleToggleUserStatus(userId, true);
+  };
+
+  const handleEnable = async (userId: string) => {
+    await handleToggleUserStatus(userId, false);
+  };
+
+  const handleToggleUserStatus = async (userId: string, disabled: boolean) => {
     try {
       const api = createUserApi();
       await api.disableUserApiAuthserviceUserUserIdDisablePatch({
         userId,
         disableUserBody: {
-          disabled: true,
+          disabled,
         },
       });
-      message.success(t("admin.disableSuccess"));
+      message.success(
+        disabled ? t("admin.disableSuccess") : t("admin.enableSuccess"),
+      );
       fetchUsers(pagination.current, pagination.pageSize, searchTerm);
     } catch (error) {
-      console.error("Disable user failed:", error);
-      message.error(t("admin.disableFailed"));
+      console.error("Toggle user status failed:", error);
+      message.error(
+        disabled ? t("admin.disableFailed") : t("admin.enableFailed"),
+      );
     }
   };
 
@@ -103,6 +122,8 @@ const UserManagement = () => {
           </Form.Item>
         </Form>
       ),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
       onOk: async () => {
         try {
           const values = await resetPasswordForm.validateFields();
@@ -204,8 +225,16 @@ const UserManagement = () => {
             {t("admin.resetPassword")}
           </Button>
           <Popconfirm
-            title={t("admin.disableUserConfirm")}
-            onConfirm={() => handleDisable(record.user_id)}
+            title={
+              disabled
+                ? t("admin.enableUserConfirm")
+                : t("admin.disableUserConfirm")
+            }
+            onConfirm={() =>
+              disabled
+                ? handleEnable(record.user_id)
+                : handleDisable(record.user_id)
+            }
             okText={t("common.confirm")}
             cancelText={t("common.cancel")}
             disabled={disabled}
@@ -214,10 +243,9 @@ const UserManagement = () => {
               type="link"
               size="small"
               danger={!disabled}
-              disabled={disabled}
-              icon={<StopOutlined />}
+              icon={disabled ? <CheckCircleOutlined /> : <StopOutlined />}
             >
-              {disabled ? t("admin.disabled") : t("admin.disable")}
+              {disabled ? t("admin.enable") : t("admin.disable")}
             </Button>
           </Popconfirm>
         </Space>
@@ -269,12 +297,12 @@ const UserManagement = () => {
         loading={loading}
         tableLayout="fixed"
         scroll={{ x: 800 }}
-        pagination={{
+        pagination={getLocalizedTablePagination({
           ...pagination,
           showSizeChanger: true,
           showQuickJumper: true,
           showTotal: (total) => t("common.totalItems", { total }),
-        }}
+        }, t)}
         onChange={handleTableChange}
       />
 

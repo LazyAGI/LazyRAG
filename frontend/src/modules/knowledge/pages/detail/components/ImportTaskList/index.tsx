@@ -9,6 +9,7 @@ import "./index.scss";
 import Polling from "@/modules/knowledge/utils/polling";
 import { TaskServiceApi } from "@/modules/knowledge/utils/request";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 
 interface IProps {
   datasetId: string;
@@ -254,11 +255,11 @@ const ImportTaskList = (props: IProps) => {
         columns={columns}
         dataSource={dataSource}
         rowKey="task_id"
-        pagination={{
+        pagination={getLocalizedTablePagination({
           current: page,
           pageSize,
           total,
-        }}
+        }, t)}
         onChange={(pagination) => {
           getTableData({ page: pagination.current, size: pagination.pageSize });
         }}

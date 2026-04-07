@@ -138,7 +138,7 @@ const MemberList = (props: IProps) => {
     if (!detail?.acl?.includes(DatasetAclEnum.DatasetWrite)) {
       // When a non-creator deletes or downgrades their own permissions, they will no longer be able to access the knowledge base and need to return to the knowledge base list page.
       navigate({
-        pathname: "/list",
+        pathname: "/lib/knowledge/list",
       });
       return;
     }
@@ -280,7 +280,7 @@ const MemberList = (props: IProps) => {
         if (err?.response?.data?.code === 10104) {
           // When a non-creator deletes or downgrades their own permissions, they will no longer be able to access the knowledge base and need to return to the knowledge base list page.
           navigate({
-            pathname: "/list",
+            pathname: "/lib/knowledge/list",
           });
           return;
         }

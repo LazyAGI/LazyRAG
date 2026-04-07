@@ -206,7 +206,7 @@ const Detail = () => {
       .then(() => {
         message.success(t("knowledge.deleteSuccess"));
         navigate({
-          pathname: "/list",
+          pathname: "/lib/knowledge/list",
         });
       });
   }
@@ -325,7 +325,7 @@ const Detail = () => {
             searchParams.get("from") ?? "",
           );
           if (bool) {
-            navigate("/list");
+            navigate("/lib/knowledge/list");
           } else {
             navigate(-1);
           }

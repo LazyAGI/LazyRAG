@@ -65,7 +65,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
 
     function fetchPromptList() {
       PromptServiceApi()
-        .promptServiceListPrompts({ pageSize: 2 })
+        .promptServiceListPrompts({ pageSize: 9999 })
         .then((res) => {
           setPromptList(res.data.prompts ? [...res.data?.prompts] : []);
         });
@@ -327,6 +327,11 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
                 rows={5}
                 showCount
                 maxLength={800}
+                style={{
+                  width: "100%",
+                  height: "132px",
+                  resize: "none",
+                }}
               />
             </Form.Item>
           </Form>

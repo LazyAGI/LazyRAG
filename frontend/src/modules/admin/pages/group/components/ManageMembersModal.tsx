@@ -19,6 +19,7 @@ import {
   LeftOutlined,
   UsergroupAddOutlined,
 } from "@ant-design/icons";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import { useStyles } from "@/components/ui/useStyles";
 
 const manageMembersModalCss = `
@@ -143,6 +144,8 @@ const ManageMembersModal = ({
   const [pendingAddUsers, setPendingAddUsers] = useState<UserItem[]>([]);
   const [leftSearch, setLeftSearch] = useState("");
   const [rightSearch, setRightSearch] = useState("");
+  const isUserInactive = (status?: string) =>
+    status?.toLowerCase() === "inactive";
 
   const fetchAllUsers = useCallback(async () => {
     if (!isAdmin) return;
@@ -225,8 +228,8 @@ const ManageMembersModal = ({
   }, [pendingAddUsers, rightSearch]);
 
   const moveToRight = () => {
-    const usersToMove = leftDataSource.filter((u) =>
-      leftSelectedKeys.includes(u.user_id),
+    const usersToMove = leftDataSource.filter(
+      (u) => leftSelectedKeys.includes(u.user_id) && !isUserInactive(u.status),
     );
     setPendingAddUsers((prev) => [...prev, ...usersToMove]);
     setLeftSelectedKeys([]);
@@ -368,6 +371,9 @@ const ManageMembersModal = ({
               rowSelection={{
                 selectedRowKeys: leftSelectedKeys,
                 onChange: (keys) => setLeftSelectedKeys(keys as string[]),
+                getCheckboxProps: (record) => ({
+                  disabled: isUserInactive(record.status),
+                }),
               }}
               dataSource={leftDataSource}
               columns={userColumns}
@@ -375,11 +381,11 @@ const ManageMembersModal = ({
               loading={loading}
               tableLayout="fixed"
               scroll={{ x: 620 }}
-              pagination={{
+              pagination={getLocalizedTablePagination({
                 size: "small",
                 pageSize: 10,
                 showSizeChanger: false,
-              }}
+              }, t)}
             />
           </div>
         </div>
@@ -421,6 +427,9 @@ const ManageMembersModal = ({
               rowSelection={{
                 selectedRowKeys: rightSelectedKeys,
                 onChange: (keys) => setRightSelectedKeys(keys as string[]),
+                getCheckboxProps: (record) => ({
+                  disabled: isUserInactive(record.status),
+                }),
               }}
               dataSource={rightDataSource}
               columns={userColumns.slice(0, 1)}
