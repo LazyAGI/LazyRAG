@@ -194,17 +194,19 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 
 	var histories []orm.ChatHistory
 	db.Where("conversation_id = ?", convID).Order("seq ASC").Find(&histories)
-	reqBody := buildChatRequestBody(convID, query, histories, raw)
+	target := resolvePersistTarget(histories, raw, seq)
+	upstreamHistories := historiesForUpstream(histories, target)
+	reqBody := buildChatRequestBody(convID, query, upstreamHistories, raw)
 	baseURL := chatServiceURL()
 	reqCtx := r.Context()
 	rdb := store.Redis()
 
 	if !stream {
-		handleNonStreamChat(w, reqCtx, db, rdb, baseURL, reqBody, convID, query, seq)
+		handleNonStreamChat(w, reqCtx, db, rdb, baseURL, reqBody, convID, query, target)
 		return
 	}
 
-	handleStreamChat(w, r, db, rdb, baseURL, reqBody, convID, query, seq, dualReply)
+	handleStreamChat(w, r, db, rdb, baseURL, reqBody, convID, query, target, dualReply)
 }
 
 // ResumeChat text POST /api/v1/conversations:resumeChat
@@ -974,10 +976,10 @@ func parseFeedbackType(raw json.RawMessage) (int32, error) {
 // FeedBackChatHistory text POST /api/v1/conversations:feedBackChatHistory
 func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		HistoryID      string `json:"history_id"`
+		HistoryID      string          `json:"history_id"`
 		Type           json.RawMessage `json:"type"`
-		Reason         string `json:"reason,omitempty"`
-		ExpectedAnswer string `json:"expected_answer,omitempty"`
+		Reason         string          `json:"reason,omitempty"`
+		ExpectedAnswer string          `json:"expected_answer,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
