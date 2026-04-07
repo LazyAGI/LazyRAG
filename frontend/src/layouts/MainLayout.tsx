@@ -23,6 +23,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import "./index.scss";
 
 const { Content, Sider } = Layout;
+const MAINLAND_CHINA_PHONE_REGEX = /^1[3-9]\d{9}$/;
 
 type MenuItem = Required<MenuProps>["items"][number];
 
@@ -178,6 +179,16 @@ export default function MainLayout() {
       return Promise.resolve();
     },
   });
+
+  const phoneRule = {
+    validator(_: any, value?: string) {
+      const phone = normalizeFieldValue(value);
+      if (!phone || MAINLAND_CHINA_PHONE_REGEX.test(phone)) {
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error(t("profile.invalidPhone")));
+    },
+  };
 
   const applyProfileToForm = (detail: UserDetailResponse) => {
     profileForm.setFieldsValue({
@@ -426,8 +437,17 @@ export default function MainLayout() {
           >
             <Input placeholder={t("profile.pleaseInputEmail")} autoComplete="email" />
           </Form.Item>
-          <Form.Item name="phone" label={t("profile.phone")}>
-            <Input placeholder={t("profile.pleaseInputPhone")} autoComplete="tel" />
+          <Form.Item
+            name="phone"
+            label={t("profile.phone")}
+            rules={[phoneRule]}
+          >
+            <Input
+              placeholder={t("profile.pleaseInputPhone")}
+              autoComplete="tel"
+              inputMode="numeric"
+              maxLength={11}
+            />
           </Form.Item>
           <Form.Item name="remark" label={t("profile.description")}>
             <Input.TextArea placeholder={t("profile.pleaseInputDescription")} />

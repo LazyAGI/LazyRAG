@@ -94,6 +94,7 @@ const zhCN = {
     updateSuccess: "账号信息已更新",
     noUserInfo: "未获取到当前用户信息",
     invalidEmail: "请输入有效的邮箱格式",
+    invalidPhone: "请输入有效的中国大陆手机号",
   },
 
   chat: {
