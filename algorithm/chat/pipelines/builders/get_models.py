@@ -4,13 +4,11 @@ import os
 import tempfile
 import threading
 from typing import Any, Dict, List, Optional
-
 import lazyllm
 import yaml
 from lazyllm import AutoModel, ModuleBase
 from lazyllm.components.formatter import FormatterBase
 from lazyllm.components.prompter import PrompterBase
-
 from chat.utils.config import CONFIG_PATH
 
 _DEFAULT_LLM_KW: Dict[str, Any] = {

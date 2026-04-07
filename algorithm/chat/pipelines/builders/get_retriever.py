@@ -16,7 +16,7 @@ def get_remote_docment(url: str) -> Document:
         url, name = url[0], url[1]
     return Document(url=f'{url}/_call', name=name)
 
-def setup_search_retrieval(url: str, retriever_configs: List[dict], *,
+def get_retriever(url: str, retriever_configs: List[dict], *,
                            tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK
                         ) -> SearchRetrievalParts:
     document = get_remote_docment(url)

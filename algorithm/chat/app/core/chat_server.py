@@ -4,7 +4,7 @@ from lazyllm import LOG, once_wrapper
 
 from chat.utils.config import URL_MAP, SENSITIVE_WORDS_PATH
 from chat.pipelines.agentic import agentic_rag
-from chat.pipelines.naive import get_rag_ppl
+from chat.pipelines.naive import get_ppl_naive
 from chat.components.process.sensitive_filter import SensitiveFilter
 
 
@@ -30,11 +30,11 @@ class ChatServer:
     def _on_server_start(self):
         try:
             self.query_ppl = {
-                name: get_rag_ppl(url=doc_url)
+                name: get_ppl_naive(url=doc_url)
                 for name, doc_url in URL_MAP.items()
             }
             self.query_ppl_stream = {
-                name: get_rag_ppl(url=doc_url, stream=True)
+                name: get_ppl_naive(url=doc_url, stream=True)
                 for name, doc_url in URL_MAP.items()
             }
             self.query_ppl_reasoning = agentic_rag

@@ -2,12 +2,8 @@ from typing import List, Any
 import lazyllm
 from lazyllm import pipeline, parallel, bind, ifs
 from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
-
-from chat.components.retrieve.get_retriever import setup_search_retrieval, get_remote_docment
-from chat.components.retrieve.adaptive_topk import AdaptiveKComponent
-from chat.components.process.context_expansion import ContextExpansionComponent
-from chat.pipelines.builders.get_models import get_automodel
-
+from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
+from chat.pipelines.builders import get_automodel, get_retriever, get_remote_docment
 from chat.utils.config import DEFAULT_RETRIEVER_CONFIGS
 
 def _adaptive_get_token_len(n: Any) -> int:
@@ -18,7 +14,7 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
     if retriever_configs is None:
         retriever_configs = DEFAULT_RETRIEVER_CONFIGS
 
-    retrieval = setup_search_retrieval(url, retriever_configs)
+    retrieval = get_retriever(url, retriever_configs)
     retrievers = retrieval.kb_retrievers
     tmp_retriever = retrieval.tmp_retriever_pipeline
     document = get_remote_docment(url)

@@ -2,14 +2,12 @@ from typing import List
 import lazyllm
 from lazyllm import pipeline, bind, ifs
 
-from chat.pipelines.builders.get_ppl_search import get_ppl_search
-from chat.pipelines.builders.get_ppl_generate import get_ppl_llm_generate
+from chat.pipelines.builders import get_ppl_search, get_ppl_generate, get_automodel
 from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewriter
-from chat.pipelines.builders.get_models import get_automodel
 from chat.utils.config import DEFAULT_RETRIEVER_CONFIGS
 
 
-def get_rag_ppl(url: str, retriever_configs: List[dict] = None, stream=False):
+def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
     if retriever_configs is None:
         retriever_configs = DEFAULT_RETRIEVER_CONFIGS
     
@@ -26,7 +24,7 @@ def get_rag_ppl(url: str, retriever_configs: List[dict] = None, stream=False):
                 fpath=lambda x: x,
             )
             rag_ppl.search = get_ppl_search(url, retriever_configs)
-            rag_ppl.generate = get_ppl_llm_generate(stream=stream) | bind(
+            rag_ppl.generate = get_ppl_generate(stream=stream) | bind(
                 image_files=[],
                 query=rag_ppl.input['query'],
                 history=rag_ppl.input['history'],
