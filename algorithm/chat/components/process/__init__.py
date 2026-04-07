@@ -5,7 +5,7 @@ from chat.components.process.adaptive_topk import AdaptiveKComponent
 
 __all__ = [
     'SensitiveFilter',
-    'MultiturnQueryRewriter'
+    'MultiturnQueryRewriter',
     'ContextExpansionComponent',
     'AdaptiveKComponent',
 ]
