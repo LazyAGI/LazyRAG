@@ -30,10 +30,10 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
                 fpath=parallel(*[(retriever | bind(filters=search_ppl.input['filters'])) for retriever in retrievers])
             )
             search_ppl.merge_results = lambda *args: args
-            search_ppl.join = RRFFusion(top_k=50) 
+            search_ppl.join = RRFFusion(top_k=50)
             search_ppl.reranker = get_automodel('qwen3_reranker_custom') | bind(
-                query=search_ppl.input['query'], 
-                template='file_name: {file_name}\ntitle: {title}\ncontent: {text}', 
+                query=search_ppl.input['query'],
+                template='file_name: {file_name}\ntitle: {title}\ncontent: {text}',
                 topk=topk
             )
             search_ppl.adaptive_k = AdaptiveKComponent(bias=2, k_max=k_max, gap_tau=0.2,
