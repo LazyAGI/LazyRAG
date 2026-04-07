@@ -68,7 +68,11 @@ func ListSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pageSize := parseSegmentPageSize(r, nil)
-	page := parseSegmentPage(r, nil)
+	page, err := parseSegmentPage(r, nil, pageSize)
+	if err != nil {
+		common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+		return
+	}
 	raw, queryURL, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "ListSegments")
 	if err != nil {
 		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
