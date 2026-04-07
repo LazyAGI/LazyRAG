@@ -222,6 +222,8 @@ services:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
+    ports:
+      - "8848:8000"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
@@ -462,6 +464,8 @@ services:
       - "8046"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+    ports:
+      - "8046:8046"
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s

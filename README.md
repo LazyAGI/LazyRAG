@@ -124,7 +124,7 @@ Frontend
 
 For environment-variable setup and runnable startup examples, see:
 
-- [`docs/quick_start.md`](/Users/chenjiahao/Desktop/codes/LazyRAG/docs/quick_start.md)
+- [`docs/quick_start.md`](docs/quick_start.md)
 
 **Full stack (Milvus + OpenSearch deployed by default):**
 ```bash

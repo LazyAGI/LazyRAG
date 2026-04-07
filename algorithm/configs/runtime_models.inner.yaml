@@ -2,6 +2,8 @@
 # This template assumes the internal endpoints are OpenAI-compatible or already
 # exposed in a shape AutoModel can consume directly.
 
+# Default chat LLM.
+# Previously aligned with: qwen3_32b_custom
 llm:
   source: openai
   type: llm
@@ -9,6 +11,8 @@ llm:
   url: http://10.119.29.126:25121/v1/
   skip_auth: true
 
+# Instruction / reasoning LLM.
+# Previously aligned with: qwen3_moe_custom
 llm_instruct:
   source: openai
   type: llm
@@ -16,6 +20,8 @@ llm_instruct:
   url: http://10.119.21.177:8000/v1/
   skip_auth: true
 
+# Reranker.
+# Previously aligned with: qwen3_reranker_custom
 reranker:
   source: qwen3rerank
   type: rerank
@@ -24,6 +30,8 @@ reranker:
   skip_auth: true
 
 embeddings:
+  # Dense vector embedding.
+  # Previously aligned with: bgem3_emb_dense_custom
   embed_1:
     source: bgem3embed
     type: embed
@@ -36,6 +44,8 @@ embeddings:
       params:
         nlist: 128
 
+  # Sparse vector embedding.
+  # Previously aligned with: bgem3_emb_sparse_custom
   embed_2:
     source: bgem3embed
     type: embed

@@ -30,18 +30,6 @@ export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.yaml
 
 ### 2. 内网已部署模型
 
-有两种方式。
-
-方式 A：继续使用默认 `auto_model.yaml`
-
-```bash
-unset LAZYRAG_MODEL_CONFIG_PATH
-```
-
-这会走镜像内默认的 [`algorithm/configs/auto_model.yaml`](algorithm/configs/auto_model.yaml)。
-
-方式 B：显式使用新的 runtime 配置
-
 ```bash
 export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
 ```
@@ -103,16 +91,7 @@ export LAZYRAG_OCR_SERVER_TYPE=none
 make up-build
 ```
 
-### 3. 使用内网旧模型启动
-
-```bash
-unset LAZYRAG_MODEL_CONFIG_PATH
-export LAZYRAG_OCR_SERVER_TYPE=none
-
-make up-build
-```
-
-### 4. 使用内网 runtime 配置启动
+### 3. 使用内网 runtime 配置启动
 
 ```bash
 export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
@@ -121,7 +100,7 @@ export LAZYRAG_OCR_SERVER_TYPE=none
 make up-build
 ```
 
-### 5. 启用 MinerU 启动
+### 4. 启用 MinerU 启动
 
 ```bash
 export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
@@ -201,15 +180,6 @@ export LAZYRAG_MODEL_CONFIG_PATH=/app/configs/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=mineru
 export LAZYRAG_OCR_SERVER_URL=http://your-inner-mineru:port
 export LAZYRAG_MINERU_UPLOAD_MODE=true
-
-make up-build
-```
-
-如果想继续走旧的 `auto_model.yaml` 路径：
-
-```bash
-unset LAZYRAG_MODEL_CONFIG_PATH
-export LAZYRAG_OCR_SERVER_TYPE=none
 
 make up-build
 ```
