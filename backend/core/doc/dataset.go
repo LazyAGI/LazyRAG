@@ -410,24 +410,10 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		db = db.Order("updated_at desc")
 	}
 
-	// Need enough rows to evaluate ACL/keyword/tag filters before applying page_token.
-	// If we only fetch page_size rows, next_page_token can never be produced correctly.
-	fetchLimit := offset + pageSize + 1
-	if fetchLimit < pageSize {
-		fetchLimit = pageSize
-	}
-	if len(wantTags) > 0 || keyword != "" {
-		if fetchLimit < 1000 {
-			fetchLimit = 1000
-		}
-	}
-
 	var rows []orm.Dataset
 	if err := db.
 		// NOTE: desc is reserved; use ANSI quoting for Postgres compatibility.
 		Select(`id, kb_id, create_user_id, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
-		Limit(fetchLimit).
-		Offset(0).
 		Find(&rows).Error; err != nil {
 		common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
 		return
