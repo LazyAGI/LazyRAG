@@ -1,61 +1,180 @@
 package main
 
 import (
+	"context"
 	_ "embed"
-	"log"
+	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v3"
 	"lazyrag/core/acl"
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
+	"lazyrag/core/common/readonlyorm"
+	"lazyrag/core/log"
+	"lazyrag/core/migrate"
+	"lazyrag/core/store"
 )
 
-//go:embed openapi.json
-var openAPIJSON []byte
+//go:embed docs.html
+var swaggerUIHTML []byte
 
-// handleAPI registers a route with required permissions. The perms slice is used by
-// extract_api_permissions.py to generate api_permissions.json for Kong RBAC; it is not
-// checked at runtime (Kong + auth-service enforce RBAC). Uses gorilla/mux so same path
-// can have different methods and paths with ":action" are supported.
+func exportOpenAPIArtifacts(openAPIJSON []byte) {
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Logger.Warn().Err(err).Msg("get working directory failed; skip exporting OpenAPI artifacts")
+		return
+	}
+
+	var spec map[string]any
+	if err := json.Unmarshal(openAPIJSON, &spec); err != nil {
+		log.Logger.Warn().Err(err).Msg("decode OpenAPI json failed; skip exporting OpenAPI artifacts")
+		return
+	}
+	openAPIYAML, err := yaml.Marshal(spec)
+	if err != nil {
+		log.Logger.Warn().Err(err).Msg("marshal OpenAPI yaml failed; skip exporting OpenAPI artifacts")
+		return
+	}
+
+	outputs := map[string][]byte{
+		filepath.Join(wd, "openapi.json"):                                                   openAPIJSON,
+		filepath.Join(wd, "swagger.json"):                                                   openAPIJSON,
+		filepath.Join(wd, "..", "..", "api", "backend", "core", "swagger.json"):             openAPIJSON,
+		filepath.Join(wd, "..", "..", "api", "backend", "core", "openapi.yml"):              openAPIYAML,
+		filepath.Join(string(filepath.Separator), "openapi-export", "core", "swagger.json"): openAPIJSON,
+		filepath.Join(string(filepath.Separator), "openapi-export", "core", "openapi.yml"):  openAPIYAML,
+	}
+	for path, body := range outputs {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			log.Logger.Warn().Err(err).Str("path", path).Msg("create OpenAPI output directory failed")
+			continue
+		}
+		if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
+			log.Logger.Warn().Err(err).Str("path", path).Msg("write OpenAPI artifact failed")
+			continue
+		}
+	}
+}
+
+// handleAPI textPermissiontext。perms text extract_api_permissions.py text api_permissions.json（Kong RBAC），
+// text core text（text Kong + auth-service Authorization）。text gorilla/mux，text path text，text ":action" text。
 func handleAPI(r *mux.Router, method, path string, perms []string, h http.HandlerFunc) {
 	r.HandleFunc(path, h).Methods(method)
 }
 
 func main() {
-	// Initialize ACL store with database (postgres/sqlite/mysql via env).
-	// Default: sqlite with ./acl.db when ACL_DB_DRIVER not set.
+	log.Init()
+
+	// textInitialize ACL text（text：postgres/sqlite/mysql）。
+	// textSet ACL_DB_DRIVER textDefaulttext sqlite，text ./acl.db。
 	driver := os.Getenv("ACL_DB_DRIVER")
 	dsn := os.Getenv("ACL_DB_DSN")
 	if driver == "" {
 		driver = "sqlite"
 		dsn = "./acl.db"
 	} else if dsn == "" {
-		log.Fatal("ACL_DB_DRIVER set but ACL_DB_DSN is empty")
+		log.Logger.Fatal().Msg("ACL_DB_DRIVER set but ACL_DB_DSN is empty")
 	}
 	db := orm.MustConnect(driver, dsn)
+	if err := migrate.RunUp(); err != nil {
+		log.Logger.Fatal().Err(err).Msg("run SQL migrations failed")
+	}
+
+	readonlyDriver := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_DB_DRIVER"))
+	readonlyDSN := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_DB_DSN"))
+	if readonlyDriver == "" {
+		readonlyDriver = strings.TrimSpace(os.Getenv("LAZYRAG_LAZYLLM_DB_DRIVER"))
+	}
+	if readonlyDSN == "" {
+		readonlyDSN = strings.TrimSpace(os.Getenv("LAZYRAG_LAZYLLM_DB_DSN"))
+	}
+	readonlyDB := db
+	if readonlyDriver != "" || readonlyDSN != "" {
+		if readonlyDriver == "" {
+			readonlyDriver = driver
+		}
+		if readonlyDSN == "" {
+			log.Logger.Fatal().Msg("LAZYRAG_READONLY_DB_DSN is empty")
+		}
+		readonlyDB = orm.MustConnect(readonlyDriver, readonlyDSN)
+	}
+
+	// Optional: validate readonly external tables at startup.
+	// Enable with LAZYRAG_READONLY_VALIDATE=1 and list tables via LAZYRAG_READONLY_TABLES.
+	if strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_VALIDATE")) == "1" {
+		sqlDB, err := readonlyDB.DB.DB()
+		if err != nil {
+			log.Logger.Fatal().Err(err).Msg("get readonly sql.DB failed")
+		}
+		specs := readonlyorm.Specs()
+		if len(specs) == 0 {
+			log.Logger.Warn().Msg("readonly schema validation enabled but no LAZYRAG_READONLY_TABLES configured; skipping")
+		} else if err := readonlyorm.Validate(context.Background(), sqlDB, specs); err != nil {
+			log.Logger.Fatal().Err(err).Msg("readonly schema validation failed")
+		} else {
+			log.Logger.Info().Int("tables", len(specs)).Msg("readonly schema validation ok")
+		}
+	}
 	acl.InitStore(db)
-	log.Printf("ACL store initialized with %s", driver)
+	log.Logger.Info().Str("driver", driver).Msg("ACL store initialized")
+
+	// text/PrompttextInitialize（DB + Redis）。DB text ACL text；Redis textConversationtext/text/text。
+	store.Init(db.DB, readonlyDB.DB, store.MustRedisFromEnv())
 
 	r := mux.NewRouter()
+	r.UseEncodedPath()
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	}).Methods(http.MethodGet)
+	handleAPI(r, "GET", "/hello", []string{"user.read"}, func(w http.ResponseWriter, r *http.Request) {
+		common.ReplyJSON(w, map[string]string{"message": "Hello from Backend"})
+	})
+	handleAPI(r, "GET", "/admin", []string{"document.write"}, func(w http.ResponseWriter, r *http.Request) {
+		common.ReplyJSON(w, map[string]string{"message": "Admin only area"})
+	})
+	registerAllRoutes(r)
+
+	// Starttext OpenAPI spec，text doc_swag.go / swag init
+	openAPIJSON, err := buildOpenAPISpecFromRouter(r)
+	if err != nil {
+		log.Logger.Fatal().Err(err).Msg("build OpenAPI spec from router failed")
+	}
+	exportOpenAPIArtifacts(openAPIJSON)
 	r.HandleFunc("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(openAPIJSON)
 	}).Methods(http.MethodGet)
-	handleAPI(r, "GET", "/api/hello", []string{"user.read"}, func(w http.ResponseWriter, r *http.Request) {
-		common.ReplyJSON(w, map[string]string{"message": "Hello from Backend"})
-	})
-	handleAPI(r, "GET", "/api/admin", []string{"document.write"}, func(w http.ResponseWriter, r *http.Request) {
-		common.ReplyJSON(w, map[string]string{"message": "Admin only area"})
-	})
+	r.HandleFunc("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(openAPIJSON)
+	}).Methods(http.MethodGet)
+	r.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]interface{}
+		if err := json.Unmarshal(openAPIJSON, &m); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out, err := yaml.Marshal(m)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-yaml")
+		w.Write(out)
+	}).Methods(http.MethodGet)
+	r.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(swaggerUIHTML)
+	}).Methods(http.MethodGet)
 
-	registerAllRoutes(r)
-
-	log.Print("Core listening on :8000")
-	log.Fatal(http.ListenAndServe(":8000", r))
+	log.Logger.Info().Msg("Core listening on :8000")
+	if err := http.ListenAndServe(":8000", r); err != nil {
+		log.Logger.Fatal().Err(err).Msg("http listen failed")
+	}
 }

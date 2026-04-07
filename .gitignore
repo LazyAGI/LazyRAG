@@ -74,4 +74,8 @@ lazyllm_cpp.egg-info/
 !build*.sh
 !build_document.py
 
+
+.venv/
+data/
+volumes/
 .conda
