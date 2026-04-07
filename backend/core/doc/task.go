@@ -425,7 +425,12 @@ func ListTasks(w http.ResponseWriter, r *http.Request) {
 		pageSize = 1000
 	}
 	offset := 0
-	if v, err := strconv.Atoi(pageToken); err == nil && v >= 0 {
+	if pageToken != "" {
+		v, err := parseDatasetPageToken(pageToken)
+		if err != nil {
+			common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+			return
+		}
 		offset = v
 	}
 
@@ -459,7 +464,7 @@ func ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if offset+len(rows) < int(total) {
-		next = strconv.Itoa(offset + len(rows))
+		next = encodeDatasetPageToken(offset+len(rows), pageSize, int(total))
 	}
 	totalResp := total
 	if filterTaskState != "" {

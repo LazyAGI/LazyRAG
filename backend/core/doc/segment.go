@@ -101,7 +101,11 @@ func SearchSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pageSize := parseSegmentPageSize(r, body)
-	page := parseSegmentPage(r, body)
+	page, err := parseSegmentPage(r, body, pageSize)
+	if err != nil {
+		common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+		return
+	}
 	raw, _, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "SearchSegments")
 	if err != nil {
 		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
@@ -146,20 +150,42 @@ func parseSegmentPageSize(r *http.Request, body *segmentSearchInput) int {
 	return pageSize
 }
 
-func parseSegmentPage(r *http.Request, body *segmentSearchInput) int {
+func parseSegmentPage(r *http.Request, body *segmentSearchInput, pageSize int) (int, error) {
+	resolvePageFromToken := func(token string) (int, error) {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return 0, nil
+		}
+		if v, err := strconv.Atoi(token); err == nil && v > 0 {
+			return v, nil
+		}
+		offset, err := parseDatasetPageToken(token)
+		if err != nil {
+			return 0, err
+		}
+		if pageSize <= 0 {
+			pageSize = 20
+		}
+		return offset/pageSize + 1, nil
+	}
+
 	if body != nil {
-		if token := strings.TrimSpace(body.PageToken); token != "" {
-			if v, err := strconv.Atoi(token); err == nil && v > 0 {
-				return v
-			}
+		if page, err := resolvePageFromToken(body.PageToken); err != nil {
+			return 0, err
+		} else if page > 0 {
+			return page, nil
 		}
 	}
 	if token := firstNonEmptyQuery(r, "page_token", "pageToken", "cursor", "offset_token"); token != "" {
-		if v, err := strconv.Atoi(token); err == nil && v > 0 {
-			return v
+		page, err := resolvePageFromToken(token)
+		if err != nil {
+			return 0, err
+		}
+		if page > 0 {
+			return page, nil
 		}
 	}
-	return firstPositiveQueryInt(r, 1, "page", "page_no", "pageNo")
+	return firstPositiveQueryInt(r, 1, "page", "page_no", "pageNo"), nil
 }
 
 func parseSegmentGroup(r *http.Request, body *segmentSearchInput) string {
@@ -416,7 +442,7 @@ func parseChunkSearchResponse(datasetID, documentID string, raw map[string]any, 
 	total := extractChunkTotal(raw, len(segments))
 	nextPageToken := ""
 	if int(total) > page*pageSize {
-		nextPageToken = strconv.Itoa(page + 1)
+		nextPageToken = encodeDatasetPageToken(page*pageSize, pageSize, int(total))
 	}
 	return segments, total, nextPageToken
 }
