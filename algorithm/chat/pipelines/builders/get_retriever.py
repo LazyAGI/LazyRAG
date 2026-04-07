@@ -2,7 +2,7 @@ from typing import List, NamedTuple
 from lazyllm import Retriever, bind, pipeline, Document
 from lazyllm.tools.rag import TempDocRetriever
 from chat.pipelines.builders.get_models import get_automodel
-from chat.utils.config import DEFAULT_TMP_BLOCK_TOPK
+from chat.config import DEFAULT_TMP_BLOCK_TOPK
 
 class SearchRetrievalParts(NamedTuple):
     kb_retrievers: List[Retriever]
