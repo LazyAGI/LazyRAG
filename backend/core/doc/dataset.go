@@ -3,6 +3,7 @@ package doc
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -375,7 +376,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 
 	offset := 0
 	if pageToken != "" {
-		if v, err := strconv.Atoi(pageToken); err == nil && v >= 0 {
+		if v, err := parseDatasetPageToken(pageToken); err == nil && v >= 0 {
 			offset = v
 		}
 	}
@@ -409,12 +410,15 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		db = db.Order("updated_at desc")
 	}
 
-	// text tags text：text（text，text DB text JSON text）
-	fetchLimit := pageSize
+	// Need enough rows to evaluate ACL/keyword/tag filters before applying page_token.
+	// If we only fetch page_size rows, next_page_token can never be produced correctly.
+	fetchLimit := offset + pageSize + 1
+	if fetchLimit < pageSize {
+		fetchLimit = pageSize
+	}
 	if len(wantTags) > 0 || keyword != "" {
-		fetchLimit = 1000
-		if fetchLimit < pageSize {
-			fetchLimit = pageSize
+		if fetchLimit < 1000 {
+			fetchLimit = 1000
 		}
 	}
 
@@ -511,19 +515,80 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			ShareType:      shareTypeToPB(ds.ShareType),
 			Type:           datasetTypeToPB(ds.Type),
 			Tags:           parseDatasetTags(ds.Ext),
-			DefaultDataset: false,
+			DefaultDataset: isDefaultDatasetForUser(r.Context(), userID, ds.ID),
 		})
 	}
 
 	nextToken := ""
 	if end < total {
-		nextToken = strconv.Itoa(end)
+		nextToken = encodeDatasetPageToken(end, pageSize, total)
 	}
 	common.ReplyJSON(w, ListDatasetsResponse{
 		Datasets:      out,
 		TotalSize:     int32(total),
 		NextPageToken: nextToken,
 	})
+}
+
+func parseDatasetPageToken(token string) (int, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return 0, nil
+	}
+	// Backward compatibility: old token format is plain offset integer.
+	if v, err := strconv.Atoi(token); err == nil && v >= 0 {
+		return v, nil
+	}
+
+	decoders := []*base64.Encoding{
+		base64.RawStdEncoding,
+		base64.StdEncoding,
+		base64.RawURLEncoding,
+		base64.URLEncoding,
+	}
+	for _, decoder := range decoders {
+		b, err := decoder.DecodeString(token)
+		if err != nil {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(b, &payload); err != nil {
+			continue
+		}
+		candidates := []string{"Start", "start", "offset", "Offset"}
+		for _, key := range candidates {
+			if raw, ok := payload[key]; ok {
+				switch v := raw.(type) {
+				case float64:
+					if v >= 0 {
+						return int(v), nil
+					}
+				case int:
+					if v >= 0 {
+						return v, nil
+					}
+				case string:
+					if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 {
+						return n, nil
+					}
+				}
+			}
+		}
+	}
+	return 0, errors.New("invalid page_token")
+}
+
+func encodeDatasetPageToken(start, limit, total int) string {
+	payload := map[string]int{
+		"Start":      start,
+		"Limit":      limit,
+		"TotalCount": total,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return strconv.Itoa(start)
+	}
+	return base64.RawStdEncoding.EncodeToString(b)
 }
 
 func normalizeDatasetOrderBy(orderBy string) (string, error) {

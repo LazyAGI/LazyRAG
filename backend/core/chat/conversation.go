@@ -948,11 +948,34 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{"history_id": body.SetHistoryID})
 }
 
+func parseFeedbackType(raw json.RawMessage) (int32, error) {
+	var tInt int32
+	if err := json.Unmarshal(raw, &tInt); err == nil {
+		return tInt, nil
+	}
+
+	var tStr string
+	if err := json.Unmarshal(raw, &tStr); err != nil {
+		return 0, err
+	}
+	s := strings.TrimSpace(strings.ToUpper(tStr))
+	switch s {
+	case "FEED_BACK_TYPE_LIKE", "LIKE":
+		return 1, nil
+	case "FEED_BACK_TYPE_UNLIKE", "UNLIKE":
+		return 2, nil
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		return int32(n), nil
+	}
+	return 0, errors.New("invalid feedback type")
+}
+
 // FeedBackChatHistory text POST /api/v1/conversations:feedBackChatHistory
 func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		HistoryID      string `json:"history_id"`
-		Type           int32  `json:"type"`
+		Type           json.RawMessage `json:"type"`
 		Reason         string `json:"reason,omitempty"`
 		ExpectedAnswer string `json:"expected_answer,omitempty"`
 	}
@@ -964,9 +987,14 @@ func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "history_id required", http.StatusBadRequest)
 		return
 	}
+	feedbackType, err := parseFeedbackType(body.Type)
+	if err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
 	db := store.DB()
 	res := db.Model(&orm.ChatHistory{}).Where("id = ?", body.HistoryID).Updates(map[string]any{
-		"feed_back":       body.Type,
+		"feed_back":       feedbackType,
 		"reason":          body.Reason,
 		"expected_answer": body.ExpectedAnswer,
 		"update_time":     time.Now(),

@@ -234,6 +234,7 @@ def me(user: User = Depends(current_user)):  # noqa: B008
         'username': user.username,
         'display_name': user.display_name or user.username,
         'email': user.email,
+        'remark': user.remark or '',
         'status': 'inactive' if user.disabled else 'active',
         'role': user.role.name,
         'permissions': list(get_effective_permission_codes(user)),
@@ -272,6 +273,8 @@ def change_password(
     new_password = (body.new_password or '').strip()
     if not new_password:
         raise_error(ErrorCodes.NEW_PASSWORD_REQUIRED)
+    if body.old_password == new_password:
+        raise_error(ErrorCodes.NEW_PASSWORD_SAME_AS_OLD)
     if not auth_service.validate_password(new_password):
         raise_error(ErrorCodes.INVALID_PASSWORD)
     with SessionLocal() as db:
