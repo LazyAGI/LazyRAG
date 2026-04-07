@@ -151,7 +151,11 @@ def get_rag_ppl(url: str, retriever_configs: List[dict] = default_retriever_conf
                 ),
                 fpath=lambda x: x,
             )
-            rag_ppl.search = get_ppl_search(url, retriever_configs)  # TODO: 根据kb_id判断是否需要检索，依赖jiahao的doc服务
+            rag_ppl.search = ifs(
+                lambda x: bool(('kb_id' in x.get('filters') or x.get('files')) and not x.get('image_files')),
+                tpath=get_ppl_search(url),
+                fpath=lambda x: [])
+            # rag_ppl.search = get_ppl_search(url, retriever_configs)
             rag_ppl.generate = get_ppl_llm_generate(stream=stream) | bind(
                 image_files=[],
                 query=rag_ppl.input['query'],
