@@ -179,7 +179,7 @@ async def _standardize_json_response(request: Request, call_next):
             media_type='application/json',
         )
 
-    if isinstance(payload, dict) and 'code' in payload and 'message' in payload and 'data' in payload:
+    if isinstance(payload, dict) and 'code' in payload and 'data' in payload:
         payload['code'] = response.status_code
         return JSONResponse(content=payload, status_code=response.status_code, headers=_copy_headers(response.headers))
 

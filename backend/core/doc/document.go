@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +36,8 @@ import (
 // - schema B (readonly, maintained by lazy-llm-server): lazy_llm_server.lazyllm_*
 
 const externalDeleteFailedMessage = "textDeleteFailed，text"
+
+var fuzzyPunctRe = regexp.MustCompile(`[._\-\s（）()]+`)
 
 func requireDatasetPermission(r *http.Request, datasetID string, action string) (*orm.Dataset, string, bool) {
 	userID := strings.TrimSpace(store.UserID(r))
@@ -664,20 +668,41 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	keyword := strings.TrimSpace(req.Keyword)
-	if keyword == "" {
+
+	datasetIDs, err := accessibleDatasetIDs(r.Context(), userID)
+	if err != nil {
+		common.ReplyErr(w, "search documents failed", http.StatusInternalServerError)
+		return
+	}
+	if len(datasetIDs) == 0 {
 		common.ReplyJSON(w, ListDocumentsResponse{Documents: []Doc{}, TotalSize: 0, NextPageToken: ""})
 		return
+	}
+
+	offset := 0
+	if strings.TrimSpace(req.PageToken) != "" {
+		if v, err := strconv.Atoi(strings.TrimSpace(req.PageToken)); err == nil && v >= 0 {
+			offset = v
+		} else {
+			common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+			return
+		}
 	}
 	pageSize := req.PageSize
 	if pageSize <= 0 {
 		pageSize = 20
 	}
-	if pageSize > 1000 {
-		pageSize = 1000
+	if pageSize > 100 {
+		pageSize = 100
 	}
 
-	rows, err := searchAllDocumentsMerged(r.Context(), keyword, int(pageSize))
+	rows, total, err := searchAllDocumentsMerged(r.Context(), searchAllDocumentsParams{
+		DatasetIDs:  datasetIDs,
+		Keyword:     strings.TrimSpace(req.Keyword),
+		KeywordList: req.KeywordList,
+		PageSize:    int(pageSize),
+		Offset:      offset,
+	})
 	if err != nil {
 		common.ReplyErr(w, "search documents failed", http.StatusInternalServerError)
 		return
@@ -685,15 +710,16 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 	relPaths := buildDocumentTreeRelPaths(r.Context(), rows)
 	out := make([]Doc, 0, len(rows))
 	for _, rr := range rows {
-		if !canAccessDataset(&orm.Dataset{ID: rr.DatasetID}, userID, acl.PermissionDatasetRead) {
-			continue
-		}
 		rr.RelPath = relPaths[rr.DocID]
 		doc := docFromRow(rr)
 		setDocumentURI(&doc)
 		out = append(out, doc)
 	}
-	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(len(out)), NextPageToken: ""})
+	next := ""
+	if offset+len(rows) < int(total) {
+		next = strconv.Itoa(offset + len(rows))
+	}
+	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(total), NextPageToken: next})
 }
 
 func BatchUpdateDocumentTags(w http.ResponseWriter, r *http.Request) {
@@ -984,14 +1010,15 @@ type ListDocumentsResponse struct {
 }
 
 type SearchDocumentsRequest struct {
-	Parent    string `json:"parent,omitempty"`
-	PID       string `json:"p_id,omitempty"`
-	DirPath   string `json:"dir_path,omitempty"`
-	OrderBy   string `json:"order_by,omitempty"`
-	PageToken string `json:"page_token,omitempty"`
-	PageSize  int32  `json:"page_size,omitempty"`
-	Keyword   string `json:"keyword,omitempty"`
-	Recursive bool   `json:"recursive,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
+	PID         string   `json:"p_id,omitempty"`
+	DirPath     string   `json:"dir_path,omitempty"`
+	OrderBy     string   `json:"order_by,omitempty"`
+	PageToken   string   `json:"page_token,omitempty"`
+	PageSize    int32    `json:"page_size,omitempty"`
+	Keyword     string   `json:"keyword,omitempty"`
+	KeywordList []string `json:"keyword_list,omitempty"`
+	Recursive   bool     `json:"recursive,omitempty"`
 }
 
 type BatchUpdateDocumentTagsRequest struct {
@@ -1235,29 +1262,254 @@ func loadDocumentByID(ctx context.Context, datasetID, docID string) (mergedDocRo
 	return mergedDocRowFromCoreOnly(ctx, row, datasetID)
 }
 
-func searchAllDocumentsMerged(ctx context.Context, keyword string, limit int) ([]mergedDocRow, error) {
+type searchAllDocumentsParams struct {
+	DatasetIDs  []string
+	Keyword     string
+	KeywordList []string
+	PageSize    int
+	Offset      int
+}
+
+func searchAllDocumentsMerged(ctx context.Context, params searchAllDocumentsParams) ([]mergedDocRow, int64, error) {
+	if len(params.DatasetIDs) == 0 {
+		return []mergedDocRow{}, 0, nil
+	}
+	enableFuzzy := strings.TrimSpace(params.Keyword) != ""
+	searchKeyword := strings.TrimSpace(params.Keyword)
+	searchKeywordList := normalizeKeywordList(params.KeywordList)
+	queryKeyword := searchKeyword
+	queryKeywordList := searchKeywordList
+	offset := params.Offset
+	limit := params.PageSize
 	if limit <= 0 {
 		limit = 20
 	}
-	like := "%" + strings.ToLower(strings.ReplaceAll(keyword, "%", "\\%")) + "%"
-	var baseRows []readonlyorm.LazyLLMDocRow
-	if err := store.LazyLLMDB().WithContext(ctx).
-		Table((readonlyorm.LazyLLMDocRow{}).TableName()).
-		Where("LOWER(filename) LIKE ? OR LOWER(path) LIKE ?", like, like).
-		Order("updated_at DESC").
-		Limit(limit * 3).
-		Find(&baseRows).Error; err != nil {
+	if enableFuzzy {
+		queryKeyword = ""
+		queryKeywordList = nil
+		offset = 0
+		limit = math.MaxInt32
+	}
+
+	rows, total, err := loadMergedDocumentsBySearch(ctx, params.DatasetIDs, queryKeyword, queryKeywordList, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	if enableFuzzy {
+		scored := scoreMergedDocuments(searchKeyword, rows)
+		return pageScoredMergedDocuments(scored, params.Offset, params.PageSize), int64(len(scored)), nil
+	}
+	return rows, total, nil
+}
+
+func normalizeKeywordList(keywordList []string) []string {
+	if len(keywordList) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(keywordList))
+	seen := map[string]struct{}{}
+	for _, keyword := range keywordList {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+		if _, ok := seen[keyword]; ok {
+			continue
+		}
+		seen[keyword] = struct{}{}
+		out = append(out, keyword)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func accessibleDatasetIDs(ctx context.Context, userID string) ([]string, error) {
+	var datasets []orm.Dataset
+	if err := store.DB().WithContext(ctx).Where("deleted_at IS NULL").Find(&datasets).Error; err != nil {
 		return nil, err
 	}
+	ids := make([]string, 0, len(datasets))
+	for _, ds := range datasets {
+		if canAccessDataset(&ds, userID, acl.PermissionDatasetRead) {
+			ids = append(ids, ds.ID)
+		}
+	}
+	return ids, nil
+}
+
+func loadMergedDocumentsBySearch(ctx context.Context, datasetIDs []string, keyword string, keywordList []string, limit, offset int) ([]mergedDocRow, int64, error) {
+	var baseRows []readonlyorm.LazyLLMDocRow
+	baseQuery := store.LazyLLMDB().WithContext(ctx).Table((readonlyorm.LazyLLMDocRow{}).TableName())
+	if strings.TrimSpace(keyword) != "" {
+		like := "%" + strings.ToLower(strings.ReplaceAll(strings.TrimSpace(keyword), "%", "\\%")) + "%"
+		baseQuery = baseQuery.Where("LOWER(filename) LIKE ? OR LOWER(path) LIKE ?", like, like)
+	}
+	for _, kw := range normalizeKeywordList(keywordList) {
+		like := "%" + strings.ToLower(strings.ReplaceAll(kw, "%", "\\%")) + "%"
+		baseQuery = baseQuery.Where("LOWER(filename) LIKE ? OR LOWER(path) LIKE ?", like, like)
+	}
+	if err := baseQuery.Order("updated_at DESC").Find(&baseRows).Error; err != nil {
+		return nil, 0, err
+	}
 	if len(baseRows) == 0 {
-		return []mergedDocRow{}, nil
+		return []mergedDocRow{}, 0, nil
 	}
 	docIDs := make([]string, 0, len(baseRows))
 	for _, row := range baseRows {
 		docIDs = append(docIDs, row.DocID)
 	}
-	rows, _, err := loadMergedDocumentsByDocIDs(ctx, docIDs, "", keyword, "", false, limit, 0)
-	return rows, err
+	rows, _, err := loadMergedDocumentsByDocIDs(ctx, docIDs, "", keyword, "", false, 0, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	filtered := make([]mergedDocRow, 0, len(rows))
+	datasetSet := make(map[string]struct{}, len(datasetIDs))
+	for _, id := range datasetIDs {
+		datasetSet[id] = struct{}{}
+	}
+	for _, row := range rows {
+		if _, ok := datasetSet[row.DatasetID]; ok {
+			filtered = append(filtered, row)
+		}
+	}
+	total := int64(len(filtered))
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset >= len(filtered) {
+		return []mergedDocRow{}, total, nil
+	}
+	end := offset + limit
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	return filtered[offset:end], total, nil
+}
+
+type scoredMergedDoc struct {
+	row   mergedDocRow
+	score int
+}
+
+func scoreMergedDocuments(keyword string, rows []mergedDocRow) []scoredMergedDoc {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" || len(rows) == 0 {
+		return nil
+	}
+	normalizedKw := normalizeForFuzzy(keyword)
+	const maxDistance = 5
+	scored := make([]scoredMergedDoc, 0, len(rows))
+	for _, row := range rows {
+		bestScore := maxDistance + 1
+		matched := false
+		for _, candidate := range []string{row.DisplayName, string(row.Tags), row.Creator} {
+			norm := normalizeForFuzzy(candidate)
+			if norm == "" {
+				continue
+			}
+			if strings.Contains(norm, normalizedKw) {
+				bestScore = 0
+				matched = true
+				continue
+			}
+			if dist := boundedLevenshtein(norm, normalizedKw, maxDistance); dist >= 0 && dist <= maxDistance && dist < bestScore {
+				bestScore = dist
+				matched = true
+			}
+		}
+		if matched && bestScore <= maxDistance {
+			scored = append(scored, scoredMergedDoc{row: row, score: bestScore})
+		}
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score < scored[j].score
+		}
+		return strings.ToLower(scored[i].row.DisplayName) < strings.ToLower(scored[j].row.DisplayName)
+	})
+	return scored
+}
+
+func pageScoredMergedDocuments(scored []scoredMergedDoc, offset, pageSize int) []mergedDocRow {
+	if len(scored) == 0 {
+		return []mergedDocRow{}
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(scored) {
+		return []mergedDocRow{}
+	}
+	end := offset + pageSize
+	if end > len(scored) {
+		end = len(scored)
+	}
+	out := make([]mergedDocRow, 0, end-offset)
+	for _, item := range scored[offset:end] {
+		out = append(out, item.row)
+	}
+	return out
+}
+
+func boundedLevenshtein(a, b string, _ int) int {
+	la, lb := len(a), len(b)
+	if a == b {
+		return 0
+	}
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	if la > lb {
+		a, b = b, a
+		la, lb = lb, la
+	}
+	prev := make([]int, la+1)
+	curr := make([]int, la+1)
+	for i := 0; i <= la; i++ {
+		prev[i] = i
+	}
+	for j := 1; j <= lb; j++ {
+		curr[0] = j
+		bj := b[j-1]
+		for i := 1; i <= la; i++ {
+			cost := 0
+			if a[i-1] != bj {
+				cost = 1
+			}
+			deletion := prev[i] + 1
+			insertion := curr[i-1] + 1
+			substitution := prev[i-1] + cost
+			curr[i] = deletion
+			if insertion < curr[i] {
+				curr[i] = insertion
+			}
+			if substitution < curr[i] {
+				curr[i] = substitution
+			}
+		}
+		prev, curr = curr, prev
+	}
+	return prev[la]
+}
+
+func normalizeForFuzzy(s string) string {
+	s = strings.ToLower(s)
+	s = fuzzyPunctRe.ReplaceAllString(s, "")
+	s = strings.TrimSuffix(s, ".docx")
+	s = strings.TrimSuffix(s, ".doc")
+	s = strings.TrimSuffix(s, ".pdf")
+	return s
 }
 
 func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID, keyword, pid string, applyPIDFilter bool, limit, offset int) ([]mergedDocRow, int64, error) {

@@ -46,6 +46,7 @@ class UserItem(BaseModel):
     tenant_id: str | None = None
     role_id: str  # UUID string
     role_name: str
+    is_bootstrap_admin: bool = False
 
 
 class UserListResponse(BaseModel):
@@ -63,10 +64,12 @@ class UserDetailResponse(BaseModel):
     display_name: str = ''
     email: str | None = None
     phone: str | None = None
+    remark: str | None = None
     status: str  # 'active' | 'inactive'
     tenant_id: str | None = None
     role_id: str
     role_name: str
+    is_bootstrap_admin: bool = False
 
 
 class OkResponse(BaseModel):
