@@ -934,7 +934,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
 		return
 	}
-	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+	if !canAccessDataset(&ds, userID, acl.PermRead) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(common.ForbiddenBody))
@@ -1012,7 +1012,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
 		return
 	}
-	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+	if !canAccessDataset(&ds, userID, acl.PermRead) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(common.ForbiddenBody))
