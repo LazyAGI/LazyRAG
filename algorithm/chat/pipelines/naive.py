@@ -4,7 +4,7 @@ from lazyllm import pipeline, bind, ifs
 
 from chat.pipelines.builders import get_ppl_search, get_ppl_generate, get_automodel
 from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewriter
-from chat.utils.config import DEFAULT_RETRIEVER_CONFIGS
+from chat.config import DEFAULT_RETRIEVER_CONFIGS
 
 
 def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):

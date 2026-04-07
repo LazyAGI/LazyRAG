@@ -6,7 +6,7 @@ import os
 import itertools
 import lazyllm
 from lazyllm.tools.rag import Retriever
-from chat.pipelines.naive import get_ppl_search
+from chat.pipelines.builders import get_ppl_search
 
 DOCUMENT_URL = os.getenv('LAZYLLM_DOCUMENT_URL', 'http://127.0.0.1:8525')
 

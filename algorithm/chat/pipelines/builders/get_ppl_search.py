@@ -4,7 +4,7 @@ from lazyllm import pipeline, parallel, bind, ifs
 from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
 from chat.pipelines.builders import get_automodel, get_retriever, get_remote_docment
-from chat.utils.config import DEFAULT_RETRIEVER_CONFIGS
+from chat.config import DEFAULT_RETRIEVER_CONFIGS
 
 def _adaptive_get_token_len(n: Any) -> int:
     txt = getattr(n, 'text', '') or ''

@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional, Union
 import lazyllm
 from lazyllm import LOG
 from fastapi.responses import StreamingResponse
-from chat.utils.config import (URL_MAP, RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
-                               LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT)
+from chat.config import (URL_MAP, RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
+                         LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT)
 from chat.utils.helpers import validate_and_resolve_files
 from chat.app.core.chat_server import chat_server
 

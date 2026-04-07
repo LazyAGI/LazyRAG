@@ -2,7 +2,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from lazyllm import LOG, once_wrapper
 
-from chat.utils.config import URL_MAP, SENSITIVE_WORDS_PATH
+from chat.config import URL_MAP, SENSITIVE_WORDS_PATH
 from chat.pipelines.agentic import agentic_rag
 from chat.pipelines.naive import get_ppl_naive
 from chat.components.process.sensitive_filter import SensitiveFilter

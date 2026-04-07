@@ -9,7 +9,7 @@ import yaml
 from lazyllm import AutoModel, ModuleBase
 from lazyllm.components.formatter import FormatterBase
 from lazyllm.components.prompter import PrompterBase
-from chat.utils.config import CONFIG_PATH
+from chat.config import CONFIG_PATH
 
 _DEFAULT_LLM_KW: Dict[str, Any] = {
     'temperature': 0.01,

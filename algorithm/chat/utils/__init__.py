@@ -12,7 +12,7 @@ from chat.utils.schema import (
     MiddleResults, ToolMemory, ToolCall,
     PlanStep, TaskContext
 )
-from chat.utils.config import (
+from chat.config import (
     URL_MAP, DEFAULT_RETRIEVER_CONFIGS, PROJECT_ROOT, CHAT_DIR,
     MAX_CONCURRENCY, LAZYRAG_LLM_PRIORITY
 )

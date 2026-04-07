@@ -14,7 +14,7 @@ base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
 from chat.pipelines.builders.get_models import get_automodel
-from chat.utils.agentic import (
+from chat.prompts.agentic import (
     EVALUATOR_PROMPT,
     EXTRACTOR_PROMPT,
     GENERATE_PROMPT,

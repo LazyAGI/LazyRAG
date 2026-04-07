@@ -2,7 +2,7 @@ import os
 from typing import List, Optional, Tuple
 from fastapi import HTTPException
 
-from chat.utils.config import MOUNT_BASE_DIR, IMAGE_EXTENSIONS
+from chat.config import MOUNT_BASE_DIR, IMAGE_EXTENSIONS
 
 
 def validate_and_resolve_files(files: Optional[List[str]]) -> Tuple[List[str], List[str]]:
