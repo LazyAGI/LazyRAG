@@ -1,6 +1,6 @@
 import os
-import urllib.request
 
+import httpx
 from fastapi import APIRouter
 
 router = APIRouter()
@@ -10,10 +10,11 @@ router = APIRouter()
 @router.get('/api/health', summary='Health check (API path)')
 async def health():
     doc_url = os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000')
+    check_url = doc_url.rstrip('/') + '/'
     status = {'document_server_url': doc_url, 'document_server_reachable': None}
     try:
-        req = urllib.request.Request(doc_url.rstrip('/') + '/', method='GET')
-        urllib.request.urlopen(req, timeout=3)
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            await client.get(check_url)
         status['document_server_reachable'] = True
     except Exception as e:
         status['document_server_reachable'] = False

@@ -3,7 +3,7 @@ from lazyllm import pipeline, bind
 from chat.components.generate import AggregateComponent, RAGContextFormatter, CustomOutputParser
 from chat.pipelines.builders import get_automodel
 from chat.prompts.rag_answer import RAG_ANSWER_SYSTEM
-
+from chat.config import LLM_TYPE_THINK
 
 def _answer_llm():
     wrapped = get_automodel('qwen3_32b_custom', wrap_simple_llm=True)
@@ -14,8 +14,6 @@ def _answer_llm():
 
 
 def get_ppl_llm_generate(stream=False):
-    from chat.utils.config import LLM_TYPE_THINK
-    
     with lazyllm.save_pipeline_result():
         with pipeline() as ppl:
             ppl.aggregate = AggregateComponent()
