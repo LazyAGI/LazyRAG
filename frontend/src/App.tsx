@@ -1,16 +1,18 @@
-import { HashRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import AppRouter from "./router";
+import { BASENAME } from "./globalState";
 
 function App() {
   return (
-    <HashRouter
+    <BrowserRouter
+      basename={BASENAME || undefined}
       future={{
         v7_startTransition: true,
         v7_relativeSplatPath: true,
       }}
     >
       <AppRouter />
-    </HashRouter>
+    </BrowserRouter>
   );
 }
 

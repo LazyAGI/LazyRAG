@@ -6,7 +6,6 @@ import {
   PlusOutlined,
   DeleteOutlined,
   EditOutlined,
-  TeamOutlined,
   UsergroupAddOutlined,
 } from "@ant-design/icons";
 import CreateGroupModal from "./components/CreateGroupModal";
@@ -15,6 +14,7 @@ import ManagePermissionsModal from "./components/ManagePermissionsModal";
 import { createGroupApi, createUsersServiceApi } from "@/modules/signin/utils/request";
 import { AgentAppsAuth } from "@/components/auth";
 import type { GroupItem } from "@/api/generated/auth-client";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 
 const { Paragraph } = Typography;
 const NAME_COLUMN_WIDTH = 220;
@@ -265,31 +265,22 @@ const GroupManagement = () => {
   };
 
   return (
-    <div style={{ padding: "24px" }}>
-      <div
-        style={{
-          marginBottom: "16px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <TeamOutlined style={{ fontSize: "20px" }} />
-            <h2 style={{ margin: 0 }}>{t("admin.groupManagement")}</h2>
-          </div>
+    <div className="admin-page">
+      <div className="admin-page-toolbar">
+        <div className="admin-page-toolbar-left">
+          <h2 className="admin-page-title">{t("admin.groupManagement")}</h2>
           <Input.Search
             placeholder={t("admin.searchGroupName")}
             allowClear
             onSearch={handleSearch}
-            style={{ width: 250 }}
+            className="admin-page-search"
           />
         </div>
         {isUserAdmin && (
           <Button
             type="primary"
             icon={<PlusOutlined />}
+            className="admin-page-primary-button"
             onClick={() => {
               setEditingGroup(null);
               setIsModalVisible(true);
@@ -301,17 +292,18 @@ const GroupManagement = () => {
       </div>
 
       <Table
+        className="admin-page-table"
         columns={columns}
         dataSource={groups}
         rowKey="group_id"
         loading={loading}
         tableLayout="fixed"
         scroll={{ x: 980 }}
-        pagination={{
+        pagination={getLocalizedTablePagination({
           ...pagination,
           showSizeChanger: true,
           showTotal: (total) => t("common.totalItems", { total }),
-        }}
+        }, t)}
         onChange={handleTableChange}
       />
 
@@ -329,8 +321,11 @@ const GroupManagement = () => {
         visible={isMemberModalVisible}
         group={selectedGroupForMembers}
         isAdmin={isUserAdmin}
-        defaultViewMode={isUserAdmin ? "add" : "list"}
         onCancel={() => {
+          setIsMemberModalVisible(false);
+          setSelectedGroupForMembers(null);
+        }}
+        onSuccess={() => {
           setIsMemberModalVisible(false);
           setSelectedGroupForMembers(null);
         }}

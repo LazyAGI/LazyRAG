@@ -186,7 +186,7 @@ const AssistantMessage = (props: any) => {
                     message.error(t("chat.tempFileNotSupportJump"));
                     return;
                   }
-                  const url = `/appplatform/lib/knowledge/knowledge/${source.dataset_id}/${source.document_id}?group_name=${source.group_name}&segement_id=${source.segement_id}&number=${source.segment_number}&from=chat`;
+                  const url = `/lib/knowledge/knowledge/${source.dataset_id}/${source.document_id}?group_name=${source.group_name}&segement_id=${source.segement_id}&number=${source.segment_number}&from=chat`;
                   window.open(url, "_blank");
                 }}
               >
@@ -400,7 +400,7 @@ const AssistantMessage = (props: any) => {
                     message.error(t("chat.tempFileNotSupportJump"));
                     return;
                   }
-                  const url = `/appplatform/lib/knowledge/knowledge/${source.dataset_id}/${source.document_id}?group_name=${source.group_name}&segement_id=${source.segement_id}&number=${source.segment_number}&from=chat`;
+                  const url = `/lib/knowledge/knowledge/${source.dataset_id}/${source.document_id}?group_name=${source.group_name}&segement_id=${source.segement_id}&number=${source.segment_number}&from=chat`;
                   window.open(url, "_blank");
                 }}
               >

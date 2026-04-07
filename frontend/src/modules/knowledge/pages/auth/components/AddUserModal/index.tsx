@@ -189,7 +189,9 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
             filterOption={false}
             options={userList.map((item) => ({
               value: item.value,
-              label: (
+              label: isGroup ? (
+                item.label
+              ) : (
                 <div style={{ display: "flex" }}>
                   {item.label}
                   <span style={{ margin: "0 4px", flex: 1 }}></span>

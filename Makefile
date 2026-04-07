@@ -1,6 +1,21 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
-.PHONY: lint lint-only-diff install-flake8 lint-python lint-python-only-diff lint-go lint-go-only-diff test build up up-build down clear
+.PHONY: help lint install-flake8 lint-python lint-go test build up up-build down clear
+.DEFAULT_GOAL := help
 
+# Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
+# (which often times out in restricted networks). Override with: make up DOCKER_BUILDKIT=1
+export DOCKER_BUILDKIT ?= 0
+PYTHON ?= python3
+PIP ?= pip
+
+# ---------------------------------------------------------------------------
+# Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
+# Usage: make up                           →  docker compose up -d
+#        make up COMPOSE_PROJECT=myproj    →  docker compose -p myproj up -d
+#        make down                         →  docker compose down
+#        make down COMPOSE_PROJECT=myproj  →  docker compose -p myproj down
+# ---------------------------------------------------------------------------
+_COMPOSE := DOCKER_BUILDKIT=$(DOCKER_BUILDKIT) docker compose $(if $(COMPOSE_PROJECT),-p $(COMPOSE_PROJECT),)
 ifneq (,$(wildcard .env))
 include .env
 export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env)
@@ -21,7 +36,8 @@ LAZYRAG_AUTH_API_PERMISSIONS_FILE ?=
 # Core / ACL
 ACL_DB_DRIVER ?= postgres
 ACL_DB_DSN ?= host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC
-LAZYRAG_CHAT_SERVICE_URL ?= http://localhost:8046
+# For docker-compose, core reaches chat via service DNS name.
+LAZYRAG_CHAT_SERVICE_URL ?= http://chat:8046
 
 # Processor
 LAZYRAG_DOCUMENT_PROCESSOR_PORT ?= 8000
@@ -35,8 +51,8 @@ LAZYRAG_DOCUMENT_WORKER_POLL_MODE ?= direct
 
 # Parsing / OCR (none=built-in PDFReader, mineru, paddleocr)
 LAZYRAG_DOCUMENT_PROCESSOR_URL ?= http://processor-server:8000
-LAZYRAG_DOCUMENT_SERVICE_URL ?= http://doc-server:8000
-LAZYRAG_PARSING_SERVICE_URL ?= http://parsing:8000
+LAZYRAG_DOCUMENT_SERVICE_URL ?= http://lazyllm-doc-server:8000
+LAZYRAG_PARSING_SERVICE_URL ?= http://lazyllm-parse-server:8000
 LAZYRAG_DOCUMENT_SERVER_PORT ?= 8000
 LAZYRAG_OCR_SERVER_TYPE ?= none
 # Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080, none->placeholder
@@ -81,6 +97,12 @@ OPENSEARCH_IMAGE_TAG ?= 2.18.0
 MINIO_ACCESS_KEY ?= minioadmin
 MINIO_SECRET_KEY ?= minioadmin
 
+# JuiceFS S3 Gateway
+JUICEFS_MINIO_USER ?= minioadmin
+JUICEFS_MINIO_PASSWORD ?= minioadmin
+JUICEFS_ACCESS_KEY ?= juicefs
+JUICEFS_SECRET_KEY ?= juicefs123
+
 export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET LAZYRAG_JWT_TTL_MINUTES LAZYRAG_JWT_REFRESH_TTL_DAYS
 export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD LAZYRAG_AUTH_API_PERMISSIONS_FILE
 export ACL_DB_DRIVER ACL_DB_DSN LAZYRAG_CHAT_SERVICE_URL
@@ -100,12 +122,23 @@ export LAZYRAG_MINERU_CACHE_DIR LAZYRAG_MINERU_IMAGE_SAVE_DIR
 export LAZYRAG_DOCUMENT_SERVER_URL LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY LAZYRAG_CHAT_PROMPT
 export PADDLEOCR_VLM_IMAGE_TAG PADDLEOCR_API_IMAGE_TAG PADDLEOCR_VLM_BACKEND
 export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG MINIO_ACCESS_KEY MINIO_SECRET_KEY
+export JUICEFS_MINIO_USER JUICEFS_MINIO_PASSWORD JUICEFS_ACCESS_KEY JUICEFS_SECRET_KEY
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend
 
 # Go dirs to lint
 GO_DIRS := backend/core
+
+help:
+	@echo "LazyRAG Make targets:"
+	@echo "  make up         - Start services in background (with derived profiles)"
+	@echo "  make up-build   - Build images and start services"
+	@echo "  make down       - Stop services"
+	@echo "  make build      - Build compose services (mineru profile only when needed)"
+	@echo "  make lint       - Run Python flake8 and Go gofmt checks"
+	@echo "  make test       - Run project test script"
+	@echo "  make clear      - Stop services, remove volumes, clear Python cache"
 
 # Require flake8 to be installed (e.g. in a venv). Do not auto pip-install to avoid PEP 668 errors.
 install-flake8:
@@ -115,13 +148,13 @@ install-flake8:
 			flake8-quotes) mod="flake8_quotes" ;; \
 			flake8-bugbear) mod="bugbear" ;; \
 		esac; \
-		python3 -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('$$mod') else 1)" \
-			|| pip install $$pkg; \
+		$(PYTHON) -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('$$mod') else 1)" \
+			|| $(PIP) install $$pkg; \
 	done
 
 lint-python: install-flake8
 	@echo "🐍 Linting Python ($(PYTHON_DIRS))..."
-	@python3 -m flake8 $(PYTHON_DIRS)
+	@$(PYTHON) -m flake8 $(PYTHON_DIRS)
 
 lint-go:
 	@echo "🔷 Linting Go ($(GO_DIRS))..."
@@ -155,21 +188,21 @@ _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update -
 
 build:
 	$(_SUBMODULE_INIT)
-	@DOCKER_BUILDKIT=0 docker compose $(strip $(if $(_need_mineru),--profile mineru)) build
+	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
-	@docker compose $(_COMPOSE_PROFILES) up -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d
 
 down:
-	@docker compose $(_COMPOSE_PROFILES) down
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down
 
 up-build:
 	$(_SUBMODULE_INIT)
-	@DOCKER_BUILDKIT=0 docker compose $(_COMPOSE_PROFILES) up --build -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up --build -d
 
 clear:
 	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."
-	@docker compose $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
 	@echo "🧹 Clearing Python cache..."
 	@find . -type d -name '__pycache__' ! -path '*/\.git/*' -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name '*.pyc' ! -path '*/\.git/*' -delete 2>/dev/null || true

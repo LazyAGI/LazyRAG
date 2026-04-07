@@ -206,7 +206,7 @@ const Detail = () => {
       .then(() => {
         message.success(t("knowledge.deleteSuccess"));
         navigate({
-          pathname: "/list",
+          pathname: "/lib/knowledge/list",
         });
       });
   }
@@ -303,7 +303,7 @@ const Detail = () => {
           )
         }
         breadcrumbs={[
-          { title: t("layout.knowledgeBase"), href: "/appplatform/lib/knowledge/list" },
+          { title: t("layout.knowledgeBase"), href: "/lib/knowledge/list" },
           { title: detail?.display_name },
         ]}
         description={detail?.desc}
@@ -325,7 +325,7 @@ const Detail = () => {
             searchParams.get("from") ?? "",
           );
           if (bool) {
-            navigate("/list");
+            navigate("/lib/knowledge/list");
           } else {
             navigate(-1);
           }

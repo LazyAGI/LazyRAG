@@ -89,7 +89,11 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
     return (
       <Modal
         open={visible}
-        title={data ? t("knowledge.edit") + t("layout.knowledgeBase") : t("knowledge.createKnowledgeBase")}
+        title={
+          data
+            ? t("knowledge.editKnowledgeBase")
+            : t("knowledge.createKnowledgeBase")
+        }
         centered
         onCancel={onCancel}
         onOk={onOk}

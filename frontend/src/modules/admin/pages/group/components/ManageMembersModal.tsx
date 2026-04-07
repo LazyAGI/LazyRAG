@@ -6,41 +6,25 @@ import {
   message as AntdMessage,
   Input as AntdInput,
   Tag as AntdTag,
-  Popconfirm as AntdPopconfirm,
   Tooltip as AntdTooltip,
 } from "antd";
 import type { TableColumnsType } from "antd";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { createGroupApi, createUserApi } from "@/modules/signin/utils/request";
-import type {
-  GroupItem,
-  GroupUserItem,
-  UserItem,
-} from "@/api/generated/auth-client";
+import type { GroupItem, GroupUserItem, UserItem } from "@/api/generated/auth-client";
 import {
   SearchOutlined,
   RightOutlined,
   LeftOutlined,
   UsergroupAddOutlined,
-  DeleteOutlined,
-  PlusOutlined,
-  ArrowLeftOutlined,
 } from "@ant-design/icons";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import { useStyles } from "@/components/ui/useStyles";
 
 const manageMembersModalCss = `
 .manage-members-modal .ant-modal {
   max-width: calc(100vw - 32px);
-}
-
-.manage-members-modal__toolbar {
-  margin-bottom: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .manage-members-modal__transfer {
@@ -134,50 +118,18 @@ interface ManageMembersModalProps {
   visible: boolean;
   group: GroupItem | null;
   isAdmin: boolean;
-  defaultViewMode?: "list" | "add";
   onCancel: () => void;
   onSuccess?: () => void;
 }
 
-enum GroupMemberRole {
-  Admin = "admin",
-  Member = "member",
-}
-
 interface GroupMemberListItem extends GroupUserItem {
   email?: string;
-  role: GroupMemberRole | string;
-  tenant_ids?: string | string[];
 }
-
-const getMemberRoleMeta = (
-  role: GroupMemberRole | string | undefined,
-  t: (key: string) => string,
-) => {
-  switch ((role || "").trim().toLowerCase()) {
-    case GroupMemberRole.Admin:
-      return {
-        color: "orange",
-        label: t("admin.groupAdmin"),
-      };
-    case GroupMemberRole.Member:
-      return {
-        color: "blue",
-        label: t("admin.member"),
-      };
-    default:
-      return {
-        color: "default",
-        label: role || "-",
-      };
-  }
-};
 
 const ManageMembersModal = ({
   visible,
   group,
   isAdmin,
-  defaultViewMode = "list",
   onCancel,
   onSuccess,
 }: ManageMembersModalProps) => {
@@ -185,19 +137,15 @@ const ManageMembersModal = ({
   useStyles("manage-members-modal-styles", manageMembersModalCss);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<"list" | "add">(defaultViewMode);
-
   const [allUsers, setAllUsers] = useState<UserItem[]>([]);
   const [currentMembers, setCurrentMembers] = useState<GroupMemberListItem[]>([]);
-
   const [leftSelectedKeys, setLeftSelectedKeys] = useState<string[]>([]);
   const [rightSelectedKeys, setRightSelectedKeys] = useState<string[]>([]);
-
   const [pendingAddUsers, setPendingAddUsers] = useState<UserItem[]>([]);
-
   const [leftSearch, setLeftSearch] = useState("");
   const [rightSearch, setRightSearch] = useState("");
-  const [memberSearch, setMemberSearch] = useState("");
+  const isUserInactive = (status?: string) =>
+    status?.toLowerCase() === "inactive";
 
   const fetchAllUsers = useCallback(async () => {
     if (!isAdmin) return;
@@ -207,6 +155,7 @@ const ManageMembersModal = ({
       let page = 1;
       let total = 0;
       const users: UserItem[] = [];
+
       do {
         const res = await userApi.listUsersApiAuthserviceUserGet({
           page,
@@ -219,6 +168,7 @@ const ManageMembersModal = ({
         total = Number(data.total || users.length);
         page += 1;
       } while (users.length < total);
+
       setAllUsers(users);
     } catch (error) {
       console.error("Failed to fetch users:", error);
@@ -235,7 +185,8 @@ const ManageMembersModal = ({
           groupId: group.group_id,
         });
       const resData = res.data as any;
-      const members = (resData.users || resData.data?.users || []) as GroupMemberListItem[];
+      const members =
+        (resData.users || resData.data?.users || []) as GroupMemberListItem[];
       setCurrentMembers(members);
     } catch (error) {
       console.error("Failed to fetch members:", error);
@@ -243,23 +194,21 @@ const ManageMembersModal = ({
     } finally {
       setLoading(false);
     }
-  }, [group]);
+  }, [group, t]);
 
   useEffect(() => {
-    if (visible && group) {
-      setViewMode(defaultViewMode);
-      fetchMembers();
-      if (isAdmin) {
-        fetchAllUsers();
-      }
-      setPendingAddUsers([]);
-      setLeftSelectedKeys([]);
-      setRightSelectedKeys([]);
-      setLeftSearch("");
-      setRightSearch("");
-      setMemberSearch("");
+    if (!visible || !group) return;
+
+    fetchMembers();
+    if (isAdmin) {
+      fetchAllUsers();
     }
-  }, [visible, group, isAdmin, defaultViewMode, fetchAllUsers, fetchMembers]);
+    setPendingAddUsers([]);
+    setLeftSelectedKeys([]);
+    setRightSelectedKeys([]);
+    setLeftSearch("");
+    setRightSearch("");
+  }, [visible, group, isAdmin, fetchAllUsers, fetchMembers]);
 
   const leftDataSource = useMemo(() => {
     return allUsers.filter((user) => {
@@ -279,8 +228,8 @@ const ManageMembersModal = ({
   }, [pendingAddUsers, rightSearch]);
 
   const moveToRight = () => {
-    const usersToMove = leftDataSource.filter((u) =>
-      leftSelectedKeys.includes(u.user_id),
+    const usersToMove = leftDataSource.filter(
+      (u) => leftSelectedKeys.includes(u.user_id) && !isUserInactive(u.status),
     );
     setPendingAddUsers((prev) => [...prev, ...usersToMove]);
     setLeftSelectedKeys([]);
@@ -299,6 +248,7 @@ const ManageMembersModal = ({
       AntdMessage.warning(t("admin.selectUsersToAdd"));
       return;
     }
+
     setSaving(true);
     try {
       const groupApi = createGroupApi();
@@ -308,31 +258,14 @@ const ManageMembersModal = ({
       });
       AntdMessage.success(t("admin.addMembersSuccess"));
       setPendingAddUsers([]);
-      fetchMembers();
-      setViewMode("list");
       onSuccess?.();
     } catch (error: any) {
       console.error("Add members failed:", error);
-      AntdMessage.error(error.response?.data?.message || t("admin.addMembersFailed"));
+      AntdMessage.error(
+        error.response?.data?.message || t("admin.addMembersFailed"),
+      );
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleRemoveMember = async (userId: string) => {
-    if (!group) return;
-    try {
-      const groupApi = createGroupApi();
-      await groupApi.removeGroupUsersApiAuthserviceGroupGroupIdUserRemovePost({
-        groupId: group.group_id,
-        groupRemoveUsersBody: { user_ids: [userId] },
-      });
-      AntdMessage.success(t("admin.removeMemberSuccess"));
-      fetchMembers();
-      onSuccess?.();
-    } catch (error: any) {
-      console.error("Remove member failed:", error);
-      AntdMessage.error(error.response?.data?.message || t("admin.removeMemberFailed"));
     }
   };
 
@@ -365,84 +298,14 @@ const ManageMembersModal = ({
       key: "role_name",
       width: 120,
       render: (roleName?: string) => (
-        <AntdTag color={roleName?.toLowerCase().includes("admin") ? "orange" : "blue"}>
+        <AntdTag
+          color={roleName?.toLowerCase().includes("admin") ? "orange" : "blue"}
+        >
           {roleName || "-"}
         </AntdTag>
       ),
     },
   ];
-
-  const memberBaseColumns: TableColumnsType<GroupMemberListItem> = [
-    {
-      title: t("admin.username"),
-      dataIndex: "username",
-      key: "username",
-      width: 220,
-      render: (value: string) => (
-        <AntdTooltip title={value || "-"}>
-          <span className="manage-members-modal__ellipsis-text">
-            {value || "-"}
-          </span>
-        </AntdTooltip>
-      ),
-    },
-    {
-      title: t("admin.email"),
-      dataIndex: "email",
-      key: "email",
-      width: 240,
-      render: (value?: string) => (
-        <div className="manage-members-modal__break-text">{value || "-"}</div>
-      ),
-    },
-    {
-      title: t("admin.role"),
-      dataIndex: "role",
-      key: "role",
-      width: 120,
-      render: (role?: GroupMemberRole | string) => {
-        const { color, label } = getMemberRoleMeta(role, t);
-        return <AntdTag color={color}>{label}</AntdTag>;
-      },
-    },
-  ];
-
-  const memberColumns: TableColumnsType<GroupMemberListItem> = [
-    ...memberBaseColumns,
-    ...(isAdmin
-      ? [
-          {
-            title: t("admin.actions"),
-            key: "action",
-            width: 80,
-            render: (_: unknown, record: GroupMemberListItem) => (
-              <AntdPopconfirm
-                title={t("admin.removeMemberConfirm")}
-                onConfirm={() => handleRemoveMember(record.user_id)}
-                okText={t("common.confirm")}
-                cancelText={t("common.cancel")}
-              >
-                <AntdButton
-                  type="link"
-                  danger
-                  size="small"
-                  icon={<DeleteOutlined />}
-                >
-                  {t("admin.removeMember")}
-                </AntdButton>
-              </AntdPopconfirm>
-            ),
-          },
-        ]
-      : []),
-  ];
-
-  const filteredMembers = currentMembers.filter((m) => {
-    return (
-      m.username.toLowerCase().includes(memberSearch.toLowerCase()) ||
-      (m.email && m.email.toLowerCase().includes(memberSearch.toLowerCase()))
-    );
-  });
 
   return (
     <AntdModal
@@ -454,28 +317,20 @@ const ManageMembersModal = ({
       }
       open={visible}
       onCancel={onCancel}
-      footer={
-        viewMode === "list"
-          ? [
-              <AntdButton key="close" onClick={onCancel}>
-                {t("admin.close")}
-              </AntdButton>,
-            ]
-          : [
-              <AntdButton key="cancel" onClick={() => setViewMode("list")}>
-                {t("common.cancel")}
-              </AntdButton>,
-              <AntdButton
-                key="submit"
-                type="primary"
-                loading={saving}
-                onClick={handleConfirmAdd}
-              >
-                {t("admin.confirmAdd")}
-              </AntdButton>,
-            ]
-      }
-      width={viewMode === "list" ? 800 : 1080}
+      footer={[
+        <AntdButton key="cancel" onClick={onCancel}>
+          {t("common.cancel")}
+        </AntdButton>,
+        <AntdButton
+          key="submit"
+          type="primary"
+          loading={saving}
+          onClick={handleConfirmAdd}
+        >
+          {t("admin.confirmAdd")}
+        </AntdButton>,
+      ]}
+      width={1080}
       destroyOnHidden
       className="manage-members-modal"
       styles={{
@@ -486,154 +341,113 @@ const ManageMembersModal = ({
         },
       }}
     >
-      {viewMode === "list" ? (
-        <>
-          <div className="manage-members-modal__toolbar">
+      <div style={{ marginBottom: "16px", color: "#666" }}>
+        {t("admin.selectUsersForGroup")}
+        <span style={{ color: "#1890ff", fontWeight: "bold" }}>
+          {group?.group_name}
+        </span>
+      </div>
+
+      <div className="manage-members-modal__transfer">
+        <div className="manage-members-modal__panel">
+          <div className="manage-members-modal__panel-header">
+            <span style={{ fontWeight: "bold" }}>
+              {t("admin.itemsCount", { count: leftDataSource.length })}
+            </span>
+            <span style={{ color: "#999" }}>{t("admin.available")}</span>
+          </div>
+          <div className="manage-members-modal__search">
             <AntdInput
-              placeholder={t("admin.searchMemberNameOrEmail")}
+              placeholder={t("admin.searchAvailableUsers")}
               prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
-              value={memberSearch}
-              onChange={(e) => setMemberSearch(e.target.value)}
-              style={{ width: 250, maxWidth: "100%" }}
+              value={leftSearch}
+              onChange={(e) => setLeftSearch(e.target.value)}
               allowClear
             />
-            {isAdmin && (
-              <AntdButton
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setViewMode("add")}
-              >
-                {t("admin.addMembers")}
-              </AntdButton>
-            )}
           </div>
-          <AntdTable
-            dataSource={filteredMembers}
-            columns={memberColumns}
-            rowKey="user_id"
-            loading={loading}
-            pagination={{ pageSize: 10, showSizeChanger: true }}
-            size="small"
-            tableLayout="fixed"
-            scroll={{ x: 760 }}
+          <div className="manage-members-modal__table">
+            <AntdTable
+              size="small"
+              rowSelection={{
+                selectedRowKeys: leftSelectedKeys,
+                onChange: (keys) => setLeftSelectedKeys(keys as string[]),
+                getCheckboxProps: (record) => ({
+                  disabled: isUserInactive(record.status),
+                }),
+              }}
+              dataSource={leftDataSource}
+              columns={userColumns}
+              rowKey="user_id"
+              loading={loading}
+              tableLayout="fixed"
+              scroll={{ x: 620 }}
+              pagination={getLocalizedTablePagination({
+                size: "small",
+                pageSize: 10,
+                showSizeChanger: false,
+              }, t)}
+            />
+          </div>
+        </div>
+
+        <div className="manage-members-modal__actions">
+          <AntdButton
+            icon={<RightOutlined />}
+            onClick={moveToRight}
+            disabled={leftSelectedKeys.length === 0}
+            type={leftSelectedKeys.length > 0 ? "primary" : "default"}
           />
-        </>
-      ) : (
-        <>
-          <div style={{ marginBottom: "16px" }}>
-            <AntdButton
-              icon={<ArrowLeftOutlined />}
-              onClick={() => setViewMode("list")}
-              style={{ marginBottom: "12px" }}
-            >
-              {t("admin.backToMemberList")}
-            </AntdButton>
-            <div style={{ color: "#666" }}>
-              {t("admin.selectUsersForGroup")} 
-              <span style={{ color: "#1890ff", fontWeight: "bold" }}>
-                {group?.group_name}
-              </span>
-            </div>
+          <AntdButton
+            icon={<LeftOutlined />}
+            onClick={moveToLeft}
+            disabled={rightSelectedKeys.length === 0}
+            type={rightSelectedKeys.length > 0 ? "primary" : "default"}
+          />
+        </div>
+
+        <div className="manage-members-modal__panel">
+          <div className="manage-members-modal__panel-header">
+            <span style={{ fontWeight: "bold" }}>
+              {t("admin.itemsCount", { count: rightDataSource.length })}
+            </span>
+            <span style={{ color: "#999" }}>{t("admin.selected")}</span>
           </div>
-
-          <div className="manage-members-modal__transfer">
-            {}
-            <div className="manage-members-modal__panel">
-              <div className="manage-members-modal__panel-header">
-                <span style={{ fontWeight: "bold" }}>
-                  {t("admin.itemsCount", { count: leftDataSource.length })}
-                </span>
-                <span style={{ color: "#999" }}>{t("admin.available")}</span>
-              </div>
-              <div className="manage-members-modal__search">
-                <AntdInput
-                  placeholder={t("admin.searchAvailableUsers")}
-                  prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
-                  value={leftSearch}
-                  onChange={(e) => setLeftSearch(e.target.value)}
-                  allowClear
-                />
-              </div>
-              <div className="manage-members-modal__table">
-                <AntdTable
-                  size="small"
-                  rowSelection={{
-                    selectedRowKeys: leftSelectedKeys,
-                    onChange: (keys) => setLeftSelectedKeys(keys as string[]),
-                  }}
-                  dataSource={leftDataSource}
-                  columns={userColumns}
-                  rowKey="user_id"
-                  tableLayout="fixed"
-                  scroll={{ x: 620 }}
-                  pagination={{
-                    size: "small",
-                    pageSize: 10,
-                    showSizeChanger: false,
-                  }}
-                />
-              </div>
-            </div>
-
-            {}
-            <div className="manage-members-modal__actions">
-              <AntdButton
-                icon={<RightOutlined />}
-                onClick={moveToRight}
-                disabled={leftSelectedKeys.length === 0}
-                type={leftSelectedKeys.length > 0 ? "primary" : "default"}
-              />
-              <AntdButton
-                icon={<LeftOutlined />}
-                onClick={moveToLeft}
-                disabled={rightSelectedKeys.length === 0}
-                type={rightSelectedKeys.length > 0 ? "primary" : "default"}
-              />
-            </div>
-
-            {}
-            <div className="manage-members-modal__panel">
-              <div className="manage-members-modal__panel-header">
-                <span style={{ fontWeight: "bold" }}>
-                  {t("admin.itemsCount", { count: rightDataSource.length })}
-                </span>
-                <span style={{ color: "#999" }}>{t("admin.selected")}</span>
-              </div>
-              <div className="manage-members-modal__search">
-                <AntdInput
-                  placeholder={t("admin.searchSelectedUsers")}
-                  prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
-                  value={rightSearch}
-                  onChange={(e) => setRightSearch(e.target.value)}
-                  allowClear
-                />
-              </div>
-              <div className="manage-members-modal__table">
-                <AntdTable
-                  size="small"
-                  rowSelection={{
-                    selectedRowKeys: rightSelectedKeys,
-                    onChange: (keys) => setRightSelectedKeys(keys as string[]),
-                  }}
-                  dataSource={rightDataSource}
-                  columns={userColumns.slice(0, 1)}
-                  rowKey="user_id"
-                  pagination={false}
-                  tableLayout="fixed"
-                  scroll={{ x: 320 }}
-                  locale={{
-                    emptyText: (
-                      <div className="manage-members-modal__empty">
-                        {t("admin.noSelectedUsers")}
-                      </div>
-                    ),
-                  }}
-                />
-              </div>
-            </div>
+          <div className="manage-members-modal__search">
+            <AntdInput
+              placeholder={t("admin.searchSelectedUsers")}
+              prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
+              value={rightSearch}
+              onChange={(e) => setRightSearch(e.target.value)}
+              allowClear
+            />
           </div>
-        </>
-      )}
+          <div className="manage-members-modal__table">
+            <AntdTable
+              size="small"
+              rowSelection={{
+                selectedRowKeys: rightSelectedKeys,
+                onChange: (keys) => setRightSelectedKeys(keys as string[]),
+                getCheckboxProps: (record) => ({
+                  disabled: isUserInactive(record.status),
+                }),
+              }}
+              dataSource={rightDataSource}
+              columns={userColumns.slice(0, 1)}
+              rowKey="user_id"
+              pagination={false}
+              tableLayout="fixed"
+              scroll={{ x: 320 }}
+              locale={{
+                emptyText: (
+                  <div className="manage-members-modal__empty">
+                    {t("admin.noSelectedUsers")}
+                  </div>
+                ),
+              }}
+            />
+          </div>
+        </div>
+      </div>
     </AntdModal>
   );
 };

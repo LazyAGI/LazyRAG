@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ConfigProvider } from "antd";
-import zhCN from "antd/locale/zh_CN";
+import { useTranslation } from "react-i18next";
 import MainLayout from "@/layouts/MainLayout";
 import SigninLogin from "@/modules/signin/pages/login";
 import SigninRegister from "@/modules/signin/pages/register";
@@ -17,10 +17,13 @@ import AdminLayout from "@/modules/admin/AdminLayout";
 import UserManagement from "@/modules/admin/pages/user";
 import GroupManagement from "@/modules/admin/pages/group";
 import GroupDetail from "@/modules/admin/pages/group/detail.tsx";
+import { getAntdLocale } from "@/i18n/antdLocale";
 
 export default function AppRouter() {
+  const { i18n } = useTranslation();
+
   return (
-    <ConfigProvider locale={zhCN}>
+    <ConfigProvider locale={getAntdLocale(i18n.resolvedLanguage || i18n.language)}>
       <Routes>
         <Route path="/login" element={<SigninDashboard />}>
           <Route index element={<SigninLogin />} />
@@ -47,7 +50,7 @@ export default function AppRouter() {
           </Route>
         </Route>
         <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<Navigate to="users" replace />} />
+          <Route index element={<Navigate to="groups" replace />} />
           <Route path="users" element={<UserManagement />} />
           <Route path="groups" element={<GroupManagement />} />
           <Route path="groups/:id" element={<GroupDetail />} />

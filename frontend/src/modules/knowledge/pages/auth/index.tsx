@@ -36,7 +36,7 @@ const Authorize = () => {
       <DetailPageHeader
         className="mb-4"
         breadcrumbs={[
-          { title: t("layout.knowledgeBase"), href: "/appplatform/lib/knowledge/list" },
+          { title: t("layout.knowledgeBase"), href: "/lib/knowledge/list" },
           { title: detail?.display_name },
         ]}
         title={t("knowledge.authorizeTitle", { name: detail?.display_name })}

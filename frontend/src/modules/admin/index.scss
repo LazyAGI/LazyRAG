@@ -135,16 +135,23 @@
 .admin-layout-content,
 .admin-layout-body {
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
   background: #f6f8fb;
 }
 
+.admin-layout-content {
+  height: 100%;
+  overflow: hidden;
+}
+
 .admin-layout-body {
+  height: 100%;
   padding: 20px 24px;
+  overflow-y: auto;
 }
 
 .admin-layout-panel {
-  min-height: calc(100vh - 40px);
+  min-height: calc(100% - 40px);
   padding: 20px 24px 24px;
   border-radius: 18px;
   background: #fff;
