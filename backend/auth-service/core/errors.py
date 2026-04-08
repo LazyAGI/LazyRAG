@@ -72,9 +72,8 @@ def raise_error(
 
 
 def error_payload_from_exception(exc: AppException) -> dict[str, Any]:
-    data: Optional[dict[str, Any]] = {
+    return {
         'code': exc.code,
         'message': exc.message,
         'ex_mesage': exc.extra or '',
     }
-    return {'code': exc.http_code, 'data': data}
