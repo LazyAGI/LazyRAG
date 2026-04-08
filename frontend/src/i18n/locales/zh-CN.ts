@@ -1,3 +1,5 @@
+import { zhCNErrorMessages } from "./error-codes";
+
 const zhCN = {
   common: {
     search: "搜索",
@@ -20,6 +22,10 @@ const zhCN = {
     totalItems: "共 {{total}} 条",
     itemsPerPageSuffix: "条/页",
     pageSize: "每页条数",
+    accessDenied: "访问被拒绝",
+    requestFailed: "请求失败",
+    serverNoResponse: "服务器无响应",
+    requestError: "请求发生错误",
   },
 
   auth: {
@@ -42,6 +48,12 @@ const zhCN = {
     loginFailed: "登录失败，请检查账号密码",
     registerSuccess: "注册成功，请登录",
     registerFailed: "注册失败，请重试",
+    userDisabled: "用户已被禁用",
+    sessionExpired: "登录状态已失效，请重新登录",
+    authFailedRelogin: "认证失败，请重新登录",
+    loginRetryHint: "未成功登录，请刷新页面后重试",
+    loggingInWait: "登录中，请稍等...",
+    retryLogin: "重试登录",
     pleaseInputAccount: "请输入登录账号",
     pleaseInputPassword: "请输入登录密码",
     pleaseInputUsername: "请输入用户名",
@@ -310,6 +322,8 @@ const zhCN = {
     taskList: "任务列表",
     taskDetail: "任务详情",
     elapsedTime: "耗时",
+    knowledgeBaseName: "知识库名称",
+    inputKnowledgeBaseName: "请输入知识库名称",
     nameId: "知识库名称/ID",
     docName: "知识名称",
     updateDate: "更新日期",
@@ -384,6 +398,7 @@ const zhCN = {
     selectGroupName: "请选择用户组名称",
     maxAddUsers: "最多同时添加 20 个用户",
     maxAddGroups: "最多同时添加 20 个用户组",
+    editOwnerPermissionDenied: "无法修改创建者权限",
     deleteOwnerPermissionDenied: "无法删除创建者权限",
     deletePermissionTitle: "提示",
     deletePermissionContent: "确定删除{{type}} {{name}} 的知识库 {{role}} 相应权限？",
@@ -631,9 +646,11 @@ const zhCN = {
     confirmPasswordWithMax: "请再次输入密码，最多 {{max}} 个字符",
     selectRole: "请选择角色",
     selectRoleRequired: "请选择角色",
+    bootstrapAdminRoleLocked: "初始化管理员角色不允许修改",
     users: "用户组",
     backToApp: "返回应用平台"
   },
+  errors: zhCNErrorMessages,
 };
 
 export default zhCN;

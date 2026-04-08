@@ -11,6 +11,7 @@ import {
 import type { TableColumnsType } from "antd";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { getLocalizedErrorMessage } from "@/components/request";
 import { createGroupApi, createUserApi } from "@/modules/signin/utils/request";
 import type { GroupItem, GroupUserItem, UserItem } from "@/api/generated/auth-client";
 import {
@@ -261,9 +262,12 @@ const ManageMembersModal = ({
       onSuccess?.();
     } catch (error: any) {
       console.error("Add members failed:", error);
-      AntdMessage.error(
-        error.response?.data?.message || t("admin.addMembersFailed"),
-      );
+      if (!error?.response && !error?.request) {
+        AntdMessage.error(
+          getLocalizedErrorMessage(error, t("admin.addMembersFailed")) ||
+            t("admin.addMembersFailed"),
+        );
+      }
     } finally {
       setSaving(false);
     }

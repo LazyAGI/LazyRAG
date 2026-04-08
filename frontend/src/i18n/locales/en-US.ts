@@ -1,3 +1,5 @@
+import { enUSErrorMessages } from "./error-codes";
+
 const enUS = {
   // Common
   common: {
@@ -21,6 +23,10 @@ const enUS = {
     totalItems: "Total {{total}} items",
     itemsPerPageSuffix: "/ page",
     pageSize: "Page size",
+    accessDenied: "Access denied",
+    requestFailed: "Request failed",
+    serverNoResponse: "No response from server",
+    requestError: "An error occurred while processing the request",
   },
 
   // Auth
@@ -44,6 +50,12 @@ const enUS = {
     loginFailed: "Login failed, please check your credentials",
     registerSuccess: "Registration successful, please login",
     registerFailed: "Registration failed, please try again",
+    userDisabled: "User is disabled",
+    sessionExpired: "Session expired, please sign in again",
+    authFailedRelogin: "Authentication failed, please sign in again",
+    loginRetryHint: "Sign-in was not completed, please refresh and try again",
+    loggingInWait: "Signing in, please wait...",
+    retryLogin: "Retry sign in",
     pleaseInputAccount: "Please enter your account",
     pleaseInputPassword: "Please enter your password",
     pleaseInputUsername: "Please enter your username",
@@ -322,6 +334,8 @@ const enUS = {
     taskList: "Task List",
     taskDetail: "Task Detail",
     elapsedTime: "Elapsed Time",
+    knowledgeBaseName: "Knowledge Base Name",
+    inputKnowledgeBaseName: "Please enter a knowledge base name",
     // List page
     nameId: "Name / ID",
     docName: "Document Name",
@@ -397,6 +411,7 @@ const enUS = {
     selectGroupName: "Please select a group name",
     maxAddUsers: "You can add up to 20 users at a time",
     maxAddGroups: "You can add up to 20 groups at a time",
+    editOwnerPermissionDenied: "Cannot modify the creator's permission",
     deleteOwnerPermissionDenied: "Cannot delete the creator's permission",
     deletePermissionTitle: "Notice",
     deletePermissionContent: "Are you sure to delete the knowledge base {{role}} permission of {{type}} {{name}}?",
@@ -646,9 +661,11 @@ const enUS = {
     confirmPasswordWithMax: "Please re-enter password, up to {{max}} characters",
     selectRole: "Please select a role",
     selectRoleRequired: "Please select a role",
+    bootstrapAdminRoleLocked: "Bootstrap admin role cannot be changed",
     users: "Groups",
     backToApp: "Back to App"
   },
+  errors: enUSErrorMessages,
 };
 
 export default enUS;

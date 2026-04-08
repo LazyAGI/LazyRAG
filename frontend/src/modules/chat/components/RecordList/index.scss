@@ -41,23 +41,33 @@
     margin-bottom: 4px;
   }
 
-  .record-toolbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+  .record-header-top {
+    display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
+    padding-right: 44px;
+  }
+
+  .record-toolbar {
+    display: block;
   }
 
   .record-toolbar-search {
-    min-width: 0;
+    width: 100%;
   }
 
   .record-toolbar-actions {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
+    gap: 4px;
+    flex-shrink: 0;
     white-space: nowrap;
+
+    .ant-btn {
+      padding-inline: 6px;
+    }
   }
 
   .record {
@@ -138,15 +148,14 @@
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1280px) {
   .record-container {
-    .record-toolbar {
-      grid-template-columns: 1fr;
-      align-items: stretch;
+    .record-header-top {
+      align-items: flex-start;
     }
 
     .record-toolbar-actions {
-      justify-content: flex-start;
+      margin-right: -6px;
     }
   }
 }
