@@ -35,6 +35,7 @@ interface Member {
   id: string;
   type: MemberType;
   display_name: string;
+  is_creator?: boolean;
 }
 
 const MemberList = (props: IProps) => {
@@ -117,8 +118,12 @@ const MemberList = (props: IProps) => {
       key: "action",
       width: 102,
       render: (record: MemberRecord) => {
+        const canDeleteMemberPermission =
+          currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) &&
+          !isCreator(record);
+
         return (
-          currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) && (
+          canDeleteMemberPermission && (
             <Button
               type="link"
               danger
@@ -188,10 +193,15 @@ const MemberList = (props: IProps) => {
   }
 
   function isCreator(record: MemberRecord) {
-    return !!currentDetail?.creator && record.user === currentDetail.creator;
+    return !!record.is_creator;
   }
 
   function handleUpdateRole(record: MemberRecord, nextRole: string) {
+    if (isCreator(record)) {
+      message.error(t("knowledge.editOwnerPermissionDenied"));
+      return;
+    }
+
     if (!record.role || record.role.role === nextRole) {
       return;
     }

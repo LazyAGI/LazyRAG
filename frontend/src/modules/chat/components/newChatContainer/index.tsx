@@ -1091,15 +1091,36 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       );
     }
 
-    const handleScroll = () => {
+    const getScrollMetrics = useCallback(() => {
       const el = chatContentRef.current;
       if (!el) {
+        return null;
+      }
+
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      return {
+        distance,
+        hasScrollbar: el.scrollHeight > el.clientHeight + 2,
+      };
+    }, []);
+
+    const updateScrollButtonVisibility = useCallback(() => {
+      const metrics = getScrollMetrics();
+      if (!metrics) {
         return;
       }
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      const hasScrollbar = el.scrollHeight > el.clientHeight + 2;
-      setShowScrollButton(hasScrollbar && distance > 10);
-      if (distance <= 10) {
+
+      setShowScrollButton(metrics.hasScrollbar && metrics.distance > 10);
+    }, [getScrollMetrics]);
+
+    const handleScroll = () => {
+      const metrics = getScrollMetrics();
+      if (!metrics) {
+        return;
+      }
+
+      setShowScrollButton(metrics.hasScrollbar && metrics.distance > 10);
+      if (metrics.distance <= 10) {
         isMouseScrollingRef.current = true;
       } else {
         isMouseScrollingRef.current = false;
@@ -1113,19 +1134,16 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       }
       isMouseScrollingRef.current = true;
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      const hasScrollbar = el.scrollHeight > el.clientHeight + 2;
-      setShowScrollButton(hasScrollbar && false);
+      setShowScrollButton(false);
     };
 
     useEffect(() => {
-      const el = chatContentRef.current;
-      if (!el) {
-        return;
-      }
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      const hasScrollbar = el.scrollHeight > el.clientHeight + 2;
-      setShowScrollButton(hasScrollbar && distance > 10);
-    }, [messageList]);
+      const rafId = requestAnimationFrame(() => {
+        updateScrollButtonVisibility();
+      });
+
+      return () => cancelAnimationFrame(rafId);
+    }, [messageList, thinkingCollapseMap, inputHeight, updateScrollButtonVisibility]);
 
     useEffect(() => {
       const updateInputHeight = () => {

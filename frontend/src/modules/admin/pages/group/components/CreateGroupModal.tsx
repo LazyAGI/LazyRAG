@@ -1,6 +1,7 @@
 import { Modal, Form, Input, message } from "antd";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { getLocalizedErrorMessage } from "@/components/request";
 import { createGroupApi } from "@/modules/signin/utils/request";
 import type { GroupItem } from "@/api/generated/auth-client";
 
@@ -65,9 +66,12 @@ const CreateGroupModal = ({
       onSuccess();
     } catch (error: any) {
       console.error("Operation failed:", error);
-      const errorMsg =
-        error.response?.data?.message || error.message || t("common.failed");
-      message.error(errorMsg);
+      if (!error?.response && !error?.request) {
+        message.error(
+          getLocalizedErrorMessage(error, t("common.failed")) ||
+            t("common.failed"),
+        );
+      }
     } finally {
       setLoading(false);
     }

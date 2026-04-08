@@ -17,7 +17,11 @@ import { getLocalizedTablePagination } from "@/components/ui/pagination";
 const PASSWORD_MAX_LENGTH = 32;
 const USERNAME_COLUMN_WIDTH = 220;
 
-type RawUserItem = Partial<UserItem> & {
+type AdminUserItem = UserItem & {
+  is_bootstrap_admin?: boolean;
+};
+
+type RawUserItem = Partial<AdminUserItem> & {
   id?: string | number;
   userId?: string | number;
   roleId?: string | number;
@@ -35,7 +39,7 @@ const resolveUserId = (user?: RawUserItem | null) => {
   return String(candidate);
 };
 
-const normalizeUserItem = (user: RawUserItem): UserItem => {
+const normalizeUserItem = (user: RawUserItem): AdminUserItem => {
   const role =
     user.role && typeof user.role === "object" ? user.role : undefined;
   const statusFromDisabled =
@@ -51,16 +55,16 @@ const normalizeUserItem = (user: RawUserItem): UserItem => {
     role_id: String(user.role_id ?? user.roleId ?? role?.id ?? ""),
     role_name: user.role_name ?? user.roleName ?? role?.name ?? String(user.role ?? ""),
     status: user.status ?? user.status_text ?? statusFromDisabled ?? "active",
-  } as UserItem;
+  } as AdminUserItem;
 };
 
 const UserManagement = () => {
   const { t } = useTranslation();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState<UserItem[]>([]);
+  const [users, setUsers] = useState<AdminUserItem[]>([]);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [editingUser, setEditingUser] = useState<AdminUserItem | null>(null);
   const [resetPasswordForm] = Form.useForm();
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -151,7 +155,7 @@ const UserManagement = () => {
     }
   };
 
-  const handleEditRole = (user: UserItem) => {
+  const handleEditRole = (user: AdminUserItem) => {
     setEditingUser(user);
     setIsModalVisible(true);
   };
@@ -265,19 +269,30 @@ const UserManagement = () => {
       key: "action",
       fixed: 'right' as const,
       width: 240,
-      render: (_: any, record: UserItem) => {
+      render: (_: any, record: AdminUserItem) => {
         const disabled = isUserDisabled(record.status);
-
-        return (
-        <Space size={0}>
-          <Button 
-            type="link" 
+        const isBootstrapAdmin = !!record.is_bootstrap_admin;
+        const editRoleButton = (
+          <Button
+            type="link"
             size="small"
-            icon={<EditOutlined />} 
+            icon={<EditOutlined />}
+            disabled={isBootstrapAdmin}
             onClick={() => handleEditRole(record)}
           >
             {t("admin.editUserRole")}
           </Button>
+        );
+
+        return (
+        <Space size={0}>
+          {isBootstrapAdmin ? (
+            <Tooltip title={t("admin.bootstrapAdminRoleLocked")}>
+              <span>{editRoleButton}</span>
+            </Tooltip>
+          ) : (
+            editRoleButton
+          )}
           <Button 
             type="link" 
             size="small"
