@@ -61,7 +61,7 @@ db
 
 | Service | Profile | When enabled | Purpose |
 |---------|---------|--------------|---------|
-| **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` and URL `http://mineru:8000` | MinerU PDF parsing (layout analysis) |
+| **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` and URL `http://mineru:8000` | MinerU PDF parsing (layout analysis; install variant/backend configurable) |
 | **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` and URL `http://paddleocr:8080` | PaddleOCR-VL PDF parsing (GPU required) |
 | **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI` contains `milvus:19530` | Vector store for embeddings |
 | **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI` contains `opensearch:9200` | Segment store for document chunks |
@@ -129,12 +129,30 @@ make up LAZYRAG_MILVUS_URI=http://your-milvus:19530 LAZYRAG_OPENSEARCH_URI=https
 make up LAZYRAG_OCR_SERVER_TYPE=mineru
 ```
 
+**With MinerU `all` install variant:**
+```bash
+make up LAZYRAG_OCR_SERVER_TYPE=mineru LAZYRAG_MINERU_PACKAGE_VARIANT=all LAZYRAG_MINERU_PREINSTALL_CPU_TORCH=0
+```
+
+**With MinerU backend override:**
+```bash
+make up LAZYRAG_OCR_SERVER_TYPE=mineru LAZYRAG_MINERU_BACKEND=hybrid-auto-engine
+```
+
 **With PaddleOCR (GPU):**
 ```bash
 make up LAZYRAG_OCR_SERVER_TYPE=paddleocr
 ```
 
 The Makefile auto-selects profiles based on env vars. You can also run `docker compose up --build` directly; optional services won't start unless you pass `--profile mineru`, `--profile paddleocr`, `--profile milvus`, `--profile opensearch`.
+
+MinerU configuration is split into two layers:
+
+- Install variant: `LAZYRAG_MINERU_PACKAGE_VARIANT` (for example `pipeline` or `all`).
+- Runtime backend: `LAZYRAG_MINERU_BACKEND` (for example `pipeline` or `hybrid-auto-engine`).
+- Compatibility pin: `LAZYRAG_MINERU_NUMPY_VERSION` defaults to `1.26.4` so the MinerU image stays compatible with bundled `lazyllm/spacy`.
+
+For local CPU development on macOS, the default combination is `LAZYRAG_MINERU_PACKAGE_VARIANT=pipeline` plus `LAZYRAG_MINERU_BACKEND=pipeline`.
 
 - Frontend: http://localhost:8080  
 - Kong (API): http://localhost:8000  

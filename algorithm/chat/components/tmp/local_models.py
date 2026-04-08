@@ -1,4 +1,3 @@
-
 from typing import Any, Dict, List, Optional, Union
 import re
 import requests
@@ -88,7 +87,7 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
         Args:
             task_description: 任务描述，会被拼入 system/user 区块。
         """
-        super().__init__(model_series='qwen', embed_url=embed_url, api_key=api_key, embed_model_name=embed_model_name)
+        super().__init__(embed_url=embed_url, api_key=api_key, embed_model_name=embed_model_name)
         if not embed_url:
             raise ValueError('`url` 不能为空，请传入远端重排序服务地址。')
 

@@ -34,9 +34,8 @@ def test_parse_db_url_postgres_default_port():
 
 def test_parse_db_url_mysql():
     url = 'mysql://u:p@host:3306/app'
-    r = parse_db_url(url)
-    assert r['db_type'] == 'mysql'
-    assert r['port'] == 3306
+    with pytest.raises(ValueError, match='unsupported database scheme'):
+        parse_db_url(url)
 
 
 def test_parse_db_url_urlencoded_password():
@@ -46,16 +45,17 @@ def test_parse_db_url_urlencoded_password():
 
 
 def test_parse_db_url_no_host():
-    assert parse_db_url('postgresql:///db') is None
+    with pytest.raises(ValueError, match='database host is required'):
+        parse_db_url('postgresql:///db')
 
 
 def test_get_doc_task_db_config_unset(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_DOC_TASK_DATABASE_URL', raising=False)
+    monkeypatch.delenv('LAZYRAG_DATABASE_URL', raising=False)
     assert get_doc_task_db_config() is None
 
 
 def test_get_doc_task_db_config_set(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_DOC_TASK_DATABASE_URL', 'postgresql://u:p@localhost:5432/tasks')
+    monkeypatch.setenv('LAZYRAG_DATABASE_URL', 'postgresql://u:p@localhost:5432/tasks')
     r = get_doc_task_db_config()
     assert r is not None
     assert r['db_name'] == 'tasks'

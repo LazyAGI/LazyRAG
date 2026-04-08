@@ -1,85 +1,208 @@
 package acl
 
-// PermissionFor returns the effective permission and source for user on resource.
-// Order: owner -> visibility -> ACL. If no visibility/ACL capability, those steps return false.
-// For kb: uses GetKB, GetVisibility. For db: only ACL (no visibility/owner).
-func PermissionFor(resourceType, resourceID string, userID int64) (permission string, source string) {
+import "strings"
+
+// normalizePermission textPermissiontextPermissiontext，text。
+func normalizePermission(resourceType, permission string) string {
+	p := strings.ToUpper(strings.TrimSpace(permission))
+	switch p {
+	case "", strings.ToUpper(PermNone):
+		return PermNone
+	case strings.ToUpper(PermRead):
+		if resourceType == ResourceTypeKB {
+			return PermissionKBRead
+		}
+		if resourceType == ResourceTypeDB {
+			return PermissionDatasetRead
+		}
+	case strings.ToUpper(PermWrite):
+		if resourceType == ResourceTypeKB {
+			return PermissionKBWrite
+		}
+		if resourceType == ResourceTypeDB {
+			return PermissionDatasetWrite
+		}
+	case strings.ToUpper(PermUpload):
+		if resourceType == ResourceTypeDB {
+			return PermissionDatasetUpload
+		}
+	case PermissionKBRead, PermissionKBWrite, PermissionKBCreateDoc, PermissionKBDeleteDoc, PermissionKBDelete:
+		if resourceType == ResourceTypeKB {
+			return p
+		}
+	case PermissionDatasetRead, PermissionDatasetWrite, PermissionDatasetUpload:
+		if resourceType == ResourceTypeDB {
+			return p
+		}
+	}
+	return ""
+}
+
+func ownerPermissions(resourceType string) []string {
+	switch resourceType {
+	case ResourceTypeKB:
+		return []string{PermissionKBRead, PermissionKBWrite, PermissionKBCreateDoc, PermissionKBDeleteDoc, PermissionKBDelete}
+	case ResourceTypeDB:
+		return []string{PermissionDatasetRead, PermissionDatasetWrite, PermissionDatasetUpload}
+	default:
+		return nil
+	}
+}
+
+func publicPermissions(resourceType string) []string {
+	if resourceType == ResourceTypeKB {
+		return []string{PermissionKBRead}
+	}
+	return nil
+}
+
+func effectivePermissions(resourceType, resourceID string, userID string) (permissions []string, source string) {
 	st := GetStore()
+	if st == nil || strings.TrimSpace(userID) == "" || strings.TrimSpace(resourceID) == "" {
+		return nil, "private"
+	}
+	permSet := map[string]struct{}{}
+	add := func(items []string) {
+		for _, item := range items {
+			if item == "" || item == PermNone {
+				continue
+			}
+			permSet[item] = struct{}{}
+		}
+	}
+
 	if resourceType == ResourceTypeKB {
 		kb := st.GetKB(resourceID)
-		// 1) Owner
 		if kb != nil && kb.OwnerID == userID {
-			return PermWrite, SourceOwner
+			perms := ownerPermissions(resourceType)
+			return perms, SourceOwner
 		}
-		// 2) Visibility (default: private if not in table)
 		vis := st.GetVisibility(resourceID)
 		if vis == VisibilityPublic {
-			// Public: everyone gets read; write still only via owner/ACL
-			aclPerm := maxACLPermission(st.ACLsForUser(resourceType, resourceID, userID))
-			if aclPerm == PermWrite {
-				return PermWrite, SourceACL
-			}
-			return PermRead, SourcePublic
+			add(publicPermissions(resourceType))
+			source = SourcePublic
 		}
-		if vis == VisibilityProtected || vis == VisibilityPrivate {
-			// Need ACL or owner (already checked)
-			aclPerm := maxACLPermission(st.ACLsForUser(resourceType, resourceID, userID))
-			if aclPerm != PermNone {
-				return aclPerm, SourceACL
-			}
-			if vis == VisibilityProtected {
-				return PermNone, SourceProtected
-			}
-			return PermNone, "private"
+		if vis == VisibilityProtected && source == "" {
+			source = SourceProtected
 		}
 	}
-	// db or unknown visibility: only ACL (owner already checked for kb above)
-	aclPerm := maxACLPermission(st.ACLsForUser(resourceType, resourceID, userID))
-	if aclPerm != PermNone {
-		return aclPerm, SourceACL
+
+	for _, row := range st.ACLsForUser(resourceType, resourceID, userID) {
+		if perm := normalizePermission(resourceType, row.Permission); perm != "" && perm != PermNone {
+			permSet[perm] = struct{}{}
+			source = SourceACL
+		}
 	}
-	return PermNone, "private"
+
+	if len(permSet) == 0 {
+		if source == "" {
+			source = "private"
+		}
+		return nil, source
+	}
+	permissions = make([]string, 0, len(permSet))
+	for perm := range permSet {
+		permissions = append(permissions, perm)
+	}
+	return permissions, source
 }
 
-func maxACLPermission(rows []*ACLRow) string {
-	p := PermNone
-	for _, r := range rows {
-		if r.Permission == PermWrite {
-			return PermWrite
-		}
-		if r.Permission == PermRead {
-			p = PermRead
+// PermissionFor textUsertextPermissiontext。
+// text，textPermissiontext：none / read / write。
+func PermissionFor(resourceType, resourceID string, userID string) (permission string, source string) {
+	permissions, source := effectivePermissions(resourceType, resourceID, userID)
+	if len(permissions) == 0 {
+		return PermNone, source
+	}
+	for _, perm := range permissions {
+		switch perm {
+		case PermissionKBWrite, PermissionKBCreateDoc, PermissionKBDeleteDoc, PermissionKBDelete, PermissionDatasetWrite, PermissionDatasetUpload:
+			return PermWrite, source
 		}
 	}
-	return p
+	return PermRead, source
 }
 
-// Can is the unified auth function: returns whether user may perform action on resource.
-// action: "read" | "write" | "create_doc" | "delete_doc" | "delete_kb"
-//   - read, write: permission-level check
-//   - create_doc, delete_doc: requires write
-//   - delete_kb: requires owner (kb only, not just write)
-//
-// Call from backend by function, not via HTTP.
-func Can(userID int64, resourceType, resourceID string, action string) bool {
-	if userID == 0 || resourceID == "" {
+// PermissionsFor textUsertextPermissiontext。
+func PermissionsFor(resourceType, resourceID string, userID string) (permissions []string, source string) {
+	return effectivePermissions(resourceType, resourceID, userID)
+}
+
+func hasPermission(permissions []string, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" || want == PermNone {
 		return false
 	}
-	perm, _ := PermissionFor(resourceType, resourceID, userID)
-	switch action {
-	case PermRead:
-		return perm == PermRead || perm == PermWrite
-	case PermWrite:
-		return perm == PermWrite
-	case "create_doc", "delete_doc":
-		return perm == PermWrite
-	case "delete_kb":
-		if resourceType != ResourceTypeKB {
-			return false
+	for _, perm := range permissions {
+		if perm == want {
+			return true
 		}
-		kb := GetStore().GetKB(resourceID)
-		return kb != nil && kb.OwnerID == userID
+	}
+	return false
+}
+
+func actionToPermission(resourceType, action string) string {
+	a := strings.TrimSpace(action)
+	switch resourceType {
+	case ResourceTypeKB:
+		switch a {
+		case PermRead:
+			return PermissionKBRead
+		case PermWrite:
+			return PermissionKBWrite
+		case "create_doc":
+			return PermissionKBCreateDoc
+		case "delete_doc":
+			return PermissionKBDeleteDoc
+		case "delete_kb":
+			return PermissionKBDelete
+		default:
+			return normalizePermission(resourceType, a)
+		}
+	case ResourceTypeDB:
+		switch a {
+		case PermRead:
+			return PermissionDatasetRead
+		case PermWrite:
+			return PermissionDatasetWrite
+		case PermUpload, "create_doc":
+			return PermissionDatasetUpload
+		default:
+			return normalizePermission(resourceType, a)
+		}
 	default:
+		return ""
+	}
+}
+
+// Can textAuthorization：textUsertextPermissiontext。
+func Can(userID string, resourceType, resourceID string, action string) bool {
+	if strings.TrimSpace(userID) == "" || resourceID == "" {
 		return false
 	}
+	permissions, _ := PermissionsFor(resourceType, resourceID, userID)
+	want := actionToPermission(resourceType, action)
+	if want == "" {
+		return false
+	}
+	if hasPermission(permissions, want) {
+		return true
+	}
+	if resourceType == ResourceTypeDB {
+		if want == PermissionDatasetRead {
+			return hasPermission(permissions, PermissionDatasetWrite) || hasPermission(permissions, PermissionDatasetUpload)
+		}
+		if want == PermissionDatasetUpload {
+			return hasPermission(permissions, PermissionDatasetWrite)
+		}
+	}
+	if resourceType == ResourceTypeKB {
+		if want == PermissionKBRead {
+			return hasPermission(permissions, PermissionKBWrite)
+		}
+		if want == PermissionKBCreateDoc || want == PermissionKBDeleteDoc {
+			return hasPermission(permissions, PermissionKBWrite)
+		}
+	}
+	return false
 }
