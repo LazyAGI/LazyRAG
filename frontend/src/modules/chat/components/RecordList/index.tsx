@@ -10,14 +10,16 @@ import {
   Spin,
   Tooltip,
 } from "antd";
+import { Conversation } from "@/api/generated/chatbot-client";
 import {
-  Conversation,
-  ExportConversationsRequestFileTypesEnum,
-} from "@/api/generated/chatbot-client";
+  Configuration as CoreConfiguration,
+  ConversationsApiFactory,
+} from "@/api/generated/core-client";
 import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import InfiniteScroll from "react-infinite-scroll-component";
+import { axiosInstance, BASE_URL } from "@/components/request";
 import { useChatThinkStore } from "@/modules/chat/store/chatThink";
 import { useChatNewMessageStore } from "@/modules/chat/store/chatNewMessage";
 
@@ -25,7 +27,30 @@ import dayjs from "dayjs";
 
 import { ChatServiceApi } from "@/modules/chat/utils/request";
 import "./index.scss";
-import { downloadUrl } from "@/modules/chat/utils/download";
+import { downloadStream } from "@/modules/chat/utils/download";
+
+const EXPORT_FILE_TYPE_XLSX = "EXPORT_FILE_TYPE_XLSX";
+const conversationsClient = ConversationsApiFactory(
+  new CoreConfiguration({ basePath: BASE_URL }),
+  BASE_URL,
+  axiosInstance,
+);
+
+function getExportFileId(uri?: string) {
+  if (!uri) return "";
+  const matched = uri.match(/\/conversation:export\/files\/([^/?#]+)/);
+  return matched?.[1] ?? "";
+}
+
+function getDownloadFileName(contentDisposition?: string) {
+  if (!contentDisposition) return "conversations-export";
+  const utf8Matched = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Matched?.[1]) {
+    return decodeURIComponent(utf8Matched[1]);
+  }
+  const matched = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return matched?.[1] ?? "conversations-export";
+}
 
 interface IRecordList {
   currentSessionId: string;
@@ -117,19 +142,30 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
     }
 
     function exportHistoryFn() {
-      ChatServiceApi()
-        .conversationServiceExportConversations({
+      conversationsClient
+        .apiCoreConversationExportPost({
           exportConversationsRequest: {
             conversation_ids: checkedList,
-            file_types: [
-              ExportConversationsRequestFileTypesEnum.ExportFileTypeXlsx,
-            ],
+            file_types: [EXPORT_FILE_TYPE_XLSX],
           },
         })
-        .then((res) => {
+        .then(async (res) => {
           const { uris = [] } = res.data;
           if (uris?.length) {
-            downloadUrl(uris[0]);
+            const fileId = getExportFileId(uris[0]);
+            if (!fileId) {
+              message.error("导出文件地址异常");
+              return;
+            }
+            const downloadRes =
+              await conversationsClient.apiCoreConversationExportFilesFileIdGet(
+                { fileId },
+                { responseType: "blob" },
+              );
+            downloadStream(
+              downloadRes.data as Blob,
+              getDownloadFileName(downloadRes.headers["content-disposition"]),
+            );
           } else {
             message.warning(t("chat.noConversationToExport"));
           }

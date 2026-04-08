@@ -299,7 +299,6 @@ const UserManagement = () => {
             }
             okText={t("common.confirm")}
             cancelText={t("common.cancel")}
-            disabled={disabled}
           >
             <Button
               type="link"
