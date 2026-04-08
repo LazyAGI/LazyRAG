@@ -1519,33 +1519,38 @@ func scoreMergedDocuments(keyword string, rows []mergedDocRow) []scoredMergedDoc
 		return nil
 	}
 	normalizedKw := normalizeForFuzzy(keyword)
-	const maxDistance = 5
+	if normalizedKw == "" {
+		return nil
+	}
 	scored := make([]scoredMergedDoc, 0, len(rows))
 	for _, row := range rows {
-		bestScore := maxDistance + 1
-		matched := false
-		for _, candidate := range []string{row.DisplayName, string(row.Tags), row.Creator} {
-			norm := normalizeForFuzzy(candidate)
-			if norm == "" {
-				continue
-			}
-			if strings.Contains(norm, normalizedKw) {
-				bestScore = 0
-				matched = true
-				continue
-			}
-			if dist := boundedLevenshtein(norm, normalizedKw, maxDistance); dist >= 0 && dist <= maxDistance && dist < bestScore {
-				bestScore = dist
-				matched = true
+		bestScore := -1
+		if strings.Contains(normalizeForFuzzy(row.DisplayName), normalizedKw) {
+			bestScore = 0
+		}
+		if bestScore < 0 && strings.Contains(normalizeForFuzzy(row.Creator), normalizedKw) {
+			bestScore = 2
+		}
+		if bestScore < 0 {
+			var tags []string
+			_ = json.Unmarshal(row.Tags, &tags)
+			for _, tag := range tags {
+				if strings.Contains(normalizeForFuzzy(tag), normalizedKw) {
+					bestScore = 1
+					break
+				}
 			}
 		}
-		if matched && bestScore <= maxDistance {
+		if bestScore >= 0 {
 			scored = append(scored, scoredMergedDoc{row: row, score: bestScore})
 		}
 	}
 	sort.Slice(scored, func(i, j int) bool {
 		if scored[i].score != scored[j].score {
 			return scored[i].score < scored[j].score
+		}
+		if !scored[i].row.BaseUpdatedAt.Equal(scored[j].row.BaseUpdatedAt) {
+			return scored[i].row.BaseUpdatedAt.After(scored[j].row.BaseUpdatedAt)
 		}
 		return strings.ToLower(scored[i].row.DisplayName) < strings.ToLower(scored[j].row.DisplayName)
 	})
