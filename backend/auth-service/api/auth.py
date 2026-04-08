@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,23 @@ from services.auth_service import auth_service
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 logger = logging.getLogger('uvicorn.error')
+
+PHONE_PATTERN = re.compile(r'^\+?[0-9]{6,20}$')
+
+
+def _normalize_and_validate_phone(phone: str | None) -> str | None:
+    if phone is None:
+        return None
+    normalized = phone.strip()
+    # Empty string means clearing phone number.
+    if normalized == '':
+        return ''
+    if not PHONE_PATTERN.match(normalized):
+        raise_error(
+            ErrorCodes.INVALID_PHONE_FORMAT,
+            extra_msg='Phone must contain 6-20 digits and may start with +',
+        )
+    return normalized
 
 
 def _default_role_id(session):
@@ -248,13 +266,14 @@ def update_me(
     user: User = Depends(current_user),  # noqa: B008
 ):
     """Update current user's profile (all fields except username)."""
+    phone = _normalize_and_validate_phone(body.phone)
     with SessionLocal() as db:
         updated = UserRepository.update_profile(
             db,
             user.id,
             display_name=body.display_name,
             email=body.email,
-            phone=body.phone,
+            phone=phone,
             remark=body.remark,
         )
         if not updated:

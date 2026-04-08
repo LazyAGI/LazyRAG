@@ -103,3 +103,76 @@ def test_authorize_with_token(client: TestClient):
     )
     assert r.status_code == 200
     assert r.json()['allowed'] is True
+
+
+
+def test_list_groups_scope_for_admin_and_normal_user(client: TestClient):
+    from core.database import SessionLocal
+    from repositories import GroupRepository, RoleRepository, UserGroupRepository, UserRepository
+
+    admin_reg = client.post('/api/authservice/auth/register', json={
+        'username': 'scope_admin',
+        'password': 'Aa1!aaaa',
+        'confirm_password': 'Aa1!aaaa',
+    })
+    assert admin_reg.status_code == 200
+
+    user_reg = client.post('/api/authservice/auth/register', json={
+        'username': 'scope_user',
+        'password': 'Aa1!aaaa',
+        'confirm_password': 'Aa1!aaaa',
+    })
+    assert user_reg.status_code == 200
+
+    with SessionLocal() as db:
+        admin = UserRepository.get_by_username(db, 'scope_admin')
+        normal_user = UserRepository.get_by_username(db, 'scope_user')
+        admin_role = RoleRepository.get_by_name(db, 'system-admin')
+        admin.role_id = admin_role.id
+        db.commit()
+
+        g1 = GroupRepository.create(db, tenant_id=normal_user.tenant_id or '', group_name='team-a', remark='A组')
+        g2 = GroupRepository.create(db, tenant_id=normal_user.tenant_id or '', group_name='team-b', remark='B组')
+        UserGroupRepository.add(db, tenant_id=normal_user.tenant_id or '', user_id=normal_user.id, group_id=g1.id, role='member')
+
+    admin_login = client.post('/api/authservice/auth/login', json={'username': 'scope_admin', 'password': 'Aa1!aaaa'})
+    assert admin_login.status_code == 200
+    admin_token = admin_login.json()['data']['access_token']
+
+    user_login = client.post('/api/authservice/auth/login', json={'username': 'scope_user', 'password': 'Aa1!aaaa'})
+    assert user_login.status_code == 200
+    user_token = user_login.json()['data']['access_token']
+
+    admin_resp = client.get('/api/authservice/group', headers={'Authorization': f'Bearer {admin_token}'})
+    assert admin_resp.status_code == 200
+    admin_groups = admin_resp.json()['data']['groups']
+    admin_names = {g['group_name'] for g in admin_groups}
+    assert 'team-a' in admin_names
+    assert 'team-b' in admin_names
+
+    user_resp = client.get('/api/authservice/group', headers={'Authorization': f'Bearer {user_token}'})
+    assert user_resp.status_code == 200
+    user_groups = user_resp.json()['data']['groups']
+    assert len(user_groups) == 1
+    assert user_groups[0]['group_name'] == 'team-a'
+def test_update_me_invalid_phone_format(client: TestClient):
+    reg = client.post('/api/authservice/auth/register', json={
+        'username': 'phoneuser',
+        'password': 'Aa1!aaaa',
+        'confirm_password': 'Aa1!aaaa',
+    })
+    assert reg.status_code == 200
+
+    login = client.post('/api/authservice/auth/login', json={'username': 'phoneuser', 'password': 'Aa1!aaaa'})
+    assert login.status_code == 200
+    token = login.json()['data']['access_token']
+
+    resp = client.patch(
+        '/api/authservice/auth/me',
+        json={'phone': 'abc-123'},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert resp.status_code == 400
+    payload = resp.json()
+    assert payload['code'] == 400
+    assert payload['data']['code'] == 1000209

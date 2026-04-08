@@ -21,6 +21,7 @@ class ErrorCodes:
     NEW_PASSWORD_REQUIRED: ErrorTuple = (400, 1000206, 'New password is required')
     REFRESH_TOKEN_INVALID: ErrorTuple = (401, 1000207, 'refresh_token is invalid or expired')
     NEW_PASSWORD_SAME_AS_OLD: ErrorTuple = (400, 1000208, 'New password must be different from old password')
+    INVALID_PHONE_FORMAT: ErrorTuple = (400, 1000209, 'Invalid phone format')
 
     UNAUTHORIZED: ErrorTuple = (401, 1000301, 'Unauthorized')
     FORBIDDEN: ErrorTuple = (403, 1000302, 'Forbidden')
