@@ -14,8 +14,7 @@ class UserService:
     def _is_bootstrap_admin(self, user) -> bool:
         if not user:
             return False
-        # According to current product rule, source=platform means bootstrap-initialized admin user.
-        return (getattr(user, 'source', '') or '').strip() == 'platform'
+        return (getattr(user, 'source', '') or '').strip() == 'init'
 
     def _default_user_role_id(self, db) -> uuid.UUID:
         role = RoleRepository.get_by_name(db, 'user')
