@@ -299,7 +299,7 @@ func ListAlgos(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", timeout).
 			Dur("elapsed", time.Since(start)).
 			Msg("algo service request failed")
-		common.ReplyErr(w, "algo service unavailable", http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "algo service unavailable", err), http.StatusBadGateway)
 		return
 	}
 	if ar.Code != 200 {
@@ -699,7 +699,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	var body Dataset
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	displayName := strings.TrimSpace(body.DisplayName)
@@ -757,7 +757,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", kbTimeout).
 			Dur("elapsed", time.Since(kbStart)).
 			Msg("kb service create failed")
-		common.ReplyErr(w, "kb service create failed", http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "kb service create failed", err), http.StatusBadGateway)
 		return
 	}
 
@@ -826,7 +826,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := corestore.DB().WithContext(context.Background()).Create(&ds).Error; err != nil {
-		common.ReplyErr(w, "create dataset failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "create dataset failed", err), http.StatusInternalServerError)
 		return
 	}
 	if st := acl.GetStore(); st != nil {
@@ -975,7 +975,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 	ds.DeletedAt = &now
 	ds.UpdatedAt = now
 	if err := corestore.DB().Save(&ds).Error; err != nil {
-		common.ReplyErr(w, "DeleteKnowledge baseFailed，text", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "DeleteKnowledge baseFailed，text", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1001,7 +1001,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 
 	var body Dataset
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 
@@ -1082,7 +1082,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", kbTimeout).
 			Dur("elapsed", time.Since(kbStart)).
 			Msg("kb service update failed")
-		common.ReplyErr(w, "kb service update failed", http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "kb service update failed", err), http.StatusBadGateway)
 		return
 	}
 	log.Logger.Info().
@@ -1103,7 +1103,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	ds.CreateUserName = userName
 
 	if err := corestore.DB().Save(&ds).Error; err != nil {
-		common.ReplyErr(w, "update dataset failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "update dataset failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1147,7 +1147,7 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	var body SetDefaultDatasetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
@@ -1186,7 +1186,7 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 		Where("create_user_id = ? AND dataset_id = ?", userID, datasetID).
 		Delete(&orm.DefaultDataset{}).Error
 	if err := corestore.DB().Create(&row).Error; err != nil {
-		common.ReplyErr(w, "set default failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "set default failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1205,7 +1205,7 @@ func UnsetDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	var body UnsetDefaultDatasetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {

@@ -3,6 +3,7 @@ package doc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -149,7 +150,7 @@ func UpdateDatasetMember(w http.ResponseWriter, r *http.Request) {
 	}
 	var req updateDatasetMemberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	perm := roleToPermission(req.DatasetMember.Role.Role)
@@ -227,7 +228,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 			Str("dataset_id", datasetID).
 			Str("request_user_id", requestUserID).
 			Msg("batch add dataset member failed: invalid body")
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	perm := roleToPermission(req.Role.Role)

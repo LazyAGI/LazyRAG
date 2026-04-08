@@ -180,16 +180,16 @@ func streamLocalFile(w http.ResponseWriter, fullPath, filename, fallbackContentT
 	f, err := os.Open(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			common.ReplyErr(w, "file not found", http.StatusNotFound)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "file not found", err), http.StatusNotFound)
 			return
 		}
-		common.ReplyErr(w, "open file failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "open file failed", err), http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()
 	stat, err := f.Stat()
 	if err != nil {
-		common.ReplyErr(w, "read file failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "read file failed", err), http.StatusInternalServerError)
 		return
 	}
 	name := strings.TrimSpace(filename)
@@ -219,7 +219,7 @@ func GetSignedStaticFile(w http.ResponseWriter, r *http.Request) {
 	}
 	decodedPath, err := url.PathUnescape(rawPath)
 	if err != nil {
-		common.ReplyErr(w, "invalid path encoding", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid path encoding", err), http.StatusBadRequest)
 		return
 	}
 	relPath := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+decodedPath)), "/")
@@ -291,7 +291,7 @@ func streamDocumentFile(w http.ResponseWriter, r *http.Request, inline bool) {
 	}
 	row, ext, err := loadDocumentFileMeta(r.Context(), datasetID, docID)
 	if err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return
 	}
 	storedPath := previewPathForContent(ext)
@@ -365,7 +365,7 @@ func ListDocuments(w http.ResponseWriter, r *http.Request) {
 
 	rows, total, err := loadDatasetDocuments(r.Context(), datasetID, "", pid, true, pageSize, offset)
 	if err != nil {
-		common.ReplyErr(w, "query documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query documents failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -408,7 +408,7 @@ func CreateDocument(w http.ResponseWriter, r *http.Request) {
 
 	var body Doc
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	display := strings.TrimSpace(body.DisplayName)
@@ -437,7 +437,7 @@ func CreateDocument(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if err := store.DB().WithContext(r.Context()).Create(&row).Error; err != nil {
-		common.ReplyErr(w, "create document failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "create document failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -471,7 +471,7 @@ func GetDocument(w http.ResponseWriter, r *http.Request) {
 
 	rr, err := loadDocumentByID(r.Context(), datasetID, docID)
 	if err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return
 	}
 	doc := docFromRow(rr)
@@ -496,7 +496,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var row orm.Document
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).Take(&row).Error; err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return
 	}
 	if err := deleteExternalDocs(r, datasetID, []orm.Document{row}); err != nil {
@@ -532,7 +532,7 @@ func UpdateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var body Doc
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	updates := map[string]any{}
@@ -573,7 +573,7 @@ func UpdateDocument(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 		if err := db.Create(&row).Error; err != nil {
-			common.ReplyErr(w, "update document failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "update document failed", err), http.StatusInternalServerError)
 			return
 		}
 		common.ReplyJSON(w, docFromRow(mergedDocRow{
@@ -590,7 +590,7 @@ func UpdateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := db.Model(&orm.Document{}).Where("id = ? AND deleted_at IS NULL", cd.ID).Updates(updates).Error; err != nil {
-		common.ReplyErr(w, "update document failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "update document failed", err), http.StatusInternalServerError)
 		return
 	}
 	// return refreshed
@@ -631,7 +631,7 @@ func SearchDocuments(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.PageToken) != "" {
 		v, err := parseDatasetPageToken(req.PageToken)
 		if err != nil {
-			common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
 			return
 		}
 		offset = v
@@ -641,7 +641,7 @@ func SearchDocuments(w http.ResponseWriter, r *http.Request) {
 
 	rows, total, err := loadDatasetDocuments(r.Context(), datasetID, keyword, pid, true, int(pageSize), offset)
 	if err != nil {
-		common.ReplyErr(w, "search documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "search documents failed", err), http.StatusInternalServerError)
 		return
 	}
 	relPaths := buildDocumentTreeRelPaths(r.Context(), rows)
@@ -674,7 +674,7 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 
 	datasetIDs, err := accessibleDatasetIDs(r.Context(), userID)
 	if err != nil {
-		common.ReplyErr(w, "search documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "search documents failed", err), http.StatusInternalServerError)
 		return
 	}
 	if len(datasetIDs) == 0 {
@@ -686,7 +686,7 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.PageToken) != "" {
 		v, err := parseDatasetPageToken(req.PageToken)
 		if err != nil {
-			common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
 			return
 		}
 		offset = v
@@ -707,7 +707,7 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 		Offset:      offset,
 	})
 	if err != nil {
-		common.ReplyErr(w, "search documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "search documents failed", err), http.StatusInternalServerError)
 		return
 	}
 	relPaths := buildDocumentTreeRelPaths(r.Context(), rows)
@@ -742,7 +742,7 @@ func BatchUpdateDocumentTags(w http.ResponseWriter, r *http.Request) {
 
 	var req BatchUpdateDocumentTagsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	parent := strings.TrimSpace(req.Parent)
@@ -779,7 +779,7 @@ func BatchUpdateDocumentTags(w http.ResponseWriter, r *http.Request) {
 		}
 		subtree, err := loadDocumentSubtree(r.Context(), datasetID, folderID)
 		if err != nil {
-			common.ReplyErr(w, "folder not found", http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "folder not found", err), http.StatusBadRequest)
 			return
 		}
 		for _, row := range subtree {
@@ -882,7 +882,7 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var req BatchDeleteDocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.Names) == 0 {
@@ -891,7 +891,7 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows []orm.Document
 	if err := store.DB().WithContext(r.Context()).Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query documents failed", err), http.StatusInternalServerError)
 		return
 	}
 	if err := deleteExternalDocs(r, datasetID, rows); err != nil {

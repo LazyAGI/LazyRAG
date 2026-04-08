@@ -63,7 +63,7 @@ func ExportConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	var req ExportConversationsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	fileTypes := normalizeExportFileTypes(req.FileTypes)
@@ -73,12 +73,12 @@ func ExportConversations(w http.ResponseWriter, r *http.Request) {
 
 	startAt, err := parseOptionalTime(req.StartTime)
 	if err != nil {
-		common.ReplyErr(w, "invalid start_time", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid start_time", err), http.StatusBadRequest)
 		return
 	}
 	endAt, err := parseOptionalTime(req.EndTime)
 	if err != nil {
-		common.ReplyErr(w, "invalid end_time", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid end_time", err), http.StatusBadRequest)
 		return
 	}
 	if !startAt.IsZero() && !endAt.IsZero() && endAt.Before(startAt) {
@@ -88,7 +88,7 @@ func ExportConversations(w http.ResponseWriter, r *http.Request) {
 
 	conversations, historiesByConvID, err := loadConversationsForExport(r, userID, req, startAt, endAt)
 	if err != nil {
-		common.ReplyErr(w, "query conversations failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query conversations failed", err), http.StatusInternalServerError)
 		return
 	}
 	if len(conversations) == 0 {
@@ -112,7 +112,7 @@ func ExportConversations(w http.ResponseWriter, r *http.Request) {
 	for _, ft := range fileTypes {
 		meta, err := buildExportFile(bundles, userID, ft)
 		if err != nil {
-			common.ReplyErr(w, "export conversations failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "export conversations failed", err), http.StatusInternalServerError)
 			return
 		}
 		token := newID("export_")
@@ -153,7 +153,7 @@ func DownloadExportConversationFile(w http.ResponseWriter, r *http.Request) {
 
 	f, err := os.Open(meta.Path)
 	if err != nil {
-		common.ReplyErr(w, "export file not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "export file not found", err), http.StatusNotFound)
 		return
 	}
 	defer f.Close()

@@ -66,7 +66,7 @@ func streamUploadedFile(w http.ResponseWriter, r *http.Request, inline bool) {
 	}
 	var row orm.UploadedFile
 	if err := store.DB().WithContext(r.Context()).Where("upload_file_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadFileID, datasetID).Take(&row).Error; err != nil {
-		common.ReplyErr(w, "uploaded file not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "uploaded file not found", err), http.StatusNotFound)
 		return
 	}
 	var ext uploadedFileExt
@@ -93,7 +93,7 @@ func StartTask(w http.ResponseWriter, r *http.Request) {
 
 	var req StartTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.TaskIDs) == 0 {
@@ -103,7 +103,7 @@ func StartTask(w http.ResponseWriter, r *http.Request) {
 	resp := StartTasksResponse{Tasks: make([]StartTaskResult, 0, len(req.TaskIDs)), RequestedCount: len(req.TaskIDs)}
 	results, err := startTasksInternal(r, datasetID, req.TaskIDs)
 	if err != nil && len(results) == 0 {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
 		return
 	}
 	resp.Tasks = results
@@ -133,7 +133,7 @@ func SearchTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	var req SearchTasksRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.TaskIDs) == 0 {
@@ -160,7 +160,7 @@ func SearchTasks(w http.ResponseWriter, r *http.Request) {
 	var rows []orm.Task
 	query := store.DB().WithContext(r.Context()).Where("dataset_id = ? AND deleted_at IS NULL", datasetID).Where("id IN ?", ids)
 	if err := query.Order("created_at DESC").Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query tasks failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query tasks failed", err), http.StatusInternalServerError)
 		return
 	}
 	resp := make([]TaskResponse, 0, len(rows))
@@ -221,7 +221,7 @@ func BatchUploadTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		common.ReplyErr(w, "invalid multipart form", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid multipart form", err), http.StatusBadRequest)
 		return
 	}
 	files := r.MultipartForm.File["files"]
@@ -241,7 +241,7 @@ func BatchUploadTasks(w http.ResponseWriter, r *http.Request) {
 	for _, fh := range files {
 		createdTask, _, _, err := createUploadedTaskAndDocument(r, ds, datasetID, userID, userName, now, fh, relativePath, documentPID, tags)
 		if err != nil {
-			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 			return
 		}
 		baseTasks = append(baseTasks, createdTask)
@@ -272,7 +272,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		common.ReplyErr(w, "invalid multipart form", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid multipart form", err), http.StatusBadRequest)
 		return
 	}
 	files := r.MultipartForm.File["files"]
@@ -294,7 +294,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	for _, fh := range files {
 		row, ext, err := createUploadedFileRecord(r, ds, datasetID, userID, userName, now, fh, relativePath, documentPID, tags)
 		if err != nil {
-			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 			return
 		}
 		resp = append(resp, UploadFileResponse{
@@ -326,7 +326,7 @@ func UploadTempFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		common.ReplyErr(w, "invalid multipart form", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid multipart form", err), http.StatusBadRequest)
 		return
 	}
 	files := r.MultipartForm.File["files"]
@@ -347,19 +347,19 @@ func UploadTempFile(w http.ResponseWriter, r *http.Request) {
 		storedName := storedFileName(fh.Filename, uploadFileID)
 		finalDir := buildTempUploadFileDir(userID, uploadFileID)
 		if err := os.MkdirAll(finalDir, 0o755); err != nil {
-			common.ReplyErr(w, "create temp dir failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "create temp dir failed", err), http.StatusInternalServerError)
 			return
 		}
 		finalPath := filepath.Join(finalDir, storedName)
 		file, err := fh.Open()
 		if err != nil {
-			common.ReplyErr(w, "open upload file failed", http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "open upload file failed", err), http.StatusBadRequest)
 			return
 		}
 		out, err := os.Create(finalPath)
 		if err != nil {
 			_ = file.Close()
-			common.ReplyErr(w, "create upload target failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "create upload target failed", err), http.StatusInternalServerError)
 			return
 		}
 		size, copyErr := io.Copy(out, file)
@@ -372,7 +372,7 @@ func UploadTempFile(w http.ResponseWriter, r *http.Request) {
 		contentType := fh.Header.Get("Content-Type")
 		row := orm.UploadedFile{UploadFileID: uploadFileID, DatasetID: "", TenantID: "", TaskID: "", DocumentID: "", Status: UploadedFileStateUploaded, Ext: mustJSON(uploadedFileExt{StoredPath: finalPath, StoredName: storedName, OriginalFilename: fh.Filename, FileSize: size, ContentType: contentType}), BaseModel: orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now}}
 		if err := store.DB().WithContext(r.Context()).Create(&row).Error; err != nil {
-			common.ReplyErr(w, "create uploaded file failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "create uploaded file failed", err), http.StatusInternalServerError)
 			return
 		}
 		resp = append(resp, UploadFileResponse{UploadFileID: uploadFileID, Filename: fh.Filename, StoredName: storedName, StoredPath: finalPath, FileSize: size, ContentType: contentType, FileURL: staticFileURLFromFullPath(finalPath), Status: UploadedFileStateUploaded, UploadScope: uploadScopeTemp})
@@ -428,7 +428,7 @@ func ListTasks(w http.ResponseWriter, r *http.Request) {
 	if pageToken != "" {
 		v, err := parseDatasetPageToken(pageToken)
 		if err != nil {
-			common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
 			return
 		}
 		offset = v
@@ -450,7 +450,7 @@ func ListTasks(w http.ResponseWriter, r *http.Request) {
 	var total int64
 	_ = query.Model(&orm.Task{}).Count(&total).Error
 	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query tasks failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query tasks failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -495,7 +495,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.Items) == 0 {
@@ -537,7 +537,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 			tType = string(TaskTypeParseUploaded)
 		}
 		if err := validateCreateTaskItem(item, datasetID, tType); err != nil {
-			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 			return
 		}
 
@@ -546,7 +546,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 			if strings.TrimSpace(expandedItem.UploadFileID) != "" {
 				taskRows, err := createTaskFromUploadedFile(r, datasetID, userID, userName, expandedItem, tType)
 				if err != nil {
-					common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+					common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 					return
 				}
 				for _, t := range taskRows {
@@ -555,7 +555,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 			} else {
 				taskRow, err := createTaskFromExistingDocument(r, datasetID, userID, userName, expandedItem, tType)
 				if err != nil {
-					common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+					common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 					return
 				}
 				resp = append(resp, buildTaskResponse(r, taskRow))
@@ -582,7 +582,7 @@ func GetTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var row orm.Task
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskID, datasetID).Take(&row).Error; err != nil {
-		common.ReplyErr(w, "task not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "task not found", err), http.StatusNotFound)
 		return
 	}
 	common.ReplyJSON(w, buildTaskResponse(r, row))
@@ -626,10 +626,10 @@ func ResumeTask(w http.ResponseWriter, r *http.Request) {
 	var taskRow orm.Task
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskID, datasetID).First(&taskRow).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			common.ReplyErr(w, "task not found", http.StatusNotFound)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "task not found", err), http.StatusNotFound)
 			return
 		}
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -641,7 +641,7 @@ func ResumeTask(w http.ResponseWriter, r *http.Request) {
 
 	results, err := startTasksInternal(r, datasetID, []string{taskID})
 	if err != nil && len(results) == 0 {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
 		return
 	}
 	resp := StartTasksResponse{Tasks: results, RequestedCount: 1}
@@ -674,7 +674,7 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var req InitUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.Filename) == "" {
@@ -703,7 +703,7 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 		CreateUserName: userName,
 	})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 	_ = row
@@ -720,7 +720,7 @@ func UploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	meta, _, metaErr := loadUploadMeta(session)
@@ -745,7 +745,7 @@ func CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	meta, _, metaErr := loadUploadMeta(session)
@@ -755,7 +755,7 @@ func CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, statusCode, err := completeUploadInternal(r.Context(), session, completeUploadArgs{Dataset: ds})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), statusCode)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), statusCode)
 		return
 	}
 	common.ReplyJSON(w, resp)
@@ -770,7 +770,7 @@ func InitTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var req InitUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.Filename) == "" {
@@ -787,7 +787,7 @@ func InitTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, _, err := initUploadSession(r.Context(), initUploadSessionArgs{Scope: uploadScopeTemp, Filename: req.Filename, FileSize: req.FileSize, ContentType: req.ContentType, PartSize: req.PartSize, CreateUserID: userID, CreateUserName: userName})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 	common.ReplyJSON(w, resp)
@@ -807,7 +807,7 @@ func UploadTempPart(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	if strings.TrimSpace(session.CreateUserID) != userID {
@@ -835,7 +835,7 @@ func CompleteTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	if strings.TrimSpace(session.CreateUserID) != userID {
@@ -849,7 +849,7 @@ func CompleteTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, statusCode, err := completeUploadInternal(r.Context(), session, completeUploadArgs{})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), statusCode)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), statusCode)
 		return
 	}
 	common.ReplyJSON(w, resp)
@@ -864,7 +864,7 @@ func AbortUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	meta, _, metaErr := loadUploadMeta(session)
@@ -889,7 +889,7 @@ func AbortTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	if strings.TrimSpace(session.CreateUserID) != userID {
@@ -980,13 +980,13 @@ func initUploadSession(ctx context.Context, args initUploadSessionArgs) (InitUpl
 func uploadPartInternal(w http.ResponseWriter, r *http.Request, session orm.UploadSession, partNumber int) {
 	meta, dir, err := loadUploadMeta(session)
 	if err != nil {
-		common.ReplyErr(w, "load upload meta failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "load upload meta failed", err), http.StatusInternalServerError)
 		return
 	}
 	partPath := filepath.Join(dir, "parts", fmt.Sprintf("%06d.part", partNumber))
 	f, err := os.Create(partPath)
 	if err != nil {
-		common.ReplyErr(w, "create part failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "create part failed", err), http.StatusInternalServerError)
 		return
 	}
 	n, copyErr := io.Copy(f, r.Body)
@@ -1548,7 +1548,7 @@ func updateTaskStateEndpoint(w http.ResponseWriter, r *http.Request, action stri
 			common.ReplyErr(w, "task not found", http.StatusNotFound)
 			return
 		}
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1567,7 +1567,7 @@ func updateTaskStateEndpoint(w http.ResponseWriter, r *http.Request, action stri
 
 	err := callExternalSuspendJob(r, ExternalCancelTaskRequest{TaskID: externalTaskID})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

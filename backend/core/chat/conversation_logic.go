@@ -311,7 +311,7 @@ func handleNonStreamChat(
 	respBytes, statusCode, err := common.HTTPPost(reqCtx, upstreamURL, "application/json", pyBody)
 	if err != nil {
 		fmt.Println("DEBUG upstream request failed url=", upstreamURL, " err=", err)
-		common.ReplyErr(w, "chat service unavailable", http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "chat service unavailable", err), http.StatusBadGateway)
 		return
 	}
 	fmt.Println("DEBUG upstream response url=", upstreamURL, " status=", statusCode)
@@ -373,7 +373,7 @@ func handleNonStreamChat(
 		}
 	} else {
 		if err := db.Create(&hist).Error; err != nil {
-			common.ReplyErr(w, "failed to save history", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "failed to save history", err), http.StatusInternalServerError)
 			return
 		}
 	}
