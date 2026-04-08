@@ -266,6 +266,7 @@ type transferBinding struct {
 type taskExt struct {
 	TaskType         string            `json:"task_type,omitempty"`
 	TaskState        string            `json:"task_state,omitempty"`
+	ErrorMessage     string            `json:"error_message,omitempty"`
 	DocumentPID      string            `json:"document_pid,omitempty"`
 	DisplayName      string            `json:"display_name,omitempty"`
 	TargetDatasetID  string            `json:"target_dataset_id,omitempty"`
