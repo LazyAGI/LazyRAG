@@ -65,10 +65,9 @@ url_map: Dict[str, str] = {
     'crag': 'http://10.119.16.66:9001,crag_0130_a',
 }
 
-query_ppl_map = {name: get_rag_ppl(url=doc_url) for name, doc_url in url_map.items()}
-query_ppl_stream_map = {
-    name: get_rag_ppl(url=doc_url, stream=True) for name, doc_url in url_map.items()
-}
+
+def build_query_pipeline(url: str, *, stream: bool = False) -> Any:
+    return get_rag_ppl(url=url, stream=stream)
 
 
 # ---------------------------------------------------------------------------
@@ -120,13 +119,15 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 class ChatServer:
     def __init__(self):
+        self.startup_validated = False
+        self.startup_validation_error: Optional[str] = None
         self._on_server_start()
 
     @once_wrapper
     def _on_server_start(self):
         try:
-            self.query_ppl = query_ppl_map
-            self.query_ppl_stream = query_ppl_stream_map
+            self.query_ppl: Dict[str, Any] = {}
+            self.query_ppl_stream: Dict[str, Any] = {}
             self.query_ppl_reasoning = agentic_rag
             self.sensitive_filter = SensitiveFilter(SENSITIVE_WORDS_PATH)
             if self.sensitive_filter.loaded:
@@ -137,10 +138,33 @@ class ChatServer:
             else:
                 LOG.warning('[ChatServer] [SENSITIVE_FILTER] Failed to load, filter disabled')
 
+            if DEFAULT_CHAT_DATASET in url_map:
+                self.get_query_pipeline(DEFAULT_CHAT_DATASET)
+                self.get_query_pipeline(DEFAULT_CHAT_DATASET, stream=True)
+                self.startup_validated = True
+            else:
+                self.startup_validation_error = (
+                    f'default dataset `{DEFAULT_CHAT_DATASET}` not found in url_map'
+                )
+                raise KeyError(self.startup_validation_error)
+
             LOG.info('[ChatServer] [SERVER_START]')
         except Exception as exc:
+            self.startup_validated = False
+            self.startup_validation_error = str(exc)
             LOG.exception('[ChatServer] [SERVER_START_ERROR]')
             raise exc
+
+    def has_dataset(self, dataset: str) -> bool:
+        return dataset in url_map
+
+    def get_query_pipeline(self, dataset: str, *, stream: bool = False) -> Any:
+        if dataset not in url_map:
+            raise KeyError(dataset)
+        pipeline_map = self.query_ppl_stream if stream else self.query_ppl
+        if dataset not in pipeline_map:
+            pipeline_map[dataset] = build_query_pipeline(url_map[dataset], stream=stream)
+        return pipeline_map[dataset]
 
 
 chat_server = ChatServer()
@@ -236,7 +260,14 @@ def _log_chat_request(
 @app.get('/api/health', summary='Health check (API path)')
 async def health():
     doc_url = os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000')
-    status = {'document_server_url': doc_url, 'document_server_reachable': None}
+    status = {
+        'document_server_url': doc_url,
+        'document_server_reachable': None,
+        'default_dataset': DEFAULT_CHAT_DATASET,
+        'chat_startup_validated': chat_server.startup_validated,
+    }
+    if chat_server.startup_validation_error:
+        status['chat_startup_error'] = chat_server.startup_validation_error
     try:
         import urllib.request
         req = urllib.request.Request(doc_url.rstrip('/') + '/', method='GET')
@@ -271,7 +302,7 @@ async def chat(
     result = None
     is_stream = request.url.path.endswith('/stream')
     priority = int(os.getenv('LAZYRAG_LLM_PRIORITY', '0')) if priority is None else priority
-    if dataset not in chat_server.query_ppl:
+    if not chat_server.has_dataset(dataset):
         return ChatResponse(code=400, msg=f'dataset {dataset} not found', cost=0.0)
     start_time = time.time()
     sensitive_check_result = _check_sensitive_content(query, session_id, start_time)
@@ -296,7 +327,7 @@ async def chat(
                                                  'document_url': url_map[dataset]}}
                     result = await asyncio.to_thread(chat_server.query_ppl_reasoning, global_params, tool_params, False)
                 else:
-                    result = await asyncio.to_thread(chat_server.query_ppl[dataset], query_params)
+                    result = await asyncio.to_thread(chat_server.get_query_pipeline(dataset), query_params)
 
                 cost = round(time.time() - start_time, 3)
                 return ChatResponse(code=200, msg='success', data=result, cost=cost)
@@ -366,7 +397,7 @@ async def chat(
         if reasoning:
             return StreamingResponse(event_stream(chat_server.query_ppl_reasoning, query_params, None, True),
                                      media_type='text/event-stream')
-        return StreamingResponse(event_stream(chat_server.query_ppl_stream[dataset], query_params),
+        return StreamingResponse(event_stream(chat_server.get_query_pipeline(dataset, stream=True), query_params),
                                  media_type='text/event-stream')
 
 

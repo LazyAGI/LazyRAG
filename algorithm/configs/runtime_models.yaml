@@ -1,0 +1,51 @@
+# Runtime model roles for LazyRAG.
+# Fill in your own online provider config here. Real API keys should come from env vars.
+
+llm:
+  source: siliconflow
+  type: llm
+  model: Qwen/Qwen2.5-7B-Instruct
+  api_key: ${LAZYLLM_SILICONFLOW_API_KEY}
+
+llm_instruct:
+  source: siliconflow
+  type: llm
+  model: Qwen/Qwen2.5-7B-Instruct
+  api_key: ${LAZYLLM_SILICONFLOW_API_KEY}
+
+reranker:
+  source: siliconflow
+  type: rerank
+  model: BAAI/bge-reranker-v2-m3
+  api_key: ${LAZYLLM_SILICONFLOW_API_KEY}
+
+embeddings:
+  embed_1:
+    source: siliconflow
+    type: embed
+    model: Qwen/Qwen3-Embedding-0.6B
+    api_key: ${LAZYLLM_SILICONFLOW_API_KEY}
+    index_kwargs:
+      index_type: IVF_FLAT
+      metric_type: COSINE
+      params:
+        nlist: 128
+  # embed_2:
+  #   source: siliconflow
+  #   type: embed
+  #   model: BAAI/bge-m3
+  #   api_key: ${LAZYLLM_SILICONFLOW_API_KEY}
+  #   index_kwargs:
+  #     index_type: IVF_FLAT
+  #     metric_type: COSINE
+  #     params:
+  #       nlist: 128
+  # embed_3:
+  #   source: siliconflow
+  #   type: embed
+  #   model: BAAI/bge-large-zh-v1.5
+  #   api_key: ${LAZYLLM_SILICONFLOW_API_KEY}
+
+retrieval:
+  temp_doc_embed_key: embed_1
+  file_search_embed_key: embed_1

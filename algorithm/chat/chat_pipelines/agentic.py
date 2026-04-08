@@ -1,6 +1,7 @@
 # flake8: noqa: E402
 import asyncio
 import copy
+import functools
 import itertools
 import json
 import re
@@ -14,7 +15,7 @@ from pathlib import Path
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from common.model import get_auto_model_config_path, get_model
+from common.model import build_model, get_runtime_model_settings
 
 from chat.modules.engineering.simple_llm import SimpleLlmComponent
 from chat.prompts.agentic import (
@@ -50,19 +51,18 @@ def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'in
             raise ValueError(f'value: {value}')
 
 
-# llms
-CONFIG_PATH = get_auto_model_config_path()
-cfg = CONFIG_PATH
-llm = get_model('qwen3_32b_custom', cfg)
-llm._prompt._set_model_configs(system='You are an intelligent assistant, \
-                               strictly following user instructions to execute tasks.')
-# llm_gen = SimpleLlmComponent(llm=llm)
+@functools.lru_cache(maxsize=1)
+def get_agentic_llms():
+    settings = get_runtime_model_settings()
+    llm = build_model(settings.llm)
+    llm._prompt._set_model_configs(system='You are an intelligent assistant, \
+                                   strictly following user instructions to execute tasks.')
 
-llm_instruct = get_model('qwen3_moe_custom', cfg)
-llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
-    and you must strictly follow the given requirements to complete the tasks.\
-    The output language should be the same as the input language.')
-llm_gen = SimpleLlmComponent(llm=llm_instruct)
+    llm_instruct = build_model(settings.llm_instruct)
+    llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
+        and you must strictly follow the given requirements to complete the tasks.\
+        The output language should be the same as the input language.')
+    return llm, llm_instruct, SimpleLlmComponent(llm=llm_instruct)
 
 
 # utils
@@ -99,6 +99,7 @@ def _show_search_process(state: TaskContext, action: str = 'init'):
 
 # agents
 def do_search(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     params = state.global_params
     original_query = params.get('query', '')
     current_step = state.pending_steps[0]
@@ -134,6 +135,7 @@ def do_search(state: TaskContext):
 
 
 def generate_answer(state: TaskContext):
+    _, _, llm_gen = get_agentic_llms()
     query = state.query
     add_reasoning_process_stream(state, f'✅ 【GENERATOR】 开始生成答案....| Query: {query}')
 
@@ -214,6 +216,7 @@ async def get_llm_res(state: TaskContext, iter):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def plan_step(state: TaskContext):
+    llm, _, _ = get_agentic_llms()
     query = state.query
     tool_schemas = get_all_tool_schemas()
     tool_description = [tool_schema_to_string(ts, include_params=False) for ts in tool_schemas.values()]
@@ -241,6 +244,7 @@ def plan_step(state: TaskContext):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def evaluate(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     query = state.query
     last_step = state.executed_steps[-1]
     if not last_step.formatted_results:
@@ -276,6 +280,7 @@ def evaluate(state: TaskContext):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def plan_refine(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     query = state.query
     # refine_reason = state.middle_results.evaluation_result['refine_reason']['subtype']
     add_reasoning_process_stream(state, f'🎯 【PLANNERREFINER】 query: {query}\n')
@@ -317,6 +322,7 @@ def plan_refine(state: TaskContext):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def extract_info(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     query = state.query
     add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 extract information... | Query: {query}')
 
