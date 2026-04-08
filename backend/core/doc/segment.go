@@ -76,7 +76,7 @@ func ListSegments(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, queryURL, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "ListSegments")
 	if err != nil {
-		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
@@ -113,7 +113,7 @@ func SearchSegments(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "SearchSegments")
 	if err != nil {
-		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
@@ -132,7 +132,7 @@ func GetSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	segment, found, err := fetchSegmentByID(r, datasetID, documentID, lazyDocID, algoID, group, segmentID)
 	if err != nil {
-		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	if !found {

@@ -59,7 +59,7 @@ func do(ctx context.Context, url, method string, body any, header map[string]str
 		return fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("http %d: %s", resp.StatusCode, summarizeExternalErrorMessage(respBytes))
+		return fmt.Errorf("%s", summarizeExternalErrorMessage(respBytes))
 	}
 	if response == nil {
 		return nil
@@ -98,11 +98,6 @@ func extractExternalErrorMessage(v any) string {
 		for _, k := range preferred {
 			if val, ok := t[k]; ok {
 				if s := stringifyExternalErrorValue(val); s != "" {
-					if code, ok := t["code"]; ok {
-						if c := stringifyExternalErrorValue(code); c != "" {
-							return fmt.Sprintf("code=%s, %s", c, s)
-						}
-					}
 					return s
 				}
 			}

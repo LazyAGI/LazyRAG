@@ -33,11 +33,28 @@ func ReplyOK(w http.ResponseWriter, data any) {
 }
 
 func ReplyErr(w http.ResponseWriter, message string, statusCode int) {
-	reply(w, ErrorCodeFromHTTPStatus(statusCode), message, nil, statusCode)
+	appErr := ResolveAppError(message, statusCode)
+	ReplyAppErr(w, appErr)
 }
 
 func ReplyErrWithData(w http.ResponseWriter, message string, data any, statusCode int) {
-	reply(w, ErrorCodeFromHTTPStatus(statusCode), message, data, statusCode)
+	appErr := ResolveAppError(message, statusCode)
+	if appErr.Detail != nil {
+		data = mergeErrorDetail(data, appErr.Detail)
+	}
+	reply(w, appErr.Code, appErr.Message, data, appErr.HTTPStatus)
+}
+
+func ReplyAppErr(w http.ResponseWriter, appErr *AppError) {
+	if appErr == nil {
+		reply(w, ErrCodeInternal, "Internal server error", nil, http.StatusInternalServerError)
+		return
+	}
+	data := any(nil)
+	if appErr.Detail != nil {
+		data = map[string]any{"detail": appErr.Detail}
+	}
+	reply(w, appErr.Code, appErr.Message, data, appErr.HTTPStatus)
 }
 
 func reply(w http.ResponseWriter, code int, message string, data any, statusCode int) {
@@ -72,4 +89,15 @@ func ErrorCodeFromHTTPStatus(statusCode int) int {
 	default:
 		return ErrCodeInternal
 	}
+}
+
+func mergeErrorDetail(data any, detail any) any {
+	if data == nil {
+		return map[string]any{"detail": detail}
+	}
+	if m, ok := data.(map[string]any); ok {
+		m["detail"] = detail
+		return m
+	}
+	return map[string]any{"detail": detail, "data": data}
 }
