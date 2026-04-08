@@ -2593,17 +2593,23 @@ func isFolderLikeDocument(doc orm.Document) bool {
 
 func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bindings []transferBinding) ([]transferBinding, error) {
 	if len(bindings) == 0 {
+		log.Printf("[transfer-bind] skip empty bindings task=%s target_dataset=%s", taskRow.ID, strings.TrimSpace(taskRow.TargetDatasetID))
 		return bindings, nil
 	}
 	targetKbID := datasetKbIDByID(strings.TrimSpace(taskRow.TargetDatasetID))
+	log.Printf("[transfer-bind] start task=%s target_dataset=%s target_kb=%s bindings=%d", taskRow.ID, strings.TrimSpace(taskRow.TargetDatasetID), targetKbID, len(bindings))
 	if targetKbID == "" {
+		log.Printf("[transfer-bind] target kb empty task=%s target_dataset=%s", taskRow.ID, strings.TrimSpace(taskRow.TargetDatasetID))
 		return bindings, fmt.Errorf("target kb id is empty")
 	}
 	var kbDocs []readonlyorm.LazyLLMKBDocRow
 	if err := store.LazyLLMDB().WithContext(ctx).Table((readonlyorm.LazyLLMKBDocRow{}).TableName()).Where("kb_id = ?", targetKbID).Order("created_at DESC").Find(&kbDocs).Error; err != nil {
+		log.Printf("[transfer-bind] query kb docs failed task=%s target_kb=%s err=%v", taskRow.ID, targetKbID, err)
 		return bindings, err
 	}
+	log.Printf("[transfer-bind] loaded kb docs task=%s target_kb=%s count=%d", taskRow.ID, targetKbID, len(kbDocs))
 	if len(kbDocs) == 0 {
+		log.Printf("[transfer-bind] no kb docs task=%s target_kb=%s", taskRow.ID, targetKbID)
 		return bindings, nil
 	}
 	candidateIDs := make([]string, 0, len(kbDocs))
@@ -2612,7 +2618,19 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 	}
 	var docs []readonlyorm.LazyLLMDocRow
 	if err := store.LazyLLMDB().WithContext(ctx).Table((readonlyorm.LazyLLMDocRow{}).TableName()).Where("doc_id IN ?", candidateIDs).Order("created_at DESC").Find(&docs).Error; err != nil {
+		log.Printf("[transfer-bind] query readonly docs failed task=%s candidate_count=%d err=%v", taskRow.ID, len(candidateIDs), err)
 		return bindings, err
+	}
+	log.Printf("[transfer-bind] loaded readonly docs task=%s candidate_count=%d docs_count=%d", taskRow.ID, len(candidateIDs), len(docs))
+	for i, binding := range bindings {
+		log.Printf("[transfer-bind] binding[%d] source_doc=%s target_doc=%s source_lazy_doc=%q display=%q stored_path=%q", i, strings.TrimSpace(binding.SourceDocumentID), strings.TrimSpace(binding.TargetDocumentID), strings.TrimSpace(binding.SourceLazyDocID), strings.TrimSpace(binding.DisplayName), strings.TrimSpace(binding.StoredPath))
+	}
+	for i, row := range docs {
+		meta := ""
+		if row.Meta != nil {
+			meta = strings.TrimSpace(*row.Meta)
+		}
+		log.Printf("[transfer-bind] readonly-doc[%d] doc_id=%s filename=%q path=%q upload_status=%q meta=%q", i, strings.TrimSpace(row.DocID), strings.TrimSpace(row.Filename), strings.TrimSpace(row.Path), strings.TrimSpace(row.UploadStatus), meta)
 	}
 	updated := append([]transferBinding(nil), bindings...)
 	used := map[string]struct{}{}
@@ -2634,6 +2652,7 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 			updated[i].Status = string(TaskStateRunning)
 			used[strings.TrimSpace(row.DocID)] = struct{}{}
 			matched[i] = true
+			log.Printf("[transfer-bind] precise match task=%s binding_index=%d target_doc=%s matched_lazy_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID), strings.TrimSpace(row.DocID))
 			break
 		}
 	}
@@ -2649,6 +2668,7 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 			updated[i].Status = string(TaskStateRunning)
 			used[strings.TrimSpace(row.DocID)] = struct{}{}
 			matched[i] = true
+			log.Printf("[transfer-bind] fallback match task=%s binding_index=%d target_doc=%s matched_lazy_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID), strings.TrimSpace(row.DocID))
 			break
 		}
 	}
@@ -2657,10 +2677,13 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 		if strings.TrimSpace(updated[i].TargetLazyDocID) == "" {
 			updated[i].Status = string(TaskStateFailed)
 			updated[i].ErrorMessage = "target lazy doc id not found"
+			log.Printf("[transfer-bind] final unresolved task=%s binding_index=%d target_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID))
 			continue
 		}
+		log.Printf("[transfer-bind] persist target lazy doc task=%s binding_index=%d target_doc=%s target_lazy_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID), strings.TrimSpace(updated[i].TargetLazyDocID))
 		_ = store.DB().WithContext(ctx).Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", updated[i].TargetDocumentID, strings.TrimSpace(taskRow.TargetDatasetID)).Updates(map[string]any{"lazyllm_doc_id": updated[i].TargetLazyDocID, "updated_at": now}).Error
 	}
+	log.Printf("[transfer-bind] done task=%s", taskRow.ID)
 	return updated, nil
 }
 
