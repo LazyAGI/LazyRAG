@@ -96,6 +96,7 @@ type StartTaskResult struct {
 	Status       string `json:"status"`
 	SubmitStatus string `json:"submit_status,omitempty"`
 	Message      string `json:"message,omitempty"`
+	Detail       string `json:"detail,omitempty"`
 }
 
 type StartTasksResponse struct {

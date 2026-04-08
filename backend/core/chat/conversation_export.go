@@ -272,6 +272,8 @@ func buildExportFile(bundles []exportConversationBundle, userID string, fileType
 
 func buildConversationsCSV(bundles []exportConversationBundle) ([]byte, error) {
 	var buf bytes.Buffer
+	// Add UTF-8 BOM so spreadsheet apps open Chinese text correctly.
+	buf.Write([]byte{0xEF, 0xBB, 0xBF})
 	w := csv.NewWriter(&buf)
 	_ = w.Write([]string{
 		"conversation_id", "display_name", "create_user_name", "conversation_create_time", "conversation_update_time",

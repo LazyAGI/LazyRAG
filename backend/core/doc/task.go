@@ -103,7 +103,7 @@ func StartTask(w http.ResponseWriter, r *http.Request) {
 	resp := StartTasksResponse{Tasks: make([]StartTaskResult, 0, len(req.TaskIDs)), RequestedCount: len(req.TaskIDs)}
 	results, err := startTasksInternal(r, datasetID, req.TaskIDs)
 	if err != nil && len(results) == 0 {
-		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	resp.Tasks = results
@@ -641,7 +641,7 @@ func ResumeTask(w http.ResponseWriter, r *http.Request) {
 
 	results, err := startTasksInternal(r, datasetID, []string{taskID})
 	if err != nil && len(results) == 0 {
-		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	resp := StartTasksResponse{Tasks: results, RequestedCount: 1}
@@ -1322,13 +1322,15 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 			extResults, err := callExternalAddDocs(r, addRequest{Items: items, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 			if err != nil {
 				for i, taskRow := range baseTasks {
-					resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()}
+					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
+					resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}
 				}
 			} else {
 				created, bindErr := bindExternalBatchAddResults(datasetID, baseTasks, baseDocs, baseDocExts, extResults)
 				if bindErr != nil {
 					for i, taskRow := range baseTasks {
-						resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: bindErr.Error()}
+						resolved := common.ResolveAppError(bindErr.Error(), http.StatusBadGateway)
+						resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}
 					}
 				} else {
 					for _, row := range created {
@@ -1367,7 +1369,8 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 				item := buildAddFileItem(datasetID, candidate.task, candidate.doc, dExt, parsePath)
 				extResults, err := callExternalAddDocs(r, addRequest{Items: []addFileItem{item}, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 				if err != nil {
-					outcomes[idx] = officeOutcome{task: candidate.task, doc: candidate.doc, docExt: dExt, result: StartTaskResult{TaskID: candidate.task.ID, DocumentID: candidate.doc.ID, DisplayName: candidate.doc.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()}}
+					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
+					outcomes[idx] = officeOutcome{task: candidate.task, doc: candidate.doc, docExt: dExt, result: StartTaskResult{TaskID: candidate.task.ID, DocumentID: candidate.doc.ID, DisplayName: candidate.doc.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}}
 					return
 				}
 				created, bindErr := bindExternalBatchAddResults(datasetID, []orm.Task{candidate.task}, []orm.Document{candidate.doc}, []documentExt{dExt}, extResults)
@@ -1567,7 +1570,7 @@ func updateTaskStateEndpoint(w http.ResponseWriter, r *http.Request, action stri
 
 	err := callExternalSuspendJob(r, ExternalCancelTaskRequest{TaskID: externalTaskID})
 	if err != nil {
-		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -2308,7 +2311,7 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 	}
 	if err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, AlgoID: algoID, IdempotencyKey: newTaskID()}); err != nil {
 		for i, taskRow := range taskRows {
-			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: common.ResolveAppError(err.Error(), http.StatusBadGateway).Message, Detail: fmt.Sprint(common.ResolveAppError(err.Error(), http.StatusBadGateway).Detail)})
 		}
 		return results, err
 	}
@@ -2377,14 +2380,16 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 
 		if mode == "move" && targetDatasetID == datasetID {
 			if err := validateLocalMoveTarget(r.Context(), datasetID, docRow, strings.TrimSpace(taskRow.TargetPID)); err != nil {
-				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: err.Error()})
+				resolved := common.ResolveAppError(err.Error(), http.StatusBadRequest)
+				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)})
 				continue
 			}
 			now := time.Now().UTC()
 			oldPID := strings.TrimSpace(docRow.PID)
 			newPID := strings.TrimSpace(taskRow.TargetPID)
 			if err := store.DB().WithContext(r.Context()).Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docRow.ID, datasetID).Updates(map[string]any{"p_id": newPID, "updated_at": now}).Error; err != nil {
-				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+				resolved := common.ResolveAppError(err.Error(), http.StatusInternalServerError)
+				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)})
 				continue
 			}
 			var ext taskExt
@@ -2401,7 +2406,8 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 		log.Printf("[transfer] start mode=%s task=%s dataset=%s source_doc=%s source_display=%q source_lazy_doc=%q target_dataset=%s target_pid=%s", mode, taskRow.ID, datasetID, docRow.ID, docRow.DisplayName, strings.TrimSpace(docRow.LazyllmDocID), strings.TrimSpace(taskRow.TargetDatasetID), strings.TrimSpace(taskRow.TargetPID))
 		bindings, taskItems, err := prepareTransferTargets(r.Context(), taskRow, docRow, mode)
 		if err != nil {
-			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+			resolved := common.ResolveAppError(err.Error(), http.StatusInternalServerError)
+			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)})
 			continue
 		}
 		if len(taskItems) == 0 {
@@ -2446,7 +2452,7 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 	}
 	if err := callExternalTransferDocs(r, transferRequest{Items: allItems, IdempotencyKey: newTaskID()}); err != nil {
 		for i, taskRow := range validTaskRows {
-			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: validDocRows[i].ID, DisplayName: validDocRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: validDocRows[i].ID, DisplayName: validDocRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: common.ResolveAppError(err.Error(), http.StatusBadGateway).Message, Detail: fmt.Sprint(common.ResolveAppError(err.Error(), http.StatusBadGateway).Detail)})
 		}
 		return results, err
 	}
