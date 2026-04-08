@@ -21,20 +21,60 @@ class GroupService:
         page_size: int = 20,
         search: str | None = None,
         tenant_id: str | None = None,
+        current_user_id: uuid.UUID | None = None,
+        is_system_admin: bool = False,
     ) -> tuple[list[dict], int]:
-        """Paginated group list. Returns (items, total)."""
+        """Paginated group list. Returns (items, total).
+
+        - system-admin: returns all groups with optional filters
+        - non-admin: returns only groups that current user belongs to
+        """
         with SessionLocal() as db:
-            groups, total = GroupRepository.list_paginated(db, page, page_size, search, tenant_id)
-            items = [
-                {
-                    'group_id': str(g.id),
-                    'group_name': g.group_name,
-                    'remark': g.remark,
-                    'tenant_id': g.tenant_id,
-                }
-                for g in groups
-            ]
-            return items, int(total)
+            if is_system_admin:
+                groups, total = GroupRepository.list_paginated(db, page, page_size, search, tenant_id)
+                items = [
+                    {
+                        'group_id': str(g.id),
+                        'group_name': g.group_name,
+                        'remark': g.remark,
+                        'tenant_id': g.tenant_id,
+                    }
+                    for g in groups
+                ]
+                return items, int(total)
+
+            if current_user_id is None:
+                return [], 0
+
+            user = UserRepository.get_by_id(db, current_user_id, load_groups=True)
+            if not user:
+                raise_error(ErrorCodes.USER_NOT_FOUND)
+
+            groups = []
+            for membership in user.groups:
+                group = membership.group
+                if not group:
+                    continue
+                groups.append(
+                    {
+                        'group_id': str(group.id),
+                        'group_name': group.group_name,
+                        'remark': group.remark,
+                        'tenant_id': group.tenant_id,
+                    }
+                )
+
+            if tenant_id is not None:
+                groups = [g for g in groups if (g.get('tenant_id') or '') == tenant_id]
+            if search:
+                keyword = search.lower()
+                groups = [g for g in groups if keyword in (g.get('group_name') or '').lower()]
+
+            groups.sort(key=lambda item: ((item.get('group_name') or '').lower(), item['group_id']))
+            total = len(groups)
+            start = (max(page, 1) - 1) * page_size
+            end = start + page_size
+            return groups[start:end], total
 
     def create_group(
         self,

@@ -39,9 +39,9 @@ def _parse_user_id(user_id: str) -> uuid.UUID:
 
 
 @router.get('', response_model=GroupListResponse)
-@permission_required('user.admin')
+@permission_required('user.read')
 def list_groups(
-    _: User = Depends(current_user),  # noqa: B008
+    user: User = Depends(current_user),  # noqa: B008
     page: int = Query(1, ge=1),  # noqa: B008
     page_size: int = Query(20, ge=1, le=200),  # noqa: B008
     search: str | None = None,
@@ -52,6 +52,8 @@ def list_groups(
         page_size=page_size,
         search=search,
         tenant_id=tenant_id,
+        current_user_id=user.id,
+        is_system_admin=(getattr(user.role, 'name', None) == 'system-admin'),
     )
     return {'groups': items, 'total': total, 'page': page, 'page_size': page_size}
 
