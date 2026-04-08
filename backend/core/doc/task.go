@@ -1467,6 +1467,7 @@ func buildTaskResponse(r *http.Request, row orm.Task) TaskResponse {
 		}
 	} else {
 		resp.TaskState = firstNonEmpty(strings.TrimSpace(ext.TaskState), string(TaskStateCreating))
+		resp.ErrMsg = strings.TrimSpace(ext.ErrorMessage)
 	}
 	var extDoc readonlyorm.LazyLLMDocRow
 	if lazyDoc != "" {
@@ -2397,13 +2398,30 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 
 		var ext taskExt
 		_ = json.Unmarshal(taskRow.Ext, &ext)
+		log.Printf("[transfer] start mode=%s task=%s dataset=%s source_doc=%s source_display=%q source_lazy_doc=%q target_dataset=%s target_pid=%s", mode, taskRow.ID, datasetID, docRow.ID, docRow.DisplayName, strings.TrimSpace(docRow.LazyllmDocID), strings.TrimSpace(taskRow.TargetDatasetID), strings.TrimSpace(taskRow.TargetPID))
 		bindings, taskItems, err := prepareTransferTargets(r.Context(), taskRow, docRow, mode)
 		if err != nil {
 			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
 			continue
 		}
 		if len(taskItems) == 0 {
-			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: "no transferable file nodes found"})
+			log.Printf("[transfer] no transferable items mode=%s task=%s source_doc=%s bindings=%d", mode, taskRow.ID, docRow.ID, len(bindings))
+			for idx, binding := range bindings {
+				log.Printf("[transfer] binding[%d] source_doc=%s target_doc=%s source_lazy_doc=%q display=%q stored_path=%q status=%s error=%q", idx, strings.TrimSpace(binding.SourceDocumentID), strings.TrimSpace(binding.TargetDocumentID), strings.TrimSpace(binding.SourceLazyDocID), strings.TrimSpace(binding.DisplayName), strings.TrimSpace(binding.StoredPath), strings.TrimSpace(binding.Status), strings.TrimSpace(binding.ErrorMessage))
+			}
+			ext.TransferBindings = bindings
+			ext.TaskState = string(TaskStateFailed)
+			errMsg := "no transferable file nodes found"
+			for _, binding := range bindings {
+				if strings.TrimSpace(binding.SourceDocumentID) == strings.TrimSpace(docRow.ID) && strings.TrimSpace(binding.SourceLazyDocID) == "" {
+					errMsg = "source lazyllm doc id is empty"
+					break
+				}
+			}
+			ext.ErrorMessage = errMsg
+			now := time.Now().UTC()
+			_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(map[string]any{"ext": mustJSON(ext), "updated_at": now}).Error
+			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: errMsg})
 			continue
 		}
 		ext.TransferBindings = bindings
@@ -2418,6 +2436,13 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 			return nil, fmt.Errorf("no valid tasks to start")
 		}
 		return results, nil
+	}
+	log.Printf("[transfer] submit external mode=%s dataset=%s task_count=%d items_count=%d", mode, datasetID, len(validTaskRows), len(allItems))
+	for i, taskRow := range validTaskRows {
+		log.Printf("[transfer] submit task[%d]=%s source_doc=%s target_dataset=%s bindings=%d items=%d", i, taskRow.ID, taskRow.DocID, strings.TrimSpace(taskRow.TargetDatasetID), len(preparedExts[i].TransferBindings), len(transferItemsByTask[i]))
+	}
+	for i, item := range allItems {
+		log.Printf("[transfer] submit item[%d] source_lazy_doc=%s target_doc=%s source_kb=%s target_kb=%s mode=%s", i, strings.TrimSpace(item.DocID), strings.TrimSpace(item.TargetDocID), strings.TrimSpace(item.SourceKbID), strings.TrimSpace(item.TargetKbID), strings.TrimSpace(item.Mode))
 	}
 	if err := callExternalTransferDocs(r, transferRequest{Items: allItems, IdempotencyKey: newTaskID()}); err != nil {
 		for i, taskRow := range validTaskRows {
@@ -2437,6 +2462,7 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 		}
 		recalcTransferFolderStats(r.Context(), datasetID, taskRow, validDocRows[i], ext.TransferBindings, mode)
 		ext.TaskState = string(TaskStateRunning)
+		ext.ErrorMessage = ""
 		_ = transferItemsByTask
 		_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(map[string]any{"ext": mustJSON(ext), "updated_at": now}).Error
 		results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: validDocRows[i].ID, DisplayName: validDocRows[i].DisplayName, Status: "STARTED", SubmitStatus: "SUBMITTED"})
@@ -2471,6 +2497,7 @@ func validateLocalMoveTarget(ctx context.Context, datasetID string, sourceDoc or
 
 func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.Document, mode string) ([]transferBinding, []transferItem, error) {
 	targetDatasetID := strings.TrimSpace(taskRow.TargetDatasetID)
+	log.Printf("[transfer] prepare start mode=%s task=%s source_doc=%s source_display=%q source_lazy_doc=%q target_dataset=%s target_pid=%s", mode, taskRow.ID, rootDoc.ID, rootDoc.DisplayName, strings.TrimSpace(rootDoc.LazyllmDocID), targetDatasetID, strings.TrimSpace(taskRow.TargetPID))
 	targetPID := strings.TrimSpace(taskRow.TargetPID)
 	if targetDatasetID == "" {
 		return nil, nil, fmt.Errorf("target_dataset_id is required")
@@ -2482,6 +2509,7 @@ func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.D
 	if len(nodes) == 0 {
 		nodes = []orm.Document{rootDoc}
 	}
+	log.Printf("[transfer] prepare loaded nodes task=%s count=%d", taskRow.ID, len(nodes))
 	now := time.Now().UTC()
 	bindings := make([]transferBinding, 0, len(nodes))
 	items := make([]transferItem, 0, len(nodes))
@@ -2511,12 +2539,18 @@ func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.D
 		var ext documentExt
 		_ = json.Unmarshal(node.Ext, &ext)
 		sourceLazyDocID := strings.TrimSpace(node.LazyllmDocID)
-		bindings = append(bindings, transferBinding{SourceDocumentID: node.ID, TargetDocumentID: newID, SourceLazyDocID: sourceLazyDocID, DisplayName: strings.TrimSpace(node.DisplayName), StoredPath: strings.TrimSpace(firstNonEmpty(ext.ParseStoredPath, ext.StoredPath)), Mode: mode, Status: string(TaskStateCreating)})
-		if isFolderLikeDocument(node) || sourceLazyDocID == "" {
+		storedPath := strings.TrimSpace(firstNonEmpty(ext.ParseStoredPath, ext.StoredPath))
+		isFolder := isFolderLikeDocument(node)
+		log.Printf("[transfer] node task=%s source_doc=%s target_doc=%s display=%q is_folder=%t source_lazy_doc=%q stored_path=%q pid=%s", taskRow.ID, node.ID, newID, strings.TrimSpace(node.DisplayName), isFolder, sourceLazyDocID, storedPath, strings.TrimSpace(node.PID))
+		bindings = append(bindings, transferBinding{SourceDocumentID: node.ID, TargetDocumentID: newID, SourceLazyDocID: sourceLazyDocID, DisplayName: strings.TrimSpace(node.DisplayName), StoredPath: storedPath, Mode: mode, Status: string(TaskStateCreating)})
+		if isFolder || sourceLazyDocID == "" {
+			log.Printf("[transfer] skip item task=%s source_doc=%s reason=%s", taskRow.ID, node.ID, map[bool]string{true: "folder or empty source lazy doc id", false: ""}[isFolder || sourceLazyDocID == ""])
 			continue
 		}
 		items = append(items, transferItem{DocID: sourceLazyDocID, TargetDocID: newID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), SourceAlgoID: datasetAlgoIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), TargetAlgoID: datasetAlgoIDByID(targetDatasetID), Mode: mode})
+		log.Printf("[transfer] add item task=%s source_doc=%s source_lazy_doc=%s target_doc=%s", taskRow.ID, node.ID, sourceLazyDocID, newID)
 	}
+	log.Printf("[transfer] prepare done task=%s bindings=%d items=%d", taskRow.ID, len(bindings), len(items))
 	return bindings, items, nil
 }
 
