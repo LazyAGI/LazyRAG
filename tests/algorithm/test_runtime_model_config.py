@@ -254,3 +254,15 @@ def test_get_model_uses_automodel_config_path_for_inline_entry(monkeypatch):
             'skip_auth': True,
         }]
     }
+
+
+def test_runtime_auto_model_dir_cleanup_removes_generated_files(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / 'runtime-auto-model'
+    runtime_dir.mkdir()
+    generated = runtime_dir / 'foo.yaml'
+    generated.write_text('foo: bar\n', encoding='utf-8')
+    monkeypatch.setattr(model_utils, '_RUNTIME_AUTO_MODEL_DIR', runtime_dir)
+
+    model_utils._cleanup_runtime_auto_model_dir()
+
+    assert not runtime_dir.exists()
