@@ -115,6 +115,8 @@ const enUS = {
     copy: "Copy",
     copySuccess: "Copied",
     regenerate: "Regenerate",
+    regenerateInputMissing:
+      "No question content was found for regeneration. Please ask again.",
     feedback: "Feedback",
     references: "References",
     noReferences: "No references",

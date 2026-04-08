@@ -110,6 +110,7 @@ const zhCN = {
     copy: "复制",
     copySuccess: "复制成功",
     regenerate: "重新生成",
+    regenerateInputMissing: "未找到可重新生成的问题内容，请重新提问",
     feedback: "反馈",
     references: "参考来源",
     noReferences: "暂无参考来源",

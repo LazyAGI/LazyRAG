@@ -17,6 +17,43 @@ import { getLocalizedTablePagination } from "@/components/ui/pagination";
 const PASSWORD_MAX_LENGTH = 32;
 const USERNAME_COLUMN_WIDTH = 220;
 
+type RawUserItem = Partial<UserItem> & {
+  id?: string | number;
+  userId?: string | number;
+  roleId?: string | number;
+  roleName?: string;
+  status_text?: string;
+  disabled?: boolean;
+  role?: string | { id?: string | number; name?: string };
+};
+
+const resolveUserId = (user?: RawUserItem | null) => {
+  const candidate = user?.user_id ?? user?.userId ?? user?.id;
+  if (candidate === undefined || candidate === null || candidate === "") {
+    return "";
+  }
+  return String(candidate);
+};
+
+const normalizeUserItem = (user: RawUserItem): UserItem => {
+  const role =
+    user.role && typeof user.role === "object" ? user.role : undefined;
+  const statusFromDisabled =
+    typeof user.disabled === "boolean"
+      ? user.disabled
+        ? "disabled"
+        : "active"
+      : undefined;
+
+  return {
+    ...user,
+    user_id: resolveUserId(user),
+    role_id: String(user.role_id ?? user.roleId ?? role?.id ?? ""),
+    role_name: user.role_name ?? user.roleName ?? role?.name ?? String(user.role ?? ""),
+    status: user.status ?? user.status_text ?? statusFromDisabled ?? "active",
+  } as UserItem;
+};
+
 const UserManagement = () => {
   const { t } = useTranslation();
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -38,12 +75,20 @@ const UserManagement = () => {
       });
       const resData = res.data as any;
       const data = resData.data || resData;
+      const rawUsers = Array.isArray(data?.users)
+        ? data.users
+        : Array.isArray(data)
+          ? data
+          : [];
+      const normalizedUsers = rawUsers.map((item: RawUserItem) =>
+        normalizeUserItem(item),
+      );
 
-      setUsers(data.users || []);
+      setUsers(normalizedUsers);
       setPagination({
         current: Number(data.page || page),
         pageSize: Number(data.page_size || pageSize),
-        total: Number(data.total || 0),
+        total: Number(data.total || normalizedUsers.length || 0),
       });
     } catch (error) {
       console.error("Failed to fetch users:", error);
@@ -62,18 +107,30 @@ const UserManagement = () => {
     fetchUsers(1, pagination.pageSize, value);
   };
 
-  const isUserDisabled = (status?: string) =>
-    status !== "active" && status !== "enabled";
-
-  const handleDisable = async (userId: string) => {
-    await handleToggleUserStatus(userId, true);
+  const isUserDisabled = (status?: string) => {
+    const normalizedStatus = status?.toLowerCase();
+    return !["active", "enabled", "normal"].includes(normalizedStatus || "");
   };
 
-  const handleEnable = async (userId: string) => {
-    await handleToggleUserStatus(userId, false);
+  const handleDisable = async (user: RawUserItem) => {
+    await handleToggleUserStatus(user, true);
   };
 
-  const handleToggleUserStatus = async (userId: string, disabled: boolean) => {
+  const handleEnable = async (user: RawUserItem) => {
+    await handleToggleUserStatus(user, false);
+  };
+
+  const handleToggleUserStatus = async (user: RawUserItem, disabled: boolean) => {
+    const userId = resolveUserId(user);
+
+    if (!userId) {
+      message.error(
+        disabled ? t("admin.disableFailed") : t("admin.enableFailed"),
+      );
+      console.error("Toggle user status skipped: missing user id", user);
+      return;
+    }
+
     try {
       const api = createUserApi();
       await api.disableUserApiAuthserviceUserUserIdDisablePatch({
@@ -100,6 +157,8 @@ const UserManagement = () => {
   };
 
   const handleResetPassword = (user: UserItem) => {
+    const userId = resolveUserId(user);
+
     Modal.confirm({
       title: t("admin.resetUserPasswordTitle", { username: user.username }),
       content: (
@@ -126,10 +185,13 @@ const UserManagement = () => {
       cancelText: t("common.cancel"),
       onOk: async () => {
         try {
+          if (!userId) {
+            throw new Error("Missing user id");
+          }
           const values = await resetPasswordForm.validateFields();
           const api = createUserApi();
           await api.resetPasswordApiAuthserviceUserUserIdResetPasswordPatch({
-            userId: user.user_id,
+            userId,
             resetPasswordBody: { new_password: values.new_password },
           });
           message.success(t("admin.resetPasswordSuccess"));
@@ -232,8 +294,8 @@ const UserManagement = () => {
             }
             onConfirm={() =>
               disabled
-                ? handleEnable(record.user_id)
-                : handleDisable(record.user_id)
+                ? handleEnable(record)
+                : handleDisable(record)
             }
             okText={t("common.confirm")}
             cancelText={t("common.cancel")}
@@ -293,7 +355,7 @@ const UserManagement = () => {
         className="admin-page-table"
         columns={columns}
         dataSource={users}
-        rowKey="user_id"
+        rowKey={(record) => resolveUserId(record) || record.username}
         loading={loading}
         tableLayout="fixed"
         scroll={{ x: 800 }}

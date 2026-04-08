@@ -165,7 +165,7 @@ export function ChatServiceApi() {
       options?: RawAxiosRequestConfig,
     ) {
       return axiosInstance.post<ExportConversationsResponse>(
-        `${BASE_URL}/api/v1/conversation:export`,
+        `${coreApiBaseUrl}/conversation:export`,
         requestParameters.exportConversationsRequest,
         withJsonOptions(options),
       );
