@@ -3,6 +3,7 @@ package doc
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -70,12 +71,12 @@ func ListSegments(w http.ResponseWriter, r *http.Request) {
 	pageSize := parseSegmentPageSize(r, nil)
 	page, err := parseSegmentPage(r, nil, pageSize)
 	if err != nil {
-		common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
 		return
 	}
 	raw, queryURL, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "ListSegments")
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
 		return
 	}
 	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
@@ -107,12 +108,12 @@ func SearchSegments(w http.ResponseWriter, r *http.Request) {
 	pageSize := parseSegmentPageSize(r, body)
 	page, err := parseSegmentPage(r, body, pageSize)
 	if err != nil {
-		common.ReplyErr(w, "invalid page_token", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
 		return
 	}
 	raw, _, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "SearchSegments")
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
 		return
 	}
 	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
@@ -131,7 +132,7 @@ func GetSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	segment, found, err := fetchSegmentByID(r, datasetID, documentID, lazyDocID, algoID, group, segmentID)
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "external request failed", err), http.StatusBadGateway)
 		return
 	}
 	if !found {
@@ -356,7 +357,7 @@ func prepareSegmentRequest(w http.ResponseWriter, r *http.Request, handler strin
 	}
 	var docRow orm.Document
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", documentID, datasetID).Take(&docRow).Error; err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return "", "", "", "", "", false
 	}
 	lazyDocID = strings.TrimSpace(docRow.LazyllmDocID)

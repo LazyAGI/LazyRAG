@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -58,7 +59,7 @@ func do(ctx context.Context, url, method string, body any, header map[string]str
 		return fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("http %d: %s", resp.StatusCode, string(respBytes))
+		return fmt.Errorf("http %d: %s", resp.StatusCode, summarizeExternalErrorMessage(respBytes))
 	}
 	if response == nil {
 		return nil
@@ -70,4 +71,81 @@ func do(ctx context.Context, url, method string, body any, header map[string]str
 		return fmt.Errorf("unmarshal response: %w", err)
 	}
 	return nil
+}
+
+func summarizeExternalErrorMessage(respBytes []byte) string {
+	const maxLen = 240
+	body := strings.TrimSpace(string(respBytes))
+	if body == "" {
+		return "upstream returned empty error body"
+	}
+
+	var v any
+	if err := json.Unmarshal(respBytes, &v); err == nil {
+		if msg := extractExternalErrorMessage(v); msg != "" {
+			return trimErrorText(msg, maxLen)
+		}
+		return "upstream returned error payload without message"
+	}
+
+	return trimErrorText(body, maxLen)
+}
+
+func extractExternalErrorMessage(v any) string {
+	switch t := v.(type) {
+	case map[string]any:
+		preferred := []string{"message", "msg", "error", "detail", "reason", "error_message"}
+		for _, k := range preferred {
+			if val, ok := t[k]; ok {
+				if s := stringifyExternalErrorValue(val); s != "" {
+					if code, ok := t["code"]; ok {
+						if c := stringifyExternalErrorValue(code); c != "" {
+							return fmt.Sprintf("code=%s, %s", c, s)
+						}
+					}
+					return s
+				}
+			}
+		}
+		for _, val := range t {
+			if s := extractExternalErrorMessage(val); s != "" {
+				return s
+			}
+		}
+	case []any:
+		for _, item := range t {
+			if s := extractExternalErrorMessage(item); s != "" {
+				return s
+			}
+		}
+	case string:
+		return strings.TrimSpace(t)
+	}
+	return ""
+}
+
+func stringifyExternalErrorValue(v any) string {
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	case float64, bool, int, int64, uint64:
+		return fmt.Sprint(t)
+	case map[string]any, []any:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	default:
+		return strings.TrimSpace(fmt.Sprint(t))
+	}
+}
+
+func trimErrorText(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }

@@ -2,14 +2,14 @@ package acl
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
 const (
-	codeOK    = 0
-	codeError = 1
+	codeOK = 0
 )
 
 func reply(w http.ResponseWriter, code int, message string, data any) {
@@ -23,7 +23,28 @@ func replyOK(w http.ResponseWriter, data any) {
 
 func replyErr(w http.ResponseWriter, message string, statusCode int) {
 	w.WriteHeader(statusCode)
-	reply(w, codeError, message, nil)
+	reply(w, aclErrorCodeFromHTTPStatus(statusCode), message, nil)
+}
+
+func aclErrorCodeFromHTTPStatus(statusCode int) int {
+	switch statusCode {
+	case http.StatusBadRequest, http.StatusMethodNotAllowed:
+		return 2000103
+	case http.StatusUnauthorized:
+		return 2000104
+	case http.StatusForbidden:
+		return 2000102
+	case http.StatusNotFound:
+		return 2000106
+	case http.StatusConflict:
+		return 2000107
+	case http.StatusTooManyRequests:
+		return 2000108
+	case http.StatusBadGateway:
+		return 2000110
+	default:
+		return 2000000
+	}
 }
 
 func validGranteeType(s string) bool {
@@ -55,7 +76,7 @@ func AddACL(w http.ResponseWriter, r *http.Request) {
 	}
 	var body AddACLRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		replyErr(w, "invalid body", http.StatusBadRequest)
+		replyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if !validGranteeType(body.GranteeType) {
@@ -89,7 +110,7 @@ func UpdateACL(w http.ResponseWriter, r *http.Request) {
 	}
 	var body UpdateACLRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		replyErr(w, "invalid body", http.StatusBadRequest)
+		replyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if !validPermissionForResource(ResourceTypeKB, body.Permission) {
@@ -137,7 +158,7 @@ func BatchAddACL(w http.ResponseWriter, r *http.Request) {
 	}
 	var body BatchAddACLRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		replyErr(w, "invalid body", http.StatusBadRequest)
+		replyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	createdBy := CurrentUserID(r)
@@ -184,7 +205,7 @@ func GetPermission(w http.ResponseWriter, r *http.Request) {
 func PermissionBatch(w http.ResponseWriter, r *http.Request) {
 	var body PermissionBatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		replyErr(w, "invalid body", http.StatusBadRequest)
+		replyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	userID := CurrentUserID(r)
@@ -286,7 +307,7 @@ func SetKBAuthorization(w http.ResponseWriter, r *http.Request) {
 	}
 	var body SetKBAuthorizationRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		replyErr(w, "invalid body", http.StatusBadRequest)
+		replyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	normalized := make([]AuthorizationSubjectGrant, 0, len(body.Grants))
@@ -322,7 +343,7 @@ func SetKBAuthorization(w http.ResponseWriter, r *http.Request) {
 	}
 	inserted, err := GetStore().ReplaceACLForKB(kbID, normalized, CurrentUserID(r))
 	if err != nil {
-		replyErr(w, "save authorization failed", http.StatusInternalServerError)
+		replyErr(w, fmt.Sprintf("%s: %v", "save authorization failed", err), http.StatusInternalServerError)
 		return
 	}
 	replyOK(w, map[string]any{
