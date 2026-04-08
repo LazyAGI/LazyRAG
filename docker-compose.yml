@@ -543,6 +543,18 @@ services:
       milvus-minio:
         condition: service_started
 
+  attu:
+    profiles:
+      - milvus-dashboard
+    image: zilliz/attu:${ATTU_IMAGE_TAG:-v2.6.3}
+    ports:
+      - '127.0.0.1:3000:3000'
+    environment:
+      MILVUS_URL: milvus:19530
+    depends_on:
+      milvus:
+        condition: service_healthy
+
   # ---------- Segment store: OpenSearch single-node (profile: opensearch) ----------
   opensearch:
     profiles:
@@ -573,6 +585,20 @@ services:
       start_period: 60s
     expose:
       - '9200'
+
+  opensearch-dashboards:
+    profiles:
+      - opensearch-dashboard
+    image: opensearchproject/opensearch-dashboards:${OPENSEARCH_IMAGE_TAG:-2.18.0}
+    ports:
+      - '127.0.0.1:5601:5601'
+    expose:
+      - '5601'
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
+    depends_on:
+      opensearch:
+        condition: service_healthy
 
 volumes:
   pgdata:
