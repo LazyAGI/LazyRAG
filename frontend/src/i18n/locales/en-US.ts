@@ -98,6 +98,7 @@ const enUS = {
     updateSuccess: "Profile updated successfully",
     noUserInfo: "Could not retrieve user information",
     invalidEmail: "Please enter a valid email address",
+    invalidPhone: "Please enter a valid mainland China phone number",
   },
 
   // Chat
@@ -114,6 +115,8 @@ const enUS = {
     copy: "Copy",
     copySuccess: "Copied",
     regenerate: "Regenerate",
+    regenerateInputMissing:
+      "No question content was found for regeneration. Please ask again.",
     feedback: "Feedback",
     references: "References",
     noReferences: "No references",

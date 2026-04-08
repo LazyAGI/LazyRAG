@@ -11,7 +11,7 @@ import {
 import CreateGroupModal from "./components/CreateGroupModal";
 import ManageMembersModal from "./components/ManageMembersModal";
 import ManagePermissionsModal from "./components/ManagePermissionsModal";
-import { createGroupApi, createUsersServiceApi } from "@/modules/signin/utils/request";
+import { createGroupApi } from "@/modules/signin/utils/request";
 import { AgentAppsAuth } from "@/components/auth";
 import type { GroupItem } from "@/api/generated/auth-client";
 import { getLocalizedTablePagination } from "@/components/ui/pagination";
@@ -39,7 +39,6 @@ const GroupManagement = () => {
   const [selectedGroupForPermissions, setSelectedGroupForPermissions] =
     useState<GroupItem | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [applyingGroupId, setApplyingGroupId] = useState<string | null>(null);
 
   const userInfo = AgentAppsAuth.getUserInfo();
   const isAdmin = (role?: string) => {
@@ -118,19 +117,6 @@ const GroupManagement = () => {
     setIsPermissionModalVisible(true);
   };
 
-  const handleApplyJoinGroup = async (group: GroupItem) => {
-    setApplyingGroupId(group.group_id);
-    try {
-      const api = createUsersServiceApi();
-      await api.userApplyToJoinGroups({ groupId: group.group_id });
-      message.success(t("admin.applyJoinGroupSuccess", { groupName: group.group_name }));
-    } catch (error) {
-      console.error("Failed to apply join group:", error);
-    } finally {
-      setApplyingGroupId(null);
-    }
-  };
-
   const renderEllipsisText = (text?: string, emptyText = "-") => {
     if (!text) {
       return emptyText;
@@ -201,10 +187,10 @@ const GroupManagement = () => {
     {
       title: t("admin.actions"),
       key: "action",
-      width: isUserAdmin ? 200 : 140,
+      width: 200,
       render: (_: any, record: GroupItem) => (
         <Space size={4} wrap>
-          {isUserAdmin ? (
+          {isUserAdmin && (
             <>
               <Button
                 type="link"
@@ -238,16 +224,6 @@ const GroupManagement = () => {
                 </Button>
               </Popconfirm>
             </>
-          ) : (
-            <Button
-              type="link"
-              size="small"
-              icon={<UsergroupAddOutlined />}
-              loading={applyingGroupId === record.group_id}
-              onClick={() => handleApplyJoinGroup(record)}
-            >
-              {t("admin.applyJoinGroup")}
-            </Button>
           )}
         </Space>
       ),

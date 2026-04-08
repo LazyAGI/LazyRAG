@@ -932,6 +932,10 @@ components:
                     type: string
                 keyword:
                     type: string
+                keyword_list:
+                    items:
+                        type: string
+                    type: array
                 order_by:
                     type: string
                 p_id:
@@ -1379,6 +1383,24 @@ paths:
                 "200":
                     description: Streaming response
             summary: Chat with knowledge base (streaming)
+    /api/core/conversation:export:
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /conversation:export
+    /api/core/conversation:export/files/{file_id}:
+        get:
+            parameters:
+                - in: path
+                  name: file_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /conversation:export/files/{file_id}
     /api/core/conversation:switchStatus:
         get:
             responses:
@@ -1999,6 +2021,18 @@ paths:
                                 type: string
                     description: Document download content
             summary: Download document
+    /api/core/datasets/{dataset}/documents:batchUpdateTags:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents:batchUpdateTags
     /api/core/datasets/{dataset}/documents:search:
         post:
             parameters:

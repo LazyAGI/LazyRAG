@@ -41,6 +41,8 @@ import type { PreferenceType } from "../MultiAnswerDisplay";
 import { ChatServiceApi } from "@/modules/chat/utils/request";
 import { useChatMessageStore } from "@/modules/chat/store/chatMessage";
 import { CHAT_RESUME_CONVERSATION_KEY } from "@/modules/chat/constants/chat";
+import { useTranslation } from "react-i18next";
+import { getRegenerationInputs } from "@/modules/chat/utils/message";
 
 const ThinkIcon = new URL("../../assets/images/think.png", import.meta.url)
   .href;
@@ -108,6 +110,7 @@ export interface ChatMessage {
 
 const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
   (props, ref) => {
+    const { t } = useTranslation();
     const {
       canChat = true,
       initialCard,
@@ -975,6 +978,14 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       if (loading) {
         return;
       }
+      const userMessage = messageListRef.current.findLast(
+        (item: any) => item.role === RoleTypes.USER,
+      );
+      const regenerationInputs = getRegenerationInputs(userMessage);
+      if (regenerationInputs.length < 1) {
+        message.error(t("chat.regenerateInputMissing"));
+        return;
+      }
 
       const currentId = currentConversationIdRef.current;
       if (currentId) {
@@ -996,7 +1007,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
         selected_answer_index: undefined,
         answer_preference: undefined,
       };
-      const newList = [...messageList];
+      const newList = [...messageListRef.current];
       newList[newList.length - 1] = assistantMessage;
       messageListRef.current = newList;
       setMessageList(newList);
@@ -1006,12 +1017,9 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
         streamManager.saveMessageList(currentId, newList);
       }
 
-      const userMessage = messageList.findLast(
-        (item: any) => item.role === RoleTypes.USER,
-      );
       isMouseScrollingRef.current = true;
       openSSE(
-        userMessage?.inputs,
+        regenerationInputs,
         ChatConversationsRequestActionEnum.ChatActionRegeneration,
       );
     }

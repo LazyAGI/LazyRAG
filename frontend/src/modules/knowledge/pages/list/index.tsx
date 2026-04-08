@@ -614,7 +614,7 @@ const KnowledgePage: FC = () => {
                 form.setFieldsValue({ tags: ALL_TAGS });
                 setKnowledgeType(key);
               }}
-              defaultValue={knowledgeType}
+              value={knowledgeType}
             />
           }
         />
