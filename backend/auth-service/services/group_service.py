@@ -160,6 +160,28 @@ class GroupService:
                 for r in rows
             ]
 
+    def list_user_groups(self, user_id: uuid.UUID) -> list[dict]:
+        """List groups that the specified user belongs to."""
+        with SessionLocal() as db:
+            user = UserRepository.get_by_id(db, user_id, load_groups=True)
+            if not user:
+                raise_error(ErrorCodes.USER_NOT_FOUND)
+            items = []
+            for membership in user.groups:
+                group = membership.group
+                if not group:
+                    continue
+                items.append(
+                    {
+                        'user_id': str(user.id),
+                        'group_id': str(group.id),
+                        'group_name': group.group_name,
+                        'tenant_id': group.tenant_id,
+                    }
+                )
+            return items
+
+
     def add_group_users(
         self,
         group_id: uuid.UUID,

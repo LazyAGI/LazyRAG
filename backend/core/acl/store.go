@@ -1,7 +1,13 @@
 package acl
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -261,10 +267,8 @@ func (s *Store) ACLsForUser(resourceType, resourceID string, userID string) []*A
 	var rows []orm.ACLModel
 	q.Find(&rows)
 
-	var groupIDs []string
-	s.db.Model(&orm.UserGroupModel{}).Where("user_id = ?", userID).Pluck("group_id", &groupIDs)
 	groupSet := make(map[string]bool)
-	for _, g := range groupIDs {
+	for _, g := range s.loadUserGroupIDs(userID) {
 		groupSet[g] = true
 	}
 
@@ -280,6 +284,93 @@ func (s *Store) ACLsForUser(resourceType, resourceID string, userID string) []*A
 	}
 	return out
 }
+
+func (s *Store) loadUserGroupIDs(userID string) []string {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var localGroupIDs []string
+	_ = s.db.Model(&orm.UserGroupModel{}).Where("user_id = ?", userID).Pluck("group_id", &localGroupIDs).Error
+	for _, groupID := range localGroupIDs {
+		groupID = strings.TrimSpace(groupID)
+		if groupID != "" {
+			seen[groupID] = struct{}{}
+		}
+	}
+	for _, groupID := range fetchUserGroupIDsFromAuthService(context.Background(), userID) {
+		groupID = strings.TrimSpace(groupID)
+		if groupID == "" {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		s.EnsureGroup(groupID, "")
+		s.db.FirstOrCreate(&orm.UserGroupModel{}, &orm.UserGroupModel{UserID: userID, GroupID: groupID})
+	}
+	out := make([]string, 0, len(seen))
+	for groupID := range seen {
+		out = append(out, groupID)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func fetchUserGroupIDsFromAuthService(ctx context.Context, userID string) []string {
+	base := strings.TrimSpace(authServiceBaseURL())
+	if base == "" || strings.TrimSpace(userID) == "" {
+		return nil
+	}
+	endpoint := base + "/user/" + url.PathEscape(userID) + "/groups/internal"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("build auth-service request failed")
+		return nil
+	}
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("fetch user groups from auth-service failed")
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Logger.Warn().Int("status", resp.StatusCode).Str("user_id", userID).Str("url", endpoint).Msg("auth-service returned non-2xx for user groups")
+		return nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("read auth-service user groups response failed")
+		return nil
+	}
+	var payload struct {
+		Groups []struct {
+			GroupID string `json:"group_id"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("decode auth-service user groups response failed")
+		return nil
+	}
+	out := make([]string, 0, len(payload.Groups))
+	for _, item := range payload.Groups {
+		if groupID := strings.TrimSpace(item.GroupID); groupID != "" {
+			out = append(out, groupID)
+		}
+	}
+	return out
+}
+
+func authServiceBaseURL() string {
+	if u := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_URL")); u != "" {
+		base := strings.TrimRight(u, "/")
+		if strings.HasSuffix(base, "/api/authservice") {
+			return base
+		}
+		return base + "/api/authservice"
+	}
+	return "http://auth-service:8000/api/authservice"
+}
+
 
 func toACLRow(m *orm.ACLModel) *ACLRow {
 	return &ACLRow{
