@@ -473,6 +473,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 
 	for _, ds := range page {
 		datasetACL := datasetACLForUser(&ds, userID)
+	log.Logger.Info().Str("dataset_id", datasetID).Str("user_id", userID).Strs("dataset_acl", datasetACL).Msg("resolved dataset acl for get dataset")
 		algo := parseDatasetAlgo(ds.Ext)
 		parsers := parseDatasetParsers(ds.Ext)
 		if len(parsers) == 0 {
@@ -869,6 +870,7 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	datasetID := datasetIDFromPath(r)
+	log.Logger.Info().Str("dataset_id", datasetID).Str("user_id", userID).Msg("get dataset requested")
 	if datasetID == "" {
 		common.ReplyErr(w, "invalid dataset id", http.StatusBadRequest)
 		return

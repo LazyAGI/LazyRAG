@@ -299,7 +299,8 @@ func (s *Store) loadUserGroupIDs(userID string) []string {
 			seen[groupID] = struct{}{}
 		}
 	}
-	for _, groupID := range fetchUserGroupIDsFromAuthService(context.Background(), userID) {
+	remoteGroupIDs := fetchUserGroupIDsFromAuthService(context.Background(), userID)
+	for _, groupID := range remoteGroupIDs {
 		groupID = strings.TrimSpace(groupID)
 		if groupID == "" {
 			continue
@@ -313,6 +314,12 @@ func (s *Store) loadUserGroupIDs(userID string) []string {
 		out = append(out, groupID)
 	}
 	sort.Strings(out)
+	log.Logger.Info().
+		Str("user_id", userID).
+		Strs("local_group_ids", localGroupIDs).
+		Strs("remote_group_ids", remoteGroupIDs).
+		Strs("merged_group_ids", out).
+		Msg("resolved user groups for acl")
 	return out
 }
 
@@ -348,9 +355,15 @@ func fetchUserGroupIDsFromAuthService(ctx context.Context, userID string) []stri
 		} `json:"groups"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("decode auth-service user groups response failed")
+		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Str("body", strings.TrimSpace(string(body))).Msg("decode auth-service user groups response failed")
 		return nil
 	}
+	log.Logger.Info().
+		Str("user_id", userID).
+		Str("url", endpoint).
+		Str("body", strings.TrimSpace(string(body))).
+		Int("group_count", len(payload.Groups)).
+		Msg("fetched user groups from auth-service")
 	out := make([]string, 0, len(payload.Groups))
 	for _, item := range payload.Groups {
 		if groupID := strings.TrimSpace(item.GroupID); groupID != "" {
@@ -485,6 +498,11 @@ func (s *Store) ListUserGroups(userID string) []GroupInfo {
 // ReplaceACLForKB replaces all ACL rows for the kb with submitted grants.
 // It is used by authorization page "save" behavior.
 func (s *Store) ReplaceACLForKB(kbID string, grants []AuthorizationSubjectGrant, createdBy string) (int64, error) {
+	log.Logger.Info().
+		Str("kb_id", kbID).
+		Str("created_by", createdBy).
+		Any("grants", grants).
+		Msg("replace kb acl start")
 	var inserted int64
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("resource_type = ? AND resource_id = ?", ResourceTypeKB, kbID).Delete(&orm.ACLModel{}).Error; err != nil {
@@ -518,12 +536,18 @@ func (s *Store) ReplaceACLForKB(kbID string, grants []AuthorizationSubjectGrant,
 		}
 		return nil
 	})
+	if err != nil {
+		log.Logger.Error().Err(err).Str("kb_id", kbID).Str("created_by", createdBy).Msg("replace kb acl failed")
+	} else {
+		log.Logger.Info().Str("kb_id", kbID).Str("created_by", createdBy).Int64("inserted_acl_rows", inserted).Msg("replace kb acl done")
+	}
 	return inserted, err
 }
 
 // ListKBAuthorization returns ACL rows grouped by (grantee_type, grantee_id).
 func (s *Store) ListKBAuthorization(kbID string) []AuthorizationSubjectGrant {
 	rows := s.ListACL(ResourceTypeKB, kbID, "")
+	log.Logger.Info().Str("kb_id", kbID).Any("acl_rows", rows).Msg("list kb authorization acl rows")
 	type key struct {
 		t string
 		i string
