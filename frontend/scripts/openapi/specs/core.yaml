@@ -1031,6 +1031,8 @@ components:
             type: object
         StartTaskResult:
             properties:
+                detail:
+                    type: string
                 display_name:
                     type: string
                 document_id:
@@ -2191,6 +2193,53 @@ paths:
                                 $ref: '#/components/schemas/DatasetMember'
                     description: Updated member
             summary: textUser ID Update datasetMember
+    /api/core/datasets/{dataset}/members/groups/{group_id}:
+        delete:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete dataset group member
+        patch:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateDatasetMemberRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DatasetMember'
+                    description: Updated member
+            summary: Update dataset group member
     /api/core/datasets/{dataset}/members:search:
         post:
             parameters:

@@ -209,7 +209,9 @@ const MemberList = (props: IProps) => {
     MemberServiceApi()
       .datasetMemberServiceUpdateDatasetMember({
         dataset: record.dataset_id || "",
-        userId: record.id,
+        ...(record.type === MemberType.GROUP
+          ? { groupId: record.id }
+          : { userId: record.id }),
         datasetMember: {
           ...(record.type === MemberType.GROUP
             ? { group_id: record.id }
@@ -256,7 +258,9 @@ const MemberList = (props: IProps) => {
           MemberServiceApi()
             .datasetMemberServiceDeleteDatasetMember({
               dataset: record.dataset_id || "",
-              userId: record.id,
+              ...(record.type === MemberType.GROUP
+                ? { groupId: record.id }
+                : { userId: record.id }),
             })
             .then(() => {
               resolve("");

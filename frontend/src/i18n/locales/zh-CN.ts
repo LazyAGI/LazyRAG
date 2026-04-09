@@ -13,6 +13,7 @@ const zhCN = {
     loading: "加载中...",
     noData: "暂无数据",
     success: "操作成功",
+    saveSuccess: "保存成功",
     failed: "操作失败",
     sortBy: "按",
     sort: "排序",
