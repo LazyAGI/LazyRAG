@@ -83,8 +83,7 @@ const MemberList = (props: IProps) => {
       render: (role: CoreDatasetRole, record: MemberRecord) => {
         const canEditRole =
           currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) &&
-          !isCreator(record) &&
-          !isGroup;
+          !isCreator(record);
 
         return (
           <Select
@@ -212,6 +211,9 @@ const MemberList = (props: IProps) => {
         dataset: record.dataset_id || "",
         userId: record.id,
         datasetMember: {
+          ...(record.type === MemberType.GROUP
+            ? { group_id: record.id }
+            : { user_id: record.id }),
           role: {
             role: nextRole,
             display_name: ROLE_TITLE_MAP[nextRole] || nextRole,
