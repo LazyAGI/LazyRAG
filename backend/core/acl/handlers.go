@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"lazyrag/core/log"
 )
 
 const (
@@ -198,6 +200,12 @@ func GetPermission(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := CurrentUserID(r)
 	permissions, source := PermissionsFor(ResourceTypeKB, kbID, userID)
+	log.Logger.Info().
+		Str("kb_id", kbID).
+		Str("user_id", userID).
+		Strs("permissions", permissions).
+		Str("source", source).
+		Msg("kb permission queried")
 	replyOK(w, PermissionResult{Permissions: permissions, Source: source})
 }
 
@@ -231,6 +239,12 @@ func CanHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := CurrentUserID(r)
 	allowed := Can(userID, ResourceTypeKB, kbID, action)
+	log.Logger.Info().
+		Str("kb_id", kbID).
+		Str("user_id", userID).
+		Str("action", action).
+		Bool("allowed", allowed).
+		Msg("kb permission action checked")
 	replyOK(w, CanResult{Allowed: allowed})
 }
 
@@ -291,6 +305,10 @@ func GetKBAuthorization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grants := GetStore().ListKBAuthorization(kbID)
+	log.Logger.Info().
+		Str("kb_id", kbID).
+		Any("grants", grants).
+		Msg("kb authorization queried")
 	replyOK(w, GetKBAuthorizationResponse{
 		KbID:   kbID,
 		Grants: grants,
@@ -341,11 +359,22 @@ func SetKBAuthorization(w http.ResponseWriter, r *http.Request) {
 			Permissions: perms,
 		})
 	}
+	log.Logger.Info().
+		Str("kb_id", kbID).
+		Str("request_user_id", CurrentUserID(r)).
+		Any("raw_grants", body.Grants).
+		Any("normalized_grants", normalized).
+		Msg("saving kb authorization")
 	inserted, err := GetStore().ReplaceACLForKB(kbID, normalized, CurrentUserID(r))
 	if err != nil {
 		replyErr(w, fmt.Sprintf("%s: %v", "save authorization failed", err), http.StatusInternalServerError)
 		return
 	}
+	log.Logger.Info().
+		Str("kb_id", kbID).
+		Int("subject_count", len(normalized)).
+		Int64("acl_rows", inserted).
+		Msg("kb authorization saved")
 	replyOK(w, map[string]any{
 		"kb_id":         kbID,
 		"subject_count": len(normalized),

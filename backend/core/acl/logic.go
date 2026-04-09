@@ -1,6 +1,11 @@
 package acl
 
-import "strings"
+import (
+	"sort"
+	"strings"
+
+	"lazyrag/core/log"
+)
 
 // normalizePermission textPermissiontextPermissiontext，text。
 func normalizePermission(resourceType, permission string) string {
@@ -104,6 +109,14 @@ func effectivePermissions(resourceType, resourceID string, userID string) (permi
 	for perm := range permSet {
 		permissions = append(permissions, perm)
 	}
+	sort.Strings(permissions)
+	log.Logger.Info().
+		Str("resource_type", resourceType).
+		Str("resource_id", resourceID).
+		Str("user_id", userID).
+		Strs("permissions", permissions).
+		Str("source", source).
+		Msg("resolved effective permissions")
 	return permissions, source
 }
 
