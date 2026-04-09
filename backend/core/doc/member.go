@@ -111,6 +111,32 @@ func GetDatasetMember(w http.ResponseWriter, r *http.Request) {
 	common.ReplyJSON(w, member)
 }
 
+func DeleteDatasetGroupMember(w http.ResponseWriter, r *http.Request) {
+	datasetID := datasetIDFromPath(r)
+	groupID := groupIDFromPath(r)
+	if datasetID == "" || groupID == "" {
+		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	if _, _, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetWrite); !ok {
+		replyDatasetForbidden(w)
+		return
+	}
+	rows := acl.GetStore().ListACL(acl.ResourceTypeDB, datasetID, acl.GranteeGroup)
+	deleted := false
+	for _, row := range rows {
+		if row.GranteeID == groupID {
+			acl.GetStore().DeleteACL(row.ID)
+			deleted = true
+		}
+	}
+	if !deleted {
+		common.ReplyErr(w, "member not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func DeleteDatasetMember(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
 	userID := userIDFromPath(r)
@@ -135,6 +161,40 @@ func DeleteDatasetMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func UpdateDatasetGroupMember(w http.ResponseWriter, r *http.Request) {
+	datasetID := datasetIDFromPath(r)
+	groupID := groupIDFromPath(r)
+	if datasetID == "" || groupID == "" {
+		common.ReplyErr(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	if _, _, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetWrite); !ok {
+		replyDatasetForbidden(w)
+		return
+	}
+	var req updateDatasetMemberRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	perms := roleToPermissions(req.DatasetMember.Role.Role)
+	if len(perms) == 0 {
+		common.ReplyErr(w, "invalid role", http.StatusBadRequest)
+		return
+	}
+	rows := acl.GetStore().ListACL(acl.ResourceTypeDB, datasetID, acl.GranteeGroup)
+	if ok := upsertDatasetMemberPermissions(acl.GetStore(), datasetID, acl.GranteeGroup, groupID, perms, strings.TrimSpace(store.UserID(r)), rows); !ok {
+		common.ReplyErr(w, "update failed", http.StatusInternalServerError)
+		return
+	}
+	member, ok := getDatasetMemberByPrincipal(r, datasetID, acl.GranteeGroup, groupID)
+	if !ok {
+		common.ReplyErr(w, "member not found", http.StatusNotFound)
+		return
+	}
+	common.ReplyJSON(w, member)
 }
 
 func UpdateDatasetMember(w http.ResponseWriter, r *http.Request) {
