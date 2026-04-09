@@ -247,6 +247,16 @@ func _swagDeleteDatasetMember() {}
 // @Router    /datasets/{dataset}/members/{member} [patch]
 func _swagUpdateDatasetMember() {}
 
+// @Summary  DeleteGroupMember
+// @Tags      members
+// @Router    /datasets/{dataset}/members/groups/{group_id} [delete]
+func _swagDeleteDatasetGroupMember() {}
+
+// @Summary  UpdateGroupMember
+// @Tags      members
+// @Router    /datasets/{dataset}/members/groups/{group_id} [patch]
+func _swagUpdateDatasetGroupMember() {}
+
 // @Summary  SearchMember
 // @Tags      members
 // @Router    /datasets/{dataset}/members:search [post]

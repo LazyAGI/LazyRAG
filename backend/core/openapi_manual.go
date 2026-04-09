@@ -333,6 +333,10 @@ func manualPaths() map[string]any {
 			"delete": op("textUser ID Delete datasetMember", nil, nil, response(200, "Deleted successfully", refSchema("EmptyObject"))),
 			"patch":  op("textUser ID Update datasetMember", nil, jsonBody(refSchema("UpdateDatasetMemberRequest"), true), response(200, "Updated member", refSchema("DatasetMember"))),
 		},
+		"/datasets/{dataset}/members/groups/{group_id}": map[string]any{
+			"delete": op("Delete dataset group member", nil, nil, response(200, "Deleted successfully", refSchema("EmptyObject"))),
+			"patch":  op("Update dataset group member", nil, jsonBody(refSchema("UpdateDatasetMemberRequest"), true), response(200, "Updated member", refSchema("DatasetMember"))),
+		},
 		"/datasets/{dataset}/members:search": map[string]any{"post": op("Search dataset members", queryParams(param("query", "name_prefix", false, strSchema())), jsonBody(refSchema("SearchDatasetMemberRequest"), false), response(200, "Member search results", refSchema("ListDatasetMembersResponse")))},
 		"/datasets/{dataset}:batchAddMember": map[string]any{"post": op("Batch add dataset members", nil, jsonBody(refSchema("BatchAddDatasetMemberRequest"), true), response(200, "Added members", refSchema("BatchAddDatasetMemberResponse")))},
 		"/datasets/{dataset}/tasks": map[string]any{

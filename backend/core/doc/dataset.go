@@ -255,6 +255,10 @@ func userIDFromPath(r *http.Request) string {
 	return strings.TrimSpace(common.PathVar(r, "user_id"))
 }
 
+func groupIDFromPath(r *http.Request) string {
+	return strings.TrimSpace(common.PathVar(r, "group_id"))
+}
+
 func datasetACLForUser(ds *orm.Dataset, userID string) []string {
 	if ds == nil {
 		return nil
