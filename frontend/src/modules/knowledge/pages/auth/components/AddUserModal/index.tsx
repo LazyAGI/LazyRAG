@@ -33,7 +33,7 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
   const [data, setData] = useState<IData>();
   const [visible, setVisible] = useState(false);
   const [userList, setUserList] = useState<
-    Array<{ value: string; label: string }>
+    Array<{ value: string; label: string; disabled?: boolean }>
   >([]);
   const [loading, setLoading] = useState(false);
 
@@ -67,6 +67,19 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
     form.validateFields().then(async (values) => {
       setLoading(true);
       if (values.memberName.length > 0) {
+        const inactiveMemberIds = new Set(
+          userList.filter((item) => item.disabled).map((item) => item.value),
+        );
+        const selectedMemberIds = (values.memberName || []).filter((id: string) =>
+          !inactiveMemberIds.has(id),
+        );
+        if (!selectedMemberIds.length) {
+          setLoading(false);
+          message.warning(
+            isGroup ? t("knowledge.selectGroupName") : t("knowledge.selectUserName"),
+          );
+          return;
+        }
         try {
           await MemberServiceApi().datasetMemberServiceBatchAddDatasetMember({
             dataset: data?.dataset_id || "",
@@ -75,7 +88,7 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
               role: { role: values.roleName },
               [data?.memberType === MemberType.GROUP
                 ? "group_id_list"
-                : "user_id_list"]: values.memberName,
+                : "user_id_list"]: selectedMemberIds,
             },
           });
         } catch (err) {
@@ -126,10 +139,12 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
               user_id: string;
               display_name?: string;
               username?: string;
+              status?: string;
             }) => {
               return {
                 value: item.user_id,
                 label: item.display_name || item.username || item.user_id,
+                disabled: item.status?.toLowerCase() === "inactive",
               };
             },
           );
@@ -199,6 +214,7 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
                 </div>
               ),
               tag: item.label,
+              disabled: item.disabled,
             }))}
             onDropdownVisibleChange={(visible) => {
               if (!visible) {

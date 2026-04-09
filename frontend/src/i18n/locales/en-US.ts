@@ -14,6 +14,7 @@ const enUS = {
     loading: "Loading...",
     noData: "No data",
     success: "Success",
+    saveSuccess: "Saved successfully",
     failed: "Failed",
     sortBy: "Sort by",
     sort: "Sort",
