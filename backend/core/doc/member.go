@@ -153,13 +153,13 @@ func UpdateDatasetMember(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
-	perm := roleToPermission(req.DatasetMember.Role.Role)
-	if perm == "" {
+	perms := roleToPermissions(req.DatasetMember.Role.Role)
+	if len(perms) == 0 {
 		common.ReplyErr(w, "invalid role", http.StatusBadRequest)
 		return
 	}
 	rows := acl.GetStore().ListACL(acl.ResourceTypeDB, datasetID, acl.GranteeUser)
-	if _, ok := upsertDatasetMemberPermission(acl.GetStore(), datasetID, acl.GranteeUser, userID, perm, strings.TrimSpace(store.UserID(r)), rows); !ok {
+	if ok := upsertDatasetMemberPermissions(acl.GetStore(), datasetID, acl.GranteeUser, userID, perms, strings.TrimSpace(store.UserID(r)), rows); !ok {
 		common.ReplyErr(w, "update failed", http.StatusInternalServerError)
 		return
 	}
@@ -231,8 +231,8 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
-	perm := roleToPermission(req.Role.Role)
-	if perm == "" {
+	perms := roleToPermissions(req.Role.Role)
+	if len(perms) == 0 {
 		log.Logger.Warn().
 			Str("handler", "BatchAddDatasetMember").
 			Str("dataset_id", datasetID).
@@ -267,7 +267,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 		Str("dataset_id", datasetID).
 		Str("request_user_id", requestUserID).
 		Str("role", strings.TrimSpace(req.Role.Role)).
-		Str("permission", perm).
+		Str("permissions", strings.Join(perms, ",")).
 		Int("user_count", len(req.UserIDList)).
 		Int("group_count", len(req.GroupIDList)).
 		Msg("batch add dataset member request received")
@@ -317,7 +317,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		aclID, ok := upsertDatasetMemberPermission(st, datasetID, acl.GranteeUser, uid, perm, createdBy, userRows)
+		ok := upsertDatasetMemberPermissions(st, datasetID, acl.GranteeUser, uid, perms, createdBy, userRows)
 		if !ok {
 			failedUsers++
 			log.Logger.Error().
@@ -326,7 +326,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				Str("request_user_id", requestUserID).
 				Str("grantee_id", uid).
 				Str("grantee_type", acl.GranteeUser).
-				Str("permission", perm).
+				Str("permissions", strings.Join(perms, ",")).
 				Msg("upsert dataset user acl failed")
 			continue
 		}
@@ -336,10 +336,9 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				Str("handler", "BatchAddDatasetMember").
 				Str("dataset_id", datasetID).
 				Str("request_user_id", requestUserID).
-				Int64("acl_id", aclID).
 				Str("grantee_id", uid).
 				Str("grantee_type", acl.GranteeUser).
-				Str("permission", perm).
+				Str("permissions", strings.Join(perms, ",")).
 				Msg("existing dataset user acl updated")
 		} else {
 			insertedUsers++
@@ -347,12 +346,11 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				Str("handler", "BatchAddDatasetMember").
 				Str("dataset_id", datasetID).
 				Str("request_user_id", requestUserID).
-				Int64("acl_id", aclID).
 				Str("grantee_id", uid).
 				Str("grantee_type", acl.GranteeUser).
-				Str("permission", perm).
+				Str("permissions", strings.Join(perms, ",")).
 				Msg("dataset user acl added")
-			userRows = append(userRows, acl.ACLListItem{ID: aclID, GranteeType: acl.GranteeUser, GranteeID: uid, Permission: perm, CreatedAt: time.Now()})
+			userRows = refreshDatasetMemberRows(st, datasetID, acl.GranteeUser, userRows, uid)
 		}
 		if member, ok := getDatasetMemberByPrincipal(r, datasetID, acl.GranteeUser, uid); ok {
 			if name := userNamesByID[uid]; name != "" {
@@ -390,7 +388,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		aclID, ok := upsertDatasetMemberPermission(st, datasetID, acl.GranteeGroup, gid, perm, createdBy, groupRows)
+		ok := upsertDatasetMemberPermissions(st, datasetID, acl.GranteeGroup, gid, perms, createdBy, groupRows)
 		if !ok {
 			failedGroups++
 			log.Logger.Error().
@@ -399,7 +397,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				Str("request_user_id", requestUserID).
 				Str("grantee_id", gid).
 				Str("grantee_type", acl.GranteeGroup).
-				Str("permission", perm).
+				Str("permissions", strings.Join(perms, ",")).
 				Msg("upsert dataset group acl failed")
 			continue
 		}
@@ -409,10 +407,9 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				Str("handler", "BatchAddDatasetMember").
 				Str("dataset_id", datasetID).
 				Str("request_user_id", requestUserID).
-				Int64("acl_id", aclID).
 				Str("grantee_id", gid).
 				Str("grantee_type", acl.GranteeGroup).
-				Str("permission", perm).
+				Str("permissions", strings.Join(perms, ",")).
 				Msg("existing dataset group acl updated")
 		} else {
 			insertedGroups++
@@ -420,12 +417,11 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 				Str("handler", "BatchAddDatasetMember").
 				Str("dataset_id", datasetID).
 				Str("request_user_id", requestUserID).
-				Int64("acl_id", aclID).
 				Str("grantee_id", gid).
 				Str("grantee_type", acl.GranteeGroup).
-				Str("permission", perm).
+				Str("permissions", strings.Join(perms, ",")).
 				Msg("dataset group acl added")
-			groupRows = append(groupRows, acl.ACLListItem{ID: aclID, GranteeType: acl.GranteeGroup, GranteeID: gid, Permission: perm, CreatedAt: time.Now()})
+			groupRows = refreshDatasetMemberRows(st, datasetID, acl.GranteeGroup, groupRows, gid)
 		}
 		if member, ok := getDatasetMemberByPrincipal(r, datasetID, acl.GranteeGroup, gid); ok {
 			if name := groupNamesByID[gid]; name != "" {
@@ -457,7 +453,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 			Str("handler", "BatchAddDatasetMember").
 			Str("dataset_id", datasetID).
 			Str("request_user_id", requestUserID).
-			Str("permission", perm).
+			Str("permissions", strings.Join(perms, ",")).
 			Int("valid_users", validUsers).
 			Int("updated_users", updatedUsers).
 			Int("failed_users", failedUsers).
@@ -472,7 +468,7 @@ func BatchAddDatasetMember(w http.ResponseWriter, r *http.Request) {
 		Str("handler", "BatchAddDatasetMember").
 		Str("dataset_id", datasetID).
 		Str("request_user_id", requestUserID).
-		Str("permission", perm).
+		Str("permissions", strings.Join(perms, ",")).
 		Int("valid_users", validUsers).
 		Int("inserted_users", insertedUsers).
 		Int("updated_users", updatedUsers).
@@ -672,16 +668,27 @@ func ensureDatasetCreatorMember(st *acl.Store, datasetID, creatorUserID string) 
 			creatorRows = append(creatorRows, row)
 		}
 	}
-	upsertDatasetMemberPermission(st, datasetID, acl.GranteeUser, creatorUserID, acl.PermissionDatasetWrite, creatorUserID, creatorRows)
+	upsertDatasetMemberPermissions(st, datasetID, acl.GranteeUser, creatorUserID, roleToPermissions("dataset_maintainer"), creatorUserID, creatorRows)
 }
 
-func upsertDatasetMemberPermission(st *acl.Store, datasetID, granteeType, principalID, permission, createdBy string, rows []acl.ACLListItem) (int64, bool) {
+func upsertDatasetMemberPermissions(st *acl.Store, datasetID, granteeType, principalID string, permissions []string, createdBy string, rows []acl.ACLListItem) bool {
 	if st == nil {
-		return 0, false
+		return false
 	}
 	principalID = strings.TrimSpace(principalID)
-	if principalID == "" {
-		return 0, false
+	if principalID == "" || len(permissions) == 0 {
+		return false
+	}
+	wanted := map[string]struct{}{}
+	for _, permission := range permissions {
+		permission = strings.TrimSpace(permission)
+		if permission == "" {
+			continue
+		}
+		wanted[permission] = struct{}{}
+	}
+	if len(wanted) == 0 {
+		return false
 	}
 	var matched []acl.ACLListItem
 	for _, row := range rows {
@@ -689,19 +696,20 @@ func upsertDatasetMemberPermission(st *acl.Store, datasetID, granteeType, princi
 			matched = append(matched, row)
 		}
 	}
-	if len(matched) == 0 {
-		aclID := st.AddACL(acl.ResourceTypeDB, datasetID, granteeType, principalID, permission, createdBy, nil)
-		return aclID, aclID != 0
-	}
-	sort.SliceStable(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
-	primary := matched[0]
-	if !st.UpdateACL(primary.ID, permission, nil) {
-		return 0, false
-	}
-	for _, row := range matched[1:] {
+	for _, row := range matched {
+		if _, ok := wanted[row.Permission]; ok {
+			delete(wanted, row.Permission)
+			continue
+		}
 		st.DeleteACL(row.ID)
 	}
-	return primary.ID, true
+	for permission := range wanted {
+		aclID := st.AddACL(acl.ResourceTypeDB, datasetID, granteeType, principalID, permission, createdBy, nil)
+		if aclID == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func buildNameMap(ids, names []string) map[string]string {
@@ -862,16 +870,16 @@ func requestContext(r *http.Request) context.Context {
 	return context.Background()
 }
 
-func roleToPermission(role string) string {
+func roleToPermissions(role string) []string {
 	switch strings.TrimSpace(role) {
 	case "dataset_user":
-		return acl.PermissionDatasetRead
+		return []string{acl.PermissionDatasetRead}
 	case "dataset_uploader":
-		return acl.PermissionDatasetUpload
+		return []string{acl.PermissionDatasetUpload}
 	case "dataset_maintainer", "dataset_owner":
-		return acl.PermissionDatasetWrite
+		return []string{acl.PermissionDatasetRead, acl.PermissionDatasetUpload, acl.PermissionDatasetWrite}
 	default:
-		return ""
+		return nil
 	}
 }
 
@@ -886,4 +894,37 @@ func permissionToRole(permission string) (string, string) {
 	default:
 		return "", ""
 	}
+}
+
+func refreshDatasetMemberRows(st *acl.Store, datasetID, granteeType string, rows []acl.ACLListItem, principalID string) []acl.ACLListItem {
+	if st == nil {
+		return rows
+	}
+	principalID = strings.TrimSpace(principalID)
+	filtered := rows[:0]
+	for _, row := range rows {
+		if row.GranteeID != principalID {
+			filtered = append(filtered, row)
+		}
+	}
+	for _, row := range st.ListACL(acl.ResourceTypeDB, datasetID, granteeType) {
+		if row.GranteeID == principalID {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
+func formatACLIDs(ids []int64) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%d", id))
+	}
+	return strings.Join(parts, ",")
 }
