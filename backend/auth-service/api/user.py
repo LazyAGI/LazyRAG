@@ -44,7 +44,7 @@ def create_user(body: CreateUserBody, _: User = Depends(current_user)):  # noqa:
 
 
 @router.get('', response_model=UserListResponse)
-@permission_required('user.admin')
+@permission_required('user.read')
 def list_users(
     _: User = Depends(current_user),  # noqa: B008
     page: int = Query(1, ge=1),  # noqa: B008
