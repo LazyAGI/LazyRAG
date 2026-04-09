@@ -432,7 +432,7 @@ const enUS = {
     uploadAndCreateTaskSuccess: "Upload and task creation succeeded",
     uploadFailedRetry: "Upload failed, please try again",
     supportedFolderImport: "Folder import supported",
-    supportedZipFile: "ZIP files are supported",
+    supportedZipFile: "Only ZIP archive files are supported (.zip)",
     supportedDocTypes: "PDF, DOCX and DOC files are supported",
     zipRootOnly: "ZIP archives only support files in the root directory; nested folders will be ignored",
     uploadLimitHint: "Up to 300 files per upload, each file must be under 500MB, total size under 1GB",

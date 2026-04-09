@@ -360,14 +360,14 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
                     isDirectoryMode
                       ? t("knowledge.supportedDocTypes")
                       : isZipMode
-                        ? t("knowledge.importZip")
+                        ? t("knowledge.supportedZipFile")
                         : t("knowledge.supportedDocTypes")
                   }
                   invalidDropMessage={
                     isDirectoryMode
                       ? t("knowledge.importFolder")
                       : isZipMode
-                        ? t("knowledge.importZip")
+                        ? t("knowledge.supportedZipFile")
                         : t("knowledge.supportedDocTypes")
                   }
                   description={
