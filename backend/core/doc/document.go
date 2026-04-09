@@ -35,8 +35,6 @@ import (
 // - schema A (core-owned diff): orm.documents / orm.tasks
 // - schema B (readonly, maintained by lazy-llm-server): lazy_llm_server.lazyllm_*
 
-const externalDeleteFailedMessage = "textDeleteFailed，text"
-
 var fuzzyPunctRe = regexp.MustCompile(`[._\-\s（）()]+`)
 
 func requireDatasetPermission(r *http.Request, datasetID string, action string) (*orm.Dataset, string, bool) {
@@ -500,7 +498,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := deleteExternalDocs(r, datasetID, []orm.Document{row}); err != nil {
-		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		common.ReplyErr(w, "external delete failed", http.StatusBadGateway)
 		return
 	}
 	now := time.Now().UTC()
@@ -508,7 +506,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		Model(&orm.Document{}).
 		Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).
 		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
-		common.ReplyErr(w, "Delete documentFailed，text", http.StatusInternalServerError)
+		common.ReplyErr(w, "delete document failed", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -822,8 +820,10 @@ func BatchUpdateDocumentTags(w http.ResponseWriter, r *http.Request) {
 		if mode == "APPEND" || mode == "UPDATE_MODE_UNSPECIFIED" {
 			var existing []string
 			_ = json.Unmarshal(docRow.Tags, &existing)
-			combined := append(existing, requestTags...)
-			finalTags = normalizeBatchDocumentTags(combined)
+			finalTags = mergeAppendDocumentTags(existing, requestTags, 10)
+		} else if len(finalTags) > 10 {
+			finalTags = finalTags[:10]
+			truncated++
 		}
 		if len(finalTags) > 10 {
 			finalTags = finalTags[:10]
@@ -865,6 +865,43 @@ func normalizeBatchDocumentTags(tags []string) []string {
 	return out
 }
 
+func mergeAppendDocumentTags(existing, incoming []string, limit int) []string {
+	existing = normalizeBatchDocumentTags(existing)
+	incoming = normalizeBatchDocumentTags(incoming)
+	if limit <= 0 {
+		return []string{}
+	}
+	if len(incoming) == 0 {
+		if len(existing) > limit {
+			return existing[:limit]
+		}
+		return existing
+	}
+	keptExisting := make([]string, 0, len(existing))
+	incomingSet := make(map[string]struct{}, len(incoming))
+	for _, tag := range incoming {
+		incomingSet[tag] = struct{}{}
+	}
+	for _, tag := range existing {
+		if _, ok := incomingSet[tag]; ok {
+			continue
+		}
+		keptExisting = append(keptExisting, tag)
+	}
+	available := limit - len(incoming)
+	if available < 0 {
+		available = 0
+	}
+	if len(keptExisting) > available {
+		keptExisting = keptExisting[len(keptExisting)-available:]
+	}
+	out := append(keptExisting, incoming...)
+	if len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
 func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
 	userID := store.UserID(r)
@@ -895,7 +932,7 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := deleteExternalDocs(r, datasetID, rows); err != nil {
-		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		common.ReplyErr(w, "external delete failed", http.StatusBadGateway)
 		return
 	}
 	now := time.Now().UTC()
@@ -903,7 +940,7 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		Model(&orm.Document{}).
 		Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).
 		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
-		common.ReplyErr(w, "BatchDelete documentFailed，text", http.StatusInternalServerError)
+		common.ReplyErr(w, "batch delete document failed", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

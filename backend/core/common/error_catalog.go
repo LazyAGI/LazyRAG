@@ -110,6 +110,7 @@ var errorCatalog = map[string]*AppError{
 	"algo service unavailable":                               NewAppError(http.StatusBadGateway, 2000710, "Algo service is unavailable"),
 	"query datasets failed":                                  NewAppError(http.StatusInternalServerError, 2000522, "Failed to query datasets"),
 	"algo service error":                                     NewAppError(http.StatusBadGateway, 2000711, "Algo service returned an error"),
+	"external delete failed":                                 NewAppError(http.StatusBadGateway, 2000712, "Failed to delete documents in external service"),
 }
 
 func ResolveAppError(message string, statusCode int) *AppError {

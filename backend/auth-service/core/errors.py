@@ -36,6 +36,7 @@ class ErrorCodes:
     MEMBERSHIP_NOT_FOUND: ErrorTuple = (404, 1000407, 'Membership not found')
     ROLE_NAME_REQUIRED: ErrorTuple = (400, 1000408, 'Role name is required')
     ROLE_NAME_EXISTS: ErrorTuple = (400, 1000409, 'Role name already exists')
+    GROUP_NAME_EXISTS: ErrorTuple = (400, 1000413, 'Group name already exists')
     CANNOT_DELETE_BUILTIN_ROLE: ErrorTuple = (400, 1000410, 'Built-in role cannot be deleted')
     CANNOT_CHANGE_ADMIN_PERMS: ErrorTuple = (400, 1000411, 'System-admin role permissions cannot be changed')
     BOOTSTRAP_ADMIN_ROLE_CHANGE_FORBIDDEN: ErrorTuple = (403, 1000412, 'Bootstrap admin role cannot be changed')

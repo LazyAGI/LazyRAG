@@ -959,7 +959,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", kbTimeout).
 			Dur("elapsed", time.Since(kbStart)).
 			Msg("kb service delete failed")
-		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		common.ReplyErr(w, "external delete failed", http.StatusBadGateway)
 		return
 	}
 	log.Logger.Info().
@@ -975,7 +975,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 	ds.DeletedAt = &now
 	ds.UpdatedAt = now
 	if err := corestore.DB().Save(&ds).Error; err != nil {
-		common.ReplyErr(w, fmt.Sprintf("%s: %v", "DeleteKnowledge baseFailed，text", err), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "delete dataset failed", err), http.StatusInternalServerError)
 		return
 	}
 

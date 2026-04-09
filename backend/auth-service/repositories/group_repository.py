@@ -11,6 +11,9 @@ class GroupRepository:
     def _get_by_id(self, session: Session, group_id: uuid.UUID) -> Group | None:
         return session.query(self.model).filter_by(id=group_id).first()
 
+    def _get_by_tenant_and_name(self, session: Session, tenant_id: str, group_name: str) -> Group | None:
+        return session.query(self.model).filter_by(tenant_id=tenant_id, group_name=group_name).first()
+
     def _list_paginated(
         self,
         session: Session,
@@ -58,6 +61,10 @@ class GroupRepository:
     @classmethod
     def get_by_id(cls, session: Session, group_id: uuid.UUID) -> Group | None:
         return cls()._get_by_id(session, group_id)
+
+    @classmethod
+    def get_by_tenant_and_name(cls, session: Session, tenant_id: str, group_name: str) -> Group | None:
+        return cls()._get_by_tenant_and_name(session, tenant_id, group_name)
 
     @classmethod
     def list_paginated(
