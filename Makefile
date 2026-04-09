@@ -55,6 +55,7 @@ LAZYRAG_DOCUMENT_SERVICE_URL ?= http://lazyllm-doc-server:8000
 LAZYRAG_PARSING_SERVICE_URL ?= http://lazyllm-parse-server:8000
 LAZYRAG_DOCUMENT_SERVER_PORT ?= 8000
 LAZYRAG_OCR_SERVER_TYPE ?= none
+LAZYRAG_MODEL_CONFIG_PATH ?=
 # Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080, none->placeholder
 LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
 LAZYRAG_MINERU_UPLOAD_MODE ?=
@@ -65,6 +66,9 @@ LAZYRAG_MILVUS_URI ?= http://milvus:19530
 LAZYRAG_OPENSEARCH_URI ?= https://opensearch:9200
 LAZYRAG_OPENSEARCH_USER ?= admin
 LAZYRAG_OPENSEARCH_PASSWORD ?= LazyRAG_OpenSearch123!
+LAZYRAG_ENABLE_STORE_DASHBOARDS ?= 0
+LAZYRAG_ENABLE_MILVUS_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
+LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
 
 # MinerU
 LAZYRAG_MINERU_SERVER_PORT ?= 8000
@@ -94,6 +98,7 @@ PADDLEOCR_VLM_BACKEND ?= vllm
 # Milvus / OpenSearch (when using built-in profiles)
 MILVUS_IMAGE_TAG ?= v2.6.11
 OPENSEARCH_IMAGE_TAG ?= 2.18.0
+ATTU_IMAGE_TAG ?= v2.6.3
 MINIO_ACCESS_KEY ?= minioadmin
 MINIO_SECRET_KEY ?= minioadmin
 
@@ -111,9 +116,10 @@ export LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION LAZYRAG_DOCUMENT_WORKER_LEASE_RENE
 export LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY
 export LAZYRAG_DOCUMENT_WORKER_POLL_MODE
 export LAZYRAG_DOCUMENT_PROCESSOR_URL LAZYRAG_DOCUMENT_SERVICE_URL LAZYRAG_PARSING_SERVICE_URL
-export LAZYRAG_DOCUMENT_SERVER_PORT LAZYRAG_OCR_SERVER_TYPE LAZYRAG_OCR_SERVER_URL
+export LAZYRAG_DOCUMENT_SERVER_PORT LAZYRAG_OCR_SERVER_TYPE LAZYRAG_MODEL_CONFIG_PATH LAZYRAG_OCR_SERVER_URL
 export LAZYRAG_MINERU_UPLOAD_MODE
 export LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG_OPENSEARCH_PASSWORD
+export LAZYRAG_ENABLE_STORE_DASHBOARDS LAZYRAG_ENABLE_MILVUS_DASHBOARD LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD
 export LAZYRAG_MINERU_SERVER_PORT LAZYRAG_MINERU_VERSION LAZYRAG_MINERU_PACKAGE_VARIANT
 export LAZYRAG_MINERU_PREINSTALL_CPU_TORCH LAZYRAG_MINERU_TORCH_VERSION LAZYRAG_MINERU_TORCHVISION_VERSION
 export LAZYRAG_MINERU_NUMPY_VERSION
@@ -121,7 +127,7 @@ export LAZYRAG_MINERU_PYTORCH_INDEX_URL LAZYRAG_MINERU_PYPI_INDEX_URL LAZYRAG_MI
 export LAZYRAG_MINERU_CACHE_DIR LAZYRAG_MINERU_IMAGE_SAVE_DIR
 export LAZYRAG_DOCUMENT_SERVER_URL LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY LAZYRAG_CHAT_PROMPT
 export PADDLEOCR_VLM_IMAGE_TAG PADDLEOCR_API_IMAGE_TAG PADDLEOCR_VLM_BACKEND
-export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG MINIO_ACCESS_KEY MINIO_SECRET_KEY
+export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG ATTU_IMAGE_TAG MINIO_ACCESS_KEY MINIO_SECRET_KEY
 export JUICEFS_MINIO_USER JUICEFS_MINIO_PASSWORD JUICEFS_ACCESS_KEY JUICEFS_SECRET_KEY
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
@@ -136,6 +142,7 @@ help:
 	@echo "  make up-build   - Build images and start services"
 	@echo "  make down       - Stop services"
 	@echo "  make build      - Build compose services (mineru profile only when needed)"
+	@echo "                    Use LAZYRAG_ENABLE_STORE_DASHBOARDS=1 to add Attu/OpenSearch Dashboards for built-in stores"
 	@echo "  make lint       - Run Python flake8 and Go gofmt checks"
 	@echo "  make test       - Run project test script"
 	@echo "  make clear      - Stop services, remove volumes, clear Python cache"
@@ -176,12 +183,18 @@ test:
 # Only mineru has build:; paddleocr/milvus/opensearch use image: only, so only needed for up.
 _need_mineru := $(and $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYRAG_OCR_SERVER_URL)))
 _need_paddleocr := $(and $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYRAG_OCR_SERVER_URL)))
-# Deploy milvus/opensearch only when URI points to built-in services; external URIs = no deployment
-_need_milvus := $(findstring milvus:19530,$(LAZYRAG_MILVUS_URI))
-_need_opensearch := $(findstring opensearch:9200,$(LAZYRAG_OPENSEARCH_URI))
+# Deploy milvus/opensearch only when URI exactly matches the built-in services; external URIs = no deployment
+_builtin_milvus_uris := http://milvus:19530 http://milvus:19530/
+_builtin_opensearch_uris := https://opensearch:9200 https://opensearch:9200/
+_need_milvus := $(filter $(strip $(LAZYRAG_MILVUS_URI)),$(_builtin_milvus_uris))
+_need_opensearch := $(filter $(strip $(LAZYRAG_OPENSEARCH_URI)),$(_builtin_opensearch_uris))
+_enable_milvus_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_MILVUS_DASHBOARD))
+_enable_opensearch_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD))
+_need_milvus_dashboard := $(and $(_need_milvus),$(_enable_milvus_dashboard))
+_need_opensearch_dashboard := $(and $(_need_opensearch),$(_enable_opensearch_dashboard))
 
 # Shared compose profile flags for up/down/up-build
-_COMPOSE_PROFILES := $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch))
+_COMPOSE_PROFILES := $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch) $(if $(_need_milvus_dashboard),--profile milvus-dashboard) $(if $(_need_opensearch_dashboard),--profile opensearch-dashboard))
 
 # Only init submodules when not yet cloned; if already present (even with different commit), do nothing. Never recursive.
 _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update --init || true

@@ -63,8 +63,10 @@ db
 |---------|---------|--------------|---------|
 | **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` and URL `http://mineru:8000` | MinerU PDF parsing (layout analysis; install variant/backend configurable) |
 | **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` and URL `http://paddleocr:8080` | PaddleOCR-VL PDF parsing (GPU required) |
-| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI` contains `milvus:19530` | Vector store for embeddings |
-| **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI` contains `opensearch:9200` | Segment store for document chunks |
+| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI=http://milvus:19530` | Vector store for embeddings |
+| **attu** | `milvus-dashboard` | `LAZYRAG_ENABLE_MILVUS_DASHBOARD=1` and `LAZYRAG_MILVUS_URI=http://milvus:19530` | Milvus dashboard for collections, schema, and index troubleshooting |
+| **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI=https://opensearch:9200` | Segment store for document chunks |
+| **opensearch-dashboards** | `opensearch-dashboard` | `LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD=1` and `LAZYRAG_OPENSEARCH_URI=https://opensearch:9200` | OpenSearch dashboard for index, mapping, and query inspection |
 
 **Store for parsing** (required when using Processor/Worker):
 
@@ -112,11 +114,38 @@ Frontend
 - Docker and Docker Compose
 - (Optional) Go 1.22 for `backend/core`, Python 3.11+ and flake8 for local dev/lint
 
+## Runtime Model Config
+
+- The default runtime config file is `algorithm/configs/runtime_models.yaml`.
+- Configure `llm`, `llm_instruct`, `reranker`, and `embed_1~embed_3` directly with `source/api_key/model/type/url`.
+- Keep real secrets out of git. Prefer env placeholders such as `${LAZYLLM_SILICONFLOW_API_KEY}`.
+- For local debugging with a temporary config file, set `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`; `docker-compose.yml` mounts the repository `tmp/` directory into `/app/tmp` inside the containers.
+- If only `embed_1` is configured, indexing, ingestion, and retrieval run in single-embedding mode automatically. Enabling `embed_2/embed_3` keeps parsing and retrieval on the same `embed_key` set.
+
 ## Quick Start
+
+For environment-variable setup and runnable startup examples, see:
+
+- [`docs/quick_start.md`](docs/quick_start.md)
 
 **Full stack (Milvus + OpenSearch deployed by default):**
 ```bash
 make up
+```
+
+**Full stack with built-in store dashboards:**
+```bash
+make up LAZYRAG_ENABLE_STORE_DASHBOARDS=1
+```
+
+**Enable only the Milvus dashboard (Attu):**
+```bash
+make up LAZYRAG_ENABLE_MILVUS_DASHBOARD=1
+```
+
+**Enable only OpenSearch Dashboards:**
+```bash
+make up LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD=1
 ```
 
 **With external Milvus/OpenSearch** (no deployment of milvus/opensearch):
@@ -144,7 +173,14 @@ make up LAZYRAG_OCR_SERVER_TYPE=mineru LAZYRAG_MINERU_BACKEND=hybrid-auto-engine
 make up LAZYRAG_OCR_SERVER_TYPE=paddleocr
 ```
 
-The Makefile auto-selects profiles based on env vars. You can also run `docker compose up --build` directly; optional services won't start unless you pass `--profile mineru`, `--profile paddleocr`, `--profile milvus`, `--profile opensearch`.
+The Makefile auto-selects profiles based on env vars. You can also run `docker compose up --build` directly; optional services won't start unless you pass `--profile mineru`, `--profile paddleocr`, `--profile milvus`, `--profile opensearch`, `--profile milvus-dashboard`, or `--profile opensearch-dashboard`.
+
+Built-in store dashboards are disabled by default. When enabled, they bind only to `127.0.0.1` and are started only if the corresponding built-in store is still in use:
+
+- Attu (Milvus): http://127.0.0.1:3000
+- OpenSearch Dashboards: http://127.0.0.1:5601
+- OpenSearch Dashboards login: `admin` / `LAZYRAG_OPENSEARCH_PASSWORD`
+- If `LAZYRAG_MILVUS_URI` or `LAZYRAG_OPENSEARCH_URI` points to an external service, the matching built-in dashboard is not deployed even when the flag is set.
 
 MinerU configuration is split into two layers:
 
@@ -209,7 +245,7 @@ LazyRAG/
 | milvus-minio (profile) | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Override for production |
 | chat              | `DOCUMENT_SERVER_URL`, `MAX_CONCURRENCY` | Document API and concurrency    |
 
-Override store endpoints when using external Milvus/OpenSearch; if URIs do not contain `milvus:19530` or `opensearch:9200`, those services are not deployed.
+Override store endpoints when using external Milvus/OpenSearch; built-in services are deployed only when the URIs stay at `http://milvus:19530` and `https://opensearch:9200`.
 
 ## Lint
 

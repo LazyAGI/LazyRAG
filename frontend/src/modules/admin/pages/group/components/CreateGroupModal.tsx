@@ -6,7 +6,7 @@ import { createGroupApi } from "@/modules/signin/utils/request";
 import type { GroupItem } from "@/api/generated/auth-client";
 
 const GROUP_NAME_MAX_LENGTH = 100;
-const GROUP_REMARK_MAX_LENGTH = 300;
+const GROUP_REMARK_MAX_LENGTH = 200;
 
 interface CreateGroupModalProps {
   visible: boolean;
