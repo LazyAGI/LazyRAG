@@ -1,7 +1,9 @@
+import atexit
 import functools
 import hashlib
 import os
 import re
+import shutil
 import tempfile
 from copy import deepcopy
 from dataclasses import dataclass
@@ -21,6 +23,7 @@ DEFAULT_EMBED_INDEX_KWARGS = {
     },
 }
 _ENV_PATTERN = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
+_RUNTIME_AUTO_MODEL_DIR = Path(tempfile.gettempdir()) / 'lazyrag-runtime-auto-model'
 
 
 @dataclass(frozen=True)
@@ -40,17 +43,23 @@ def get_runtime_model_config_path() -> str:
     return os.getenv('LAZYRAG_MODEL_CONFIG_PATH') or str(DEFAULT_RUNTIME_MODEL_CONFIG_PATH)
 
 
+def _cleanup_runtime_auto_model_dir() -> None:
+    shutil.rmtree(_RUNTIME_AUTO_MODEL_DIR, ignore_errors=True)
+
+
+atexit.register(_cleanup_runtime_auto_model_dir)
+
+
 @functools.lru_cache(maxsize=64)
 def _write_runtime_auto_model_config(serialized_config: str) -> str:
     config = yaml.safe_load(serialized_config)
     model_name = config['model']
     digest = hashlib.sha256(serialized_config.encode('utf-8')).hexdigest()[:16]
     safe_model_name = re.sub(r'[^A-Za-z0-9_.-]+', '-', model_name).strip('-') or 'runtime-model'
-    target_dir = Path(tempfile.gettempdir()) / 'lazyrag-runtime-auto-model'
-    target_dir.mkdir(parents=True, exist_ok=True)
-    config_path = target_dir / f'{safe_model_name}-{digest}.yaml'
+    _RUNTIME_AUTO_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = _RUNTIME_AUTO_MODEL_DIR / f'{safe_model_name}-{digest}.yaml'
     temp_fd, temp_path = tempfile.mkstemp(
-        dir=target_dir,
+        dir=_RUNTIME_AUTO_MODEL_DIR,
         prefix=f'.{safe_model_name}-{digest}-',
         suffix='.yaml',
     )
