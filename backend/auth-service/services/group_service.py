@@ -84,12 +84,17 @@ class GroupService:
         creator_user_id: uuid.UUID | None = None,
     ) -> str:
         """Create group. Returns group_id (UUID string)."""
+        name = (group_name or '').strip()
+        if not name:
+            raise_error(ErrorCodes.GROUP_NAME_REQUIRED)
         with SessionLocal() as db:
+            if GroupRepository.get_by_tenant_and_name(db, tenant_id or '', name):
+                raise_error(ErrorCodes.GROUP_NAME_EXISTS)
             g = GroupRepository.create(
                 db,
-                tenant_id=tenant_id,
-                group_name=group_name,
-                remark=remark,
+                tenant_id=tenant_id or '',
+                group_name=name,
+                remark=remark or '',
                 creator_user_id=creator_user_id,
             )
             return str(g.id)
@@ -123,6 +128,9 @@ class GroupService:
                 name = group_name.strip()
                 if not name:
                     raise_error(ErrorCodes.GROUP_NAME_EMPTY)
+                existing = GroupRepository.get_by_tenant_and_name(db, g.tenant_id or '', name)
+                if existing and existing.id != g.id:
+                    raise_error(ErrorCodes.GROUP_NAME_EXISTS)
                 g.group_name = name
             if remark is not None:
                 g.remark = remark
