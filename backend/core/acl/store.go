@@ -353,19 +353,28 @@ func fetchUserGroupIDsFromAuthService(ctx context.Context, userID string) []stri
 		Groups []struct {
 			GroupID string `json:"group_id"`
 		} `json:"groups"`
+		Data struct {
+			Groups []struct {
+				GroupID string `json:"group_id"`
+			} `json:"groups"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Str("body", strings.TrimSpace(string(body))).Msg("decode auth-service user groups response failed")
 		return nil
 	}
+	groups := payload.Groups
+	if len(groups) == 0 {
+		groups = payload.Data.Groups
+	}
 	log.Logger.Info().
 		Str("user_id", userID).
 		Str("url", endpoint).
 		Str("body", strings.TrimSpace(string(body))).
-		Int("group_count", len(payload.Groups)).
+		Int("group_count", len(groups)).
 		Msg("fetched user groups from auth-service")
-	out := make([]string, 0, len(payload.Groups))
-	for _, item := range payload.Groups {
+	out := make([]string, 0, len(groups))
+	for _, item := range groups {
 		if groupID := strings.TrimSpace(item.GroupID); groupID != "" {
 			out = append(out, groupID)
 		}
