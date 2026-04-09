@@ -76,7 +76,7 @@ def create_group(body: GroupCreateBody, user: User = Depends(current_user)):  # 
 
 
 @router.get('/{group_id}', response_model=GroupDetailResponse)
-@permission_required('user.admin')
+@permission_required('user.read')
 def get_group(group_id: str, _: User = Depends(current_user)):  # noqa: B008
     gid = _parse_group_id(group_id)
     detail = group_service.get_group(gid)
