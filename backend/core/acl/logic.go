@@ -3,7 +3,6 @@ package acl
 import (
 	"sort"
 	"strings"
-
 )
 
 // normalizePermission textPermissiontextPermissiontext，text。

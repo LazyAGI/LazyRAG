@@ -738,7 +738,6 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	algoID := strings.TrimSpace(body.Algo.AlgoID)
 	if algoID == "" {
 		algoID = "__default__"

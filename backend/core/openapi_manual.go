@@ -388,7 +388,7 @@ func manualPaths() map[string]any {
 		"/conversations/{name}:detail":       map[string]any{"get": op("Get conversationtext", nil, nil, response(200, "Conversation details and history", refSchema("ConversationDetailResponse")))},
 		"/conversations":                     map[string]any{"get": op("Conversation list", queryParams(param("query", "keyword", false, strSchema()), param("query", "page_size", false, intSchema()), param("query", "page_token", false, strSchema())), nil, response(200, "Conversation list", refSchema("ConversationListResponse")))},
 		"/conversations:setChatHistory":      map[string]any{"post": op("Set conversation history", nil, jsonBody(refSchema("ConversationSetHistoryRequest"), true), response(200, "Set result", refSchema("SetChatHistoryResponse")))},
-		"/conversations:batchDelete":        map[string]any{"post": op("Batch delete conversations", nil, jsonBody(refSchema("ConversationBatchDeleteRequest"), true), response(200, "Batch deleted conversations", refSchema("ConversationBatchDeleteResponse")))},
+		"/conversations:batchDelete":         map[string]any{"post": op("Batch delete conversations", nil, jsonBody(refSchema("ConversationBatchDeleteRequest"), true), response(200, "Batch deleted conversations", refSchema("ConversationBatchDeleteResponse")))},
 		"/conversations:feedBackChatHistory": map[string]any{"post": op("Feedback conversation history", nil, jsonBody(refSchema("ConversationFeedbackRequest"), true), response(200, "Feedback succeeded", refSchema("EmptyObject")))},
 		"/conversation:switchStatus": map[string]any{
 			"get":  op("Get multi-answer switch status", nil, nil, response(200, "Multi-answer switch status", refSchema("ConversationSwitchStatusResponse"))),

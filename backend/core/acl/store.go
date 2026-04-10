@@ -405,7 +405,6 @@ func authServiceBaseURL() string {
 	return "http://auth-service:8000/api/authservice"
 }
 
-
 func toACLRow(m *orm.ACLModel) *ACLRow {
 	return &ACLRow{
 		ID:           m.ID,

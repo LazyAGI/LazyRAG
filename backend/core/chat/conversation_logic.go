@@ -625,14 +625,14 @@ func streamSingleAnswer(
 	if reqCtx.Err() == nil {
 		// text：message text，finish_reason text STOP
 		writeSSEChunk(w, flusher, &ChatChunkResponse{
-			ConversationID:    convID,
-			Seq:               int32(seq),
-			Message:           fullText,
-			Delta:             "",
-			FinishReason:      "FINISH_REASON_STOP",
-			HistoryID:         historyID,
-			Sources:           sources,
-			PromptQuestions:   []string{},
+			ConversationID:  convID,
+			Seq:             int32(seq),
+			Message:         fullText,
+			Delta:           "",
+			FinishReason:    "FINISH_REASON_STOP",
+			HistoryID:       historyID,
+			Sources:         sources,
+			PromptQuestions: []string{},
 			// Do not replay reasoning on final message frame.
 			ReasoningContent:  "",
 			ThinkingDurationS: int64(time.Since(thinkStart).Seconds()),

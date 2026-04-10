@@ -71,7 +71,6 @@ func TestBuildChatRequestBodyKeepsExistingFilters(t *testing.T) {
 	}
 }
 
-
 func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	req := buildLazyChatRequest(map[string]any{
 		"query":      "hello",

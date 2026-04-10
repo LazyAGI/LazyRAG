@@ -89,7 +89,6 @@ func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	now := time.Now().UTC()
 	p := orm.Prompt{
 		ID:      newID("p_"),

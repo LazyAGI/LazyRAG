@@ -804,7 +804,6 @@ func DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
-
 // BatchDeleteConversations text POST /api/v1/conversations:batchDelete
 func BatchDeleteConversations(w http.ResponseWriter, r *http.Request) {
 	var body struct {
