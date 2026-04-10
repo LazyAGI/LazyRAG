@@ -1,5 +1,6 @@
 from typing import AsyncIterator, AsyncGenerator, Dict, List, Tuple
 from lazyllm import ModuleBase
+from processor.table_image_map import normalize_table_image_map
 
 from chat.utils.stream_scanner import BasePlugin, CitationPlugin, ImagePlugin, IncrementalScanner
 from chat.utils.url import get_url_basename
@@ -109,8 +110,7 @@ class CustomOutputParser(ModuleBase):
     def _replace_table_to_image(self, node):
         metadata = node.metadata
         text = node.text
-        if metadata.get('table_image_map', None):
-            for content, image_url in metadata['table_image_map'].items():
-                text = text.replace(content.strip(), image_url)
+        for table_image in normalize_table_image_map(metadata.get('table_image_map')):
+            text = text.replace(table_image['content'].strip(), table_image['image'])
         node._content = text
         return node

@@ -2,6 +2,7 @@ import re
 import itertools
 from typing import Tuple, List
 from lazyllm.tools.rag import DocNode
+from processor.table_image_map import merge_table_image_maps, serialize_table_image_map
 
 from chat.utils.url import is_valid_path, get_url_basename
 
@@ -64,7 +65,7 @@ class AggregateComponent:
             # 合并节点内容
             content = []
             all_images = []
-            table_image_map = {}
+            table_image_map = []
             for node in grouped_nodes:
                 text = node._content
                 title = node.metadata.get('title', '')
@@ -74,7 +75,7 @@ class AggregateComponent:
                 content.append(node_str)
                 all_images.extend(images)
                 if node.metadata.get('table_image_map', None):
-                    table_image_map.update(node.metadata['table_image_map'])
+                    table_image_map = merge_table_image_maps(table_image_map, node.metadata['table_image_map'])
             content = f"\n\n{'---'}\n\n".join(content)
 
             first_node = grouped_nodes[0]
@@ -82,7 +83,7 @@ class AggregateComponent:
             metadata = {'images': all_images}
             metadata.update(first_node._metadata)
             if table_image_map:
-                metadata['table_image_map'] = table_image_map
+                metadata['table_image_map'] = serialize_table_image_map(table_image_map)
             aggregate_node = DocNode(
                 uid=first_node._uid,
                 group=first_node._group,
