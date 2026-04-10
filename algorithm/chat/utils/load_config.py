@@ -79,6 +79,7 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
         raise ValueError(f'Model config `{resolved}` root must be a mapping.')
     return _expand_env_placeholders(raw, str(resolved))
 
+
 _config_cache: Dict[str, Any] | None = None
 
 
