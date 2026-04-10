@@ -70,3 +70,48 @@ func TestBuildChatRequestBodyKeepsExistingFilters(t *testing.T) {
 		t.Fatalf("expected existing filters to be preserved, got %#v", kbIDs)
 	}
 }
+
+
+func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
+	req := buildLazyChatRequest(map[string]any{
+		"query":      "hello",
+		"session_id": "conv-1",
+		"history": []any{
+			map[string]any{"role": "user", "content": "q1"},
+			map[string]any{"role": "assistant", "content": "a1"},
+		},
+		"filters": map[string]any{
+			"kb_id":   []any{"ds_1"},
+			"creator": []any{"u1"},
+			"tags":    []any{"t1"},
+		},
+		"files":           []any{"f1", "f2"},
+		"databases":       []any{map[string]any{"name": "db1"}},
+		"enable_thinking": true,
+	})
+
+	if req.Query != "hello" || req.SessionID != "conv-1" {
+		t.Fatalf("unexpected base fields: %#v", req)
+	}
+	if len(req.History) != 2 || req.History[0].Role != "user" || req.History[1].Content != "a1" {
+		t.Fatalf("unexpected history: %#v", req.History)
+	}
+	if req.Filters == nil || len(req.Filters.DatasetIDs) != 1 || req.Filters.DatasetIDs[0] != "ds_1" {
+		t.Fatalf("unexpected filters: %#v", req.Filters)
+	}
+	if len(req.Filters.Creators) != 1 || req.Filters.Creators[0] != "u1" {
+		t.Fatalf("unexpected creators: %#v", req.Filters.Creators)
+	}
+	if len(req.Filters.Tags) != 1 || req.Filters.Tags[0] != "t1" {
+		t.Fatalf("unexpected tags: %#v", req.Filters.Tags)
+	}
+	if len(req.Files) != 2 || req.Files[0] != "f1" || req.Files[1] != "f2" {
+		t.Fatalf("unexpected files: %#v", req.Files)
+	}
+	if len(req.Databases) != 1 {
+		t.Fatalf("unexpected databases: %#v", req.Databases)
+	}
+	if !req.EnableThinking {
+		t.Fatalf("expected enable_thinking to be true")
+	}
+}
