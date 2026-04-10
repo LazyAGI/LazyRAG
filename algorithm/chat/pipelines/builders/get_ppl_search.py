@@ -32,9 +32,7 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
             )
             search_ppl.merge_results = lambda *args: args
             search_ppl.join = RRFFusion(top_k=50)
-            search_ppl.reranker = Reranker('ModuleReranker',
-                                            model=get_automodel('reranker'),
-                                            topk=topk) | bind(
+            search_ppl.reranker = Reranker('ModuleReranker', model=get_automodel('reranker'), topk=topk) | bind(
                 query=search_ppl.input['query']
             )
             search_ppl.adaptive_k = AdaptiveKComponent(bias=2, k_max=k_max, gap_tau=0.2,
