@@ -230,7 +230,11 @@ def _handle_http_exception(_, exc: StarletteHTTPException):
 def _handle_validation_error(_, exc: RequestValidationError):
     return JSONResponse(
         status_code=400,
-        content={'code': 400, 'message': 'Invalid request parameters', 'ex_mesage': json.dumps(exc.errors(), ensure_ascii=False)},
+        content={
+            'code': 400,
+            'message': 'Invalid request parameters',
+            'ex_mesage': json.dumps(exc.errors(), ensure_ascii=False),
+        },
     )
 
 

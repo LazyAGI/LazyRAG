@@ -95,7 +95,11 @@ class MultiturnQueryRewriter(ModuleBase):
         return_trace: bool = False,
     ) -> None:
         super().__init__(return_trace=return_trace)
-        self._llm = llm.share(prompt=ChatPrompter(instruction=MULTITURN_QUERY_REWRITE_PROMPT), format=JsonFormatter(), stream=False)
+        self._llm = llm.share(
+            prompt=ChatPrompter(instruction=MULTITURN_QUERY_REWRITE_PROMPT),
+            format=JsonFormatter(),
+            stream=False,
+        )
 
     def forward(self, input: dict, session_id: str = None, **kwargs):
         user_input = input

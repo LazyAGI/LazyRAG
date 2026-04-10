@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple, Type
+from typing import Any, Tuple, Type
 
 
 ErrorTuple = Tuple[int, int, str]

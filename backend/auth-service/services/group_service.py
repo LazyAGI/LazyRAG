@@ -181,7 +181,6 @@ class GroupService:
                 )
             return items
 
-
     def add_group_users(
         self,
         group_id: uuid.UUID,
