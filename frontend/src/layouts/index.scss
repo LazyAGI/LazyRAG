@@ -33,15 +33,15 @@
   }
 
   .img-box {
-    min-height: 62px;
+    min-height: 84px;
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 8px 8px 18px;
+    padding: 10px 8px 12px;
 
     img {
-      width: 170px;
-      height: 40px;
+      width: 188px;
+      max-height: 64px;
       max-width: 100%;
       object-fit: contain;
     }
@@ -163,6 +163,13 @@
   .bottom-icon {
     font-size: 18px;
     color: inherit;
+  }
+
+  .language-item {
+    .language-switcher {
+      flex: 1;
+      min-width: 0;
+    }
   }
 }
 

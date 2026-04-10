@@ -23,19 +23,20 @@
 }
 
 .admin-layout-brand {
-  min-height: 72px;
+  min-height: 88px;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 4px 10px 20px;
+  padding: 8px 10px 16px;
   font-size: 15px;
   font-weight: 700;
   color: #1f2a37;
 }
 
 .admin-layout-brand-logo {
-  width: 124px;
-  height: 32px;
+  width: 188px;
+  max-height: 64px;
+  max-width: 100%;
   object-fit: contain;
 }
 
