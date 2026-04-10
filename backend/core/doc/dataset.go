@@ -433,17 +433,12 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		fetchSize = 500
 	}
 
-	visibleNeed := offset + pageSize
-	if visibleNeed < pageSize {
-		visibleNeed = pageSize
-	}
-
-	candidates := make([]orm.Dataset, 0, visibleNeed)
-	seenIDs := make(map[string]struct{}, visibleNeed)
+	total := 0
+	page := make([]orm.Dataset, 0, pageSize)
 	scanOffset := 0
 	hasMoreRows := true
 
-	for len(candidates) < visibleNeed && hasMoreRows {
+	for hasMoreRows {
 		var rows []orm.Dataset
 		query := base.
 			Select(`id, kb_id, create_user_id, create_user_name, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
@@ -463,9 +458,6 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, ds := range rows {
-			if _, ok := seenIDs[ds.ID]; ok {
-				continue
-			}
 			perms := datasetACLForUserWithGroups(&ds, userID, groupIDs)
 			if len(perms) == 0 {
 				continue
@@ -473,60 +465,14 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			if len(wantTags) > 0 && !containsAll(parseDatasetTags(ds.Ext), wantTags) {
 				continue
 			}
-			seenIDs[ds.ID] = struct{}{}
-			candidates = append(candidates, ds)
-			if len(candidates) >= visibleNeed {
-				break
+			if total >= offset && len(page) < pageSize {
+				page = append(page, ds)
 			}
+			total++
 		}
 	}
 
-	// best-effort total_size: continue scanning only when needed.
-	total := len(candidates)
-	if hasMoreRows {
-		for hasMoreRows {
-			var rows []orm.Dataset
-			query := base.
-			Select(`id, kb_id, create_user_id, create_user_name, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
-			Order(orderClause).
-			Offset(scanOffset).
-			Limit(fetchSize)
-			if err := query.Find(&rows).Error; err != nil {
-				common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
-				return
-			}
-			if len(rows) < fetchSize {
-				hasMoreRows = false
-			}
-			scanOffset += len(rows)
-			if len(rows) == 0 {
-				break
-			}
-			for _, ds := range rows {
-				if _, ok := seenIDs[ds.ID]; ok {
-					continue
-				}
-				perms := datasetACLForUserWithGroups(&ds, userID, groupIDs)
-				if len(perms) == 0 {
-					continue
-				}
-				if len(wantTags) > 0 && !containsAll(parseDatasetTags(ds.Ext), wantTags) {
-					continue
-				}
-				seenIDs[ds.ID] = struct{}{}
-				total++
-			}
-		}
-	}
-
-	if offset > len(candidates) {
-		offset = len(candidates)
-	}
-	end := offset + pageSize
-	if end > len(candidates) {
-		end = len(candidates)
-	}
-	page := candidates[offset:end]
+	end := offset + len(page)
 
 	out := make([]Dataset, 0, len(page))
 	dsIDs := make([]string, 0, len(page))
