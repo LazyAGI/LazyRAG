@@ -311,10 +311,13 @@ def logout(
     body: LogoutBody,
     user: User = Depends(current_user),  # noqa: B008
 ):
-    _ = user
     if not body.refresh_token:
         return {'success': True}
 
     token_hash = hash_refresh_token(body.refresh_token.strip())
+    token_user_id = get_user_id_by_token(token_hash)
+    if token_user_id is None or token_user_id != user.id:
+        raise_error(ErrorCodes.REFRESH_TOKEN_INVALID)
+
     delete_refresh_token(token_hash)
     return {'success': True}
