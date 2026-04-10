@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 import re
 import requests
 
@@ -65,6 +65,10 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
 
     _QUERY_TEMPLATE = '{prefix}<Instruct>: {instruction}\n<Query>: {query}\n'
     _DOCUMENT_TEMPLATE = '<Document>: {doc}{suffix}'
+    _LOCAL_ONLY_PAYLOAD_KEYS = frozenset((
+        'query', 'documents', 'nodes', 'template',
+        'top_n', 'top_k', 'topk', 'timeout', 'request_timeout',
+    ))
 
     _LOCAL_TRUNCATE_MAX_CHARS = 16384
     _DEFAULT_TASK_DESCRIPTION = 'Given a web search query, retrieve relevant passages that answer the query'
@@ -83,19 +87,13 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
         timeout: Optional[float] = None,
         **kwargs: Any,
     ) -> None:
-        """
-        Args:
-            task_description: 任务描述，会被拼入 system/user 区块。
-        """
         super().__init__(embed_url=embed_url, api_key=api_key, embed_model_name=embed_model_name)
         if not embed_url:
-            raise ValueError('`url` 不能为空，请传入远端重排序服务地址。')
+            raise ValueError('`url` is required, pass the remote reranking service address.')
 
         self._url = embed_url
-        # self._api_key = api_key
         self._batch_size = max(1, int(batch_size))
         self._truncate_text = bool(truncate_text)
-        # 兼容旧参数名 timeout；优先使用 request_timeout
         self._timeout = request_timeout if request_timeout is not None else timeout
 
         self._headers: Dict[str, str] = self._build_headers()
@@ -109,12 +107,37 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
         }
 
     def _extract_top_k(self, total: int, **kwargs: Any) -> int:
-        top_k = kwargs.get('top_k', kwargs.get('topk', total))
+        top_k = kwargs.get('top_n', kwargs.get('top_k', kwargs.get('topk', total)))
         try:
             top_k = int(top_k)
         except Exception:
             top_k = total
         return max(0, min(top_k, total))
+
+    def _score_texts(self, query: str, texts: List[str], **kwargs: Any) -> List[float]:
+        if not texts:
+            return []
+
+        all_scores: List[float] = [0.0] * len(texts)
+        for start in range(0, len(texts), self._batch_size):
+            batch_texts = texts[start:start + self._batch_size]
+            payload = self._encapsulated_data(query, documents=batch_texts, **kwargs)
+
+            try:
+                resp = self._session.post(
+                    self._url, json=payload, headers=self._headers, timeout=self._timeout
+                )
+                resp.raise_for_status()
+                parsed = self._parse_response(resp.json())
+            except requests.RequestException as exc:
+                LOG.error('HTTP request for reranking failed (this batch will be scored as 0): %s', exc)
+                parsed = []
+
+            for idx, score in parsed:
+                if 0 <= idx < len(batch_texts):
+                    all_scores[start + idx] = score
+
+        return all_scores
 
     def _get_format_content(self, nodes: List[DocNode], **kwargs: Any) -> List[str]:
         template: Optional[str] = dict(kwargs).pop('template', None)
@@ -141,17 +164,11 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
         return formatted
 
     def _build_instruct(self, task_description: str, query: str) -> str:
-        """拼装包含系统前缀与用户区块的 query 字符串。"""
         return self._QUERY_TEMPLATE.format(
             prefix=self._PROMPT_PREFIX, instruction=task_description, query=query
         )
 
     def _build_documents(self, texts: List[str]) -> List[str]:
-        """
-        将每条文本套入文档模板；若开启 truncate，则在这里进行**本地字符级截断**。
-        - 截断阈值：_LOCAL_TRUNCATE_MAX_CHARS
-        - 仅当 self._truncate_text 为 True 时生效
-        """
         docs: List[str] = []
 
         def _truncate_if_needed(s: str) -> str:
@@ -173,12 +190,18 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
             'documents': self._build_documents(documents),
         }
         for k, v in kwargs.items():
-            if k not in ('query', 'documents', 'top_n', 'top_k', 'topk'):
+            if k not in self._LOCAL_ONLY_PAYLOAD_KEYS:
                 payload[k] = v
         return payload
 
-    def _parse_response(self, response: Any, input=None) -> List[tuple]:
-        """返回 [(index, relevance_score), ...], 与 SiliconFlowRerank / ModuleReranker 协议一致。"""
+    def _warn_on_empty_query(self, query: str) -> str:
+        normalized_query = '' if query is None else str(query)
+        if not normalized_query:
+            LOG.warning('Qwen3Rerank received an empty query. Check caller input and reranker binding.')
+        return normalized_query
+
+    def _parse_response(self, response: Any, input=None) -> List[Tuple[int, float]]:
+        """Return [(index, relevance_score), ...], compatible with ModuleReranker protocol."""
         if not isinstance(response, dict) or 'results' not in response:
             LOG.warning("response missing 'results' field: %r", response)
             return []
@@ -189,3 +212,63 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
         except Exception as exc:
             LOG.error('Failed to parse response: %s; response=%r', exc, response)
             return []
+
+    def _rerank_nodes(self, nodes: List[DocNode], query: str, **kwargs: Any) -> List[DocNode]:
+        if not nodes:
+            return []
+
+        query = self._warn_on_empty_query(query)
+        texts = self._get_format_content(nodes, **kwargs)
+        top_k = self._extract_top_k(len(texts), **kwargs)
+        all_scores = self._score_texts(query, texts, **kwargs)
+        scored_nodes: List[DocNode] = [nodes[i].with_score(all_scores[i]) for i in range(len(nodes))]
+        scored_nodes.sort(key=lambda n: n.relevance_score, reverse=True)
+        results = scored_nodes[:top_k]
+        LOG.debug(f'Rerank use `{self._embed_model_name}` and get nodes: {results}')
+        return results
+
+    def _rerank_documents(
+        self, query: str, documents: List[str], **kwargs: Any
+    ) -> List[Tuple[int, float]]:
+        if not documents:
+            return []
+
+        query = self._warn_on_empty_query(query)
+        texts = [doc if isinstance(doc, str) else str(doc or '') for doc in documents]
+        top_k = self._extract_top_k(len(texts), **kwargs)
+        all_scores = self._score_texts(query, texts, **kwargs)
+        scored_indices = [(index, all_scores[index]) for index in range(len(texts))]
+        scored_indices.sort(key=lambda item: item[1], reverse=True)
+        results = scored_indices[:top_k]
+        LOG.debug(f'Rerank use `{self._embed_model_name}` and get indices: {results}')
+        return results
+
+    def forward(self, *args: Any, **kwargs: Any) -> Union[List[DocNode], List[Tuple[int, float]]]:
+        if not args:
+            if 'nodes' in kwargs:
+                nodes = kwargs.pop('nodes')
+                query = kwargs.pop('query', '')
+                return self._rerank_nodes(nodes, query, **kwargs)
+            if 'documents' in kwargs:
+                documents = kwargs.pop('documents')
+                query = kwargs.pop('query', '')
+                return self._rerank_documents(query, documents, **kwargs)
+            raise TypeError('Qwen3Rerank.forward() missing required positional argument')
+
+        first_arg = args[0]
+        if isinstance(first_arg, list) and not first_arg:
+            return []
+
+        if isinstance(first_arg, list) and isinstance(first_arg[0], DocNode):
+            query = args[1] if len(args) > 1 else kwargs.pop('query', '')
+            return self._rerank_nodes(first_arg, query, **kwargs)
+
+        if isinstance(first_arg, list):
+            query = args[1] if len(args) > 1 else kwargs.pop('query', '')
+            return self._rerank_documents(query, first_arg, **kwargs)
+
+        query = first_arg
+        documents = kwargs.pop('documents', args[1] if len(args) > 1 else None)
+        if documents is None:
+            raise TypeError('Qwen3Rerank.forward() missing required argument: `documents`')
+        return self._rerank_documents(query, documents, **kwargs)
