@@ -6,12 +6,11 @@ from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
-from common.model import build_bge_m3_embed, get_auto_model_config_path
+from chat.pipelines.builders.get_models import get_automodel
+from chat.utils.load_config import get_retrieval_settings
 from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
 ALGO_ID = 'general_algo'
-DEFAULT_DENSE_EMBED_MODEL = os.getenv('DENSE_EMBED_MODEL', 'bgem3_emb_dense_custom')
-DEFAULT_SPARSE_EMBED_MODEL = os.getenv('SPARSE_EMBED_MODEL', 'bgem3_emb_sparse_custom')
 
 
 def _parse_bool_env(name: str) -> bool | None:
@@ -45,7 +44,7 @@ def _require_env(name: str) -> str:
     return value
 
 
-def _build_store_config():
+def _build_store_config(index_kwargs):
     milvus_uri = _require_env('LAZYRAG_MILVUS_URI')
     opensearch_uri = _require_env('LAZYRAG_OPENSEARCH_URI')
     return {
@@ -53,24 +52,7 @@ def _build_store_config():
             'type': 'milvus',
             'kwargs': {
                 'uri': milvus_uri,
-                'index_kwargs': [
-                    {
-                        'embed_key': 'bge_m3_dense',
-                        'index_type': 'IVF_FLAT',
-                        'metric_type': 'COSINE',
-                        'params': {
-                            'nlist': 128,
-                        }
-                    },
-                    {
-                        'embed_key': 'bge_m3_sparse',
-                        'index_type': 'SPARSE_INVERTED_INDEX',
-                        'metric_type': 'IP',
-                        'params': {
-                            'nlist': 128,
-                        }
-                    }
-                ],
+                'index_kwargs': index_kwargs,
             },
         },
         'segment_store': {
@@ -113,17 +95,14 @@ def _build_pdf_reader():
 def build_document() -> Document:
     processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
     server_port = get_algo_server_port()
-    config_path = get_auto_model_config_path()
-    embed = {
-        'bge_m3_dense': build_bge_m3_embed(DEFAULT_DENSE_EMBED_MODEL, config_path),
-        'bge_m3_sparse': build_bge_m3_embed(DEFAULT_SPARSE_EMBED_MODEL, config_path),
-    }
+    settings = get_retrieval_settings()
+    embed = {k: get_automodel(k) for k in settings.embed_keys}
 
     docs = Document(
         dataset_path=None,
         name=ALGO_ID,
         embed=embed,
-        store_conf=_build_store_config(),
+        store_conf=_build_store_config(settings.index_kwargs),
         manager=DocumentProcessor(url=processor_url),
         doc_fields=[],
         server=server_port,
@@ -134,6 +113,6 @@ def build_document() -> Document:
                            group_type=NodeGroupType.CHUNK, transform=GeneralParser(max_length=2048, split_by='\n'))
     docs.create_node_group(name='line', display_name='句子切片',
                            group_type=NodeGroupType.CHUNK, transform=LineSplitter, parent='block')
-    docs.activate_group('block', embed_keys=list(embed))
-    docs.activate_group('line', embed_keys=list(embed))
+    docs.activate_group('block', embed_keys=settings.embed_keys)
+    docs.activate_group('line', embed_keys=settings.embed_keys)
     return docs

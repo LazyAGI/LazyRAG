@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Request
+from chat.config import DEFAULT_CHAT_DATASET
 from chat.app.core.chat_service import handle_chat
 
 router = APIRouter()
@@ -17,7 +18,7 @@ async def chat(
     debug: Optional[bool] = Body(False, description='是否开启debug模式'),  # noqa: B008
     reasoning: Optional[bool] = Body(False, description='是否开启推理'),  # noqa: B008
     databases: Optional[List[Dict]] = Body([], description='关联数据库'),  # noqa: B008
-    dataset: Optional[str] = Body('debug', description='数据库名称'),  # noqa: B008
+    dataset: Optional[str] = Body(DEFAULT_CHAT_DATASET, description='数据库名称'),  # noqa: B008
     priority: Optional[int] = Body(None, description='请求优先级，用于vllm调度。数值越大优先级越高'),  # noqa: B008
     *,
     request: Request,

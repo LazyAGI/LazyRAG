@@ -4,18 +4,18 @@ from lazyllm import pipeline, bind, ifs
 
 from chat.pipelines.builders import get_ppl_search, get_ppl_generate, get_automodel
 from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewriter
-from chat.config import DEFAULT_RETRIEVER_CONFIGS
+from chat.utils.load_config import get_retrieval_settings
 
 
 def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
     if retriever_configs is None:
-        retriever_configs = DEFAULT_RETRIEVER_CONFIGS
+        retriever_configs = get_retrieval_settings().retriever_configs
 
     with lazyllm.save_pipeline_result():
         with pipeline() as rag_ppl:
             rag_ppl.rewriter = ifs(
                 lambda x: x.get('history'),
-                tpath=MultiturnQueryRewriter(llm=get_automodel('qwen3_moe_custom'))
+                tpath=MultiturnQueryRewriter(llm=get_automodel('llm_instruct'))
                 | bind(
                     priority=rag_ppl.input['priority'],
                     has_appendix=bool(rag_ppl.input['image_files'])

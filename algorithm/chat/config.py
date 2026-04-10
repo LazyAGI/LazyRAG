@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 from typing import Dict
 
 from dotenv import load_dotenv
@@ -15,11 +14,6 @@ LAZYRAG_LLM_PRIORITY = (
     if _LAZYRAG_LLM_PRIORITY_ENV is not None and _LAZYRAG_LLM_PRIORITY_ENV.isdigit()
     else 0
 )
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CHAT_DIR = PROJECT_ROOT / 'chat'
-
-CONFIG_PATH = os.getenv('CONFIG_PATH', str(CHAT_DIR / 'auto_model.yaml'))
-
 USE_MULTIMODAL = False
 LLM_TYPE_THINK = False
 
@@ -32,7 +26,14 @@ SENSITIVE_FILTER_RESPONSE_TEXT = '对不起，我还没有学会回答这个问�
 IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg')
 DEFAULT_TMP_BLOCK_TOPK = 20
 
+DEFAULT_ALGO_SERVICE_URL = os.getenv('LAZYRAG_ALGO_SERVICE_URL', 'http://lazyllm-algo:8000').rstrip('/')
+DEFAULT_ALGO_DATASET_NAME = os.getenv('LAZYRAG_ALGO_DATASET_NAME', 'general_algo')
+DEFAULT_CHAT_DATASET = os.getenv('LAZYRAG_DEFAULT_CHAT_DATASET', 'algo')
+
 URL_MAP: Dict[str, str] = {
+    'algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
+    'default': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
+    'general_algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
     'research_center': 'http://10.119.16.66:9003,research_center_0131_a',
     'quantum': 'http://10.119.16.66:9002,quantum_0131_a',
     'tyy': 'http://10.119.16.66:9007,tyy_0302',
@@ -41,28 +42,3 @@ URL_MAP: Dict[str, str] = {
     'crag': 'http://10.119.16.66:9001,crag_0130_a',
     'debug': 'http://127.0.0.1:8525',
 }
-
-DEFAULT_RETRIEVER_CONFIGS = [
-    {
-        'group_name': 'line',
-        'embed_keys': ['bge_m3_dense'],
-        'topk': 20,
-        'target': 'block'
-    },
-    {
-        'group_name': 'line',
-        'embed_keys': ['bge_m3_sparse'],
-        'topk': 20,
-        'target': 'block'
-    },
-    {
-        'group_name': 'block',
-        'embed_keys': ['bge_m3_dense'],
-        'topk': 20
-    },
-    {
-        'group_name': 'block',
-        'embed_keys': ['bge_m3_sparse'],
-        'topk': 20
-    },
-]

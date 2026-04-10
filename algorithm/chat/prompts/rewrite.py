@@ -1,6 +1,4 @@
-from string import Template
-
-MULTITURN_QUERY_REWRITE_PROMPT = Template("""
+MULTITURN_QUERY_REWRITE_PROMPT = """
 你是“多轮对话 Query 改写器”。在检索前，将用户最后一问改写成
 【语义完整、上下文自洽、可独立理解】的一句话查询。只做改写，不回答。
 
@@ -34,4 +32,4 @@ MULTITURN_QUERY_REWRITE_PROMPT = Template("""
   "confidence": 0.0,
   "rationale_short": "<1-2句说明改写要点/歧义与处理>"
 }
-""")
+"""

@@ -1,15 +1,27 @@
 from __future__ import annotations
+
 import asyncio
+import atexit
+import functools
+import hashlib
 import os
+import re
+import shutil
+import tempfile
 import threading
-import time
+from copy import deepcopy
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-import lazyllm
+
 import yaml
+import lazyllm
 from lazyllm import AutoModel, ModuleBase
 from lazyllm.components.formatter import FormatterBase
 from lazyllm.components.prompter import PrompterBase
-from chat.config import CONFIG_PATH
+
+from chat.utils.load_config import get_role_config
+
+_RUNTIME_AUTO_MODEL_DIR = Path(tempfile.gettempdir()) / 'lazyrag-runtime-auto-model'
 
 _DEFAULT_LLM_KW: Dict[str, Any] = {
     'temperature': 0.01,
@@ -18,10 +30,15 @@ _DEFAULT_LLM_KW: Dict[str, Any] = {
 }
 
 _lock = threading.RLock()
-_automodel_cfg: Optional[Dict[str, Any]] = None
-_lazyllm_yaml_path: Optional[str] = None
 _base_models: Dict[str, Any] = {}
 _wrapped_models: Dict[str, Any] = {}
+
+
+def _cleanup_runtime_auto_model_dir() -> None:
+    shutil.rmtree(_RUNTIME_AUTO_MODEL_DIR, ignore_errors=True)
+
+
+atexit.register(_cleanup_runtime_auto_model_dir)
 
 
 class _StreamingLlmModule(ModuleBase):
@@ -41,57 +58,27 @@ class _StreamingLlmModule(ModuleBase):
               stream: Optional[bool] = None, history: List[List[str]] = None,
               copy_static_params: bool = False):
         self.llm = self.llm.share(
-            prompt=prompt,
-            format=format,
-            stream=stream,
-            history=history,
-            copy_static_params=copy_static_params,
+            prompt=prompt, format=format, stream=stream,
+            history=history, copy_static_params=copy_static_params,
         )
         return self
 
     async def _astream(self, text, llm, files, history, **kw):
-        loop = asyncio.get_running_loop()
-        q: asyncio.Queue = asyncio.Queue()
-        done = object()
-
-        def _pump_fsqueue_to_async():
-            try:
-                with lazyllm.ThreadPoolExecutor(1) as executor:
-                    fut = executor.submit(llm, text, history, files, True, **kw)
-                    fsq = lazyllm.FileSystemQueue()
-                    idle_sleep = 0.002
-                    while True:
-                        if v := fsq.dequeue():
-                            asyncio.run_coroutine_threadsafe(
-                                q.put(''.join(v)), loop
-                            ).result()
-                            continue
-                        if fut.done():
-                            while v2 := fsq.dequeue():
-                                asyncio.run_coroutine_threadsafe(
-                                    q.put(''.join(v2)), loop
-                                ).result()
-                            break
-                        time.sleep(idle_sleep)
-            except Exception as e:
-                asyncio.run_coroutine_threadsafe(
-                    q.put(('_exc', e)), loop
-                ).result()
-            finally:
-                asyncio.run_coroutine_threadsafe(q.put(done), loop).result()
-
-        t = threading.Thread(target=_pump_fsqueue_to_async, daemon=True)
-        t.start()
-        try:
+        with lazyllm.ThreadPoolExecutor(1) as executor:
+            future = executor.submit(
+                llm, text,
+                llm_chat_history=history,
+                lazyllm_files=files,
+                stream_output=True,
+                **kw,
+            )
             while True:
-                item = await q.get()
-                if item is done:
+                if value := lazyllm.FileSystemQueue().dequeue():
+                    yield ''.join(value)
+                elif future.done():
                     break
-                if isinstance(item, tuple) and len(item) == 2 and item[0] == '_exc':
-                    raise item[1]
-                yield item
-        finally:
-            t.join(timeout=3600.0)
+                else:
+                    await asyncio.sleep(0.1)
 
     def forward(self, query, files=None, stream=True, **kwargs: Any) -> Any:
         llm = None
@@ -101,10 +88,7 @@ class _StreamingLlmModule(ModuleBase):
             hist = kwargs.pop('llm_chat_history', [])
             priority = kwargs.pop('priority', 0)
             strat = kwargs.get('llm_strategy')
-            if strat is None:
-                raw = {**_DEFAULT_LLM_KW, 'priority': priority}
-            else:
-                raw = dict(strat)
+            raw = {**_DEFAULT_LLM_KW, 'priority': priority} if strat is None else dict(strat)
             kw = {k: v for k, v in raw.items() if v is not None}
             llm = self.llm.share()
             if stream:
@@ -118,36 +102,45 @@ class _StreamingLlmModule(ModuleBase):
             llm = None
 
 
-def load_auto_model_yaml() -> Dict[str, Any]:
-    global _automodel_cfg, _lazyllm_yaml_path
-    with _lock:
-        if _automodel_cfg is None:
-            with open(CONFIG_PATH, encoding='utf-8') as f:
-                data = yaml.safe_load(f)
-            if not isinstance(data, dict):
-                raise ValueError(f'{CONFIG_PATH!r} root must be a mapping')
-            _automodel_cfg = dict(data)
-            _lazyllm_yaml_path = os.path.abspath(CONFIG_PATH)
-        return _automodel_cfg
+@functools.lru_cache(maxsize=64)
+def _write_auto_model_config(serialized_config: str) -> str:
+    config = yaml.safe_load(serialized_config)
+    model_name = config['model']
+    digest = hashlib.sha256(serialized_config.encode('utf-8')).hexdigest()[:16]
+    safe_name = re.sub(r'[^A-Za-z0-9_.-]+', '-', model_name).strip('-') or 'model'
+    _RUNTIME_AUTO_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = _RUNTIME_AUTO_MODEL_DIR / f'{safe_name}-{digest}.yaml'
+    temp_fd, temp_path = tempfile.mkstemp(
+        dir=_RUNTIME_AUTO_MODEL_DIR, prefix=f'.{safe_name}-{digest}-', suffix='.yaml',
+    )
+    try:
+        with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+            yaml.safe_dump({model_name: [config]}, f, sort_keys=False)
+        os.replace(temp_path, config_path)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+        raise
+    return str(config_path)
 
 
-def get_automodel(model_name: str, *, wrap_simple_llm: bool = False) -> Any:
+def _build_auto_model(model_name: str, config: Dict[str, Any]):
+    cfg = deepcopy(config)
+    cfg['model'] = model_name
+    serialized = yaml.safe_dump(cfg, sort_keys=True)
+    return AutoModel(model=model_name, config=_write_auto_model_config(serialized))
+
+
+def get_automodel(role: str, *, wrap_simple_llm: bool = False) -> Any:
     with _lock:
-        cfg = load_auto_model_yaml()
-        if model_name not in cfg:
-            raise KeyError(
-                f'Unknown model name {model_name!r} in {CONFIG_PATH!r} '
-                '(expected a top-level model key)'
-            )
-        wrap = wrap_simple_llm
-        if model_name not in _base_models:
-            _base_models[model_name] = AutoModel(
-                model=model_name,
-                config=_lazyllm_yaml_path,
-            )
-        base = _base_models[model_name]
-        if not wrap:
+        if role not in _base_models:
+            model_name, config = get_role_config(role)
+            _base_models[role] = _build_auto_model(model_name, config)
+        base = _base_models[role]
+        if not wrap_simple_llm:
             return base
-        if model_name not in _wrapped_models:
-            _wrapped_models[model_name] = _StreamingLlmModule(llm=base)
-        return _wrapped_models[model_name]
+        if role not in _wrapped_models:
+            _wrapped_models[role] = _StreamingLlmModule(llm=base)
+        return _wrapped_models[role]

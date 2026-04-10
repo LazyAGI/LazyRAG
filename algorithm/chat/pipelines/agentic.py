@@ -1,6 +1,7 @@
 # flake8: noqa: E402
 import asyncio
 import copy
+import functools
 import itertools
 import json
 import re
@@ -22,7 +23,7 @@ from chat.prompts.agentic import (
     PLANNER_PROMPT,
     TOOLCALL_PROMPT,
 )
-from chat.components.tools.tool_registry import (
+from chat.components.tmp.tool_registry import (
     get_all_tool_schemas,
     get_tool_instance,
     get_tool_schema,
@@ -44,15 +45,17 @@ def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'in
             raise ValueError(f'value: {value}')
 
 
-# llms
-llm = get_automodel('qwen3_32b_custom')
-llm._prompt._set_model_configs(system='You are an intelligent assistant, \
-                               strictly following user instructions to execute tasks.')
-llm_instruct = get_automodel('qwen3_moe_custom')
-llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
-    and you must strictly follow the given requirements to complete the tasks.\
-    The output language should be the same as the input language.')
-llm_gen = get_automodel('qwen3_moe_custom', wrap_simple_llm=True)
+@functools.lru_cache(maxsize=1)
+def get_agentic_llms():
+    llm = get_automodel('llm')
+    llm._prompt._set_model_configs(system='You are an intelligent assistant, \
+                                   strictly following user instructions to execute tasks.')
+    llm_instruct = get_automodel('llm_instruct')
+    llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
+        and you must strictly follow the given requirements to complete the tasks.\
+        The output language should be the same as the input language.')
+    llm_gen = get_automodel('llm_instruct', wrap_simple_llm=True)
+    return llm, llm_instruct, llm_gen
 
 
 # utils
@@ -89,6 +92,7 @@ def _show_search_process(state: TaskContext, action: str = 'init'):
 
 # agents
 def do_search(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     params = state.global_params
     original_query = params.get('query', '')
     current_step = state.pending_steps[0]
@@ -124,6 +128,7 @@ def do_search(state: TaskContext):
 
 
 def generate_answer(state: TaskContext):
+    _, _, llm_gen = get_agentic_llms()
     query = state.query
     add_reasoning_process_stream(state, f'✅ 【GENERATOR】 开始生成答案....| Query: {query}')
 
@@ -204,6 +209,7 @@ async def get_llm_res(state: TaskContext, iter):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def plan_step(state: TaskContext):
+    llm, _, _ = get_agentic_llms()
     query = state.query
     tool_schemas = get_all_tool_schemas()
     tool_description = [tool_schema_to_string(ts, include_params=False) for ts in tool_schemas.values()]
@@ -231,6 +237,7 @@ def plan_step(state: TaskContext):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def evaluate(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     query = state.query
     last_step = state.executed_steps[-1]
     if not last_step.formatted_results:
@@ -266,6 +273,7 @@ def evaluate(state: TaskContext):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def plan_refine(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     query = state.query
     # refine_reason = state.middle_results.evaluation_result['refine_reason']['subtype']
     add_reasoning_process_stream(state, f'🎯 【PLANNERREFINER】 query: {query}\n')
@@ -307,6 +315,7 @@ def plan_refine(state: TaskContext):
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
 def extract_info(state: TaskContext):
+    _, llm_instruct, _ = get_agentic_llms()
     query = state.query
     add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 extract information... | Query: {query}')
 
@@ -402,7 +411,9 @@ async def astream_iterator(agent, state):
                 await asyncio.sleep(0.1)
 
 
-agent = get_ppl_agentic()
+@functools.lru_cache(maxsize=1)
+def _get_agent():
+    return get_ppl_agentic()
 
 
 def agentic_rag(global_params, tool_params, stream=False, **kwargs):
@@ -418,6 +429,7 @@ def agentic_rag(global_params, tool_params, stream=False, **kwargs):
     state.global_params = global_params
     state.tool_params = tool_params
     state.middle_results.agg_results = {}
+    agent = _get_agent()
     if stream:
         as_iter = astream_iterator(agent, state)
         agg_nodes = state.middle_results.agg_results

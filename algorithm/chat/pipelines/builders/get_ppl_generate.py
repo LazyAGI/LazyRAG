@@ -7,14 +7,14 @@ from chat.config import LLM_TYPE_THINK
 
 
 def _answer_llm():
-    wrapped = get_automodel('qwen3_32b_custom', wrap_simple_llm=True)
+    wrapped = get_automodel('llm', wrap_simple_llm=True)
     inner = wrapped.llm
     if getattr(inner, '_prompt', None) is not None:
         inner._prompt._set_model_configs(system=RAG_ANSWER_SYSTEM)
     return wrapped
 
 
-def get_ppl_llm_generate(stream=False):
+def get_ppl_generate(stream=False):
     with lazyllm.save_pipeline_result():
         with pipeline() as ppl:
             ppl.aggregate = AggregateComponent()

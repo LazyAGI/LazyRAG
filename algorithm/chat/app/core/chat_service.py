@@ -89,7 +89,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
 
-    if dataset not in chat_server.query_ppl:
+    if not chat_server.has_dataset(dataset):
         return _resp(400, f'dataset {dataset} not found', None, 0.0)
 
     start_time = time.time()
@@ -146,7 +146,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         stream_call = (
             (chat_server.query_ppl_reasoning, query_params, None, True)
             if reasoning
-            else (chat_server.query_ppl_stream[dataset], query_params)
+            else (chat_server.get_query_pipeline(dataset, stream=True), query_params)
         )
 
         async def event_stream(ppl, *args) -> Any:
@@ -214,4 +214,4 @@ async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, A
             },
             False,
         )
-    return await asyncio.to_thread(chat_server.query_ppl[dataset], query_params)
+    return await asyncio.to_thread(chat_server.get_query_pipeline(dataset), query_params)

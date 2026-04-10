@@ -12,7 +12,7 @@ class BgeM3Embed(LazyLLMOnlineEmbedModuleBase):
 
     def __init__(self, embed_url: str = '', embed_model_name: str = 'custom', api_key: str = None,
                  skip_auth: bool = True, batch_size: int = 16, **kw):
-        super().__init__(model_series='bge', embed_url=embed_url, api_key='' if skip_auth else (api_key or ''),
+        super().__init__(embed_url=embed_url, api_key='' if skip_auth else (api_key or ''),
                          embed_model_name=embed_model_name,
                          skip_auth=skip_auth, batch_size=batch_size, **kw)
 
@@ -166,70 +166,26 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
             docs.append(self._DOCUMENT_TEMPLATE.format(doc=t_norm, suffix=self._PROMPT_SUFFIX))
         return docs
 
-    def _encapsulated_data(self, query: str, texts: List[str], **kwargs: Any) -> Dict[str, Any]:
+    def _encapsulated_data(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        documents = kwargs.pop('documents', [])
         payload: Dict[str, Any] = {
             'query': self._build_instruct(self._task_description, query),
-            'documents': self._build_documents(texts),
+            'documents': self._build_documents(documents),
         }
-        if kwargs:
-            for k, v in kwargs.items():
-                if k not in ('query', 'documents'):
-                    payload[k] = v
+        for k, v in kwargs.items():
+            if k not in ('query', 'documents', 'top_n', 'top_k', 'topk'):
+                payload[k] = v
         return payload
 
-    def _parse_response(self, response: Any) -> List[float]:
-        """
-        期望输入：
-            {"results": [{"index": int, "relevance_score": float}, ...]}
-        """
+    def _parse_response(self, response: Any, input=None) -> List[tuple]:
+        """返回 [(index, relevance_score), ...], 与 SiliconFlowRerank / ModuleReranker 协议一致。"""
         if not isinstance(response, dict) or 'results' not in response:
             LOG.warning("response missing 'results' field: %r", response)
             return []
 
         results = response.get('results', [])
         try:
-            results = sorted(results, key=lambda x: x['index'])
-            return [float(item['relevance_score']) for item in results]
+            return [(item['index'], float(item['relevance_score'])) for item in results]
         except Exception as exc:
             LOG.error('Failed to parse response: %s; response=%r', exc, response)
             return []
-
-    def forward(self, nodes: List[DocNode], query: str, **kwargs: Any) -> List[DocNode]:
-        if not nodes:
-            return []
-
-        texts = self._get_format_content(nodes, **kwargs)
-        top_k = self._extract_top_k(len(texts), **kwargs)
-
-        all_scores: List[float] = []
-        for start in range(0, len(texts), self._batch_size):
-            batch_texts = texts[start:start + self._batch_size]
-            payload = self._encapsulated_data(query, batch_texts, **kwargs)
-
-            try:
-                resp = self._session.post(
-                    self._url, json=payload, headers=self._headers, timeout=self._timeout
-                )
-                resp.raise_for_status()
-                scores = self._parse_response(resp.json())
-            except requests.RequestException as exc:
-                LOG.error('HTTP request for reranking failed (this batch will be scored as 0): %s', exc)
-                scores = []
-
-            if len(scores) != len(batch_texts):
-                LOG.warning(
-                    'Returned scores count mismatches inputs: got=%d, expected=%d; padding with zeros.',
-                    len(scores), len(batch_texts),
-                )
-                if len(scores) < len(batch_texts):
-                    scores += [0.0] * (len(batch_texts) - len(scores))
-                else:
-                    scores = scores[:len(batch_texts)]
-
-            all_scores.extend(scores)
-
-        scored_nodes: List[DocNode] = [nodes[i].with_score(all_scores[i]) for i in range(len(nodes))]
-        scored_nodes.sort(key=lambda n: n.relevance_score, reverse=True)
-        results = scored_nodes[:top_k] if top_k > 0 else scored_nodes
-        LOG.debug(f'Rerank use `{self._embed_model_name}` and get nodes: {results}')
-        return results

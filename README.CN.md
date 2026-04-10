@@ -63,8 +63,10 @@ db
 |-----|---------|----------|------|
 | **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` 且 URL 为 `http://mineru:8000` | MinerU PDF 解析（版面分析，安装 variant/backend 可配置） |
 | **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` 且 URL 为 `http://paddleocr:8080` | PaddleOCR-VL PDF 解析（需 GPU） |
-| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI` 含 `milvus:19530` | 向量存储（embeddings） |
-| **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI` 含 `opensearch:9200` | 分段存储（文档切片） |
+| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI=http://milvus:19530` | 向量存储（embeddings） |
+| **attu** | `milvus-dashboard` | `LAZYRAG_ENABLE_MILVUS_DASHBOARD=1` 且 `LAZYRAG_MILVUS_URI=http://milvus:19530` | Milvus 可视化管理，用于排查 collection、schema、索引 |
+| **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI=https://opensearch:9200` | 分段存储（文档切片） |
+| **opensearch-dashboards** | `opensearch-dashboard` | `LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD=1` 且 `LAZYRAG_OPENSEARCH_URI=https://opensearch:9200` | OpenSearch 可视化管理，用于查看 index、mapping 与查询结果 |
 
 **parsing 存储**（使用 Processor/Worker 时必选）：
 
@@ -112,11 +114,38 @@ db
 - Docker 与 Docker Compose
 - （可选）Go 1.22（backend/core）、Python 3.11+ 与 flake8，用于本地开发与 lint
 
+## 运行时模型配置
+
+- 默认配置文件为 `algorithm/configs/runtime_models.yaml`。
+- 直接在该文件中配置 `llm`、`llm_instruct`、`reranker`、`embed_1~embed_3` 的 `source/api_key/model/type/url`。
+- 建议把真实密钥写成环境变量引用，例如 `${LAZYLLM_SILICONFLOW_API_KEY}`，不要提交明文密钥。
+- 需要用临时配置联调时，可设置 `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`；`docker-compose.yml` 已将仓库 `tmp/` 挂载到容器内 `/app/tmp`。
+- 若只配置 `embed_1`，系统会自动按单路 embedding 建索引、入库和检索；若启用 `embed_2/embed_3`，解析与检索会使用同一套 `embed_key`。
+
 ## 快速开始
+
+环境变量配置与完整启动示例见：
+
+- [`docs/quick_start.md`](docs/quick_start.md)
 
 **完整栈（默认部署 Milvus + OpenSearch）：**
 ```bash
 make up
+```
+
+**完整栈并启用内置存储 dashboard：**
+```bash
+make up LAZYRAG_ENABLE_STORE_DASHBOARDS=1
+```
+
+**只启用 Milvus dashboard（Attu）：**
+```bash
+make up LAZYRAG_ENABLE_MILVUS_DASHBOARD=1
+```
+
+**只启用 OpenSearch Dashboards：**
+```bash
+make up LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD=1
 ```
 
 **使用外部 Milvus/OpenSearch**（不部署 milvus/opensearch）：
@@ -144,7 +173,14 @@ make up LAZYRAG_OCR_SERVER_TYPE=mineru LAZYRAG_MINERU_BACKEND=hybrid-auto-engine
 make up LAZYRAG_OCR_SERVER_TYPE=paddleocr
 ```
 
-Makefile 会根据环境变量自动选择 profile。也可直接运行 `docker compose up --build`；可选服务需通过 `--profile mineru`、`--profile paddleocr`、`--profile milvus`、`--profile opensearch` 显式启用。
+Makefile 会根据环境变量自动选择 profile。也可直接运行 `docker compose up --build`；可选服务需通过 `--profile mineru`、`--profile paddleocr`、`--profile milvus`、`--profile opensearch`、`--profile milvus-dashboard`、`--profile opensearch-dashboard` 显式启用。
+
+内置存储 dashboard 默认关闭。启用后仅绑定到 `127.0.0.1`，并且只有在对应内置存储仍被使用时才会拉起：
+
+- Attu（Milvus）：http://127.0.0.1:3000
+- OpenSearch Dashboards：http://127.0.0.1:5601
+- OpenSearch Dashboards 登录账号：`admin` / `LAZYRAG_OPENSEARCH_PASSWORD`
+- 若 `LAZYRAG_MILVUS_URI` 或 `LAZYRAG_OPENSEARCH_URI` 指向外部服务，即使打开开关，也不会部署对应内置 dashboard。
 
 MinerU 配置被拆成两层：
 
@@ -207,7 +243,7 @@ LazyRAG/
 | parsing         | `LAZYRAG_MILVUS_URI`、`LAZYRAG_OPENSEARCH_URI`、`LAZYRAG_OPENSEARCH_USER`、`LAZYRAG_OPENSEARCH_PASSWORD` | 向量与分段存储（必选） |
 | chat            | `DOCUMENT_SERVER_URL`、`MAX_CONCURRENCY` | 文档服务地址与并发数        |
 
-使用外部 Milvus/OpenSearch 时需覆盖上述存储变量；若 URI 不含 `milvus:19530` 或 `opensearch:9200`，则不会部署对应服务。
+使用外部 Milvus/OpenSearch 时需覆盖上述存储变量；只有当 URI 保持为 `http://milvus:19530` 与 `https://opensearch:9200` 时，才会部署内置服务。
 
 ## 代码检查
 
