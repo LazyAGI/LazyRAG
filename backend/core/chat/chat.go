@@ -113,6 +113,7 @@ func (c *ChatService) Chat(ctx context.Context, req *LazyChatRequest) (*LazyChat
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("DEBUG upstream request url=%s body=%s\n", c.chatURL, string(bodyBytes))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.chatURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
@@ -140,7 +141,7 @@ func (c *ChatService) StreamChat(ctx context.Context, req *LazyChatRequest) (<-c
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("DEBUG upstream request url=", c.streamChatURL, " body=", string(bodyBytes))
+	fmt.Printf("DEBUG upstream request url=%s body=%s\n", c.streamChatURL, string(bodyBytes))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.streamChatURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
@@ -208,12 +209,7 @@ type upstreamStreamLine struct {
 	Data UpstreamStreamChunk `json:"data"`
 }
 
-// StreamChatUpstream text：text ChatConversations text，text ChatService.StreamChat text。
-// body textRequest JSON text map text，baseURL text endpoint（text /api/...）。
-func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any) (<-chan UpstreamStreamChunk, error) {
-	service := NewChatServiceWithEndpoint(baseURL)
-	fmt.Printf("DEBUG upstream stream request baseURL=%s params=%+v\n", baseURL, body)
-
+func buildLazyChatRequest(body map[string]any) *LazyChatRequest {
 	req := &LazyChatRequest{}
 	if q, ok := body["query"].(string); ok {
 		req.Query = q
@@ -221,15 +217,105 @@ func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any
 	if s, ok := body["session_id"].(string); ok {
 		req.SessionID = s
 	}
-	if hs, ok := body["history"].([]map[string]string); ok {
-		for _, h := range hs {
-			req.History = append(req.History, ChatMessage{
-				Role:    h["role"],
-				Content: h["content"],
-			})
+	req.History = chatMessagesFromAny(body["history"])
+	req.Filters = datasetFiltersFromAny(body["filters"])
+	req.Files = stringSlice(body["files"])
+	if databases, ok := body["databases"].([]any); ok {
+		req.Databases = databases
+	}
+	if enableThinking, ok := body["enable_thinking"].(bool); ok {
+		req.EnableThinking = enableThinking
+	}
+	return req
+}
+
+func chatMessagesFromAny(v any) []ChatMessage {
+	raw, ok := v.([]map[string]string)
+	if ok {
+		messages := make([]ChatMessage, 0, len(raw))
+		for _, h := range raw {
+			messages = append(messages, ChatMessage{Role: h["role"], Content: h["content"]})
+		}
+		return messages
+	}
+
+	rawAny, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	messages := make([]ChatMessage, 0, len(rawAny))
+	for _, item := range rawAny {
+		m, _ := item.(map[string]any)
+		if m == nil {
+			continue
+		}
+		role, _ := m["role"].(string)
+		content, _ := m["content"].(string)
+		messages = append(messages, ChatMessage{Role: role, Content: content})
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	return messages
+}
+
+func datasetFiltersFromAny(v any) *DatasetFilters {
+	m, _ := v.(map[string]any)
+	if m == nil {
+		return nil
+	}
+	filters := &DatasetFilters{
+		Subject:    stringSlice(m["subject"]),
+		DatasetIDs: stringSlice(m["kb_id"]),
+		Tags:       stringSlice(m["tags"]),
+		Creators:   stringSlice(m["creator"]),
+	}
+	if len(filters.Subject) == 0 && len(filters.DatasetIDs) == 0 && len(filters.Tags) == 0 && len(filters.Creators) == 0 {
+		return nil
+	}
+	return filters
+}
+
+func stringSlice(v any) []string {
+	if raw, ok := v.([]string); ok {
+		if len(raw) == 0 {
+			return nil
+		}
+		return raw
+	}
+	rawAny, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(rawAny))
+	for _, item := range rawAny {
+		s, _ := item.(string)
+		if strings.TrimSpace(s) != "" {
+			result = append(result, s)
 		}
 	}
-	// text（filters/files/databases/enable_thinking）text，text。
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func debugJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%+v", v)
+	}
+	return string(b)
+}
+
+// StreamChatUpstream text：text ChatConversations text，text ChatService.StreamChat text。
+// body textRequest JSON text map text，baseURL text endpoint（text /api/...）。
+func StreamChatUpstream(ctx context.Context, baseURL string, body map[string]any) (<-chan UpstreamStreamChunk, error) {
+	service := NewChatServiceWithEndpoint(baseURL)
+	fmt.Printf("DEBUG upstream stream request baseURL=%s raw=%s\n", baseURL, debugJSON(body))
+
+	req := buildLazyChatRequest(body)
+	fmt.Printf("DEBUG upstream stream request payload=%s\n", debugJSON(req))
 
 	streamChan, err := service.StreamChat(ctx, req)
 	if err != nil {
