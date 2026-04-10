@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 
 def normalize_table_image_map(value: Any) -> List[Dict[str, str]]:
-    """将 table_image_map 统一为 list[dict] 格式，兼容旧版 dict 和新版 JSON 字符串。"""
+    """Normalize table_image_map to list[dict] format, compatible with legacy dict and JSON string."""
     if not value:
         return []
     if isinstance(value, (bytes, bytearray)):
@@ -25,7 +25,7 @@ def normalize_table_image_map(value: Any) -> List[Dict[str, str]]:
 
 
 def merge_table_image_maps(*values: Any) -> List[Dict[str, str]]:
-    """合并多个 table_image_map，相同 content 保留最后出现的。"""
+    """Merge multiple table_image_maps, keeping the last entry for duplicate content keys."""
     merged = {}
     for value in values:
         for item in normalize_table_image_map(value):
@@ -34,6 +34,6 @@ def merge_table_image_maps(*values: Any) -> List[Dict[str, str]]:
 
 
 def serialize_table_image_map(value: Any) -> Optional[str]:
-    """序列化为 JSON 字符串，避免 OpenSearch 将 dict key 展开为动态 mapping。"""
+    """Serialize to JSON string to prevent OpenSearch from expanding dict keys as dynamic mapping."""
     normalized = normalize_table_image_map(value)
     return json.dumps(normalized, ensure_ascii=False) if normalized else None
