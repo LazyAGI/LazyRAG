@@ -64,7 +64,7 @@ func (UserGroupModel) TableName() string { return "acl_user_groups" }
 
 type Prompt struct {
 	ID      string `gorm:"column:id;type:varchar(64);primaryKey"`
-	Name    string `gorm:"column:name;type:varchar(255);uniqueIndex;not null"`
+	Name    string `gorm:"column:name;type:varchar(255);not null"`
 	Content string `gorm:"column:content;type:text;not null"`
 
 	BaseModel

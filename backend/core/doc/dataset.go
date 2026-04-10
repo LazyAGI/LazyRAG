@@ -51,6 +51,7 @@ type Dataset struct {
 	Parsers        []ParserConfig `json:"parsers"`
 	Algo           Algo           `json:"algo"`
 	Creator        string         `json:"creator"`
+	IsOwner        bool           `json:"is_owner"`
 	CreateTime     time.Time      `json:"create_time"`
 	UpdateTime     time.Time      `json:"update_time"`
 	Acl            []string       `json:"acl"`
@@ -260,6 +261,10 @@ func groupIDFromPath(r *http.Request) string {
 }
 
 func datasetACLForUser(ds *orm.Dataset, userID string) []string {
+	return datasetACLForUserWithGroups(ds, userID, nil)
+}
+
+func datasetACLForUserWithGroups(ds *orm.Dataset, userID string, groupIDs []string) []string {
 	if ds == nil {
 		return nil
 	}
@@ -270,7 +275,7 @@ func datasetACLForUser(ds *orm.Dataset, userID string) []string {
 	if strings.TrimSpace(ds.CreateUserID) == userID {
 		return []string{acl.PermissionDatasetRead, acl.PermissionDatasetWrite, acl.PermissionDatasetUpload}
 	}
-	permissions, _ := acl.PermissionsFor(acl.ResourceTypeDB, ds.ID, userID)
+	permissions, _ := acl.PermissionsForWithGroups(acl.ResourceTypeDB, ds.ID, userID, groupIDs)
 	return permissions
 }
 
@@ -385,7 +390,7 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// text tags（query text tags=...，text tags=a,b）
+	// Parse tags (query supports tags=a,b and repeated tags params)
 	tagSet := map[string]struct{}{}
 	var wantTags []string
 	for _, rt := range rawTags {
@@ -402,78 +407,137 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	db := corestore.DB().Model(&orm.Dataset{}).
+	db := corestore.DB()
+	base := db.Model(&orm.Dataset{}).
 		Where("deleted_at IS NULL")
+	if keyword != "" {
+		kw := "%" + strings.ToLower(keyword) + "%"
+		base = base.Where(`LOWER(display_name) LIKE ? OR LOWER("desc") LIKE ?`, kw, kw)
+	}
 
-	// order_by: "create_time desc" / "update_time desc" / "display_name asc"
+	orderClause := "updated_at desc"
 	if orderBy != "" {
 		if ob, err := normalizeDatasetOrderBy(orderBy); err == nil {
-			db = db.Order(ob)
-		}
-	} else {
-		db = db.Order("updated_at desc")
-	}
-
-	var rows []orm.Dataset
-	if err := db.
-		// NOTE: desc is reserved; use ANSI quoting for Postgres compatibility.
-		Select(`id, kb_id, create_user_id, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
-		Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
-		return
-	}
-
-	visible := rows[:0]
-	parserCache := map[string][]ParserConfig{}
-	for _, ds := range rows {
-		if len(datasetACLForUser(&ds, userID)) > 0 {
-			visible = append(visible, ds)
+			orderClause = ob
 		}
 	}
 
-	filtered := make([]orm.Dataset, 0, len(visible))
-	if keyword != "" {
-		for _, ds := range visible {
-			if datasetMatchesKeyword(&ds, keyword) {
-				filtered = append(filtered, ds)
+	groupIDs := acl.ResolveUserGroupIDs(userID)
+
+	const fetchFactor = 5
+	fetchSize := pageSize * fetchFactor
+	if fetchSize < pageSize {
+		fetchSize = pageSize
+	}
+	if fetchSize > 500 {
+		fetchSize = 500
+	}
+
+	visibleNeed := offset + pageSize
+	if visibleNeed < pageSize {
+		visibleNeed = pageSize
+	}
+
+	candidates := make([]orm.Dataset, 0, visibleNeed)
+	seenIDs := make(map[string]struct{}, visibleNeed)
+	scanOffset := 0
+	hasMoreRows := true
+
+	for len(candidates) < visibleNeed && hasMoreRows {
+		var rows []orm.Dataset
+		query := base.
+			Select(`id, kb_id, create_user_id, create_user_name, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
+			Order(orderClause).
+			Offset(scanOffset).
+			Limit(fetchSize)
+		if err := query.Find(&rows).Error; err != nil {
+			common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
+			return
+		}
+		if len(rows) < fetchSize {
+			hasMoreRows = false
+		}
+		scanOffset += len(rows)
+		if len(rows) == 0 {
+			break
+		}
+
+		for _, ds := range rows {
+			if _, ok := seenIDs[ds.ID]; ok {
+				continue
+			}
+			perms := datasetACLForUserWithGroups(&ds, userID, groupIDs)
+			if len(perms) == 0 {
+				continue
+			}
+			if len(wantTags) > 0 && !containsAll(parseDatasetTags(ds.Ext), wantTags) {
+				continue
+			}
+			seenIDs[ds.ID] = struct{}{}
+			candidates = append(candidates, ds)
+			if len(candidates) >= visibleNeed {
+				break
 			}
 		}
-	} else {
-		filtered = append(filtered, visible...)
 	}
 
-	if len(wantTags) > 0 {
-		tagFiltered := make([]orm.Dataset, 0, len(filtered))
-		for _, ds := range filtered {
-			tags := parseDatasetTags(ds.Ext)
-			if containsAll(tags, wantTags) {
-				tagFiltered = append(tagFiltered, ds)
+	// best-effort total_size: continue scanning only when needed.
+	total := len(candidates)
+	if hasMoreRows {
+		for hasMoreRows {
+			var rows []orm.Dataset
+			query := base.
+			Select(`id, kb_id, create_user_id, create_user_name, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
+			Order(orderClause).
+			Offset(scanOffset).
+			Limit(fetchSize)
+			if err := query.Find(&rows).Error; err != nil {
+				common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
+				return
+			}
+			if len(rows) < fetchSize {
+				hasMoreRows = false
+			}
+			scanOffset += len(rows)
+			if len(rows) == 0 {
+				break
+			}
+			for _, ds := range rows {
+				if _, ok := seenIDs[ds.ID]; ok {
+					continue
+				}
+				perms := datasetACLForUserWithGroups(&ds, userID, groupIDs)
+				if len(perms) == 0 {
+					continue
+				}
+				if len(wantTags) > 0 && !containsAll(parseDatasetTags(ds.Ext), wantTags) {
+					continue
+				}
+				seenIDs[ds.ID] = struct{}{}
+				total++
 			}
 		}
-		filtered = tagFiltered
 	}
 
-	total := len(filtered)
+	if offset > len(candidates) {
+		offset = len(candidates)
+	}
 	end := offset + pageSize
-	if offset > total {
-		offset = total
+	if end > len(candidates) {
+		end = len(candidates)
 	}
-	if end > total {
-		end = total
-	}
-	page := filtered[offset:end]
+	page := candidates[offset:end]
 
 	out := make([]Dataset, 0, len(page))
-	// Batch-calculate file counts and total sizes for all datasets, avoiding N+1 queries.
 	dsIDs := make([]string, 0, len(page))
 	for _, ds := range page {
 		dsIDs = append(dsIDs, ds.ID)
 	}
 	statsMap := calcDatasetStatsBatch(r.Context(), dsIDs)
+	parserCache := map[string][]ParserConfig{}
 
 	for _, ds := range page {
-		datasetACL := datasetACLForUser(&ds, userID)
-	log.Logger.Info().Str("dataset_id", ds.ID).Str("user_id", userID).Strs("dataset_acl", datasetACL).Msg("resolved dataset acl for list dataset item")
+		datasetACL := datasetACLForUserWithGroups(&ds, userID, groupIDs)
 		algo := parseDatasetAlgo(ds.Ext)
 		parsers := parseDatasetParsers(ds.Ext)
 		if len(parsers) == 0 {
@@ -499,7 +563,8 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			TokenCount:     0,
 			Parsers:        parsers,
 			Algo:           algo,
-			Creator:        "", // text create_user_name
+			Creator:        ds.CreateUserName,
+			IsOwner:        ds.CreateUserID == userID,
 			CreateTime:     ds.CreatedAt,
 			UpdateTime:     ds.UpdatedAt,
 			Acl:            datasetACL,
@@ -727,6 +792,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+
 	algoID := strings.TrimSpace(body.Algo.AlgoID)
 	if algoID == "" {
 		algoID = "__default__"
@@ -854,6 +920,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Parsers:        parsers,
 		Algo:           Algo{AlgoID: algoID, DisplayName: body.Algo.DisplayName, Description: body.Algo.Description},
 		Creator:        userName,
+		IsOwner:        true,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
 		Acl:            []string{acl.PermissionDatasetRead, acl.PermissionDatasetWrite, acl.PermissionDatasetUpload},
@@ -912,6 +979,7 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		Parsers:        parsers,
 		Algo:           algo,
 		Creator:        ds.CreateUserName,
+		IsOwner:        ds.CreateUserID == userID,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
 		Acl:            datasetACL,

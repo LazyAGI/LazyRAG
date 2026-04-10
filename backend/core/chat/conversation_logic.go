@@ -633,7 +633,8 @@ func streamSingleAnswer(
 			HistoryID:         historyID,
 			Sources:           sources,
 			PromptQuestions:   []string{},
-			ReasoningContent:  fullReasoning,
+			// Do not replay reasoning on final message frame.
+			ReasoningContent:  "",
 			ThinkingDurationS: int64(time.Since(thinkStart).Seconds()),
 		})
 		_, _ = w.Write([]byte("data: [DONE]\n\n"))

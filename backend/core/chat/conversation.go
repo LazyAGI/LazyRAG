@@ -804,6 +804,76 @@ func DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
+
+// BatchDeleteConversations text POST /api/v1/conversations:batchDelete
+func BatchDeleteConversations(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ConversationIDs []string `json:"conversation_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	if len(body.ConversationIDs) == 0 {
+		common.ReplyErr(w, "conversation_ids required", http.StatusBadRequest)
+		return
+	}
+
+	uniqueIDs := make([]string, 0, len(body.ConversationIDs))
+	seen := make(map[string]struct{}, len(body.ConversationIDs))
+	for _, id := range body.ConversationIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		common.ReplyErr(w, "conversation_ids required", http.StatusBadRequest)
+		return
+	}
+
+	userID := store.UserID(r)
+	if userID == "" {
+		userID = "0"
+	}
+	db := store.DB()
+
+	var ownedIDs []string
+	if err := db.Model(&orm.Conversation{}).
+		Where("id IN ? AND create_user_id = ?", uniqueIDs, userID).
+		Pluck("id", &ownedIDs).Error; err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query conversations failed", err), http.StatusInternalServerError)
+		return
+	}
+	if len(ownedIDs) == 0 {
+		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		return
+	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id IN ?", ownedIDs).Delete(&orm.Conversation{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("conversation_id IN ?", ownedIDs).Delete(&orm.ChatHistory{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("conversation_id IN ?", ownedIDs).Delete(&orm.MultiAnswersChatHistory{}).Error
+	}); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "batch delete conversations failed", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeConversationJSON(w, http.StatusOK, map[string]any{
+		"deleted_count": len(ownedIDs),
+		"deleted_ids":   ownedIDs,
+	})
+}
+
 // ListConversations text GET /api/v1/conversations
 func ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID := store.UserID(r)
@@ -994,17 +1064,43 @@ func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
+	if feedbackType < 0 || feedbackType > 2 {
+		common.ReplyErr(w, "feedback type must be 0/1/2", http.StatusBadRequest)
+		return
+	}
+
 	db := store.DB()
-	res := db.Model(&orm.ChatHistory{}).Where("id = ?", body.HistoryID).Updates(map[string]any{
-		"feed_back":       feedbackType,
-		"reason":          body.Reason,
-		"expected_answer": body.ExpectedAnswer,
-		"update_time":     time.Now(),
-	})
-	if res.RowsAffected == 0 {
+	now := time.Now()
+	var target orm.ChatHistory
+	if err := db.Where("id = ?", body.HistoryID).First(&target).Error; err != nil {
 		common.ReplyErr(w, "history not found", http.StatusNotFound)
 		return
 	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&orm.ChatHistory{}).
+			Where("conversation_id = ? AND seq = ?", target.ConversationID, target.Seq).
+			Updates(map[string]any{
+				"feed_back":   0,
+				"update_time": now,
+			}).Error; err != nil {
+			return err
+		}
+
+		updates := map[string]any{
+			"feed_back":   feedbackType,
+			"update_time": now,
+		}
+		if feedbackType == 2 {
+			updates["reason"] = body.Reason
+			updates["expected_answer"] = body.ExpectedAnswer
+		}
+		return tx.Model(&orm.ChatHistory{}).Where("id = ?", body.HistoryID).Updates(updates).Error
+	}); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "update feedback failed", err), http.StatusInternalServerError)
+		return
+	}
+
 	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 

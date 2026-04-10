@@ -259,6 +259,11 @@ func (s *Store) GetACLByID(resourceType, resourceID string, aclID int64) (*ACLRo
 
 // ACLsForUser textUsertext ACL text（textUsertextTenant/text）。
 func (s *Store) ACLsForUser(resourceType, resourceID string, userID string) []*ACLRow {
+	return s.ACLsForUserWithGroups(resourceType, resourceID, userID, nil)
+}
+
+// ACLsForUserWithGroups textuser groups text，groupIDs text nil text。
+func (s *Store) ACLsForUserWithGroups(resourceType, resourceID string, userID string, groupIDs []string) []*ACLRow {
 	now := time.Now()
 	q := s.db.Model(&orm.ACLModel{}).
 		Where("resource_type = ? AND resource_id = ?", resourceType, resourceID).
@@ -267,9 +272,16 @@ func (s *Store) ACLsForUser(resourceType, resourceID string, userID string) []*A
 	var rows []orm.ACLModel
 	q.Find(&rows)
 
-	groupSet := make(map[string]bool)
-	for _, g := range s.loadUserGroupIDs(userID) {
-		groupSet[g] = true
+	if groupIDs == nil {
+		groupIDs = s.loadUserGroupIDs(userID)
+	}
+	groupSet := make(map[string]bool, len(groupIDs))
+	for _, g := range groupIDs {
+		gg := strings.TrimSpace(g)
+		if gg == "" {
+			continue
+		}
+		groupSet[gg] = true
 	}
 
 	var out []*ACLRow
@@ -314,7 +326,7 @@ func (s *Store) loadUserGroupIDs(userID string) []string {
 		out = append(out, groupID)
 	}
 	sort.Strings(out)
-	log.Logger.Info().
+	log.Logger.Debug().
 		Str("user_id", userID).
 		Strs("local_group_ids", localGroupIDs).
 		Strs("remote_group_ids", remoteGroupIDs).
