@@ -76,6 +76,20 @@ func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var promptExisted int64
+	if err := corestore.DB().
+		Model(&orm.Prompt{}).
+		Where("create_user_id = ? AND name = ? AND deleted_at IS NULL", userID, displayName).
+		Count(&promptExisted).Error; err != nil {
+		common.ReplyErr(w, "query prompts failed", http.StatusInternalServerError)
+		return
+	}
+	if promptExisted > 0 {
+		common.ReplyErr(w, "prompt name already exists", http.StatusConflict)
+		return
+	}
+
+
 	now := time.Now().UTC()
 	p := orm.Prompt{
 		ID:      newID("p_"),

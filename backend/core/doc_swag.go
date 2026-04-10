@@ -376,6 +376,11 @@ func _swagGetConversationDetail() {}
 // @Router    /conversations/{name} [delete]
 func _swagDeleteConversation() {}
 
+// @Summary  Batch delete conversations
+// @Tags      conversations
+// @Router    /conversations:batchDelete [post]
+func _swagBatchDeleteConversations() {}
+
 // @Summary  Conversation list
 // @Tags      conversations
 // @Router    /conversations [get]
