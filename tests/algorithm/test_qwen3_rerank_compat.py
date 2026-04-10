@@ -44,6 +44,24 @@ def test_qwen3_rerank_supports_query_documents_signature(monkeypatch):
     assert 'top_n' not in seen_payloads[0]['json']
 
 
+def test_qwen3_rerank_supports_keyword_only_documents_signature(monkeypatch):
+    reranker = _build_reranker()
+
+    def _fake_post(url: str, json: Dict[str, Any], headers: Dict[str, str], timeout: Any):
+        return _FakeResponse({
+            'results': [
+                {'index': 0, 'relevance_score': 0.3},
+                {'index': 1, 'relevance_score': 0.7},
+            ]
+        })
+
+    monkeypatch.setattr(reranker._session, 'post', _fake_post)
+
+    results = reranker.forward(query='who wrote this?', documents=['doc-a', 'doc-b'], top_n=1)
+
+    assert results == [(1, 0.7)]
+
+
 def test_qwen3_rerank_supports_documents_query_signature(monkeypatch):
     reranker = _build_reranker()
 
@@ -86,6 +104,7 @@ def test_qwen3_rerank_returns_empty_for_empty_documents():
 
     assert reranker.forward('query', documents=[]) == []
     assert reranker.forward([], query='query') == []
+    assert reranker.forward(query='query', documents=[]) == []
 
 
 def test_qwen3_rerank_preserves_legacy_nodes_signature(monkeypatch):
@@ -107,3 +126,21 @@ def test_qwen3_rerank_preserves_legacy_nodes_signature(monkeypatch):
 
     assert [node.text for node in results] == ['second', 'third']
     assert results[0].relevance_score == 0.8
+
+
+def test_qwen3_rerank_respects_zero_topn(monkeypatch):
+    reranker = _build_reranker()
+
+    def _fake_post(url: str, json: Dict[str, Any], headers: Dict[str, str], timeout: Any):
+        return _FakeResponse({
+            'results': [
+                {'index': 0, 'relevance_score': 0.1},
+                {'index': 1, 'relevance_score': 0.9},
+            ]
+        })
+
+    monkeypatch.setattr(reranker._session, 'post', _fake_post)
+    nodes = [DocNode(text='first'), DocNode(text='second')]
+
+    assert reranker.forward('query', documents=['doc-a', 'doc-b'], top_n=0) == []
+    assert reranker.forward(nodes, query='query', topk=0) == []
