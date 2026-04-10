@@ -191,6 +191,23 @@ export default function MainLayout() {
     },
   };
 
+  const clearPasswordFields = () => {
+    profileForm.setFieldsValue({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+  };
+
+  const schedulePasswordFieldClear = () => {
+    window.setTimeout(() => {
+      clearPasswordFields();
+    }, 0);
+    window.setTimeout(() => {
+      clearPasswordFields();
+    }, 300);
+  };
+
   const applyProfileToForm = (detail: UserDetailResponse) => {
     profileForm.setFieldsValue({
       username: detail.username,
@@ -200,10 +217,8 @@ export default function MainLayout() {
       remark: (detail as any).remark || "",
       roleName: detail.role_name || "",
       status: detail.status || "",
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
     });
+    clearPasswordFields();
   };
 
   const refreshCurrentProfile = async () => {
@@ -416,11 +431,17 @@ export default function MainLayout() {
         confirmLoading={profileSubmitting}
         destroyOnHidden
         maskClosable={false}
+        afterOpenChange={(open) => {
+          if (open) {
+            schedulePasswordFieldClear();
+          }
+        }}
       >
         <Form
           form={profileForm}
           layout="vertical"
           disabled={profileLoading || profileSubmitting}
+          autoComplete="off"
         >
           <Form.Item name="username" label={t("profile.username")}>
             <Input disabled autoComplete="username" />
@@ -463,7 +484,8 @@ export default function MainLayout() {
           >
             <Input.Password
               placeholder={t("profile.pleaseInputCurrentPassword")}
-              autoComplete="current-password"
+              autoComplete="new-password"
+              name="profile-current-password"
             />
           </Form.Item>
           <Form.Item
@@ -475,6 +497,7 @@ export default function MainLayout() {
             <Input.Password
               placeholder={t("profile.pleaseInputNewPassword")}
               autoComplete="new-password"
+              name="profile-new-password"
             />
           </Form.Item>
           <Form.Item
@@ -486,6 +509,7 @@ export default function MainLayout() {
             <Input.Password
               placeholder={t("profile.pleaseInputConfirmPassword")}
               autoComplete="new-password"
+              name="profile-confirm-password"
             />
           </Form.Item>
         </Form>
