@@ -14,7 +14,7 @@ def normalize_table_image_map(value: Any) -> List[Dict[str, str]]:
         except (TypeError, ValueError):
             return []
     if isinstance(value, dict):
-        return [{'content': k, 'image': v} for k, v in value.items()]
+        return [{'content': str(k), 'image': str(v)} for k, v in value.items()]
     if not isinstance(value, list):
         return []
     result = []
