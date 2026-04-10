@@ -7,6 +7,7 @@ import {
   MessageFilled,
   AppstoreOutlined,
   TeamOutlined,
+  GlobalOutlined,
 } from "@ant-design/icons";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { UserDetailResponse } from "@/api/generated/auth-client";
@@ -310,11 +311,7 @@ export default function MainLayout() {
             {logoSrc ? (
               <img src={logoSrc} alt="logo" />
             ) : (
-              <img
-                src={logoImage}
-                alt="logo"
-                style={{ width: 40, height: "auto" }}
-              />
+              <img src={logoImage} alt="logo" />
             )}
           </div>
           <Menu
@@ -326,7 +323,8 @@ export default function MainLayout() {
             style={{ border: "none" }}
           />
           <div className="sider-bar-bottom">
-            <div className="bottom-item">
+            <div className="bottom-item language-item">
+              <GlobalOutlined className="bottom-icon" />
               <LanguageSwitcher />
             </div>
             <Popover
