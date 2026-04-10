@@ -84,6 +84,27 @@ def test_refresh_invalid(client: TestClient):
     assert r.status_code == 401
 
 
+def test_logout_rejects_other_users_refresh_token(client: TestClient):
+    client.post('/api/auth/register', json={'username': 'logout_a', 'password': 'p'})
+    client.post('/api/auth/register', json={'username': 'logout_b', 'password': 'p'})
+
+    login_a = client.post('/api/auth/login', json={'username': 'logout_a', 'password': 'p'})
+    login_b = client.post('/api/auth/login', json={'username': 'logout_b', 'password': 'p'})
+
+    access_token_a = login_a.json()['access_token']
+    refresh_token_b = login_b.json()['refresh_token']
+
+    logout = client.post(
+        '/api/auth/logout',
+        json={'refresh_token': refresh_token_b},
+        headers={'Authorization': f'Bearer {access_token_a}'},
+    )
+    assert logout.status_code == 401
+
+    refresh = client.post('/api/auth/refresh', json={'refresh_token': refresh_token_b})
+    assert refresh.status_code == 200
+
+
 def test_authorize_no_required_permission(client: TestClient):
     """When API_PERMISSIONS_MAP has no entry, allow all."""
     r = client.post('/api/auth/authorize', json={'method': 'GET', 'path': '/unknown'})

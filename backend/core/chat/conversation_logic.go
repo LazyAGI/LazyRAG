@@ -280,19 +280,69 @@ func buildChatRequestBody(convID, query string, histories []orm.ChatHistory, raw
 		conv, _ := raw["conversation"].(map[string]any)
 		if conv != nil {
 			if sc, _ := conv["search_config"].(map[string]any); sc != nil {
-				if ids, ok := sc["dataset_ids"].([]any); ok && len(ids) > 0 {
-					kbID := make([]string, 0, len(ids))
-					for _, id := range ids {
-						if s, ok := id.(string); ok {
-							kbID = append(kbID, s)
-						}
-					}
-					body["filters"] = map[string]any{"kb_id": kbID}
+				filters := map[string]any{}
+				if kbIDs := datasetIDsFromSearchConfig(sc); len(kbIDs) > 0 {
+					filters["kb_id"] = kbIDs
+				}
+				if creators := stringSliceFromAny(sc["creators"]); len(creators) > 0 {
+					filters["creator"] = creators
+				}
+				if tags := stringSliceFromAny(sc["tags"]); len(tags) > 0 {
+					filters["tags"] = tags
+				}
+				if len(filters) > 0 {
+					body["filters"] = filters
 				}
 			}
 		}
 	}
 	return body
+}
+
+func datasetIDsFromSearchConfig(sc map[string]any) []string {
+	if ids := stringSliceFromAny(sc["dataset_ids"]); len(ids) > 0 {
+		return ids
+	}
+
+	rawList, _ := sc["dataset_list"].([]any)
+	if len(rawList) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(rawList))
+	for _, item := range rawList {
+		selector, _ := item.(map[string]any)
+		if selector == nil {
+			continue
+		}
+		id, _ := selector["id"].(string)
+		if strings.TrimSpace(id) != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
+}
+
+func stringSliceFromAny(v any) []string {
+	raw, _ := v.([]any)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(raw))
+	for _, item := range raw {
+		s, _ := item.(string)
+		if strings.TrimSpace(s) != "" {
+			result = append(result, s)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func handleNonStreamChat(
