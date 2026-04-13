@@ -346,6 +346,9 @@ func fetchUserGroupIDsFromAuthService(ctx context.Context, userID string) []stri
 		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("build auth-service request failed")
 		return nil
 	}
+	if tok := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN")); tok != "" {
+		req.Header.Set("X-LazyRAG-Internal-Token", tok)
+	}
 	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
 	if err != nil {
 		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("fetch user groups from auth-service failed")

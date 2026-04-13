@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from core.deps import current_user
+from core.deps import current_user, require_internal_service_token
 from core.errors import ErrorCodes, raise_error
 from core.rbac import permission_required
 from models import User
@@ -93,7 +93,10 @@ def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user
 
 
 @router.get('/{user_id}/groups/internal', response_model=UserGroupListResponse)
-def list_user_groups_internal(user_id: str):
+def list_user_groups_internal(
+    user_id: str,
+    _internal: None = Depends(require_internal_service_token),  # noqa: B008
+):
     uid = _parse_user_id(user_id)
     return {'groups': group_service.list_user_groups(uid)}
 

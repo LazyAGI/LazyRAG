@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -36,6 +35,9 @@ import (
 // - schema B (readonly, maintained by lazy-llm-server): lazy_llm_server.lazyllm_*
 
 var fuzzyPunctRe = regexp.MustCompile(`[._\-\s（）()]+`)
+
+// fuzzySearchMaxCandidates caps DB rows loaded for in-memory fuzzy scoring (avoids OOM).
+const fuzzySearchMaxCandidates = 5000
 
 func requireDatasetPermission(r *http.Request, datasetID string, action string) (*orm.Dataset, string, bool) {
 	userID := strings.TrimSpace(store.UserID(r))
@@ -1284,7 +1286,7 @@ func searchAllDocumentsMerged(ctx context.Context, params searchAllDocumentsPara
 		queryKeyword = ""
 		queryKeywordList = nil
 		offset = 0
-		limit = math.MaxInt32
+		limit = fuzzySearchMaxCandidates
 	}
 
 	rows, total, err := loadMergedDocumentsBySearch(ctx, params.DatasetIDs, queryKeyword, queryKeywordList, limit, offset)

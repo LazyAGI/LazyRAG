@@ -59,7 +59,8 @@ var (
 func ExportConversations(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(store.UserID(r))
 	if userID == "" {
-		userID = "0"
+		common.ReplyErr(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
 	var req ExportConversationsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -127,7 +128,8 @@ func ExportConversations(w http.ResponseWriter, r *http.Request) {
 func DownloadExportConversationFile(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(store.UserID(r))
 	if userID == "" {
-		userID = "0"
+		common.ReplyErr(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
 	fileID := strings.TrimSpace(common.PathVar(r, "file_id"))
 	if fileID == "" {

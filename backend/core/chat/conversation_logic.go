@@ -432,9 +432,7 @@ func handleNonStreamChat(
 	}
 	db.Model(&orm.Conversation{}).Where("id = ?", convID).Update("updated_at", now)
 	if !target.IsRegeneration {
-		if !target.IsRegeneration {
-			db.Model(&orm.Conversation{}).Where("id = ?", convID).UpdateColumn("chat_times", gorm.Expr("chat_times + ?", 1))
-		}
+		db.Model(&orm.Conversation{}).Where("id = ?", convID).UpdateColumn("chat_times", gorm.Expr("chat_times + ?", 1))
 	}
 	common.ReplyOK(w, map[string]any{
 		"conversation_id": convID,
