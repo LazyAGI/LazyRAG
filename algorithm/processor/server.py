@@ -2,8 +2,8 @@ import signal
 import threading
 
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
-from common.db import require_shared_db_config
-from common.env import env_int
+from processor.db import require_shared_db_config
+from processor.env import env_int
 
 
 db_config = require_shared_db_config('DocumentProcessor')

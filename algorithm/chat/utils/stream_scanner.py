@@ -10,11 +10,7 @@ from rapidfuzz import fuzz
 
 from chat.utils.url import get_url_basename
 
-__all__ = ['BasePlugin', 'CitationPlugin', 'ImagePlugin', 'IncrementalScanner']
-
-
 IMAGE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
-
 # Qwen-style think delimiters (lengths 7 and 8; must stay in sync with parsers elsewhere)
 _THINK_OPEN = '<think>'
 _THINK_CLOSE = '</think>'

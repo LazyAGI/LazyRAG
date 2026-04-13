@@ -5,7 +5,6 @@ import functools
 import itertools
 import json
 import re
-import os
 from concurrent.futures import ThreadPoolExecutor
 from lazyllm import LOG, bind, loop, pipeline, switch
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -15,9 +14,7 @@ from pathlib import Path
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from common.model import build_model, get_runtime_model_settings
-
-from chat.modules.engineering.simple_llm import SimpleLlmComponent
+from chat.pipelines.builders.get_models import get_automodel
 from chat.prompts.agentic import (
     EVALUATOR_PROMPT,
     EXTRACTOR_PROMPT,
@@ -26,17 +23,14 @@ from chat.prompts.agentic import (
     PLANNER_PROMPT,
     TOOLCALL_PROMPT,
 )
-from chat.modules.engineering.tool_registry import (
+from chat.components.tmp.tool_registry import (
     get_all_tool_schemas,
     get_tool_instance,
     get_tool_schema,
 )
-from chat.modules.engineering.output_parser import CustomOutputParser
-from chat.modules.engineering.workflow_utils import (
-    PlanStep,
-    TaskContext,
-    tool_schema_to_string,
-)
+from chat.components.generate.output_parser import CustomOutputParser
+from chat.utils.schema import PlanStep, TaskContext
+from chat.utils.helpers import tool_schema_to_string
 
 
 # global params and func
@@ -53,16 +47,15 @@ def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'in
 
 @functools.lru_cache(maxsize=1)
 def get_agentic_llms():
-    settings = get_runtime_model_settings()
-    llm = build_model(settings.llm)
+    llm = get_automodel('llm')
     llm._prompt._set_model_configs(system='You are an intelligent assistant, \
                                    strictly following user instructions to execute tasks.')
-
-    llm_instruct = build_model(settings.llm_instruct)
+    llm_instruct = get_automodel('llm_instruct')
     llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
         and you must strictly follow the given requirements to complete the tasks.\
         The output language should be the same as the input language.')
-    return llm, llm_instruct, SimpleLlmComponent(llm=llm_instruct)
+    llm_gen = get_automodel('llm_instruct', wrap_simple_llm=True)
+    return llm, llm_instruct, llm_gen
 
 
 # utils
@@ -418,7 +411,9 @@ async def astream_iterator(agent, state):
                 await asyncio.sleep(0.1)
 
 
-agent = get_ppl_agentic()
+@functools.lru_cache(maxsize=1)
+def _get_agent():
+    return get_ppl_agentic()
 
 
 def agentic_rag(global_params, tool_params, stream=False, **kwargs):
@@ -434,6 +429,7 @@ def agentic_rag(global_params, tool_params, stream=False, **kwargs):
     state.global_params = global_params
     state.tool_params = tool_params
     state.middle_results.agg_results = {}
+    agent = _get_agent()
     if stream:
         as_iter = astream_iterator(agent, state)
         agg_nodes = state.middle_results.agg_results
