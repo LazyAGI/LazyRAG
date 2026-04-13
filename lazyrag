@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# LazyRAG CLI wrapper — delegates to cli/ Python package.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if command -v python3 &>/dev/null; then
+    PYTHON=python3
+elif command -v python &>/dev/null; then
+    PYTHON=python
+else
+    echo "error: python not found" >&2
+    exit 1
+fi
+
+export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON" -m cli "$@"
