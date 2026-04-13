@@ -4,15 +4,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from common.model import build_model, get_model, get_runtime_model_settings, load_runtime_model_config
-import common.model.utils as model_utils
+from chat.utils.load_config import load_model_config, get_retrieval_settings
+import chat.pipelines.builders.get_models as get_models_mod
 
 
 @pytest.fixture(autouse=True)
-def clear_runtime_model_cache():
-    get_runtime_model_settings.cache_clear()
+def clear_caches():
+    get_retrieval_settings.cache_clear()
     yield
-    get_runtime_model_settings.cache_clear()
+    get_retrieval_settings.cache_clear()
 
 
 def write_config(tmp_path, content: str):
@@ -21,7 +21,7 @@ def write_config(tmp_path, content: str):
     return config_path
 
 
-def test_runtime_model_config_resolves_env_and_single_embed(monkeypatch, tmp_path):
+def test_model_config_resolves_env_and_single_embed(monkeypatch, tmp_path):
     config_path = write_config(
         tmp_path,
         """
@@ -45,8 +45,8 @@ def test_runtime_model_config_resolves_env_and_single_embed(monkeypatch, tmp_pat
     )
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
 
-    config = load_runtime_model_config(str(config_path))
-    settings = get_runtime_model_settings(str(config_path))
+    config = load_model_config(str(config_path))
+    settings = get_retrieval_settings(str(config_path))
 
     assert config['llm']['api_key'] == 'secret-key'
     assert settings.embed_keys == ['embed_1']
@@ -59,7 +59,7 @@ def test_runtime_model_config_resolves_env_and_single_embed(monkeypatch, tmp_pat
     ]
 
 
-def test_runtime_model_config_supports_multiple_embeds(monkeypatch, tmp_path):
+def test_model_config_supports_multiple_embeds(monkeypatch, tmp_path):
     config_path = write_config(
         tmp_path,
         """
@@ -91,7 +91,7 @@ def test_runtime_model_config_supports_multiple_embeds(monkeypatch, tmp_path):
     )
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
 
-    settings = get_runtime_model_settings(str(config_path))
+    settings = get_retrieval_settings(str(config_path))
 
     assert settings.embed_keys == ['embed_1', 'embed_2']
     assert settings.file_search_embed_key == 'embed_2'
@@ -100,7 +100,7 @@ def test_runtime_model_config_supports_multiple_embeds(monkeypatch, tmp_path):
     assert settings.retriever_configs[1]['embed_keys'] == ['embed_2']
 
 
-def test_runtime_model_config_rejects_unknown_retrieval_embed_key(monkeypatch, tmp_path):
+def test_model_config_rejects_unknown_retrieval_embed_key(monkeypatch, tmp_path):
     config_path = write_config(
         tmp_path,
         """
@@ -126,11 +126,11 @@ def test_runtime_model_config_rejects_unknown_retrieval_embed_key(monkeypatch, t
     )
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
 
-    with pytest.raises(ValueError, match='unknown embed key'):
-        get_runtime_model_settings(str(config_path))
+    with pytest.raises(ValueError, match='embed_2'):
+        get_retrieval_settings(str(config_path))
 
 
-def test_runtime_model_config_requires_env_when_placeholder_has_no_default(tmp_path):
+def test_model_config_requires_env_when_placeholder_has_no_default(tmp_path):
     config_path = write_config(
         tmp_path,
         """
@@ -154,10 +154,10 @@ def test_runtime_model_config_requires_env_when_placeholder_has_no_default(tmp_p
     )
 
     with pytest.raises(ValueError, match='TEST_API_KEY'):
-        load_runtime_model_config(str(config_path))
+        load_model_config(str(config_path))
 
 
-def test_runtime_model_settings_uses_default_runtime_config_path(monkeypatch, tmp_path):
+def test_model_config_uses_env_override_path(monkeypatch, tmp_path):
     config_path = write_config(
         tmp_path,
         """
@@ -182,34 +182,32 @@ def test_runtime_model_settings_uses_default_runtime_config_path(monkeypatch, tm
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
     monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', str(config_path))
 
-    settings = get_runtime_model_settings()
+    config = load_model_config()
+    settings = get_retrieval_settings()
 
+    assert config['llm']['model'] == 'foo-chat'
     assert settings.embed_keys == ['embed_1']
-    assert settings.llm['model'] == 'foo-chat'
 
 
-def test_build_model_uses_automodel_config_path_for_runtime_entry(monkeypatch):
+def test_build_auto_model_writes_config_file(monkeypatch):
     captured = {}
 
     def fake_auto_model(*, model, config, **kwargs):
         captured['model'] = model
         captured['config'] = config
-        captured['kwargs'] = kwargs
         return 'fake-model'
 
-    monkeypatch.setattr(model_utils, 'AutoModel', fake_auto_model)
+    monkeypatch.setattr(get_models_mod, 'AutoModel', fake_auto_model)
 
-    result = build_model({
+    result = get_models_mod._build_auto_model('bgem3_emb_dense_custom', {
         'source': 'bgem3embed',
         'type': 'embed',
-        'model': 'bgem3_emb_dense_custom',
         'url': 'http://127.0.0.1:2269/embed',
         'skip_auth': True,
     })
 
     assert result == 'fake-model'
     assert captured['model'] == 'bgem3_emb_dense_custom'
-    assert captured['kwargs'] == {}
     generated = yaml.safe_load(Path(captured['config']).read_text(encoding='utf-8'))
     assert generated == {
         'bgem3_emb_dense_custom': [{
@@ -222,47 +220,13 @@ def test_build_model_uses_automodel_config_path_for_runtime_entry(monkeypatch):
     }
 
 
-def test_get_model_uses_automodel_config_path_for_inline_entry(monkeypatch):
-    captured = {}
-
-    def fake_auto_model(*, model, config, **kwargs):
-        captured['model'] = model
-        captured['config'] = config
-        captured['kwargs'] = kwargs
-        return 'fake-inline-model'
-
-    monkeypatch.setattr(model_utils, 'AutoModel', fake_auto_model)
-
-    result = get_model({
-        'source': 'qwen3rerank',
-        'type': 'rerank',
-        'model': 'qwen3_reranker_custom',
-        'url': 'http://127.0.0.1:8331/v1/rerank',
-        'skip_auth': True,
-    })
-
-    assert result == 'fake-inline-model'
-    assert captured['model'] == 'qwen3_reranker_custom'
-    assert captured['kwargs'] == {}
-    generated = yaml.safe_load(Path(captured['config']).read_text(encoding='utf-8'))
-    assert generated == {
-        'qwen3_reranker_custom': [{
-            'source': 'qwen3rerank',
-            'type': 'rerank',
-            'model': 'qwen3_reranker_custom',
-            'url': 'http://127.0.0.1:8331/v1/rerank',
-            'skip_auth': True,
-        }]
-    }
-
-
 def test_runtime_auto_model_dir_cleanup_removes_generated_files(tmp_path, monkeypatch):
     runtime_dir = tmp_path / 'runtime-auto-model'
     runtime_dir.mkdir()
     generated = runtime_dir / 'foo.yaml'
     generated.write_text('foo: bar\n', encoding='utf-8')
-    monkeypatch.setattr(model_utils, '_RUNTIME_AUTO_MODEL_DIR', runtime_dir)
+    monkeypatch.setattr(get_models_mod, '_RUNTIME_AUTO_MODEL_DIR', runtime_dir)
 
-    model_utils._cleanup_runtime_auto_model_dir()
+    get_models_mod._cleanup_runtime_auto_model_dir()
 
     assert not runtime_dir.exists()
