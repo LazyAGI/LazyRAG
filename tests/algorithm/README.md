@@ -19,6 +19,6 @@ python -m pytest tests/algorithm/ -v
 
 ## Strategy
 
-- **common/db**: Pure functions, no mocks.
+- **processor/db**: Pure functions, no mocks.
 - **chat**: Tests History/ChatResponse models; full endpoint test requires Document/LLM (or mocks).
 - **parsing/processor**: Require Milvus, OpenSearch, DB - use integration tests or docker-compose.
