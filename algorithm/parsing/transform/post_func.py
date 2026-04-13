@@ -8,6 +8,7 @@ from typing import Any, List, Union
 import lazyllm
 from lazyllm import ModuleBase, LOG
 from lazyllm.tools.rag import DocNode
+from processor.table_image_map import merge_table_image_maps, normalize_table_image_map, serialize_table_image_map
 
 
 class ParagraphType:
@@ -232,7 +233,9 @@ class TableConverterNode(ModuleBase):
                 # 设置table_image_map
                 if table_image:
                     node.metadata['table_image'] = table_image
-                    node.metadata['table_image_map'] = {markdown_table: table_image}
+                    node.metadata['table_image_map'] = serialize_table_image_map(
+                        [{'content': markdown_table, 'image': table_image}]
+                    )
                 node.metadata.pop('table_body', None)
         return document
 
@@ -453,9 +456,11 @@ class GroupNodeParser(ModuleBase):
                 content = f'{table_caption}\n{content}'
             if table_footnote and not content.rstrip().endswith(table_footnote):
                 content = f'{content.rstrip()}\n\n{table_footnote}'
-            if metadata.get('table_image_map', None):
-                image_path = list(metadata['table_image_map'].values())[0]
-                metadata['table_image_map'] = {content: image_path}
+            table_image_map = normalize_table_image_map(metadata.get('table_image_map'))
+            if table_image_map:
+                metadata['table_image_map'] = serialize_table_image_map(
+                    [{'content': content, 'image': table_image_map[0]['image']}]
+                )
 
         # 创建新节点，继承原节点的metadata
         new_node = DocNode(text=content, metadata=copy.deepcopy(metadata))
@@ -541,13 +546,13 @@ class MergeNodeParser(ModuleBase):
         bboxs = []
         context = []
         lines = []
-        table_image_map = {}
+        table_image_map = []
         for node in nodes:
             if not node._content.strip():
                 continue
             context.append(node._content)
             if node.metadata.get('table_image_map', None):
-                table_image_map.update(node.metadata['table_image_map'])
+                table_image_map = merge_table_image_maps(table_image_map, node.metadata['table_image_map'])
             if node.metadata.get('page', None) is not None and node.metadata.get('bbox', None):
                 bboxs.append([node.metadata.get('page')] + node.metadata.get('bbox'))
                 lines.append({
@@ -560,7 +565,7 @@ class MergeNodeParser(ModuleBase):
             return None
         metadata['lines'] = lines
         if table_image_map:
-            metadata['table_image_map'] = table_image_map
+            metadata['table_image_map'] = serialize_table_image_map(table_image_map)
 
         if bboxs:
             bbox = self._merge_bbox(bboxs)

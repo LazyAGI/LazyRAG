@@ -6,7 +6,8 @@ from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
-from common.model import build_embedding_models, get_runtime_model_settings
+from chat.pipelines.builders.get_models import get_automodel
+from chat.utils.load_config import get_retrieval_settings
 from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
 ALGO_ID = 'general_algo'
@@ -94,8 +95,8 @@ def _build_pdf_reader():
 def build_document() -> Document:
     processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
     server_port = get_algo_server_port()
-    settings = get_runtime_model_settings()
-    embed = build_embedding_models(settings)
+    settings = get_retrieval_settings()
+    embed = {k: get_automodel(k) for k in settings.embed_keys}
 
     docs = Document(
         dataset_path=None,
