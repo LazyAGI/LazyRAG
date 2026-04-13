@@ -1,0 +1,73 @@
+# Runtime model config for ECS/internal services.
+# This template assumes the internal endpoints are OpenAI-compatible or already
+# exposed in a shape AutoModel can consume directly.
+
+# Default chat LLM.
+# Previously aligned with: qwen3_32b_custom
+llm:
+  source: openai
+  type: llm
+  model: lazyllm
+  url: http://10.119.29.126:25121/v1/
+  skip_auth: true
+
+# Instruction / reasoning LLM.
+# Previously aligned with: qwen3_moe_custom
+llm_instruct:
+  source: openai
+  type: llm
+  model: lazyllm
+  url: http://10.119.21.177:8000/v1/
+  skip_auth: true
+
+# Reranker.
+# Previously aligned with: qwen3_reranker_custom
+reranker:
+  source: qwen3rerank
+  type: rerank
+  model: Qwen3-Reranker-8B
+  url: http://10.119.24.104:8331/v1/rerank
+  skip_auth: true
+
+embeddings:
+  # Dense vector embedding.
+  # Key must match what the remote document server was indexed with.
+  bge_m3_dense:
+    source: bgem3embed
+    type: embed
+    model: bgem3_emb_dense_custom
+    url: http://10.119.27.151:2269/embed
+    skip_auth: true
+    index_kwargs:
+      index_type: IVF_FLAT
+      metric_type: COSINE
+      params:
+        nlist: 128
+
+  # Sparse vector embedding.
+  bge_m3_sparse:
+    source: bgem3embed
+    type: embed
+    model: bgem3_emb_sparse_custom
+    url: http://10.119.27.151:2269/sparse_embed
+    skip_auth: true
+    index_kwargs:
+      index_type: SPARSE_INVERTED_INDEX
+      metric_type: IP
+
+retrieval:
+  temp_doc_embed_key: bge_m3_dense
+  file_search_embed_key: bge_m3_sparse
+
+  # The default behavior already builds:
+  # - line -> block for each enabled embed key
+  # - block for each enabled embed key
+  # Uncomment below only if you need to pin an explicit multi-route order.
+  # retriever_configs:
+  #   - group_name: line
+  #     embed_keys: [embed_1]
+  #     topk: 20
+  #     target: block
+  #   - group_name: block
+  #     embed_keys: [embed_1]
+  #     topk: 20

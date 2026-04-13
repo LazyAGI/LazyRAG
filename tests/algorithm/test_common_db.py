@@ -1,11 +1,10 @@
 """
-Unit tests for algorithm/common/db.py (parse_db_url, get_doc_task_db_config).
+Unit tests for algorithm/processor/db.py (parse_db_url, get_doc_task_db_config).
 No external deps - pure functions.
 """
-import os
 import pytest
 
-from common.db import parse_db_url, get_doc_task_db_config
+from processor.db import parse_db_url, get_doc_task_db_config
 
 
 def test_parse_db_url_empty():

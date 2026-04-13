@@ -116,7 +116,7 @@ db
 
 ## 运行时模型配置
 
-- 默认配置文件为 `algorithm/configs/runtime_models.yaml`。
+- 默认配置文件为 `algorithm/chat/runtime_models.yaml`。设置 `LAZYRAG_USE_INNER_MODEL=true` 可切换为内网部署配置（`runtime_models.inner.yaml`）。
 - 直接在该文件中配置 `llm`、`llm_instruct`、`reranker`、`embed_1~embed_3` 的 `source/api_key/model/type/url`。
 - 建议把真实密钥写成环境变量引用，例如 `${LAZYLLM_SILICONFLOW_API_KEY}`，不要提交明文密钥。
 - 需要用临时配置联调时，可设置 `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`；`docker-compose.yml` 已将仓库 `tmp/` 挂载到容器内 `/app/tmp`。
