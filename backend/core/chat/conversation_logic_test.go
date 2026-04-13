@@ -1,6 +1,28 @@
 package chat
 
-import "testing"
+import (
+	"strconv"
+	"strings"
+	"testing"
+)
+
+func TestBuildChatRequestBodyUsesConversationIDDerivedSessionID(t *testing.T) {
+	body := buildChatRequestBody("conv-1", "hello", nil, map[string]any{})
+	sessionID, ok := body["session_id"].(string)
+	if !ok {
+		t.Fatalf("expected session_id string, got %T", body["session_id"])
+	}
+	if !strings.HasPrefix(sessionID, "conv-1_") {
+		t.Fatalf("expected session_id to start with conversation id, got %q", sessionID)
+	}
+	suffix := strings.TrimPrefix(sessionID, "conv-1_")
+	if suffix == "" {
+		t.Fatalf("expected timestamp suffix in session_id, got %q", sessionID)
+	}
+	if _, err := strconv.ParseInt(suffix, 10, 64); err != nil {
+		t.Fatalf("expected millisecond timestamp suffix, got %q: %v", suffix, err)
+	}
+}
 
 func TestBuildChatRequestBodyUsesDatasetListFilters(t *testing.T) {
 	body := buildChatRequestBody("conv-1", "hello", nil, map[string]any{
