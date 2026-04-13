@@ -154,7 +154,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
           if (uris?.length) {
             const fileId = getExportFileId(uris[0]);
             if (!fileId) {
-              message.error("导出文件地址异常");
+              message.error(t("chat.exportFileUrlInvalid"));
               return;
             }
             const downloadRes =

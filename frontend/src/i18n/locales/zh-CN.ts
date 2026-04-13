@@ -213,6 +213,7 @@ const zhCN = {
     bothBad: "都不好",
     deleteConversationSuccess: "删除会话成功",
     noConversationToExport: "没有可导出的会话记录",
+    exportFileUrlInvalid: "导出文件地址异常",
     searchConversation: "搜索对话",
     selectConversationToExport: "请先选择要导出的会话",
     export: "导出",

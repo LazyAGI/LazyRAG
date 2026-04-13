@@ -222,6 +222,7 @@ const enUS = {
     bothBad: "Neither is good",
     deleteConversationSuccess: "Conversation deleted successfully",
     noConversationToExport: "No conversation records available for export",
+    exportFileUrlInvalid: "Invalid export file URL",
     searchConversation: "Search conversations",
     selectConversationToExport: "Please select conversations to export first",
     export: "Export",
