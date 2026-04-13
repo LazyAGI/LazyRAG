@@ -25,6 +25,14 @@ const (
 	defaultTopK                      = 3
 )
 
+func marshalRetrievalResult(sources []any) json.RawMessage {
+	payload, err := json.Marshal(map[string]any{"sources": sources})
+	if err != nil {
+		return nil
+	}
+	return payload
+}
+
 // newID text history text ID。
 func newID(prefix string) string {
 	return prefix + strconvBase36(time.Now().UnixNano())
@@ -372,12 +380,15 @@ func handleNonStreamChat(
 	}
 	_ = json.Unmarshal(respBytes, &pyResp)
 	answer := ""
+	var sources []any
 	if pyResp.Code == 200 && len(pyResp.Data) > 0 {
 		var data struct {
-			Text string `json:"text"`
+			Text    string `json:"text"`
+			Sources []any  `json:"sources"`
 		}
 		if json.Unmarshal(pyResp.Data, &data) == nil {
 			answer = strings.TrimSpace(data.Text)
+			sources = data.Sources
 		}
 		if answer == "" {
 			answer = strings.TrimSpace(string(pyResp.Data))
@@ -391,18 +402,20 @@ func handleNonStreamChat(
 		historyID = newID("h_")
 	}
 	now := time.Now()
+	retrievalResult := marshalRetrievalResult(sources)
 	hist := orm.ChatHistory{
-		ID:             historyID,
-		Seq:            target.Seq,
-		ConversationID: convID,
-		RawContent:     query,
-		Content:        query,
-		Result:         answer,
-		FeedBack:       0,
-		Reason:         "",
-		ExpectedAnswer: "",
-		Ext:            nil,
-		TimeMixin:      orm.TimeMixin{CreateTime: now, UpdateTime: now},
+		ID:              historyID,
+		Seq:             target.Seq,
+		ConversationID:  convID,
+		RawContent:      query,
+		RetrievalResult: retrievalResult,
+		Content:         query,
+		Result:          answer,
+		FeedBack:        0,
+		Reason:          "",
+		ExpectedAnswer:  "",
+		Ext:             nil,
+		TimeMixin:       orm.TimeMixin{CreateTime: now, UpdateTime: now},
 	}
 	if target.IsRegeneration && target.Existing != nil {
 		hist.TimeMixin.CreateTime = target.Existing.CreateTime
@@ -411,7 +424,7 @@ func handleNonStreamChat(
 			"raw_content":      query,
 			"content":          query,
 			"result":           answer,
-			"retrieval_result": nil,
+			"retrieval_result": retrievalResult,
 			"feed_back":        0,
 			"reason":           "",
 			"expected_answer":  "",
@@ -585,6 +598,7 @@ func streamSingleAnswer(
 		}
 	}
 	now := time.Now()
+	retrievalResult := marshalRetrievalResult(sources)
 	extPayload, _ := json.Marshal(map[string]any{
 		"reasoning_content": fullReasoning,
 	})
@@ -594,7 +608,7 @@ func streamSingleAnswer(
 			"raw_content":      query,
 			"content":          query,
 			"result":           fullText,
-			"retrieval_result": nil,
+			"retrieval_result": retrievalResult,
 			"feed_back":        0,
 			"reason":           "",
 			"expected_answer":  "",
@@ -603,14 +617,15 @@ func streamSingleAnswer(
 		}).Error
 	} else {
 		_ = db.Create(&orm.ChatHistory{
-			ID:             historyID,
-			Seq:            seq,
-			ConversationID: convID,
-			RawContent:     query,
-			Content:        query,
-			Result:         fullText,
-			Ext:            extPayload,
-			TimeMixin:      orm.TimeMixin{CreateTime: now, UpdateTime: now},
+			ID:              historyID,
+			Seq:             seq,
+			ConversationID:  convID,
+			RawContent:      query,
+			RetrievalResult: retrievalResult,
+			Content:         query,
+			Result:          fullText,
+			Ext:             extPayload,
+			TimeMixin:       orm.TimeMixin{CreateTime: now, UpdateTime: now},
 		}).Error
 	}
 	if rdb != nil {
