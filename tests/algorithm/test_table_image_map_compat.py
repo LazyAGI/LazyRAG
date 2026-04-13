@@ -1,5 +1,5 @@
-from chat.modules.engineering.aggregate import AggregateComponent
-from chat.modules.engineering.output_parser import CustomOutputParser
+from chat.components.generate.aggregate import AggregateComponent
+from chat.components.generate.output_parser import CustomOutputParser
 from lazyllm.tools.rag import DocNode
 from processor.table_image_map import normalize_table_image_map, serialize_table_image_map
 
