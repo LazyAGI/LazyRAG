@@ -64,6 +64,27 @@ def _build_api_error(
     return ApiError(status_code, str(message), parsed)
 
 
+def _normalize_response_payload(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Unwrap service envelopes while preserving error semantics."""
+    code = parsed.get('code')
+    if not isinstance(code, int) or 'message' not in parsed:
+        return parsed
+
+    if code not in (0, 200):
+        raise ApiError(
+            code,
+            str(parsed.get('message') or 'request failed'),
+            parsed,
+        )
+
+    data = parsed.get('data')
+    if isinstance(data, dict):
+        return data
+    if data is None:
+        return {}
+    return {'data': data}
+
+
 # ---------------------------------------------------------------------------
 # generic request
 # ---------------------------------------------------------------------------
@@ -101,15 +122,7 @@ def raw_request(
         raise RuntimeError(f'Cannot reach {url}: {exc}') from exc
 
     parsed = _decode_body(resp_body)
-    # core service envelope: {code: 1, message: "..."} means error
-    code = parsed.get('code')
-    if isinstance(code, int) and code != 0 and 'message' in parsed:
-        raise ApiError(
-            code,
-            str(parsed.get('message') or 'request failed'),
-            parsed,
-        )
-    return parsed
+    return _normalize_response_payload(parsed)
 
 
 # ---------------------------------------------------------------------------

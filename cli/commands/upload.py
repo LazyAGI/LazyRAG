@@ -10,6 +10,7 @@ from cli.client import ApiError, auth_request, auth_upload, print_json
 from cli.config import CORE_API_PREFIX
 
 RUNNING_TASK_STATES = {'CREATING', 'RUNNING', 'QUEUED', 'WAITING', 'WORKING'}
+SUCCESS_TASK_STATES = {'SUCCESS', 'SUCCEEDED'}
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +252,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
                 'err_msg': t.get('err_msg'),
             }
             for tid, t in finished.items()
-            if t.get('task_state') != 'SUCCEEDED'
+            if t.get('task_state') not in SUCCESS_TASK_STATES
         ]
         print(
             f'Task summary: total={len(finished)} '

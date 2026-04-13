@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Ensure repo root is on sys.path so ``import cli`` works.
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -12,7 +13,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from cli import credentials as creds_mod  # noqa: E402
-from cli.client import ApiError, build_multipart_body  # noqa: E402
+from cli.client import ApiError, build_multipart_body, raw_request  # noqa: E402
+from cli.commands import upload as upload_mod  # noqa: E402
 from cli.commands.upload import collect_files, parse_extensions  # noqa: E402
 from cli.main import build_parser  # noqa: E402
 
@@ -187,6 +189,98 @@ class TestApiError(unittest.TestCase):
         self.assertEqual(str(err), 'not found')
         self.assertEqual(err.status_code, 404)
         self.assertEqual(err.payload, {'detail': 'gone'})
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def read(self):
+        return json.dumps(self._payload).encode('utf-8')
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class TestRawRequest(unittest.TestCase):
+    @mock.patch('cli.client.request.urlopen')
+    def test_unwraps_auth_success_envelope(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse({
+            'code': 200,
+            'message': 'success',
+            'data': {'user_id': 'u1', 'role': 'user'},
+        })
+
+        data = raw_request('POST', 'http://example.test/auth/register')
+
+        self.assertEqual(data, {'user_id': 'u1', 'role': 'user'})
+
+    @mock.patch('cli.client.request.urlopen')
+    def test_unwraps_core_success_envelope(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse({
+            'code': 0,
+            'message': 'ok',
+            'data': {'datasets': [{'dataset_id': 'ds1'}]},
+        })
+
+        data = raw_request('GET', 'http://example.test/api/core/datasets')
+
+        self.assertEqual(data, {'datasets': [{'dataset_id': 'ds1'}]})
+
+    @mock.patch('cli.client.request.urlopen')
+    def test_raises_for_non_zero_error_envelope(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse({
+            'code': 40001,
+            'message': 'bad request',
+            'data': {'reason': 'invalid'},
+        })
+
+        with self.assertRaises(ApiError) as ctx:
+            raw_request('GET', 'http://example.test/fail')
+
+        self.assertEqual(ctx.exception.status_code, 40001)
+        self.assertEqual(str(ctx.exception), 'bad request')
+
+
+class TestUploadCommand(unittest.TestCase):
+    @mock.patch('cli.commands.upload.wait_for_tasks')
+    @mock.patch('cli.commands.upload.start_tasks')
+    @mock.patch('cli.commands.upload.upload_single_file')
+    @mock.patch('cli.commands.upload.collect_files')
+    def test_wait_treats_success_as_success(
+        self,
+        mock_collect_files,
+        mock_upload_single_file,
+        mock_start_tasks,
+        mock_wait_for_tasks,
+    ):
+        mock_collect_files.return_value = [('/tmp/doc.txt', 'doc.txt')]
+        mock_upload_single_file.return_value = {
+            'task_id': 'task-1',
+            'task_state': 'CREATING',
+        }
+        mock_start_tasks.return_value = {
+            'started_count': 1,
+            'failed_count': 0,
+            'tasks': [{'task_id': 'task-1', 'status': 'STARTED'}],
+        }
+        mock_wait_for_tasks.return_value = {
+            'task-1': {'task_state': 'SUCCESS', 'err_msg': 'success'},
+        }
+
+        args = build_parser().parse_args([
+            'upload',
+            '--dataset', 'ds1',
+            '--dir', '/tmp/docs',
+            '--wait',
+        ])
+
+        result = upload_mod.cmd_upload(args)
+
+        self.assertEqual(result, 0)
 
 
 if __name__ == '__main__':
