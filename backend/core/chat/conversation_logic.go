@@ -271,10 +271,14 @@ func checkSearchConfig(raw map[string]any) bool {
 	return true
 }
 
+func upstreamSessionID(convID string) string {
+	return fmt.Sprintf("%s_%d", convID, time.Now().UnixMilli())
+}
+
 func buildChatRequestBody(convID, query string, histories []orm.ChatHistory, raw map[string]any) map[string]any {
 	body := map[string]any{
 		"query":           query,
-		"session_id":      convID,
+		"session_id":      upstreamSessionID(convID),
 		"history":         buildHistoryMessages(histories),
 		"filters":         raw["filters"],
 		"files":           raw["files"],
