@@ -33,7 +33,7 @@ def execute(payload: Mapping[str, Any]) -> AdapterOutcome:
     input_payload = _coerce_mapping(payload, 'payload')
     task_plan = _coerce_mapping(input_payload.get('task_plan'), 'task_plan')
     code_context = _coerce_mapping(input_payload.get('code_context'), 'code_context', allow_none=True)
-    task_id = str(task_plan.get('task_id') or 'task')
+    task_id = re.sub(r'[^a-zA-Z0-9_-]', '_', str(task_plan.get('task_id') or 'task'))
     repo_hint = str(input_payload.get('repo_path') or '').strip()
     artifact_base = _artifact_base(repo_hint)
     artifacts_dir = artifact_base / '.automation' / 'opencode' / task_id
@@ -384,7 +384,7 @@ def _collect_changed_files(worktree_dir: Path) -> List[str]:
 
 
 def _stage_and_collect_diff(worktree_dir: Path, changed_files: Iterable[str]) -> str:
-    add_cmd = ['git', '-C', str(worktree_dir), 'add', '-A', '--', *changed_files]
+    add_cmd = ['git', '-C', str(worktree_dir), 'add', '-A', '--', '.']
     add_result = _run_command(add_cmd, timeout=30)
     if add_result.returncode != 0:
         raise AdapterError(
@@ -395,14 +395,18 @@ def _stage_and_collect_diff(worktree_dir: Path, changed_files: Iterable[str]) ->
     diff_result = _run_command(
         ['git', '-C', str(worktree_dir), 'diff', '--cached', '--binary', 'HEAD', '--'],
         timeout=30,
+        text=False,
     )
     if diff_result.returncode != 0:
         raise AdapterError(
             OPENCODE_EXEC_FAILED,
             'failed to collect git diff',
-            {'stdout': diff_result.stdout, 'stderr': diff_result.stderr},
+            {
+                'stdout': diff_result.stdout.decode('utf-8', errors='replace'),
+                'stderr': diff_result.stderr.decode('utf-8', errors='replace'),
+            },
         )
-    return diff_result.stdout
+    return diff_result.stdout.decode('utf-8', errors='replace')
 
 
 def _run_command(
@@ -410,14 +414,15 @@ def _run_command(
     *,
     cwd: Optional[Path] = None,
     timeout: int,
-) -> subprocess.CompletedProcess[str]:
+    text: bool = True,
+) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
     try:
         return subprocess.run(
             args,
             cwd=str(cwd) if cwd else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
+            text=text,
             timeout=timeout,
             check=False,
         )
