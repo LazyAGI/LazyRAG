@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from cli.client import ApiError, auth_request, auth_upload, print_json
 from cli.config import CORE_API_PREFIX
+from cli.context import resolve_dataset
 
 RUNNING_TASK_STATES = {'CREATING', 'RUNNING', 'QUEUED', 'WAITING', 'WORKING'}
 SUCCESS_TASK_STATES = {'SUCCESS', 'SUCCEEDED'}
@@ -172,7 +173,7 @@ def wait_for_tasks(
 # ---------------------------------------------------------------------------
 
 def cmd_upload(args: argparse.Namespace) -> int:
-    dataset_id = args.dataset
+    dataset_id = resolve_dataset(args.dataset)
 
     extensions = parse_extensions(args.extensions)
     file_entries = collect_files(
@@ -267,7 +268,8 @@ def cmd_upload(args: argparse.Namespace) -> int:
 
 def cmd_task_list(args: argparse.Namespace) -> int:
     params = f'?page_size={args.page_size}'
-    path = f'{CORE_API_PREFIX}/datasets/{args.dataset}/tasks{params}'
+    dataset_id = resolve_dataset(args.dataset)
+    path = f'{CORE_API_PREFIX}/datasets/{dataset_id}/tasks{params}'
     data = auth_request('GET', path, server=args.server)
     body = data.get('data', data)
     tasks = body.get('tasks') or []
@@ -289,6 +291,7 @@ def cmd_task_list(args: argparse.Namespace) -> int:
 
 
 def cmd_task_get(args: argparse.Namespace) -> int:
-    task = get_task(args.dataset, args.task_id, server=args.server)
+    dataset_id = resolve_dataset(args.dataset)
+    task = get_task(dataset_id, args.task_id, server=args.server)
     print_json(task)
     return 0

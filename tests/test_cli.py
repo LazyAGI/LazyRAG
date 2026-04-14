@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from cli import credentials as creds_mod  # noqa: E402
+from cli import context as ctx_mod  # noqa: E402
 from cli.client import ApiError, build_multipart_body, raw_request  # noqa: E402
 from cli.commands import upload as upload_mod  # noqa: E402
 from cli.commands.upload import collect_files, parse_extensions  # noqa: E402
@@ -123,13 +124,82 @@ class TestCredentials(unittest.TestCase):
             'expires_in': 10,
             'saved_at': time.time() - 100,
         })
-        # override saved_at via direct write to simulate old token
         data = creds_mod.load()
         data['saved_at'] = time.time() - 100
         creds_mod.CREDENTIALS_FILE.write_text(
             json.dumps(data), encoding='utf-8',
         )
         self.assertTrue(creds_mod.is_token_expired())
+
+
+class TestAuthCommands(unittest.TestCase):
+    @mock.patch('cli.commands.auth.credentials.save')
+    @mock.patch('cli.commands.auth.raw_request')
+    def test_login_stores_username(self, mock_raw_request, mock_save):
+        from cli.commands import auth as auth_mod
+
+        mock_raw_request.return_value = {
+            'access_token': 'access',
+            'refresh_token': 'refresh',
+            'expires_in': 3600,
+            'role': 'user',
+            'tenant_id': 'tenant-1',
+        }
+
+        result = auth_mod._do_login('http://server', 'alice', 'pw')
+
+        self.assertEqual(result, 0)
+        mock_save.assert_called_once_with({
+            'server_url': 'http://server',
+            'username': 'alice',
+            'access_token': 'access',
+            'refresh_token': 'refresh',
+            'expires_in': 3600,
+            'role': 'user',
+            'tenant_id': 'tenant-1',
+        })
+
+
+class TestContext(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._orig_dir = ctx_mod.CREDENTIALS_DIR
+        self._orig_file = ctx_mod.CONFIG_FILE
+        ctx_mod.CREDENTIALS_DIR = Path(self._tmpdir)
+        ctx_mod.CONFIG_FILE = Path(self._tmpdir) / 'config.json'
+
+    def tearDown(self):
+        ctx_mod.CREDENTIALS_DIR = self._orig_dir
+        ctx_mod.CONFIG_FILE = self._orig_file
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_set_and_get(self):
+        ctx_mod.set_key('dataset', 'ds1')
+        self.assertEqual(ctx_mod.get('dataset'), 'ds1')
+
+    def test_unset(self):
+        ctx_mod.set_key('dataset', 'ds1')
+        ctx_mod.unset_key('dataset')
+        self.assertIsNone(ctx_mod.get('dataset'))
+
+    def test_resolve_dataset_from_cli(self):
+        self.assertEqual(ctx_mod.resolve_dataset('cli_ds'), 'cli_ds')
+
+    def test_resolve_dataset_from_config(self):
+        ctx_mod.set_key('dataset', 'cfg_ds')
+        self.assertEqual(ctx_mod.resolve_dataset(None), 'cfg_ds')
+
+    def test_resolve_dataset_missing_exits(self):
+        with self.assertRaises(SystemExit):
+            ctx_mod.resolve_dataset(None)
+
+    def test_resolve_algo_url_default(self):
+        url = ctx_mod.resolve_algo_url(None)
+        self.assertTrue(url.startswith('http'))
+
+    def test_resolve_algo_dataset_default(self):
+        self.assertEqual(ctx_mod.resolve_algo_dataset(None), 'general_algo')
 
 
 class TestBuildParser(unittest.TestCase):
@@ -144,6 +214,11 @@ class TestBuildParser(unittest.TestCase):
         args = parser.parse_args(['login', '-u', 'bob', '-p', 'pw'])
         self.assertEqual(args.command, 'login')
         self.assertEqual(args.username, 'bob')
+
+    def test_login_json(self):
+        parser = build_parser()
+        args = parser.parse_args(['login', '-u', 'a', '-p', 'b', '--json'])
+        self.assertTrue(args.as_json)
 
     def test_kb_create_command(self):
         parser = build_parser()
@@ -171,6 +246,13 @@ class TestBuildParser(unittest.TestCase):
         self.assertEqual(args.directory, '/tmp/docs')
         self.assertTrue(args.wait)
 
+    def test_upload_no_dataset(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            'upload', '--dir', '/tmp/docs',
+        ])
+        self.assertIsNone(args.dataset)
+
     def test_task_list_command(self):
         parser = build_parser()
         args = parser.parse_args(['task-list', '--dataset', 'ds1'])
@@ -181,6 +263,81 @@ class TestBuildParser(unittest.TestCase):
         args = parser.parse_args(['task-get', '--dataset', 'ds1', 'tid-123'])
         self.assertEqual(args.command, 'task-get')
         self.assertEqual(args.task_id, 'tid-123')
+
+    def test_kb_delete_command(self):
+        parser = build_parser()
+        args = parser.parse_args(['kb-delete', '--dataset', 'ds1', '-y'])
+        self.assertEqual(args.command, 'kb-delete')
+        self.assertEqual(args.dataset, 'ds1')
+        self.assertTrue(args.yes)
+
+    def test_doc_list_command(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            'doc-list', '--dataset', 'ds1', '--page-size', '10',
+        ])
+        self.assertEqual(args.command, 'doc-list')
+        self.assertEqual(args.dataset, 'ds1')
+        self.assertEqual(args.page_size, 10)
+
+    def test_doc_delete_positional(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            'doc-delete', 'doc1', '-y',
+        ])
+        self.assertEqual(args.command, 'doc-delete')
+        self.assertEqual(args.document, 'doc1')
+        self.assertIsNone(args.dataset)
+
+    def test_doc_update_positional(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            'doc-update', 'doc1', '--name', 'New Name',
+            '--meta', '{"key":"val"}',
+        ])
+        self.assertEqual(args.command, 'doc-update')
+        self.assertEqual(args.document, 'doc1')
+        self.assertEqual(args.name, 'New Name')
+
+    def test_use_command(self):
+        parser = build_parser()
+        args = parser.parse_args(['use', 'ds_abc'])
+        self.assertEqual(args.command, 'use')
+        self.assertEqual(args.dataset_id, 'ds_abc')
+
+    def test_status_command(self):
+        parser = build_parser()
+        args = parser.parse_args(['status', '--json'])
+        self.assertEqual(args.command, 'status')
+        self.assertTrue(args.as_json)
+
+    def test_config_set(self):
+        parser = build_parser()
+        args = parser.parse_args(['config', 'set', 'algo_url', 'http://x'])
+        self.assertEqual(args.config_action, 'set')
+        self.assertEqual(args.key, 'algo_url')
+        self.assertEqual(args.value, 'http://x')
+
+    def test_config_get(self):
+        parser = build_parser()
+        args = parser.parse_args(['config', 'get', 'dataset'])
+        self.assertEqual(args.config_action, 'get')
+        self.assertEqual(args.key, 'dataset')
+
+    def test_chunk_positional(self):
+        parser = build_parser()
+        args = parser.parse_args(['chunk', 'doc_xyz', '--dataset', 'ds1'])
+        self.assertEqual(args.command, 'chunk')
+        self.assertEqual(args.document, 'doc_xyz')
+        self.assertEqual(args.dataset, 'ds1')
+
+    def test_retrieve_minimal(self):
+        parser = build_parser()
+        args = parser.parse_args(['retrieve', 'test query'])
+        self.assertEqual(args.query, 'test query')
+        self.assertEqual(args.group_name, 'block')
+        self.assertEqual(args.topk, 6)
+        self.assertIsNone(args.url)
 
 
 class TestApiError(unittest.TestCase):
@@ -245,13 +402,111 @@ class TestRawRequest(unittest.TestCase):
         self.assertEqual(str(ctx.exception), 'bad request')
 
 
+class TestKbDeleteCommand(unittest.TestCase):
+    @mock.patch('cli.commands.dataset.auth_request')
+    @mock.patch('cli.commands.dataset.resolve_dataset', return_value='ds1')
+    def test_kb_delete_with_yes(self, mock_resolve, mock_auth):
+        from cli.commands import dataset as dataset_mod
+        mock_auth.return_value = {}
+        args = build_parser().parse_args([
+            'kb-delete', '--dataset', 'ds1', '-y',
+        ])
+        result = dataset_mod.cmd_kb_delete(args)
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_auth.call_args[0][0], 'DELETE')
+
+
+class TestDocListCommand(unittest.TestCase):
+    @mock.patch('cli.commands.doc.auth_request')
+    @mock.patch('cli.commands.doc.resolve_dataset', return_value='ds1')
+    def test_doc_list_json(self, mock_resolve, mock_auth):
+        from cli.commands import doc as doc_mod
+        mock_auth.return_value = {
+            'documents': [
+                {'document_id': 'd1', 'display_name': 'test.pdf',
+                 'status': 'completed', 'segment_count': 5},
+            ],
+            'total': 1,
+        }
+        args = build_parser().parse_args([
+            'doc-list', '--dataset', 'ds1', '--json',
+        ])
+        result = doc_mod.cmd_doc_list(args)
+        self.assertEqual(result, 0)
+
+    @mock.patch('cli.commands.doc.auth_request')
+    @mock.patch('cli.commands.doc.resolve_dataset', return_value='ds1')
+    def test_doc_list_table(self, mock_resolve, mock_auth):
+        from cli.commands import doc as doc_mod
+        mock_auth.return_value = {
+            'documents': [
+                {'document_id': 'd1', 'display_name': 'a.pdf',
+                 'status': 'completed', 'segment_count': 3},
+                {'document_id': 'd2', 'display_name': 'b.txt',
+                 'status': 'parsing', 'segment_count': 0},
+            ],
+            'total': 2,
+        }
+        args = build_parser().parse_args(['doc-list', '--dataset', 'ds1'])
+        result = doc_mod.cmd_doc_list(args)
+        self.assertEqual(result, 0)
+
+
+class TestDocDeleteCommand(unittest.TestCase):
+    @mock.patch('cli.commands.doc.auth_request')
+    @mock.patch('cli.commands.doc.resolve_dataset', return_value='ds1')
+    def test_doc_delete_with_yes(self, mock_resolve, mock_auth):
+        from cli.commands import doc as doc_mod
+        mock_auth.return_value = {}
+        args = build_parser().parse_args([
+            'doc-delete', 'doc1', '--dataset', 'ds1', '-y',
+        ])
+        result = doc_mod.cmd_doc_delete(args)
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_auth.call_args[0][0], 'DELETE')
+
+
+class TestDocUpdateCommand(unittest.TestCase):
+    @mock.patch('cli.commands.doc.auth_request')
+    @mock.patch('cli.commands.doc.resolve_dataset', return_value='ds1')
+    def test_doc_update_name(self, mock_resolve, mock_auth):
+        from cli.commands import doc as doc_mod
+        mock_auth.return_value = {'display_name': 'New Name'}
+        args = build_parser().parse_args([
+            'doc-update', 'doc1', '--dataset', 'ds1',
+            '--name', 'New Name',
+        ])
+        result = doc_mod.cmd_doc_update(args)
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_auth.call_args[0][0], 'PATCH')
+
+    def test_doc_update_nothing(self):
+        from cli.commands import doc as doc_mod
+        args = build_parser().parse_args([
+            'doc-update', 'doc1', '--dataset', 'ds1',
+        ])
+        result = doc_mod.cmd_doc_update(args)
+        self.assertEqual(result, 1)
+
+    def test_doc_update_bad_json(self):
+        from cli.commands import doc as doc_mod
+        args = build_parser().parse_args([
+            'doc-update', 'doc1', '--dataset', 'ds1',
+            '--meta', 'not-json',
+        ])
+        result = doc_mod.cmd_doc_update(args)
+        self.assertEqual(result, 1)
+
+
 class TestUploadCommand(unittest.TestCase):
     @mock.patch('cli.commands.upload.wait_for_tasks')
     @mock.patch('cli.commands.upload.start_tasks')
     @mock.patch('cli.commands.upload.upload_single_file')
     @mock.patch('cli.commands.upload.collect_files')
+    @mock.patch('cli.commands.upload.resolve_dataset', return_value='ds1')
     def test_wait_treats_success_as_success(
         self,
+        mock_resolve,
         mock_collect_files,
         mock_upload_single_file,
         mock_start_tasks,
@@ -281,6 +536,260 @@ class TestUploadCommand(unittest.TestCase):
         result = upload_mod.cmd_upload(args)
 
         self.assertEqual(result, 0)
+
+
+class TestChunkCommand(unittest.TestCase):
+    def test_chunk_arg_parsing(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            'chunk', 'doc1', '--dataset', 'ds1',
+            '--page-size', '50', '--json',
+        ])
+        self.assertEqual(args.command, 'chunk')
+        self.assertEqual(args.document, 'doc1')
+        self.assertEqual(args.dataset, 'ds1')
+        self.assertEqual(args.page_size, 50)
+        self.assertTrue(args.as_json)
+
+    @mock.patch('cli.commands.chunk.auth_request')
+    @mock.patch('cli.commands.chunk.resolve_dataset', return_value='ds1')
+    def test_chunk_json_output(self, mock_resolve, mock_auth):
+        from cli.commands import chunk as chunk_mod
+        mock_auth.return_value = {
+            'segments': [
+                {'segment_id': 'seg1', 'status': 'completed',
+                 'word_count': 42, 'content': 'hello world'},
+            ],
+            'total_size': 1,
+        }
+        args = build_parser().parse_args([
+            'chunk', 'doc1', '--dataset', 'ds1', '--json',
+        ])
+        result = chunk_mod.cmd_chunk(args)
+        self.assertEqual(result, 0)
+        mock_auth.assert_called_once_with(
+            'GET',
+            '/api/core/datasets/ds1/documents/doc1/segments?page_size=20',
+            server=None,
+        )
+
+
+class TestRetrieveCommand(unittest.TestCase):
+    def test_retrieve_arg_parsing(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            'retrieve', 'what is RAG',
+            '--url', 'http://algo:8000',
+            '--dataset', 'my_algo',
+            '--group-name', 'line',
+            '--topk', '10',
+            '--similarity', 'bm25',
+            '--embed-keys', 'embed1,embed2',
+            '--json',
+        ])
+        self.assertEqual(args.command, 'retrieve')
+        self.assertEqual(args.query, 'what is RAG')
+        self.assertEqual(args.url, 'http://algo:8000')
+        self.assertEqual(args.dataset, 'my_algo')
+        self.assertEqual(args.group_name, 'line')
+        self.assertEqual(args.topk, 10)
+        self.assertEqual(args.similarity, 'bm25')
+        self.assertEqual(args.embed_keys, 'embed1,embed2')
+        self.assertTrue(args.as_json)
+
+    def test_retrieve_defaults(self):
+        parser = build_parser()
+        args = parser.parse_args(['retrieve', 'test query'])
+        self.assertEqual(args.group_name, 'block')
+        self.assertEqual(args.topk, 6)
+        self.assertEqual(args.similarity, 'cosine')
+        self.assertIsNone(args.embed_keys)
+        self.assertIsNone(args.config)
+        self.assertFalse(args.as_json)
+
+    @mock.patch('cli.commands.retrieve._run_single_retriever')
+    @mock.patch('cli.commands.retrieve._build_document')
+    @mock.patch('cli.commands.retrieve._ensure_lazyllm')
+    def test_retrieve_calls_single_retriever(
+        self, mock_ensure, mock_build_doc, mock_run,
+    ):
+        from cli.commands import retrieve as retrieve_mod
+        mock_build_doc.return_value = mock.MagicMock()
+        mock_run.return_value = [
+            {'content': 'result text', 'score': 0.95, 'group': 'block'},
+        ]
+        args = build_parser().parse_args([
+            'retrieve', 'hello',
+            '--url', 'http://test:8000',
+            '--dataset', 'test_ds',
+            '--embed-keys', 'key1',
+        ])
+        result = retrieve_mod.cmd_retrieve(args)
+        self.assertEqual(result, 0)
+        mock_build_doc.assert_called_once_with('http://test:8000', 'test_ds')
+        mock_run.assert_called_once_with(
+            mock_build_doc.return_value,
+            query='hello',
+            group_name='block',
+            topk=6,
+            similarity='cosine',
+            embed_keys=['key1'],
+        )
+
+    @mock.patch('cli.commands.retrieve._run_config_retrievers')
+    @mock.patch('cli.commands.retrieve._build_document')
+    @mock.patch('cli.commands.retrieve._ensure_lazyllm')
+    @mock.patch('cli.commands.retrieve._find_local_algo_container', return_value=None)
+    def test_retrieve_config_mode(
+        self, mock_find_container, mock_ensure, mock_build_doc, mock_run_cfg,
+    ):
+        from cli.commands import retrieve as retrieve_mod
+        mock_build_doc.return_value = mock.MagicMock()
+        mock_run_cfg.return_value = []
+        args = build_parser().parse_args([
+            'retrieve', 'query text',
+            '--config', '/path/to/models.yaml',
+        ])
+        result = retrieve_mod.cmd_retrieve(args)
+        self.assertEqual(result, 0)
+        mock_run_cfg.assert_called_once_with(
+            mock_build_doc.return_value, 'query text', '/path/to/models.yaml',
+        )
+
+
+class TestUseCommand(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._orig_dir = ctx_mod.CREDENTIALS_DIR
+        self._orig_file = ctx_mod.CONFIG_FILE
+        ctx_mod.CREDENTIALS_DIR = Path(self._tmpdir)
+        ctx_mod.CONFIG_FILE = Path(self._tmpdir) / 'config.json'
+
+    def tearDown(self):
+        ctx_mod.CREDENTIALS_DIR = self._orig_dir
+        ctx_mod.CONFIG_FILE = self._orig_file
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_use_sets_dataset(self):
+        from cli.commands import context as context_mod
+        args = build_parser().parse_args(['use', 'ds_new'])
+        result = context_mod.cmd_use(args)
+        self.assertEqual(result, 0)
+        self.assertEqual(ctx_mod.get('dataset'), 'ds_new')
+
+
+class TestConfigCommand(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = tempfile.mkdtemp()
+        self._orig_dir = ctx_mod.CREDENTIALS_DIR
+        self._orig_file = ctx_mod.CONFIG_FILE
+        ctx_mod.CREDENTIALS_DIR = Path(self._tmpdir)
+        ctx_mod.CONFIG_FILE = Path(self._tmpdir) / 'config.json'
+
+    def tearDown(self):
+        ctx_mod.CREDENTIALS_DIR = self._orig_dir
+        ctx_mod.CONFIG_FILE = self._orig_file
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_config_set_and_get(self):
+        from cli.commands import context as context_mod
+        args_set = build_parser().parse_args([
+            'config', 'set', 'algo_url', 'http://x',
+        ])
+        context_mod.cmd_config(args_set)
+        self.assertEqual(ctx_mod.get('algo_url'), 'http://x')
+
+    def test_config_unset(self):
+        from cli.commands import context as context_mod
+        ctx_mod.set_key('algo_url', 'http://x')
+        args = build_parser().parse_args(['config', 'unset', 'algo_url'])
+        context_mod.cmd_config(args)
+        self.assertIsNone(ctx_mod.get('algo_url'))
+
+
+class TestStatusCommand(unittest.TestCase):
+    @mock.patch('cli.commands.context.resolve_server_url', return_value='http://x')
+    @mock.patch('cli.commands.context.print_json')
+    @mock.patch('cli.commands.context.credentials.is_token_expired', return_value=False)
+    @mock.patch('cli.commands.context.credentials.load')
+    @mock.patch('cli.commands.context.context.load_config')
+    def test_status_prefers_username(
+        self,
+        mock_load_config,
+        mock_load_creds,
+        mock_expired,
+        mock_print_json,
+        mock_resolve_server,
+    ):
+        from cli.commands import context as context_mod
+
+        mock_load_config.return_value = {'dataset': 'ds1'}
+        mock_load_creds.return_value = {
+            'username': 'alice',
+            'tenant_id': 'tenant-1',
+            'role': 'user',
+        }
+
+        args = build_parser().parse_args(['status', '--json'])
+        result = context_mod.cmd_status(args)
+
+        self.assertEqual(result, 0)
+        mock_print_json.assert_called_once_with({
+            'server': 'http://x',
+            'logged_in': True,
+            'username': 'alice',
+            'dataset': 'ds1',
+            'algo_url': None,
+            'algo_dataset': None,
+            'role': 'user',
+            'token_expired': False,
+        })
+
+
+class TestRetrieveDockerMode(unittest.TestCase):
+    @mock.patch('cli.commands.retrieve._print_results')
+    @mock.patch('cli.commands.retrieve._run_docker_retrieve')
+    @mock.patch('cli.commands.retrieve._find_local_algo_container', return_value='algo-1')
+    @mock.patch('cli.commands.retrieve.get_context', return_value=None)
+    def test_retrieve_uses_docker_when_no_algo_url(
+        self,
+        mock_get_context,
+        mock_find_container,
+        mock_run_docker,
+        mock_print_results,
+    ):
+        from cli.commands import retrieve as retrieve_mod
+
+        mock_run_docker.return_value = [{'content': 'hit'}]
+        args = build_parser().parse_args(['retrieve', 'hello'])
+
+        result = retrieve_mod.cmd_retrieve(args)
+
+        self.assertEqual(result, 0)
+        mock_run_docker.assert_called_once_with('algo-1', args)
+        mock_print_results.assert_called_once_with([{'content': 'hit'}], False)
+
+    @mock.patch('cli.commands.retrieve.get_context', return_value='http://algo:8000')
+    @mock.patch('cli.commands.retrieve._run_local_retrieve')
+    @mock.patch('cli.commands.retrieve._find_local_algo_container')
+    def test_retrieve_prefers_configured_algo_url(
+        self,
+        mock_find_container,
+        mock_run_local,
+        mock_get_context,
+    ):
+        from cli.commands import retrieve as retrieve_mod
+
+        mock_run_local.return_value = []
+        args = build_parser().parse_args(['retrieve', 'hello'])
+
+        result = retrieve_mod.cmd_retrieve(args)
+
+        self.assertEqual(result, 0)
+        mock_run_local.assert_called_once_with(args)
+        mock_find_container.assert_not_called()
 
 
 if __name__ == '__main__':

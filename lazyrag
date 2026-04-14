@@ -4,14 +4,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-if command -v python3 &>/dev/null; then
-    PYTHON=python3
-elif command -v python &>/dev/null; then
+if command -v python &>/dev/null; then
     PYTHON=python
+elif command -v python3 &>/dev/null; then
+    PYTHON=python3
 else
     echo "error: python not found" >&2
     exit 1
 fi
 
-export PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:$PYTHONPATH}"
+# Repo root for cli/, algorithm/lazyllm for lazyllm, algorithm/ for chat.*
+export PYTHONPATH="${SCRIPT_DIR}:${SCRIPT_DIR}/algorithm/lazyllm:${SCRIPT_DIR}/algorithm${PYTHONPATH:+:$PYTHONPATH}"
 exec "$PYTHON" -m cli "$@"
