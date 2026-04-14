@@ -1,26 +1,95 @@
 # LazyRAG CLI
 
-A command-line tool for algorithm engineers to manage knowledge bases and ingest documents through the full LazyRAG service stack (with authentication).
+LazyRAG 的命令行入口，面向算法同学和 code agent，覆盖认证、知识库管理、文档导入、任务检查、分块查看和检索验证。
 
 ## Prerequisites
 
-- The LazyRAG service stack is running (Kong gateway at `http://localhost:8000`)
+- LazyRAG 服务栈已启动，Kong 网关默认在 `http://localhost:8000`
+- 如果要使用默认 `retrieve` 本地模式，需保证本地 `lazyllm-algo` 容器正在运行
 - Python 3.9+
 
-## Quick start
+## Quick Start
+
+最短闭环：
 
 ```bash
-# 1. Register and auto-login
+# 1. 注册并自动登录
 ./lazyrag register -u alice -p mypassword
 
-# 2. Create a knowledge base
-./lazyrag kb-create --name "project-docs"
+# 2. 创建知识库，并自动设为当前默认 dataset
+./lazyrag kb-create --name "project-docs" --dataset-id project-docs
 
-# 3. Upload a directory of documents and wait for parsing
-./lazyrag upload --dataset <dataset_id> --dir ./my-docs --extensions pdf,docx --wait
+# 3. 查看当前上下文
+./lazyrag status
 
-# 4. Check task status
-./lazyrag task-list --dataset <dataset_id>
+# 4. 导入目录并等待解析完成
+./lazyrag upload --dir ./my-docs --extensions pdf,docx,txt --wait
+
+# 5. 查看文档和任务
+./lazyrag doc-list
+./lazyrag task-list
+
+# 6. 查看某个文档切块
+./lazyrag chunk <document_id> --json
+
+# 7. 做一次检索验证
+./lazyrag config set algo_dataset general_algo
+./lazyrag retrieve '介绍一下解析链路' --json
+```
+
+如果你不想每次都传 `--dataset`，可以直接用：
+
+```bash
+./lazyrag use project-docs
+```
+
+之后大部分 dataset 相关命令都会默认使用当前 dataset。
+
+## Example Flows
+
+### Flow 1: 新建知识库并导入本地目录
+
+```bash
+./lazyrag register -u algo_demo -p 'Passw0rd!'
+./lazyrag kb-create --name 'Parser Smoke' --dataset-id parser-smoke
+./lazyrag upload --dir ./docs --extensions pdf,md,txt --wait
+./lazyrag task-list --json
+./lazyrag doc-list --json
+```
+
+### Flow 2: 绑定当前 dataset，后续命令不再传 `--dataset`
+
+```bash
+./lazyrag use parser-smoke
+./lazyrag status
+./lazyrag upload --dir ./more-docs --wait
+./lazyrag task-get <task_id>
+./lazyrag doc-list
+```
+
+### Flow 3: 查看文档切块并测试检索
+
+```bash
+./lazyrag doc-list --json
+./lazyrag chunk <document_id> --page-size 5 --json
+
+# 设置默认 algo dataset，后续 retrieve 可省略 --dataset
+./lazyrag config set algo_dataset general_algo
+
+# 默认模式：本地会优先进入 lazyllm-algo 容器执行检索
+./lazyrag retrieve '介绍一下解析链路'
+
+# 指定配置文件，按 runtime_models YAML 中的 retrieval 配置执行
+./lazyrag retrieve '介绍一下解析链路' \
+  --config /Users/chenjiahao/Desktop/codes/LazyRAG/algorithm/chat/runtime_models.yaml \
+  --json
+```
+
+### Flow 4: 清理文档和知识库
+
+```bash
+./lazyrag doc-delete <document_id> -y
+./lazyrag kb-delete -y
 ```
 
 ## Authentication
@@ -61,7 +130,55 @@ Revokes the refresh token server-side (best-effort) and removes local credential
 
 Shows current user info (user_id, username, role, status).
 
-## Knowledge base management
+## Context And Config
+
+### Use
+
+```bash
+./lazyrag use <dataset_id>
+```
+
+将某个 dataset 设为当前默认值，后续 `upload / task-* / doc-* / chunk` 都可以省略 `--dataset`。
+
+### Status
+
+```bash
+./lazyrag status [--json]
+```
+
+输出当前 CLI 上下文，包括：
+
+- 当前 server
+- 是否已登录
+- 当前 username / role
+- 当前默认 dataset
+- 当前 `algo_url`
+- 当前 `algo_dataset`
+
+### Config
+
+```bash
+./lazyrag config list [--json]
+./lazyrag config get <key>
+./lazyrag config set <key> <value>
+./lazyrag config unset <key>
+```
+
+当前支持的常用 key：
+
+- `dataset`
+- `algo_url`
+- `algo_dataset`
+
+示例：
+
+```bash
+./lazyrag config set algo_dataset general_algo
+./lazyrag config set algo_url http://localhost:8001
+./lazyrag config list
+```
+
+## Knowledge Base Management
 
 In LazyRAG, a "knowledge base" maps to a "dataset" in the core service API.
 
@@ -78,10 +195,18 @@ In LazyRAG, a "knowledge base" maps to a "dataset" in the core service API.
 ### List
 
 ```bash
-./lazyrag kb-list [--page-size 100] [--json]
+./lazyrag kb-list [--page-size 20] [--page 2] [--json]
 ```
 
-## Document upload
+### Delete
+
+```bash
+./lazyrag kb-delete [--dataset <dataset_id>] -y [--json]
+```
+
+如果不传 `--dataset`，会删除当前 `lazyrag use` 选中的 dataset。
+
+## Document Upload
 
 ### Upload a directory
 
@@ -118,18 +243,82 @@ When uploading files from nested directories, the CLI sends the relative path to
 ./lazyrag upload --dataset ds-abc123 --dir ./documents --no-recursive --limit 10
 ```
 
-## Task management
+## Task Management
 
 ### List tasks
 
 ```bash
-./lazyrag task-list --dataset <dataset_id> [--page-size 100] [--json]
+./lazyrag task-list [--dataset <dataset_id>] [--page-size 20] [--json]
 ```
 
 ### Get task details
 
 ```bash
-./lazyrag task-get --dataset <dataset_id> <task_id>
+./lazyrag task-get [--dataset <dataset_id>] <task_id>
+```
+
+## Document Management
+
+### List documents
+
+```bash
+./lazyrag doc-list [--dataset <dataset_id>] [--page-size 20] [--json]
+```
+
+### Update document metadata
+
+```bash
+./lazyrag doc-update [--dataset <dataset_id>] <document_id> \
+  --name 'new-name.txt' \
+  --meta '{"source":"manual-check"}'
+```
+
+### Delete document
+
+```bash
+./lazyrag doc-delete [--dataset <dataset_id>] <document_id> -y
+```
+
+## Chunk Inspection
+
+```bash
+./lazyrag chunk [--dataset <dataset_id>] <document_id> [--page-size 20] [--page 2] [--json]
+```
+
+适合快速确认解析后的切块内容是否符合预期。
+
+## Retrieval Smoke Test
+
+### Default mode
+
+```bash
+./lazyrag retrieve '介绍一下解析链路'
+```
+
+默认行为：
+
+- 若显式传了 `--url`，直接连指定 algo service
+- 若本地配置了 `algo_url`，优先使用该地址
+- 否则会尝试自动找到本地运行中的 `lazyllm-algo` 容器，在容器内执行检索
+
+### Common options
+
+```bash
+./lazyrag retrieve '介绍一下解析链路' \
+  --dataset general_algo \
+  --group-name block \
+  --topk 6 \
+  --similarity cosine \
+  --embed-keys embed_1 \
+  --json
+```
+
+### Runtime model config
+
+```bash
+./lazyrag retrieve '介绍一下解析链路' \
+  --config /Users/chenjiahao/Desktop/codes/LazyRAG/algorithm/chat/runtime_models.yaml \
+  --json
 ```
 
 ## Configuration
@@ -170,7 +359,7 @@ Kong API Gateway (:8000)
 
 The CLI uses Python's stdlib `urllib` with no external dependencies. All requests go through the Kong gateway which handles RBAC authorization via JWT tokens.
 
-## File structure
+## File Structure
 
 ```
 cli/
@@ -183,14 +372,19 @@ cli/
 └── commands/
     ├── __init__.py
     ├── auth.py          # register, login, logout, whoami
-    ├── dataset.py       # kb-create, kb-list
+    ├── chunk.py         # chunk inspection
+    ├── context.py       # use, status, config
+    ├── dataset.py       # kb-create, kb-list, kb-delete
+    ├── doc.py           # doc-list, doc-update, doc-delete
+    ├── retrieve.py      # retrieval smoke test
     └── upload.py        # upload, task-list, task-get
 lazyrag                  # bash wrapper script
 tests/test_cli.py        # unit tests
 ```
 
-## Known limitations
+## Known Limitations
 
 - **Directory nesting**: Only top-level folders are created from upload paths. Deeper nesting is not reconstructed server-side.
-- **Test coverage**: Current tests are unit-level only. End-to-end flows (auth refresh, batchUpload -> start -> wait) are not yet covered by automated tests and require manual integration testing against a running stack.
+- **Retrieve local mode**: Default `retrieve` is optimized for local compose/developer environments. In CI or remote deployment, prefer explicit `--url`.
+- **Test coverage**: Current tests are still mainly unit-level. End-to-end flows require manual integration testing against a running stack.
 - **No retry on upload**: Individual file upload failures are reported but not retried. Re-run the command to retry failed files.

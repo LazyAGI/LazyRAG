@@ -127,6 +127,7 @@ Frontend
 For environment-variable setup and runnable startup examples, see:
 
 - [`docs/quick_start.md`](docs/quick_start.md)
+- CLI usage examples: [`docs/cli.md`](docs/cli.md)
 
 **Full stack (Milvus + OpenSearch deployed by default):**
 ```bash
