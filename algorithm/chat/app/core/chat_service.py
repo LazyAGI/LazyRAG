@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-import uuid
 from typing import Any, Dict, List, Optional, Union
 import lazyllm
 from lazyllm import LOG
@@ -103,8 +102,14 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
         other_files, image_files = validate_and_resolve_files(files)
         query_params = build_query_params(
-            query, history, filters, other_files, image_files,
-            debug or False, databases, priority
+            query,
+            history,
+            filters,
+            other_files,
+            databases,
+            debug or False,
+            image_files,
+            priority,
         )
 
         try:
@@ -123,7 +128,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         finally:
             cost = round(time.time() - start_time, 3)
             log_chat_request(
-                query, sid, filters, other_files, image_files, databases, cost, result
+                query, session_id, filters, other_files, image_files, databases, cost, result
             )
     else:
         if sensitive_check_result:
@@ -139,7 +144,14 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         collected_chunks: List[str] = []
 
         query_params = build_query_params(
-            query, history, filters, other_files, image_files, False, databases, priority
+            query,
+            history,
+            filters,
+            other_files,
+            databases,
+            False,
+            image_files,
+            priority,
         )
 
         stream_call = (
