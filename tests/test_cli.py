@@ -603,7 +603,8 @@ class TestRetrieveCommand(unittest.TestCase):
         args = parser.parse_args([
             'retrieve', 'what is RAG',
             '--url', 'http://algo:8000',
-            '--dataset', 'my_algo',
+            '--dataset', 'kb_test',
+            '--algo-dataset', 'general_algo',
             '--group-name', 'line',
             '--topk', '10',
             '--similarity', 'bm25',
@@ -613,7 +614,8 @@ class TestRetrieveCommand(unittest.TestCase):
         self.assertEqual(args.command, 'retrieve')
         self.assertEqual(args.query, 'what is RAG')
         self.assertEqual(args.url, 'http://algo:8000')
-        self.assertEqual(args.dataset, 'my_algo')
+        self.assertEqual(args.dataset, 'kb_test')
+        self.assertEqual(args.algo_dataset, 'general_algo')
         self.assertEqual(args.group_name, 'line')
         self.assertEqual(args.topk, 10)
         self.assertEqual(args.similarity, 'bm25')
@@ -628,13 +630,16 @@ class TestRetrieveCommand(unittest.TestCase):
         self.assertEqual(args.similarity, 'cosine')
         self.assertIsNone(args.embed_keys)
         self.assertIsNone(args.config)
+        self.assertIsNone(args.algo_dataset)
         self.assertFalse(args.as_json)
 
+    @mock.patch('cli.commands.retrieve.resolve_dataset', return_value='kb_test')
+    @mock.patch('cli.commands.retrieve.resolve_algo_dataset', return_value='general_algo')
     @mock.patch('cli.commands.retrieve._run_single_retriever')
     @mock.patch('cli.commands.retrieve._build_document')
     @mock.patch('cli.commands.retrieve._ensure_lazyllm')
     def test_retrieve_calls_single_retriever(
-        self, mock_ensure, mock_build_doc, mock_run,
+        self, mock_ensure, mock_build_doc, mock_run, mock_resolve_algo, mock_resolve_dataset,
     ):
         from cli.commands import retrieve as retrieve_mod
         mock_build_doc.return_value = mock.MagicMock()
@@ -649,22 +654,31 @@ class TestRetrieveCommand(unittest.TestCase):
         ])
         result = retrieve_mod.cmd_retrieve(args)
         self.assertEqual(result, 0)
-        mock_build_doc.assert_called_once_with('http://test:8000', 'test_ds')
+        mock_build_doc.assert_called_once_with('http://test:8000', 'general_algo')
         mock_run.assert_called_once_with(
             mock_build_doc.return_value,
             query='hello',
+            filters={'kb_id': 'kb_test'},
             group_name='block',
             topk=6,
             similarity='cosine',
             embed_keys=['key1'],
         )
 
+    @mock.patch('cli.commands.retrieve.resolve_dataset', return_value='kb_cfg')
+    @mock.patch('cli.commands.retrieve.resolve_algo_dataset', return_value='general_algo')
     @mock.patch('cli.commands.retrieve._run_config_retrievers')
     @mock.patch('cli.commands.retrieve._build_document')
     @mock.patch('cli.commands.retrieve._ensure_lazyllm')
     @mock.patch('cli.commands.retrieve._find_local_algo_container', return_value=None)
     def test_retrieve_config_mode(
-        self, mock_find_container, mock_ensure, mock_build_doc, mock_run_cfg,
+        self,
+        mock_find_container,
+        mock_ensure,
+        mock_build_doc,
+        mock_run_cfg,
+        mock_resolve_algo,
+        mock_resolve_dataset,
     ):
         from cli.commands import retrieve as retrieve_mod
         mock_build_doc.return_value = mock.MagicMock()
@@ -676,7 +690,10 @@ class TestRetrieveCommand(unittest.TestCase):
         result = retrieve_mod.cmd_retrieve(args)
         self.assertEqual(result, 0)
         mock_run_cfg.assert_called_once_with(
-            mock_build_doc.return_value, 'query text', '/path/to/models.yaml',
+            mock_build_doc.return_value,
+            'query text',
+            {'kb_id': 'kb_cfg'},
+            '/path/to/models.yaml',
         )
 
 

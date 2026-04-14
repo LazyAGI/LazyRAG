@@ -17,7 +17,7 @@ CONFIG_FILE = CREDENTIALS_DIR / 'config.json'
 KNOWN_KEYS = {
     'dataset': 'Default dataset ID for most commands',
     'algo_url': 'Algo service URL for retrieve',
-    'algo_dataset': 'Algo dataset name for retrieve',
+    'algo_dataset': 'Remote algo document name for retrieve',
 }
 
 
@@ -91,7 +91,7 @@ def resolve_algo_url(cli_value: Optional[str]) -> str:
 
 
 def resolve_algo_dataset(cli_value: Optional[str]) -> str:
-    """Resolve algo dataset name."""
+    """Resolve remote algo document name."""
     if cli_value:
         return cli_value
     stored = get('algo_dataset')

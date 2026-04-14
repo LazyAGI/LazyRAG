@@ -237,7 +237,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     retrieve.add_argument(
         '--dataset',
-        help='Algo dataset name (default: from config/env)',
+        help='Knowledge base / dataset ID to filter on (default: from `lazyrag use`)',
+    )
+    retrieve.add_argument(
+        '--algo-dataset',
+        help='Remote algo document name (default: from config/env, usually general_algo)',
     )
     retrieve.add_argument('--group-name', default='block',
                           help='Node group (default: block)')

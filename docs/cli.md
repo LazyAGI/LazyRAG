@@ -39,6 +39,8 @@
 ./lazyrag retrieve '介绍一下解析链路' --json
 ```
 
+如果这个知识库创建时使用了自定义 `--algo-id`，这里的 `algo_dataset` 也要设置成同一个值；`general_algo` 只适用于默认算法。
+
 如果你已经有 dataset，也可以先切换默认上下文：
 
 ```bash
@@ -90,10 +92,11 @@
 ### 场景四：做一次检索 smoke test
 
 ```bash
-# 设置默认 algo dataset，后续 retrieve 可省略 --dataset
+# 设置默认 remote algo document，后续 retrieve 可省略 --algo-dataset
 ./lazyrag config set algo_dataset general_algo
 
 # 默认模式：本地优先进入 lazyllm-algo 容器执行检索
+# 检索时会自动携带当前 dataset 作为 kb_id 过滤条件
 ./lazyrag retrieve '介绍一下解析链路'
 
 # 指定 runtime_models 配置文件执行检索
@@ -324,12 +327,16 @@ CLI 会把文件的相对路径传给服务端，但当前服务端只会根据 
 - 如果显式传了 `--url`，直接访问指定 algo service
 - 如果本地配置了 `algo_url`，优先使用该地址
 - 否则尝试自动找到本地运行中的 `lazyllm-algo` 容器，并在容器内执行检索
+- 远程 `Document` 默认使用 `algo_dataset` 配置，通常是 `general_algo`
+- 当前知识库通过 `kb_id=<dataset_id>` 作为过滤条件传给 retriever
+- 如果知识库创建时指定了自定义 `algo_id`，需要把 `algo_dataset` 配置成相同值
 
 ### 常用参数
 
 ```bash
 ./lazyrag retrieve '介绍一下解析链路' \
-  --dataset general_algo \
+  --dataset project-docs \
+  --algo-dataset general_algo \
   --group-name block \
   --topk 6 \
   --similarity cosine \

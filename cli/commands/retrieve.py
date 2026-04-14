@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from cli.context import get as get_context
-from cli.context import resolve_algo_dataset, resolve_algo_url
+from cli.context import resolve_algo_dataset, resolve_algo_url, resolve_dataset
 
 
 DOCKER_RETRIEVE_SCRIPT = r"""
@@ -32,7 +32,7 @@ def run_single(document, payload):
     if payload.get('embed_keys'):
         kwargs['embed_keys'] = payload['embed_keys']
     retriever = Retriever(document, **kwargs)
-    return retriever(query=payload['query'])
+    return retriever(query=payload['query'], filters=payload['filters'])
 
 
 def run_config(document, payload):
@@ -49,7 +49,7 @@ def run_config(document, payload):
             cfg = dict(cfg)
             cfg['output_format'] = 'dict'
             retriever = Retriever(document, **cfg)
-            result = retriever(query=payload['query'])
+            result = retriever(query=payload['query'], filters=payload['filters'])
             if isinstance(result, list):
                 results.extend(result)
         return results
@@ -59,7 +59,7 @@ def run_config(document, payload):
 
 
 payload = json.load(sys.stdin)
-document = Document(url=f"{payload['url']}/_call", name=payload['dataset'])
+document = Document(url=f"{payload['url']}/_call", name=payload['algo_dataset'])
 if payload.get('config_content'):
     output = run_config(document, payload)
 else:
@@ -105,15 +105,16 @@ def _find_local_algo_container() -> Optional[str]:
     return names[0] if names else None
 
 
-def _build_document(url: str, dataset: str):
-    """Create a remote Document, same pattern as get_remote_docment()."""
+def _build_document(url: str, algo_dataset: str):
+    """Create a remote Document for the registered algo endpoint."""
     from lazyllm import Document
-    return Document(url=f'{url}/_call', name=dataset)
+    return Document(url=f'{url}/_call', name=algo_dataset)
 
 
 def _run_single_retriever(
     document,
     query: str,
+    filters: Dict[str, str],
     group_name: str,
     topk: int,
     similarity: str,
@@ -132,11 +133,11 @@ def _run_single_retriever(
         kwargs['embed_keys'] = embed_keys
 
     retriever = Retriever(document, **kwargs)
-    return retriever(query=query)
+    return retriever(query=query, filters=filters)
 
 
 def _run_config_retrievers(
-    document, query: str, config_path: Optional[str],
+    document, query: str, filters: Dict[str, str], config_path: Optional[str],
 ) -> List[Dict[str, Any]]:
     """Run all retrievers defined in runtime_models config."""
     from lazyllm import Retriever
@@ -148,7 +149,7 @@ def _run_config_retrievers(
         cfg = dict(cfg)
         cfg['output_format'] = 'dict'
         retriever = Retriever(document, **cfg)
-        results = retriever(query=query)
+        results = retriever(query=query, filters=filters)
         if isinstance(results, list):
             all_results.extend(results)
     return all_results
@@ -192,18 +193,25 @@ def _resolve_embed_keys(raw_value: Optional[str]) -> Optional[List[str]]:
     return [key.strip() for key in raw_value.split(',') if key.strip()]
 
 
+def _build_filters(dataset_id: str) -> Dict[str, str]:
+    return {'kb_id': dataset_id}
+
+
 def _run_local_retrieve(args: argparse.Namespace) -> List[Dict[str, Any]]:
     _ensure_lazyllm()
 
     url = resolve_algo_url(args.url)
-    dataset = resolve_algo_dataset(args.dataset)
-    document = _build_document(url, dataset)
+    algo_dataset = resolve_algo_dataset(args.algo_dataset)
+    dataset_id = resolve_dataset(args.dataset)
+    document = _build_document(url, algo_dataset)
+    filters = _build_filters(dataset_id)
 
     if args.config:
-        return _run_config_retrievers(document, args.query, args.config)
+        return _run_config_retrievers(document, args.query, filters, args.config)
     return _run_single_retriever(
         document,
         query=args.query,
+        filters=filters,
         group_name=args.group_name,
         topk=args.topk,
         similarity=args.similarity,
@@ -220,9 +228,11 @@ def _read_config_content(config_path: Optional[str]) -> Optional[str]:
 def _run_docker_retrieve(
     container: str, args: argparse.Namespace,
 ) -> List[Dict[str, Any]]:
+    dataset_id = resolve_dataset(args.dataset)
     payload = {
         'url': 'http://127.0.0.1:8000',
-        'dataset': resolve_algo_dataset(args.dataset),
+        'algo_dataset': resolve_algo_dataset(args.algo_dataset),
+        'filters': _build_filters(dataset_id),
         'query': args.query,
         'group_name': args.group_name,
         'topk': args.topk,
