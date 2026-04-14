@@ -39,6 +39,14 @@ else
   echo "Skip (python3 not found)"
 fi
 
+echo ""
+echo "=== automation ==="
+if command -v python3 &>/dev/null; then
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tests/automation/ -v --tb=short 2>&1 || FAILED=1
+else
+  echo "Skip (python3 not found)"
+fi
+
 if [ $FAILED -eq 1 ]; then
   echo ""
   echo "Some tests failed."
