@@ -94,9 +94,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
     start_time = time.time()
     sensitive_check_result = check_sensitive_content(query, session_id, start_time)
-    sid = f'{session_id}_{time.time()}_{uuid.uuid4().hex}'
     log_tag = 'KB_CHAT_STREAM' if is_stream else 'KB_CHAT'
-    LOG.info(f'[ChatServer] [{log_tag}] [query={query}] [sid={sid}]')
+    LOG.info(f'[ChatServer] [{log_tag}] [query={query}] [sid={session_id}]')
 
     if not is_stream:
         if sensitive_check_result:
@@ -110,8 +109,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
         try:
             async with rag_sem:
-                lazyllm.globals._init_sid(sid=sid)
-                lazyllm.locals._init_sid(sid=sid)
+                lazyllm.globals._init_sid(sid=session_id)
+                lazyllm.locals._init_sid(sid=session_id)
                 result = await _run_sync_ppl(
                     bool(reasoning), dataset, query_params, query, filters, priority
                 )
@@ -153,8 +152,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             nonlocal first_frame_logged
             try:
                 async with rag_sem:
-                    lazyllm.globals._init_sid(sid=sid)
-                    lazyllm.locals._init_sid(sid=sid)
+                    lazyllm.globals._init_sid(sid=session_id)
+                    lazyllm.locals._init_sid(sid=session_id)
                     async_result = await asyncio.to_thread(ppl, *args)
                     async for chunk in async_result:
                         now = time.time()
@@ -189,7 +188,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             final_resp['cost'] = cost
             yield _sse_line(final_resp)
 
-            log_chat_request(query, sid, filters, other_files, image_files, databases,
+            log_chat_request(query, session_id, filters, other_files, image_files, databases,
                              cost, '\n'.join(collected_chunks), 'KB_CHAT_STREAM_FINISH')
 
         return StreamingResponse(
