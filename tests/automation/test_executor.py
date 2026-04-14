@@ -34,6 +34,12 @@ def _payload(repo: Path, fake_opencode: str) -> dict:
     }
 
 
+def _payload_without_code_context(repo: Path, fake_opencode: str) -> dict:
+    payload = _payload(repo, fake_opencode)
+    payload.pop('code_context')
+    return payload
+
+
 def test_execute_success_generates_diff(temp_repo: Path, fake_opencode: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv('FAKE_OPENCODE_MODE', 'success_modify')
     monkeypatch.setenv('FAKE_OPENCODE_TARGET', 'target.txt')
@@ -72,6 +78,24 @@ def test_execute_no_change(temp_repo: Path, fake_opencode: str, monkeypatch: pyt
         'files_changed': [],
         'change_summary': 'No changes were necessary.',
     }
+
+
+def test_execute_allows_missing_code_context(
+    temp_repo: Path,
+    fake_opencode: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv('FAKE_OPENCODE_MODE', 'success_modify')
+    monkeypatch.setenv('FAKE_OPENCODE_TARGET', 'target.txt')
+    monkeypatch.setenv('FAKE_OPENCODE_SUMMARY', 'Updated target.txt without extra context.')
+
+    outcome = execute(_payload_without_code_context(temp_repo, fake_opencode))
+
+    assert outcome['status'] == 'SUCCEEDED'
+    assert outcome['error'] is None
+    assert outcome['result'] is not None
+    assert outcome['result']['files_changed'] == ['target.txt']
+    assert outcome['result']['change_summary'] == 'Updated target.txt without extra context.'
 
 
 def test_execute_scope_violation(temp_repo: Path, fake_opencode: str, monkeypatch: pytest.MonkeyPatch) -> None:

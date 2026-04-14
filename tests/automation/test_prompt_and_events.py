@@ -18,6 +18,18 @@ def test_build_prompt_contains_constraints() -> None:
     assert 'Do not run code review, tests, AB tests, or version management tasks.' in prompt
 
 
+def test_build_prompt_without_allowlist_uses_scope_guidance() -> None:
+    prompt = build_prompt(
+        task_plan={'task_id': 'T002', 'goal': 'update target'},
+        code_context={},
+        allowlist=[],
+    )
+
+    assert 'No explicit file allowlist was provided.' in prompt
+    assert 'Keep changes minimal and tightly scoped to the task plan.' in prompt
+    assert 'CodeContext:' in prompt
+
+
 def test_parse_event_stream_extracts_text_and_errors() -> None:
     events = parse_event_stream(
         '\n'.join(

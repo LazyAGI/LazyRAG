@@ -32,7 +32,7 @@ DEFAULT_TIMEOUT_SECONDS = 300
 def execute(payload: Mapping[str, Any]) -> AdapterOutcome:
     input_payload = _coerce_mapping(payload, 'payload')
     task_plan = _coerce_mapping(input_payload.get('task_plan'), 'task_plan')
-    code_context = _coerce_mapping(input_payload.get('code_context'), 'code_context')
+    code_context = _coerce_mapping(input_payload.get('code_context'), 'code_context', allow_none=True)
     task_id = str(task_plan.get('task_id') or 'task')
     repo_hint = str(input_payload.get('repo_path') or '').strip()
     artifact_base = _artifact_base(repo_hint)
@@ -47,12 +47,13 @@ def execute(payload: Mapping[str, Any]) -> AdapterOutcome:
         repo_root = _validate_repo(repo_hint)
         base_ref = str(input_payload.get('base_ref') or DEFAULT_BASE_REF).strip() or DEFAULT_BASE_REF
         base_commit = _resolve_base_commit(repo_root, base_ref)
-        allowlist = _resolve_allowlist(repo_root, code_context)
+        allowlist, target_file = _resolve_allowlist(repo_root, code_context)
         binary = _resolve_opencode_binary(input_payload)
         _preflight_opencode(binary)
         worktree_dir = artifacts_dir / 'worktree'
         _create_worktree(repo_root, base_commit, worktree_dir)
-        _validate_target_in_worktree(worktree_dir, allowlist[0])
+        if target_file:
+            _validate_target_in_worktree(worktree_dir, target_file)
 
         prompt = build_prompt(task_plan=task_plan, code_context=code_context, allowlist=allowlist)
         _write_text(artifacts_dir / 'prompt.txt', prompt)
@@ -84,7 +85,7 @@ def execute(payload: Mapping[str, Any]) -> AdapterOutcome:
             _write_json(artifacts_dir / 'result.json', outcome)
             return outcome
 
-        violations = sorted(path for path in changed_files if path not in set(allowlist))
+        violations = sorted(path for path in changed_files if allowlist and path not in set(allowlist))
         if violations:
             raise AdapterError(
                 SCOPE_VIOLATION,
@@ -236,14 +237,8 @@ def _resolve_base_commit(repo_root: Path, base_ref: str) -> str:
     return result.stdout.strip()
 
 
-def _resolve_allowlist(repo_root: Path, code_context: Mapping[str, Any]) -> List[str]:
+def _resolve_allowlist(repo_root: Path, code_context: Mapping[str, Any]) -> Tuple[List[str], Optional[str]]:
     target_value = str(code_context.get('target_file') or '').strip()
-    if not target_value:
-        raise AdapterError(
-            TARGET_FILE_MISSING,
-            'code_context.target_file is required',
-            {'field': 'code_context.target_file'},
-        )
     related_files = code_context.get('related_files') or []
     if related_files and not isinstance(related_files, list):
         raise AdapterError(
@@ -251,13 +246,17 @@ def _resolve_allowlist(repo_root: Path, code_context: Mapping[str, Any]) -> List
             'code_context.related_files must be a list',
             {'field': 'code_context.related_files'},
         )
-    ordered_paths = [target_value]
+    ordered_paths: List[str] = []
+    if target_value:
+        ordered_paths.append(target_value)
     for item in related_files:
         if item is None:
             continue
         value = str(item).strip()
         if value:
             ordered_paths.append(value)
+    if not ordered_paths:
+        return [], None
     normalized: List[str] = []
     seen: Set[str] = set()
     for path_value in ordered_paths:
@@ -266,14 +265,14 @@ def _resolve_allowlist(repo_root: Path, code_context: Mapping[str, Any]) -> List
             continue
         seen.add(relative_path)
         normalized.append(relative_path)
-    target_path = repo_root / normalized[0]
-    if not target_path.exists():
+    normalized_target = _normalize_repo_path(repo_root, target_value) if target_value else None
+    if normalized_target and not (repo_root / normalized_target).exists():
         raise AdapterError(
             TARGET_FILE_MISSING,
             'target_file does not exist in repo_path',
-            {'target_file': normalized[0], 'repo_path': str(repo_root)},
+            {'target_file': normalized_target, 'repo_path': str(repo_root)},
         )
-    return normalized
+    return normalized, normalized_target
 
 
 def _normalize_repo_path(repo_root: Path, path_value: str) -> str:
