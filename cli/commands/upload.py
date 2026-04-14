@@ -75,8 +75,6 @@ def upload_single_file(
     Returns the first TaskResponse from the server.
     """
     filename = Path(relative_path).name
-    with open(source_path, 'rb') as f:
-        content = f.read()
 
     # The server uses the first path segment of relative_path to create
     # a top-level folder; deeper nesting is NOT reconstructed.  Files
@@ -91,7 +89,7 @@ def upload_single_file(
         fields=fields,
         file_field='files',
         filename=filename,
-        file_content=content,
+        source_path=source_path,
         server=server,
         timeout=timeout,
     )

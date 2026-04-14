@@ -14,7 +14,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from cli import credentials as creds_mod  # noqa: E402
 from cli import context as ctx_mod  # noqa: E402
-from cli.client import ApiError, build_multipart_body, raw_request  # noqa: E402
+from cli.client import (  # noqa: E402
+    ApiError, build_multipart_body, build_multipart_file, raw_request,
+)
 from cli.commands import upload as upload_mod  # noqa: E402
 from cli.commands.upload import collect_files, parse_extensions  # noqa: E402
 from cli.main import build_parser  # noqa: E402
@@ -81,6 +83,27 @@ class TestBuildMultipartBody(unittest.TestCase):
         self.assertIn(b'test.txt', body)
         self.assertIn(b'key', body)
         self.assertIn(b'value', body)
+
+    def test_build_multipart_file_streams_from_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'test.txt'
+            path.write_text('hello-stream', encoding='utf-8')
+
+            handle, headers = build_multipart_file(
+                fields={'key': 'value'},
+                file_field='file',
+                filename='test.txt',
+                source_path=str(path),
+            )
+            try:
+                body = handle.read()
+            finally:
+                handle.close()
+
+        self.assertIn('multipart/form-data', headers['Content-Type'])
+        self.assertEqual(headers['Content-Length'], str(len(body)))
+        self.assertIn(b'hello-stream', body)
+        self.assertIn(b'test.txt', body)
 
 
 class TestCredentials(unittest.TestCase):

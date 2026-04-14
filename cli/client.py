@@ -3,8 +3,9 @@
 import json
 import mimetypes
 import sys
+import tempfile
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple
 from urllib import error, request
 
 from cli import credentials
@@ -178,7 +179,7 @@ def auth_request(
     server: Optional[str] = None,
     payload: Optional[Dict[str, Any]] = None,
     headers: Optional[Dict[str, str]] = None,
-    body: Optional[bytes] = None,
+    body: Optional[Any] = None,
     timeout: float = 30.0,
 ) -> Dict[str, Any]:
     """Like *raw_request* but injects the stored Bearer token.
@@ -263,19 +264,69 @@ def build_multipart_body(
     return body, {'Content-Type': f'multipart/form-data; boundary={boundary}'}
 
 
+def build_multipart_file(
+    fields: Dict[str, str],
+    file_field: str,
+    filename: str,
+    source_path: str,
+) -> Tuple[BinaryIO, Dict[str, str]]:
+    """Build a multipart/form-data payload backed by a temp file."""
+    boundary = f'----LazyRAGBoundary{uuid.uuid4().hex}'
+    handle = tempfile.SpooledTemporaryFile(max_size=1024 * 1024)
+
+    def _write(chunk: bytes) -> None:
+        handle.write(chunk)
+
+    for key, value in fields.items():
+        _write(f'--{boundary}\r\n'.encode())
+        _write(
+            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+        )
+        _write(str(value).encode('utf-8'))
+        _write(b'\r\n')
+
+    content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+    _write(f'--{boundary}\r\n'.encode())
+    _write(
+        f'Content-Disposition: form-data; name="{file_field}"; '
+        f'filename="{filename}"\r\n'.encode(),
+    )
+    _write(f'Content-Type: {content_type}\r\n\r\n'.encode())
+
+    with open(source_path, 'rb') as src:
+        while True:
+            chunk = src.read(1024 * 1024)
+            if not chunk:
+                break
+            _write(chunk)
+
+    _write(b'\r\n')
+    _write(f'--{boundary}--\r\n'.encode())
+    size = handle.tell()
+    handle.seek(0)
+    return handle, {
+        'Content-Type': f'multipart/form-data; boundary={boundary}',
+        'Content-Length': str(size),
+    }
+
+
 def auth_upload(
     path: str,
     fields: Dict[str, str],
     file_field: str,
     filename: str,
-    file_content: bytes,
+    source_path: str,
     server: Optional[str] = None,
     timeout: float = 300.0,
 ) -> Dict[str, Any]:
     """Upload a file via multipart/form-data with Bearer auth."""
-    body, hdrs = build_multipart_body(fields, file_field, filename, file_content)
-    return auth_request('POST', path, server=server, headers=hdrs,
-                        body=body, timeout=timeout)
+    body, hdrs = build_multipart_file(fields, file_field, filename, source_path)
+    try:
+        return auth_request(
+            'POST', path, server=server, headers=hdrs, body=body, timeout=timeout,
+        )
+    finally:
+        body.close()
 
 
 # ---------------------------------------------------------------------------
