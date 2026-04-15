@@ -160,3 +160,28 @@ def test_cli_reads_stdin_and_writes_stdout(
     rendered = json.loads(result.stdout)
     assert rendered['status'] == 'SUCCEEDED'
     assert rendered['result']['files_changed'] == ['target.txt']
+
+
+def test_cli_invalid_payload_returns_json_error() -> None:
+    env = os.environ.copy()
+    existing_pythonpath = env.get('PYTHONPATH', '')
+    env['PYTHONPATH'] = (
+        f'{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}' if existing_pythonpath else str(PROJECT_ROOT)
+    )
+
+    result = subprocess.run(
+        [sys.executable, '-m', 'automation.opencode_adapter.cli'],
+        input=json.dumps({'repo_path': '/tmp/repo'}),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+        cwd=str(PROJECT_ROOT),
+        env=env,
+    )
+
+    assert result.returncode == 1
+    rendered = json.loads(result.stdout)
+    assert rendered['status'] == 'FAILED'
+    assert rendered['error']['code'] == 'OPENCODE_EXEC_FAILED'
+    assert 'payload must contain task_plan or report/task_plans' in rendered['error']['message']

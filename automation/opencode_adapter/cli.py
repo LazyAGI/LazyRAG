@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from automation.opencode_adapter import execute
+from automation.opencode_adapter import execute, execute_report
 
 
 def _load_payload(input_file: str | None) -> Dict[str, Any]:
@@ -27,6 +27,7 @@ def main() -> int:
 
     try:
         payload = _load_payload(args.input_file)
+        outcome = _execute_payload(payload)
     except Exception as exc:
         error = {
             'status': 'FAILED',
@@ -38,12 +39,19 @@ def main() -> int:
         print(rendered)
         return 1
 
-    outcome = execute(payload)
     rendered = json.dumps(outcome, ensure_ascii=False, indent=2 if args.pretty else None)
     print(rendered)
     if args.output_file:
         Path(args.output_file).write_text(rendered + '\n', encoding='utf-8')
     return 0 if outcome['status'] in {'SUCCEEDED', 'NO_CHANGE'} else 1
+
+
+def _execute_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if 'task_plan' in payload:
+        return execute(payload)
+    if 'report' in payload or 'task_plans' in payload or 'report_id' in payload:
+        return execute_report(payload)
+    raise ValueError('payload must contain task_plan or report/task_plans')
 
 
 if __name__ == '__main__':
