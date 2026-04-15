@@ -74,7 +74,7 @@ def _is_under_any_root(path: Path, roots: Iterable[Path]) -> bool:
 
 
 def _expected_pdf_path(source: Path) -> Path:
-    return source.with_name(f'{source.stem}.__parsed__.pdf')
+    return source.with_name(f'{source.stem}.pdf')
 
 
 def _validate_source_path(source_path: str) -> Path:

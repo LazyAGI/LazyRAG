@@ -95,6 +95,7 @@ services:
       LAZYRAG_JWT_SECRET: dev-secret-change-me
       LAZYRAG_JWT_TTL_MINUTES: "60"
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
+      LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
@@ -156,6 +157,7 @@ services:
       LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://lazyllm-doc-server:8000}
       LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://lazyllm-parse-server:8000}
       LAZYRAG_CHAT_SERVICE_URL: ${LAZYRAG_CHAT_SERVICE_URL:-http://chat:8046}
+      LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s

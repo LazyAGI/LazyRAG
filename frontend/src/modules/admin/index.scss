@@ -23,19 +23,20 @@
 }
 
 .admin-layout-brand {
-  min-height: 72px;
+  min-height: 88px;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 4px 10px 20px;
+  padding: 8px 10px 16px;
   font-size: 15px;
   font-weight: 700;
   color: #1f2a37;
 }
 
 .admin-layout-brand-logo {
-  width: 124px;
-  height: 32px;
+  width: 188px;
+  max-height: 64px;
+  max-width: 100%;
   object-fit: contain;
 }
 
@@ -135,16 +136,23 @@
 .admin-layout-content,
 .admin-layout-body {
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
   background: #f6f8fb;
 }
 
+.admin-layout-content {
+  height: 100%;
+  overflow: hidden;
+}
+
 .admin-layout-body {
+  height: 100%;
   padding: 20px 24px;
+  overflow-y: auto;
 }
 
 .admin-layout-panel {
-  min-height: calc(100vh - 40px);
+  min-height: calc(100% - 40px);
   padding: 20px 24px 24px;
   border-radius: 18px;
   background: #fff;

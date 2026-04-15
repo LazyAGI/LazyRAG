@@ -11,6 +11,7 @@ import {
 import type { TableColumnsType } from "antd";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { getLocalizedErrorMessage } from "@/components/request";
 import { createGroupApi, createUserApi } from "@/modules/signin/utils/request";
 import type { GroupItem, GroupUserItem, UserItem } from "@/api/generated/auth-client";
 import {
@@ -19,6 +20,7 @@ import {
   LeftOutlined,
   UsergroupAddOutlined,
 } from "@ant-design/icons";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import { useStyles } from "@/components/ui/useStyles";
 
 const manageMembersModalCss = `
@@ -143,6 +145,8 @@ const ManageMembersModal = ({
   const [pendingAddUsers, setPendingAddUsers] = useState<UserItem[]>([]);
   const [leftSearch, setLeftSearch] = useState("");
   const [rightSearch, setRightSearch] = useState("");
+  const isUserInactive = (status?: string) =>
+    status?.toLowerCase() === "inactive";
 
   const fetchAllUsers = useCallback(async () => {
     if (!isAdmin) return;
@@ -225,8 +229,8 @@ const ManageMembersModal = ({
   }, [pendingAddUsers, rightSearch]);
 
   const moveToRight = () => {
-    const usersToMove = leftDataSource.filter((u) =>
-      leftSelectedKeys.includes(u.user_id),
+    const usersToMove = leftDataSource.filter(
+      (u) => leftSelectedKeys.includes(u.user_id) && !isUserInactive(u.status),
     );
     setPendingAddUsers((prev) => [...prev, ...usersToMove]);
     setLeftSelectedKeys([]);
@@ -258,9 +262,12 @@ const ManageMembersModal = ({
       onSuccess?.();
     } catch (error: any) {
       console.error("Add members failed:", error);
-      AntdMessage.error(
-        error.response?.data?.message || t("admin.addMembersFailed"),
-      );
+      if (!error?.response && !error?.request) {
+        AntdMessage.error(
+          getLocalizedErrorMessage(error, t("admin.addMembersFailed")) ||
+            t("admin.addMembersFailed"),
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -368,6 +375,9 @@ const ManageMembersModal = ({
               rowSelection={{
                 selectedRowKeys: leftSelectedKeys,
                 onChange: (keys) => setLeftSelectedKeys(keys as string[]),
+                getCheckboxProps: (record) => ({
+                  disabled: isUserInactive(record.status),
+                }),
               }}
               dataSource={leftDataSource}
               columns={userColumns}
@@ -375,11 +385,11 @@ const ManageMembersModal = ({
               loading={loading}
               tableLayout="fixed"
               scroll={{ x: 620 }}
-              pagination={{
+              pagination={getLocalizedTablePagination({
                 size: "small",
                 pageSize: 10,
                 showSizeChanger: false,
-              }}
+              }, t)}
             />
           </div>
         </div>
@@ -421,6 +431,9 @@ const ManageMembersModal = ({
               rowSelection={{
                 selectedRowKeys: rightSelectedKeys,
                 onChange: (keys) => setRightSelectedKeys(keys as string[]),
+                getCheckboxProps: (record) => ({
+                  disabled: isUserInactive(record.status),
+                }),
               }}
               dataSource={rightDataSource}
               columns={userColumns.slice(0, 1)}

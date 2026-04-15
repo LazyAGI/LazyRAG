@@ -11,6 +11,11 @@ from services.auth_service import auth_service
 class UserService:
     """User CRUD, role assignment, password reset."""
 
+    def _is_bootstrap_admin(self, user) -> bool:
+        if not user:
+            return False
+        return (getattr(user, 'source', '') or '').strip() == 'init'
+
     def _default_user_role_id(self, db) -> uuid.UUID:
         role = RoleRepository.get_by_name(db, 'user')
         if not role:
@@ -85,6 +90,7 @@ class UserService:
                     'tenant_id': u.tenant_id,
                     'role_id': str(u.role_id),
                     'role_name': u.role.name,
+                    'is_bootstrap_admin': self._is_bootstrap_admin(u),
                 }
                 for u in users
             ]
@@ -102,10 +108,12 @@ class UserService:
                 'display_name': u.display_name or u.username,
                 'email': u.email,
                 'phone': u.phone or None,
+                'remark': u.remark or '',
                 'status': 'inactive' if u.disabled else 'active',
                 'tenant_id': u.tenant_id,
                 'role_id': str(u.role_id),
                 'role_name': u.role.name if u.role else 'user',
+                'is_bootstrap_admin': self._is_bootstrap_admin(u),
             }
 
     def set_user_role(self, user_id: uuid.UUID, role_id: uuid.UUID) -> None:
@@ -114,6 +122,8 @@ class UserService:
             user = UserRepository.get_by_id(db, user_id, load_role=True)
             if not user:
                 raise_error(ErrorCodes.USER_NOT_FOUND)
+            if self._is_bootstrap_admin(user):
+                raise_error(ErrorCodes.BOOTSTRAP_ADMIN_ROLE_CHANGE_FORBIDDEN)
             role = RoleRepository.get_by_id(db, role_id)
             if not role:
                 raise_error(ErrorCodes.ROLE_NOT_FOUND)
@@ -138,6 +148,8 @@ class UserService:
                 user = UserRepository.get_by_id(db, uid, load_role=True)
                 if not user:
                     raise_error(ErrorCodes.USER_NOT_FOUND, extra_msg=str(uid))
+                if self._is_bootstrap_admin(user):
+                    raise_error(ErrorCodes.BOOTSTRAP_ADMIN_ROLE_CHANGE_FORBIDDEN, extra_msg=str(uid))
                 user.role_id = role.id
             db.commit()
 

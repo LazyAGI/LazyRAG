@@ -31,15 +31,15 @@ class CustomOutputParser(ModuleBase):
         metadata = node.metadata
         return {
             'index': index,
-            'number': metadata.get('store_num') or metadata.get('lazyllm_store_num') or -1,
-            'docid': gm.get('docid', 'file_id_example'),
+            'segment_number': metadata.get('store_num') or metadata.get('lazyllm_store_num') or -1,
+            'document_id': gm.get('docid', 'file_id_example'),
             'page': metadata.get('page', -1),
             'bbox': metadata.get('bbox', []),
-            'kb_id': gm.get('kb_id', 'kb_id_example'),
+            'dataset_id': gm.get('kb_id', 'kb_id_example'),
             'file_name': gm.get('file_name', 'title_example'),
-            'id': node._uid,
-            'text': node.text,
-            'group': node._group
+            'segement_id': node._uid,
+            'content': node.text,
+            'group_name': node._group
         }
 
     # ================== 同步 ==================

@@ -3,6 +3,7 @@ package doc
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -68,10 +69,14 @@ func ListSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pageSize := parseSegmentPageSize(r, nil)
-	page := parseSegmentPage(r, nil)
+	page, err := parseSegmentPage(r, nil, pageSize)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
+		return
+	}
 	raw, queryURL, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "ListSegments")
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
@@ -101,10 +106,14 @@ func SearchSegments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pageSize := parseSegmentPageSize(r, body)
-	page := parseSegmentPage(r, body)
+	page, err := parseSegmentPage(r, body, pageSize)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
+		return
+	}
 	raw, _, err := fetchChunksPage(r, datasetID, documentID, lazyDocID, algoID, group, page, pageSize, "SearchSegments")
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	segments, totalSize, nextPageToken := parseChunkSearchResponse(datasetID, documentID, raw, page, pageSize)
@@ -123,7 +132,7 @@ func GetSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	segment, found, err := fetchSegmentByID(r, datasetID, documentID, lazyDocID, algoID, group, segmentID)
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	if !found {
@@ -146,20 +155,42 @@ func parseSegmentPageSize(r *http.Request, body *segmentSearchInput) int {
 	return pageSize
 }
 
-func parseSegmentPage(r *http.Request, body *segmentSearchInput) int {
+func parseSegmentPage(r *http.Request, body *segmentSearchInput, pageSize int) (int, error) {
+	resolvePageFromToken := func(token string) (int, error) {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return 0, nil
+		}
+		if v, err := strconv.Atoi(token); err == nil && v > 0 {
+			return v, nil
+		}
+		offset, err := parseDatasetPageToken(token)
+		if err != nil {
+			return 0, err
+		}
+		if pageSize <= 0 {
+			pageSize = 20
+		}
+		return offset/pageSize + 1, nil
+	}
+
 	if body != nil {
-		if token := strings.TrimSpace(body.PageToken); token != "" {
-			if v, err := strconv.Atoi(token); err == nil && v > 0 {
-				return v
-			}
+		if page, err := resolvePageFromToken(body.PageToken); err != nil {
+			return 0, err
+		} else if page > 0 {
+			return page, nil
 		}
 	}
 	if token := firstNonEmptyQuery(r, "page_token", "pageToken", "cursor", "offset_token"); token != "" {
-		if v, err := strconv.Atoi(token); err == nil && v > 0 {
-			return v
+		page, err := resolvePageFromToken(token)
+		if err != nil {
+			return 0, err
+		}
+		if page > 0 {
+			return page, nil
 		}
 	}
-	return firstPositiveQueryInt(r, 1, "page", "page_no", "pageNo")
+	return firstPositiveQueryInt(r, 1, "page", "page_no", "pageNo"), nil
 }
 
 func parseSegmentGroup(r *http.Request, body *segmentSearchInput) string {
@@ -326,7 +357,7 @@ func prepareSegmentRequest(w http.ResponseWriter, r *http.Request, handler strin
 	}
 	var docRow orm.Document
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", documentID, datasetID).Take(&docRow).Error; err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return "", "", "", "", "", false
 	}
 	lazyDocID = strings.TrimSpace(docRow.LazyllmDocID)
@@ -416,7 +447,7 @@ func parseChunkSearchResponse(datasetID, documentID string, raw map[string]any, 
 	total := extractChunkTotal(raw, len(segments))
 	nextPageToken := ""
 	if int(total) > page*pageSize {
-		nextPageToken = strconv.Itoa(page + 1)
+		nextPageToken = encodeDatasetPageToken(page*pageSize, pageSize, int(total))
 	}
 	return segments, total, nextPageToken
 }

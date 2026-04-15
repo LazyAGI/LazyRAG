@@ -6,7 +6,7 @@ import {
   useImperativeHandle,
   ReactElement,
 } from "react";
-import { Button, Spin, Input, Flex, Badge } from "antd";
+import { Button, Spin, Input, Flex, Badge, message } from "antd";
 import {
   PlusSquareOutlined,
   SendOutlined,
@@ -40,6 +40,7 @@ import { streamManager } from "@/modules/chat/utils/StreamManager";
 import { ChatServiceApi } from "@/modules/chat/utils/request";
 import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
+import { getRegenerationInputs } from "@/modules/chat/utils/message";
 
 const ThinkIcon = new URL("../../assets/images/think.png", import.meta.url)
   .href;
@@ -846,20 +847,26 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       if (loading) {
         return;
       }
+      const userMessage = messageListRef.current.findLast(
+        (item: any) => item.role === RoleTypes.USER,
+      );
+      const regenerationInputs = getRegenerationInputs(userMessage);
+      if (regenerationInputs.length < 1) {
+        message.error(t("chat.regenerateInputMissing"));
+        return;
+      }
       const assistantMessage = {
         role: RoleTypes.ASSISTANT,
         finish_reason:
           ChatConversationsResponseFinishReasonEnum.FinishReasonUnspecified,
       };
-      const newList = [...messageList];
+      const newList = [...messageListRef.current];
       newList[newList.length - 1] = assistantMessage;
+      messageListRef.current = newList;
       setMessageList(newList);
-      const userMessage = messageList.findLast(
-        (item: any) => item.role === RoleTypes.USER,
-      );
       isMouseScrollingRef.current = true;
       openSSE(
-        userMessage?.inputs,
+        regenerationInputs,
         ChatConversationsRequestActionEnum.ChatActionRegeneration,
       );
     }

@@ -78,3 +78,14 @@ class GroupUserListResponse(BaseModel):
 class OkResponse(BaseModel):
     """Generic ok response"""
     ok: bool = True
+
+
+class UserGroupItem(BaseModel):
+    user_id: str
+    group_id: str
+    group_name: str
+    tenant_id: str | None = None
+
+
+class UserGroupListResponse(BaseModel):
+    groups: list[UserGroupItem]

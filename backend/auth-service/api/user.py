@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from core.deps import current_user
+from core.deps import current_user, require_internal_service_token
 from core.errors import ErrorCodes, raise_error
 from core.rbac import permission_required
 from models import User
@@ -17,7 +17,9 @@ from schemas.user import (
     UserRoleBatchBody,
     UserRoleBody,
 )
-from services import user_service
+from schemas.group import UserGroupListResponse
+
+from services import group_service, user_service
 
 
 router = APIRouter(prefix='/user', tags=['user'])
@@ -44,7 +46,7 @@ def create_user(body: CreateUserBody, _: User = Depends(current_user)):  # noqa:
 
 
 @router.get('', response_model=UserListResponse)
-@permission_required('user.admin')
+@permission_required('user.read')
 def list_users(
     _: User = Depends(current_user),  # noqa: B008
     page: int = Query(1, ge=1),  # noqa: B008
@@ -88,6 +90,15 @@ def set_user_roles_batch(body: UserRoleBatchBody, _: User = Depends(current_user
         raise_error(ErrorCodes.ROLE_NOT_FOUND)
     user_service.set_user_roles_batch(uids, rid)
     return {'ok': True}
+
+
+@router.get('/{user_id}/groups/internal', response_model=UserGroupListResponse)
+def list_user_groups_internal(
+    user_id: str,
+    _internal: None = Depends(require_internal_service_token),  # noqa: B008
+):
+    uid = _parse_user_id(user_id)
+    return {'groups': group_service.list_user_groups(uid)}
 
 
 @router.get('/{user_id}', response_model=UserDetailResponse)

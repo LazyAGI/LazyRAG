@@ -100,7 +100,7 @@ func parseStoredNameFromSource(storedName string) string {
 	if base == "" {
 		base = storedName
 	}
-	return base + ".__parsed__.pdf"
+	return base + ".pdf"
 }
 
 func mustJSON(v any) json.RawMessage {

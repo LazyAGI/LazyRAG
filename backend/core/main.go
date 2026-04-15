@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -157,12 +158,12 @@ func main() {
 	r.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		var m map[string]interface{}
 		if err := json.Unmarshal(openAPIJSON, &m); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 			return
 		}
 		out, err := yaml.Marshal(m)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-yaml")

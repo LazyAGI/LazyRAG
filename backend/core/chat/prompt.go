@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -50,28 +51,41 @@ func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 		Content     string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	displayName := strings.TrimSpace(body.DisplayName)
 	content := body.Content
 	if utf8.RuneCountInString(displayName) > promptNameMaxLen {
-		http.Error(w, "name too long", http.StatusBadRequest)
+		common.ReplyErr(w, "name too long", http.StatusBadRequest)
 		return
 	}
 	if utf8.RuneCountInString(content) > promptContentMaxLen {
-		http.Error(w, "content too long", http.StatusBadRequest)
+		common.ReplyErr(w, "content too long", http.StatusBadRequest)
 		return
 	}
 	if displayName == "" || strings.TrimSpace(content) == "" {
-		http.Error(w, "display_name and content required", http.StatusBadRequest)
+		common.ReplyErr(w, "display_name and content required", http.StatusBadRequest)
 		return
 	}
 
 	userID := corestore.UserID(r)
 	userName := corestore.UserName(r)
 	if userID == "" {
-		http.Error(w, "missing X-User-Id", http.StatusBadRequest)
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	var promptExisted int64
+	if err := corestore.DB().
+		Model(&orm.Prompt{}).
+		Where("create_user_id = ? AND name = ? AND deleted_at IS NULL", userID, displayName).
+		Count(&promptExisted).Error; err != nil {
+		common.ReplyErr(w, "query prompts failed", http.StatusInternalServerError)
+		return
+	}
+	if promptExisted > 0 {
+		common.ReplyErr(w, "prompt name already exists", http.StatusConflict)
 		return
 	}
 
@@ -88,7 +102,7 @@ func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if err := corestore.DB().Create(&p).Error; err != nil {
-		http.Error(w, "prompt existed", http.StatusConflict)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "prompt existed", err), http.StatusConflict)
 		return
 	}
 
@@ -105,7 +119,7 @@ func CreatePrompt(w http.ResponseWriter, r *http.Request) {
 func UpdatePrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
-		http.Error(w, "invalid prompt name", http.StatusBadRequest)
+		common.ReplyErr(w, "invalid prompt name", http.StatusBadRequest)
 		return
 	}
 	var body struct {
@@ -113,33 +127,33 @@ func UpdatePrompt(w http.ResponseWriter, r *http.Request) {
 		Content     string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	displayName := strings.TrimSpace(body.DisplayName)
 	content := body.Content
 	if displayName == "" && content == "" {
-		http.Error(w, "display_name/content required", http.StatusBadRequest)
+		common.ReplyErr(w, "display_name/content required", http.StatusBadRequest)
 		return
 	}
 	if displayName != "" && utf8.RuneCountInString(displayName) > promptNameMaxLen {
-		http.Error(w, "name too long", http.StatusBadRequest)
+		common.ReplyErr(w, "name too long", http.StatusBadRequest)
 		return
 	}
 	if content != "" && utf8.RuneCountInString(content) > promptContentMaxLen {
-		http.Error(w, "content too long", http.StatusBadRequest)
+		common.ReplyErr(w, "content too long", http.StatusBadRequest)
 		return
 	}
 
 	userID := corestore.UserID(r)
 	if userID == "" {
-		http.Error(w, "missing X-User-Id", http.StatusBadRequest)
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 
 	var p orm.Prompt
 	if err := corestore.DB().Where("id = ? AND create_user_id = ?", promptID, userID).First(&p).Error; err != nil {
-		http.Error(w, "prompt not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "prompt not found", err), http.StatusNotFound)
 		return
 	}
 
@@ -151,7 +165,7 @@ func UpdatePrompt(w http.ResponseWriter, r *http.Request) {
 		updates["name"] = displayName
 	}
 	if err := corestore.DB().Model(&orm.Prompt{}).Where("id = ? AND create_user_id = ?", promptID, userID).Updates(updates).Error; err != nil {
-		http.Error(w, "update failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "update failed", err), http.StatusInternalServerError)
 		return
 	}
 	_ = corestore.DB().Where("id = ? AND create_user_id = ?", promptID, userID).First(&p).Error
@@ -174,17 +188,17 @@ func UpdatePrompt(w http.ResponseWriter, r *http.Request) {
 func DeletePrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
-		http.Error(w, "invalid prompt name", http.StatusBadRequest)
+		common.ReplyErr(w, "invalid prompt name", http.StatusBadRequest)
 		return
 	}
 	userID := corestore.UserID(r)
 	if userID == "" {
-		http.Error(w, "missing X-User-Id", http.StatusBadRequest)
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 	_ = corestore.DB().Where("create_user_id = ? AND prompt_id = ?", userID, promptID).Delete(&orm.DefaultPrompt{}).Error
 	if err := corestore.DB().Where("id = ? AND create_user_id = ?", promptID, userID).Delete(&orm.Prompt{}).Error; err != nil {
-		http.Error(w, "delete failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "delete failed", err), http.StatusInternalServerError)
 		return
 	}
 	writePromptJSON(w, http.StatusOK, nil)
@@ -194,17 +208,17 @@ func DeletePrompt(w http.ResponseWriter, r *http.Request) {
 func GetPrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
-		http.Error(w, "invalid prompt name", http.StatusBadRequest)
+		common.ReplyErr(w, "invalid prompt name", http.StatusBadRequest)
 		return
 	}
 	userID := corestore.UserID(r)
 	if userID == "" {
-		http.Error(w, "missing X-User-Id", http.StatusBadRequest)
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 	var p orm.Prompt
 	if err := corestore.DB().Where("id = ? AND create_user_id = ?", promptID, userID).First(&p).Error; err != nil {
-		http.Error(w, "prompt not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "prompt not found", err), http.StatusNotFound)
 		return
 	}
 	var dpCount int64
@@ -225,7 +239,7 @@ func GetPrompt(w http.ResponseWriter, r *http.Request) {
 func ListPrompts(w http.ResponseWriter, r *http.Request) {
 	userID := corestore.UserID(r)
 	if userID == "" {
-		http.Error(w, "missing X-User-Id", http.StatusBadRequest)
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 	pageSize := 50
@@ -250,7 +264,7 @@ func ListPrompts(w http.ResponseWriter, r *http.Request) {
 
 	var ps []orm.Prompt
 	if err := corestore.DB().Where("create_user_id = ?", userID).Order("created_at desc").Find(&ps).Error; err != nil {
-		http.Error(w, "list failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "list failed", err), http.StatusInternalServerError)
 		return
 	}
 	total := len(ps)
@@ -306,18 +320,18 @@ func ListPrompts(w http.ResponseWriter, r *http.Request) {
 func SetDefaultPrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
-		http.Error(w, "invalid prompt name", http.StatusBadRequest)
+		common.ReplyErr(w, "invalid prompt name", http.StatusBadRequest)
 		return
 	}
 	userID := corestore.UserID(r)
 	userName := corestore.UserName(r)
 	if userID == "" {
-		http.Error(w, "missing X-User-Id", http.StatusBadRequest)
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 	var p orm.Prompt
 	if err := corestore.DB().Where("id = ? AND create_user_id = ?", promptID, userID).First(&p).Error; err != nil {
-		http.Error(w, "prompt not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "prompt not found", err), http.StatusNotFound)
 		return
 	}
 	now := time.Now().UTC()
@@ -339,12 +353,12 @@ func SetDefaultPrompt(w http.ResponseWriter, r *http.Request) {
 func UnsetDefaultPrompt(w http.ResponseWriter, r *http.Request) {
 	promptID := promptNameFromPath(r)
 	if promptID == "" {
-		http.Error(w, "invalid prompt name", http.StatusBadRequest)
+		common.ReplyErr(w, "invalid prompt name", http.StatusBadRequest)
 		return
 	}
 	userID := corestore.UserID(r)
 	if userID == "" {
-		http.Error(w, "missing X-User-Id", http.StatusBadRequest)
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 	_ = corestore.DB().Where("create_user_id = ? AND prompt_id = ?", userID, promptID).Delete(&orm.DefaultPrompt{}).Error

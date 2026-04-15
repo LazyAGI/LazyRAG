@@ -73,15 +73,15 @@ class CitationPlugin(BasePlugin):
 
         return {
             'index': idx,
-            'number': metadata.get('store_num') or metadata.get('lazyllm_store_num') or -1,
+            'segment_number': metadata.get('store_num') or metadata.get('lazyllm_store_num') or -1,
+            'document_id': gm.get('docid', 'file_id_example'),
             'page': metadata.get('page', -1),
             'bbox': metadata.get('bbox', []),
-            'docid': gm.get('docid', 'file_id_example'),
-            'kb_id': gm.get('kb_id', 'kb_id_example'),
+            'dataset_id': gm.get('kb_id', 'kb_id_example'),
             'file_name': gm.get('file_name', 'title_example'),
-            'id': node._uid,
-            'text': IMAGE_PATTERN.sub(_recover_image_path, node.text) if images else node.text,
-            'group': node._group
+            'segement_id': node._uid,
+            'content': IMAGE_PATTERN.sub(_recover_image_path, node.text) if images else node.text,
+            'group_name': node._group
         }
 
     def collect(self):

@@ -52,6 +52,7 @@ class MeResponse(BaseModel):
     username: str
     display_name: str = ''
     email: str | None = None
+    remark: str | None = None
     status: str
     role: str
     permissions: list[str]

@@ -27,6 +27,7 @@ import { Method, SSE } from "@/modules/chat/utils/sse";
 import { CHAT_STREAM_URL, ChatServiceApi } from "@/modules/chat/utils/request";
 import { useEffect } from "react";
 import { useConversationSettings } from "@/modules/chat/store/conversationSettings";
+import { normalizeMessageInputs } from "@/modules/chat/utils/message";
 
 const ChatPage: FC = () => {
   const { t } = useTranslation();
@@ -124,11 +125,20 @@ const ChatPage: FC = () => {
         const list: ChatMessage[] = [];
         if (history && history.length > 0) {
           history.forEach((record: ChatHistory) => {
+            const normalizedInputs = normalizeMessageInputs(
+              record.input,
+              record.query,
+            );
+            const textInput = normalizedInputs.find((input) => {
+              const inputType = input.input_type || "text";
+              return inputType === "text" && !!input.text;
+            });
+
             // Push user.
             list.push({
               role: RoleTypes.USER,
-              delta: record.query,
-              images: record.input
+              delta: record.query || textInput?.text || "",
+              images: normalizedInputs
                 ?.filter((input) => {
                   return input.input_type === "image";
                 })
@@ -138,7 +148,7 @@ const ChatPage: FC = () => {
                     uid: image.file_id,
                   };
                 }),
-              files: record.input
+              files: normalizedInputs
                 ?.filter((input) => {
                   return input.input_type === "file";
                 })
@@ -147,10 +157,10 @@ const ChatPage: FC = () => {
                     name: file?.uri?.split("/").pop(),
                     uid: file.file_id,
                   };
-                }),
+              }),
               finish_reason:
                 ChatConversationsResponseFinishReasonEnum.FinishReasonStop,
-              inputs: record.input,
+              inputs: normalizedInputs,
               create_time: record.create_time || "xxx-xxx-xxx",
             });
 

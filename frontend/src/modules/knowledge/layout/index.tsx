@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
-import zhCN from "antd/locale/zh_CN";
 import { ConfigProvider } from "antd";
+import { useTranslation } from "react-i18next";
+import { getAntdLocale } from "@/i18n/antdLocale";
 
 const Layout = ({
   token = {},
@@ -9,8 +10,13 @@ const Layout = ({
   token?: object;
   children?: ReactNode;
 }) => {
+  const { i18n } = useTranslation();
+
   return (
-    <ConfigProvider theme={{ token }} locale={zhCN}>
+    <ConfigProvider
+      theme={{ token }}
+      locale={getAntdLocale(i18n.resolvedLanguage || i18n.language)}
+    >
       <div className="micro-knowledge-page">{children}</div>
     </ConfigProvider>
   );
