@@ -1,0 +1,271 @@
+import importlib
+from types import SimpleNamespace
+
+retriever_mod = importlib.import_module('chat.pipelines.builders.get_retriever')
+ppl_search_mod = importlib.import_module('chat.pipelines.builders.get_ppl_search')
+ppl_generate_mod = importlib.import_module('chat.pipelines.builders.get_ppl_generate')
+
+
+class _DummyContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _DummyPipe:
+    def __init__(self, value=None):
+        self.value = value
+
+    def __or__(self, other):
+        return self
+
+
+class _DummyBind:
+    def __init__(self, kwargs):
+        self.kwargs = kwargs
+
+    def __ror__(self, other):
+        return _DummyPipe(('bound-from-left', other, self.kwargs))
+
+
+class _FakePipeline:
+    def __init__(self, input_value=None, kwargs=None):
+        object.__setattr__(self, 'assignments', [])
+        object.__setattr__(self, 'input', input_value if input_value is not None else {})
+        object.__setattr__(self, 'kwargs', kwargs if kwargs is not None else {})
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+        if name not in {'assignments', 'input', 'kwargs'}:
+            self.assignments.append(name)
+
+
+def test_get_remote_document_builds_default_name(monkeypatch):
+    captured = {}
+
+    class _FakeDocument:
+        def __init__(self, url, name):
+            captured['url'] = url
+            captured['name'] = name
+
+    monkeypatch.setattr(retriever_mod, 'Document', _FakeDocument)
+
+    retriever_mod.get_remote_docment('http://kb-service')
+
+    assert captured == {'url': 'http://kb-service/_call', 'name': '__default__'}
+
+
+def test_get_remote_document_parses_custom_name(monkeypatch):
+    captured = {}
+
+    class _FakeDocument:
+        def __init__(self, url, name):
+            captured['url'] = url
+            captured['name'] = name
+
+    monkeypatch.setattr(retriever_mod, 'Document', _FakeDocument)
+
+    retriever_mod.get_remote_docment('http://kb-service,my-kb')
+
+    assert captured == {'url': 'http://kb-service/_call', 'name': 'my-kb'}
+
+
+def test_get_retriever_builds_parts(monkeypatch):
+    retriever_calls = []
+    bind_calls = []
+    automodel_keys = []
+    temp_calls = {'init': None, 'sub': None}
+
+    class _FakeRetriever:
+        def __init__(self, document, **cfg):
+            retriever_calls.append((document, cfg))
+
+    class _FakeTempDocRetriever:
+        def __init__(self, embed):
+            temp_calls['init'] = embed
+
+        def add_subretriever(self, name, topk):
+            temp_calls['sub'] = (name, topk)
+
+        def __or__(self, other):
+            return _DummyPipe()
+
+    class _FakePipeline(_DummyContext):
+        def __init__(self):
+            self.input = 'pipeline-input'
+
+    fake_document = object()
+    fake_pipeline = _FakePipeline()
+    settings = SimpleNamespace(temp_doc_embed_key='embed_a')
+
+    monkeypatch.setattr(retriever_mod, 'Retriever', _FakeRetriever)
+    monkeypatch.setattr(retriever_mod, 'TempDocRetriever', _FakeTempDocRetriever)
+    monkeypatch.setattr(retriever_mod, 'get_remote_docment', lambda url: fake_document)
+    monkeypatch.setattr(retriever_mod, 'get_retrieval_settings', lambda: settings)
+    monkeypatch.setattr(retriever_mod, 'get_automodel', lambda key: automodel_keys.append(key) or 'embed-model')
+    monkeypatch.setattr(retriever_mod, 'pipeline', lambda: fake_pipeline)
+    monkeypatch.setattr(retriever_mod, 'bind', lambda **kwargs: bind_calls.append(kwargs) or _DummyPipe())
+
+    parts = retriever_mod.get_retriever(
+        'http://kb-service',
+        retriever_configs=[{'group_name': 'line', 'topk': 5}],
+        tmp_block_topk=3,
+    )
+
+    assert len(parts.kb_retrievers) == 1
+    assert parts.tmp_retriever_pipeline is fake_pipeline
+    assert retriever_calls == [(fake_document, {'group_name': 'line', 'topk': 5})]
+    assert automodel_keys == ['embed_a']
+    assert temp_calls == {'init': 'embed-model', 'sub': ('block', 3)}
+    assert bind_calls == [{'query': 'pipeline-input'}]
+
+
+def test_adaptive_get_token_len_uses_text_length():
+    assert ppl_search_mod._adaptive_get_token_len(SimpleNamespace(text='abcd' * 3)) == 3
+    assert ppl_search_mod._adaptive_get_token_len(SimpleNamespace(text='')) == 1
+    assert ppl_search_mod._adaptive_get_token_len(SimpleNamespace()) == 1
+
+
+def test_answer_llm_sets_system_prompt(monkeypatch):
+    seen = {}
+
+    class _FakePrompt:
+        def _set_model_configs(self, **kwargs):
+            seen.update(kwargs)
+
+    wrapped = SimpleNamespace(llm=SimpleNamespace(_prompt=_FakePrompt()))
+    monkeypatch.setattr(ppl_generate_mod, 'get_automodel', lambda *args, **kwargs: wrapped)
+
+    result = ppl_generate_mod._answer_llm()
+
+    assert result is wrapped
+    assert seen['system'] == ppl_generate_mod.RAG_ANSWER_SYSTEM
+
+
+def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
+    search_ppl = _FakePipeline(
+        input_value={'query': 'q', 'files': [], 'filters': {'scope': 'all'}},
+    )
+    recorded = {}
+
+    monkeypatch.setattr(ppl_search_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
+    monkeypatch.setattr(ppl_search_mod, 'pipeline', lambda: search_ppl)
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'get_retriever',
+        lambda url, retriever_configs: SimpleNamespace(
+            kb_retrievers=[_DummyPipe('r1'), _DummyPipe('r2')],
+            tmp_retriever_pipeline=_DummyPipe('tmp'),
+        ),
+    )
+    monkeypatch.setattr(ppl_search_mod, 'get_remote_docment', lambda url: 'document')
+    monkeypatch.setattr(ppl_search_mod, 'get_automodel', lambda key: f'model:{key}')
+    monkeypatch.setattr(ppl_search_mod, 'bind', lambda **kwargs: _DummyBind(kwargs))
+    monkeypatch.setattr(ppl_search_mod, 'parallel', lambda *items: ('parallel', items))
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'ifs',
+        lambda cond, tpath, fpath: (
+            recorded.__setitem__('ifs', {'cond': cond, 'tpath': tpath, 'fpath': fpath}),
+            _DummyPipe('ifs'),
+        )[1],
+    )
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'RRFFusion',
+        lambda top_k: (
+            recorded.__setitem__('join_top_k', top_k),
+            _DummyPipe('rrf'),
+        )[1],
+    )
+
+    class _FakeReranker:
+        def __init__(self, name, model, topk):
+            recorded['reranker'] = {'name': name, 'model': model, 'topk': topk}
+
+        def __or__(self, other):
+            recorded['reranker_bind'] = other
+            return _DummyPipe('reranker')
+
+    class _FakeAdaptiveKComponent:
+        def __init__(self, **kwargs):
+            recorded['adaptive_k'] = kwargs
+
+    class _FakeContextExpansionComponent:
+        def __init__(self, **kwargs):
+            recorded['ctx_expand'] = kwargs
+
+    monkeypatch.setattr(ppl_search_mod, 'Reranker', _FakeReranker)
+    monkeypatch.setattr(ppl_search_mod, 'AdaptiveKComponent', _FakeAdaptiveKComponent)
+    monkeypatch.setattr(ppl_search_mod, 'ContextExpansionComponent', _FakeContextExpansionComponent)
+
+    result = ppl_search_mod.get_ppl_search('http://kb-service', retriever_configs=[{'group_name': 'line'}], topk=7, k_max=4)
+
+    assert result is search_ppl
+    assert search_ppl.assignments == [
+        'parse_input',
+        'divert',
+        'merge_results',
+        'join',
+        'reranker',
+        'adaptive_k',
+        'ctx_expand',
+    ]
+    assert recorded['join_top_k'] == 50
+    assert recorded['reranker'] == {'name': 'ModuleReranker', 'model': 'model:reranker', 'topk': 7}
+    assert recorded['adaptive_k']['k_max'] == 4
+    assert recorded['adaptive_k']['max_tokens'] == 2048
+    assert recorded['adaptive_k']['get_token_len'] is ppl_search_mod._adaptive_get_token_len
+    assert recorded['ctx_expand'] == {
+        'document': 'document',
+        'token_budget': 1500,
+        'score_decay': 0.97,
+        'max_seeds': 1,
+    }
+
+
+def test_get_ppl_generate_keeps_expected_stage_order(monkeypatch):
+    generate_ppl = _FakePipeline(
+        input_value=['node-a'],
+        kwargs={'query': 'who?', 'debug': True},
+    )
+    recorded = {}
+
+    monkeypatch.setattr(ppl_generate_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
+    monkeypatch.setattr(ppl_generate_mod, 'pipeline', lambda: generate_ppl)
+    monkeypatch.setattr(ppl_generate_mod, 'bind', lambda **kwargs: ('bind', kwargs))
+    monkeypatch.setattr(ppl_generate_mod, '_answer_llm', lambda: _DummyPipe('answer'))
+
+    class _FakeAggregateComponent:
+        def __init__(self):
+            recorded['aggregate_init'] = True
+
+    class _FakeFormatter(_DummyPipe):
+        def __init__(self):
+            super().__init__('formatter')
+            recorded['formatter_init'] = True
+
+    class _FakeParser(_DummyPipe):
+        def __init__(self, **kwargs):
+            super().__init__('parser')
+            recorded['parser_init'] = kwargs
+
+    monkeypatch.setattr(ppl_generate_mod, 'AggregateComponent', _FakeAggregateComponent)
+    monkeypatch.setattr(ppl_generate_mod, 'RAGContextFormatter', _FakeFormatter)
+    monkeypatch.setattr(ppl_generate_mod, 'CustomOutputParser', _FakeParser)
+
+    result = ppl_generate_mod.get_ppl_generate(stream=True)
+
+    assert result is generate_ppl
+    assert generate_ppl.assignments == ['aggregate', 'formatter', 'answer', 'parser']
+    assert recorded['aggregate_init'] is True
+    assert recorded['formatter_init'] is True
+    assert recorded['parser_init'] == {'llm_type_think': ppl_generate_mod.LLM_TYPE_THINK}

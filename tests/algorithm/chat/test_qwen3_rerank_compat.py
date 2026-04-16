@@ -1,5 +1,7 @@
 from typing import Any, Dict, List
 
+import requests
+
 from chat.components.tmp import local_models as reranker_module
 from chat.components.tmp.local_models import Qwen3Rerank
 from lazyllm.tools.rag.doc_node import DocNode
@@ -144,3 +146,39 @@ def test_qwen3_rerank_respects_zero_topn(monkeypatch):
 
     assert reranker.forward('query', documents=['doc-a', 'doc-b'], top_n=0) == []
     assert reranker.forward(nodes, query='query', topk=0) == []
+
+
+def test_qwen3_rerank_encapsulated_data_filters_local_only_keys():
+    reranker = _build_reranker()
+
+    payload = reranker._encapsulated_data(
+        'find this',
+        documents=['doc-a'],
+        top_n=3,
+        timeout=5,
+        extra_flag=True,
+    )
+
+    assert 'top_n' not in payload
+    assert 'timeout' not in payload
+    assert payload['extra_flag'] is True
+    assert payload['documents'][0].startswith('<Document>: doc-a')
+
+
+def test_qwen3_rerank_scores_failed_http_batches_as_zero(monkeypatch):
+    reranker = _build_reranker()
+    errors = []
+
+    def _fake_post(url: str, json: Dict[str, Any], headers: Dict[str, str], timeout: Any):
+        raise requests.RequestException('network down')
+
+    def _fake_error(message: str, *args: Any):
+        errors.append(message % args if args else message)
+
+    monkeypatch.setattr(reranker._session, 'post', _fake_post)
+    monkeypatch.setattr(reranker_module.LOG, 'error', _fake_error)
+
+    results = reranker.forward('query', documents=['doc-a', 'doc-b'], top_n=2)
+
+    assert results == [(0, 0.0), (1, 0.0)]
+    assert any('HTTP request for reranking failed' in item for item in errors)
