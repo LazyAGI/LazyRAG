@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import stat
-import subprocess
 import sys
 from pathlib import Path
 
@@ -70,47 +69,6 @@ if len(sys.argv) >= 2 and sys.argv[1] == "run":
 print(json.dumps({"type": "error", "error": {"message": f"unknown mode: {mode}"}}))
 sys.exit(1)
 """
-
-
-def _init_repo(path: Path) -> None:
-    subprocess.run(
-        ['git', 'init'],
-        cwd=path,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    subprocess.run(
-        ['git', 'config', 'user.email', 'tests@example.com'],
-        cwd=path,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    subprocess.run(
-        ['git', 'config', 'user.name', 'Automation Tests'],
-        cwd=path,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
-@pytest.fixture
-def temp_repo(tmp_path: Path) -> Path:
-    repo = tmp_path / 'repo'
-    repo.mkdir()
-    _init_repo(repo)
-    (repo / 'target.txt').write_text('base\\n', encoding='utf-8')
-    (repo / 'related.txt').write_text('helper\\n', encoding='utf-8')
-    subprocess.run(['git', 'add', 'target.txt', 'related.txt'], cwd=repo, check=True)
-    subprocess.run(
-        ['git', 'commit', '-m', 'init'],
-        cwd=repo,
-        check=True,
-        stdout=subprocess.PIPE,
-    )
-    return repo
 
 
 @pytest.fixture

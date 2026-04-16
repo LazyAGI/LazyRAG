@@ -10,7 +10,7 @@ Unit tests for five modules: **frontend**, **backend (core)**, **auth-service**,
 | `backend/auth-service/` | FastAPI auth (JWT, RBAC, users, roles) | pytest + httpx |
 | `backend/core/` | Go API (ACL, handlers) | Go testing |
 | `algorithm/` | Chat, parsing, processor, common | pytest + unittest.mock |
-| `automation/` | Host-side OpenCode adapter | pytest + fake CLI subprocess |
+| `automation/` | Simplified OpenCode CLI runner | pytest + fake CLI subprocess |
 
 ## Dependency Chain & Mock Strategy
 
@@ -24,7 +24,7 @@ Frontend → auth-service (JWT) → Kong RBAC → core (ACL) → algorithm
 | **auth-service** | DB (SQLite in-memory) | Override `SessionLocal`; no external deps |
 | **backend/core** | ACL Store, DB | Interface injection; use sqlite for integration |
 | **algorithm** | Document, LLM, Milvus, OpenSearch | `unittest.mock.patch` |
-| **automation** | `opencode` CLI | Fake executable + temp git repo |
+| **automation** | `opencode` CLI | Fake executable + copied temp git repo |
 
 ## One-Click Execution
 
