@@ -16,47 +16,14 @@ ALLOWED_FILE = 'algorithm/chat/pipelines/builders/get_retriever.py'
 SECOND_ALLOWED_FILE = 'algorithm/chat/components/tmp/local_models.py'
 
 
-def _init_repo(path: Path) -> None:
-    subprocess.run(
-        ['git', 'init'],
-        cwd=path,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    subprocess.run(
-        ['git', 'config', 'user.email', 'tests@example.com'],
-        cwd=path,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    subprocess.run(
-        ['git', 'config', 'user.name', 'Automation Tests'],
-        cwd=path,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
 @pytest.fixture
 def temp_algorithm_repo(tmp_path: Path) -> Path:
     repo = tmp_path / 'algorithm_repo'
     repo.mkdir()
-    _init_repo(repo)
     (repo / ALLOWED_FILE).parent.mkdir(parents=True, exist_ok=True)
     (repo / ALLOWED_FILE).write_text('base\n', encoding='utf-8')
     (repo / SECOND_ALLOWED_FILE).parent.mkdir(parents=True, exist_ok=True)
     (repo / SECOND_ALLOWED_FILE).write_text('class BgeM3Embed:\n    pass\n', encoding='utf-8')
-    subprocess.run(['git', 'add', '.'], cwd=repo, check=True)
-    subprocess.run(
-        ['git', 'commit', '-m', 'init'],
-        cwd=repo,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
     return repo
 
 
@@ -104,11 +71,10 @@ def test_execute_simple_report_success(
     assert outcome['status'] == 'SUCCEEDED'
     assert outcome['error'] is None
     assert outcome['result'] == {
-        'diff': outcome['result']['diff'],
+        'diff': '',
         'files_changed': [ALLOWED_FILE],
         'change_summary': 'Updated retriever settings.',
     }
-    assert 'updated' in outcome['result']['diff']
     assert Path(outcome['artifacts_dir']).exists()
 
 
@@ -217,7 +183,6 @@ def test_execute_simple_report_returns_no_change(
         'files_changed': [],
         'change_summary': 'No change needed.',
     }
-
 
 def test_simple_runner_cli_reads_report_json(
     temp_algorithm_repo: Path,

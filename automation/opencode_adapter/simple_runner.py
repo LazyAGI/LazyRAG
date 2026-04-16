@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import io
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
 import textwrap
 from collections.abc import Mapping, MutableMapping, Sequence
@@ -16,11 +15,10 @@ from typing import Any, Dict, List
 
 from automation.opencode_adapter.errors import (
     AdapterError,
-    BASE_REF_INVALID,
-    GIT_REPO_INVALID,
     OPENCODE_AUTH_MISSING,
     OPENCODE_BINARY_MISSING,
     OPENCODE_EXEC_FAILED,
+    REPO_PATH_INVALID,
 )
 from automation.opencode_adapter.events import extract_error_event, extract_text, parse_event_stream
 
@@ -32,31 +30,14 @@ REPORT_JSON_INVALID = 'REPORT_JSON_INVALID'
 SCOPE_VIOLATION = 'SCOPE_VIOLATION'
 NO_CHANGE = 'NO_CHANGE'
 
-DEFAULT_BASE_REF = 'HEAD'
 DEFAULT_TIMEOUT_SECONDS = 300
 DEFAULT_ARTIFACT_ROOT = Path(tempfile.gettempdir()) / 'lazy-rag-edit'
 DEFAULT_CLI_INSTRUCTION = '完成这个json内的任务'
 SUCCESSFUL_STATUSES = {'SUCCEEDED', NO_CHANGE}
 JSON_PATH_PATTERN = re.compile(r'(?P<path>(?:~|/|\./|\.\./)[^\s\'"“”‘’]+?\.json)')
-
-ALLOWED_FILE_SCOPE = [
-    'algorithm/chat/prompts/rewrite.py',
-    'algorithm/chat/prompts/agentic.py',
-    'algorithm/chat/prompts/rag_answer.py',
-    'algorithm/chat/components/process/multiturn_query_rewriter.py',
-    'algorithm/chat/components/process/sensitive_filter.py',
-    'algorithm/chat/components/process/context_expansion.py',
-    'algorithm/chat/components/process/adaptive_topk.py',
-    'algorithm/chat/components/generate/output_parser.py',
-    'algorithm/chat/components/generate/prompt_formatter.py',
-    'algorithm/chat/components/generate/aggregate.py',
-    'algorithm/chat/components/tmp/local_models.py',
-    'algorithm/chat/components/tmp/tool_registry.py',
-    'algorithm/chat/pipelines/builders/get_retriever.py',
-    'algorithm/chat/pipelines/builders/get_ppl_search.py',
-    'algorithm/chat/pipelines/builders/get_ppl_generate.py',
-    'algorithm/chat/pipelines/naive.py',
-]
+ALLOWED_FILE_SCOPE_PATH = Path(__file__).with_name('allowed_file_scope.txt')
+COPY_IGNORE_PATTERNS = ('.git', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '*.pyc', '*.pyo')
+SNAPSHOT_IGNORE_NAMES = {'.git', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache'}
 
 
 def execute_simple_report(
@@ -64,7 +45,6 @@ def execute_simple_report(
     *,
     repo_path: str,
     instruction: str,
-    base_ref: str = DEFAULT_BASE_REF,
     opencode_options: Mapping[str, Any] | None = None,
     artifact_root: str | None = None,
 ) -> Dict[str, Any]:
@@ -83,8 +63,7 @@ def execute_simple_report(
 
         _write_json(run_root / 'input.report.json', report)
 
-        repo_root = _validate_repo(repo_path)
-        normalized_base_ref = _resolve_base_ref(repo_root, base_ref)
+        repo_root = _validate_repo_path(repo_path)
         allowed_files = _resolve_report_scope(report, _load_hard_allowlist())
 
         merged_opencode = _merge_opencode_options(
@@ -95,7 +74,8 @@ def execute_simple_report(
         _preflight_opencode(binary)
 
         repo_copy = run_root / 'repo_copy'
-        _materialize_base_copy(repo_root, normalized_base_ref, repo_copy)
+        _materialize_repo_copy(repo_root, repo_copy)
+        before_snapshot = _build_directory_snapshot(repo_copy)
 
         prompt = _build_prompt(
             instruction=instruction,
@@ -113,7 +93,7 @@ def execute_simple_report(
         _write_jsonl(run_root / 'events.jsonl', events)
         _write_text(run_root / 'stderr.log', stderr)
 
-        changed_files = _collect_changed_files(repo_copy)
+        changed_files = _collect_changed_files(repo_copy, before_snapshot)
         violations = sorted(path for path in changed_files if path not in set(allowed_files))
         if violations:
             raise AdapterError(
@@ -122,10 +102,9 @@ def execute_simple_report(
                 {'violations': violations, 'allowed_files': allowed_files},
             )
 
-        diff_text = _collect_diff(repo_copy) if changed_files else ''
-        change_summary = extract_text(events) or _build_change_summary(changed_files, diff_text)
+        change_summary = extract_text(events) or _build_change_summary(changed_files)
         result = {
-            'diff': diff_text,
+            'diff': '',
             'files_changed': changed_files,
             'change_summary': change_summary or 'No changes were necessary.',
         }
@@ -256,39 +235,43 @@ def _build_prompt(
     ).strip()
 
 
-def _validate_repo(repo_path: str) -> Path:
+def _validate_repo_path(repo_path: str) -> Path:
     if not repo_path:
-        raise AdapterError(GIT_REPO_INVALID, 'repo path is required', {'field': 'repo_path'})
+        raise AdapterError(REPO_PATH_INVALID, 'repo path is required', {'field': 'repo_path'})
     repo_root = Path(repo_path).expanduser().resolve()
     if not repo_root.is_dir():
-        raise AdapterError(GIT_REPO_INVALID, 'repo path does not exist', {'repo_path': repo_path})
-    result = _run_command(['git', '-C', str(repo_root), 'rev-parse', '--is-inside-work-tree'], timeout=30)
-    if result.returncode != 0 or result.stdout.strip() != 'true':
-        raise AdapterError(
-            GIT_REPO_INVALID,
-            'repo path is not a git repository',
-            {'repo_path': str(repo_root), 'stderr': result.stderr.strip()},
-        )
+        raise AdapterError(REPO_PATH_INVALID, 'repo path does not exist', {'repo_path': repo_path})
     return repo_root
 
 
-def _resolve_base_ref(repo_root: Path, base_ref: str) -> str:
-    normalized = base_ref.strip() or DEFAULT_BASE_REF
-    result = _run_command(
-        ['git', '-C', str(repo_root), 'rev-parse', '--verify', f'{normalized}^{{commit}}'],
-        timeout=30,
-    )
-    if result.returncode != 0:
-        raise AdapterError(
-            BASE_REF_INVALID,
-            'base_ref could not be resolved to a commit',
-            {'base_ref': normalized, 'stderr': result.stderr.strip()},
-        )
-    return normalized
-
-
 def _load_hard_allowlist() -> List[str]:
-    return list(ALLOWED_FILE_SCOPE)
+    if not ALLOWED_FILE_SCOPE_PATH.is_file():
+        raise AdapterError(
+            CONSTRAINTS_PARSE_FAILED,
+            'allowed file scope document was not found',
+            {'path': str(ALLOWED_FILE_SCOPE_PATH)},
+        )
+
+    items: List[str] = []
+    seen: set[str] = set()
+    line_number = 0
+    for line_number, raw_line in enumerate(ALLOWED_FILE_SCOPE_PATH.read_text(encoding='utf-8').splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        normalized = _normalize_relative_path(line)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        items.append(normalized)
+
+    if not items:
+        raise AdapterError(
+            CONSTRAINTS_PARSE_FAILED,
+            'allowed file scope document is empty',
+            {'path': str(ALLOWED_FILE_SCOPE_PATH), 'line_number': line_number},
+        )
+    return items
 
 
 def _merge_opencode_options(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> Dict[str, Any]:
@@ -325,40 +308,47 @@ def _preflight_opencode(binary: str) -> None:
         raise AdapterError(OPENCODE_AUTH_MISSING, 'opencode has no configured credentials', {'output': combined})
 
 
-def _materialize_base_copy(repo_root: Path, base_ref: str, target_dir: Path) -> None:
-    archive_result = _run_command(
-        ['git', '-C', str(repo_root), 'archive', '--format=tar', base_ref],
-        timeout=60,
-        text=False,
-    )
-    if archive_result.returncode != 0:
-        raise AdapterError(
-            OPENCODE_EXEC_FAILED,
-            'failed to archive repository at base_ref',
-            {
-                'base_ref': base_ref,
-                'stdout': archive_result.stdout.decode('utf-8', errors='replace'),
-                'stderr': archive_result.stderr.decode('utf-8', errors='replace'),
-            },
-        )
+def _materialize_repo_copy(repo_root: Path, target_dir: Path) -> None:
+    shutil.copytree(repo_root, target_dir, ignore=_build_copy_ignore(target_dir))
 
-    target_dir.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(archive_result.stdout), mode='r:') as handle:
-        for member in handle.getmembers():
-            member_path = Path(member.name)
-            if member_path.is_absolute() or '..' in member_path.parts:
-                raise AdapterError(
-                    CONSTRAINTS_PARSE_FAILED,
-                    'git archive produced an unsafe member path',
-                    {'member': member.name},
-                )
-        handle.extractall(path=target_dir)
 
-    _run_command(['git', '-C', str(target_dir), 'init'], timeout=30, required=True)
-    _run_command(['git', '-C', str(target_dir), 'config', 'user.email', 'automation@example.com'], timeout=30, required=True)
-    _run_command(['git', '-C', str(target_dir), 'config', 'user.name', 'LazyRAG Automation'], timeout=30, required=True)
-    _run_command(['git', '-C', str(target_dir), 'add', '-A', '--', '.'], timeout=30, required=True)
-    _run_command(['git', '-C', str(target_dir), 'commit', '-m', 'baseline'], timeout=30, required=True)
+def _build_copy_ignore(target_dir: Path):
+    pattern_ignore = shutil.ignore_patterns(*COPY_IGNORE_PATTERNS)
+    target_dir = target_dir.resolve()
+
+    def _ignore(current_dir: str, names: list[str]) -> set[str]:
+        ignored = set(pattern_ignore(current_dir, names))
+        current_path = Path(current_dir).resolve()
+        for name in names:
+            child_path = (current_path / name).resolve()
+            if child_path == target_dir or target_dir.is_relative_to(child_path):
+                ignored.add(name)
+        return ignored
+
+    return _ignore
+
+
+def _build_directory_snapshot(root: Path) -> Dict[str, str]:
+    snapshot: Dict[str, str] = {}
+    for path in root.rglob('*'):
+        relative = path.relative_to(root)
+        if any(part in SNAPSHOT_IGNORE_NAMES for part in relative.parts):
+            continue
+        if path.is_dir():
+            continue
+        snapshot[relative.as_posix()] = _hash_file(path)
+    return snapshot
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _run_opencode(
@@ -386,55 +376,24 @@ def _run_opencode(
     return events, result.stderr
 
 
-def _collect_changed_files(repo_copy: Path) -> List[str]:
-    tracked = _split_null_terminated(
-        _run_command(['git', '-C', str(repo_copy), 'diff', '--name-only', '-z', 'HEAD', '--'], timeout=30).stdout
-    )
-    untracked = _split_null_terminated(
-        _run_command(
-            ['git', '-C', str(repo_copy), 'ls-files', '--others', '--exclude-standard', '-z'],
-            timeout=30,
-        ).stdout
-    )
-    return sorted(set(tracked) | set(untracked))
+def _collect_changed_files(repo_copy: Path, before_snapshot: Mapping[str, str]) -> List[str]:
+    after_snapshot = _build_directory_snapshot(repo_copy)
+    changed = {
+        path
+        for path in set(before_snapshot) | set(after_snapshot)
+        if before_snapshot.get(path) != after_snapshot.get(path)
+    }
+    return sorted(changed)
 
 
-def _collect_diff(repo_copy: Path) -> str:
-    _run_command(['git', '-C', str(repo_copy), 'add', '-A', '--', '.'], timeout=30, required=True)
-    result = _run_command(
-        ['git', '-C', str(repo_copy), 'diff', '--cached', '--binary', 'HEAD', '--'],
-        timeout=30,
-        text=False,
-    )
-    if result.returncode != 0:
-        raise AdapterError(
-            OPENCODE_EXEC_FAILED,
-            'failed to collect git diff from copied repository',
-            {
-                'stdout': result.stdout.decode('utf-8', errors='replace'),
-                'stderr': result.stderr.decode('utf-8', errors='replace'),
-            },
-        )
-    return result.stdout.decode('utf-8', errors='replace')
-
-
-def _build_change_summary(files_changed: Sequence[str], diff_text: str) -> str:
+def _build_change_summary(files_changed: Sequence[str]) -> str:
     if not files_changed:
         return 'No changes were necessary.'
-    additions = 0
-    deletions = 0
-    for line in diff_text.splitlines():
-        if line.startswith('+++') or line.startswith('---'):
-            continue
-        if line.startswith('+'):
-            additions += 1
-        elif line.startswith('-'):
-            deletions += 1
     listed = ', '.join(files_changed[:3])
     if len(files_changed) > 3:
         listed = f'{listed}, ...'
     noun = 'file' if len(files_changed) == 1 else 'files'
-    return f'Updated {len(files_changed)} {noun} ({listed}); +{additions}/-{deletions} changed lines.'
+    return f'Updated {len(files_changed)} {noun}: {listed}.'
 
 
 def _coerce_mapping(value: Any, field_name: str, *, allow_none: bool = False) -> MutableMapping[str, Any]:
@@ -464,12 +423,6 @@ def _normalize_relative_path(path_value: str) -> str:
 def _sanitize_identifier(value: str, *, fallback: str) -> str:
     sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', value).strip('_')
     return sanitized or fallback
-
-
-def _split_null_terminated(output: str) -> List[str]:
-    if not output:
-        return []
-    return [item for item in output.split('\0') if item]
 
 
 def _run_command(
@@ -595,27 +548,6 @@ def _resolve_cli_instruction(
     return DEFAULT_CLI_INSTRUCTION
 
 
-def _discover_git_repo_root(start_path: Path) -> Path | None:
-    probe = start_path if start_path.is_dir() else start_path.parent
-    try:
-        result = subprocess.run(
-            ['git', '-C', str(probe), 'rev-parse', '--show-toplevel'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0:
-        return None
-    resolved = result.stdout.strip()
-    if not resolved:
-        return None
-    return Path(resolved).resolve()
-
-
 def _resolve_cli_repo_path(
     explicit_repo: str | None,
     report: Mapping[str, Any],
@@ -628,15 +560,11 @@ def _resolve_cli_repo_path(
     if report_repo:
         return report_repo
 
-    cwd_repo = _discover_git_repo_root(Path.cwd())
-    if cwd_repo is not None:
-        return str(cwd_repo)
+    cwd_path = Path.cwd().resolve()
+    if cwd_path.is_dir():
+        return str(cwd_path)
 
-    report_repo_root = _discover_git_repo_root(report_json_path.parent)
-    if report_repo_root is not None:
-        return str(report_repo_root)
-
-    return ''
+    return str(report_json_path.parent.resolve())
 
 
 def _render_outcome(outcome: Mapping[str, Any], *, pretty: bool, output_path: str | None) -> int:
@@ -657,7 +585,6 @@ def main() -> int:
     parser.add_argument('--instruction', help='Optional natural-language instruction. Defaults to 完成这个json内的任务.')
     parser.add_argument('--report-json', help='Path to the upstream report JSON file.')
     parser.add_argument('--repo', help='Path to the repository to copy and edit.')
-    parser.add_argument('--base-ref', default=DEFAULT_BASE_REF, help='Git ref to archive before copying the repo.')
     parser.add_argument('--binary', help='Path to the opencode binary.')
     parser.add_argument('--model', help='Optional opencode model flag.')
     parser.add_argument('--agent', help='Optional opencode agent flag.')
@@ -694,7 +621,6 @@ def main() -> int:
         report,
         repo_path=repo_path,
         instruction=instruction,
-        base_ref=args.base_ref,
         opencode_options=opencode_options,
         artifact_root=args.artifact_root,
     )
