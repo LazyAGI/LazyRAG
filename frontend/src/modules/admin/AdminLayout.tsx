@@ -1,4 +1,6 @@
 import {
+  BulbOutlined,
+  DatabaseOutlined,
   LeftCircleOutlined,
   UserOutlined,
   UsergroupAddOutlined,
@@ -36,6 +38,10 @@ export default function AdminLayout() {
   const pathname = location.pathname;
   const selectedKey = pathname.startsWith("/admin/users")
     ? "/admin/users"
+    : pathname.startsWith("/admin/data-sources")
+      ? "/admin/data-sources"
+    : pathname.startsWith("/admin/memory-management")
+      ? "/admin/memory-management"
     : "/admin/groups";
 
   const menuChildren: MenuItem[] = [
@@ -45,6 +51,16 @@ export default function AdminLayout() {
             key: "/admin/users",
             label: t("layout.userManagement"),
             icon: <UserOutlined />,
+          },
+          {
+            key: "/admin/data-sources",
+            label: t("layout.dataSourceManagement"),
+            icon: <DatabaseOutlined />,
+          },
+          {
+            key: "/admin/memory-management",
+            label: t("layout.memoryManagement"),
+            icon: <BulbOutlined />,
           },
         ]
       : []),
@@ -77,7 +93,12 @@ export default function AdminLayout() {
     return <Navigate to="/login" replace />;
   }
 
-  if (!isAdminUser && pathname.startsWith("/admin/users")) {
+  if (
+    !isAdminUser &&
+    (pathname.startsWith("/admin/users") ||
+      pathname.startsWith("/admin/data-sources") ||
+      pathname.startsWith("/admin/memory-management"))
+  ) {
     return <Navigate to="/admin/groups" replace />;
   }
 
