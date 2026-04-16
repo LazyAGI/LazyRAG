@@ -10,11 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
-import sys
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 try:
     import lazyllm
     from lazyllm.components.formatter import JsonFormatter
@@ -264,7 +264,6 @@ def build_task_plans(
     resolved_plan_model = None
     if use_model_plan:
         _trace_model_plan(f'enabled; resolving model role `{plan_model_role}`')
-        _ensure_algorithm_import_path(root)
         resolved_plan_model = _resolve_plan_model(plan_model_role)
         if resolved_plan_model is None:
             _trace_model_plan('model resolution failed; using deterministic fallback steps')
@@ -317,9 +316,11 @@ def build_lazyllm_task_planner(
 # Core plan building
 # ---------------------------------------------------------------------------
 
-# Type alias for grouped action records:
-# (action_key, action_dict, finding_dict, mod_plan_dict)
-_Record = Tuple[str, Mapping[str, Any], Mapping[str, Any], Mapping[str, Any]]
+class _Record(NamedTuple):
+    action_key: str
+    action: Mapping[str, Any]
+    finding: Mapping[str, Any]
+    mod_plan: Mapping[str, Any]
 
 
 def _build_task_plans_from_actions(
@@ -341,11 +342,11 @@ def _build_task_plans_from_actions(
         explicit_changes = _explicit_change_records(raw_action)
         if explicit_changes:
             for module, change_plan in explicit_changes:
-                grouped.setdefault(module, []).append((action_key, raw_action, finding, change_plan))
+                grouped.setdefault(module, []).append(_Record(action_key, raw_action, finding, change_plan))
             continue
         mod_plan = _matching_modification_plan(raw_action, finding, modification_plans)
         module = _infer_module(raw_action, finding, mod_plan)
-        grouped.setdefault(module, []).append((action_key, raw_action, finding, mod_plan))
+        grouped.setdefault(module, []).append(_Record(action_key, raw_action, finding, mod_plan))
 
     if not grouped:
         return []
@@ -403,7 +404,7 @@ def _build_fallback_tasks(
             'hypothesis': mod_plan.get('hypothesis'),
             'validation_cases': [],
         }
-        records: List[_Record] = [(f'modification_{index}', action, {}, mod_plan)]
+        records: List[_Record] = [_Record(f'modification_{index}', action, {}, mod_plan)]
         tid = f'T{len(tasks) + 1:03d}'
         tasks.append(_build_module_task(
             {'report_id': report_id}, root, module, records,
@@ -734,7 +735,7 @@ def _related_report_change_targets(
                 continue
             stage = _canonical_module(str(mod_plan.get('stage') or ''))
             if stage in modules or _mapping_mentions_text(mod_plan, feedback_text):
-                records.append((f'feedback_modification_{index}', {}, {}, mod_plan))
+                records.append(_Record(f'feedback_modification_{index}', {}, {}, mod_plan))
     return _collect_change_targets(root, records) if records else []
 
 
@@ -771,16 +772,16 @@ def _build_module_task(
     priority: int,
     tid_map: Mapping[str, str],
 ) -> TaskPlan:
-    rep_action = records[0][1]
-    rep_finding = records[0][2]
-    rep_mod_plan = records[0][3]
+    rep_action = records[0].action
+    rep_finding = records[0].finding
+    rep_mod_plan = records[0].mod_plan
 
     evidence = _collect_evidence(report, module, records)
     change_targets = _collect_change_targets(root, records)
     target_files = _collect_target_files(root, module, records, change_targets)
     validation = _collect_validation(records)
     rollback = _collect_rollback(records)
-    risk = max(_compute_risk(action, finding) for _, action, finding, _ in records)
+    risk = max(_compute_risk(record.action, record.finding) for record in records)
 
     # --- Dynamic goal (not hardcoded) ---
     goal = _dynamic_goal(module, report, records)
@@ -833,27 +834,51 @@ def _dynamic_goal(
     records: Sequence[_Record],
 ) -> str:
     # Priority 0: explicit action.changes[module].goal
-    for _, _, _, mod_plan in records:
-        goal = mod_plan.get('goal') if isinstance(mod_plan, Mapping) else None
-        if goal:
-            return _shorten(str(goal), _GOAL_TEXT_LIMIT)
+    mod_plan_goals = [
+        str(record.mod_plan.get('goal'))
+        for record in records
+        if isinstance(record.mod_plan, Mapping) and record.mod_plan.get('goal')
+    ]
+    combined = _combine_goal_texts(mod_plan_goals)
+    if combined:
+        return combined
+
     # Priority 1: action hypothesis (most specific)
-    for _, action, _, _ in records:
-        hyp = action.get('hypothesis')
-        if hyp:
-            return _shorten(str(hyp), _GOAL_TEXT_LIMIT)
+    combined = _combine_goal_texts(str(record.action.get('hypothesis')) for record in records
+                                   if record.action.get('hypothesis'))
+    if combined:
+        return combined
+
     # Priority 2: report summary top_issue
     summary = report.get('summary') if isinstance(report.get('summary'), Mapping) else {}
     top_issue = summary.get('top_issue')
     if top_issue:
         return _shorten(str(top_issue), _GOAL_TEXT_LIMIT)
+
     # Priority 3: finding behavior
-    for _, _, finding, _ in records:
-        behavior = finding.get('behavior')
-        if behavior:
-            return _shorten(str(behavior), _GOAL_TEXT_LIMIT)
+    combined = _combine_goal_texts(str(record.finding.get('behavior')) for record in records
+                                   if record.finding.get('behavior'))
+    if combined:
+        return combined
+
     # Fallback: template
     return _FALLBACK_GOALS.get(module, f'修复 {module} 阶段的核心指标退化')
+
+
+def _combine_goal_texts(items: Iterable[str]) -> str:
+    texts = _dedupe_texts(items, limit=4)
+    if not texts:
+        return ''
+    if len(texts) == 1:
+        return _shorten(texts[0], _GOAL_TEXT_LIMIT)
+
+    separator = '；'
+    for count in range(len(texts), 0, -1):
+        per_item_limit = max(24, (_GOAL_TEXT_LIMIT - len(separator) * (count - 1)) // count)
+        candidate = separator.join(_shorten(text, per_item_limit) for text in texts[:count])
+        if len(candidate) <= _GOAL_TEXT_LIMIT:
+            return candidate
+    return _shorten(texts[0], _GOAL_TEXT_LIMIT)
 
 
 # ---------------------------------------------------------------------------
@@ -862,8 +887,8 @@ def _dynamic_goal(
 
 def _collect_trigger_cases(records: Sequence[_Record]) -> List[str]:
     cases: List[str] = []
-    for _, action, _, _ in records:
-        for case in _action_cases(action):
+    for record in records:
+        for case in _action_cases(record.action):
             if str(case) not in cases:
                 cases.append(str(case))
     return cases
@@ -884,8 +909,8 @@ def _extract_evidence_from_actions(actions: Sequence[Mapping[str, Any]], *, limi
 
 def _collect_confidence(records: Sequence[_Record]) -> float:
     confidences = []
-    for _, action, _, _ in records:
-        conf = action.get('evidence_confidence')
+    for record in records:
+        conf = record.action.get('evidence_confidence')
         if conf is not None:
             try:
                 confidences.append(float(conf))
@@ -898,13 +923,11 @@ def _collect_output_case_context(
     report: Mapping[str, Any],
     task_plans: Sequence[Mapping[str, Any]],
 ) -> Dict[str, Any]:
-    trigger_cases: List[str] = []
+    trigger_cases_raw: List[str] = []
     for task in task_plans:
-        if not isinstance(task, Mapping):
-            continue
-        for case_id in _to_str_list(task.get('trigger_cases')):
-            if case_id not in trigger_cases:
-                trigger_cases.append(case_id)
+        if isinstance(task, Mapping):
+            trigger_cases_raw.extend(_to_str_list(task.get('trigger_cases')))
+    trigger_cases = _dedupe(trigger_cases_raw)
 
     chain_items = list(_iter_causal_chain_infos(report))
     chain_map = {case_id: info for case_id, info in chain_items}
@@ -1055,8 +1078,10 @@ def _find_bottleneck_stage(report: Mapping[str, Any], module: str) -> str:
 def _collect_evidence(
     report: Mapping[str, Any], module: str, records: Sequence[_Record],
 ) -> List[str]:
-    items: List[str] = _extract_evidence_from_actions([action for _, action, _, _ in records], limit=24)
-    for _, _, finding, mod_plan in records:
+    items: List[str] = _extract_evidence_from_actions([record.action for record in records], limit=24)
+    for record in records:
+        finding = record.finding
+        mod_plan = record.mod_plan
         if finding.get('behavior'):
             items.append(str(finding['behavior']))
         if mod_plan.get('hypothesis'):
@@ -1116,43 +1141,40 @@ def _build_plan_steps(
 ) -> List[str]:
     """Build deterministic plan steps from _STEPS_TEMPLATE and _EVIDENCE_KEYWORDS."""
     explicit_steps: List[str] = []
-    for _, _, _, mod_plan in records:
+    for record in records:
+        mod_plan = record.mod_plan
         if isinstance(mod_plan, Mapping):
             explicit_steps.extend(_to_str_list(mod_plan.get('plan') or mod_plan.get('steps')))
     if explicit_steps:
         steps = _dedupe(explicit_steps)
-        for step in list(validation) + list(rollback):
-            if step not in steps:
-                steps.append(step)
-        return steps[:_MAX_PLAN_STEPS]
-
-    files = '、'.join(target_files[:4]) if target_files else '相关模块代码'
-    params = '、'.join(str(t.get('param')) for t in change_targets if t.get('param'))
-    key_ev = _select_key_evidence(module, evidence)
-
-    template = _STEPS_TEMPLATE.get(module)
-    if template:
-        steps = [
-            step_tmpl.format(
-                files=files,
-                evidence=key_ev or '触发案例指标退化',
-                params=params or '相关可调参数',
-            )
-            for step_tmpl in template
-        ]
     else:
-        rep_action = records[0][1]
-        steps = [
-            f'定位 {module} 相关实现：{files}',
-            '根据 report 假设复现触发案例并确认指标退化点',
-            '实施最小可验证改动并记录回滚条件',
-        ]
-        symptoms = str(rep_action.get('symptoms') or '').strip()
-        ev_text = str(rep_action.get('evidence_finding') or rep_action.get('hypothesis') or '').strip()
-        if symptoms:
-            steps.insert(1, f'核对症状：{_shorten(symptoms, _INLINE_TEXT_LIMIT)}')
-        if ev_text:
-            steps.insert(min(2, len(steps)), f'核对证据：{_shorten(ev_text, _INLINE_TEXT_LIMIT)}')
+        files = '、'.join(target_files[:4]) if target_files else '相关模块代码'
+        params = '、'.join(str(t.get('param')) for t in change_targets if t.get('param'))
+        key_ev = _select_key_evidence(module, evidence)
+
+        template = _STEPS_TEMPLATE.get(module)
+        if template:
+            steps = [
+                step_tmpl.format(
+                    files=files,
+                    evidence=key_ev or '触发案例指标退化',
+                    params=params or '相关可调参数',
+                )
+                for step_tmpl in template
+            ]
+        else:
+            rep_action = records[0].action
+            steps = [
+                f'定位 {module} 相关实现：{files}',
+                '根据 report 假设复现触发案例并确认指标退化点',
+                '实施最小可验证改动并记录回滚条件',
+            ]
+            symptoms = str(rep_action.get('symptoms') or '').strip()
+            ev_text = str(rep_action.get('evidence_finding') or rep_action.get('hypothesis') or '').strip()
+            if symptoms:
+                steps.insert(1, f'核对症状：{_shorten(symptoms, _INLINE_TEXT_LIMIT)}')
+            if ev_text:
+                steps.insert(min(2, len(steps)), f'核对证据：{_shorten(ev_text, _INLINE_TEXT_LIMIT)}')
 
     for step in list(validation) + list(rollback):
         if step not in steps:
@@ -1193,7 +1215,8 @@ def _keyword_hits(text: str, keyword: str) -> int:
 
 def _collect_change_targets(root: Path, records: Sequence[_Record]) -> List[Dict[str, Any]]:
     targets: List[Dict[str, Any]] = []
-    for _, _, _, mod_plan in records:
+    for record in records:
+        mod_plan = record.mod_plan
         for item in (mod_plan.get('suggested_changes') or []):
             if not isinstance(item, Mapping):
                 continue
@@ -1223,14 +1246,16 @@ def _collect_target_files(
 
     files: List[str] = []
     files.extend(str(target['file']) for target in change_targets if target.get('file'))
-    for _, action, _, mod_plan in records:
-        files.extend(_collect_code_hints(root, module, action, mod_plan))
+    for record in records:
+        files.extend(_collect_code_hints(root, module, record.action, record.mod_plan))
     return _dedupe(files)[:8]
 
 
 def _collect_validation(records: Sequence[_Record]) -> List[str]:
     steps: List[str] = []
-    for _, action, _, mod_plan in records:
+    for record in records:
+        action = record.action
+        mod_plan = record.mod_plan
         validation = action.get('validation') or action.get('validation_cases') or []
         if isinstance(validation, str):
             validation = [validation]
@@ -1255,7 +1280,9 @@ def _collect_validation(records: Sequence[_Record]) -> List[str]:
 
 def _collect_rollback(records: Sequence[_Record]) -> List[str]:
     notes: List[str] = []
-    for _, action, _, mod_plan in records:
+    for record in records:
+        action = record.action
+        mod_plan = record.mod_plan
         rm = action.get('rollback_metric')
         if rm:
             notes.append(f'若 {rm} 退化则回滚')
@@ -1478,7 +1505,7 @@ def _rank_modules(
 
     def sort_key(module: str) -> Tuple[int, int, int, float, str]:
         records = grouped[module]
-        min_prio = min((_parse_int(a.get('priority')) or 9999) for _, a, _, _ in records)
+        min_prio = min((_parse_int(record.action.get('priority')) or 9999) for record in records)
         bn_rank = bottlenecks.index(module) if module in bottlenecks else 999
         return bn_rank, min_prio, _DEFAULT_ORDER.get(module, 8), -stage_scores.get(module, 0), module
 
@@ -1566,7 +1593,10 @@ def _matching_modification_plan(
         if stage != 'unknown' and stage == module:
             return item
     if len(valid_plans) == 1 and valid_plans[0].get('suggested_changes'):
-        return valid_plans[0]
+        raw_stage = str(valid_plans[0].get('stage') or '').strip()
+        stage = _canonical_module(raw_stage)
+        if not raw_stage or stage in ('unknown', module):
+            return valid_plans[0]
     return {}
 
 
@@ -1650,10 +1680,9 @@ def _resolve_file(root: Path, report_path: str) -> Optional[Path]:
     basename = raw.name
     if basename:
         scan_root = root / 'algorithm' if (root / 'algorithm').exists() else root
-        for path in scan_root.rglob('*'):
-            if path.is_file() and path.name == basename and path.suffix in _CODE_EXTENSIONS:
-                if not any(part in _IGNORED_DIRS for part in path.parts):
-                    return path.resolve()
+        for path in _iter_code_files(scan_root, basename=basename):
+            if path.is_file():
+                return path.resolve()
     return None
 
 
@@ -1663,10 +1692,8 @@ def _keyword_scan(root: Path, module: str, max_files: int) -> List[str]:
         return []
     scored: List[Tuple[int, Path]] = []
     scan_root = root / 'algorithm' if (root / 'algorithm').exists() else root
-    for path in scan_root.rglob('*'):
-        if not path.is_file() or path.suffix not in _CODE_EXTENSIONS:
-            continue
-        if any(part in _IGNORED_DIRS for part in path.parts):
+    for path in _iter_code_files(scan_root):
+        if not path.is_file():
             continue
         try:
             text = path.read_text(encoding='utf-8', errors='ignore')[:20000]
@@ -1677,6 +1704,17 @@ def _keyword_scan(root: Path, module: str, max_files: int) -> List[str]:
             scored.append((score, path))
     scored.sort(key=lambda x: (-x[0], str(x[1])))
     return [_display_path(p, root) for _, p in scored[:max_files]]
+
+
+def _iter_code_files(scan_root: Path, *, basename: Optional[str] = None) -> Iterable[Path]:
+    for dirpath, dirnames, filenames in os.walk(scan_root):
+        dirnames[:] = [dirname for dirname in dirnames if dirname not in _IGNORED_DIRS]
+        for filename in filenames:
+            if basename is not None and filename != basename:
+                continue
+            path = Path(dirpath) / filename
+            if path.suffix in _CODE_EXTENSIONS:
+                yield path
 
 
 def _display_path(path: Path, root: Path) -> str:
@@ -1730,7 +1768,10 @@ def _change_type(change: Mapping[str, Any]) -> str:
 
 def _resolve_plan_model(plan_model_role: str) -> Any:
     try:
-        from get_models import get_automodel
+        try:
+            from chat.pipelines.builders.get_models import get_automodel
+        except ModuleNotFoundError:
+            from algorithm.chat.pipelines.builders.get_models import get_automodel
         return get_automodel(plan_model_role)
     except Exception as exc:
         _trace_model_plan(f'failed to resolve model `{plan_model_role}`: {type(exc).__name__}: {exc}')
@@ -1739,15 +1780,6 @@ def _resolve_plan_model(plan_model_role: str) -> Any:
 
 def _trace_model_plan(message: str) -> None:
     print(f'[task_planner:model] {message}')
-
-
-def _ensure_algorithm_import_path(root: Path) -> None:
-    for candidate in (root / 'algorithm' / 'chat' / 'pipelines' / 'builders',
-                      root / 'algorithm',
-                      root,
-                      Path(__file__).resolve().parents[1]):
-        if candidate.exists() and str(candidate) not in sys.path:
-            sys.path.insert(0, str(candidate))
 
 
 def _model_plan_steps_for_tasks(plan_model: Any, tasks: Sequence[TaskPlan]) -> List[TaskPlan]:
@@ -1828,7 +1860,9 @@ def _parse_model_plan_map(response: Any, tasks: Sequence[TaskPlan]) -> Dict[str,
         parsed = _parse_jsonish_text(parsed)
     if isinstance(parsed, Mapping):
         result: Dict[str, List[str]] = {}
-        module_to_task_id = {task.module: task.task_id for task in tasks}
+        module_to_task_ids: Dict[str, List[str]] = {}
+        for task in tasks:
+            module_to_task_ids.setdefault(task.module, []).append(task.task_id)
         for key, value in parsed.items():
             steps = _normalize_step_list(value)
             task_id = str(key)
@@ -1837,9 +1871,9 @@ def _parse_model_plan_map(response: Any, tasks: Sequence[TaskPlan]) -> Dict[str,
                 task_id = str(value.get('task_id') or task_id)
             if not steps:
                 continue
-            if task_id in module_to_task_id:
-                task_id = module_to_task_id[task_id]
-            result[task_id] = steps
+            task_ids = module_to_task_ids.get(task_id, [task_id])
+            for resolved_task_id in task_ids:
+                result[resolved_task_id] = steps
         return result
     if isinstance(parsed, list):
         result: Dict[str, List[str]] = {}
@@ -2146,9 +2180,7 @@ def _json_safe(value: Any) -> Any:
 
 
 def _dump_json(value: Any, *, indent: Optional[int] = 2) -> str:
-    text = json.dumps(_json_safe(value), ensure_ascii=False, indent=indent, allow_nan=False)
-    json.loads(text)  # validate
-    return text
+    return json.dumps(_json_safe(value), ensure_ascii=False, indent=indent, allow_nan=False)
 
 
 def _shorten(text: str, limit: int) -> str:
@@ -2178,27 +2210,21 @@ def generate_task_plan_output(
     This is the module-level API. ``main`` below is intentionally only a thin
     smoke-test wrapper around this function.
     """
-    report = load_report(report_path)
     resolved_plan_mode = _resolve_plan_mode(plan_mode, use_model_plan)
     print(f'[task_planner] plan_mode={resolved_plan_mode}')
-    tasks = build_task_plans(
-        report,
-        code_root,
+    agent = TaskPlannerAgent(
+        code_root=code_root,
+        output_format=output_format,
+        use_model_plan=(resolved_plan_mode == 'llm'),
+    )
+    return agent.forward(
+        report_path=report_path,
+        output_path=output or _default_plan_output_path(report_path),
+        schema=schema,
         plan_model_role=plan_model_role,
-        use_model_plan=resolved_plan_mode == 'llm',
         review_result=review_result,
         validation_result=validation_result,
     )
-    formatted = _format_task_output(
-        tasks,
-        report,
-        output_format,
-        schema=schema,
-    )
-    if output is None:
-        output = _default_plan_output_path(report_path)
-    _write_output(formatted, output)
-    return formatted
 
 
 def _resolve_plan_mode(plan_mode: str, use_model_plan: bool) -> str:
