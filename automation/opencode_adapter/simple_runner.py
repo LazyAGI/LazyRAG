@@ -104,7 +104,6 @@ def execute_simple_report(
 
         change_summary = extract_text(events) or _build_change_summary(changed_files)
         result = {
-            'diff': '',
             'files_changed': changed_files,
             'change_summary': change_summary or 'No changes were necessary.',
         }
@@ -254,8 +253,11 @@ def _load_hard_allowlist() -> List[str]:
 
     items: List[str] = []
     seen: set[str] = set()
-    line_number = 0
-    for line_number, raw_line in enumerate(ALLOWED_FILE_SCOPE_PATH.read_text(encoding='utf-8').splitlines(), start=1):
+    _line_number = 0
+    for _line_number, raw_line in enumerate(
+        ALLOWED_FILE_SCOPE_PATH.read_text(encoding='utf-8').splitlines(),
+        start=1,
+    ):
         line = raw_line.strip()
         if not line or line.startswith('#'):
             continue
@@ -269,7 +271,7 @@ def _load_hard_allowlist() -> List[str]:
         raise AdapterError(
             CONSTRAINTS_PARSE_FAILED,
             'allowed file scope document is empty',
-            {'path': str(ALLOWED_FILE_SCOPE_PATH), 'line_number': line_number},
+            {'path': str(ALLOWED_FILE_SCOPE_PATH), 'line_number': _line_number},
         )
     return items
 
@@ -413,10 +415,18 @@ def _coerce_mapping(value: Any, field_name: str, *, allow_none: bool = False) ->
 def _normalize_relative_path(path_value: str) -> str:
     candidate = Path(path_value.strip())
     if candidate.is_absolute():
-        raise AdapterError(TASK_SCOPE_FORBIDDEN, 'absolute file paths are not allowed in task scope', {'path': path_value})
+        raise AdapterError(
+            TASK_SCOPE_FORBIDDEN,
+            'absolute file paths are not allowed in task scope',
+            {'path': path_value},
+        )
     normalized = candidate.as_posix().strip('/')
     if not normalized or normalized.startswith('../') or '/..' in normalized:
-        raise AdapterError(TASK_SCOPE_FORBIDDEN, 'task scope path must stay inside the repository', {'path': path_value})
+        raise AdapterError(
+            TASK_SCOPE_FORBIDDEN,
+            'task scope path must stay inside the repository',
+            {'path': path_value},
+        )
     return normalized
 
 
@@ -525,7 +535,10 @@ def _resolve_cli_report_path(positional_input: str | None, explicit_report_json:
 
     raise AdapterError(
         REPORT_JSON_INVALID,
-        'report json path is required; pass --report-json, provide the json path directly, or include it in the natural-language input',
+        (
+            'report json path is required; pass --report-json, provide the '
+            'json path directly, or include it in the natural-language input'
+        ),
         {},
     )
 
@@ -542,7 +555,11 @@ def _resolve_cli_instruction(
         positional_path = _existing_file_path(positional_input)
         if positional_path is None or positional_path != report_json_path:
             embedded_path = _extract_json_path_from_text(positional_input)
-            if embedded_path is None or embedded_path != report_json_path or positional_input.strip() != str(report_json_path):
+            if (
+                embedded_path is None
+                or embedded_path != report_json_path
+                or positional_input.strip() != str(report_json_path)
+            ):
                 return positional_input.strip()
 
     return DEFAULT_CLI_INSTRUCTION

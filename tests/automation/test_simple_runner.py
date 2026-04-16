@@ -23,7 +23,10 @@ def temp_algorithm_repo(tmp_path: Path) -> Path:
     (repo / ALLOWED_FILE).parent.mkdir(parents=True, exist_ok=True)
     (repo / ALLOWED_FILE).write_text('base\n', encoding='utf-8')
     (repo / SECOND_ALLOWED_FILE).parent.mkdir(parents=True, exist_ok=True)
-    (repo / SECOND_ALLOWED_FILE).write_text('class BgeM3Embed:\n    pass\n', encoding='utf-8')
+    (repo / SECOND_ALLOWED_FILE).write_text(
+        'class BgeM3Embed:\n    pass\n',
+        encoding='utf-8',
+    )
     return repo
 
 
@@ -71,7 +74,6 @@ def test_execute_simple_report_success(
     assert outcome['status'] == 'SUCCEEDED'
     assert outcome['error'] is None
     assert outcome['result'] == {
-        'diff': '',
         'files_changed': [ALLOWED_FILE],
         'change_summary': 'Updated retriever settings.',
     }
@@ -120,7 +122,10 @@ def test_execute_simple_report_rejects_scope_violation(
 ) -> None:
     monkeypatch.setenv('FAKE_OPENCODE_MODE', 'scope_violation')
     monkeypatch.setenv('FAKE_OPENCODE_TARGET', ALLOWED_FILE)
-    monkeypatch.setenv('FAKE_OPENCODE_OUTSIDE', 'algorithm/chat/prompts/rewrite.py')
+    monkeypatch.setenv(
+        'FAKE_OPENCODE_OUTSIDE',
+        'algorithm/chat/prompts/rewrite.py',
+    )
 
     payload = _report_payload(
         fake_opencode,
@@ -145,7 +150,9 @@ def test_execute_simple_report_rejects_scope_violation(
     assert outcome['status'] == 'FAILED'
     assert outcome['result'] is None
     assert outcome['error']['code'] == 'SCOPE_VIOLATION'
-    assert outcome['error']['details']['violations'] == ['algorithm/chat/prompts/rewrite.py']
+    assert outcome['error']['details']['violations'] == [
+        'algorithm/chat/prompts/rewrite.py'
+    ]
 
 
 def test_execute_simple_report_returns_no_change(
@@ -179,10 +186,10 @@ def test_execute_simple_report_returns_no_change(
 
     assert outcome['status'] == 'NO_CHANGE'
     assert outcome['result'] == {
-        'diff': '',
         'files_changed': [],
         'change_summary': 'No change needed.',
     }
+
 
 def test_simple_runner_cli_reads_report_json(
     temp_algorithm_repo: Path,
@@ -216,7 +223,11 @@ def test_simple_runner_cli_reads_report_json(
 
     env = os.environ.copy()
     existing_pythonpath = env.get('PYTHONPATH', '')
-    env['PYTHONPATH'] = f'{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}' if existing_pythonpath else str(PROJECT_ROOT)
+    env['PYTHONPATH'] = (
+        f'{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}'
+        if existing_pythonpath
+        else str(PROJECT_ROOT)
+    )
 
     result = subprocess.run(
         [
@@ -273,7 +284,11 @@ def test_simple_runner_cli_reads_report_json_from_natural_language(
 
     env = os.environ.copy()
     existing_pythonpath = env.get('PYTHONPATH', '')
-    env['PYTHONPATH'] = f'{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}' if existing_pythonpath else str(PROJECT_ROOT)
+    env['PYTHONPATH'] = (
+        f'{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}'
+        if existing_pythonpath
+        else str(PROJECT_ROOT)
+    )
 
     result = subprocess.run(
         [
