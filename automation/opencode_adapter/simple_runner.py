@@ -12,7 +12,7 @@ import tempfile
 import textwrap
 from collections.abc import Mapping, MutableMapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from automation.opencode_adapter.errors import (
     AdapterError,
@@ -27,20 +27,36 @@ from automation.opencode_adapter.events import extract_error_event, extract_text
 
 TASK_SCOPE_EMPTY = 'TASK_SCOPE_EMPTY'
 TASK_SCOPE_FORBIDDEN = 'TASK_SCOPE_FORBIDDEN'
-VALIDATION_MISSING = 'VALIDATION_MISSING'
-MAX_ROUNDS_EXCEEDED = 'MAX_ROUNDS_EXCEEDED'
-DEPENDENCY_BLOCKED = 'DEPENDENCY_BLOCKED'
 CONSTRAINTS_PARSE_FAILED = 'CONSTRAINTS_PARSE_FAILED'
 REPORT_JSON_INVALID = 'REPORT_JSON_INVALID'
 SCOPE_VIOLATION = 'SCOPE_VIOLATION'
 NO_CHANGE = 'NO_CHANGE'
 
 DEFAULT_BASE_REF = 'HEAD'
-DEFAULT_MAX_ROUNDS = 3
 DEFAULT_TIMEOUT_SECONDS = 300
 DEFAULT_ARTIFACT_ROOT = Path(tempfile.gettempdir()) / 'lazy-rag-edit'
 DEFAULT_CLI_INSTRUCTION = '完成这个json内的任务'
-SUCCESSFUL_TASK_STATUSES = {'SUCCEEDED', NO_CHANGE}
+SUCCESSFUL_STATUSES = {'SUCCEEDED', NO_CHANGE}
+JSON_PATH_PATTERN = re.compile(r'(?P<path>(?:~|/|\./|\.\./)[^\s\'"“”‘’]+?\.json)')
+
+ALLOWED_FILE_SCOPE = [
+    'algorithm/chat/prompts/rewrite.py',
+    'algorithm/chat/prompts/agentic.py',
+    'algorithm/chat/prompts/rag_answer.py',
+    'algorithm/chat/components/process/multiturn_query_rewriter.py',
+    'algorithm/chat/components/process/sensitive_filter.py',
+    'algorithm/chat/components/process/context_expansion.py',
+    'algorithm/chat/components/process/adaptive_topk.py',
+    'algorithm/chat/components/generate/output_parser.py',
+    'algorithm/chat/components/generate/prompt_formatter.py',
+    'algorithm/chat/components/generate/aggregate.py',
+    'algorithm/chat/components/tmp/local_models.py',
+    'algorithm/chat/components/tmp/tool_registry.py',
+    'algorithm/chat/pipelines/builders/get_retriever.py',
+    'algorithm/chat/pipelines/builders/get_ppl_search.py',
+    'algorithm/chat/pipelines/builders/get_ppl_generate.py',
+    'algorithm/chat/pipelines/naive.py',
+]
 
 
 def execute_simple_report(
@@ -50,11 +66,8 @@ def execute_simple_report(
     instruction: str,
     base_ref: str = DEFAULT_BASE_REF,
     opencode_options: Mapping[str, Any] | None = None,
-    fallback_validation_commands: Sequence[str] | None = None,
-    max_rounds: int = DEFAULT_MAX_ROUNDS,
     artifact_root: str | None = None,
 ) -> Dict[str, Any]:
-    report_id = 'report'
     artifacts_dir = ''
     try:
         report = _extract_report(payload)
@@ -72,7 +85,7 @@ def execute_simple_report(
 
         repo_root = _validate_repo(repo_path)
         normalized_base_ref = _resolve_base_ref(repo_root, base_ref)
-        hard_allowlist = _load_hard_allowlist()
+        allowed_files = _resolve_report_scope(report, _load_hard_allowlist())
 
         merged_opencode = _merge_opencode_options(
             _coerce_mapping(report.get('opencode'), 'opencode', allow_none=True),
@@ -81,35 +94,45 @@ def execute_simple_report(
         binary = _resolve_opencode_binary(merged_opencode)
         _preflight_opencode(binary)
 
-        accepted_repo = run_root / 'accepted_repo'
-        _materialize_base_copy(repo_root, normalized_base_ref, accepted_repo)
+        repo_copy = run_root / 'repo_copy'
+        _materialize_base_copy(repo_root, normalized_base_ref, repo_copy)
 
-        task_results: List[Dict[str, Any]] = []
-        task_statuses: Dict[str, str] = {}
-        fallback_commands = [command for command in (fallback_validation_commands or []) if command.strip()]
+        prompt = _build_prompt(
+            instruction=instruction,
+            report=report,
+            allowed_files=allowed_files,
+        )
+        _write_text(run_root / 'prompt.txt', prompt)
 
-        for task in _extract_tasks(report):
-            task_result = _execute_task(
-                task=task,
-                report=report,
-                instruction=instruction,
-                accepted_repo=accepted_repo,
-                run_root=run_root,
-                hard_allowlist=hard_allowlist,
-                binary=binary,
-                opencode_options=merged_opencode,
-                fallback_validation_commands=fallback_commands,
-                max_rounds=max_rounds,
-                task_statuses=task_statuses,
+        events, stderr = _run_opencode(
+            binary=binary,
+            repo_copy=repo_copy,
+            prompt=prompt,
+            options=merged_opencode,
+        )
+        _write_jsonl(run_root / 'events.jsonl', events)
+        _write_text(run_root / 'stderr.log', stderr)
+
+        changed_files = _collect_changed_files(repo_copy)
+        violations = sorted(path for path in changed_files if path not in set(allowed_files))
+        if violations:
+            raise AdapterError(
+                SCOPE_VIOLATION,
+                'OpenCode modified files outside the allowed scope',
+                {'violations': violations, 'allowed_files': allowed_files},
             )
-            task_results.append(task_result)
-            task_statuses[task_result['task_id']] = task_result['status']
+
+        diff_text = _collect_diff(repo_copy) if changed_files else ''
+        change_summary = extract_text(events) or _build_change_summary(changed_files, diff_text)
+        result = {
+            'diff': diff_text,
+            'files_changed': changed_files,
+            'change_summary': change_summary or 'No changes were necessary.',
+        }
 
         outcome = {
-            'status': _overall_status(task_results),
-            'report_id': report_id,
-            'task_results': task_results,
-            'summary': _build_summary(task_results),
+            'status': 'SUCCEEDED' if changed_files else NO_CHANGE,
+            'result': result,
             'error': None,
             'artifacts_dir': artifacts_dir,
         }
@@ -118,9 +141,7 @@ def execute_simple_report(
     except AdapterError as exc:
         outcome = {
             'status': 'FAILED',
-            'report_id': report_id,
-            'task_results': [],
-            'summary': _build_summary([]),
+            'result': None,
             'error': exc.to_payload(),
             'artifacts_dir': artifacts_dir,
         }
@@ -131,222 +152,13 @@ def execute_simple_report(
         wrapped = AdapterError(OPENCODE_EXEC_FAILED, 'unexpected simple runner failure', {'error': str(exc)})
         outcome = {
             'status': 'FAILED',
-            'report_id': report_id,
-            'task_results': [],
-            'summary': _build_summary([]),
+            'result': None,
             'error': wrapped.to_payload(),
             'artifacts_dir': artifacts_dir,
         }
         if artifacts_dir:
             _write_json(Path(artifacts_dir) / 'result.json', outcome)
         return outcome
-
-
-def _execute_task(
-    *,
-    task: MutableMapping[str, Any],
-    report: MutableMapping[str, Any],
-    instruction: str,
-    accepted_repo: Path,
-    run_root: Path,
-    hard_allowlist: Sequence[str],
-    binary: str,
-    opencode_options: Mapping[str, Any],
-    fallback_validation_commands: Sequence[str],
-    max_rounds: int,
-    task_statuses: Mapping[str, str],
-) -> Dict[str, Any]:
-    task_id = str(task.get('task_id') or 'task').strip() or 'task'
-    module = str(task.get('module') or '').strip()
-    safe_task_id = _sanitize_identifier(task_id, fallback='task')
-    task_root = run_root / 'tasks' / safe_task_id
-    task_root.mkdir(parents=True, exist_ok=True)
-    _write_json(task_root / 'task.json', task)
-
-    dependency_error = _dependency_error(task, task_statuses)
-    if dependency_error is not None:
-        validation = _skipped_validation(dependency_error.message)
-        result = _task_result(
-            task_id=task_id,
-            module=module,
-            status='BLOCKED',
-            rounds=0,
-            allowed_files=[],
-            task_root=task_root,
-            result=None,
-            error=dependency_error.to_payload(),
-            validation_result=validation,
-        )
-        _write_json(task_root / 'result.json', result)
-        return result
-
-    try:
-        allowed_files = _resolve_task_scope(task, hard_allowlist)
-        validation_commands = _validation_commands_for_task(task, fallback_validation_commands)
-    except AdapterError as exc:
-        validation = _skipped_validation(exc.message)
-        result = _task_result(
-            task_id=task_id,
-            module=module,
-            status='FAILED',
-            rounds=0,
-            allowed_files=[],
-            task_root=task_root,
-            result=None,
-            error=exc.to_payload(),
-            validation_result=validation,
-        )
-        _write_json(task_root / 'result.json', result)
-        return result
-
-    feedback = ''
-    last_validation = _skipped_validation('Validation was not run.')
-    round_source = accepted_repo
-
-    for round_index in range(1, max_rounds + 1):
-        round_root = task_root / f'round_{round_index}'
-        round_repo = round_root / 'repo'
-        round_root.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(round_source, round_repo)
-
-        prompt = _build_prompt(
-            instruction=instruction,
-            report=report,
-            task=task,
-            allowed_files=allowed_files,
-            feedback=feedback,
-        )
-        _write_text(round_root / 'prompt.txt', prompt)
-
-        try:
-            events, stderr = _run_opencode(
-                binary=binary,
-                repo_copy=round_repo,
-                prompt=prompt,
-                options=opencode_options,
-            )
-        except AdapterError as exc:
-            validation = _skipped_validation('Validation skipped because OpenCode execution failed.')
-            result = _task_result(
-                task_id=task_id,
-                module=module,
-                status='FAILED',
-                rounds=round_index,
-                allowed_files=allowed_files,
-                task_root=task_root,
-                result=None,
-                error=exc.to_payload(),
-                validation_result=validation,
-            )
-            _write_json(task_root / 'result.json', result)
-            return result
-
-        _write_jsonl(round_root / 'events.jsonl', events)
-        _write_text(round_root / 'stderr.log', stderr)
-
-        changed_files = _collect_changed_files(round_repo)
-        violations = sorted(path for path in changed_files if path not in set(allowed_files))
-        if violations:
-            error = AdapterError(
-                SCOPE_VIOLATION,
-                'OpenCode modified files outside the allowed scope',
-                {'violations': violations, 'allowed_files': allowed_files},
-            )
-            validation = _skipped_validation('Validation skipped because scope verification failed.')
-            result = _task_result(
-                task_id=task_id,
-                module=module,
-                status='FAILED',
-                rounds=round_index,
-                allowed_files=allowed_files,
-                task_root=task_root,
-                result=None,
-                error=error.to_payload(),
-                validation_result=validation,
-            )
-            _write_json(task_root / 'result.json', result)
-            return result
-
-        diff_text = _collect_diff(round_repo) if changed_files else ''
-        change_summary = extract_text(events) or _build_change_summary(changed_files, diff_text)
-        modify_result = {
-            'diff': diff_text,
-            'files_changed': changed_files,
-            'change_summary': change_summary or 'No changes were necessary.',
-        }
-
-        validation = _run_validation_commands(round_repo, validation_commands)
-        _write_json(round_root / 'validation.json', validation)
-        last_validation = validation
-
-        if validation['status'] == 'PASSED':
-            if changed_files:
-                _commit_changes(round_repo, task_id)
-                _promote_accepted_repo(round_repo, accepted_repo)
-                status = 'SUCCEEDED'
-            else:
-                status = NO_CHANGE
-
-            result = _task_result(
-                task_id=task_id,
-                module=module,
-                status=status,
-                rounds=round_index,
-                allowed_files=allowed_files,
-                task_root=task_root,
-                result=modify_result,
-                error=None,
-                validation_result=validation,
-            )
-            _write_json(task_root / 'result.json', result)
-            return result
-
-        feedback = _validation_feedback(validation)
-        round_source = round_repo
-
-    error = AdapterError(
-        MAX_ROUNDS_EXCEEDED,
-        'validation did not pass within max_rounds',
-        {'max_rounds': max_rounds, 'last_validation': last_validation},
-    )
-    result = _task_result(
-        task_id=task_id,
-        module=module,
-        status='FAILED',
-        rounds=max_rounds,
-        allowed_files=allowed_files,
-        task_root=task_root,
-        result=None,
-        error=error.to_payload(),
-        validation_result=last_validation,
-    )
-    _write_json(task_root / 'result.json', result)
-    return result
-
-
-def _task_result(
-    *,
-    task_id: str,
-    module: str,
-    status: str,
-    rounds: int,
-    allowed_files: Sequence[str],
-    task_root: Path,
-    result: Optional[Dict[str, Any]],
-    error: Optional[Dict[str, Any]],
-    validation_result: Dict[str, Any],
-) -> Dict[str, Any]:
-    return {
-        'task_id': task_id,
-        'module': module,
-        'status': status,
-        'rounds': rounds,
-        'allowed_files': list(allowed_files),
-        'result': result,
-        'error': error,
-        'validation_result': validation_result,
-        'artifacts_dir': str(task_root),
-    }
 
 
 def _extract_report(payload: Mapping[str, Any]) -> MutableMapping[str, Any]:
@@ -370,150 +182,63 @@ def _extract_tasks(report: Mapping[str, Any]) -> List[MutableMapping[str, Any]]:
     return tasks
 
 
-def _dependency_error(task: Mapping[str, Any], task_statuses: Mapping[str, str]) -> AdapterError | None:
-    dependencies = task.get('depends_on') or []
-    if dependencies and not isinstance(dependencies, list):
-        return AdapterError(
-            REPORT_JSON_INVALID,
-            'depends_on must be a list',
-            {'task_id': str(task.get('task_id') or ''), 'field': 'depends_on'},
-        )
-    for dependency in dependencies:
-        dependency_id = str(dependency).strip()
-        if task_statuses.get(dependency_id) not in SUCCESSFUL_TASK_STATUSES:
-            return AdapterError(
-                DEPENDENCY_BLOCKED,
-                f'task dependency {dependency_id} did not complete successfully',
-                {'depends_on': dependency_id},
-            )
-    return None
-
-
-def _resolve_task_scope(task: Mapping[str, Any], hard_allowlist: Sequence[str]) -> List[str]:
-    raw_targets = task.get('change_targets') or []
-    if not isinstance(raw_targets, list):
-        raise AdapterError(
-            REPORT_JSON_INVALID,
-            'task.change_targets must be a list',
-            {'task_id': str(task.get('task_id') or ''), 'field': 'change_targets'},
-        )
-
+def _resolve_report_scope(report: Mapping[str, Any], hard_allowlist: Sequence[str]) -> List[str]:
     allowed_set = set(hard_allowlist)
     requested: List[str] = []
     seen: set[str] = set()
     forbidden: List[str] = []
-    for index, item in enumerate(raw_targets):
-        if not isinstance(item, Mapping):
+
+    for task in _extract_tasks(report):
+        raw_targets = task.get('change_targets') or []
+        if not isinstance(raw_targets, list):
             raise AdapterError(
                 REPORT_JSON_INVALID,
-                'each change_target must be an object',
-                {'field': f'change_targets[{index}]', 'actual_type': type(item).__name__},
+                'task.change_targets must be a list',
+                {'task_id': str(task.get('task_id') or ''), 'field': 'change_targets'},
             )
-        raw_file = str(item.get('file') or '').strip()
-        if not raw_file:
-            continue
-        normalized = _normalize_relative_path(raw_file)
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        requested.append(normalized)
-        if normalized not in allowed_set:
-            forbidden.append(normalized)
+        for index, item in enumerate(raw_targets):
+            if not isinstance(item, Mapping):
+                raise AdapterError(
+                    REPORT_JSON_INVALID,
+                    'each change_target must be an object',
+                    {'field': f'change_targets[{index}]', 'actual_type': type(item).__name__},
+                )
+            raw_file = str(item.get('file') or '').strip()
+            if not raw_file:
+                continue
+            normalized = _normalize_relative_path(raw_file)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            requested.append(normalized)
+            if normalized not in allowed_set:
+                forbidden.append(normalized)
 
     if forbidden:
         raise AdapterError(
             TASK_SCOPE_FORBIDDEN,
-            'task requested files outside the hard allowlist',
+            'report requested files outside the hard allowlist',
             {'forbidden_files': forbidden},
         )
     if not requested:
-        raise AdapterError(TASK_SCOPE_EMPTY, 'task has no allowed change_targets', {})
+        raise AdapterError(TASK_SCOPE_EMPTY, 'report has no allowed change_targets', {})
     return requested
-
-
-def _validation_commands_for_task(task: Mapping[str, Any], fallback_commands: Sequence[str]) -> List[Dict[str, Any]]:
-    raw_steps = task.get('validation')
-    if raw_steps is None:
-        raw_steps = list(fallback_commands)
-
-    if not raw_steps:
-        raise AdapterError(
-            VALIDATION_MISSING,
-            'no validation commands were provided for this task',
-            {'task_id': str(task.get('task_id') or '')},
-        )
-    if not isinstance(raw_steps, list):
-        raise AdapterError(
-            REPORT_JSON_INVALID,
-            'task.validation must be a list',
-            {'task_id': str(task.get('task_id') or ''), 'field': 'validation'},
-        )
-
-    commands: List[Dict[str, Any]] = []
-    for index, item in enumerate(raw_steps, start=1):
-        if isinstance(item, str):
-            command = item.strip()
-            if command:
-                commands.append({'name': f'validation_{index}', 'command': command, 'timeout_s': DEFAULT_TIMEOUT_SECONDS})
-            continue
-        if isinstance(item, Mapping):
-            command = str(item.get('command') or '').strip()
-            if not command:
-                continue
-            timeout_value = item.get('timeout_s')
-            timeout_s = DEFAULT_TIMEOUT_SECONDS
-            if timeout_value is not None:
-                try:
-                    timeout_s = int(timeout_value)
-                except (TypeError, ValueError) as exc:
-                    raise AdapterError(
-                        REPORT_JSON_INVALID,
-                        'validation timeout_s must be an integer',
-                        {'task_id': str(task.get('task_id') or ''), 'validation_step': index},
-                    ) from exc
-            commands.append(
-                {
-                    'name': str(item.get('name') or item.get('id') or f'validation_{index}').strip() or f'validation_{index}',
-                    'command': command,
-                    'timeout_s': timeout_s,
-                }
-            )
-            continue
-        raise AdapterError(
-            REPORT_JSON_INVALID,
-            'each validation step must be a string or object',
-            {'task_id': str(task.get('task_id') or ''), 'validation_step': index},
-        )
-
-    if not commands:
-        raise AdapterError(
-            VALIDATION_MISSING,
-            'no executable validation commands were provided for this task',
-            {'task_id': str(task.get('task_id') or '')},
-        )
-    return commands
 
 
 def _build_prompt(
     *,
     instruction: str,
     report: Mapping[str, Any],
-    task: Mapping[str, Any],
     allowed_files: Sequence[str],
-    feedback: str,
 ) -> str:
-    report_context = {
-        'report_id': report.get('report_id'),
-        'top_issue': report.get('top_issue'),
-        'instruction': report.get('instruction'),
-        'constraints': report.get('constraints'),
-        'case': report.get('case'),
-    }
     scope_lines = '\n'.join(f'- {path}' for path in allowed_files)
-    feedback_block = feedback.strip() if feedback.strip() else 'None.'
     return textwrap.dedent(
         f"""
         You are editing a copied repository, not the original repository.
+
+        Perform one single-pass code edit for the provided report.
+        Do not do any task orchestration, retries, validation loops, or test execution.
+        Keep the implementation minimal and directly tied to the report.
 
         User instruction:
         {instruction}
@@ -521,19 +246,12 @@ def _build_prompt(
         Hard constraints:
         - Only modify files in this allowlist:
         {scope_lines}
-        - Do not modify any other file, even if the task plan mentions it.
-        - Keep changes minimal and directly tied to the current task.
-        - End with a concise plain-text change summary in 1-3 sentences.
+        - Do not modify any other file, even if the report mentions it.
         - The host will reject any out-of-scope file modification.
+        - End with a concise plain-text change summary in 1-3 sentences.
 
-        Report context:
-        {json.dumps(report_context, ensure_ascii=False, indent=2, sort_keys=True)}
-
-        Current task:
-        {json.dumps(task, ensure_ascii=False, indent=2, sort_keys=True)}
-
-        Previous validation feedback:
-        {feedback_block}
+        Report JSON:
+        {json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)}
         """
     ).strip()
 
@@ -567,26 +285,6 @@ def _resolve_base_ref(repo_root: Path, base_ref: str) -> str:
             {'base_ref': normalized, 'stderr': result.stderr.strip()},
         )
     return normalized
-
-
-ALLOWED_FILE_SCOPE = [
-    'algorithm/chat/prompts/rewrite.py',
-    'algorithm/chat/prompts/agentic.py',
-    'algorithm/chat/prompts/rag_answer.py',
-    'algorithm/chat/components/process/multiturn_query_rewriter.py',
-    'algorithm/chat/components/process/sensitive_filter.py',
-    'algorithm/chat/components/process/context_expansion.py',
-    'algorithm/chat/components/process/adaptive_topk.py',
-    'algorithm/chat/components/generate/output_parser.py',
-    'algorithm/chat/components/generate/prompt_formatter.py',
-    'algorithm/chat/components/generate/aggregate.py',
-    'algorithm/chat/components/tmp/local_models.py',
-    'algorithm/chat/components/tmp/tool_registry.py',
-    'algorithm/chat/pipelines/builders/get_retriever.py',
-    'algorithm/chat/pipelines/builders/get_ppl_search.py',
-    'algorithm/chat/pipelines/builders/get_ppl_generate.py',
-    'algorithm/chat/pipelines/naive.py',
-]
 
 
 def _load_hard_allowlist() -> List[str]:
@@ -669,7 +367,7 @@ def _run_opencode(
     repo_copy: Path,
     prompt: str,
     options: Mapping[str, Any],
-) -> Tuple[List[Dict[str, Any]], str]:
+) -> tuple[List[Dict[str, Any]], str]:
     command = [binary, 'run', '--format', 'json']
     for flag in ('model', 'agent', 'variant'):
         value = str(options.get(flag) or '').strip()
@@ -720,120 +418,6 @@ def _collect_diff(repo_copy: Path) -> str:
     return result.stdout.decode('utf-8', errors='replace')
 
 
-def _commit_changes(repo_copy: Path, task_id: str) -> None:
-    status = _run_command(['git', '-C', str(repo_copy), 'status', '--porcelain'], timeout=30)
-    if status.returncode != 0:
-        raise AdapterError(OPENCODE_EXEC_FAILED, 'failed to inspect copied repo status', {'stderr': status.stderr})
-    if not status.stdout.strip():
-        return
-    _run_command(['git', '-C', str(repo_copy), 'add', '-A', '--', '.'], timeout=30, required=True)
-    _run_command(['git', '-C', str(repo_copy), 'commit', '-m', f'automation: {task_id}'], timeout=30, required=True)
-
-
-def _promote_accepted_repo(source_repo: Path, accepted_repo: Path) -> None:
-    temp_dir = accepted_repo.parent / f'{accepted_repo.name}.next'
-    if temp_dir.exists():
-        shutil.rmtree(temp_dir, ignore_errors=True)
-    shutil.copytree(source_repo, temp_dir)
-    shutil.rmtree(accepted_repo, ignore_errors=True)
-    temp_dir.replace(accepted_repo)
-
-
-def _run_validation_commands(repo_copy: Path, commands: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
-    checks: List[Dict[str, Any]] = []
-    failures = 0
-    for command_info in commands:
-        command = str(command_info['command']).strip()
-        timeout_s = int(command_info.get('timeout_s') or DEFAULT_TIMEOUT_SECONDS)
-        try:
-            result = subprocess.run(
-                ['sh', '-lc', command],
-                cwd=str(repo_copy),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=timeout_s,
-                check=False,
-            )
-            status = 'PASSED' if result.returncode == 0 else 'FAILED'
-            if status == 'FAILED':
-                failures += 1
-            checks.append(
-                {
-                    'name': str(command_info.get('name') or 'validation').strip() or 'validation',
-                    'status': status,
-                    'command': command,
-                    'returncode': result.returncode,
-                    'stdout': result.stdout,
-                    'stderr': result.stderr,
-                    'reason': '',
-                }
-            )
-        except subprocess.TimeoutExpired as exc:
-            failures += 1
-            checks.append(
-                {
-                    'name': str(command_info.get('name') or 'validation').strip() or 'validation',
-                    'status': 'FAILED',
-                    'command': command,
-                    'returncode': None,
-                    'stdout': _to_text(exc.stdout),
-                    'stderr': _to_text(exc.stderr),
-                    'reason': f'Validation command timed out after {timeout_s}s.',
-                }
-            )
-
-    if failures:
-        summary = f'{len(commands) - failures} validation step(s) passed, {failures} failed.'
-        return {'status': 'FAILED', 'checks': checks, 'summary': summary}
-    summary = f'{len(commands)} validation step(s) passed.'
-    return {'status': 'PASSED', 'checks': checks, 'summary': summary}
-
-
-def _to_text(value: Any) -> str:
-    if value is None:
-        return ''
-    if isinstance(value, bytes):
-        return value.decode('utf-8', errors='replace')
-    return str(value)
-
-
-def _skipped_validation(reason: str) -> Dict[str, Any]:
-    return {
-        'status': 'SKIPPED',
-        'checks': [
-            {
-                'name': 'validation',
-                'status': 'SKIPPED',
-                'command': '',
-                'returncode': None,
-                'stdout': '',
-                'stderr': '',
-                'reason': reason,
-            }
-        ],
-        'summary': reason,
-    }
-
-
-def _validation_feedback(validation: Mapping[str, Any]) -> str:
-    lines = [str(validation.get('summary') or '').strip()]
-    for check in validation.get('checks') or []:
-        if check.get('status') != 'FAILED':
-            continue
-        lines.append(f"[{check.get('name')}] command: {check.get('command')}")
-        stdout = str(check.get('stdout') or '').strip()
-        stderr = str(check.get('stderr') or '').strip()
-        reason = str(check.get('reason') or '').strip()
-        if stdout:
-            lines.append(f'stdout:\n{stdout}')
-        if stderr:
-            lines.append(f'stderr:\n{stderr}')
-        if reason:
-            lines.append(f'reason: {reason}')
-    return '\n'.join(line for line in lines if line)
-
-
 def _build_change_summary(files_changed: Sequence[str], diff_text: str) -> str:
     if not files_changed:
         return 'No changes were necessary.'
@@ -851,32 +435,6 @@ def _build_change_summary(files_changed: Sequence[str], diff_text: str) -> str:
         listed = f'{listed}, ...'
     noun = 'file' if len(files_changed) == 1 else 'files'
     return f'Updated {len(files_changed)} {noun} ({listed}); +{additions}/-{deletions} changed lines.'
-
-
-def _overall_status(task_results: Sequence[Mapping[str, Any]]) -> str:
-    if not task_results:
-        return 'FAILED'
-    statuses = {str(item.get('status') or '') for item in task_results}
-    if statuses.issubset({'SUCCEEDED', NO_CHANGE}):
-        return 'SUCCEEDED'
-    if statuses.issubset({'FAILED', 'BLOCKED'}):
-        return 'FAILED'
-    return 'PARTIAL'
-
-
-def _build_summary(task_results: Sequence[Mapping[str, Any]]) -> Dict[str, int]:
-    summary = {'total_tasks': len(task_results), 'succeeded': 0, 'failed': 0, 'blocked': 0, 'no_change': 0}
-    for item in task_results:
-        status = str(item.get('status') or '')
-        if status == 'SUCCEEDED':
-            summary['succeeded'] += 1
-        elif status == 'FAILED':
-            summary['failed'] += 1
-        elif status == 'BLOCKED':
-            summary['blocked'] += 1
-        elif status == NO_CHANGE:
-            summary['no_change'] += 1
-    return summary
 
 
 def _coerce_mapping(value: Any, field_name: str, *, allow_none: bool = False) -> MutableMapping[str, Any]:
@@ -985,6 +543,17 @@ def _existing_file_path(path_value: str | None) -> Path | None:
     return None
 
 
+def _extract_json_path_from_text(text: str | None) -> Path | None:
+    if not text:
+        return None
+    for match in JSON_PATH_PATTERN.finditer(text):
+        raw_path = match.group('path').rstrip(')]}>,，。！？；;:')
+        candidate = _existing_file_path(raw_path)
+        if candidate is not None:
+            return candidate
+    return None
+
+
 def _resolve_cli_report_path(positional_input: str | None, explicit_report_json: str | None) -> Path:
     explicit_path = _existing_file_path(explicit_report_json)
     if explicit_report_json:
@@ -997,9 +566,13 @@ def _resolve_cli_report_path(positional_input: str | None, explicit_report_json:
     if positional_path is not None:
         return positional_path
 
+    embedded_path = _extract_json_path_from_text(positional_input)
+    if embedded_path is not None:
+        return embedded_path
+
     raise AdapterError(
         REPORT_JSON_INVALID,
-        'report json path is required; pass --report-json or provide the json path as the only positional argument',
+        'report json path is required; pass --report-json, provide the json path directly, or include it in the natural-language input',
         {},
     )
 
@@ -1015,7 +588,9 @@ def _resolve_cli_instruction(
     if positional_input:
         positional_path = _existing_file_path(positional_input)
         if positional_path is None or positional_path != report_json_path:
-            return positional_input.strip()
+            embedded_path = _extract_json_path_from_text(positional_input)
+            if embedded_path is None or embedded_path != report_json_path or positional_input.strip() != str(report_json_path):
+                return positional_input.strip()
 
     return DEFAULT_CLI_INSTRUCTION
 
@@ -1069,7 +644,7 @@ def _render_outcome(outcome: Mapping[str, Any], *, pretty: bool, output_path: st
     print(rendered)
     if output_path:
         Path(output_path).write_text(rendered + '\n', encoding='utf-8')
-    return 0 if outcome.get('status') == 'SUCCEEDED' else 1
+    return 0 if outcome.get('status') in SUCCESSFUL_STATUSES else 1
 
 
 def main() -> int:
@@ -1077,14 +652,12 @@ def main() -> int:
     parser.add_argument(
         'input',
         nargs='?',
-        help='Path to the upstream report JSON file, or a natural-language instruction when used with --report-json.',
+        help='Path to the upstream report JSON file, or natural-language input that includes the report JSON path.',
     )
     parser.add_argument('--instruction', help='Optional natural-language instruction. Defaults to 完成这个json内的任务.')
     parser.add_argument('--report-json', help='Path to the upstream report JSON file.')
     parser.add_argument('--repo', help='Path to the repository to copy and edit.')
     parser.add_argument('--base-ref', default=DEFAULT_BASE_REF, help='Git ref to archive before copying the repo.')
-    parser.add_argument('--validation-cmd', action='append', default=[], help='Fallback validation command. Repeatable.')
-    parser.add_argument('--max-rounds', type=int, default=DEFAULT_MAX_ROUNDS, help='Maximum edit / validate rounds per task.')
     parser.add_argument('--binary', help='Path to the opencode binary.')
     parser.add_argument('--model', help='Optional opencode model flag.')
     parser.add_argument('--agent', help='Optional opencode agent flag.')
@@ -1104,9 +677,7 @@ def main() -> int:
     except AdapterError as exc:
         outcome = {
             'status': 'FAILED',
-            'report_id': 'report',
-            'task_results': [],
-            'summary': _build_summary([]),
+            'result': None,
             'error': exc.to_payload(),
             'artifacts_dir': '',
         }
@@ -1125,8 +696,6 @@ def main() -> int:
         instruction=instruction,
         base_ref=args.base_ref,
         opencode_options=opencode_options,
-        fallback_validation_commands=args.validation_cmd,
-        max_rounds=args.max_rounds,
         artifact_root=args.artifact_root,
     )
     return _render_outcome(outcome, pretty=args.pretty, output_path=args.output)

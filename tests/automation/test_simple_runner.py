@@ -63,8 +63,7 @@ def temp_algorithm_repo(tmp_path: Path) -> Path:
 def _report_payload(fake_opencode: str, task_plans: list[dict]) -> dict:
     return {
         'report_id': 'report_simple_runner',
-        'instruction': '请按 task_plans 逐项执行最小可验证改动。',
-        'constraints': ['Only modify files from change_targets.'],
+        'instruction': '请按 task_plans 执行最小修改。',
         'task_plans': task_plans,
         'opencode': {
             'binary': fake_opencode,
@@ -91,7 +90,6 @@ def test_execute_simple_report_success(
                 'goal': 'improve retrieval recall',
                 'plan': ['tune retriever'],
                 'change_targets': [{'file': ALLOWED_FILE}],
-                'validation': [f'grep -q updated {ALLOWED_FILE}'],
             }
         ],
     )
@@ -100,20 +98,17 @@ def test_execute_simple_report_success(
         payload,
         repo_path=str(temp_algorithm_repo),
         instruction='完成这个json内的任务',
-        max_rounds=2,
         artifact_root=str(tmp_path / 'artifacts'),
     )
 
     assert outcome['status'] == 'SUCCEEDED'
     assert outcome['error'] is None
-    task_result = outcome['task_results'][0]
-    assert task_result['status'] == 'SUCCEEDED'
-    assert task_result['result'] == {
-        'diff': task_result['result']['diff'],
+    assert outcome['result'] == {
+        'diff': outcome['result']['diff'],
         'files_changed': [ALLOWED_FILE],
         'change_summary': 'Updated retriever settings.',
     }
-    assert 'updated' in task_result['result']['diff']
+    assert 'updated' in outcome['result']['diff']
     assert Path(outcome['artifacts_dir']).exists()
 
 
@@ -135,7 +130,6 @@ def test_execute_simple_report_rejects_forbidden_change_target(
                 'goal': 'attempt forbidden edit',
                 'plan': ['do not allow this'],
                 'change_targets': [{'file': 'algorithm/chat/utils/load_config.py'}],
-                'validation': [f'grep -q updated {ALLOWED_FILE}'],
             }
         ],
     )
@@ -148,10 +142,8 @@ def test_execute_simple_report_rejects_forbidden_change_target(
     )
 
     assert outcome['status'] == 'FAILED'
-    task_result = outcome['task_results'][0]
-    assert task_result['status'] == 'FAILED'
-    assert task_result['result'] is None
-    assert task_result['error']['code'] == 'TASK_SCOPE_FORBIDDEN'
+    assert outcome['result'] is None
+    assert outcome['error']['code'] == 'TASK_SCOPE_FORBIDDEN'
 
 
 def test_execute_simple_report_rejects_scope_violation(
@@ -173,7 +165,6 @@ def test_execute_simple_report_rejects_scope_violation(
                 'goal': 'modify only allowed file',
                 'plan': ['should fail on scope violation'],
                 'change_targets': [{'file': ALLOWED_FILE}],
-                'validation': [f'grep -q updated {ALLOWED_FILE}'],
             }
         ],
     )
@@ -186,22 +177,19 @@ def test_execute_simple_report_rejects_scope_violation(
     )
 
     assert outcome['status'] == 'FAILED'
-    task_result = outcome['task_results'][0]
-    assert task_result['status'] == 'FAILED'
-    assert task_result['result'] is None
-    assert task_result['error']['code'] == 'SCOPE_VIOLATION'
-    assert task_result['error']['details']['violations'] == ['algorithm/chat/prompts/rewrite.py']
+    assert outcome['result'] is None
+    assert outcome['error']['code'] == 'SCOPE_VIOLATION'
+    assert outcome['error']['details']['violations'] == ['algorithm/chat/prompts/rewrite.py']
 
 
-def test_execute_simple_report_retries_until_validation_passes(
+def test_execute_simple_report_returns_no_change(
     temp_algorithm_repo: Path,
     fake_opencode: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv('FAKE_OPENCODE_MODE', 'success_modify')
-    monkeypatch.setenv('FAKE_OPENCODE_TARGET', ALLOWED_FILE)
-    monkeypatch.setenv('FAKE_OPENCODE_SUMMARY', 'Updated retriever settings.')
+    monkeypatch.setenv('FAKE_OPENCODE_MODE', 'no_change')
+    monkeypatch.setenv('FAKE_OPENCODE_SUMMARY', 'No change needed.')
 
     payload = _report_payload(
         fake_opencode,
@@ -209,10 +197,9 @@ def test_execute_simple_report_retries_until_validation_passes(
             {
                 'task_id': 'T001',
                 'module': 'retriever',
-                'goal': 'needs two rounds',
-                'plan': ['append twice until validation passes'],
+                'goal': 'no changes required',
+                'plan': ['leave the code untouched'],
                 'change_targets': [{'file': ALLOWED_FILE}],
-                'validation': [f'test "$(grep -c updated {ALLOWED_FILE})" -eq 2'],
             }
         ],
     )
@@ -221,15 +208,15 @@ def test_execute_simple_report_retries_until_validation_passes(
         payload,
         repo_path=str(temp_algorithm_repo),
         instruction='完成这个json内的任务',
-        max_rounds=2,
         artifact_root=str(tmp_path / 'artifacts'),
     )
 
-    assert outcome['status'] == 'SUCCEEDED'
-    task_result = outcome['task_results'][0]
-    assert task_result['status'] == 'SUCCEEDED'
-    assert task_result['rounds'] == 2
-    assert task_result['validation_result']['status'] == 'PASSED'
+    assert outcome['status'] == 'NO_CHANGE'
+    assert outcome['result'] == {
+        'diff': '',
+        'files_changed': [],
+        'change_summary': 'No change needed.',
+    }
 
 
 def test_simple_runner_cli_reads_report_json(
@@ -254,7 +241,6 @@ def test_simple_runner_cli_reads_report_json(
                         'goal': 'cli run',
                         'plan': ['run with cli'],
                         'change_targets': [{'file': ALLOWED_FILE}],
-                        'validation': [f'grep -q updated {ALLOWED_FILE}'],
                     }
                 ],
             ),
@@ -287,4 +273,61 @@ def test_simple_runner_cli_reads_report_json(
     assert result.returncode == 0
     rendered = json.loads(result.stdout)
     assert rendered['status'] == 'SUCCEEDED'
-    assert rendered['task_results'][0]['result']['files_changed'] == [ALLOWED_FILE]
+    assert rendered['result']['files_changed'] == [ALLOWED_FILE]
+
+
+def test_simple_runner_cli_reads_report_json_from_natural_language(
+    temp_algorithm_repo: Path,
+    fake_opencode: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv('FAKE_OPENCODE_MODE', 'success_modify')
+    monkeypatch.setenv('FAKE_OPENCODE_TARGET', ALLOWED_FILE)
+    monkeypatch.setenv('FAKE_OPENCODE_SUMMARY', 'Updated retriever settings.')
+
+    report_path = tmp_path / 'report.json'
+    report_path.write_text(
+        json.dumps(
+            _report_payload(
+                fake_opencode,
+                [
+                    {
+                        'task_id': 'T001',
+                        'module': 'retriever',
+                        'goal': 'cli natural language run',
+                        'plan': ['run with cli natural language'],
+                        'change_targets': [{'file': ALLOWED_FILE}],
+                    }
+                ],
+            ),
+            ensure_ascii=False,
+        ),
+        encoding='utf-8',
+    )
+
+    env = os.environ.copy()
+    existing_pythonpath = env.get('PYTHONPATH', '')
+    env['PYTHONPATH'] = f'{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}' if existing_pythonpath else str(PROJECT_ROOT)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            '-m',
+            'automation.opencode_adapter.cli',
+            f'根据{report_path}进行修改',
+            '--artifact-root',
+            str(tmp_path / 'artifacts'),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+        cwd=str(temp_algorithm_repo),
+        env=env,
+    )
+
+    assert result.returncode == 0
+    rendered = json.loads(result.stdout)
+    assert rendered['status'] == 'SUCCEEDED'
+    assert rendered['result']['files_changed'] == [ALLOWED_FILE]
