@@ -25,14 +25,16 @@ def temp_algorithm_repo(tmp_path: Path) -> Path:
 def _report_payload(fake_opencode: str) -> dict:
     return {
         'report_id': 'report_loop_runner',
-        'instruction': '请按 task_plans 执行最小修改。',
-        'task_plans': [
+        'summary': {
+            'top_issue': 'improve retrieval behavior with minimal changes',
+        },
+        'modification_plan': [
             {
-                'task_id': 'T001',
-                'module': 'retriever',
-                'goal': 'improve retrieval recall',
-                'plan': ['tune retriever'],
-                'change_targets': [{'file': ALLOWED_FILE}],
+                'stage': 'retrieve',
+                'priority': 1,
+                'hypothesis': 'improve retrieval recall',
+                'files': [ALLOWED_FILE],
+                'suggested_changes': [{'file': ALLOWED_FILE, 'param': 'topk'}],
             }
         ],
         'opencode': {
@@ -68,8 +70,10 @@ def test_run_report_fix_loop_retries_with_full_test_log(
                 f'path = Path.cwd() / {ALLOWED_FILE!r}',
                 "content = path.read_text(encoding='utf-8')",
                 "if 'updated' in content:",
+                "    print('=== 1 passed in 0.01s ===')",
                 '    raise SystemExit(0)',
                 "print('AssertionError: missing updated marker in retriever file')",
+                "print('=== 1 failed in 0.01s ===')",
                 'raise SystemExit(1)',
             ]
         ),

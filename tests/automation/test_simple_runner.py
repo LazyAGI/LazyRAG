@@ -30,11 +30,13 @@ def temp_algorithm_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _report_payload(fake_opencode: str, task_plans: list[dict]) -> dict:
+def _report_payload(fake_opencode: str, modification_plan: list[dict]) -> dict:
     return {
         'report_id': 'report_simple_runner',
-        'instruction': '请按 task_plans 执行最小修改。',
-        'task_plans': task_plans,
+        'summary': {
+            'top_issue': 'improve retrieval behavior with minimal changes',
+        },
+        'modification_plan': modification_plan,
         'opencode': {
             'binary': fake_opencode,
         },
@@ -56,10 +58,11 @@ def test_execute_simple_report_success(
         [
             {
                 'task_id': 'T001',
-                'module': 'retriever',
-                'goal': 'improve retrieval recall',
-                'plan': ['tune retriever'],
-                'change_targets': [{'file': ALLOWED_FILE}],
+                'stage': 'retrieve',
+                'priority': 1,
+                'hypothesis': 'improve retrieval recall',
+                'files': [ALLOWED_FILE],
+                'suggested_changes': [{'file': ALLOWED_FILE, 'param': 'topk'}],
             }
         ],
     )
@@ -94,10 +97,13 @@ def test_execute_simple_report_rejects_forbidden_change_target(
         [
             {
                 'task_id': 'T001',
-                'module': 'retriever',
-                'goal': 'attempt forbidden edit',
-                'plan': ['do not allow this'],
-                'change_targets': [{'file': 'algorithm/chat/utils/load_config.py'}],
+                'stage': 'retrieve',
+                'priority': 1,
+                'hypothesis': 'attempt forbidden edit',
+                'files': ['algorithm/chat/utils/load_config.py'],
+                'suggested_changes': [
+                    {'file': 'algorithm/chat/utils/load_config.py', 'param': 'topk'}
+                ],
             }
         ],
     )
@@ -132,10 +138,11 @@ def test_execute_simple_report_rejects_scope_violation(
         [
             {
                 'task_id': 'T001',
-                'module': 'retriever',
-                'goal': 'modify only allowed file',
-                'plan': ['should fail on scope violation'],
-                'change_targets': [{'file': ALLOWED_FILE}],
+                'stage': 'retrieve',
+                'priority': 1,
+                'hypothesis': 'modify only allowed file',
+                'files': [ALLOWED_FILE],
+                'suggested_changes': [{'file': ALLOWED_FILE, 'param': 'topk'}],
             }
         ],
     )
@@ -169,10 +176,11 @@ def test_execute_simple_report_returns_no_change(
         [
             {
                 'task_id': 'T001',
-                'module': 'retriever',
-                'goal': 'no changes required',
-                'plan': ['leave the code untouched'],
-                'change_targets': [{'file': ALLOWED_FILE}],
+                'stage': 'retrieve',
+                'priority': 1,
+                'hypothesis': 'no changes required',
+                'files': [ALLOWED_FILE],
+                'suggested_changes': [{'file': ALLOWED_FILE, 'param': 'topk'}],
             }
         ],
     )
@@ -209,10 +217,11 @@ def test_simple_runner_cli_reads_report_json(
                 [
                     {
                         'task_id': 'T001',
-                        'module': 'retriever',
-                        'goal': 'cli run',
-                        'plan': ['run with cli'],
-                        'change_targets': [{'file': ALLOWED_FILE}],
+                        'stage': 'retrieve',
+                        'priority': 1,
+                        'hypothesis': 'cli run',
+                        'files': [ALLOWED_FILE],
+                        'suggested_changes': [{'file': ALLOWED_FILE, 'param': 'topk'}],
                     }
                 ],
             ),
@@ -270,10 +279,11 @@ def test_simple_runner_cli_reads_report_json_from_natural_language(
                 [
                     {
                         'task_id': 'T001',
-                        'module': 'retriever',
-                        'goal': 'cli natural language run',
-                        'plan': ['run with cli natural language'],
-                        'change_targets': [{'file': ALLOWED_FILE}],
+                        'stage': 'retrieve',
+                        'priority': 1,
+                        'hypothesis': 'cli natural language run',
+                        'files': [ALLOWED_FILE],
+                        'suggested_changes': [{'file': ALLOWED_FILE, 'param': 'topk'}],
                     }
                 ],
             ),

@@ -141,23 +141,27 @@ def execute_simple_report(
 
 def _extract_report(payload: Mapping[str, Any]) -> MutableMapping[str, Any]:
     report = _coerce_mapping(payload.get('report') if 'report' in payload else payload, 'report')
-    task_plans = report.get('task_plans')
-    if not isinstance(task_plans, list):
-        raise AdapterError(REPORT_JSON_INVALID, 'report.task_plans must be a list', {'field': 'task_plans'})
+    modification_plan = report.get('modification_plan')
+    if not isinstance(modification_plan, list):
+        raise AdapterError(
+            REPORT_JSON_INVALID,
+            'report.modification_plan must be a list',
+            {'field': 'modification_plan'},
+        )
     return report
 
 
-def _extract_tasks(report: Mapping[str, Any]) -> List[MutableMapping[str, Any]]:
-    tasks: List[MutableMapping[str, Any]] = []
-    for index, item in enumerate(report.get('task_plans') or []):
+def _extract_modification_steps(report: Mapping[str, Any]) -> List[MutableMapping[str, Any]]:
+    steps: List[MutableMapping[str, Any]] = []
+    for index, item in enumerate(report.get('modification_plan') or []):
         if not isinstance(item, MutableMapping):
             raise AdapterError(
                 REPORT_JSON_INVALID,
-                'each task_plan must be an object',
-                {'field': f'task_plans[{index}]', 'actual_type': type(item).__name__},
+                'each modification_plan item must be an object',
+                {'field': f'modification_plan[{index}]', 'actual_type': type(item).__name__},
             )
-        tasks.append(item)
-    return tasks
+        steps.append(item)
+    return steps
 
 
 def _resolve_report_scope(report: Mapping[str, Any], hard_allowlist: Sequence[str]) -> List[str]:
@@ -166,31 +170,41 @@ def _resolve_report_scope(report: Mapping[str, Any], hard_allowlist: Sequence[st
     seen: set[str] = set()
     forbidden: List[str] = []
 
-    for task in _extract_tasks(report):
-        raw_targets = task.get('change_targets') or []
-        if not isinstance(raw_targets, list):
+    for step in _extract_modification_steps(report):
+        raw_changes = step.get('suggested_changes') or []
+        raw_files = step.get('files') or []
+
+        if not isinstance(raw_changes, list):
             raise AdapterError(
                 REPORT_JSON_INVALID,
-                'task.change_targets must be a list',
-                {'task_id': str(task.get('task_id') or ''), 'field': 'change_targets'},
+                'modification_plan.suggested_changes must be a list',
+                {'field': 'suggested_changes', 'stage': str(step.get('stage') or '')},
             )
-        for index, item in enumerate(raw_targets):
+        if not isinstance(raw_files, list):
+            raise AdapterError(
+                REPORT_JSON_INVALID,
+                'modification_plan.files must be a list',
+                {'field': 'files', 'stage': str(step.get('stage') or '')},
+            )
+
+        for index, item in enumerate(raw_changes):
             if not isinstance(item, Mapping):
                 raise AdapterError(
                     REPORT_JSON_INVALID,
-                    'each change_target must be an object',
-                    {'field': f'change_targets[{index}]', 'actual_type': type(item).__name__},
+                    'each suggested_change must be an object',
+                    {'field': f'suggested_changes[{index}]', 'actual_type': type(item).__name__},
                 )
             raw_file = str(item.get('file') or '').strip()
-            if not raw_file:
-                continue
-            normalized = _normalize_relative_path(raw_file)
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            requested.append(normalized)
-            if normalized not in allowed_set:
-                forbidden.append(normalized)
+            _collect_requested_path(raw_file, requested, seen, forbidden, allowed_set)
+
+        for raw_file in raw_files:
+            if not isinstance(raw_file, str):
+                raise AdapterError(
+                    REPORT_JSON_INVALID,
+                    'each files entry must be a string',
+                    {'field': 'files', 'actual_type': type(raw_file).__name__},
+                )
+            _collect_requested_path(raw_file, requested, seen, forbidden, allowed_set)
 
     if forbidden:
         raise AdapterError(
@@ -199,8 +213,26 @@ def _resolve_report_scope(report: Mapping[str, Any], hard_allowlist: Sequence[st
             {'forbidden_files': forbidden},
         )
     if not requested:
-        raise AdapterError(TASK_SCOPE_EMPTY, 'report has no allowed change_targets', {})
+        raise AdapterError(TASK_SCOPE_EMPTY, 'report has no allowed modification targets', {})
     return requested
+
+
+def _collect_requested_path(
+    raw_file: str,
+    requested: List[str],
+    seen: set[str],
+    forbidden: List[str],
+    allowed_set: set[str],
+) -> None:
+    if not raw_file:
+        return
+    normalized = _normalize_relative_path(raw_file)
+    if normalized in seen:
+        return
+    seen.add(normalized)
+    requested.append(normalized)
+    if normalized not in allowed_set:
+        forbidden.append(normalized)
 
 
 def _build_prompt(
