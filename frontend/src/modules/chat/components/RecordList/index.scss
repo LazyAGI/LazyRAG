@@ -31,7 +31,43 @@
     font-style: normal;
     font-weight: 600;
     line-height: 22px;
-    margin-bottom: 8px;
+    margin-bottom: 0;
+  }
+
+  .record-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .record-header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-right: 44px;
+  }
+
+  .record-toolbar {
+    display: block;
+  }
+
+  .record-toolbar-search {
+    width: 100%;
+  }
+
+  .record-toolbar-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    flex-shrink: 0;
+    white-space: nowrap;
+
+    .ant-btn {
+      padding-inline: 6px;
+    }
   }
 
   .record {
@@ -109,5 +145,17 @@
 
   .selected {
     padding-left: 16px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .record-container {
+    .record-header-top {
+      align-items: flex-start;
+    }
+
+    .record-toolbar-actions {
+      margin-right: -6px;
+    }
   }
 }

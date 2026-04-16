@@ -1,6 +1,9 @@
 package acl
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // normalizePermission textPermissiontextPermissiontext，text。
 func normalizePermission(resourceType, permission string) string {
@@ -57,6 +60,10 @@ func publicPermissions(resourceType string) []string {
 }
 
 func effectivePermissions(resourceType, resourceID string, userID string) (permissions []string, source string) {
+	return effectivePermissionsWithGroups(resourceType, resourceID, userID, nil)
+}
+
+func effectivePermissionsWithGroups(resourceType, resourceID string, userID string, groupIDs []string) (permissions []string, source string) {
 	st := GetStore()
 	if st == nil || strings.TrimSpace(userID) == "" || strings.TrimSpace(resourceID) == "" {
 		return nil, "private"
@@ -87,7 +94,7 @@ func effectivePermissions(resourceType, resourceID string, userID string) (permi
 		}
 	}
 
-	for _, row := range st.ACLsForUser(resourceType, resourceID, userID) {
+	for _, row := range st.ACLsForUserWithGroups(resourceType, resourceID, userID, groupIDs) {
 		if perm := normalizePermission(resourceType, row.Permission); perm != "" && perm != PermNone {
 			permSet[perm] = struct{}{}
 			source = SourceACL
@@ -104,6 +111,7 @@ func effectivePermissions(resourceType, resourceID string, userID string) (permi
 	for perm := range permSet {
 		permissions = append(permissions, perm)
 	}
+	sort.Strings(permissions)
 	return permissions, source
 }
 
@@ -126,6 +134,20 @@ func PermissionFor(resourceType, resourceID string, userID string) (permission s
 // PermissionsFor textUsertextPermissiontext。
 func PermissionsFor(resourceType, resourceID string, userID string) (permissions []string, source string) {
 	return effectivePermissions(resourceType, resourceID, userID)
+}
+
+// PermissionsForWithGroups text preloaded group IDs textPermissiontext。
+func PermissionsForWithGroups(resourceType, resourceID string, userID string, groupIDs []string) (permissions []string, source string) {
+	return effectivePermissionsWithGroups(resourceType, resourceID, userID, groupIDs)
+}
+
+// ResolveUserGroupIDs text one-shot load user groups（text auth-service）。
+func ResolveUserGroupIDs(userID string) []string {
+	st := GetStore()
+	if st == nil {
+		return nil
+	}
+	return st.loadUserGroupIDs(userID)
 }
 
 func hasPermission(permissions []string, want string) bool {

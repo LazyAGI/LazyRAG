@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-import uuid
 from typing import Any, Dict, List, Optional, Union
 import lazyllm
 from lazyllm import LOG
@@ -94,9 +93,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
     start_time = time.time()
     sensitive_check_result = check_sensitive_content(query, session_id, start_time)
-    sid = f'{session_id}_{time.time()}_{uuid.uuid4().hex}'
     log_tag = 'KB_CHAT_STREAM' if is_stream else 'KB_CHAT'
-    LOG.info(f'[ChatServer] [{log_tag}] [query={query}] [sid={sid}]')
+    LOG.info(f'[ChatServer] [{log_tag}] [query={query}] [sid={session_id}]')
 
     if not is_stream:
         if sensitive_check_result:
@@ -104,14 +102,20 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
         other_files, image_files = validate_and_resolve_files(files)
         query_params = build_query_params(
-            query, history, filters, other_files, image_files,
-            debug or False, databases, priority
+            query,
+            history,
+            filters,
+            other_files,
+            databases,
+            debug or False,
+            image_files,
+            priority,
         )
 
         try:
             async with rag_sem:
-                lazyllm.globals._init_sid(sid=sid)
-                lazyllm.locals._init_sid(sid=sid)
+                lazyllm.globals._init_sid(sid=session_id)
+                lazyllm.locals._init_sid(sid=session_id)
                 result = await _run_sync_ppl(
                     bool(reasoning), dataset, query_params, query, filters, priority
                 )
@@ -124,7 +128,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         finally:
             cost = round(time.time() - start_time, 3)
             log_chat_request(
-                query, sid, filters, other_files, image_files, databases, cost, result
+                query, session_id, filters, other_files, image_files, databases, cost, result
             )
     else:
         if sensitive_check_result:
@@ -140,7 +144,14 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         collected_chunks: List[str] = []
 
         query_params = build_query_params(
-            query, history, filters, other_files, image_files, False, databases, priority
+            query,
+            history,
+            filters,
+            other_files,
+            databases,
+            False,
+            image_files,
+            priority,
         )
 
         stream_call = (
@@ -153,8 +164,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             nonlocal first_frame_logged
             try:
                 async with rag_sem:
-                    lazyllm.globals._init_sid(sid=sid)
-                    lazyllm.locals._init_sid(sid=sid)
+                    lazyllm.globals._init_sid(sid=session_id)
+                    lazyllm.locals._init_sid(sid=session_id)
                     async_result = await asyncio.to_thread(ppl, *args)
                     async for chunk in async_result:
                         now = time.time()
@@ -189,7 +200,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             final_resp['cost'] = cost
             yield _sse_line(final_resp)
 
-            log_chat_request(query, sid, filters, other_files, image_files, databases,
+            log_chat_request(query, session_id, filters, other_files, image_files, databases,
                              cost, '\n'.join(collected_chunks), 'KB_CHAT_STREAM_FINISH')
 
         return StreamingResponse(

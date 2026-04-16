@@ -7,6 +7,7 @@ import {
   MessageFilled,
   AppstoreOutlined,
   TeamOutlined,
+  GlobalOutlined,
 } from "@ant-design/icons";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { UserDetailResponse } from "@/api/generated/auth-client";
@@ -23,6 +24,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import "./index.scss";
 
 const { Content, Sider } = Layout;
+const MAINLAND_CHINA_PHONE_REGEX = /^1[3-9]\d{9}$/;
 
 type MenuItem = Required<MenuProps>["items"][number];
 
@@ -179,6 +181,33 @@ export default function MainLayout() {
     },
   });
 
+  const phoneRule = {
+    validator(_: any, value?: string) {
+      const phone = normalizeFieldValue(value);
+      if (!phone || MAINLAND_CHINA_PHONE_REGEX.test(phone)) {
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error(t("profile.invalidPhone")));
+    },
+  };
+
+  const clearPasswordFields = () => {
+    profileForm.setFieldsValue({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+  };
+
+  const schedulePasswordFieldClear = () => {
+    window.setTimeout(() => {
+      clearPasswordFields();
+    }, 0);
+    window.setTimeout(() => {
+      clearPasswordFields();
+    }, 300);
+  };
+
   const applyProfileToForm = (detail: UserDetailResponse) => {
     profileForm.setFieldsValue({
       username: detail.username,
@@ -188,10 +217,8 @@ export default function MainLayout() {
       remark: (detail as any).remark || "",
       roleName: detail.role_name || "",
       status: detail.status || "",
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
     });
+    clearPasswordFields();
   };
 
   const refreshCurrentProfile = async () => {
@@ -299,11 +326,7 @@ export default function MainLayout() {
             {logoSrc ? (
               <img src={logoSrc} alt="logo" />
             ) : (
-              <img
-                src={logoImage}
-                alt="logo"
-                style={{ width: 40, height: "auto" }}
-              />
+              <img src={logoImage} alt="logo" />
             )}
           </div>
           <Menu
@@ -315,7 +338,8 @@ export default function MainLayout() {
             style={{ border: "none" }}
           />
           <div className="sider-bar-bottom">
-            <div className="bottom-item">
+            <div className="bottom-item language-item">
+              <GlobalOutlined className="bottom-icon" />
               <LanguageSwitcher />
             </div>
             <Popover
@@ -407,11 +431,17 @@ export default function MainLayout() {
         confirmLoading={profileSubmitting}
         destroyOnHidden
         maskClosable={false}
+        afterOpenChange={(open) => {
+          if (open) {
+            schedulePasswordFieldClear();
+          }
+        }}
       >
         <Form
           form={profileForm}
           layout="vertical"
           disabled={profileLoading || profileSubmitting}
+          autoComplete="off"
         >
           <Form.Item name="username" label={t("profile.username")}>
             <Input disabled autoComplete="username" />
@@ -426,8 +456,17 @@ export default function MainLayout() {
           >
             <Input placeholder={t("profile.pleaseInputEmail")} autoComplete="email" />
           </Form.Item>
-          <Form.Item name="phone" label={t("profile.phone")}>
-            <Input placeholder={t("profile.pleaseInputPhone")} autoComplete="tel" />
+          <Form.Item
+            name="phone"
+            label={t("profile.phone")}
+            rules={[phoneRule]}
+          >
+            <Input
+              placeholder={t("profile.pleaseInputPhone")}
+              autoComplete="tel"
+              inputMode="numeric"
+              maxLength={11}
+            />
           </Form.Item>
           <Form.Item name="remark" label={t("profile.description")}>
             <Input.TextArea placeholder={t("profile.pleaseInputDescription")} />
@@ -445,7 +484,8 @@ export default function MainLayout() {
           >
             <Input.Password
               placeholder={t("profile.pleaseInputCurrentPassword")}
-              autoComplete="current-password"
+              autoComplete="new-password"
+              name="profile-current-password"
             />
           </Form.Item>
           <Form.Item
@@ -457,6 +497,7 @@ export default function MainLayout() {
             <Input.Password
               placeholder={t("profile.pleaseInputNewPassword")}
               autoComplete="new-password"
+              name="profile-new-password"
             />
           </Form.Item>
           <Form.Item
@@ -468,6 +509,7 @@ export default function MainLayout() {
             <Input.Password
               placeholder={t("profile.pleaseInputConfirmPassword")}
               autoComplete="new-password"
+              name="profile-confirm-password"
             />
           </Form.Item>
         </Form>

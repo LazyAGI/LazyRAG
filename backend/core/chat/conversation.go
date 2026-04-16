@@ -61,7 +61,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		common.ReplyErr(w, "read body failed", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "read body failed", err), http.StatusBadRequest)
 		return
 	}
 	_ = r.Body.Close()
@@ -188,23 +188,25 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 
 	_, seq, err := ensureConversation(db, convID, displayName, searchConfigJSON, modelsJSON, userID, userName)
 	if err != nil {
-		common.ReplyErr(w, "failed to ensure conversation", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "failed to ensure conversation", err), http.StatusInternalServerError)
 		return
 	}
 
 	var histories []orm.ChatHistory
 	db.Where("conversation_id = ?", convID).Order("seq ASC").Find(&histories)
-	reqBody := buildChatRequestBody(convID, query, histories, raw)
+	target := resolvePersistTarget(histories, raw, seq)
+	upstreamHistories := historiesForUpstream(histories, target)
+	reqBody := buildChatRequestBody(convID, query, upstreamHistories, raw)
 	baseURL := chatServiceURL()
 	reqCtx := r.Context()
 	rdb := store.Redis()
 
 	if !stream {
-		handleNonStreamChat(w, reqCtx, db, rdb, baseURL, reqBody, convID, query, seq)
+		handleNonStreamChat(w, reqCtx, db, rdb, baseURL, reqBody, convID, query, target)
 		return
 	}
 
-	handleStreamChat(w, r, db, rdb, baseURL, reqBody, convID, query, seq, dualReply)
+	handleStreamChat(w, r, db, rdb, baseURL, reqBody, convID, query, target, dualReply)
 }
 
 // ResumeChat text POST /api/v1/conversations:resumeChat
@@ -218,7 +220,7 @@ func resumeChatStream(w http.ResponseWriter, r *http.Request) {
 		HistoryID      string `json:"history_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	convID := strings.TrimSpace(body.ConversationID)
@@ -239,7 +241,7 @@ func resumeChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	var conv orm.Conversation
 	if err := db.Where("id = ? AND create_user_id = ?", convID, userID).First(&conv).Error; err != nil {
-		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "conversation not found", err), http.StatusNotFound)
 		return
 	}
 
@@ -545,7 +547,7 @@ func StopChatGeneration(w http.ResponseWriter, r *http.Request) {
 		HistoryID      string `json:"history_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	convID := strings.TrimSpace(body.ConversationID)
@@ -561,7 +563,7 @@ func StopChatGeneration(w http.ResponseWriter, r *http.Request) {
 	}
 	var conv orm.Conversation
 	if err := store.DB().Where("id = ? AND create_user_id = ?", convID, userID).First(&conv).Error; err != nil {
-		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "conversation not found", err), http.StatusNotFound)
 		return
 	}
 
@@ -591,7 +593,7 @@ func GetChatStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	var conv orm.Conversation
 	if err := store.DB().Where("id = ? AND create_user_id = ?", convID, userID).First(&conv).Error; err != nil {
-		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "conversation not found", err), http.StatusNotFound)
 		return
 	}
 	isGenerating := false
@@ -617,7 +619,7 @@ func GetConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	var c orm.Conversation
 	if err := store.DB().Where("id = ? AND create_user_id = ?", convID, userID).First(&c).Error; err != nil {
-		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "conversation not found", err), http.StatusNotFound)
 		return
 	}
 
@@ -669,7 +671,7 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	var c orm.Conversation
 	if err := store.DB().Where("id = ? AND create_user_id = ?", convID, userID).First(&c).Error; err != nil {
-		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "conversation not found", err), http.StatusNotFound)
 		return
 	}
 	var histories []orm.ChatHistory
@@ -802,6 +804,75 @@ func DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
+// BatchDeleteConversations text POST /api/v1/conversations:batchDelete
+func BatchDeleteConversations(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ConversationIDs []string `json:"conversation_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	if len(body.ConversationIDs) == 0 {
+		common.ReplyErr(w, "conversation_ids required", http.StatusBadRequest)
+		return
+	}
+
+	uniqueIDs := make([]string, 0, len(body.ConversationIDs))
+	seen := make(map[string]struct{}, len(body.ConversationIDs))
+	for _, id := range body.ConversationIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		common.ReplyErr(w, "conversation_ids required", http.StatusBadRequest)
+		return
+	}
+
+	userID := store.UserID(r)
+	if userID == "" {
+		userID = "0"
+	}
+	db := store.DB()
+
+	var ownedIDs []string
+	if err := db.Model(&orm.Conversation{}).
+		Where("id IN ? AND create_user_id = ?", uniqueIDs, userID).
+		Pluck("id", &ownedIDs).Error; err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query conversations failed", err), http.StatusInternalServerError)
+		return
+	}
+	if len(ownedIDs) == 0 {
+		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		return
+	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id IN ?", ownedIDs).Delete(&orm.Conversation{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("conversation_id IN ?", ownedIDs).Delete(&orm.ChatHistory{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("conversation_id IN ?", ownedIDs).Delete(&orm.MultiAnswersChatHistory{}).Error
+	}); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "batch delete conversations failed", err), http.StatusInternalServerError)
+		return
+	}
+
+	writeConversationJSON(w, http.StatusOK, map[string]any{
+		"deleted_count": len(ownedIDs),
+		"deleted_ids":   ownedIDs,
+	})
+}
+
 // ListConversations text GET /api/v1/conversations
 func ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID := store.UserID(r)
@@ -883,7 +954,7 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 		DeletedHistoryID string `json:"deleted_history_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if body.SetHistoryID == "" {
@@ -900,12 +971,12 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 
 	var selected orm.MultiAnswersChatHistory
 	if err := db.Where("id = ?", body.SetHistoryID).First(&selected).Error; err != nil {
-		common.ReplyErr(w, "set_history_id not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "set_history_id not found", err), http.StatusNotFound)
 		return
 	}
 	var deleted orm.MultiAnswersChatHistory
 	if err := db.Where("id = ?", body.DeletedHistoryID).First(&deleted).Error; err != nil {
-		common.ReplyErr(w, "deleted_history_id not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "deleted_history_id not found", err), http.StatusNotFound)
 		return
 	}
 	if selected.ConversationID == "" || selected.ConversationID != deleted.ConversationID {
@@ -918,7 +989,7 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	var conv orm.Conversation
 	if err := db.Where("id = ? AND create_user_id = ?", selected.ConversationID, userID).First(&conv).Error; err != nil {
-		common.ReplyErr(w, "conversation not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "conversation not found", err), http.StatusNotFound)
 		return
 	}
 
@@ -939,7 +1010,7 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 			TimeMixin:       orm.TimeMixin{CreateTime: now, UpdateTime: now},
 		}
 		if err := db.Create(&target).Error; err != nil {
-			common.ReplyErr(w, "set history failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "set history failed", err), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -948,33 +1019,87 @@ func SetChatHistory(w http.ResponseWriter, r *http.Request) {
 	writeConversationJSON(w, http.StatusOK, map[string]any{"history_id": body.SetHistoryID})
 }
 
+func parseFeedbackType(raw json.RawMessage) (int32, error) {
+	var tInt int32
+	if err := json.Unmarshal(raw, &tInt); err == nil {
+		return tInt, nil
+	}
+
+	var tStr string
+	if err := json.Unmarshal(raw, &tStr); err != nil {
+		return 0, err
+	}
+	s := strings.TrimSpace(strings.ToUpper(tStr))
+	switch s {
+	case "FEED_BACK_TYPE_LIKE", "LIKE":
+		return 1, nil
+	case "FEED_BACK_TYPE_UNLIKE", "UNLIKE":
+		return 2, nil
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		return int32(n), nil
+	}
+	return 0, errors.New("invalid feedback type")
+}
+
 // FeedBackChatHistory text POST /api/v1/conversations:feedBackChatHistory
 func FeedBackChatHistory(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		HistoryID      string `json:"history_id"`
-		Type           int32  `json:"type"`
-		Reason         string `json:"reason,omitempty"`
-		ExpectedAnswer string `json:"expected_answer,omitempty"`
+		HistoryID      string          `json:"history_id"`
+		Type           json.RawMessage `json:"type"`
+		Reason         string          `json:"reason,omitempty"`
+		ExpectedAnswer string          `json:"expected_answer,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if body.HistoryID == "" {
 		common.ReplyErr(w, "history_id required", http.StatusBadRequest)
 		return
 	}
+	feedbackType, err := parseFeedbackType(body.Type)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	if feedbackType < 0 || feedbackType > 2 {
+		common.ReplyErr(w, "feedback type must be 0/1/2", http.StatusBadRequest)
+		return
+	}
+
 	db := store.DB()
-	res := db.Model(&orm.ChatHistory{}).Where("id = ?", body.HistoryID).Updates(map[string]any{
-		"feed_back":       body.Type,
-		"reason":          body.Reason,
-		"expected_answer": body.ExpectedAnswer,
-		"update_time":     time.Now(),
-	})
-	if res.RowsAffected == 0 {
+	now := time.Now()
+	var target orm.ChatHistory
+	if err := db.Where("id = ?", body.HistoryID).First(&target).Error; err != nil {
 		common.ReplyErr(w, "history not found", http.StatusNotFound)
 		return
 	}
+
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&orm.ChatHistory{}).
+			Where("conversation_id = ? AND seq = ?", target.ConversationID, target.Seq).
+			Updates(map[string]any{
+				"feed_back":   0,
+				"update_time": now,
+			}).Error; err != nil {
+			return err
+		}
+
+		updates := map[string]any{
+			"feed_back":   feedbackType,
+			"update_time": now,
+		}
+		if feedbackType == 2 {
+			updates["reason"] = body.Reason
+			updates["expected_answer"] = body.ExpectedAnswer
+		}
+		return tx.Model(&orm.ChatHistory{}).Where("id = ?", body.HistoryID).Updates(updates).Error
+	}); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "update feedback failed", err), http.StatusInternalServerError)
+		return
+	}
+
 	writeConversationJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -1004,7 +1129,7 @@ func SetMultiAnswersSwitchStatus(w http.ResponseWriter, r *http.Request) {
 		Status int32 `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if body.Status != 0 && body.Status != 1 {

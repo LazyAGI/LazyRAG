@@ -35,6 +35,7 @@ interface Member {
   id: string;
   type: MemberType;
   display_name: string;
+  is_creator?: boolean;
 }
 
 const MemberList = (props: IProps) => {
@@ -82,8 +83,7 @@ const MemberList = (props: IProps) => {
       render: (role: CoreDatasetRole, record: MemberRecord) => {
         const canEditRole =
           currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) &&
-          !isCreator(record) &&
-          !isGroup;
+          !isCreator(record);
 
         return (
           <Select
@@ -117,8 +117,12 @@ const MemberList = (props: IProps) => {
       key: "action",
       width: 102,
       render: (record: MemberRecord) => {
+        const canDeleteMemberPermission =
+          currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) &&
+          !isCreator(record);
+
         return (
-          currentDetail?.acl?.includes(DatasetAclEnum.DatasetWrite) && (
+          canDeleteMemberPermission && (
             <Button
               type="link"
               danger
@@ -138,7 +142,7 @@ const MemberList = (props: IProps) => {
     if (!detail?.acl?.includes(DatasetAclEnum.DatasetWrite)) {
       // When a non-creator deletes or downgrades their own permissions, they will no longer be able to access the knowledge base and need to return to the knowledge base list page.
       navigate({
-        pathname: "/list",
+        pathname: "/lib/knowledge/list",
       });
       return;
     }
@@ -188,10 +192,15 @@ const MemberList = (props: IProps) => {
   }
 
   function isCreator(record: MemberRecord) {
-    return !!currentDetail?.creator && record.user === currentDetail.creator;
+    return !!record.is_creator;
   }
 
   function handleUpdateRole(record: MemberRecord, nextRole: string) {
+    if (isCreator(record)) {
+      message.error(t("knowledge.editOwnerPermissionDenied"));
+      return;
+    }
+
     if (!record.role || record.role.role === nextRole) {
       return;
     }
@@ -200,8 +209,13 @@ const MemberList = (props: IProps) => {
     MemberServiceApi()
       .datasetMemberServiceUpdateDatasetMember({
         dataset: record.dataset_id || "",
-        userId: record.id,
+        ...(record.type === MemberType.GROUP
+          ? { groupId: record.id }
+          : { userId: record.id }),
         datasetMember: {
+          ...(record.type === MemberType.GROUP
+            ? { group_id: record.id }
+            : { user_id: record.id }),
           role: {
             role: nextRole,
             display_name: ROLE_TITLE_MAP[nextRole] || nextRole,
@@ -244,7 +258,9 @@ const MemberList = (props: IProps) => {
           MemberServiceApi()
             .datasetMemberServiceDeleteDatasetMember({
               dataset: record.dataset_id || "",
-              userId: record.id,
+              ...(record.type === MemberType.GROUP
+                ? { groupId: record.id }
+                : { userId: record.id }),
             })
             .then(() => {
               resolve("");
@@ -280,7 +296,7 @@ const MemberList = (props: IProps) => {
         if (err?.response?.data?.code === 10104) {
           // When a non-creator deletes or downgrades their own permissions, they will no longer be able to access the knowledge base and need to return to the knowledge base list page.
           navigate({
-            pathname: "/list",
+            pathname: "/lib/knowledge/list",
           });
           return;
         }

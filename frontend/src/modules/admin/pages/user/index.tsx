@@ -1,22 +1,70 @@
 import { useState, useEffect, useCallback } from "react";
 import { Table, Button, Space, Tag, Popconfirm, message, Modal, Form, Input, Tooltip } from "antd";
-import { PlusOutlined, StopOutlined, EditOutlined, KeyOutlined } from "@ant-design/icons";
+import {
+  PlusOutlined,
+  StopOutlined,
+  CheckCircleOutlined,
+  EditOutlined,
+  KeyOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import CreateUserModal from "./components/CreateUserModal";
 import { createUserApi } from "@/modules/signin/utils/request";
 import { validatePassword } from "@/modules/signin/utils/formRules";
 import type { UserItem } from "@/api/generated/auth-client";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 
 const PASSWORD_MAX_LENGTH = 32;
 const USERNAME_COLUMN_WIDTH = 220;
+
+type AdminUserItem = UserItem & {
+  is_bootstrap_admin?: boolean;
+};
+
+type RawUserItem = Partial<AdminUserItem> & {
+  id?: string | number;
+  userId?: string | number;
+  roleId?: string | number;
+  roleName?: string;
+  status_text?: string;
+  disabled?: boolean;
+  role?: string | { id?: string | number; name?: string };
+};
+
+const resolveUserId = (user?: RawUserItem | null) => {
+  const candidate = user?.user_id ?? user?.userId ?? user?.id;
+  if (candidate === undefined || candidate === null || candidate === "") {
+    return "";
+  }
+  return String(candidate);
+};
+
+const normalizeUserItem = (user: RawUserItem): AdminUserItem => {
+  const role =
+    user.role && typeof user.role === "object" ? user.role : undefined;
+  const statusFromDisabled =
+    typeof user.disabled === "boolean"
+      ? user.disabled
+        ? "disabled"
+        : "active"
+      : undefined;
+
+  return {
+    ...user,
+    user_id: resolveUserId(user),
+    role_id: String(user.role_id ?? user.roleId ?? role?.id ?? ""),
+    role_name: user.role_name ?? user.roleName ?? role?.name ?? String(user.role ?? ""),
+    status: user.status ?? user.status_text ?? statusFromDisabled ?? "active",
+  } as AdminUserItem;
+};
 
 const UserManagement = () => {
   const { t } = useTranslation();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [users, setUsers] = useState<UserItem[]>([]);
+  const [users, setUsers] = useState<AdminUserItem[]>([]);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [editingUser, setEditingUser] = useState<AdminUserItem | null>(null);
   const [resetPasswordForm] = Form.useForm();
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -31,12 +79,20 @@ const UserManagement = () => {
       });
       const resData = res.data as any;
       const data = resData.data || resData;
+      const rawUsers = Array.isArray(data?.users)
+        ? data.users
+        : Array.isArray(data)
+          ? data
+          : [];
+      const normalizedUsers = rawUsers.map((item: RawUserItem) =>
+        normalizeUserItem(item),
+      );
 
-      setUsers(data.users || []);
+      setUsers(normalizedUsers);
       setPagination({
         current: Number(data.page || page),
         pageSize: Number(data.page_size || pageSize),
-        total: Number(data.total || 0),
+        total: Number(data.total || normalizedUsers.length || 0),
       });
     } catch (error) {
       console.error("Failed to fetch users:", error);
@@ -55,32 +111,58 @@ const UserManagement = () => {
     fetchUsers(1, pagination.pageSize, value);
   };
 
-  const isUserDisabled = (status?: string) =>
-    status !== "active" && status !== "enabled";
+  const isUserDisabled = (status?: string) => {
+    const normalizedStatus = status?.toLowerCase();
+    return !["active", "enabled", "normal"].includes(normalizedStatus || "");
+  };
 
-  const handleDisable = async (userId: string) => {
+  const handleDisable = async (user: RawUserItem) => {
+    await handleToggleUserStatus(user, true);
+  };
+
+  const handleEnable = async (user: RawUserItem) => {
+    await handleToggleUserStatus(user, false);
+  };
+
+  const handleToggleUserStatus = async (user: RawUserItem, disabled: boolean) => {
+    const userId = resolveUserId(user);
+
+    if (!userId) {
+      message.error(
+        disabled ? t("admin.disableFailed") : t("admin.enableFailed"),
+      );
+      console.error("Toggle user status skipped: missing user id", user);
+      return;
+    }
+
     try {
       const api = createUserApi();
       await api.disableUserApiAuthserviceUserUserIdDisablePatch({
         userId,
         disableUserBody: {
-          disabled: true,
+          disabled,
         },
       });
-      message.success(t("admin.disableSuccess"));
+      message.success(
+        disabled ? t("admin.disableSuccess") : t("admin.enableSuccess"),
+      );
       fetchUsers(pagination.current, pagination.pageSize, searchTerm);
     } catch (error) {
-      console.error("Disable user failed:", error);
-      message.error(t("admin.disableFailed"));
+      console.error("Toggle user status failed:", error);
+      message.error(
+        disabled ? t("admin.disableFailed") : t("admin.enableFailed"),
+      );
     }
   };
 
-  const handleEditRole = (user: UserItem) => {
+  const handleEditRole = (user: AdminUserItem) => {
     setEditingUser(user);
     setIsModalVisible(true);
   };
 
   const handleResetPassword = (user: UserItem) => {
+    const userId = resolveUserId(user);
+
     Modal.confirm({
       title: t("admin.resetUserPasswordTitle", { username: user.username }),
       content: (
@@ -103,12 +185,17 @@ const UserManagement = () => {
           </Form.Item>
         </Form>
       ),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
       onOk: async () => {
         try {
+          if (!userId) {
+            throw new Error("Missing user id");
+          }
           const values = await resetPasswordForm.validateFields();
           const api = createUserApi();
           await api.resetPasswordApiAuthserviceUserUserIdResetPasswordPatch({
-            userId: user.user_id,
+            userId,
             resetPasswordBody: { new_password: values.new_password },
           });
           message.success(t("admin.resetPasswordSuccess"));
@@ -182,19 +269,30 @@ const UserManagement = () => {
       key: "action",
       fixed: 'right' as const,
       width: 240,
-      render: (_: any, record: UserItem) => {
+      render: (_: any, record: AdminUserItem) => {
         const disabled = isUserDisabled(record.status);
-
-        return (
-        <Space size={0}>
-          <Button 
-            type="link" 
+        const isBootstrapAdmin = !!record.is_bootstrap_admin;
+        const editRoleButton = (
+          <Button
+            type="link"
             size="small"
-            icon={<EditOutlined />} 
+            icon={<EditOutlined />}
+            disabled={isBootstrapAdmin}
             onClick={() => handleEditRole(record)}
           >
             {t("admin.editUserRole")}
           </Button>
+        );
+
+        return (
+        <Space size={0}>
+          {isBootstrapAdmin ? (
+            <Tooltip title={t("admin.bootstrapAdminRoleLocked")}>
+              <span>{editRoleButton}</span>
+            </Tooltip>
+          ) : (
+            editRoleButton
+          )}
           <Button 
             type="link" 
             size="small"
@@ -204,20 +302,26 @@ const UserManagement = () => {
             {t("admin.resetPassword")}
           </Button>
           <Popconfirm
-            title={t("admin.disableUserConfirm")}
-            onConfirm={() => handleDisable(record.user_id)}
+            title={
+              disabled
+                ? t("admin.enableUserConfirm")
+                : t("admin.disableUserConfirm")
+            }
+            onConfirm={() =>
+              disabled
+                ? handleEnable(record)
+                : handleDisable(record)
+            }
             okText={t("common.confirm")}
             cancelText={t("common.cancel")}
-            disabled={disabled}
           >
             <Button
               type="link"
               size="small"
               danger={!disabled}
-              disabled={disabled}
-              icon={<StopOutlined />}
+              icon={disabled ? <CheckCircleOutlined /> : <StopOutlined />}
             >
-              {disabled ? t("admin.disabled") : t("admin.disable")}
+              {disabled ? t("admin.enable") : t("admin.disable")}
             </Button>
           </Popconfirm>
         </Space>
@@ -265,16 +369,16 @@ const UserManagement = () => {
         className="admin-page-table"
         columns={columns}
         dataSource={users}
-        rowKey="user_id"
+        rowKey={(record) => resolveUserId(record) || record.username}
         loading={loading}
         tableLayout="fixed"
         scroll={{ x: 800 }}
-        pagination={{
+        pagination={getLocalizedTablePagination({
           ...pagination,
           showSizeChanger: true,
           showQuickJumper: true,
           showTotal: (total) => t("common.totalItems", { total }),
-        }}
+        }, t)}
         onChange={handleTableChange}
       />
 

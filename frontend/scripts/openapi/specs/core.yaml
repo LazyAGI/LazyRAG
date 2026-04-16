@@ -669,6 +669,36 @@ components:
                 message:
                     type: string
             type: object
+        ExportConversationsRequest:
+            properties:
+                conversation_ids:
+                    items:
+                        type: string
+                    type: array
+                create_user_names:
+                    items:
+                        type: string
+                    type: array
+                end_time:
+                    type: string
+                feed_back:
+                    type: integer
+                file_types:
+                    items:
+                        type: string
+                    type: array
+                keyword:
+                    type: string
+                start_time:
+                    type: string
+            type: object
+        ExportConversationsResponse:
+            properties:
+                uris:
+                    items:
+                        type: string
+                    type: array
+            type: object
         GetKBAuthorizationResponse:
             properties:
                 grants:
@@ -932,6 +962,10 @@ components:
                     type: string
                 keyword:
                     type: string
+                keyword_list:
+                    items:
+                        type: string
+                    type: array
                 order_by:
                     type: string
                 p_id:
@@ -997,6 +1031,8 @@ components:
             type: object
         StartTaskResult:
             properties:
+                detail:
+                    type: string
                 display_name:
                     type: string
                 document_id:
@@ -1293,7 +1329,9 @@ components:
             type: object
         UserInfo:
             properties:
-                display_name:
+                id:
+                    type: string
+                name:
                     type: string
             type: object
 info:
@@ -1379,6 +1417,43 @@ paths:
                 "200":
                     description: Streaming response
             summary: Chat with knowledge base (streaming)
+    /api/core/conversation:export:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ExportConversationsRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ExportConversationsResponse'
+                    description: Export conversation files
+            summary: Export conversations
+            tags:
+                - conversations
+    /api/core/conversation:export/files/{file_id}:
+        get:
+            parameters:
+                - in: path
+                  name: file_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/octet-stream:
+                            schema:
+                                format: binary
+                                type: string
+                    description: Exported conversation file
+            summary: Download exported conversation file
+            tags:
+                - conversations
     /api/core/conversation:switchStatus:
         get:
             responses:
@@ -1999,6 +2074,18 @@ paths:
                                 type: string
                     description: Document download content
             summary: Download document
+    /api/core/datasets/{dataset}/documents:batchUpdateTags:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents:batchUpdateTags
     /api/core/datasets/{dataset}/documents:search:
         post:
             parameters:
@@ -2106,6 +2193,53 @@ paths:
                                 $ref: '#/components/schemas/DatasetMember'
                     description: Updated member
             summary: textUser ID Update datasetMember
+    /api/core/datasets/{dataset}/members/groups/{group_id}:
+        delete:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete dataset group member
+        patch:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateDatasetMemberRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DatasetMember'
+                    description: Updated member
+            summary: Update dataset group member
     /api/core/datasets/{dataset}/members:search:
         post:
             parameters:

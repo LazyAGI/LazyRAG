@@ -106,12 +106,12 @@ func isOfficeDocument(storedPath, contentType, originalFilename string) bool {
 	return false
 }
 
-// expectedParseOutputPath text：stem.__parsed__.pdf
+// expectedParseOutputPath text：stem.pdf
 func expectedParseOutputPath(sourcePath string) string {
 	dir := filepath.Dir(sourcePath)
 	base := filepath.Base(sourcePath)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	return filepath.Join(dir, stem+".__parsed__.pdf")
+	return filepath.Join(dir, stem+".pdf")
 }
 
 func expectedParseOutputPathByStoredName(sourcePath, storedName string) string {

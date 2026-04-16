@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,23 @@ from services.auth_service import auth_service
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 logger = logging.getLogger('uvicorn.error')
+
+PHONE_PATTERN = re.compile(r'^\+?[0-9]{6,20}$')
+
+
+def _normalize_and_validate_phone(phone: str | None) -> str | None:
+    if phone is None:
+        return None
+    normalized = phone.strip()
+    # Empty string means clearing phone number.
+    if normalized == '':
+        return ''
+    if not PHONE_PATTERN.match(normalized):
+        raise_error(
+            ErrorCodes.INVALID_PHONE_FORMAT,
+            extra_msg='Phone must contain 6-20 digits and may start with +',
+        )
+    return normalized
 
 
 def _default_role_id(session):
@@ -234,6 +252,7 @@ def me(user: User = Depends(current_user)):  # noqa: B008
         'username': user.username,
         'display_name': user.display_name or user.username,
         'email': user.email,
+        'remark': user.remark or '',
         'status': 'inactive' if user.disabled else 'active',
         'role': user.role.name,
         'permissions': list(get_effective_permission_codes(user)),
@@ -247,13 +266,14 @@ def update_me(
     user: User = Depends(current_user),  # noqa: B008
 ):
     """Update current user's profile (all fields except username)."""
+    phone = _normalize_and_validate_phone(body.phone)
     with SessionLocal() as db:
         updated = UserRepository.update_profile(
             db,
             user.id,
             display_name=body.display_name,
             email=body.email,
-            phone=body.phone,
+            phone=phone,
             remark=body.remark,
         )
         if not updated:
@@ -272,6 +292,8 @@ def change_password(
     new_password = (body.new_password or '').strip()
     if not new_password:
         raise_error(ErrorCodes.NEW_PASSWORD_REQUIRED)
+    if body.old_password == new_password:
+        raise_error(ErrorCodes.NEW_PASSWORD_SAME_AS_OLD)
     if not auth_service.validate_password(new_password):
         raise_error(ErrorCodes.INVALID_PASSWORD)
     with SessionLocal() as db:
@@ -289,10 +311,13 @@ def logout(
     body: LogoutBody,
     user: User = Depends(current_user),  # noqa: B008
 ):
-    _ = user
     if not body.refresh_token:
         return {'success': True}
 
     token_hash = hash_refresh_token(body.refresh_token.strip())
+    token_user_id = get_user_id_by_token(token_hash)
+    if token_user_id is None or token_user_id != user.id:
+        raise_error(ErrorCodes.REFRESH_TOKEN_INVALID)
+
     delete_refresh_token(token_hash)
     return {'success': True}

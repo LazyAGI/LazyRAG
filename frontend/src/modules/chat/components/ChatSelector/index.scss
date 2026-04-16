@@ -74,32 +74,25 @@
 }
 
 .chat-selector-container {
-  width: 100%;
+  width: 680px;
+  max-width: calc(100vw - 32px);
   background: white;
   border-radius: 8px;
   overflow: hidden;
   padding-top: 16px;
-
-  .chat-selectot-config {
-    background-color: #fafafa;
-    padding: 0 16px;
-    .chat-select-config-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 0;
-      font-size: 14px;
-      color: #333;
-    }
-  }
 }
 
 .chat-selector-search-box {
   padding: 4px 16px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 8px;
 
   .chat-selector-search-input {
+    flex: 1 1 280px;
+    min-width: 0;
     font-size: 14px;
 
     :global(.ant-input) {

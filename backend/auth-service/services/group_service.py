@@ -21,20 +21,60 @@ class GroupService:
         page_size: int = 20,
         search: str | None = None,
         tenant_id: str | None = None,
+        current_user_id: uuid.UUID | None = None,
+        is_system_admin: bool = False,
     ) -> tuple[list[dict], int]:
-        """Paginated group list. Returns (items, total)."""
+        """Paginated group list. Returns (items, total).
+
+        - system-admin: returns all groups with optional filters
+        - non-admin: returns only groups that current user belongs to
+        """
         with SessionLocal() as db:
-            groups, total = GroupRepository.list_paginated(db, page, page_size, search, tenant_id)
-            items = [
-                {
-                    'group_id': str(g.id),
-                    'group_name': g.group_name,
-                    'remark': g.remark,
-                    'tenant_id': g.tenant_id,
-                }
-                for g in groups
-            ]
-            return items, int(total)
+            if is_system_admin:
+                groups, total = GroupRepository.list_paginated(db, page, page_size, search, tenant_id)
+                items = [
+                    {
+                        'group_id': str(g.id),
+                        'group_name': g.group_name,
+                        'remark': g.remark,
+                        'tenant_id': g.tenant_id,
+                    }
+                    for g in groups
+                ]
+                return items, int(total)
+
+            if current_user_id is None:
+                return [], 0
+
+            user = UserRepository.get_by_id(db, current_user_id, load_groups=True)
+            if not user:
+                raise_error(ErrorCodes.USER_NOT_FOUND)
+
+            groups = []
+            for membership in user.groups:
+                group = membership.group
+                if not group:
+                    continue
+                groups.append(
+                    {
+                        'group_id': str(group.id),
+                        'group_name': group.group_name,
+                        'remark': group.remark,
+                        'tenant_id': group.tenant_id,
+                    }
+                )
+
+            if tenant_id is not None:
+                groups = [g for g in groups if (g.get('tenant_id') or '') == tenant_id]
+            if search:
+                keyword = search.lower()
+                groups = [g for g in groups if keyword in (g.get('group_name') or '').lower()]
+
+            groups.sort(key=lambda item: ((item.get('group_name') or '').lower(), item['group_id']))
+            total = len(groups)
+            start = (max(page, 1) - 1) * page_size
+            end = start + page_size
+            return groups[start:end], total
 
     def create_group(
         self,
@@ -44,12 +84,17 @@ class GroupService:
         creator_user_id: uuid.UUID | None = None,
     ) -> str:
         """Create group. Returns group_id (UUID string)."""
+        name = (group_name or '').strip()
+        if not name:
+            raise_error(ErrorCodes.GROUP_NAME_REQUIRED)
         with SessionLocal() as db:
+            if GroupRepository.get_by_tenant_and_name(db, tenant_id or '', name):
+                raise_error(ErrorCodes.GROUP_NAME_EXISTS)
             g = GroupRepository.create(
                 db,
-                tenant_id=tenant_id,
-                group_name=group_name,
-                remark=remark,
+                tenant_id=tenant_id or '',
+                group_name=name,
+                remark=remark or '',
                 creator_user_id=creator_user_id,
             )
             return str(g.id)
@@ -83,6 +128,9 @@ class GroupService:
                 name = group_name.strip()
                 if not name:
                     raise_error(ErrorCodes.GROUP_NAME_EMPTY)
+                existing = GroupRepository.get_by_tenant_and_name(db, g.tenant_id or '', name)
+                if existing and existing.id != g.id:
+                    raise_error(ErrorCodes.GROUP_NAME_EXISTS)
                 g.group_name = name
             if remark is not None:
                 g.remark = remark
@@ -111,6 +159,27 @@ class GroupService:
                 }
                 for r in rows
             ]
+
+    def list_user_groups(self, user_id: uuid.UUID) -> list[dict]:
+        """List groups that the specified user belongs to."""
+        with SessionLocal() as db:
+            user = UserRepository.get_by_id(db, user_id, load_groups=True)
+            if not user:
+                raise_error(ErrorCodes.USER_NOT_FOUND)
+            items = []
+            for membership in user.groups:
+                group = membership.group
+                if not group:
+                    continue
+                items.append(
+                    {
+                        'user_id': str(user.id),
+                        'group_id': str(group.id),
+                        'group_name': group.group_name,
+                        'tenant_id': group.tenant_id,
+                    }
+                )
+            return items
 
     def add_group_users(
         self,

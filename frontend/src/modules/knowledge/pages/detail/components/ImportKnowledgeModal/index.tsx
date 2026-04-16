@@ -41,7 +41,7 @@ export interface IImportKnowledgeModalRef {
 }
 
 interface IProps {
-  onOk: () => void;
+  onOk: (payload?: { pId?: string }) => void;
 }
 
 const InitData = {
@@ -138,7 +138,7 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
 
       message.success(t("knowledge.uploadAndCreateTaskSuccess"));
       handleClose();
-      onOk();
+      onOk({ pId: data.p_id });
     } catch (err) {
       console.error(err);
       message.error(
@@ -360,14 +360,14 @@ const ImportKnowledgeModal = (props: IProps, ref: Ref<unknown> | undefined) => {
                     isDirectoryMode
                       ? t("knowledge.supportedDocTypes")
                       : isZipMode
-                        ? t("knowledge.importZip")
+                        ? t("knowledge.supportedZipFile")
                         : t("knowledge.supportedDocTypes")
                   }
                   invalidDropMessage={
                     isDirectoryMode
                       ? t("knowledge.importFolder")
                       : isZipMode
-                        ? t("knowledge.importZip")
+                        ? t("knowledge.supportedZipFile")
                         : t("knowledge.supportedDocTypes")
                   }
                   description={

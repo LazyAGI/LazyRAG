@@ -42,6 +42,7 @@ import ImportTaskManage, {
   IImportTaskManageRef,
 } from "./components/ImportTaskManage";
 import TreeUtils from "@/modules/knowledge/utils/tree";
+import { IMPORT_TASK_POLL_INTERVAL } from "@/modules/knowledge/constants/common";
 import ConfirmModal, {
   ConfirmImperativeProps,
 } from "@/modules/knowledge/components/ConfirmModal";
@@ -103,7 +104,7 @@ const Detail = () => {
   function getImportingTotal() {
     pollingRef.current.cancel();
     pollingRef.current.start({
-      interval: 10 * 1000,
+      interval: IMPORT_TASK_POLL_INTERVAL,
       request: () => TaskServiceApi().listTasks(id),
       onSuccess: ({ data = {} }) => {
         const RUNNING_STATES = ["WAITING", "WORKING"];
@@ -206,7 +207,7 @@ const Detail = () => {
       .then(() => {
         message.success(t("knowledge.deleteSuccess"));
         navigate({
-          pathname: "/list",
+          pathname: "/lib/knowledge/list",
         });
       });
   }
@@ -325,7 +326,7 @@ const Detail = () => {
             searchParams.get("from") ?? "",
           );
           if (bool) {
-            navigate("/list");
+            navigate("/lib/knowledge/list");
           } else {
             navigate(-1);
           }
@@ -538,8 +539,28 @@ const Detail = () => {
 
       <ImportKnowledgeModal
         ref={importKnowledgeRef}
-        onOk={() => {
+        onOk={({ pId } = {}) => {
+          importingTaskListRef.current = [];
           getImportingTotal();
+          getDetail();
+
+          if (pId) {
+            const parentNode = TreeUtils.findNode(
+              knowledgeListRef.current?.treeData || [],
+              (node: TreeNode) => node.document_id === pId,
+            );
+
+            if (parentNode) {
+              knowledgeListRef.current?.getTableData({
+                pId,
+                level: parentNode.level + 1,
+                parentNode,
+              });
+              return;
+            }
+          }
+
+          knowledgeListRef.current?.getTableData({ pId: "", level: 0 });
         }}
       />
 

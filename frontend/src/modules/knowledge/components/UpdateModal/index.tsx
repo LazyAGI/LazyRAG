@@ -89,7 +89,11 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
     return (
       <Modal
         open={visible}
-        title={data ? t("knowledge.edit") + t("layout.knowledgeBase") : t("knowledge.createKnowledgeBase")}
+        title={
+          data
+            ? t("knowledge.editKnowledgeBase")
+            : t("knowledge.createKnowledgeBase")
+        }
         centered
         onCancel={onCancel}
         onOk={onOk}
@@ -99,10 +103,10 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
         <Form form={form} layout="vertical">
           <Form.Item
             name="display_name"
-            label={t("knowledge.nameId")}
+            label={t("knowledge.knowledgeBaseName")}
             required
             rules={[
-              { required: true, message: t("common.pleaseInput") + t("layout.knowledgeBase") + t("knowledge.nameId") },
+              { required: true, message: t("knowledge.inputKnowledgeBaseName") },
 
               {
                 pattern: /^[\u4e00-\u9fa5a-zA-Z0-9-_\.]{1,100}$/, // eslint-disable-line

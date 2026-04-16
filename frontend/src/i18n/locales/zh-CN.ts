@@ -1,3 +1,5 @@
+import { zhCNErrorMessages } from "./error-codes";
+
 const zhCN = {
   common: {
     search: "搜索",
@@ -11,6 +13,7 @@ const zhCN = {
     loading: "加载中...",
     noData: "暂无数据",
     success: "操作成功",
+    saveSuccess: "保存成功",
     failed: "操作失败",
     sortBy: "按",
     sort: "排序",
@@ -18,6 +21,12 @@ const zhCN = {
     description: "描述",
     actions: "操作",
     totalItems: "共 {{total}} 条",
+    itemsPerPageSuffix: "条/页",
+    pageSize: "每页条数",
+    accessDenied: "访问被拒绝",
+    requestFailed: "请求失败",
+    serverNoResponse: "服务器无响应",
+    requestError: "请求发生错误",
   },
 
   auth: {
@@ -40,6 +49,12 @@ const zhCN = {
     loginFailed: "登录失败，请检查账号密码",
     registerSuccess: "注册成功，请登录",
     registerFailed: "注册失败，请重试",
+    userDisabled: "用户已被禁用",
+    sessionExpired: "登录状态已失效，请重新登录",
+    authFailedRelogin: "认证失败，请重新登录",
+    loginRetryHint: "未成功登录，请刷新页面后重试",
+    loggingInWait: "登录中，请稍等...",
+    retryLogin: "重试登录",
     pleaseInputAccount: "请输入登录账号",
     pleaseInputPassword: "请输入登录密码",
     pleaseInputUsername: "请输入用户名",
@@ -92,6 +107,7 @@ const zhCN = {
     updateSuccess: "账号信息已更新",
     noUserInfo: "未获取到当前用户信息",
     invalidEmail: "请输入有效的邮箱格式",
+    invalidPhone: "请输入有效的中国大陆手机号",
   },
 
   chat: {
@@ -107,6 +123,7 @@ const zhCN = {
     copy: "复制",
     copySuccess: "复制成功",
     regenerate: "重新生成",
+    regenerateInputMissing: "未找到可重新生成的问题内容，请重新提问",
     feedback: "反馈",
     references: "参考来源",
     noReferences: "暂无参考来源",
@@ -196,6 +213,7 @@ const zhCN = {
     bothBad: "都不好",
     deleteConversationSuccess: "删除会话成功",
     noConversationToExport: "没有可导出的会话记录",
+    exportFileUrlInvalid: "导出文件地址异常",
     searchConversation: "搜索对话",
     selectConversationToExport: "请先选择要导出的会话",
     export: "导出",
@@ -306,6 +324,8 @@ const zhCN = {
     taskList: "任务列表",
     taskDetail: "任务详情",
     elapsedTime: "耗时",
+    knowledgeBaseName: "知识库名称",
+    inputKnowledgeBaseName: "请输入知识库名称",
     nameId: "知识库名称/ID",
     docName: "知识名称",
     updateDate: "更新日期",
@@ -323,6 +343,7 @@ const zhCN = {
     searchPlaceholder: "知识库名称/描述/标签",
     searchDocPlaceholder: "搜索文档名称、标签、更新人",
     createKnowledgeBase: "创建知识库",
+    editKnowledgeBase: "编辑知识库",
     selectTag: "请选择知识库标签",
     knowledge: "知识",
     allTags: "全部",
@@ -379,6 +400,7 @@ const zhCN = {
     selectGroupName: "请选择用户组名称",
     maxAddUsers: "最多同时添加 20 个用户",
     maxAddGroups: "最多同时添加 20 个用户组",
+    editOwnerPermissionDenied: "无法修改创建者权限",
     deleteOwnerPermissionDenied: "无法删除创建者权限",
     deletePermissionTitle: "提示",
     deletePermissionContent: "确定删除{{type}} {{name}} 的知识库 {{role}} 相应权限？",
@@ -399,7 +421,7 @@ const zhCN = {
     uploadAndCreateTaskSuccess: "上传并创建任务成功",
     uploadFailedRetry: "上传失败，请重试",
     supportedFolderImport: "支持导入文件夹",
-    supportedZipFile: "支持zip类型的文件",
+    supportedZipFile: "仅支持 ZIP 类型压缩包文件（.zip）",
     supportedDocTypes: "支持pdf、docx、doc类型的文件",
     zipRootOnly: "zip压缩包仅支持根目录的文件，一级及以上文件夹将被忽略",
     uploadLimitHint: "单次上传限制300个文件，单个文件大小不超过500MB，总大小不超过1GB",
@@ -564,6 +586,9 @@ const zhCN = {
     deleteSuccess: "删除成功",
     deleteFailed: "删除失败",
     deleteUserConfirm: "确定删除该用户吗？",
+    enableSuccess: "启用成功",
+    enableFailed: "启用失败",
+    enableUserConfirm: "确定启用该用户吗？",
     disableSuccess: "禁用成功",
     disableFailed: "禁用失败",
     disableUserConfirm: "确定禁用该用户吗？",
@@ -623,9 +648,11 @@ const zhCN = {
     confirmPasswordWithMax: "请再次输入密码，最多 {{max}} 个字符",
     selectRole: "请选择角色",
     selectRoleRequired: "请选择角色",
+    bootstrapAdminRoleLocked: "初始化管理员角色不允许修改",
     users: "用户组",
     backToApp: "返回应用平台"
   },
+  errors: zhCNErrorMessages,
 };
 
 export default zhCN;

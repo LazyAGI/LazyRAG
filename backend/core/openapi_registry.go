@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"lazyrag/core/chat"
 	"lazyrag/core/doc"
 )
 
@@ -390,6 +391,10 @@ type uploadPathParams struct {
 	UploadID string `path:"upload_id"`
 }
 
+type exportConversationFilePathParams struct {
+	FileID string `path:"file_id"`
+}
+
 type datasetQueryParams struct {
 	PageToken string   `query:"page_token"`
 	PageSize  int32    `query:"page_size"`
@@ -696,6 +701,22 @@ func registeredCoreOperations() []openAPIOperation {
 			}{},
 			RequestBody: jsonBodyOf(doc.CompleteUploadRequest{}, false),
 			Responses:   map[int]openAPIResponse{200: resp("Complete uploadtext", doc.CompleteUploadResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/conversation:export",
+			Summary:     "Export conversations",
+			Tags:        []string{"conversations"},
+			RequestBody: jsonBodyOf(chat.ExportConversationsRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Export conversation files", chat.ExportConversationsResponse{})},
+		},
+		{
+			Method:     "GET",
+			Path:       "/conversation:export/files/{file_id}",
+			Summary:    "Download exported conversation file",
+			Tags:       []string{"conversations"},
+			PathParams: exportConversationFilePathParams{},
+			Responses:  map[int]openAPIResponse{200: {Description: "Exported conversation file", ContentType: "application/octet-stream", Schema: schemaSource{Inline: map[string]any{"type": "string", "format": "binary"}}}},
 		},
 		{
 			Method:  "POST",

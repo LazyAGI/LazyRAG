@@ -90,7 +90,12 @@ def bootstrap(db: Session) -> None:
 
     username = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_USERNAME', 'system-admin').strip() or 'system-admin'
     password = os.environ.get('LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD', '123456').strip() or '123456'
-    if UserRepository.get_by_username(db, username):
+    user = UserRepository.get_by_username(db, username)
+    if user:
+        # Keep legacy bootstrap admin rows aligned with the new dedicated init source.
+        if (user.source or '').strip() != 'init' and user.role_id == system_admin_role.id:
+            user.source = 'init'
+            db.commit()
         return
     UserRepository.create(
         db,
@@ -99,4 +104,5 @@ def bootstrap(db: Session) -> None:
         role_id=system_admin_role.id,
         tenant_id='',
         disabled=False,
+        source='init',
     )

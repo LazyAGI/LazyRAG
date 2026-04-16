@@ -66,7 +66,7 @@ func streamUploadedFile(w http.ResponseWriter, r *http.Request, inline bool) {
 	}
 	var row orm.UploadedFile
 	if err := store.DB().WithContext(r.Context()).Where("upload_file_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadFileID, datasetID).Take(&row).Error; err != nil {
-		common.ReplyErr(w, "uploaded file not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "uploaded file not found", err), http.StatusNotFound)
 		return
 	}
 	var ext uploadedFileExt
@@ -93,7 +93,7 @@ func StartTask(w http.ResponseWriter, r *http.Request) {
 
 	var req StartTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.TaskIDs) == 0 {
@@ -103,7 +103,7 @@ func StartTask(w http.ResponseWriter, r *http.Request) {
 	resp := StartTasksResponse{Tasks: make([]StartTaskResult, 0, len(req.TaskIDs)), RequestedCount: len(req.TaskIDs)}
 	results, err := startTasksInternal(r, datasetID, req.TaskIDs)
 	if err != nil && len(results) == 0 {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	resp.Tasks = results
@@ -133,7 +133,7 @@ func SearchTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	var req SearchTasksRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.TaskIDs) == 0 {
@@ -160,7 +160,7 @@ func SearchTasks(w http.ResponseWriter, r *http.Request) {
 	var rows []orm.Task
 	query := store.DB().WithContext(r.Context()).Where("dataset_id = ? AND deleted_at IS NULL", datasetID).Where("id IN ?", ids)
 	if err := query.Order("created_at DESC").Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query tasks failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query tasks failed", err), http.StatusInternalServerError)
 		return
 	}
 	resp := make([]TaskResponse, 0, len(rows))
@@ -221,7 +221,7 @@ func BatchUploadTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		common.ReplyErr(w, "invalid multipart form", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid multipart form", err), http.StatusBadRequest)
 		return
 	}
 	files := r.MultipartForm.File["files"]
@@ -241,7 +241,7 @@ func BatchUploadTasks(w http.ResponseWriter, r *http.Request) {
 	for _, fh := range files {
 		createdTask, _, _, err := createUploadedTaskAndDocument(r, ds, datasetID, userID, userName, now, fh, relativePath, documentPID, tags)
 		if err != nil {
-			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 			return
 		}
 		baseTasks = append(baseTasks, createdTask)
@@ -272,7 +272,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		common.ReplyErr(w, "invalid multipart form", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid multipart form", err), http.StatusBadRequest)
 		return
 	}
 	files := r.MultipartForm.File["files"]
@@ -294,7 +294,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	for _, fh := range files {
 		row, ext, err := createUploadedFileRecord(r, ds, datasetID, userID, userName, now, fh, relativePath, documentPID, tags)
 		if err != nil {
-			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 			return
 		}
 		resp = append(resp, UploadFileResponse{
@@ -326,7 +326,7 @@ func UploadTempFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseMultipartForm(512 << 20); err != nil {
-		common.ReplyErr(w, "invalid multipart form", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid multipart form", err), http.StatusBadRequest)
 		return
 	}
 	files := r.MultipartForm.File["files"]
@@ -347,19 +347,19 @@ func UploadTempFile(w http.ResponseWriter, r *http.Request) {
 		storedName := storedFileName(fh.Filename, uploadFileID)
 		finalDir := buildTempUploadFileDir(userID, uploadFileID)
 		if err := os.MkdirAll(finalDir, 0o755); err != nil {
-			common.ReplyErr(w, "create temp dir failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "create temp dir failed", err), http.StatusInternalServerError)
 			return
 		}
 		finalPath := filepath.Join(finalDir, storedName)
 		file, err := fh.Open()
 		if err != nil {
-			common.ReplyErr(w, "open upload file failed", http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "open upload file failed", err), http.StatusBadRequest)
 			return
 		}
 		out, err := os.Create(finalPath)
 		if err != nil {
 			_ = file.Close()
-			common.ReplyErr(w, "create upload target failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "create upload target failed", err), http.StatusInternalServerError)
 			return
 		}
 		size, copyErr := io.Copy(out, file)
@@ -372,7 +372,7 @@ func UploadTempFile(w http.ResponseWriter, r *http.Request) {
 		contentType := fh.Header.Get("Content-Type")
 		row := orm.UploadedFile{UploadFileID: uploadFileID, DatasetID: "", TenantID: "", TaskID: "", DocumentID: "", Status: UploadedFileStateUploaded, Ext: mustJSON(uploadedFileExt{StoredPath: finalPath, StoredName: storedName, OriginalFilename: fh.Filename, FileSize: size, ContentType: contentType}), BaseModel: orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now}}
 		if err := store.DB().WithContext(r.Context()).Create(&row).Error; err != nil {
-			common.ReplyErr(w, "create uploaded file failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "create uploaded file failed", err), http.StatusInternalServerError)
 			return
 		}
 		resp = append(resp, UploadFileResponse{UploadFileID: uploadFileID, Filename: fh.Filename, StoredName: storedName, StoredPath: finalPath, FileSize: size, ContentType: contentType, FileURL: staticFileURLFromFullPath(finalPath), Status: UploadedFileStateUploaded, UploadScope: uploadScopeTemp})
@@ -425,7 +425,12 @@ func ListTasks(w http.ResponseWriter, r *http.Request) {
 		pageSize = 1000
 	}
 	offset := 0
-	if v, err := strconv.Atoi(pageToken); err == nil && v >= 0 {
+	if pageToken != "" {
+		v, err := parseDatasetPageToken(pageToken)
+		if err != nil {
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
+			return
+		}
 		offset = v
 	}
 
@@ -445,7 +450,7 @@ func ListTasks(w http.ResponseWriter, r *http.Request) {
 	var total int64
 	_ = query.Model(&orm.Task{}).Count(&total).Error
 	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query tasks failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query tasks failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -459,7 +464,7 @@ func ListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if offset+len(rows) < int(total) {
-		next = strconv.Itoa(offset + len(rows))
+		next = encodeDatasetPageToken(offset+len(rows), pageSize, int(total))
 	}
 	totalResp := total
 	if filterTaskState != "" {
@@ -490,7 +495,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.Items) == 0 {
@@ -532,7 +537,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 			tType = string(TaskTypeParseUploaded)
 		}
 		if err := validateCreateTaskItem(item, datasetID, tType); err != nil {
-			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 			return
 		}
 
@@ -541,7 +546,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 			if strings.TrimSpace(expandedItem.UploadFileID) != "" {
 				taskRows, err := createTaskFromUploadedFile(r, datasetID, userID, userName, expandedItem, tType)
 				if err != nil {
-					common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+					common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 					return
 				}
 				for _, t := range taskRows {
@@ -550,7 +555,7 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 			} else {
 				taskRow, err := createTaskFromExistingDocument(r, datasetID, userID, userName, expandedItem, tType)
 				if err != nil {
-					common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+					common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request", err), http.StatusBadRequest)
 					return
 				}
 				resp = append(resp, buildTaskResponse(r, taskRow))
@@ -577,7 +582,7 @@ func GetTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var row orm.Task
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskID, datasetID).Take(&row).Error; err != nil {
-		common.ReplyErr(w, "task not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "task not found", err), http.StatusNotFound)
 		return
 	}
 	common.ReplyJSON(w, buildTaskResponse(r, row))
@@ -621,10 +626,10 @@ func ResumeTask(w http.ResponseWriter, r *http.Request) {
 	var taskRow orm.Task
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskID, datasetID).First(&taskRow).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			common.ReplyErr(w, "task not found", http.StatusNotFound)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "task not found", err), http.StatusNotFound)
 			return
 		}
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -636,7 +641,7 @@ func ResumeTask(w http.ResponseWriter, r *http.Request) {
 
 	results, err := startTasksInternal(r, datasetID, []string{taskID})
 	if err != nil && len(results) == 0 {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	resp := StartTasksResponse{Tasks: results, RequestedCount: 1}
@@ -669,7 +674,7 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var req InitUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.Filename) == "" {
@@ -698,7 +703,7 @@ func InitUpload(w http.ResponseWriter, r *http.Request) {
 		CreateUserName: userName,
 	})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 	_ = row
@@ -715,7 +720,7 @@ func UploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	meta, _, metaErr := loadUploadMeta(session)
@@ -740,7 +745,7 @@ func CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	meta, _, metaErr := loadUploadMeta(session)
@@ -750,7 +755,7 @@ func CompleteUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, statusCode, err := completeUploadInternal(r.Context(), session, completeUploadArgs{Dataset: ds})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), statusCode)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), statusCode)
 		return
 	}
 	common.ReplyJSON(w, resp)
@@ -765,7 +770,7 @@ func InitTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var req InitUploadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(req.Filename) == "" {
@@ -782,7 +787,7 @@ func InitTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, _, err := initUploadSession(r.Context(), initUploadSessionArgs{Scope: uploadScopeTemp, Filename: req.Filename, FileSize: req.FileSize, ContentType: req.ContentType, PartSize: req.PartSize, CreateUserID: userID, CreateUserName: userName})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 	common.ReplyJSON(w, resp)
@@ -802,7 +807,7 @@ func UploadTempPart(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	if strings.TrimSpace(session.CreateUserID) != userID {
@@ -830,7 +835,7 @@ func CompleteTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	if strings.TrimSpace(session.CreateUserID) != userID {
@@ -844,7 +849,7 @@ func CompleteTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, statusCode, err := completeUploadInternal(r.Context(), session, completeUploadArgs{})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), statusCode)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), statusCode)
 		return
 	}
 	common.ReplyJSON(w, resp)
@@ -859,7 +864,7 @@ func AbortUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND dataset_id = ? AND deleted_at IS NULL", uploadID, datasetID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	meta, _, metaErr := loadUploadMeta(session)
@@ -884,7 +889,7 @@ func AbortTempUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	var session orm.UploadSession
 	if err := store.DB().WithContext(r.Context()).Where("upload_id = ? AND deleted_at IS NULL", uploadID).Take(&session).Error; err != nil {
-		common.ReplyErr(w, "upload session not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "upload session not found", err), http.StatusNotFound)
 		return
 	}
 	if strings.TrimSpace(session.CreateUserID) != userID {
@@ -975,13 +980,13 @@ func initUploadSession(ctx context.Context, args initUploadSessionArgs) (InitUpl
 func uploadPartInternal(w http.ResponseWriter, r *http.Request, session orm.UploadSession, partNumber int) {
 	meta, dir, err := loadUploadMeta(session)
 	if err != nil {
-		common.ReplyErr(w, "load upload meta failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "load upload meta failed", err), http.StatusInternalServerError)
 		return
 	}
 	partPath := filepath.Join(dir, "parts", fmt.Sprintf("%06d.part", partNumber))
 	f, err := os.Create(partPath)
 	if err != nil {
-		common.ReplyErr(w, "create part failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "create part failed", err), http.StatusInternalServerError)
 		return
 	}
 	n, copyErr := io.Copy(f, r.Body)
@@ -1317,13 +1322,15 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 			extResults, err := callExternalAddDocs(r, addRequest{Items: items, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 			if err != nil {
 				for i, taskRow := range baseTasks {
-					resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()}
+					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
+					resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}
 				}
 			} else {
 				created, bindErr := bindExternalBatchAddResults(datasetID, baseTasks, baseDocs, baseDocExts, extResults)
 				if bindErr != nil {
 					for i, taskRow := range baseTasks {
-						resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: bindErr.Error()}
+						resolved := common.ResolveAppError(bindErr.Error(), http.StatusBadGateway)
+						resultsByTaskID[taskRow.ID] = StartTaskResult{TaskID: taskRow.ID, DocumentID: baseDocs[i].ID, DisplayName: baseDocs[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}
 					}
 				} else {
 					for _, row := range created {
@@ -1362,7 +1369,8 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 				item := buildAddFileItem(datasetID, candidate.task, candidate.doc, dExt, parsePath)
 				extResults, err := callExternalAddDocs(r, addRequest{Items: []addFileItem{item}, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 				if err != nil {
-					outcomes[idx] = officeOutcome{task: candidate.task, doc: candidate.doc, docExt: dExt, result: StartTaskResult{TaskID: candidate.task.ID, DocumentID: candidate.doc.ID, DisplayName: candidate.doc.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()}}
+					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
+					outcomes[idx] = officeOutcome{task: candidate.task, doc: candidate.doc, docExt: dExt, result: StartTaskResult{TaskID: candidate.task.ID, DocumentID: candidate.doc.ID, DisplayName: candidate.doc.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}}
 					return
 				}
 				created, bindErr := bindExternalBatchAddResults(datasetID, []orm.Task{candidate.task}, []orm.Document{candidate.doc}, []documentExt{dExt}, extResults)
@@ -1462,6 +1470,7 @@ func buildTaskResponse(r *http.Request, row orm.Task) TaskResponse {
 		}
 	} else {
 		resp.TaskState = firstNonEmpty(strings.TrimSpace(ext.TaskState), string(TaskStateCreating))
+		resp.ErrMsg = strings.TrimSpace(ext.ErrorMessage)
 	}
 	var extDoc readonlyorm.LazyLLMDocRow
 	if lazyDoc != "" {
@@ -1542,7 +1551,7 @@ func updateTaskStateEndpoint(w http.ResponseWriter, r *http.Request, action stri
 			common.ReplyErr(w, "task not found", http.StatusNotFound)
 			return
 		}
-		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "request failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1561,7 +1570,7 @@ func updateTaskStateEndpoint(w http.ResponseWriter, r *http.Request, action stri
 
 	err := callExternalSuspendJob(r, ExternalCancelTaskRequest{TaskID: externalTaskID})
 	if err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
+		common.ReplyAppErr(w, common.ResolveAppError(err.Error(), http.StatusBadGateway))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -2302,7 +2311,7 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 	}
 	if err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, AlgoID: algoID, IdempotencyKey: newTaskID()}); err != nil {
 		for i, taskRow := range taskRows {
-			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: common.ResolveAppError(err.Error(), http.StatusBadGateway).Message, Detail: fmt.Sprint(common.ResolveAppError(err.Error(), http.StatusBadGateway).Detail)})
 		}
 		return results, err
 	}
@@ -2371,14 +2380,16 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 
 		if mode == "move" && targetDatasetID == datasetID {
 			if err := validateLocalMoveTarget(r.Context(), datasetID, docRow, strings.TrimSpace(taskRow.TargetPID)); err != nil {
-				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: err.Error()})
+				resolved := common.ResolveAppError(err.Error(), http.StatusBadRequest)
+				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)})
 				continue
 			}
 			now := time.Now().UTC()
 			oldPID := strings.TrimSpace(docRow.PID)
 			newPID := strings.TrimSpace(taskRow.TargetPID)
 			if err := store.DB().WithContext(r.Context()).Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docRow.ID, datasetID).Updates(map[string]any{"p_id": newPID, "updated_at": now}).Error; err != nil {
-				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+				resolved := common.ResolveAppError(err.Error(), http.StatusInternalServerError)
+				results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)})
 				continue
 			}
 			var ext taskExt
@@ -2392,13 +2403,31 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 
 		var ext taskExt
 		_ = json.Unmarshal(taskRow.Ext, &ext)
+		log.Printf("[transfer] start mode=%s task=%s dataset=%s source_doc=%s source_display=%q source_lazy_doc=%q target_dataset=%s target_pid=%s", mode, taskRow.ID, datasetID, docRow.ID, docRow.DisplayName, strings.TrimSpace(docRow.LazyllmDocID), strings.TrimSpace(taskRow.TargetDatasetID), strings.TrimSpace(taskRow.TargetPID))
 		bindings, taskItems, err := prepareTransferTargets(r.Context(), taskRow, docRow, mode)
 		if err != nil {
-			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+			resolved := common.ResolveAppError(err.Error(), http.StatusInternalServerError)
+			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)})
 			continue
 		}
 		if len(taskItems) == 0 {
-			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: "no transferable file nodes found"})
+			log.Printf("[transfer] no transferable items mode=%s task=%s source_doc=%s bindings=%d", mode, taskRow.ID, docRow.ID, len(bindings))
+			for idx, binding := range bindings {
+				log.Printf("[transfer] binding[%d] source_doc=%s target_doc=%s source_lazy_doc=%q display=%q stored_path=%q status=%s error=%q", idx, strings.TrimSpace(binding.SourceDocumentID), strings.TrimSpace(binding.TargetDocumentID), strings.TrimSpace(binding.SourceLazyDocID), strings.TrimSpace(binding.DisplayName), strings.TrimSpace(binding.StoredPath), strings.TrimSpace(binding.Status), strings.TrimSpace(binding.ErrorMessage))
+			}
+			ext.TransferBindings = bindings
+			ext.TaskState = string(TaskStateFailed)
+			errMsg := "no transferable file nodes found"
+			for _, binding := range bindings {
+				if strings.TrimSpace(binding.SourceDocumentID) == strings.TrimSpace(docRow.ID) && strings.TrimSpace(binding.SourceLazyDocID) == "" {
+					errMsg = "source lazyllm doc id is empty"
+					break
+				}
+			}
+			ext.ErrorMessage = errMsg
+			now := time.Now().UTC()
+			_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(map[string]any{"ext": mustJSON(ext), "updated_at": now}).Error
+			results = append(results, StartTaskResult{TaskID: taskID, DocumentID: docRow.ID, DisplayName: docRow.DisplayName, Status: "FAILED", SubmitStatus: "REJECTED", Message: errMsg})
 			continue
 		}
 		ext.TransferBindings = bindings
@@ -2414,9 +2443,16 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 		}
 		return results, nil
 	}
+	log.Printf("[transfer] submit external mode=%s dataset=%s task_count=%d items_count=%d", mode, datasetID, len(validTaskRows), len(allItems))
+	for i, taskRow := range validTaskRows {
+		log.Printf("[transfer] submit task[%d]=%s source_doc=%s target_dataset=%s bindings=%d items=%d", i, taskRow.ID, taskRow.DocID, strings.TrimSpace(taskRow.TargetDatasetID), len(preparedExts[i].TransferBindings), len(transferItemsByTask[i]))
+	}
+	for i, item := range allItems {
+		log.Printf("[transfer] submit item[%d] source_lazy_doc=%s target_doc=%s source_kb=%s target_kb=%s mode=%s", i, strings.TrimSpace(item.DocID), strings.TrimSpace(item.TargetDocID), strings.TrimSpace(item.SourceKbID), strings.TrimSpace(item.TargetKbID), strings.TrimSpace(item.Mode))
+	}
 	if err := callExternalTransferDocs(r, transferRequest{Items: allItems, IdempotencyKey: newTaskID()}); err != nil {
 		for i, taskRow := range validTaskRows {
-			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: validDocRows[i].ID, DisplayName: validDocRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: err.Error()})
+			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: validDocRows[i].ID, DisplayName: validDocRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: common.ResolveAppError(err.Error(), http.StatusBadGateway).Message, Detail: fmt.Sprint(common.ResolveAppError(err.Error(), http.StatusBadGateway).Detail)})
 		}
 		return results, err
 	}
@@ -2432,6 +2468,7 @@ func startTransferTasksInternal(r *http.Request, datasetID string, taskIDs []str
 		}
 		recalcTransferFolderStats(r.Context(), datasetID, taskRow, validDocRows[i], ext.TransferBindings, mode)
 		ext.TaskState = string(TaskStateRunning)
+		ext.ErrorMessage = ""
 		_ = transferItemsByTask
 		_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(map[string]any{"ext": mustJSON(ext), "updated_at": now}).Error
 		results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: validDocRows[i].ID, DisplayName: validDocRows[i].DisplayName, Status: "STARTED", SubmitStatus: "SUBMITTED"})
@@ -2466,6 +2503,7 @@ func validateLocalMoveTarget(ctx context.Context, datasetID string, sourceDoc or
 
 func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.Document, mode string) ([]transferBinding, []transferItem, error) {
 	targetDatasetID := strings.TrimSpace(taskRow.TargetDatasetID)
+	log.Printf("[transfer] prepare start mode=%s task=%s source_doc=%s source_display=%q source_lazy_doc=%q target_dataset=%s target_pid=%s", mode, taskRow.ID, rootDoc.ID, rootDoc.DisplayName, strings.TrimSpace(rootDoc.LazyllmDocID), targetDatasetID, strings.TrimSpace(taskRow.TargetPID))
 	targetPID := strings.TrimSpace(taskRow.TargetPID)
 	if targetDatasetID == "" {
 		return nil, nil, fmt.Errorf("target_dataset_id is required")
@@ -2477,6 +2515,7 @@ func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.D
 	if len(nodes) == 0 {
 		nodes = []orm.Document{rootDoc}
 	}
+	log.Printf("[transfer] prepare loaded nodes task=%s count=%d", taskRow.ID, len(nodes))
 	now := time.Now().UTC()
 	bindings := make([]transferBinding, 0, len(nodes))
 	items := make([]transferItem, 0, len(nodes))
@@ -2506,12 +2545,18 @@ func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.D
 		var ext documentExt
 		_ = json.Unmarshal(node.Ext, &ext)
 		sourceLazyDocID := strings.TrimSpace(node.LazyllmDocID)
-		bindings = append(bindings, transferBinding{SourceDocumentID: node.ID, TargetDocumentID: newID, SourceLazyDocID: sourceLazyDocID, DisplayName: strings.TrimSpace(node.DisplayName), StoredPath: strings.TrimSpace(firstNonEmpty(ext.ParseStoredPath, ext.StoredPath)), Mode: mode, Status: string(TaskStateCreating)})
-		if isFolderLikeDocument(node) || sourceLazyDocID == "" {
+		storedPath := strings.TrimSpace(firstNonEmpty(ext.ParseStoredPath, ext.StoredPath))
+		isFolder := isFolderLikeDocument(node)
+		log.Printf("[transfer] node task=%s source_doc=%s target_doc=%s display=%q is_folder=%t source_lazy_doc=%q stored_path=%q pid=%s", taskRow.ID, node.ID, newID, strings.TrimSpace(node.DisplayName), isFolder, sourceLazyDocID, storedPath, strings.TrimSpace(node.PID))
+		bindings = append(bindings, transferBinding{SourceDocumentID: node.ID, TargetDocumentID: newID, SourceLazyDocID: sourceLazyDocID, DisplayName: strings.TrimSpace(node.DisplayName), StoredPath: storedPath, Mode: mode, Status: string(TaskStateCreating)})
+		if isFolder || sourceLazyDocID == "" {
+			log.Printf("[transfer] skip item task=%s source_doc=%s reason=%s", taskRow.ID, node.ID, map[bool]string{true: "folder or empty source lazy doc id", false: ""}[isFolder || sourceLazyDocID == ""])
 			continue
 		}
 		items = append(items, transferItem{DocID: sourceLazyDocID, TargetDocID: newID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), SourceAlgoID: datasetAlgoIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), TargetAlgoID: datasetAlgoIDByID(targetDatasetID), Mode: mode})
+		log.Printf("[transfer] add item task=%s source_doc=%s source_lazy_doc=%s target_doc=%s", taskRow.ID, node.ID, sourceLazyDocID, newID)
 	}
+	log.Printf("[transfer] prepare done task=%s bindings=%d items=%d", taskRow.ID, len(bindings), len(items))
 	return bindings, items, nil
 }
 
@@ -2554,17 +2599,23 @@ func isFolderLikeDocument(doc orm.Document) bool {
 
 func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bindings []transferBinding) ([]transferBinding, error) {
 	if len(bindings) == 0 {
+		log.Printf("[transfer-bind] skip empty bindings task=%s target_dataset=%s", taskRow.ID, strings.TrimSpace(taskRow.TargetDatasetID))
 		return bindings, nil
 	}
 	targetKbID := datasetKbIDByID(strings.TrimSpace(taskRow.TargetDatasetID))
+	log.Printf("[transfer-bind] start task=%s target_dataset=%s target_kb=%s bindings=%d", taskRow.ID, strings.TrimSpace(taskRow.TargetDatasetID), targetKbID, len(bindings))
 	if targetKbID == "" {
+		log.Printf("[transfer-bind] target kb empty task=%s target_dataset=%s", taskRow.ID, strings.TrimSpace(taskRow.TargetDatasetID))
 		return bindings, fmt.Errorf("target kb id is empty")
 	}
 	var kbDocs []readonlyorm.LazyLLMKBDocRow
 	if err := store.LazyLLMDB().WithContext(ctx).Table((readonlyorm.LazyLLMKBDocRow{}).TableName()).Where("kb_id = ?", targetKbID).Order("created_at DESC").Find(&kbDocs).Error; err != nil {
+		log.Printf("[transfer-bind] query kb docs failed task=%s target_kb=%s err=%v", taskRow.ID, targetKbID, err)
 		return bindings, err
 	}
+	log.Printf("[transfer-bind] loaded kb docs task=%s target_kb=%s count=%d", taskRow.ID, targetKbID, len(kbDocs))
 	if len(kbDocs) == 0 {
+		log.Printf("[transfer-bind] no kb docs task=%s target_kb=%s", taskRow.ID, targetKbID)
 		return bindings, nil
 	}
 	candidateIDs := make([]string, 0, len(kbDocs))
@@ -2573,7 +2624,19 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 	}
 	var docs []readonlyorm.LazyLLMDocRow
 	if err := store.LazyLLMDB().WithContext(ctx).Table((readonlyorm.LazyLLMDocRow{}).TableName()).Where("doc_id IN ?", candidateIDs).Order("created_at DESC").Find(&docs).Error; err != nil {
+		log.Printf("[transfer-bind] query readonly docs failed task=%s candidate_count=%d err=%v", taskRow.ID, len(candidateIDs), err)
 		return bindings, err
+	}
+	log.Printf("[transfer-bind] loaded readonly docs task=%s candidate_count=%d docs_count=%d", taskRow.ID, len(candidateIDs), len(docs))
+	for i, binding := range bindings {
+		log.Printf("[transfer-bind] binding[%d] source_doc=%s target_doc=%s source_lazy_doc=%q display=%q stored_path=%q", i, strings.TrimSpace(binding.SourceDocumentID), strings.TrimSpace(binding.TargetDocumentID), strings.TrimSpace(binding.SourceLazyDocID), strings.TrimSpace(binding.DisplayName), strings.TrimSpace(binding.StoredPath))
+	}
+	for i, row := range docs {
+		meta := ""
+		if row.Meta != nil {
+			meta = strings.TrimSpace(*row.Meta)
+		}
+		log.Printf("[transfer-bind] readonly-doc[%d] doc_id=%s filename=%q path=%q upload_status=%q meta=%q", i, strings.TrimSpace(row.DocID), strings.TrimSpace(row.Filename), strings.TrimSpace(row.Path), strings.TrimSpace(row.UploadStatus), meta)
 	}
 	updated := append([]transferBinding(nil), bindings...)
 	used := map[string]struct{}{}
@@ -2595,6 +2658,7 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 			updated[i].Status = string(TaskStateRunning)
 			used[strings.TrimSpace(row.DocID)] = struct{}{}
 			matched[i] = true
+			log.Printf("[transfer-bind] precise match task=%s binding_index=%d target_doc=%s matched_lazy_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID), strings.TrimSpace(row.DocID))
 			break
 		}
 	}
@@ -2610,6 +2674,7 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 			updated[i].Status = string(TaskStateRunning)
 			used[strings.TrimSpace(row.DocID)] = struct{}{}
 			matched[i] = true
+			log.Printf("[transfer-bind] fallback match task=%s binding_index=%d target_doc=%s matched_lazy_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID), strings.TrimSpace(row.DocID))
 			break
 		}
 	}
@@ -2618,10 +2683,13 @@ func bindTransferTargetsFromReadonly(ctx context.Context, taskRow orm.Task, bind
 		if strings.TrimSpace(updated[i].TargetLazyDocID) == "" {
 			updated[i].Status = string(TaskStateFailed)
 			updated[i].ErrorMessage = "target lazy doc id not found"
+			log.Printf("[transfer-bind] final unresolved task=%s binding_index=%d target_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID))
 			continue
 		}
+		log.Printf("[transfer-bind] persist target lazy doc task=%s binding_index=%d target_doc=%s target_lazy_doc=%s", taskRow.ID, i, strings.TrimSpace(updated[i].TargetDocumentID), strings.TrimSpace(updated[i].TargetLazyDocID))
 		_ = store.DB().WithContext(ctx).Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", updated[i].TargetDocumentID, strings.TrimSpace(taskRow.TargetDatasetID)).Updates(map[string]any{"lazyllm_doc_id": updated[i].TargetLazyDocID, "updated_at": now}).Error
 	}
+	log.Printf("[transfer-bind] done task=%s", taskRow.ID)
 	return updated, nil
 }
 
