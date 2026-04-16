@@ -207,7 +207,12 @@ def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
     monkeypatch.setattr(ppl_search_mod, 'AdaptiveKComponent', _FakeAdaptiveKComponent)
     monkeypatch.setattr(ppl_search_mod, 'ContextExpansionComponent', _FakeContextExpansionComponent)
 
-    result = ppl_search_mod.get_ppl_search('http://kb-service', retriever_configs=[{'group_name': 'line'}], topk=7, k_max=4)
+    result = ppl_search_mod.get_ppl_search(
+        'http://kb-service',
+        retriever_configs=[{'group_name': 'line'}],
+        topk=7,
+        k_max=4,
+    )
 
     assert result is search_ppl
     assert search_ppl.assignments == [

@@ -84,7 +84,7 @@ def test_get_ppl_naive_uses_default_retriever_configs(monkeypatch):
     result = naive_mod.get_ppl_naive('http://kb-service', retriever_configs=None, stream=True)
 
     assert result is fake_rag_pipeline
-    assert getattr(naive_mod, 'search_args') == ('http://kb-service', expected_configs)
+    assert naive_mod.search_args == ('http://kb-service', expected_configs)
 
 
 def test_get_ppl_naive_keeps_expected_stage_order(monkeypatch):
