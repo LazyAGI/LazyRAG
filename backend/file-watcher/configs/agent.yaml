@@ -1,0 +1,54 @@
+agent_id: "file-watcher-local-001"
+tenant_id: "tenant-demo"
+agent_token: "my-secret-token"
+listen_addr: "127.0.0.1:19090"
+# 对外上报给 control-plane 的地址（当 control-plane 运行在容器内时建议使用 host.docker.internal）
+advertise_addr: "http://host.docker.internal:19090"
+control_plane_base_url: "http://127.0.0.1:18080"
+heartbeat_interval: "30s"
+pull_interval: "20s"
+reconcile_interval: "20m"
+log_level: "info"
+log_dir: "/Users/sunjinghua.vendor/sunjh/ragscan-manual/logs"
+
+staging:
+  enabled: true
+  host_root: "/Users/sunjinghua.vendor/sunjh/ragscan-manual/staging"
+  container_root: "/data/staging"
+
+snapshot:
+  host_root: "/Users/sunjinghua.vendor/sunjh/ragscan-manual/snapshots"
+
+watch:
+  debounce_window: "10s"
+  max_batch_size: 512
+  recursive: true
+
+scan:
+  batch_size: 1000
+  max_concurrency: 2
+  large_file_threshold_mb: 200
+  # 白名单：只扫描这些类型（与 exclude_extensions 互斥，include 优先）
+  # include_extensions:
+  #   - ".pdf"
+  #   - ".docx"
+  #   - ".xlsx"
+  #   - ".pptx"
+  #   - ".txt"
+  #   - ".md"
+  # 黑名单：跳过这些类型
+  # exclude_extensions:
+  #   - ".tmp"
+  #   - ".log"
+  #   - ".DS_Store"
+
+security:
+  allowed_roots:
+    - "/Users/sunjinghua.vendor/sunjh/ragscan-manual"
+    - "/Users"
+    - "/home"
+    - "/data"
+
+http:
+  read_timeout: "10s"
+  write_timeout: "30s"
