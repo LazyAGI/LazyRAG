@@ -624,7 +624,7 @@ def _render_outcome(outcome: Mapping[str, Any], *, pretty: bool, output_path: st
     return 0 if outcome.get('status') in SUCCESSFUL_STATUSES else 1
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Run the simplified OpenCode report runner.')
     parser.add_argument(
         'input',
@@ -642,7 +642,7 @@ def main() -> int:
     parser.add_argument('--artifact-root', help='Optional directory for task artifacts.')
     parser.add_argument('--output', help='Write the final JSON to this file in addition to stdout.')
     parser.add_argument('--pretty', action='store_true', help='Pretty-print the JSON output.')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
         report_json_path = _resolve_cli_report_path(args.input, args.report_json)

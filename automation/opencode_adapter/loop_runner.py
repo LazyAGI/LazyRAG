@@ -20,7 +20,8 @@ LOOP_ARTIFACT_MISSING = 'LOOP_ARTIFACT_MISSING'
 MAX_ROUNDS_EXCEEDED = 'MAX_ROUNDS_EXCEEDED'
 REPORT_JSON_INVALID = 'REPORT_JSON_INVALID'
 DEFAULT_MAX_ROUNDS = 3
-DEFAULT_TESTS_PATH = 'tests'
+DEFAULT_TESTS_PATH = None
+DEFAULT_TEST_COMMAND = ('bash', 'tests/run-all.sh')
 DEFAULT_LOOP_ARTIFACT_ROOT = Path(tempfile.gettempdir()) / 'lazy-rag-loop'
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_ROOT = Path('algorithm/evo/output')
@@ -33,7 +34,7 @@ def run_report_fix_loop(
     repo_path: str,
     *,
     max_rounds: int = DEFAULT_MAX_ROUNDS,
-    tests_path: str = DEFAULT_TESTS_PATH,
+    tests_path: str | None = DEFAULT_TESTS_PATH,
     test_command: Sequence[str] | None = None,
     artifact_root: str | None = None,
     python_executable: str | None = None,
@@ -298,11 +299,15 @@ def _run_tests_once(
     *,
     repo_copy: Path,
     output_val_dir: Path,
-    tests_path: str,
+    tests_path: str | None,
     test_command: Sequence[str] | None,
     python_executable: str,
 ) -> Dict[str, Any]:
-    command = list(test_command) if test_command else [python_executable, '-m', 'pytest', tests_path]
+    command = _resolve_test_command(
+        tests_path=tests_path,
+        test_command=test_command,
+        python_executable=python_executable,
+    )
     result = subprocess.run(
         command,
         cwd=str(repo_copy),
@@ -322,6 +327,19 @@ def _run_tests_once(
         'log': log,
         'log_path': str(log_path),
     }
+
+
+def _resolve_test_command(
+    *,
+    tests_path: str | None,
+    test_command: Sequence[str] | None,
+    python_executable: str,
+) -> List[str]:
+    if test_command:
+        return list(test_command)
+    if tests_path and tests_path.strip():
+        return [python_executable, '-m', 'pytest', tests_path]
+    return list(DEFAULT_TEST_COMMAND)
 
 
 def _ensure_output_dirs(repo_copy: Path) -> tuple[Path, Path]:
