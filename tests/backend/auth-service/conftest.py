@@ -23,9 +23,9 @@ if _auth_svc not in sys.path:
 import pytest
 from fastapi.testclient import TestClient
 
-from main import app
-
 
 @pytest.fixture
 def client():
+    from main import app
+
     return TestClient(app)
