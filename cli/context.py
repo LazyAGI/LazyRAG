@@ -7,6 +7,7 @@ Resolution order: CLI flag > config file > env var > default/error.
 import json
 import os
 import sys
+import tempfile
 from typing import Any, Dict, Optional
 
 from cli.config import CREDENTIALS_DIR
@@ -37,10 +38,24 @@ def load_config() -> Dict[str, Any]:
 
 def save_config(data: Dict[str, Any]) -> None:
     CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + '\n',
-        encoding='utf-8',
+    content = json.dumps(data, indent=2, ensure_ascii=False) + '\n'
+    # Atomic replace so concurrent CLI invocations can't leave a half-written
+    # config.json on disk; the final os.replace is guaranteed atomic within a
+    # filesystem, so either the full old file or the full new file is visible.
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(CREDENTIALS_DIR), prefix='.config_tmp',
     )
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            handle.write(content)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, CONFIG_FILE)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def get(key: str) -> Optional[str]:

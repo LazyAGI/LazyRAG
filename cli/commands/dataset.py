@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from urllib.parse import quote, urlencode
 
 from cli import context
 from cli.client import auth_request, print_json
@@ -10,16 +11,21 @@ from cli.context import resolve_dataset
 
 
 def cmd_kb_create(args: argparse.Namespace) -> int:
-    payload = {
+    payload: dict = {
         'display_name': args.name,
         'desc': args.desc or '',
     }
+    # Only send `algo` when the user explicitly chose an algo_id.  The
+    # backend substitutes `__default__` when the field is absent, and that
+    # is the right fallback — binding to the retrieve-side `algo_dataset`
+    # default (`general_algo`) would regress deployments that only expose
+    # the backend's own default.
     if args.algo_id:
         payload['algo'] = {'algo_id': args.algo_id}
 
     query = ''
     if args.dataset_id:
-        query = f'?dataset_id={args.dataset_id}'
+        query = f'?{urlencode({"dataset_id": args.dataset_id})}'
 
     data = auth_request(
         'POST',
@@ -65,7 +71,7 @@ def cmd_kb_delete(args: argparse.Namespace) -> int:
 
     auth_request(
         'DELETE',
-        f'{CORE_API_PREFIX}/datasets/{dataset_id}',
+        f'{CORE_API_PREFIX}/datasets/{quote(dataset_id, safe="")}',
         server=args.server,
     )
 
@@ -81,9 +87,10 @@ def cmd_kb_delete(args: argparse.Namespace) -> int:
 
 
 def cmd_kb_list(args: argparse.Namespace) -> int:
-    params = f'?page_size={args.page_size}'
-    if args.page:
-        params += f'&page={args.page}'
+    query = {'page_size': str(args.page_size)}
+    if args.page is not None:
+        query['page'] = str(args.page)
+    params = f'?{urlencode(query)}'
     data = auth_request(
         'GET',
         f'{CORE_API_PREFIX}/datasets{params}',
@@ -94,7 +101,7 @@ def cmd_kb_list(args: argparse.Namespace) -> int:
     datasets = body.get('datasets') or []
     total = body.get('total', len(datasets))
 
-    if args.as_json:
+    if getattr(args, 'as_json', False):
         print_json(body)
         return 0
     if not datasets:

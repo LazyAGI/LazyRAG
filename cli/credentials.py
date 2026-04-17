@@ -9,17 +9,34 @@ from cli.config import CREDENTIALS_DIR, CREDENTIALS_FILE
 
 def _ensure_dir() -> None:
     CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+    # Credentials are per-user secrets; tighten dir permissions so
+    # other users on multi-tenant hosts can't enumerate our tokens.
+    try:
+        CREDENTIALS_DIR.chmod(0o700)
+    except OSError:
+        pass
 
 
 def save(data: Dict[str, Any]) -> None:
     """Persist login tokens to disk."""
     _ensure_dir()
-    data['saved_at'] = time.time()
+    # Copy so we don't mutate the caller's dict with our bookkeeping field.
+    to_write = {**data, 'saved_at': time.time()}
+    # Create with 0600 *before* writing to avoid the TOCTOU window between
+    # write_text and chmod where another process could read the token.
+    if not CREDENTIALS_FILE.exists():
+        import os
+        fd = os.open(
+            str(CREDENTIALS_FILE),
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            0o600,
+        )
+        os.close(fd)
+    CREDENTIALS_FILE.chmod(0o600)
     CREDENTIALS_FILE.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False),
+        json.dumps(to_write, indent=2, ensure_ascii=False),
         encoding='utf-8',
     )
-    CREDENTIALS_FILE.chmod(0o600)
 
 
 def load() -> Optional[Dict[str, Any]]:
@@ -37,8 +54,7 @@ def load() -> Optional[Dict[str, Any]]:
 
 def clear() -> None:
     """Remove stored credentials."""
-    if CREDENTIALS_FILE.exists():
-        CREDENTIALS_FILE.unlink()
+    CREDENTIALS_FILE.unlink(missing_ok=True)
 
 
 def access_token() -> Optional[str]:

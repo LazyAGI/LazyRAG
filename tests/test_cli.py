@@ -1,5 +1,6 @@
 """Unit tests for the cli package."""
 
+import argparse
 import json
 import sys
 import tempfile
@@ -251,6 +252,71 @@ class TestBuildParser(unittest.TestCase):
         self.assertEqual(args.command, 'kb-create')
         self.assertEqual(args.name, 'My KB')
         self.assertEqual(args.desc, 'test')
+
+
+class TestDatasetCommands(unittest.TestCase):
+    @mock.patch('cli.commands.dataset.context.set_key')
+    @mock.patch('cli.commands.dataset.auth_request')
+    def test_kb_create_omits_algo_when_not_given(
+        self, mock_auth_request, mock_set_key,
+    ):
+        from cli.commands import dataset as dataset_mod
+
+        mock_auth_request.return_value = {
+            'data': {'dataset_id': 'demo', 'display_name': 'Demo'},
+        }
+        args = argparse.Namespace(
+            name='Demo',
+            desc='',
+            algo_id=None,
+            dataset_id='demo',
+            server=None,
+            as_json=False,
+        )
+
+        result = dataset_mod.cmd_kb_create(args)
+
+        self.assertEqual(result, 0)
+        mock_auth_request.assert_called_once_with(
+            'POST',
+            '/api/core/datasets?dataset_id=demo',
+            server=None,
+            payload={'display_name': 'Demo', 'desc': ''},
+        )
+        mock_set_key.assert_called_once_with('dataset', 'demo')
+
+    @mock.patch('cli.commands.dataset.context.set_key')
+    @mock.patch('cli.commands.dataset.auth_request')
+    def test_kb_create_sends_explicit_algo(
+        self, mock_auth_request, mock_set_key,
+    ):
+        from cli.commands import dataset as dataset_mod
+
+        mock_auth_request.return_value = {
+            'data': {'dataset_id': 'demo', 'display_name': 'Demo'},
+        }
+        args = argparse.Namespace(
+            name='Demo',
+            desc='',
+            algo_id='custom_algo',
+            dataset_id='demo',
+            server=None,
+            as_json=False,
+        )
+
+        result = dataset_mod.cmd_kb_create(args)
+
+        self.assertEqual(result, 0)
+        mock_auth_request.assert_called_once_with(
+            'POST',
+            '/api/core/datasets?dataset_id=demo',
+            server=None,
+            payload={
+                'display_name': 'Demo',
+                'desc': '',
+                'algo': {'algo_id': 'custom_algo'},
+            },
+        )
 
     def test_kb_list_command(self):
         parser = build_parser()
@@ -522,23 +588,48 @@ class TestDocUpdateCommand(unittest.TestCase):
 
 
 class TestUploadCommand(unittest.TestCase):
+    def setUp(self):
+        from cli import upload_state as state_mod
+        from cli import config as config_mod
+        self._tmpdir = tempfile.mkdtemp()
+        self._orig_creds = config_mod.CREDENTIALS_DIR
+        self._orig_runs = state_mod.RUNS_DIR
+        self._orig_ds = state_mod.DATASETS_DIR
+        config_mod.CREDENTIALS_DIR = Path(self._tmpdir)
+        state_mod.RUNS_DIR = Path(self._tmpdir) / 'runs'
+        state_mod.DATASETS_DIR = Path(self._tmpdir) / 'datasets'
+
+    def tearDown(self):
+        from cli import upload_state as state_mod
+        from cli import config as config_mod
+        config_mod.CREDENTIALS_DIR = self._orig_creds
+        state_mod.RUNS_DIR = self._orig_runs
+        state_mod.DATASETS_DIR = self._orig_ds
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    @mock.patch('cli.commands.upload._load_remote_docs', return_value=[])
     @mock.patch('cli.commands.upload.wait_for_tasks')
     @mock.patch('cli.commands.upload.start_tasks')
     @mock.patch('cli.commands.upload.upload_single_file')
-    @mock.patch('cli.commands.upload.collect_files')
     @mock.patch('cli.commands.upload.resolve_dataset', return_value='ds1')
     def test_wait_treats_success_as_success(
         self,
         mock_resolve,
-        mock_collect_files,
         mock_upload_single_file,
         mock_start_tasks,
         mock_wait_for_tasks,
+        mock_remote_docs,
     ):
-        mock_collect_files.return_value = [('/tmp/doc.txt', 'doc.txt')]
+        # Create a real temp dir with one file
+        src_dir = Path(self._tmpdir) / 'src'
+        src_dir.mkdir()
+        (src_dir / 'doc.txt').write_text('hello')
+
         mock_upload_single_file.return_value = {
             'task_id': 'task-1',
             'task_state': 'CREATING',
+            'document_id': 'doc-1',
         }
         mock_start_tasks.return_value = {
             'started_count': 1,
@@ -552,13 +643,157 @@ class TestUploadCommand(unittest.TestCase):
         args = build_parser().parse_args([
             'upload',
             '--dataset', 'ds1',
-            '--dir', '/tmp/docs',
+            '--dir', str(src_dir),
             '--wait',
         ])
 
         result = upload_mod.cmd_upload(args)
 
         self.assertEqual(result, 0)
+
+    def test_upload_requires_mode(self):
+        # no --dir / --resume / --retry-failed → error
+        args = build_parser().parse_args(['upload', '--dataset', 'ds1'])
+        result = upload_mod.cmd_upload(args)
+        self.assertEqual(result, 1)
+
+    @mock.patch('cli.commands.upload._load_remote_docs', return_value=[])
+    @mock.patch('cli.commands.upload.wait_for_tasks')
+    @mock.patch('cli.commands.upload.start_tasks')
+    @mock.patch('cli.commands.upload.upload_single_file')
+    @mock.patch('cli.commands.upload.resolve_dataset', return_value='ds1')
+    def test_parse_failure_is_captured_for_retry(
+        self, mock_resolve, mock_upload,
+        mock_start, mock_wait, mock_remote,
+    ):
+        """Parse-phase failure must land in state.failed so retry-failed picks it."""
+        from cli import upload_state
+        src_dir = Path(self._tmpdir) / 'src'
+        src_dir.mkdir()
+        (src_dir / 'doc.txt').write_text('hello')
+
+        mock_upload.return_value = {
+            'task_id': 'task-1', 'task_state': 'CREATING',
+            'document_id': 'doc-1',
+        }
+        mock_start.return_value = {
+            'started_count': 1, 'failed_count': 0,
+            'tasks': [{'task_id': 'task-1', 'status': 'STARTED'}],
+        }
+        mock_wait.return_value = {
+            'task-1': {'task_state': 'FAILED', 'err_msg': 'bad parse'},
+        }
+
+        # Invoke the on_finish callback during wait
+        def _fake_wait(dataset_id, tids, **kwargs):
+            cb = kwargs.get('on_finish')
+            if cb:
+                cb('task-1', {'task_state': 'FAILED', 'err_msg': 'bad parse'})
+            return {'task-1': {'task_state': 'FAILED', 'err_msg': 'bad parse'}}
+        mock_wait.side_effect = _fake_wait
+
+        args = build_parser().parse_args([
+            'upload', '--dataset', 'ds1', '--dir', str(src_dir), '--wait',
+        ])
+        result = upload_mod.cmd_upload(args)
+        self.assertEqual(result, 1)
+
+        # doc.txt must be in state.failed, not in uploaded
+        run = upload_state.latest_run('ds1')
+        state = upload_state.read_state(run)
+        self.assertIn('doc.txt', state.get('failed', {}))
+        self.assertEqual(
+            state['failed']['doc.txt']['phase'], 'wait',
+        )
+        self.assertNotIn('doc.txt', state.get('uploaded', {}))
+
+        # Cross-run index must NOT contain the failed file
+        idx = upload_state.load_index('ds1')
+        self.assertNotIn('doc.txt', idx)
+
+    @mock.patch('cli.commands.upload._load_remote_docs', return_value=[])
+    @mock.patch('cli.commands.upload.wait_for_tasks')
+    @mock.patch('cli.commands.upload.start_tasks')
+    @mock.patch('cli.commands.upload.upload_single_file')
+    @mock.patch('cli.commands.upload.resolve_dataset', return_value='ds1')
+    def test_start_failure_is_captured_for_retry(
+        self, mock_resolve, mock_upload,
+        mock_start, mock_wait, mock_remote,
+    ):
+        """Start-phase failure must land in state.failed."""
+        from cli import upload_state
+        src_dir = Path(self._tmpdir) / 'src'
+        src_dir.mkdir()
+        (src_dir / 'doc.txt').write_text('hello')
+
+        mock_upload.return_value = {
+            'task_id': 'task-1', 'task_state': 'CREATING',
+            'document_id': 'doc-1',
+        }
+        # Task in response has status != STARTED → start failure
+        mock_start.return_value = {
+            'started_count': 0, 'failed_count': 1,
+            'tasks': [{
+                'task_id': 'task-1', 'status': 'REJECTED',
+                'message': 'quota exceeded',
+            }],
+        }
+
+        args = build_parser().parse_args([
+            'upload', '--dataset', 'ds1', '--dir', str(src_dir),
+        ])
+        result = upload_mod.cmd_upload(args)
+        self.assertEqual(result, 1)
+
+        run = upload_state.latest_run('ds1')
+        state = upload_state.read_state(run)
+        self.assertIn('doc.txt', state.get('failed', {}))
+        self.assertEqual(state['failed']['doc.txt']['phase'], 'start')
+        self.assertNotIn('doc.txt', state.get('uploaded', {}))
+
+    @mock.patch('cli.commands.upload._load_remote_docs', return_value=[])
+    @mock.patch('cli.commands.upload.wait_for_tasks')
+    @mock.patch('cli.commands.upload.start_tasks')
+    @mock.patch('cli.commands.upload.upload_single_file')
+    @mock.patch('cli.commands.upload.resolve_dataset', return_value='ds1')
+    def test_success_records_to_cross_run_index(
+        self, mock_resolve, mock_upload,
+        mock_start, mock_wait, mock_remote,
+    ):
+        """Only SUCCESS tasks should be persisted to uploaded.json."""
+        from cli import upload_state
+        src_dir = Path(self._tmpdir) / 'src'
+        src_dir.mkdir()
+        (src_dir / 'doc.txt').write_text('hello')
+
+        mock_upload.return_value = {
+            'task_id': 'task-1', 'task_state': 'CREATING',
+            'document_id': 'doc-1',
+        }
+        mock_start.return_value = {
+            'started_count': 1, 'failed_count': 0,
+            'tasks': [{'task_id': 'task-1', 'status': 'STARTED'}],
+        }
+
+        def _fake_wait(dataset_id, tids, **kwargs):
+            cb = kwargs.get('on_finish')
+            if cb:
+                cb('task-1', {'task_state': 'SUCCESS'})
+            return {'task-1': {'task_state': 'SUCCESS'}}
+        mock_wait.side_effect = _fake_wait
+
+        args = build_parser().parse_args([
+            'upload', '--dataset', 'ds1', '--dir', str(src_dir), '--wait',
+        ])
+        result = upload_mod.cmd_upload(args)
+        self.assertEqual(result, 0)
+
+        # doc.txt should be in the server-scoped cross-run index now that
+        # the manifest records which server the run targeted.
+        from cli.client import resolve_server_url
+        server = resolve_server_url(None)
+        idx = upload_state.load_index('ds1', server)
+        self.assertIn('doc.txt', idx)
 
 
 class TestChunkCommand(unittest.TestCase):
@@ -830,6 +1065,221 @@ class TestRetrieveDockerMode(unittest.TestCase):
         self.assertEqual(result, 0)
         mock_run_local.assert_called_once_with(args)
         mock_find_container.assert_not_called()
+
+
+class TestUploadState(unittest.TestCase):
+    def setUp(self):
+        from cli import upload_state as state_mod
+        self._tmpdir = tempfile.mkdtemp()
+        self._orig_runs = state_mod.RUNS_DIR
+        self._orig_ds = state_mod.DATASETS_DIR
+        state_mod.RUNS_DIR = Path(self._tmpdir) / 'runs'
+        state_mod.DATASETS_DIR = Path(self._tmpdir) / 'datasets'
+
+    def tearDown(self):
+        from cli import upload_state as state_mod
+        state_mod.RUNS_DIR = self._orig_runs
+        state_mod.DATASETS_DIR = self._orig_ds
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_new_run_creates_dir(self):
+        from cli import upload_state
+        run_id, run_dir = upload_state.new_run('ds_abc')
+        self.assertTrue(run_dir.exists())
+        self.assertIn('ds_abc', run_id)
+
+    def test_write_read_manifest(self):
+        from cli import upload_state
+        _, run_dir = upload_state.new_run('ds1')
+        data = {'run_id': 'r1', 'files': [{'relative_path': 'a.txt'}]}
+        upload_state.write_manifest(run_dir, data)
+        loaded = upload_state.read_manifest(run_dir)
+        self.assertEqual(loaded['run_id'], 'r1')
+
+    def test_update_state_merges_dicts(self):
+        from cli import upload_state
+        _, run_dir = upload_state.new_run('ds1')
+        upload_state.write_state(run_dir, {
+            'uploaded': {'a.txt': {'task_id': 't1'}},
+            'failed': {},
+        })
+        upload_state.update_state(
+            run_dir, uploaded={'b.txt': {'task_id': 't2'}},
+        )
+        state = upload_state.read_state(run_dir)
+        self.assertEqual(set(state['uploaded'].keys()), {'a.txt', 'b.txt'})
+
+    def test_index_round_trip(self):
+        from cli import upload_state
+        upload_state.record_upload('ds1', 'a.txt', {
+            'size': 100, 'mtime': 1000, 'document_id': 'd1',
+        })
+        idx = upload_state.load_index('ds1')
+        self.assertIn('a.txt', idx)
+        upload_state.remove_from_index('ds1', 'a.txt')
+        self.assertNotIn('a.txt', upload_state.load_index('ds1'))
+
+    def test_classify_new_file(self):
+        from cli import upload_state
+        local = [{'relative_path': 'new.txt', 'size': 10, 'mtime': 1}]
+        cats = upload_state.classify_files(local, [], {})
+        self.assertEqual(len(cats['new']), 1)
+        self.assertEqual(len(cats['changed']), 0)
+        self.assertEqual(len(cats['existing']), 0)
+
+    def test_classify_existing_by_size(self):
+        from cli import upload_state
+        local = [{'relative_path': 'a.txt', 'size': 10, 'mtime': 1}]
+        remote = [{'rel_path': 'a.txt', 'document_size': 10,
+                   'document_id': 'd1'}]
+        # No local index → conservative: existing
+        cats = upload_state.classify_files(local, remote, {})
+        self.assertEqual(len(cats['existing']), 1)
+
+    def test_classify_changed_by_size(self):
+        from cli import upload_state
+        local = [{'relative_path': 'a.txt', 'size': 20, 'mtime': 2}]
+        remote = [{'rel_path': 'a.txt', 'document_size': 10,
+                   'document_id': 'd1'}]
+        idx = {'a.txt': {'size': 10, 'mtime': 1}}
+        cats = upload_state.classify_files(local, remote, idx)
+        self.assertEqual(len(cats['changed']), 1)
+        self.assertEqual(cats['changed'][0]['remote_document_id'], 'd1')
+
+    def test_classify_changed_by_mtime(self):
+        from cli import upload_state
+        local = [{'relative_path': 'a.txt', 'size': 10, 'mtime': 2}]
+        remote = [{'rel_path': 'a.txt', 'document_size': 10,
+                   'document_id': 'd1'}]
+        idx = {'a.txt': {'size': 10, 'mtime': 1}}
+        cats = upload_state.classify_files(local, remote, idx)
+        self.assertEqual(len(cats['changed']), 1)
+
+    def test_classify_existing_full_match(self):
+        from cli import upload_state
+        local = [{'relative_path': 'a.txt', 'size': 10, 'mtime': 1}]
+        remote = [{'rel_path': 'a.txt', 'document_size': 10,
+                   'document_id': 'd1'}]
+        idx = {'a.txt': {'size': 10, 'mtime': 1}}
+        cats = upload_state.classify_files(local, remote, idx)
+        self.assertEqual(len(cats['existing']), 1)
+
+    def test_classify_ignores_failed_remote(self):
+        """Remote doc with FAILED status must surface as changed (not new)
+        so --replace-changed can delete the orphan doc before re-upload
+        instead of silently creating a duplicate."""
+        from cli import upload_state
+        local = [{'relative_path': 'a.txt', 'size': 10, 'mtime': 1}]
+        remote = [{'rel_path': 'a.txt', 'document_size': 10,
+                   'document_id': 'd1', 'status': 'FAILED'}]
+        idx = {'a.txt': {'size': 10, 'mtime': 1}}
+        cats = upload_state.classify_files(local, remote, idx)
+        self.assertEqual(len(cats['new']), 0)
+        self.assertEqual(len(cats['existing']), 0)
+        self.assertEqual(len(cats['changed']), 1)
+        self.assertEqual(cats['changed'][0]['remote_document_id'], 'd1')
+
+
+class TestTaskLifecycleCommands(unittest.TestCase):
+    @mock.patch('cli.commands.task.auth_request')
+    @mock.patch('cli.commands.task.resolve_dataset', return_value='ds1')
+    def test_task_cancel(self, mock_resolve, mock_auth):
+        from cli.commands import task as task_mod
+        mock_auth.return_value = {}
+        args = build_parser().parse_args([
+            'task-cancel', 'task-xyz', '--dataset', 'ds1',
+        ])
+        result = task_mod.cmd_task_cancel(args)
+        self.assertEqual(result, 0)
+        call = mock_auth.call_args
+        self.assertEqual(call[0][0], 'POST')
+        self.assertIn(':suspend', call[0][1])
+
+    @mock.patch('cli.commands.task.auth_request')
+    @mock.patch('cli.commands.task.resolve_dataset', return_value='ds1')
+    def test_task_resume(self, mock_resolve, mock_auth):
+        from cli.commands import task as task_mod
+        mock_auth.return_value = {}
+        args = build_parser().parse_args([
+            'task-resume', 'task-xyz', '--dataset', 'ds1',
+        ])
+        result = task_mod.cmd_task_resume(args)
+        self.assertEqual(result, 0)
+        call = mock_auth.call_args
+        self.assertEqual(call[0][0], 'POST')
+        self.assertIn(':resume', call[0][1])
+
+
+class TestRunCommands(unittest.TestCase):
+    def setUp(self):
+        from cli import upload_state as state_mod
+        self._tmpdir = tempfile.mkdtemp()
+        self._orig_runs = state_mod.RUNS_DIR
+        self._orig_ds = state_mod.DATASETS_DIR
+        state_mod.RUNS_DIR = Path(self._tmpdir) / 'runs'
+        state_mod.DATASETS_DIR = Path(self._tmpdir) / 'datasets'
+
+    def tearDown(self):
+        from cli import upload_state as state_mod
+        state_mod.RUNS_DIR = self._orig_runs
+        state_mod.DATASETS_DIR = self._orig_ds
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_run_list_empty(self):
+        from cli.commands import run as run_mod
+        args = build_parser().parse_args([
+            'run-list', '--all', '--json',
+        ])
+        result = run_mod.cmd_run_list(args)
+        self.assertEqual(result, 0)
+
+    def test_run_list_with_data(self):
+        from cli import upload_state
+        from cli.commands import run as run_mod
+        _, run_dir = upload_state.new_run('ds1')
+        upload_state.write_manifest(run_dir, {
+            'run_id': run_dir.name, 'dataset_id': 'ds1',
+            'root_dir': '/tmp/x', 'created_at': 1000, 'files': [],
+        })
+        upload_state.write_state(run_dir, {
+            'status': 'completed',
+            'uploaded': {'a.txt': {}}, 'failed': {}, 'skipped': {},
+        })
+        args = build_parser().parse_args([
+            'run-list', '--dataset', 'ds1', '--json',
+        ])
+        result = run_mod.cmd_run_list(args)
+        self.assertEqual(result, 0)
+
+    @mock.patch('cli.commands.run.auth_request')
+    def test_run_undo_deletes_documents(self, mock_auth):
+        from cli import upload_state
+        from cli.commands import run as run_mod
+        mock_auth.return_value = {}
+
+        _, run_dir = upload_state.new_run('ds1')
+        upload_state.write_manifest(run_dir, {
+            'run_id': run_dir.name, 'dataset_id': 'ds1', 'files': [],
+        })
+        upload_state.write_state(run_dir, {
+            'status': 'completed',
+            'uploaded': {
+                'a.txt': {'document_id': 'doc-a', 'task_id': 't1'},
+                'b.txt': {'document_id': 'doc-b', 'task_id': 't2'},
+            },
+        })
+
+        args = build_parser().parse_args([
+            'run-undo', run_dir.name, '-y',
+        ])
+        result = run_mod.cmd_run_undo(args)
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_auth.call_count, 2)
+        # Verify status updated to 'undone'
+        new_state = upload_state.read_state(run_dir)
+        self.assertEqual(new_state.get('status'), 'undone')
 
 
 if __name__ == '__main__':

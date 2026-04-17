@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from typing import Any, Dict, List
+from urllib.parse import quote, urlencode
 
 from cli.client import auth_request, print_json
 from cli.config import CORE_API_PREFIX
@@ -46,13 +47,15 @@ def _print_docs(docs: List[Dict[str, Any]]) -> None:
 
 def cmd_doc_list(args: argparse.Namespace) -> int:
     dataset_id = resolve_dataset(args.dataset)
-    params = f'?page_size={args.page_size}'
-    if args.page:
-        params += f'&page={args.page}'
+    query = {'page_size': str(args.page_size)}
+    if args.page is not None:
+        query['page'] = str(args.page)
+    params = f'?{urlencode(query)}'
 
     data = auth_request(
         'GET',
-        f'{CORE_API_PREFIX}/datasets/{dataset_id}/documents{params}',
+        f'{CORE_API_PREFIX}/datasets/{quote(dataset_id, safe="")}'
+        f'/documents{params}',
         server=args.server,
     )
     body = data.get('data', data)
@@ -92,8 +95,8 @@ def cmd_doc_delete(args: argparse.Namespace) -> int:
 
     auth_request(
         'DELETE',
-        f'{CORE_API_PREFIX}/datasets/{dataset_id}'
-        f'/documents/{document_id}',
+        f'{CORE_API_PREFIX}/datasets/{quote(dataset_id, safe="")}'
+        f'/documents/{quote(document_id, safe="")}',
         server=args.server,
     )
 
@@ -128,8 +131,8 @@ def cmd_doc_update(args: argparse.Namespace) -> int:
 
     data = auth_request(
         'PATCH',
-        f'{CORE_API_PREFIX}/datasets/{dataset_id}'
-        f'/documents/{document_id}',
+        f'{CORE_API_PREFIX}/datasets/{quote(dataset_id, safe="")}'
+        f'/documents/{quote(document_id, safe="")}',
         server=args.server,
         payload=payload,
     )

@@ -1,8 +1,10 @@
 # LazyRAG CLI 操作手册
 
-`lazyrag` 是 LazyRAG 的命令行入口，面向算法同学和 code agent，覆盖认证、知识库管理、目录导入、任务检查、文档查看、切块检查和检索验证。
+`lazyrag` 是 LazyRAG 的命令行入口，面向算法同学和 code agent，覆盖认证、知识库管理、目录导入、任务检查、文档查看、切块检查、检索验证、上传恢复与回滚。
 
-如果你的目标是“尽快把一批文件导入知识库，然后确认解析和检索结果是否正常”，优先看“首次使用”和“常见场景”两节。
+如果你的目标是”尽快把一批文件导入知识库，然后确认解析和检索结果是否正常”，优先看”首次使用”和”常见场景”两节。
+
+`upload` 是状态感知的命令：每次运行都会在 `~/.lazyrag/runs/<run_id>/` 留下 manifest/state/result 三份文件，支持去重跳过、中断恢复、仅重跑失败项，以及通过 `run-undo` 一键回滚。
 
 ## 1. 使用前准备
 
@@ -92,7 +94,7 @@
 ### 场景四：做一次检索 smoke test
 
 ```bash
-# 设置默认 remote algo document，后续 retrieve 可省略 --algo-dataset
+# 设置默认 algo dataset ID，后续 retrieve 可省略 --algo-dataset
 ./lazyrag config set algo_dataset general_algo
 
 # 默认模式：本地优先进入 lazyllm-algo 容器执行检索
@@ -101,7 +103,7 @@
 
 # 指定 runtime_models 配置文件执行检索
 ./lazyrag retrieve '介绍一下解析链路' \
-  --config /Users/chenjiahao/Desktop/codes/LazyRAG/algorithm/chat/runtime_models.yaml \
+  --config ./algorithm/chat/runtime_models.yaml \
   --json
 ```
 
@@ -115,6 +117,52 @@
 ```
 
 如果 `kb-delete` 不传 `--dataset`，默认删除当前 `use` 选中的 dataset。
+
+### 场景六：传错目录想整批干掉
+
+```bash
+# 找到那次 run
+./lazyrag run-list
+
+# 回滚这次 run 上传的所有 document
+./lazyrag run-undo <run_id> -y
+```
+
+`run-undo` 会删除该 run 创建的所有 document，同时清理本地 uploaded 索引。
+
+### 场景七：漏了几个文件想补上
+
+```bash
+# 把新文件放进目录，直接再跑一次即可
+./lazyrag upload --dir ./docs --wait
+```
+
+去重基于 `relative_path + size + mtime`，已存在且未变化的文件会自动跳过（identical existing 永远 skipped）。
+
+### 场景八：改了几个文件想重传
+
+```bash
+./lazyrag upload --dir ./docs --replace-changed --wait
+```
+
+CLI 把 mtime/size 变化的文件归为 `changed`，`--replace-changed` 会先删除远端旧 document 再上传新版本。
+
+### 场景九：上传过程中断，想继续
+
+```bash
+# 上次被 Ctrl-C 中断，终端提示了 run_id
+./lazyrag upload --resume <run_id>
+```
+
+恢复会跳过已成功的文件，只处理剩余的 pending 项。
+
+### 场景十：只重跑上次失败的
+
+```bash
+./lazyrag upload --retry-failed --wait
+```
+
+会自动找到该 dataset 最近一次 run 里的 `failed` 文件，单独组成新 run 重试。
 
 ## 4. 认证与登录
 
@@ -214,7 +262,7 @@ CLI 通过 Kong 网关访问服务，需要先登录。凭证默认保存在 `~/
 
 - `--name` 必填，知识库展示名
 - `--dataset-id` 可选，显式指定 dataset ID；不传则自动生成
-- `--algo-id` 可选，关联算法 ID；默认是 `__default__`
+- `--algo-id` 可选，关联算法 ID；默认取本地 `algo_dataset` 配置或环境变量，通常是 `general_algo`
 
 ### 列出知识库
 
@@ -230,36 +278,94 @@ CLI 通过 Kong 网关访问服务，需要先登录。凭证默认保存在 `~/
 
 ## 7. 目录上传与任务查看
 
-### 上传一个目录
+`upload` 是状态感知的批量导入命令，支持去重、中断恢复、失败重试。每次运行都会在 `~/.lazyrag/runs/<run_id>/` 留下完整记录。
+
+### 三种模式
+
+`upload` 必须指定一种模式（`--dir` / `--resume` / `--retry-failed` 三选一）：
 
 ```bash
-./lazyrag upload --dataset <dataset_id> --dir <path> [options]
+# 模式一：扫一个新目录
+./lazyrag upload --dir ./docs --wait
+
+# 模式二：恢复上次中断的 run
+./lazyrag upload --resume <run_id>
+./lazyrag upload --resume /abs/path/to/manifest.json
+
+# 模式三：只重跑该 dataset 最近一次 run 的失败项
+./lazyrag upload --retry-failed --wait
 ```
 
-这个命令会扫描本地目录，把匹配到的文件通过 `batchUpload` 接口逐个上传，并为每个文件创建解析任务。
-
-常用参数：
+### 参数速查
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
+| `--dir` / `--directory` | 无 | 要上传的本地目录 |
+| `--resume` | 无 | 恢复指定 run（`run_id` 或 manifest 绝对路径） |
+| `--retry-failed` | 无 | 仅重跑最近一次 run 的失败项 |
 | `--extensions` | 全部后缀 | 逗号分隔，例如 `pdf,docx,txt` |
 | `--limit` | 不限制 | 最多上传多少个文件 |
 | `--recursive` / `--no-recursive` | 递归扫描 | 是否扫描子目录 |
 | `--include-hidden` | `false` | 是否包含隐藏文件和隐藏目录 |
-| `--wait` | `false` | 是否阻塞等待所有解析任务结束 |
+| `--replace-changed` | `false` | 对 `changed` 文件先删除旧 doc 再上传 |
+| `--wait` | `false` | 阻塞等待所有解析任务结束 |
 | `--wait-interval` | `3.0s` | `--wait` 模式下的轮询间隔 |
 | `--wait-timeout` | `0` | 最长等待秒数，`0` 表示一直等 |
 | `--timeout` | `300s` | 单个文件上传请求超时 |
+| `--report-json <path>` | 无 | 额外输出机器可读报告到文件 |
+| `--json` | `false` | stdout 输出结构化结果 |
 
-示例：
+### 去重分类规则
+
+`upload` 在正式上传前会比对三处信号：
+
+- 本地扫描结果（`relative_path + size + mtime`）
+- 远端 `doc-list`（`relative_path + document_size`）
+- 本地 uploaded 索引 `~/.lazyrag/datasets/<dataset_id>/uploaded.json`（`size + mtime`）
+
+分类规则：
+
+- `new`：远端无该路径，或远端 doc 状态是 `FAILED` → 直接上传
+- `changed`：远端有该路径但 size 不一致，或本地索引中的 size/mtime 与当前不一致 → 默认**不上传**并打印警告，除非传 `--replace-changed`
+- `existing`：远端健康且 size 一致 → **总是 skipped**（identical 文件没有重传的理由）
+
+跨 run 索引 (`~/.lazyrag/datasets/<ds>/uploaded.json`) 只会在任务真正 SUCCESS 后才写入。解析失败的 document 不会污染索引，下次运行会正确地重新上传。
+
+### 示例
 
 ```bash
-# 上传目录下所有 PDF 和 DOCX，并等待解析结束
-./lazyrag upload --dataset ds-abc123 --dir ./documents --extensions pdf,docx --wait
+# 第一次上传（尚未登录就要先 login）
+./lazyrag upload --dir ./documents --extensions pdf,docx --wait
 
-# 只上传顶层文件，不递归扫描，最多上传 10 个
-./lazyrag upload --dataset ds-abc123 --dir ./documents --no-recursive --limit 10
+# 追加新文件（identical existing 自动 skipped）
+./lazyrag upload --dir ./documents --wait
+
+# 覆盖被修改的文件
+./lazyrag upload --dir ./documents --replace-changed --wait
+
+# 只重跑失败的
+./lazyrag upload --retry-failed --wait
+
+# 恢复中断的 run（KeyboardInterrupt 后终端会显示 run_id）
+./lazyrag upload --resume 20260414T163045-ds_abc123
+
+# 额外写机器可读报告
+./lazyrag upload --dir ./documents --wait --report-json /tmp/report.json --json
 ```
+
+### 本地 run 目录结构
+
+```text
+~/.lazyrag/
+├── datasets/<dataset_id>/
+│   └── uploaded.json          # 跨 run 的 uploaded 索引
+└── runs/<run_id>/             # 每次 upload 一个目录
+    ├── manifest.json          # 扫目录快照
+    ├── state.json             # 实时进度（uploaded/skipped/failed/...）
+    └── result.json            # 最终总结
+```
+
+每上传一个文件都会原子地更新 `state.json`，即使 Ctrl-C 也能安全 `--resume`。
 
 ### 目录层级处理说明
 
@@ -284,7 +390,53 @@ CLI 会把文件的相对路径传给服务端，但当前服务端只会根据 
 ./lazyrag task-get [--dataset <dataset_id>] <task_id>
 ```
 
-## 8. 文档与切块检查
+### 取消运行中的任务
+
+```bash
+./lazyrag task-cancel <task_id> [--dataset <dataset_id>] [--json]
+```
+
+对应后端 `:suspend` 端点，实际会把任务状态转为 `CANCELED`。
+
+### 恢复被挂起的任务
+
+```bash
+./lazyrag task-resume <task_id> [--dataset <dataset_id>] [--json]
+```
+
+仅对 `SUSPENDED` 态任务有效；对 `CANCELED` 任务的行为由后端决定。
+
+## 8. 上传 run 管理
+
+每次 `upload` 都是一个 run，本地状态存放在 `~/.lazyrag/runs/<run_id>/`。通过 `run-list` / `run-undo` 查看历史和回滚。
+
+### 列出历史 run
+
+```bash
+./lazyrag run-list                    # 当前默认 dataset 的 run
+./lazyrag run-list --dataset <id>     # 指定 dataset
+./lazyrag run-list --all              # 所有 dataset
+./lazyrag run-list --json
+```
+
+每行会显示 `run_id / status / uploaded / failed / created_at / dataset`。
+
+### 回滚一次 run
+
+```bash
+./lazyrag run-undo <run_id> [-y] [--json]
+```
+
+`run-undo` 会：
+
+1. 读 `~/.lazyrag/runs/<run_id>/state.json`
+2. 对每个已上传的 `document_id` 调用 `DELETE /datasets/{ds}/documents/{doc_id}`
+3. 从本地 `uploaded.json` 索引中移除对应条目
+4. 把该 run 的 `status` 标为 `undone`
+
+单个删除失败时会继续处理剩余，最后汇总打印错误项。
+
+## 9. 文档与切块检查
 
 ### 查看文档列表
 
@@ -314,7 +466,7 @@ CLI 会把文件的相对路径传给服务端，但当前服务端只会根据 
 
 适合用于确认解析后的 `segments / total_size / 内容片段` 是否符合预期。
 
-## 9. 检索验证
+## 10. 检索验证
 
 ### 最简单的用法
 
@@ -348,13 +500,13 @@ CLI 会把文件的相对路径传给服务端，但当前服务端只会根据 
 
 ```bash
 ./lazyrag retrieve '介绍一下解析链路' \
-  --config /Users/chenjiahao/Desktop/codes/LazyRAG/algorithm/chat/runtime_models.yaml \
+  --config ./algorithm/chat/runtime_models.yaml \
   --json
 ```
 
 这个模式适合验证某份 `runtime_models.yaml` 中定义的检索配置是否真的能跑通。
 
-## 10. 环境配置
+## 11. 环境配置
 
 ### Server 地址
 
@@ -379,7 +531,7 @@ export LAZYRAG_HOME=/custom/path
 
 此时凭证会写入 `/custom/path/credentials.json`。
 
-## 11. 命令速查
+## 12. 命令速查
 
 ### 认证
 
@@ -413,8 +565,21 @@ export LAZYRAG_HOME=/custom/path
 
 ```bash
 ./lazyrag upload --dir ./docs --wait
+./lazyrag upload --dir ./docs --replace-changed --wait
+./lazyrag upload --resume <run_id>
+./lazyrag upload --retry-failed --wait
 ./lazyrag task-list
 ./lazyrag task-get <task_id>
+./lazyrag task-cancel <task_id>
+./lazyrag task-resume <task_id>
+```
+
+### 上传 run 管理
+
+```bash
+./lazyrag run-list
+./lazyrag run-list --all
+./lazyrag run-undo <run_id> -y
 ```
 
 ### 文档与切块
@@ -430,10 +595,12 @@ export LAZYRAG_HOME=/custom/path
 
 ```bash
 ./lazyrag retrieve '介绍一下解析链路'
+./lazyrag retrieve '介绍一下解析链路' --topk 10 --group-name block --json
+./lazyrag retrieve '介绍一下解析链路' --url http://algo:8000 --algo-dataset general_algo
 ./lazyrag retrieve '介绍一下解析链路' --config /path/to/runtime_models.yaml
 ```
 
-## 12. 系统链路说明
+## 13. 系统链路说明
 
 ```text
 CLI (lazyrag)
@@ -449,7 +616,7 @@ Kong API Gateway (:8000)
 
 CLI 基于 Python 标准库 `urllib` 实现，没有引入额外依赖；所有请求都通过 Kong 网关，鉴权依赖 JWT。
 
-## 13. 代码目录
+## 14. 代码目录
 
 ```text
 cli/
@@ -458,6 +625,8 @@ cli/
 ├── main.py
 ├── config.py
 ├── credentials.py
+├── context.py
+├── upload_state.py        # run 目录 + uploaded 索引 + dedup 分类
 ├── client.py
 └── commands/
     ├── __init__.py
@@ -467,14 +636,21 @@ cli/
     ├── dataset.py
     ├── doc.py
     ├── retrieve.py
+    ├── run.py             # run-list, run-undo
+    ├── task.py            # task-cancel, task-resume
     └── upload.py
 lazyrag
 tests/test_cli.py
 ```
 
-## 14. 已知边界
+## 15. 已知边界
 
 - 上传目录时，服务端只会按第一层路径创建顶层文件夹，不支持完整嵌套目录重建
 - 默认 `retrieve` 本地模式更适合本地 compose 或开发环境；远程部署场景建议显式传 `--url`
 - 当前测试仍以单测为主，完整端到端行为仍需要结合真实运行栈做集成验证
-- 单个文件上传失败后不会自动重试，需要手动重新执行命令
+- 上传失败项不会自动重试，需要用 `lazyrag upload --retry-failed` 或 `--resume` 手动触发
+- 本地 run 目录不会自动清理，`~/.lazyrag/runs/` 需要用户自行清理（没有内置 `runs prune` 命令）
+- 后端 `task-cancel` 实际对应 `:suspend` 端点，转移到 `CANCELED` 态，不是真正的暂停；`task-resume` 只对 `SUSPENDED` 态任务有效
+- dedup 信号源：远端 `doc-list` 只能提供 `relative_path + document_size`，精到 `mtime` 的判断依赖本地 `~/.lazyrag/datasets/<ds>/uploaded.json` 索引。首次在一台新机器上对一个已有 dataset 运行 `upload`，所有文件会被保守地归为 `existing`（除非远端 doc 状态是 FAILED）
+- 跨 run 索引只会在任务真正 SUCCESS 之后才写入：非 `--wait` 模式下 `uploaded.json` 不会更新，下次运行 dedup 退化为"所有文件都没有本地索引"的保守态
+- 当前 CLI 是单机串行上传，没有 `--jobs` 并发（规划中）

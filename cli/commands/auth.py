@@ -7,6 +7,7 @@ import sys
 from cli import credentials
 from cli.client import (
     ApiError,
+    _try_refresh,
     auth_request,
     print_json,
     raw_request,
@@ -49,10 +50,15 @@ def cmd_register(args: argparse.Namespace) -> int:
     if not password:
         print('Password is required.', file=sys.stderr)
         return 1
-    confirm = args.password or _prompt_password('Confirm password')
-    if password != confirm:
-        print('Passwords do not match.', file=sys.stderr)
-        return 1
+    # When the password is passed via -p/--password (non-interactive), treat
+    # it as already confirmed; confirm-prompt is only meaningful when the
+    # user types the password twice at the TTY.
+    if not args.password:
+        confirm = _prompt_password('Confirm password')
+        if password != confirm:
+            print('Passwords do not match.', file=sys.stderr)
+            return 1
+    confirm = password
 
     url = f'{server}{AUTH_API_PREFIX}/register'
     payload = {
@@ -85,11 +91,19 @@ def _do_login(server: str, username: str, password: str, *,
     data = raw_request('POST', url, payload={
         'username': username, 'password': password,
     })
+    access_token = data.get('access_token')
+    refresh_token = data.get('refresh_token')
+    if not access_token or not refresh_token:
+        print(
+            'Error: login response missing token fields.',
+            file=sys.stderr,
+        )
+        return 1
     creds = {
         'server_url': server,
         'username': username,
-        'access_token': data['access_token'],
-        'refresh_token': data['refresh_token'],
+        'access_token': access_token,
+        'refresh_token': refresh_token,
         'expires_in': data.get('expires_in', 0),
         'role': data.get('role'),
         'tenant_id': data.get('tenant_id'),
@@ -126,15 +140,37 @@ def cmd_logout(args: argparse.Namespace) -> int:
     creds = credentials.load()
     if creds and creds.get('refresh_token'):
         server = resolve_server_url(args.server)
-        try:
-            auth_request(
+        refresh_token = creds['refresh_token']
+
+        def _revoke(access_token: str) -> None:
+            raw_request(
                 'POST',
-                f'{AUTH_API_PREFIX}/logout',
-                server=server,
-                payload={'refresh_token': creds['refresh_token']},
+                f'{server}{AUTH_API_PREFIX}/logout',
+                payload={'refresh_token': refresh_token},
+                headers={'Authorization': f'Bearer {access_token}'},
             )
-        except (ApiError, RuntimeError, SystemExit):
-            pass  # best-effort server-side revocation
+
+        token = creds.get('access_token')
+        # Best-effort server-side revocation.  We intentionally do not go
+        # through auth_request here (its SystemExit on expired sessions
+        # would swallow local clear-creds); but we still need to handle the
+        # common case of an expired access token + valid refresh token, so
+        # on HTTP 401 we refresh once and retry the revocation.
+        try:
+            if token:
+                _revoke(token)
+        except ApiError as exc:
+            if exc.is_http_error and exc.status_code == 401:
+                try:
+                    if _try_refresh(server):
+                        refreshed = credentials.access_token()
+                        if refreshed:
+                            _revoke(refreshed)
+                except (ApiError, RuntimeError):
+                    pass
+            # else: non-401 server error — swallow for best-effort revoke
+        except RuntimeError:
+            pass
     credentials.clear()
     print('Logged out.')
     return 0

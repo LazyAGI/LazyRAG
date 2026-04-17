@@ -229,8 +229,14 @@ def _run_docker_retrieve(
     container: str, args: argparse.Namespace,
 ) -> List[Dict[str, Any]]:
     dataset_id = resolve_dataset(args.dataset)
+    # Inside the lazyllm-algo container we talk to the algo service on
+    # localhost.  Allow override so non-default deployments can point at a
+    # different port or host without touching code.
+    container_url = os.getenv(
+        'LAZYRAG_ALGO_CONTAINER_URL', 'http://127.0.0.1:8000',
+    )
     payload = {
-        'url': 'http://127.0.0.1:8000',
+        'url': container_url,
         'algo_dataset': resolve_algo_dataset(args.algo_dataset),
         'filters': _build_filters(dataset_id),
         'query': args.query,
@@ -253,22 +259,37 @@ def _run_docker_retrieve(
     stdout = result.stdout.decode('utf-8', errors='replace').strip()
     if not stdout:
         return []
-    data = json.loads(stdout)
+    # lazyllm's boot-time logging can leak onto stdout; the real JSON is the
+    # last non-empty line, so isolate it before parsing to tolerate that.
+    last_line = stdout.splitlines()[-1].strip()
+    try:
+        data = json.loads(last_line)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f'Failed to parse retrieve output from {container}: {exc}; '
+            f'stdout tail: {last_line[:200]!r}',
+        ) from exc
     if not isinstance(data, list):
         raise RuntimeError(f'Unexpected retrieve result type: {type(data).__name__}')
     return data
 
 
-def _should_use_docker_mode(args: argparse.Namespace) -> bool:
+def _resolve_execution_mode(args: argparse.Namespace) -> Optional[str]:
+    """Return container name for docker mode, or None for local mode.
+
+    Collapsed into a single pass so we only issue one `docker ps` per
+    invocation and avoid a TOCTOU race where the container vanishes between
+    the two original lookups.
+    """
     if args.url:
-        return False
+        return None
     if get_context('algo_url') or os.getenv('LAZYRAG_ALGO_SERVICE_URL'):
-        return False
-    return _find_local_algo_container() is not None
+        return None
+    return _find_local_algo_container()
 
 
 def cmd_retrieve(args: argparse.Namespace) -> int:
-    container = _find_local_algo_container() if _should_use_docker_mode(args) else None
+    container = _resolve_execution_mode(args)
     if container:
         results = _run_docker_retrieve(container, args)
     else:

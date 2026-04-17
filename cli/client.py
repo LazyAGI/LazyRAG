@@ -20,10 +20,16 @@ class ApiError(RuntimeError):
         status_code: int,
         message: str,
         payload: Optional[Dict[str, Any]] = None,
+        *,
+        is_http_error: bool = True,
     ):
         super().__init__(status_code, message, payload or {})
         self.status_code = status_code
         self.payload = payload or {}
+        # True when raised from a real HTTP 4xx/5xx response; False when
+        # raised from an envelope business-error code (so auth_request can
+        # avoid triggering token refresh on a business code of 401).
+        self.is_http_error = is_http_error
 
     def __str__(self) -> str:
         return str(self.args[1])
@@ -76,6 +82,7 @@ def _normalize_response_payload(parsed: Dict[str, Any]) -> Dict[str, Any]:
             code,
             str(parsed.get('message') or 'request failed'),
             parsed,
+            is_http_error=False,
         )
 
     data = parsed.get('data')
@@ -154,13 +161,17 @@ def _try_refresh(server: str) -> bool:
         data = raw_request('POST', url, payload={'refresh_token': rt})
     except (ApiError, RuntimeError):
         return False
+    new_access = data.get('access_token')
+    new_refresh = data.get('refresh_token')
+    if not new_access or not new_refresh:
+        return False
     creds = credentials.load() or {}
-    creds.update({
-        'access_token': data['access_token'],
-        'refresh_token': data['refresh_token'],
-        'expires_in': data.get('expires_in', 0),
-        'server_url': server,
-    })
+    creds['access_token'] = new_access
+    creds['refresh_token'] = new_refresh
+    creds['expires_in'] = data.get('expires_in', 0)
+    # Preserve the originally-logged-in server URL instead of overwriting
+    # it with a transient --server flag value used only for this refresh.
+    creds.setdefault('server_url', server)
     credentials.save(creds)
     return True
 
@@ -200,6 +211,12 @@ def auth_request(
             )
             raise SystemExit(1)
         token = credentials.access_token()
+        if token is None:
+            print(
+                'Session expired.  Run `lazyrag login` to re-authenticate.',
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
 
     url = f'{server}{path}'
     hdrs = _auth_headers(token)
@@ -210,10 +227,18 @@ def auth_request(
         return raw_request(method, url, payload=payload, headers=hdrs,
                            body=body, timeout=timeout)
     except ApiError as exc:
-        if exc.status_code == 401:
-            # one retry after refresh
+        # Only a true HTTP 401 from the server should trigger token refresh;
+        # an envelope business code of 401 must not loop through refresh.
+        if exc.is_http_error and exc.status_code == 401:
             if _try_refresh(server):
                 token = credentials.access_token()
+                if token is None:
+                    print(
+                        'Session expired.  Run `lazyrag login` to '
+                        're-authenticate.',
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(1)
                 hdrs = _auth_headers(token)
                 if headers:
                     hdrs.update(headers)
@@ -231,6 +256,15 @@ def auth_request(
 # multipart upload helper
 # ---------------------------------------------------------------------------
 
+def _escape_header_value(value: str) -> str:
+    """Reject CR/LF to prevent MIME header injection; escape double quotes."""
+    if '\r' in value or '\n' in value:
+        raise ValueError(
+            f'Header value contains illegal line characters: {value!r}',
+        )
+    return value.replace('"', '\\"')
+
+
 def build_multipart_body(
     fields: Dict[str, str],
     file_field: str,
@@ -242,18 +276,21 @@ def build_multipart_body(
     parts: List[bytes] = []
 
     for key, value in fields.items():
+        safe_key = _escape_header_value(key)
         parts.append(f'--{boundary}\r\n'.encode())
         parts.append(
-            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+            f'Content-Disposition: form-data; name="{safe_key}"\r\n\r\n'.encode(),
         )
         parts.append(str(value).encode('utf-8'))
         parts.append(b'\r\n')
 
+    safe_field = _escape_header_value(file_field)
+    safe_filename = _escape_header_value(filename)
     content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
     parts.append(f'--{boundary}\r\n'.encode())
     parts.append(
-        f'Content-Disposition: form-data; name="{file_field}"; '
-        f'filename="{filename}"\r\n'.encode(),
+        f'Content-Disposition: form-data; name="{safe_field}"; '
+        f'filename="{safe_filename}"\r\n'.encode(),
     )
     parts.append(f'Content-Type: {content_type}\r\n\r\n'.encode())
     parts.append(file_content)
@@ -274,40 +311,47 @@ def build_multipart_file(
     boundary = f'----LazyRAGBoundary{uuid.uuid4().hex}'
     handle = tempfile.SpooledTemporaryFile(max_size=1024 * 1024)
 
-    def _write(chunk: bytes) -> None:
-        handle.write(chunk)
+    try:
+        def _write(chunk: bytes) -> None:
+            handle.write(chunk)
 
-    for key, value in fields.items():
+        for key, value in fields.items():
+            safe_key = _escape_header_value(key)
+            _write(f'--{boundary}\r\n'.encode())
+            _write(
+                f'Content-Disposition: form-data; name="{safe_key}"\r\n\r\n'.encode(),
+            )
+            _write(str(value).encode('utf-8'))
+            _write(b'\r\n')
+
+        safe_field = _escape_header_value(file_field)
+        safe_filename = _escape_header_value(filename)
+        content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
         _write(f'--{boundary}\r\n'.encode())
         _write(
-            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+            f'Content-Disposition: form-data; name="{safe_field}"; '
+            f'filename="{safe_filename}"\r\n'.encode(),
         )
-        _write(str(value).encode('utf-8'))
+        _write(f'Content-Type: {content_type}\r\n\r\n'.encode())
+
+        with open(source_path, 'rb') as src:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                _write(chunk)
+
         _write(b'\r\n')
-
-    content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
-    _write(f'--{boundary}\r\n'.encode())
-    _write(
-        f'Content-Disposition: form-data; name="{file_field}"; '
-        f'filename="{filename}"\r\n'.encode(),
-    )
-    _write(f'Content-Type: {content_type}\r\n\r\n'.encode())
-
-    with open(source_path, 'rb') as src:
-        while True:
-            chunk = src.read(1024 * 1024)
-            if not chunk:
-                break
-            _write(chunk)
-
-    _write(b'\r\n')
-    _write(f'--{boundary}--\r\n'.encode())
-    size = handle.tell()
-    handle.seek(0)
-    return handle, {
-        'Content-Type': f'multipart/form-data; boundary={boundary}',
-        'Content-Length': str(size),
-    }
+        _write(f'--{boundary}--\r\n'.encode())
+        size = handle.tell()
+        handle.seek(0)
+        return handle, {
+            'Content-Type': f'multipart/form-data; boundary={boundary}',
+            'Content-Length': str(size),
+        }
+    except BaseException:
+        handle.close()
+        raise
 
 
 def auth_upload(

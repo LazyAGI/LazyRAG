@@ -4,13 +4,15 @@ import argparse
 import sys
 from typing import Optional, Sequence
 
-from cli.client import ApiError, print_json
+from cli.client import ApiError
 from cli.commands.auth import cmd_login, cmd_logout, cmd_register, cmd_whoami
 from cli.commands.chunk import cmd_chunk
 from cli.commands.context import cmd_config, cmd_status, cmd_use
 from cli.commands.dataset import cmd_kb_create, cmd_kb_delete, cmd_kb_list
 from cli.commands.doc import cmd_doc_delete, cmd_doc_list, cmd_doc_update
 from cli.commands.retrieve import cmd_retrieve
+from cli.commands.run import cmd_run_list, cmd_run_undo
+from cli.commands.task import cmd_task_cancel, cmd_task_resume
 from cli.commands.upload import cmd_task_get, cmd_task_list, cmd_upload
 
 
@@ -105,7 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_server_arg(kb_create)
     kb_create.add_argument('--name', required=True, help='Display name')
     kb_create.add_argument('--desc', help='Description')
-    kb_create.add_argument('--algo-id', help='Algorithm ID')
+    kb_create.add_argument(
+        '--algo-id',
+        help='Algorithm ID (defaults to algo_dataset config/env, usually general_algo)',
+    )
     kb_create.add_argument(
         '--dataset-id', help='Custom dataset ID (auto-generated if omitted)',
     )
@@ -170,14 +175,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ---- upload ----
     upload = sub.add_parser(
-        'upload', help='Upload a local directory into a dataset',
+        'upload',
+        help='Upload a local directory (stateful: resumable, dedup-aware)',
     )
     _add_server_arg(upload)
     _add_dataset_arg(upload, help_text='Target dataset ID')
+    # Mode selection (mutually exclusive, enforced in cmd_upload)
     upload.add_argument(
-        '--dir', '--directory', dest='directory', required=True,
+        '--dir', '--directory', dest='directory', default=None,
         help='Local directory to upload',
     )
+    upload.add_argument(
+        '--resume', metavar='RUN_ID_OR_PATH', default=None,
+        help='Resume an interrupted run (run_id or manifest path)',
+    )
+    upload.add_argument(
+        '--retry-failed', dest='retry_failed', action='store_true',
+        help='Re-upload only failed items from the latest run',
+    )
+    # Directory-scan options
     upload.add_argument(
         '--extensions',
         help='Comma-separated file extensions (e.g. pdf,docx,txt)',
@@ -186,18 +202,41 @@ def build_parser() -> argparse.ArgumentParser:
     upload.add_argument(
         '--recursive', dest='recursive',
         action='store_true', default=True,
+        help='Recurse into subdirectories (default)',
     )
     upload.add_argument(
         '--no-recursive', dest='recursive', action='store_false',
+        help='Do not recurse into subdirectories',
     )
     upload.add_argument('--include-hidden', action='store_true')
+    # Dedup options. Identical (existing) files are always skipped.
+    upload.add_argument(
+        '--replace-changed', dest='replace_changed', action='store_true',
+        help='For changed files, delete remote version first and re-upload',
+    )
+    # Wait / polling options
     upload.add_argument(
         '--wait', action='store_true',
         help='Wait for parsing tasks to complete',
     )
-    upload.add_argument('--wait-interval', type=float, default=3.0)
-    upload.add_argument('--wait-timeout', type=float, default=0.0)
-    upload.add_argument('--timeout', type=float, default=300.0)
+    upload.add_argument(
+        '--wait-interval', type=float, default=3.0,
+        help='Polling interval in seconds while --wait (default: 3)',
+    )
+    upload.add_argument(
+        '--wait-timeout', type=float, default=0.0,
+        help='Max seconds to wait with --wait; 0 = no limit (default: 0)',
+    )
+    upload.add_argument(
+        '--timeout', type=float, default=300.0,
+        help='Per-file upload timeout in seconds (default: 300)',
+    )
+    # Output
+    upload.add_argument(
+        '--report-json', metavar='PATH', default=None,
+        help='Write machine-readable report to this file',
+    )
+    _add_json_arg(upload)
     upload.set_defaults(func=cmd_upload)
 
     # ---- task ----
@@ -213,6 +252,44 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dataset_arg(task_get)
     task_get.add_argument('task_id')
     task_get.set_defaults(func=cmd_task_get)
+
+    task_cancel = sub.add_parser('task-cancel', help='Cancel a running task')
+    _add_server_arg(task_cancel)
+    _add_dataset_arg(task_cancel)
+    task_cancel.add_argument('task_id')
+    _add_json_arg(task_cancel)
+    task_cancel.set_defaults(func=cmd_task_cancel)
+
+    task_resume = sub.add_parser('task-resume', help='Resume a suspended task')
+    _add_server_arg(task_resume)
+    _add_dataset_arg(task_resume)
+    task_resume.add_argument('task_id')
+    _add_json_arg(task_resume)
+    task_resume.set_defaults(func=cmd_task_resume)
+
+    # ---- run ----
+    run_list = sub.add_parser(
+        'run-list', help='List local upload runs',
+    )
+    _add_dataset_arg(run_list)
+    run_list.add_argument(
+        '--all', dest='all_datasets', action='store_true',
+        help='List runs across all datasets',
+    )
+    _add_json_arg(run_list)
+    run_list.set_defaults(func=cmd_run_list)
+
+    run_undo = sub.add_parser(
+        'run-undo', help='Delete all documents created by a run',
+    )
+    _add_server_arg(run_undo)
+    run_undo.add_argument('run_id', help='Run ID or manifest path')
+    run_undo.add_argument(
+        '-y', '--yes', action='store_true',
+        help='Skip confirmation prompt',
+    )
+    _add_json_arg(run_undo)
+    run_undo.set_defaults(func=cmd_run_undo)
 
     # ---- chunk ----
     chunk = sub.add_parser(
@@ -265,11 +342,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        return int(args.func(args))
+        return int(args.func(args) or 0)
     except ApiError as exc:
         print(f'API error ({exc.status_code}): {exc}', file=sys.stderr)
         if exc.payload:
-            print_json(exc.payload)
+            # Diagnostics go to stderr so scripts consuming stdout are
+            # not polluted with error-path JSON.
+            import json as _json
+            print(
+                _json.dumps(exc.payload, ensure_ascii=False, indent=2),
+                file=sys.stderr,
+            )
         return 1
     except KeyboardInterrupt:
         print('\nAborted.', file=sys.stderr)

@@ -25,6 +25,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     creds = credentials.load()
     cfg = context.load_config()
 
+    # Keep the JSON shape stable whether the user is logged in or not so
+    # downstream parsers don't need to branch on presence of optional keys.
     info = {
         'server': resolve_server_url(),
         'logged_in': creds is not None,
@@ -32,16 +34,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         'dataset': cfg.get('dataset'),
         'algo_url': cfg.get('algo_url'),
         'algo_dataset': cfg.get('algo_dataset'),
+        'role': (creds or {}).get('role'),
+        'token_expired': credentials.is_token_expired() if creds else None,
     }
-    # Add user info from creds if available
-    if creds:
-        info['username'] = (
-            creds.get('username')
-            or creds.get('tenant_id')
-            or creds.get('role')
-        )
-        info['role'] = creds.get('role')
-        info['token_expired'] = credentials.is_token_expired()
 
     if getattr(args, 'as_json', False):
         print_json(info)
@@ -88,7 +83,9 @@ def cmd_config(args: argparse.Namespace) -> int:
 
     if action == 'get':
         value = context.get(args.key)
-        if value is None:
+        # Treat empty strings as unset so `config get` never prints a blank
+        # line for keys that were cleared or set to ''.
+        if value is None or value == '':
             print(f'{args.key}: (not set)', file=sys.stderr)
             return 1
         print(value)
