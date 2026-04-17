@@ -207,3 +207,182 @@ def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
         },
         'stream_flag': False,
     }
+
+
+def _decode_sse_payloads(raw_chunks):
+    payloads = []
+    for raw in raw_chunks:
+        for line in raw.splitlines():
+            if line.strip():
+                payloads.append(json.loads(line))
+    return payloads
+
+
+def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
+    first_frame_logs = []
+    init_calls = []
+    captured = {}
+
+    async def _stream():
+        yield {'text': 'chunk-1'}
+        yield {'text': 'chunk-2'}
+
+    def _pipeline(query_params):
+        captured['query_params'] = query_params
+        return _stream()
+
+    chat_server = SimpleNamespace(
+        sensitive_filter=SimpleNamespace(loaded=False, check=lambda query: (False, None)),
+        has_dataset=lambda dataset: dataset == 'algo',
+        get_query_pipeline=lambda dataset, stream=False: _pipeline,
+        query_ppl_reasoning='unused',
+    )
+    module = _import_chat_service_module(monkeypatch, chat_server=chat_server)
+
+    class _FakeStreamingResponse:
+        def __init__(self, body_iterator, media_type):
+            self.body_iterator = body_iterator
+            self.media_type = media_type
+
+    async def fake_to_thread(fn, *args):
+        return fn(*args)
+
+    monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: (['/tmp/a.txt'], ['/tmp/b.png']))
+    monkeypatch.setattr(module.LOG, 'info', lambda message: first_frame_logs.append(message))
+    monkeypatch.setattr(module.lazyllm.globals, '_init_sid', lambda sid: init_calls.append(('global', sid)))
+    monkeypatch.setattr(module.lazyllm.locals, '_init_sid', lambda sid: init_calls.append(('local', sid)))
+    monkeypatch.setattr(module, 'StreamingResponse', _FakeStreamingResponse)
+    monkeypatch.setattr(module.asyncio, 'to_thread', fake_to_thread)
+
+    response = asyncio.run(
+        module.handle_chat(
+            query='hello',
+            history=[{'role': 'user', 'content': 'hi'}],
+            session_id='sid-1',
+            filters={'scope': 'all'},
+            files=['doc.txt', 'img.png'],
+            debug=True,
+            reasoning=False,
+            databases=[{'name': 'db'}],
+            dataset='algo',
+            priority=9,
+            is_stream=True,
+        )
+    )
+
+    async def _collect():
+        return [chunk async for chunk in response.body_iterator]
+
+    payloads = _decode_sse_payloads(asyncio.run(_collect()))
+
+    assert captured['query_params'] == {
+        'query': 'hello',
+        'history': [{'role': 'user', 'content': 'hi'}],
+        'filters': {'scope': 'all'},
+        'files': ['/tmp/a.txt'],
+        'image_files': ['/tmp/b.png'],
+        'debug': False,
+        'databases': [{'name': 'db'}],
+        'priority': 9,
+    }
+    assert [payload['data'] for payload in payloads] == [
+        {'text': 'chunk-1'},
+        {'text': 'chunk-2'},
+        {'status': 'FINISHED'},
+    ]
+    assert any('KB_CHAT_STREAM_FIRST_FRAME' in message for message in first_frame_logs)
+    assert init_calls == [('global', 'sid-1'), ('local', 'sid-1')]
+
+
+def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkeypatch):
+    init_calls = []
+    start_order = []
+    release_first = asyncio.Event()
+
+    module = _import_chat_service_module(monkeypatch)
+    monkeypatch.setattr(module, 'rag_sem', asyncio.Semaphore(1))
+    monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: ([], []))
+    monkeypatch.setattr(module.lazyllm.globals, '_init_sid', lambda sid: init_calls.append(('global', sid)))
+    monkeypatch.setattr(module.lazyllm.locals, '_init_sid', lambda sid: init_calls.append(('local', sid)))
+
+    async def fake_run_sync_ppl(reasoning, dataset, query_params, query, filters, priority):
+        start_order.append(query)
+        if query == 'q1':
+            await release_first.wait()
+        return {'text': query}
+
+    monkeypatch.setattr(module, '_run_sync_ppl', fake_run_sync_ppl)
+
+    async def _run_pair():
+        task1 = asyncio.create_task(
+            module.handle_chat(
+                query='q1',
+                history=[],
+                session_id='sid-1',
+                filters=None,
+                files=None,
+                debug=False,
+                reasoning=False,
+                databases=None,
+                dataset='algo',
+                priority=None,
+                is_stream=False,
+            )
+        )
+        await asyncio.sleep(0)
+        task2 = asyncio.create_task(
+            module.handle_chat(
+                query='q2',
+                history=[],
+                session_id='sid-2',
+                filters=None,
+                files=None,
+                debug=False,
+                reasoning=False,
+                databases=None,
+                dataset='algo',
+                priority=None,
+                is_stream=False,
+            )
+        )
+        await asyncio.sleep(0)
+        assert start_order == ['q1']
+        release_first.set()
+        return await asyncio.gather(task1, task2)
+
+    results = asyncio.run(_run_pair())
+
+    assert [item['data'] for item in results] == [{'text': 'q1'}, {'text': 'q2'}]
+    assert start_order == ['q1', 'q2']
+    assert init_calls == [
+        ('global', 'sid-1'),
+        ('local', 'sid-1'),
+        ('global', 'sid-2'),
+        ('local', 'sid-2'),
+    ]
+
+
+def test_log_chat_request_includes_observability_fields(monkeypatch):
+    messages = []
+    module = _import_chat_service_module(monkeypatch)
+    monkeypatch.setattr(module.LOG, 'info', lambda message: messages.append(message))
+
+    module.log_chat_request(
+        'hello',
+        'sid-1',
+        {'scope': 'all'},
+        ['/tmp/a.txt'],
+        [{'name': 'db'}],
+        ['/tmp/b.png'],
+        0.123,
+        {'text': 'answer'},
+        'KB_CHAT_STREAM_FINISH',
+    )
+
+    assert len(messages) == 1
+    message = messages[0]
+    assert '[KB_CHAT_STREAM_FINISH]' in message
+    assert '[session_id=sid-1]' in message
+    assert "[files=['/tmp/a.txt']]" in message
+    assert "[image_files=['/tmp/b.png']]" in message
+    assert '[cost=0.123]' in message

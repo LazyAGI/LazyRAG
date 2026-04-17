@@ -27,6 +27,8 @@ class _DummyBind:
         self.kwargs = kwargs
 
     def __ror__(self, other):
+        if callable(other):
+            return lambda *args, **kwargs: other(*args, **self.kwargs)
         return _DummyPipe(('bound-from-left', other, self.kwargs))
 
 
@@ -225,6 +227,7 @@ def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
         'ctx_expand',
     ]
     assert recorded['join_top_k'] == 50
+    assert recorded['ifs']['cond']('ignored') is False
     assert recorded['reranker'] == {'name': 'ModuleReranker', 'model': 'model:reranker', 'topk': 7}
     assert recorded['adaptive_k']['k_max'] == 4
     assert recorded['adaptive_k']['max_tokens'] == 2048
@@ -235,6 +238,44 @@ def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
         'score_decay': 0.97,
         'max_seeds': 1,
     }
+
+
+def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch):
+    search_ppl = _FakePipeline(
+        input_value={'query': 'q', 'files': ['tmp.doc'], 'filters': {}},
+    )
+    recorded = {}
+
+    monkeypatch.setattr(ppl_search_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
+    monkeypatch.setattr(ppl_search_mod, 'pipeline', lambda: search_ppl)
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'get_retriever',
+        lambda url, retriever_configs: SimpleNamespace(
+            kb_retrievers=[_DummyPipe('r1')],
+            tmp_retriever_pipeline=_DummyPipe('tmp'),
+        ),
+    )
+    monkeypatch.setattr(ppl_search_mod, 'get_remote_docment', lambda url: 'document')
+    monkeypatch.setattr(ppl_search_mod, 'get_automodel', lambda key: f'model:{key}')
+    monkeypatch.setattr(ppl_search_mod, 'bind', lambda **kwargs: _DummyBind(kwargs))
+    monkeypatch.setattr(ppl_search_mod, 'parallel', lambda *items: ('parallel', items))
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'ifs',
+        lambda cond, tpath, fpath: (
+            recorded.__setitem__('ifs', {'cond': cond, 'tpath': tpath, 'fpath': fpath}),
+            _DummyPipe('ifs'),
+        )[1],
+    )
+    monkeypatch.setattr(ppl_search_mod, 'RRFFusion', lambda top_k: _DummyPipe('rrf'))
+    monkeypatch.setattr(ppl_search_mod, 'Reranker', lambda *args, **kwargs: _DummyPipe('reranker'))
+    monkeypatch.setattr(ppl_search_mod, 'AdaptiveKComponent', lambda **kwargs: _DummyPipe('adaptive'))
+    monkeypatch.setattr(ppl_search_mod, 'ContextExpansionComponent', lambda **kwargs: _DummyPipe('expand'))
+
+    ppl_search_mod.get_ppl_search('http://kb-service', retriever_configs=[{'group_name': 'line'}])
+
+    assert recorded['ifs']['cond']('ignored') is True
 
 
 def test_get_ppl_generate_keeps_expected_stage_order(monkeypatch):
