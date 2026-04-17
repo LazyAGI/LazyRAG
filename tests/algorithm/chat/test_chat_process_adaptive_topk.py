@@ -39,6 +39,21 @@ def test_adaptive_topk_helpers_and_score_gap_selection():
     assert diag['k_before_budget'] == 2
 
 
+def test_adaptive_topk_handles_empty_and_single_node_inputs():
+    selected, k, diag = adaptive_k_select_from_nodes([])
+
+    assert selected == []
+    assert k == 0
+    assert diag['argmax_idx'] == -1
+
+    node = DummyNode('only', score=0.7)
+    selected, k, diag = adaptive_k_select_from_nodes([node], get_token_len=lambda _: 5)
+
+    assert selected == [node]
+    assert k == 1
+    assert diag['tokens_used'] == 5
+
+
 def test_adaptive_topk_sorts_unsorted_nodes_and_applies_budget():
     nodes = [
         DummyNode('low', score=0.1, text='x' * 4),
@@ -59,6 +74,35 @@ def test_adaptive_topk_sorts_unsorted_nodes_and_applies_budget():
     assert [node.uid for node in selected] == ['high']
     assert k == 1
     assert diag['tokens_used'] == 2
+
+
+def test_adaptive_topk_applies_default_k_and_k_max_when_gap_is_small():
+    nodes = [
+        DummyNode('a', score=0.90),
+        DummyNode('b', score=0.89),
+        DummyNode('c', score=0.88),
+        DummyNode('d', score=0.87),
+    ]
+
+    selected, k, diag = adaptive_k_select_from_nodes(
+        nodes,
+        get_score=lambda n: n.relevance_score,
+        gap_tau=0.5,
+        default_k=3,
+        k_max=2,
+    )
+
+    assert [node.uid for node in selected] == ['a', 'b']
+    assert k == 2
+    assert diag['k_before_budget'] == 2
+
+
+def test_fit_by_budget_returns_zero_without_budget_inputs():
+    nodes = [DummyNode('a')]
+
+    assert _fit_by_budget(nodes, None, 10) == 0
+    assert _fit_by_budget(nodes, lambda _: 1, None) == 0
+    assert _fit_by_budget([], lambda _: 1, 10) == 0
 
 
 def test_adaptive_k_component_forwards_kwargs():

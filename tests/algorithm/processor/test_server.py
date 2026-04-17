@@ -1,4 +1,6 @@
 import importlib
+import runpy
+import signal
 import sys
 
 
@@ -54,3 +56,85 @@ def test_server_signal_handler_sets_shutdown_and_stops_processor(monkeypatch):
 
     assert module._shutdown_event.is_set()
     assert module.doc_processor.stopped is True
+
+
+def test_server_signal_handler_ignores_stop_errors(monkeypatch):
+    module = _fresh_import_server(monkeypatch)
+
+    class BrokenProcessor:
+        def stop(self):
+            raise RuntimeError('stop failed')
+
+    module.doc_processor = BrokenProcessor()
+
+    module._on_signal(None, None)
+
+    assert module._shutdown_event.is_set()
+
+
+def test_server_main_starts_waits_and_registers_signals(monkeypatch):
+    from lazyllm.tools.rag import parsing_service
+    import processor.db
+    import threading
+
+    _FakeDocumentProcessor.instances = []
+    signal_calls = []
+
+    class FakeEvent:
+        def __init__(self):
+            self.waited = False
+
+        def set(self):
+            return None
+
+        def is_set(self):
+            return False
+
+        def wait(self):
+            self.waited = True
+            return None
+
+    monkeypatch.setattr(parsing_service, 'DocumentProcessor', _FakeDocumentProcessor)
+    monkeypatch.setattr(processor.db, 'require_shared_db_config', lambda service_name: {'service': service_name})
+    monkeypatch.setattr(threading, 'Event', FakeEvent)
+    monkeypatch.setattr(signal, 'signal', lambda sig, handler: signal_calls.append((sig, handler.__name__)))
+    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '8125')
+    sys.modules.pop('processor.server', None)
+
+    runpy.run_module('processor.server', run_name='__main__')
+
+    instance = _FakeDocumentProcessor.instances[0]
+    assert instance.started is True
+    assert instance.waited is True
+    assert (signal.SIGTERM, '_on_signal') in signal_calls
+    assert (signal.SIGINT, '_on_signal') in signal_calls
+
+
+def test_server_main_handles_keyboard_interrupt_from_wait(monkeypatch):
+    from lazyllm.tools.rag import parsing_service
+    import processor.db
+    import threading
+
+    signal_calls = []
+
+    class InterruptingDocumentProcessor(_FakeDocumentProcessor):
+        def wait(self):
+            self.waited = True
+            raise KeyboardInterrupt
+
+    class FakeEvent:
+        def set(self):
+            return None
+
+        def wait(self):
+            return None
+
+    monkeypatch.setattr(parsing_service, 'DocumentProcessor', InterruptingDocumentProcessor)
+    monkeypatch.setattr(processor.db, 'require_shared_db_config', lambda service_name: {'service': service_name})
+    monkeypatch.setattr(threading, 'Event', FakeEvent)
+    monkeypatch.setattr(signal, 'signal', lambda sig, handler: signal_calls.append((sig, handler.__name__)))
+    sys.modules.pop('processor.server', None)
+
+    runpy.run_module('processor.server', run_name='__main__')
+
+    assert signal_calls

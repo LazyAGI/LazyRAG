@@ -1,3 +1,5 @@
+from string import Formatter
+
 from chat.prompts.agentic import (
     EVALUATOR_PROMPT,
     EXTRACTOR_PROMPT,
@@ -8,6 +10,17 @@ from chat.prompts.agentic import (
     QUERYREFINER_PROMPT,
     TOOLCALL_PROMPT,
 )
+
+
+def assert_balanced_curly_braces(text):
+    depth = 0
+    for char in text:
+        if char == '{':
+            depth += 1
+        elif char == '}':
+            depth -= 1
+        assert depth >= 0
+    assert depth == 0
 
 
 def test_agentic_template_prompts_substitute_required_variables():
@@ -69,3 +82,24 @@ def test_generate_prompts_include_grounding_fields():
     assert '辅助推理' in rendered_zh
     assert '参考知识' in rendered_zh
     assert '问题' in rendered_zh
+
+
+def test_agentic_prompts_have_valid_variable_braces():
+    template_prompts = [
+        PLANNER_PROMPT.template,
+        TOOLCALL_PROMPT.template,
+        EXTRACTOR_PROMPT.template,
+        EVALUATOR_PROMPT.template,
+        PLANREFINE_PROMPT.template,
+        QUERYREFINER_PROMPT.template,
+    ]
+    format_prompts = [GENERATE_PROMPT, GENERATE_PROMPT_ZH]
+
+    for prompt in template_prompts + format_prompts:
+        assert isinstance(prompt, str)
+        assert_balanced_curly_braces(prompt)
+
+    for prompt in format_prompts:
+        fields = [field_name for _, field_name, _, _ in Formatter().parse(prompt) if field_name]
+        assert fields == ['inference', 'chunks', 'query']
+        prompt.format(inference='inference', chunks='chunks', query='query')

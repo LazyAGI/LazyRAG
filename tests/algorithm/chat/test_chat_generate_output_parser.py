@@ -1,6 +1,8 @@
 import asyncio
+import re
 
 from chat.components.generate.output_parser import CustomOutputParser
+from chat.utils.url import is_valid_path
 from lazyllm.tools.rag import DocNode
 from processor.table_image_map import serialize_table_image_map
 
@@ -77,6 +79,38 @@ def test_forward_rewrites_citations_images_and_collects_sources():
     assert result['sources'][0]['index'] == 1
     assert result['sources'][0]['segment_number'] == 3
     assert result['sources'][0]['content'] == 'Source mentions ![chart](https://example.test/assets/chart.png).'
+    image_urls = re.findall(r'!\[[^\]]*\]\(([^)]+)\)', result['text'])
+    assert image_urls == ['https://example.test/assets/chart.png']
+    assert all(is_valid_path(url) for url in image_urls)
+
+
+def test_forward_deduplicates_references_and_escapes_source_title():
+    parser = CustomOutputParser()
+    node = build_node(global_metadata={'docid': 'doc-1', 'kb_id': 'kb-1', 'file_name': 'a "quoted" & tagged.md'})
+
+    result = parser.forward('First [[1]], second [[1]].', aggregate={1: node})
+
+    assert result['text'] == 'First [1](#source "a &quot;quoted&quot; &amp; tagged.md"), second [1](#source "a &quot;quoted&quot; &amp; tagged.md").'
+    assert len(result['sources']) == 1
+    assert result['sources'][0]['index'] == 1
+
+
+def test_forward_drops_empty_reference_and_unknown_image():
+    parser = CustomOutputParser()
+    node = build_node(text='')
+
+    result = parser.forward('Drop [[1]] and ![missing](missing.png).', aggregate={1: node})
+
+    assert result == {'think': '', 'text': 'Drop  and .', 'sources': []}
+
+
+def test_forward_rewrites_image_by_fuzzy_basename_match():
+    parser = CustomOutputParser()
+    node = build_node(metadata={'images': ['https://example.test/assets/chart-final.png']})
+
+    result = parser.forward('See ![chart](chart-fina.png).', aggregate={1: node})
+
+    assert result['text'] == 'See ![chart](https://example.test/assets/chart-final.png).'
 
 
 def test_forward_splits_think_and_text_when_llm_type_think_enabled():
@@ -134,3 +168,22 @@ def test_forward_stream_yields_chunks_and_final_sources():
     assert items[1] == {'think': None, 'text': '[1](#source "manual.md")', 'sources': []}
     assert items[-1]['text'] == ''
     assert items[-1]['sources'][0]['index'] == 1
+
+
+def test_forward_stream_buffers_split_image_tokens():
+    async def collect():
+        parser = CustomOutputParser()
+        node = build_node(metadata={'images': ['https://example.test/assets/chart.png']})
+
+        async def chunks():
+            yield 'Look ![cha'
+            yield 'rt](chart.png)'
+
+        return [item async for item in parser.forward(chunks(), aggregate={1: node}, stream=True)]
+
+    items = asyncio.run(collect())
+
+    assert items == [
+        {'think': None, 'text': 'Look ', 'sources': []},
+        {'think': None, 'text': '![chart](https://example.test/assets/chart.png)', 'sources': []},
+    ]

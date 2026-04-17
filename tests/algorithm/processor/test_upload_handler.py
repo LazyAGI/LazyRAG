@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import runpy
 import sys
 from pathlib import Path
 
@@ -28,6 +29,11 @@ class _FakeResponse:
 
     def json(self):
         return self._payload
+
+
+class _BadJsonResponse(_FakeResponse):
+    def json(self):
+        raise ValueError('bad json')
 
 
 class _FakeAsyncClient:
@@ -102,6 +108,31 @@ def test_upload_and_add_uses_form_values_before_query_params(monkeypatch, tmp_pa
     assert _FakeAsyncClient.posts[0]['json']['file_infos'][0]['metadata'] == {'kb_id': 'form-group'}
 
 
+def test_upload_and_add_uses_defaults_and_unnamed_file(monkeypatch, tmp_path):
+    module = _fresh_import_upload_handler(monkeypatch, tmp_path)
+    _FakeAsyncClient.posts = []
+    _FakeAsyncClient.response = _FakeResponse(payload={'data': {}})
+    monkeypatch.setattr(module.httpx, 'AsyncClient', _FakeAsyncClient)
+    monkeypatch.setattr(module.uuid, 'uuid4', lambda: 'fixed-subdir')
+    monkeypatch.setattr(module, 'gen_docid', lambda path: 'doc-' + Path(path).name)
+
+    response = asyncio.run(
+        module.upload_and_add(
+            _FakeRequest(),
+            [_FakeUploadFile(None, b'content')],
+            group_name=None,
+            algo_id=None,
+            override=None,
+        )
+    )
+
+    saved_file = tmp_path / 'fixed-subdir' / 'unnamed'
+    assert saved_file.read_bytes() == b'content'
+    assert response.data == {'task_id': None, 'ids': ['doc-unnamed']}
+    assert _FakeAsyncClient.posts[0]['json']['algo_id'] == 'default-algo'
+    assert _FakeAsyncClient.posts[0]['json']['file_infos'][0]['metadata'] == {'kb_id': 'default-group'}
+
+
 def test_upload_and_add_rejects_missing_files(monkeypatch, tmp_path):
     module = _fresh_import_upload_handler(monkeypatch, tmp_path)
 
@@ -133,6 +164,27 @@ def test_upload_and_add_forwards_processor_error(monkeypatch, tmp_path):
     assert exc_info.value.detail == 'processor unavailable'
 
 
+def test_upload_and_add_uses_response_text_when_error_json_is_invalid(monkeypatch, tmp_path):
+    module = _fresh_import_upload_handler(monkeypatch, tmp_path)
+    _FakeAsyncClient.posts = []
+    _FakeAsyncClient.response = _BadJsonResponse(status_code=502, text='bad gateway')
+    monkeypatch.setattr(module.httpx, 'AsyncClient', _FakeAsyncClient)
+
+    with pytest.raises(module.fastapi.HTTPException) as exc_info:
+        asyncio.run(
+            module.upload_and_add(
+                _FakeRequest(),
+                [_FakeUploadFile('e.txt', b'epsilon')],
+                group_name=None,
+                algo_id=None,
+                override=None,
+            )
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == 'bad gateway'
+
+
 def test_upload_and_add_cleans_saved_files_on_unexpected_error(monkeypatch, tmp_path):
     module = _fresh_import_upload_handler(monkeypatch, tmp_path)
 
@@ -156,3 +208,63 @@ def test_upload_and_add_cleans_saved_files_on_unexpected_error(monkeypatch, tmp_
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == 'network down'
     assert list(tmp_path.rglob('d.txt')) == []
+
+
+def test_upload_and_add_ignores_cleanup_remove_errors(monkeypatch, tmp_path):
+    module = _fresh_import_upload_handler(monkeypatch, tmp_path)
+
+    class _FailingAsyncClient(_FakeAsyncClient):
+        async def post(self, url, json, timeout):
+            raise RuntimeError('network down')
+
+    monkeypatch.setattr(module.httpx, 'AsyncClient', _FailingAsyncClient)
+    monkeypatch.setattr(module.os, 'remove', lambda path: (_ for _ in ()).throw(OSError('remove failed')))
+    monkeypatch.setattr(module.os, 'rmdir', lambda path: (_ for _ in ()).throw(OSError('rmdir failed')))
+
+    with pytest.raises(module.fastapi.HTTPException) as exc_info:
+        asyncio.run(
+            module.upload_and_add(
+                _FakeRequest(),
+                [_FakeUploadFile('f.txt', b'zeta')],
+                group_name=None,
+                algo_id=None,
+                override=None,
+            )
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == 'network down'
+
+
+def test_run_upload_server_passes_app_host_and_port(monkeypatch, tmp_path):
+    module = _fresh_import_upload_handler(monkeypatch, tmp_path)
+    seen = {}
+
+    class FakeUvicorn:
+        @staticmethod
+        def run(app, host, port):
+            seen.update({'app': app, 'host': host, 'port': port})
+
+    monkeypatch.setitem(sys.modules, 'uvicorn', FakeUvicorn)
+
+    module.run_upload_server(18099)
+
+    assert seen == {'app': module.app, 'host': '0.0.0.0', 'port': 18099}
+
+
+def test_upload_handler_main_uses_env_port(monkeypatch, tmp_path):
+    seen = {}
+
+    class FakeUvicorn:
+        @staticmethod
+        def run(app, host, port):
+            seen.update({'host': host, 'port': port})
+
+    monkeypatch.setenv('LAZYRAG_UPLOAD_DIR', str(tmp_path))
+    monkeypatch.setenv('LAZYRAG_UPLOAD_SERVER_PORT', '18100')
+    monkeypatch.setitem(sys.modules, 'uvicorn', FakeUvicorn)
+    sys.modules.pop('processor.upload_handler', None)
+
+    runpy.run_module('processor.upload_handler', run_name='__main__')
+
+    assert seen == {'host': '0.0.0.0', 'port': 18100}

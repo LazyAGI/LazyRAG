@@ -66,6 +66,13 @@ def test_get_shared_db_config_and_doc_task_alias(monkeypatch):
     assert get_doc_task_db_config()['db_name'] == 'tasks'
 
 
+def test_get_shared_db_config_returns_none_when_env_missing(monkeypatch):
+    monkeypatch.delenv(SHARED_DB_ENV_KEY, raising=False)
+
+    assert get_shared_db_config() is None
+    assert get_doc_task_db_config() is None
+
+
 def test_require_shared_db_config_reports_missing_env(monkeypatch):
     monkeypatch.delenv(SHARED_DB_ENV_KEY, raising=False)
 
@@ -77,4 +84,12 @@ def test_require_shared_db_config_wraps_invalid_url(monkeypatch):
     monkeypatch.setenv(SHARED_DB_ENV_KEY, 'sqlite:///tmp/app.db')
 
     with pytest.raises(RuntimeError, match='valid PostgreSQL URL'):
+        require_shared_db_config('DocumentProcessor')
+
+
+def test_require_shared_db_config_rejects_none_after_parse(monkeypatch):
+    monkeypatch.setenv(SHARED_DB_ENV_KEY, 'postgresql://u:p@localhost/tasks')
+    monkeypatch.setattr('processor.db.parse_db_url', lambda url: None)
+
+    with pytest.raises(RuntimeError, match='shared database configuration'):
         require_shared_db_config('DocumentProcessor')
