@@ -3,17 +3,36 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
-func (h *Handler) docs(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) docs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(docsHTML))
+	specURL := openAPIJSONPath
+	if strings.HasPrefix(strings.TrimSpace(r.URL.Path), scanFrontendPrefix) {
+		specURL = scanOpenAPIJSONPath
+	}
+	_, _ = w.Write([]byte(docsHTML(specURL)))
 }
 
 func (h *Handler) openapiJSON(w http.ResponseWriter, _ *http.Request) {
 	spec := buildOpenAPISpec()
 	writeJSON(w, http.StatusOK, spec)
+}
+
+func (h *Handler) openapiYAML(w http.ResponseWriter, _ *http.Request) {
+	spec := buildOpenAPISpec()
+	body, err := yaml.Marshal(spec)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "OPENAPI_YAML_FAILED", "marshal OpenAPI yaml failed")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 func buildOpenAPISpec() map[string]any {
@@ -748,7 +767,8 @@ func dateTimeSchema() map[string]any {
 	return map[string]any{"type": "string", "format": "date-time"}
 }
 
-var docsHTML = func() string {
+func docsHTML(specURL string) string {
+	specURLJSON, _ := json.Marshal(specURL)
 	payload, _ := json.Marshal(map[string]any{
 		"title": "Scan Control Plane API - Swagger UI",
 	})
@@ -760,6 +780,6 @@ var docsHTML = func() string {
 		"<script src=\"https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js\"></script>" +
 		"<script src=\"https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js\"></script>" +
 		"<script>window.__META__=" + string(payload) + ";" +
-		"window.onload=function(){window.ui=SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',presets:[SwaggerUIBundle.presets.apis,SwaggerUIStandalonePreset],layout:'StandaloneLayout'});};</script>" +
+		"window.onload=function(){window.ui=SwaggerUIBundle({url:" + string(specURLJSON) + ",dom_id:'#swagger-ui',presets:[SwaggerUIBundle.presets.apis,SwaggerUIStandalonePreset],layout:'StandaloneLayout'});};</script>" +
 		"</body></html>"
-}()
+}

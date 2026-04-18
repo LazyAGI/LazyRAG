@@ -39,7 +39,6 @@ scan:
 
 security:
   allowed_roots:
-    - "/Users/sunjinghua.vendor/sunjh/ragscan-manual"
     - "/Users"
     - "/home"
     - "/data"

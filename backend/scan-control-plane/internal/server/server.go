@@ -23,7 +23,14 @@ import (
 )
 
 const (
-	scanFrontendPrefix = "/api/scan"
+	scanFrontendPrefix  = "/api/scan"
+	scanDocsPath        = scanFrontendPrefix + "/docs"
+	scanOpenAPIJSONPath = scanFrontendPrefix + "/openapi.json"
+	scanOpenAPIYAMLPath = scanFrontendPrefix + "/openapi.yaml"
+	scanSwaggerJSONPath = scanFrontendPrefix + "/swagger.json"
+	openAPIJSONPath     = "/openapi.json"
+	openAPIYAMLPath     = "/openapi.yaml"
+	swaggerJSONPath     = "/swagger.json"
 )
 
 type Handler struct {
@@ -104,6 +111,10 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 		path := strings.TrimSpace(r.URL.Path)
 		switch {
 		case strings.HasPrefix(path, scanFrontendPrefix+"/"):
+			if isScanDocsPath(path) {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if strings.TrimSpace(r.Header.Get("X-User-Id")) == "" {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing X-User-Id; frontend requests must pass through Kong auth")
 				return
@@ -116,6 +127,15 @@ func (h *Handler) authMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isScanDocsPath(path string) bool {
+	switch strings.TrimSpace(path) {
+	case scanDocsPath, scanOpenAPIJSONPath, scanOpenAPIYAMLPath, scanSwaggerJSONPath:
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) validateAgentAuthorization(rawAuth string) bool {
@@ -147,7 +167,13 @@ func (h *Handler) validateAgentAuthorization(rawAuth string) bool {
 func (h *Handler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /docs", h.docs)
-	mux.HandleFunc("GET /openapi.json", h.openapiJSON)
+	mux.HandleFunc("GET "+openAPIJSONPath, h.openapiJSON)
+	mux.HandleFunc("GET "+swaggerJSONPath, h.openapiJSON)
+	mux.HandleFunc("GET "+openAPIYAMLPath, h.openapiYAML)
+	mux.HandleFunc("GET "+scanDocsPath, h.docs)
+	mux.HandleFunc("GET "+scanOpenAPIJSONPath, h.openapiJSON)
+	mux.HandleFunc("GET "+scanSwaggerJSONPath, h.openapiJSON)
+	mux.HandleFunc("GET "+scanOpenAPIYAMLPath, h.openapiYAML)
 
 	// Frontend APIs (canonical).
 	h.registerFrontendRoutes(mux, scanFrontendPrefix)
