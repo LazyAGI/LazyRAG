@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -10,33 +11,35 @@ import (
 )
 
 type Config struct {
-	AgentID             string         `yaml:"agent_id"`
-	TenantID            string         `yaml:"tenant_id"`
-	AgentToken          string         `yaml:"agent_token"`
-	ListenAddr          string         `yaml:"listen_addr"`
-	AdvertiseAddr       string         `yaml:"advertise_addr"`
-	ControlPlaneBaseURL string         `yaml:"control_plane_base_url"`
-	HeartbeatInterval   time.Duration  `yaml:"heartbeat_interval"`
-	PullInterval        time.Duration  `yaml:"pull_interval"`
-	ReconcileInterval   time.Duration  `yaml:"reconcile_interval"`
-	LogLevel            string         `yaml:"log_level"`
-	LogDir              string         `yaml:"log_dir"`
-	Staging             StagingConfig  `yaml:"staging"`
-	Snapshot            SnapshotConfig `yaml:"snapshot"`
-	Watch               WatchConfig    `yaml:"watch"`
-	Scan                ScanConfig     `yaml:"scan"`
-	Security            SecurityConfig `yaml:"security"`
-	HTTP                HTTPConfig     `yaml:"http"`
+	AgentID             string        `yaml:"agent_id"`
+	TenantID            string        `yaml:"tenant_id"`
+	AgentToken          string        `yaml:"agent_token"`
+	ListenAddr          string        `yaml:"listen_addr"`
+	AdvertiseAddr       string        `yaml:"advertise_addr"`
+	ControlPlaneBaseURL string        `yaml:"control_plane_base_url"`
+	HeartbeatInterval   time.Duration `yaml:"heartbeat_interval"`
+	PullInterval        time.Duration `yaml:"pull_interval"`
+	ReconcileInterval   time.Duration `yaml:"reconcile_interval"`
+	BaseRoot            string        `yaml:"base_root"`
+	LogLevel            string        `yaml:"log_level"`
+	// 以下目录均由 base_root 自动派生，不直接从配置文件读取。
+	LogDir   string         `yaml:"-"`
+	Staging  StagingConfig  `yaml:"-"`
+	Snapshot SnapshotConfig `yaml:"-"`
+	Watch    WatchConfig    `yaml:"watch"`
+	Scan     ScanConfig     `yaml:"scan"`
+	Security SecurityConfig `yaml:"security"`
+	HTTP     HTTPConfig     `yaml:"http"`
 }
 
 type StagingConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	HostRoot      string `yaml:"host_root"`
-	ContainerRoot string `yaml:"container_root"`
+	Enabled       bool   `yaml:"-"`
+	HostRoot      string `yaml:"-"`
+	ContainerRoot string `yaml:"-"`
 }
 
 type SnapshotConfig struct {
-	HostRoot string `yaml:"host_root"`
+	HostRoot string `yaml:"-"`
 }
 
 type WatchConfig struct {
@@ -77,6 +80,10 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config file: %w", err)
 	}
+	cfg.BaseRoot = strings.TrimSpace(expandEnvWithDefault(cfg.BaseRoot))
+	if err := cfg.deriveDirsFromBaseRoot(); err != nil {
+		return nil, fmt.Errorf("derive dirs from base_root: %w", err)
+	}
 
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
@@ -85,15 +92,32 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// expandEnvWithDefault 支持以下两种写法：
+// 1) ${VAR}
+// 2) ${VAR:-default}
+func expandEnvWithDefault(raw string) string {
+	return os.Expand(raw, func(key string) string {
+		if name, fallback, ok := strings.Cut(key, ":-"); ok {
+			if val, exists := os.LookupEnv(name); exists && strings.TrimSpace(val) != "" {
+				return val
+			}
+			return fallback
+		}
+		return os.Getenv(key)
+	})
+}
+
 func defaultConfig() *Config {
 	return &Config{
 		ListenAddr:        "127.0.0.1:19090",
 		HeartbeatInterval: 15 * time.Second,
 		PullInterval:      10 * time.Second,
 		ReconcileInterval: 10 * time.Minute,
+		BaseRoot:          "",
 		LogLevel:          "info",
-		Snapshot: SnapshotConfig{
-			HostRoot: "/var/lib/ragscan/snapshots",
+		Staging: StagingConfig{
+			Enabled:       true,
+			ContainerRoot: "/data/staging",
 		},
 		Watch: WatchConfig{
 			DebounceWindow: 2 * time.Second,
@@ -110,6 +134,31 @@ func defaultConfig() *Config {
 			WriteTimeout: 30 * time.Second,
 		},
 	}
+}
+
+func (c *Config) deriveDirsFromBaseRoot() error {
+	base := strings.TrimSpace(c.BaseRoot)
+	if base == "" {
+		return fmt.Errorf("base_root is required")
+	}
+	if !filepath.IsAbs(base) {
+		abs, err := filepath.Abs(base)
+		if err != nil {
+			return fmt.Errorf("resolve base_root: %w", err)
+		}
+		base = abs
+	}
+	base = filepath.Clean(base)
+	c.BaseRoot = base
+
+	c.LogDir = filepath.Join(base, "logs")
+	c.Staging.HostRoot = filepath.Join(base, "staging")
+	c.Staging.Enabled = true
+	if strings.TrimSpace(c.Staging.ContainerRoot) == "" {
+		c.Staging.ContainerRoot = "/data/staging"
+	}
+	c.Snapshot.HostRoot = filepath.Join(base, "snapshots")
+	return nil
 }
 
 // AgentListenURL 返回上报给 control-plane 的 agent 地址（带 scheme）。
@@ -136,6 +185,9 @@ func (c *Config) validate() error {
 	}
 	if c.ControlPlaneBaseURL == "" {
 		return fmt.Errorf("control_plane_base_url is required")
+	}
+	if strings.TrimSpace(c.BaseRoot) == "" {
+		return fmt.Errorf("base_root is required (set host path via RAGSCAN_BASE_ROOT)")
 	}
 	return nil
 }

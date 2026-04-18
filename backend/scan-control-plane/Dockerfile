@@ -1,6 +1,4 @@
-ARG GO_VERSION=1.24.6
-
-FROM golang:${GO_VERSION}-alpine AS builder
+FROM golang:1.24.6-alpine AS builder
 WORKDIR /build
 
 ARG GOPROXY=https://proxy.golang.org,direct

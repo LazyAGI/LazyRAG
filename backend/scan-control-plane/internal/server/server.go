@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,28 +22,34 @@ import (
 	"github.com/lazyrag/scan_control_plane/internal/store"
 )
 
+const (
+	scanFrontendPrefix = "/api/scan"
+)
+
 type Handler struct {
-	store      *store.Store
-	merger     EventMerger
-	core       coreclient.Client
-	agentToken string
-	client     *http.Client
-	log        *zap.Logger
+	store         *store.Store
+	merger        EventMerger
+	core          coreclient.Client
+	coreDatasetID string
+	agentToken    string
+	client        *http.Client
+	log           *zap.Logger
 }
 
 type EventMerger interface {
 	Ingest(events []model.FileEvent)
 }
 
-func NewHandler(st *store.Store, merger EventMerger, core coreclient.Client, agentToken string, log *zap.Logger) *Handler {
+func NewHandler(st *store.Store, merger EventMerger, core coreclient.Client, coreDatasetID string, agentToken string, log *zap.Logger) *Handler {
 	if core == nil {
 		core = coreclient.NewNoop()
 	}
 	return &Handler{
-		store:      st,
-		merger:     merger,
-		core:       core,
-		agentToken: agentToken,
+		store:         st,
+		merger:        merger,
+		core:          core,
+		coreDatasetID: strings.TrimSpace(coreDatasetID),
+		agentToken:    agentToken,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -53,9 +60,10 @@ func NewHandler(st *store.Store, merger EventMerger, core coreclient.Client, age
 func NewHTTPServer(listenAddr string, h *Handler) *http.Server {
 	mux := http.NewServeMux()
 	h.registerRoutes(mux)
+	handler := h.authMiddleware(mux)
 	return &http.Server{
 		Addr:         listenAddr,
-		Handler:      accessLogMiddleware(h.log, mux),
+		Handler:      accessLogMiddleware(h.log, handler),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
@@ -91,31 +99,60 @@ func accessLogMiddleware(log *zap.Logger, next http.Handler) http.Handler {
 	})
 }
 
+func (h *Handler) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSpace(r.URL.Path)
+		switch {
+		case strings.HasPrefix(path, scanFrontendPrefix+"/"):
+			if strings.TrimSpace(r.Header.Get("X-User-Id")) == "" {
+				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing X-User-Id; frontend requests must pass through Kong auth")
+				return
+			}
+		case strings.HasPrefix(path, "/api/v1/agents/"):
+			if !h.validateAgentAuthorization(r.Header.Get("Authorization")) {
+				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid agent authorization")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) validateAgentAuthorization(rawAuth string) bool {
+	expected := strings.TrimSpace(h.agentToken)
+	if expected == "" {
+		// Keep backward compatibility when agent_token is intentionally unset.
+		return true
+	}
+	rawAuth = strings.TrimSpace(rawAuth)
+	if rawAuth == "" {
+		return false
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(rawAuth, prefix) {
+		return false
+	}
+	got := strings.TrimSpace(strings.TrimPrefix(rawAuth, prefix))
+	if got == "" {
+		return false
+	}
+	expectedBytes := []byte(expected)
+	gotBytes := []byte(got)
+	if len(expectedBytes) != len(gotBytes) {
+		return false
+	}
+	return subtle.ConstantTimeCompare(expectedBytes, gotBytes) == 1
+}
+
 func (h *Handler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /docs", h.docs)
 	mux.HandleFunc("GET /openapi.json", h.openapiJSON)
 
-	mux.HandleFunc("POST /api/v1/sources", h.createSource)
-	mux.HandleFunc("POST /api/v1/knowledge-bases", h.createKnowledgeBase)
-	mux.HandleFunc("GET /api/v1/sources", h.listSources)
-	mux.HandleFunc("GET /api/v1/sources/{id}", h.getSource)
-	mux.HandleFunc("PUT /api/v1/sources/{id}", h.updateSource)
-	mux.HandleFunc("POST /api/v1/sources/{id}/enable", h.enableSource)
-	mux.HandleFunc("POST /api/v1/sources/{id}/disable", h.disableSource)
-	mux.HandleFunc("POST /api/v1/sources/{id}/tasks/generate", h.generateSourceTasks)
-	mux.HandleFunc("POST /api/v1/sources/{id}/watch/enable", h.enableSourceWatch)
-	mux.HandleFunc("POST /api/v1/sources/{id}/watch/disable", h.disableSourceWatch)
-	mux.HandleFunc("POST /api/v1/sources/{id}/tasks/expedite", h.expediteSourceTasks)
-	mux.HandleFunc("GET /api/v1/sources/{id}/documents", h.listSourceDocuments)
-	mux.HandleFunc("GET /api/v1/sources/{id}/manual-pull-jobs", h.listManualPullJobs)
-	mux.HandleFunc("GET /api/v1/parse-tasks", h.listParseTasks)
-	mux.HandleFunc("GET /api/v1/parse-tasks/stats", h.parseTaskStats)
-	mux.HandleFunc("GET /api/v1/parse-tasks/{id}", h.getParseTask)
-	mux.HandleFunc("POST /api/v1/parse-tasks/{id}/retry", h.retryParseTask)
+	// Frontend APIs (canonical).
+	h.registerFrontendRoutes(mux, scanFrontendPrefix)
 
-	mux.HandleFunc("GET /api/v1/agents", h.listAgents)
-	mux.HandleFunc("GET /api/v1/agents/{id}", h.getAgent)
+	// Agent-facing internal APIs (kept on /api/v1 for file-watcher compatibility).
 	mux.HandleFunc("POST /api/v1/agents/register", h.registerAgent)
 	mux.HandleFunc("POST /api/v1/agents/heartbeat", h.reportHeartbeat)
 	mux.HandleFunc("POST /api/v1/agents/pull", h.pullCommands)
@@ -123,10 +160,35 @@ func (h *Handler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/agents/snapshots/report", h.reportSnapshot)
 	mux.HandleFunc("POST /api/v1/agents/events", h.reportEvents)
 	mux.HandleFunc("POST /api/v1/agents/scan-results", h.reportScanResults)
+}
 
+func (h *Handler) registerFrontendRoutes(mux *http.ServeMux, prefix string) {
+	prefix = strings.TrimRight(strings.TrimSpace(prefix), "/")
+	if prefix == "" {
+		return
+	}
+	mux.HandleFunc("POST "+prefix+"/sources", h.createSource)
+	mux.HandleFunc("POST "+prefix+"/knowledge-bases", h.createKnowledgeBase)
+	mux.HandleFunc("GET "+prefix+"/sources", h.listSources)
+	mux.HandleFunc("GET "+prefix+"/sources/{id}", h.getSource)
+	mux.HandleFunc("PUT "+prefix+"/sources/{id}", h.updateSource)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/enable", h.enableSource)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/disable", h.disableSource)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/tasks/generate", h.generateSourceTasks)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/watch/enable", h.enableSourceWatch)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/watch/disable", h.disableSourceWatch)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/tasks/expedite", h.expediteSourceTasks)
+	mux.HandleFunc("GET "+prefix+"/sources/{id}/documents", h.listSourceDocuments)
+	mux.HandleFunc("GET "+prefix+"/sources/{id}/manual-pull-jobs", h.listManualPullJobs)
+	mux.HandleFunc("GET "+prefix+"/parse-tasks", h.listParseTasks)
+	mux.HandleFunc("GET "+prefix+"/parse-tasks/stats", h.parseTaskStats)
+	mux.HandleFunc("GET "+prefix+"/parse-tasks/{id}", h.getParseTask)
+	mux.HandleFunc("POST "+prefix+"/parse-tasks/{id}/retry", h.retryParseTask)
+	mux.HandleFunc("GET "+prefix+"/agents", h.listAgents)
+	mux.HandleFunc("GET "+prefix+"/agents/{id}", h.getAgent)
 	// Frontend helper APIs: proxy path validation/tree via selected agent.
-	mux.HandleFunc("POST /api/v1/agents/fs/validate", h.validatePathByAgent)
-	mux.HandleFunc("POST /api/v1/agents/fs/tree", h.pathTreeByAgent)
+	mux.HandleFunc("POST "+prefix+"/agents/fs/validate", h.validatePathByAgent)
+	mux.HandleFunc("POST "+prefix+"/agents/fs/tree", h.pathTreeByAgent)
 }
 
 func (h *Handler) healthz(w http.ResponseWriter, _ *http.Request) {
@@ -137,6 +199,17 @@ func (h *Handler) createSource(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateSourceRequest
 	if !decodeJSON(w, r, &req) {
 		return
+	}
+	req.DatasetID = strings.TrimSpace(req.DatasetID)
+	if h.core != nil && h.core.Enabled() {
+		// In core-task mode each source should have a concrete dataset binding.
+		if req.DatasetID == "" {
+			req.DatasetID = strings.TrimSpace(h.coreDatasetID)
+		}
+		if req.DatasetID == "" {
+			writeError(w, http.StatusBadRequest, "DATASET_ID_REQUIRED", "dataset_id is required when core is enabled; set source dataset_id or configure core.dataset_id")
+			return
+		}
 	}
 	src, err := h.store.CreateSource(r.Context(), req)
 	if err != nil {
@@ -152,7 +225,15 @@ func (h *Handler) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req model.CreateKnowledgeBaseRequest
-	if !decodeJSON(w, r, &req) {
+	if !decodeJSONStrict(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "name is required")
+		return
+	}
+	if strings.TrimSpace(req.Algo.AlgoID) == "" {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "algo.algo_id is required")
 		return
 	}
 	currentUserID := strings.TrimSpace(r.Header.Get("X-User-Id"))
@@ -164,10 +245,9 @@ func (h *Handler) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.core.CreateKnowledgeBase(r.Context(), coreclient.CreateKnowledgeBaseRequest{
 		Name:            strings.TrimSpace(req.Name),
-		DatasetID:       strings.TrimSpace(req.DatasetID),
-		Desc:            strings.TrimSpace(req.Desc),
-		AlgoID:          strings.TrimSpace(req.AlgoID),
-		Tags:            req.Tags,
+		AlgoID:          strings.TrimSpace(req.Algo.AlgoID),
+		AlgoDescription: strings.TrimSpace(req.Algo.Description),
+		AlgoDisplayName: strings.TrimSpace(req.Algo.DisplayName),
 		CurrentUserID:   currentUserID,
 		CurrentUserName: currentUserName,
 	})
@@ -250,6 +330,25 @@ func (h *Handler) generateSourceTasks(w http.ResponseWriter, r *http.Request) {
 	var req model.GenerateTasksRequest
 	if !decodeJSON(w, r, &req) {
 		return
+	}
+	if h.core != nil && h.core.Enabled() {
+		src, err := h.store.GetSource(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "GET_SOURCE_FAILED", err.Error())
+			return
+		}
+		effectiveDatasetID := strings.TrimSpace(src.DatasetID)
+		if effectiveDatasetID == "" {
+			effectiveDatasetID = strings.TrimSpace(h.coreDatasetID)
+		}
+		if effectiveDatasetID == "" {
+			writeError(w, http.StatusBadRequest, "MISSING_DATASET_BINDING", "source dataset_id is empty; bind dataset to source or configure core.dataset_id")
+			return
+		}
 	}
 	resp, err := h.store.GenerateTasksForSource(r.Context(), id, req)
 	if err != nil {
@@ -739,6 +838,16 @@ func (h *Handler) callAgentJSON(ctx context.Context, baseURL, apiPath string, re
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: "+err.Error())
+		return false
+	}
+	return true
+}
+
+func decodeJSONStrict(w http.ResponseWriter, r *http.Request, out any) bool {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out); err != nil {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: "+err.Error())
 		return false
 	}

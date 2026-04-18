@@ -8,16 +8,11 @@ control_plane_base_url: "http://127.0.0.1:18080"
 heartbeat_interval: "30s"
 pull_interval: "20s"
 reconcile_interval: "20m"
+# base_root 需放在 docker-compose volume 对应的宿主机目录中；
+# 并确保 compose 中挂载 ${RAGSCAN_BASE_ROOT}/staging -> /data/staging
+# 这里必须是“宿主机可写绝对路径”，不要填容器内路径（如 /data/ragscan）
+base_root: "${RAGSCAN_BASE_ROOT}"
 log_level: "info"
-log_dir: "/Users/sunjinghua.vendor/sunjh/ragscan-manual/logs"
-
-staging:
-  enabled: true
-  host_root: "/Users/sunjinghua.vendor/sunjh/ragscan-manual/staging"
-  container_root: "/data/staging"
-
-snapshot:
-  host_root: "/Users/sunjinghua.vendor/sunjh/ragscan-manual/snapshots"
 
 watch:
   debounce_window: "10s"

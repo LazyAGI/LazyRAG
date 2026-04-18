@@ -38,10 +38,10 @@ parser:
   auth_token: ""
 
 core:
-  enabled: false
-  endpoint: ""
+  enabled: true
+  endpoint: "http://core:8000"
   dataset_id: ""
-  user_id: "scan-control-plane"
+  user_id: "11111111-1111-1111-1111-111111111111"
   user_name: "scan-control-plane"
   start_mode: "ASYNC"
   auth_token: ""

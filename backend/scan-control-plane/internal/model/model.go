@@ -482,12 +482,15 @@ type BrowseResponse struct {
 	Entries []BrowseEntry `json:"entries"`
 }
 
+type KnowledgeBaseAlgo struct {
+	AlgoID      string `json:"algo_id"`
+	Description string `json:"description,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
 type CreateKnowledgeBaseRequest struct {
-	Name      string   `json:"name"`
-	DatasetID string   `json:"dataset_id,omitempty"`
-	Desc      string   `json:"desc,omitempty"`
-	AlgoID    string   `json:"algo_id,omitempty"`
-	Tags      []string `json:"tags,omitempty"`
+	Name string            `json:"name"`
+	Algo KnowledgeBaseAlgo `json:"algo"`
 }
 
 type CreateKnowledgeBaseResponse struct {

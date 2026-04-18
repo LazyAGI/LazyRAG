@@ -38,7 +38,7 @@ func buildOpenAPISpec() map[string]any {
 					}, []string{"status"})),
 				}),
 			},
-			"/api/v1/sources": map[string]any{
+			"/api/scan/sources": map[string]any{
 				"get": op("List sources", nil, map[string]any{
 					"200": resp("Source list", inlineObj(map[string]any{
 						"items": arrSchema(refSchema("Source")),
@@ -49,14 +49,14 @@ func buildOpenAPISpec() map[string]any {
 					"400": errResp(),
 				}),
 			},
-			"/api/v1/knowledge-bases": map[string]any{
+			"/api/scan/knowledge-bases": map[string]any{
 				"post": op("Create knowledge base in core and grant current user read permission", reqBody(refSchema("CreateKnowledgeBaseRequest")), map[string]any{
 					"200": resp("Created knowledge base", refSchema("CreateKnowledgeBaseResponse")),
 					"400": errResp(),
 					"502": errResp(),
 				}),
 			},
-			"/api/v1/sources/{id}": map[string]any{
+			"/api/scan/sources/{id}": map[string]any{
 				"get": op("Get source", nil, map[string]any{
 					"200": resp("Source", refSchema("Source")),
 					"404": errResp(),
@@ -67,47 +67,47 @@ func buildOpenAPISpec() map[string]any {
 					"404": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/sources/{id}/enable": map[string]any{
+			"/api/scan/sources/{id}/enable": map[string]any{
 				"post": op("Enable source", nil, map[string]any{
 					"200": resp("Source", refSchema("Source")),
 					"404": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/sources/{id}/disable": map[string]any{
+			"/api/scan/sources/{id}/disable": map[string]any{
 				"post": op("Disable source", nil, map[string]any{
 					"200": resp("Source", refSchema("Source")),
 					"404": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/sources/{id}/tasks/generate": map[string]any{
+			"/api/scan/sources/{id}/tasks/generate": map[string]any{
 				"post": op("Generate parse tasks for source", reqBody(refSchema("GenerateTasksRequest")), map[string]any{
 					"200": resp("Generated task stats", refSchema("GenerateTasksResponse")),
 					"400": errResp(),
 					"404": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/sources/{id}/watch/enable": map[string]any{
+			"/api/scan/sources/{id}/watch/enable": map[string]any{
 				"post": op("Enable source watch", reqBody(refSchema("EnableWatchRequest")), map[string]any{
 					"200": resp("Watch toggle result", refSchema("WatchToggleResponse")),
 					"400": errResp(),
 					"404": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/sources/{id}/watch/disable": map[string]any{
+			"/api/scan/sources/{id}/watch/disable": map[string]any{
 				"post": op("Disable source watch", nil, map[string]any{
 					"200": resp("Watch toggle result", refSchema("WatchToggleResponse")),
 					"400": errResp(),
 					"404": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/sources/{id}/tasks/expedite": map[string]any{
+			"/api/scan/sources/{id}/tasks/expedite": map[string]any{
 				"post": op("Expedite source tasks by paths", reqBody(refSchema("ExpediteTasksRequest")), map[string]any{
 					"200": resp("Expedite stats", refSchema("ExpediteTasksResponse")),
 					"400": errResp(),
 					"404": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/sources/{id}/documents": map[string]any{
+			"/api/scan/sources/{id}/documents": map[string]any{
 				"get": op("List source documents", nil, map[string]any{
 					"200": resp("Source documents", refSchema("SourceDocumentsResponse")),
 					"400": errResp(),
@@ -123,7 +123,7 @@ func buildOpenAPISpec() map[string]any {
 					queryIntParam("page_size", false),
 				),
 			},
-			"/api/v1/sources/{id}/manual-pull-jobs": map[string]any{
+			"/api/scan/sources/{id}/manual-pull-jobs": map[string]any{
 				"get": op("List source manual pull jobs", nil, map[string]any{
 					"200": resp("Manual pull jobs", refSchema("ListManualPullJobsResponse")),
 					"400": errResp(),
@@ -136,7 +136,7 @@ func buildOpenAPISpec() map[string]any {
 					queryIntParam("page_size", false),
 				),
 			},
-			"/api/v1/parse-tasks": map[string]any{
+			"/api/scan/parse-tasks": map[string]any{
 				"get": op("List parse tasks", nil, map[string]any{
 					"200": resp("Parse task list", refSchema("ListParseTasksResponse")),
 					"400": errResp(),
@@ -150,7 +150,7 @@ func buildOpenAPISpec() map[string]any {
 					queryIntParam("page_size", false),
 				),
 			},
-			"/api/v1/parse-tasks/stats": map[string]any{
+			"/api/scan/parse-tasks/stats": map[string]any{
 				"get": op("Parse task status stats", nil, map[string]any{
 					"200": resp("Status counts", refSchema("ParseTaskStatsResponse")),
 					"400": errResp(),
@@ -160,14 +160,14 @@ func buildOpenAPISpec() map[string]any {
 					queryParam("source_id", false),
 				),
 			},
-			"/api/v1/parse-tasks/{id}": map[string]any{
+			"/api/scan/parse-tasks/{id}": map[string]any{
 				"get": op("Get parse task detail", nil, map[string]any{
 					"200": resp("Parse task detail", refSchema("ParseTaskDetailResponse")),
 					"404": errResp(),
 					"500": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/parse-tasks/{id}/retry": map[string]any{
+			"/api/scan/parse-tasks/{id}/retry": map[string]any{
 				"post": op("Retry parse task", nil, map[string]any{
 					"200": resp("Retried parse task detail", refSchema("ParseTaskDetailResponse")),
 					"400": errResp(),
@@ -175,14 +175,14 @@ func buildOpenAPISpec() map[string]any {
 					"500": errResp(),
 				}, pathParam("id")),
 			},
-			"/api/v1/agents": map[string]any{
+			"/api/scan/agents": map[string]any{
 				"get": op("List agents", nil, map[string]any{
 					"200": resp("Agent list", inlineObj(map[string]any{
 						"items": arrSchema(refSchema("Agent")),
 					}, []string{"items"})),
 				}),
 			},
-			"/api/v1/agents/{id}": map[string]any{
+			"/api/scan/agents/{id}": map[string]any{
 				"get": op("Get agent", nil, map[string]any{
 					"200": resp("Agent", refSchema("Agent")),
 					"404": errResp(),
@@ -230,14 +230,14 @@ func buildOpenAPISpec() map[string]any {
 					"500": errResp(),
 				}),
 			},
-			"/api/v1/agents/fs/validate": map[string]any{
+			"/api/scan/agents/fs/validate": map[string]any{
 				"post": op("Validate path via agent", reqBody(refSchema("AgentPathRequest")), map[string]any{
 					"200": resp("Path validation result", refSchema("AgentPathValidateResponse")),
 					"404": errResp(),
 					"502": errResp(),
 				}),
 			},
-			"/api/v1/agents/fs/tree": map[string]any{
+			"/api/scan/agents/fs/tree": map[string]any{
 				"post": op("Get directory tree via agent", reqBody(refSchema("AgentPathTreeRequest")), map[string]any{
 					"200": resp("Directory tree", refSchema("AgentPathTreeResponse")),
 					"404": errResp(),
@@ -292,12 +292,13 @@ func schemas() map[string]any {
 			"default_trigger_policy":  strSchema(),
 		}, []string{"tenant_id", "name", "root_path", "agent_id"}),
 		"CreateKnowledgeBaseRequest": inlineObj(map[string]any{
-			"name":       strSchema(),
-			"dataset_id": strSchema(),
-			"desc":       strSchema(),
-			"algo_id":    strSchema(),
-			"tags":       arrSchema(strSchema()),
-		}, []string{"name"}),
+			"name": strSchema(),
+			"algo": inlineObj(map[string]any{
+				"algo_id":      strSchema(),
+				"description":  strSchema(),
+				"display_name": strSchema(),
+			}, []string{"algo_id"}),
+		}, []string{"name", "algo"}),
 		"CreateKnowledgeBaseResponse": inlineObj(map[string]any{
 			"dataset_id": strSchema(),
 			"name":       strSchema(),

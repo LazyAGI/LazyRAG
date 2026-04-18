@@ -45,7 +45,7 @@ func New(cfg *config.Config) (*App, error) {
 
 	evMerger := merger.New(cfg.EventMerge, st, log)
 	coreClient := coreclient.New(cfg.Core, log)
-	h := server.NewHandler(st, evMerger, coreClient, cfg.AgentToken, log)
+	h := server.NewHandler(st, evMerger, coreClient, cfg.Core.DatasetID, cfg.AgentToken, log)
 	srv := server.NewHTTPServer(cfg.ListenAddr, h)
 	sch := scheduler.New(st, cfg.SchedulerTick, log)
 	wk := worker.New(cfg.Worker, st, coreClient, log)

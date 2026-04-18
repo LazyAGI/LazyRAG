@@ -8,7 +8,6 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,10 +33,9 @@ type TaskState struct {
 
 type CreateKnowledgeBaseRequest struct {
 	Name            string
-	DatasetID       string
-	Desc            string
 	AlgoID          string
-	Tags            []string
+	AlgoDescription string
+	AlgoDisplayName string
 	CurrentUserID   string
 	CurrentUserName string
 }
@@ -235,38 +233,33 @@ func (c *httpClient) CreateKnowledgeBase(ctx context.Context, req CreateKnowledg
 	if name == "" {
 		return CreateKnowledgeBaseResult{}, fmt.Errorf("name is required")
 	}
+	if strings.TrimSpace(req.AlgoID) == "" {
+		return CreateKnowledgeBaseResult{}, fmt.Errorf("algo.algo_id is required")
+	}
 	currentUserID := strings.TrimSpace(req.CurrentUserID)
 	if currentUserID == "" {
 		return CreateKnowledgeBaseResult{}, fmt.Errorf("missing current user id")
 	}
 
-	algoID := strings.TrimSpace(req.AlgoID)
 	payload := map[string]any{
 		"display_name": name,
-	}
-	if strings.TrimSpace(req.Desc) != "" {
-		payload["desc"] = strings.TrimSpace(req.Desc)
-	}
-	if len(req.Tags) > 0 {
-		payload["tags"] = req.Tags
-	}
-	if algoID != "" {
-		payload["algo"] = map[string]any{
-			"algo_id": algoID,
-		}
+		// Keep scan API contract simple: KB description follows KB name.
+		"desc": name,
+		"tags": []string{"scan"},
+		"algo": map[string]any{
+			"algo_id":      strings.TrimSpace(req.AlgoID),
+			"description":  strings.TrimSpace(req.AlgoDescription),
+			"display_name": strings.TrimSpace(req.AlgoDisplayName),
+		},
 	}
 
-	createURL := c.path("/api/core/datasets")
-	if datasetID := strings.TrimSpace(req.DatasetID); datasetID != "" {
-		createURL += "?dataset_id=" + url.QueryEscape(datasetID)
-	}
+	createURL := c.path("/datasets")
 	var createResp map[string]any
 	if err := c.doJSONAs(ctx, http.MethodPost, createURL, payload, &createResp, c.cfg.UserID, c.cfg.UserName); err != nil {
 		return CreateKnowledgeBaseResult{}, err
 	}
 
 	datasetID := firstNonEmpty(
-		strings.TrimSpace(req.DatasetID),
 		stringFromAny(createResp["dataset_id"]),
 		nestedStringFromMap(createResp, "data", "dataset_id"),
 	)
@@ -287,7 +280,7 @@ func (c *httpClient) CreateKnowledgeBase(ctx context.Context, req CreateKnowledg
 	if err := c.doJSONAs(
 		ctx,
 		http.MethodPost,
-		c.path("/api/core/datasets/%s:batchAddMember", datasetID),
+		c.path("/datasets/%s:batchAddMember", datasetID),
 		memberPayload,
 		&memberResp,
 		c.cfg.UserID,
@@ -330,7 +323,7 @@ func (c *httpClient) SearchTasksByDataset(ctx context.Context, datasetID string,
 	if resolvedDatasetID == "" {
 		resolvedDatasetID = c.cfg.DatasetID
 	}
-	if err := c.doJSON(ctx, http.MethodPost, c.path("/api/core/datasets/%s/tasks:search", resolvedDatasetID), payload, &resp); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, c.path("/datasets/%s/tasks:search", resolvedDatasetID), payload, &resp); err != nil {
 		return nil, err
 	}
 	out := make(map[string]TaskState, len(resp.Tasks))
@@ -371,7 +364,7 @@ func (c *httpClient) uploadFile(ctx context.Context, datasetID string, stagedPat
 		return "", fmt.Errorf("close multipart writer failed: %w", err)
 	}
 
-	url := c.path("/api/core/datasets/%s/uploads", datasetID)
+	url := c.path("/datasets/%s/uploads", datasetID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
 	if err != nil {
 		return "", err
@@ -409,7 +402,7 @@ func (c *httpClient) createTask(ctx context.Context, datasetID string, payload m
 			DocumentID string `json:"document_id"`
 		} `json:"tasks"`
 	}
-	if err := c.doJSON(ctx, http.MethodPost, c.path("/api/core/datasets/%s/tasks", datasetID), payload, &resp); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, c.path("/datasets/%s/tasks", datasetID), payload, &resp); err != nil {
 		return "", "", err
 	}
 	if len(resp.Tasks) == 0 || strings.TrimSpace(resp.Tasks[0].TaskID) == "" {
@@ -424,7 +417,7 @@ func (c *httpClient) startTask(ctx context.Context, datasetID string, taskID str
 		"start_mode": c.cfg.StartMode,
 	}
 	var resp any
-	return c.doJSON(ctx, http.MethodPost, c.path("/api/core/datasets/%s/tasks:start", datasetID), payload, &resp)
+	return c.doJSON(ctx, http.MethodPost, c.path("/datasets/%s/tasks:start", datasetID), payload, &resp)
 }
 
 func (c *httpClient) resolveDatasetID(sourceDatasetID string) (string, error) {
@@ -457,7 +450,7 @@ func resolveLocalPath(stagedPath, stagedURI string) string {
 }
 
 func (c *httpClient) deleteDocument(ctx context.Context, datasetID, documentID string) error {
-	url := c.path("/api/core/datasets/%s/documents/%s", datasetID, documentID)
+	url := c.path("/datasets/%s/documents/%s", datasetID, documentID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -484,7 +477,7 @@ func (c *httpClient) getDocumentFileSystemPath(ctx context.Context, datasetID, d
 	var resp struct {
 		FileSystemPath string `json:"file_system_path"`
 	}
-	if err := c.doJSON(ctx, http.MethodGet, c.path("/api/core/datasets/%s/documents/%s", datasetID, documentID), nil, &resp); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, c.path("/datasets/%s/documents/%s", datasetID, documentID), nil, &resp); err != nil {
 		return "", err
 	}
 	targetPath := strings.TrimSpace(resp.FileSystemPath)
@@ -586,9 +579,6 @@ func (c *httpClient) doJSONAs(ctx context.Context, method, url string, payload a
 }
 
 func (c *httpClient) setAuthHeaders(h http.Header, userID, userName string) {
-	if strings.TrimSpace(c.cfg.AuthToken) != "" {
-		h.Set("Authorization", "Bearer "+strings.TrimSpace(c.cfg.AuthToken))
-	}
 	h.Set("X-User-Id", firstNonEmpty(strings.TrimSpace(userID), c.cfg.UserID))
 	h.Set("X-User-Name", firstNonEmpty(strings.TrimSpace(userName), c.cfg.UserName))
 }

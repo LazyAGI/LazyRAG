@@ -86,6 +86,10 @@ func (a *App) Run(ctx context.Context) error {
 		zap.String("hostname", hostname),
 		zap.String("listen", a.cfg.ListenAddr),
 		zap.String("advertise", advertiseAddr),
+		zap.String("base_root", a.cfg.BaseRoot),
+		zap.String("staging_root", a.cfg.Staging.HostRoot),
+		zap.String("snapshot_root", a.cfg.Snapshot.HostRoot),
+		zap.String("log_dir", a.cfg.LogDir),
 	)
 
 	// 注册 Agent 到控制面
