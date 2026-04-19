@@ -52,13 +52,16 @@ class ScoreAwareParentAggregator:
             if parent is None:
                 continue
 
-            if isinstance(parent, DocNode):
-                uid = parent._uid
-                if direct_parent_group is None:
-                    direct_parent_group = parent._group
-            else:
+            if isinstance(parent, str):
                 # parent is a uid string (remote / db-backed node)
                 uid = parent
+            elif hasattr(parent, '_uid'):
+                # DocNode or any object carrying _uid (tests may use SimpleNamespace)
+                uid = parent._uid
+                if direct_parent_group is None:
+                    direct_parent_group = getattr(parent, '_group', None)
+            else:
+                continue
 
             score = node.similarity_score or 0.0
             stats = parent_stats[uid]
