@@ -6,7 +6,7 @@ from lazyllm.tools.rag.doc_node import DocNode
 
 
 class ScoreAwareParentAggregator:
-    '''Aggregate child DocNodes to their parent group while preserving hit-density signal.
+    """Aggregate child DocNodes to their parent group while preserving hit-density signal.
 
     After a fine-grained retriever (e.g. group='line') returns nodes, the default
     lazyllm find_parent path deduplicates parents via a set, discarding how many
@@ -17,17 +17,17 @@ class ScoreAwareParentAggregator:
 
     A block that has 10 matching lines will therefore rank higher than a block with
     only 1 matching line, even when both blocks contain the same best-scoring line.
-    '''
+    """
 
     def __init__(self, document, target_group: str, hit_weight: float = 0.05):
-        '''
+        """
         Args:
             document: lazyllm Document (or UrlDocument) handle used to resolve
                       parent nodes across the full group tree.
             target_group: the group name to map nodes into, e.g. 'block'.
             hit_weight: bonus added per child node hit. Default 0.05, meaning
                         20 child hits contribute +1.0 on top of the max score.
-        '''
+        """
         self._document = document
         self._target_group = target_group
         self._hit_weight = hit_weight

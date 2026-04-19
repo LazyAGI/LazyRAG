@@ -25,13 +25,13 @@ def get_remote_docment(url: str) -> Document:
 
 
 def _build_kb_retriever(document: Document, cfg: dict):
-    '''Build a single kb retriever step from a config dict.
+    """Build a single kb retriever step from a config dict.
 
     If the config contains a 'target' key, the retriever is wrapped in a
     ScoreAwareParentAggregator so that child-node hit density is preserved
     when mapping to the parent group. Without this, lazyllm's internal
     find_parent deduplicates via a set and discards hit-count signal.
-    '''
+    """
     cfg = deepcopy(cfg)
     target = cfg.pop('target', None)
     retriever = Retriever(document, **cfg)
