@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -119,6 +120,77 @@ func TestPullAndAckCommandFlow(t *testing.T) {
 	}
 	if entity.Status != commandStatusAcked {
 		t.Fatalf("expected status %s, got %s", commandStatusAcked, entity.Status)
+	}
+}
+
+func TestPullPendingCommandsSkipsDecodeFailedPayload(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	if err := st.db.WithContext(ctx).Where("1 = 1").Delete(&agentCommandEntity{}).Error; err != nil {
+		t.Fatalf("clear commands failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	bad := agentCommandEntity{
+		AgentID:     src.AgentID,
+		Type:        string(model.CommandStartSource),
+		Payload:     "{not-json",
+		Status:      commandStatusPending,
+		NextRetryAt: &now,
+		CreatedAt:   now,
+	}
+	if err := st.db.WithContext(ctx).Create(&bad).Error; err != nil {
+		t.Fatalf("create bad command failed: %v", err)
+	}
+	good := agentCommandEntity{
+		AgentID:     src.AgentID,
+		Type:        string(model.CommandStartSource),
+		Payload:     `{"source_id":"src-ok","tenant_id":"tenant-1","root_path":"/tmp/watch"}`,
+		Status:      commandStatusPending,
+		CreatedAt:   now.Add(1 * time.Millisecond),
+		NextRetryAt: &now,
+	}
+	if err := st.db.WithContext(ctx).Create(&good).Error; err != nil {
+		t.Fatalf("create good command failed: %v", err)
+	}
+
+	pulled, err := st.PullPendingCommands(ctx, model.PullCommandsRequest{
+		AgentID:  src.AgentID,
+		TenantID: src.TenantID,
+	})
+	if err != nil {
+		t.Fatalf("pull pending commands failed: %v", err)
+	}
+	if len(pulled.Commands) != 1 {
+		t.Fatalf("expected exactly 1 decodable command, got %d", len(pulled.Commands))
+	}
+	if pulled.Commands[0].ID != good.ID {
+		t.Fatalf("expected pulled command id=%d, got %d", good.ID, pulled.Commands[0].ID)
+	}
+
+	var badAfter agentCommandEntity
+	if err := st.db.WithContext(ctx).Take(&badAfter, "id = ?", bad.ID).Error; err != nil {
+		t.Fatalf("load bad command failed: %v", err)
+	}
+	if badAfter.Status != commandStatusPending {
+		t.Fatalf("expected bad command stay pending, got %s", badAfter.Status)
+	}
+	if badAfter.DispatchedAt != nil {
+		t.Fatalf("expected bad command dispatched_at to remain nil")
+	}
+
+	var goodAfter agentCommandEntity
+	if err := st.db.WithContext(ctx).Take(&goodAfter, "id = ?", good.ID).Error; err != nil {
+		t.Fatalf("load good command failed: %v", err)
+	}
+	if goodAfter.Status != commandStatusDispatched {
+		t.Fatalf("expected good command status %s, got %s", commandStatusDispatched, goodAfter.Status)
+	}
+	if goodAfter.DispatchedAt == nil || goodAfter.DispatchedAt.IsZero() {
+		t.Fatalf("expected good command dispatched_at to be set")
 	}
 }
 
@@ -795,6 +867,425 @@ func TestGenerateTasksForSourceUpdatedOnly(t *testing.T) {
 	}
 	if resp.AcceptedCount != 1 {
 		t.Fatalf("expected accepted_count=1, got %d", resp.AcceptedCount)
+	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func TestCloudBindingUsesStoreDefaultScheduleTZ(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	st.SetDefaultCloudScheduleTZ("UTC")
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	binding, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_tz_default_001",
+		ScheduleExpr:     "daily@05:00",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+	if binding.ScheduleTZ != "UTC" {
+		t.Fatalf("expected schedule_tz to fallback to store default UTC, got %s", binding.ScheduleTZ)
+	}
+}
+
+func TestCloudBindingUpsertAndTriggerSyncRun(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	binding, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:              "feishu",
+		Enabled:               boolPtr(true),
+		AuthConnectionID:      "conn_feishu_001",
+		TargetType:            "wiki_space",
+		TargetRef:             "wikcn_test",
+		ScheduleExpr:          "daily@05:00",
+		ScheduleTZ:            "Asia/Shanghai",
+		ReconcileAfterSync:    boolPtr(true),
+		ReconcileDelayMinutes: 10,
+		IncludePatterns:       []string{"*.md", "*.docx"},
+		ExcludePatterns:       []string{"*.tmp"},
+		MaxObjectSizeBytes:    1024 * 1024,
+		ProviderOptions: map[string]any{
+			"space_name": "test-space",
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+	if binding.Provider != "feishu" {
+		t.Fatalf("expected provider=feishu, got %s", binding.Provider)
+	}
+	if binding.AuthConnectionID != "conn_feishu_001" {
+		t.Fatalf("expected auth_connection_id=conn_feishu_001, got %s", binding.AuthConnectionID)
+	}
+	if binding.NextSyncAt == nil {
+		t.Fatalf("expected next_sync_at to be set")
+	}
+
+	run, err := st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{TriggerType: "manual"})
+	if err != nil {
+		t.Fatalf("trigger cloud sync failed: %v", err)
+	}
+	if strings.TrimSpace(run.RunID) == "" {
+		t.Fatalf("expected non-empty run_id")
+	}
+	if run.Status != "RUNNING" {
+		t.Fatalf("expected run status RUNNING, got %s", run.Status)
+	}
+
+	runs, err := st.ListCloudSyncRuns(ctx, src.ID, 20)
+	if err != nil {
+		t.Fatalf("list cloud sync runs failed: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 cloud sync run, got %d", len(runs))
+	}
+	if runs[0].RunID != run.RunID {
+		t.Fatalf("expected run_id=%s, got %s", run.RunID, runs[0].RunID)
+	}
+}
+
+func TestTriggerCloudSyncDoesNotAdvanceLastSyncAt(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	_, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_lastsync_001",
+		ScheduleExpr:     "daily@01:00",
+		ScheduleTZ:       "Asia/Shanghai",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	run, err := st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{TriggerType: "manual"})
+	if err != nil {
+		t.Fatalf("trigger cloud sync failed: %v", err)
+	}
+
+	var checkpoint cloudSyncCheckpointEntity
+	if err := st.db.WithContext(ctx).Take(&checkpoint, "source_id = ?", src.ID).Error; err != nil {
+		t.Fatalf("load checkpoint failed: %v", err)
+	}
+	if checkpoint.LastSyncAt != nil {
+		t.Fatalf("expected last_sync_at to stay nil before run finishes, got %v", checkpoint.LastSyncAt)
+	}
+	if strings.TrimSpace(checkpoint.LastRunID) != run.RunID {
+		t.Fatalf("expected last_run_id=%s, got %s", run.RunID, checkpoint.LastRunID)
+	}
+}
+
+func TestTriggerCloudSyncRejectsDisabledBinding(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	_, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(false),
+		AuthConnectionID: "conn_disabled_001",
+		ScheduleExpr:     "daily@01:00",
+		ScheduleTZ:       "Asia/Shanghai",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	_, err = st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{TriggerType: "manual"})
+	if err == nil {
+		t.Fatalf("expected trigger cloud sync to fail for disabled binding")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "disabled") {
+		t.Fatalf("expected disabled error, got %v", err)
+	}
+
+	var runCount int64
+	if err := st.db.WithContext(ctx).Model(&cloudSyncRunEntity{}).
+		Where("source_id = ?", src.ID).
+		Count(&runCount).Error; err != nil {
+		t.Fatalf("count cloud sync runs failed: %v", err)
+	}
+	if runCount != 0 {
+		t.Fatalf("expected no cloud sync run rows, got %d", runCount)
+	}
+}
+
+func TestBuildCloudTreeByPath(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud",
+		RootPath:              "/tmp/cloud-mirror/src-cloud",
+		AgentID:               "agent-1",
+		WatchEnabled:          true,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     "CLOUD_SYNC",
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	rows := []cloudObjectIndexEntity{
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "fld_docs",
+			ExternalName:     "docs",
+			ExternalKind:     "folder",
+			LocalRelPath:     "docs",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "doc_a",
+			ExternalName:     "a.md",
+			ExternalKind:     "file",
+			LocalRelPath:     "docs/a.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs/a.md",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "fld_sub",
+			ExternalName:     "sub",
+			ExternalKind:     "folder",
+			LocalRelPath:     "docs/sub",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs/sub",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "doc_b",
+			ExternalName:     "b.md",
+			ExternalKind:     "file",
+			LocalRelPath:     "docs/sub/b.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs/sub/b.md",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "doc_readme",
+			ExternalName:     "readme.md",
+			ExternalKind:     "file",
+			LocalRelPath:     "readme.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/readme.md",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}
+	if err := st.db.WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("seed cloud_object_index failed: %v", err)
+	}
+
+	items, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/docs", 2, true)
+	if err != nil {
+		t.Fatalf("build cloud tree failed: %v", err)
+	}
+	nodeA, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/docs/a.md")
+	if !ok {
+		t.Fatalf("expected node a.md")
+	}
+	if nodeA.IsDir {
+		t.Fatalf("expected a.md to be file node")
+	}
+	if nodeA.ExternalFileID != "doc_a" {
+		t.Fatalf("expected external_file_id=doc_a, got %s", nodeA.ExternalFileID)
+	}
+	nodeSub, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/docs/sub")
+	if !ok || !nodeSub.IsDir {
+		t.Fatalf("expected docs/sub directory node")
+	}
+	if _, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/readme.md"); ok {
+		t.Fatalf("unexpected readme.md in docs subtree")
+	}
+
+	itemsNoFiles, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/docs", 1, false)
+	if err != nil {
+		t.Fatalf("build cloud tree without files failed: %v", err)
+	}
+	if _, ok := findTreeNodeByPath(itemsNoFiles, "/tmp/cloud-mirror/src-cloud/docs/a.md"); ok {
+		t.Fatalf("did not expect file node when include_files=false")
+	}
+	if _, ok := findTreeNodeByPath(itemsNoFiles, "/tmp/cloud-mirror/src-cloud/docs/sub/b.md"); ok {
+		t.Fatalf("did not expect depth>1 node when max_depth=1")
+	}
+
+	_, err = st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/not-found", 2, true)
+	if !errors.Is(err, ErrTreePathInvalid) {
+		t.Fatalf("expected ErrTreePathInvalid, got %v", err)
+	}
+}
+
+func TestCloudSyncClaimAndFinishLifecycle(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	_, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_001",
+		ScheduleExpr:     "daily@02:00",
+		ScheduleTZ:       "Asia/Shanghai",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+	run, err := st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{TriggerType: "manual"})
+	if err != nil {
+		t.Fatalf("trigger cloud sync failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(2 * time.Second)
+	claims, err := st.ClaimDueCloudSources(ctx, "ut-lock-owner", now, 10, 2*time.Minute)
+	if err != nil {
+		t.Fatalf("claim due cloud sources failed: %v", err)
+	}
+	if len(claims) != 1 {
+		t.Fatalf("expected 1 due claim, got %d", len(claims))
+	}
+	claim := claims[0]
+	if claim.SourceID != src.ID {
+		t.Fatalf("expected source_id=%s, got %s", src.ID, claim.SourceID)
+	}
+	if claim.ExistingRunID != run.RunID {
+		t.Fatalf("expected existing_run_id=%s, got %s", run.RunID, claim.ExistingRunID)
+	}
+
+	startedRun, err := st.StartCloudSyncRun(ctx, src.ID, "manual", claim.ExistingRunID, now)
+	if err != nil {
+		t.Fatalf("start cloud sync run failed: %v", err)
+	}
+	if startedRun.RunID != run.RunID {
+		t.Fatalf("expected reused run_id=%s, got %s", run.RunID, startedRun.RunID)
+	}
+
+	if err := st.FinishCloudSyncRun(ctx, src.ID, CloudSyncRunFinalize{
+		RunID:        run.RunID,
+		Status:       "SUCCEEDED",
+		FinishedAt:   now.Add(5 * time.Second),
+		RemoteTotal:  5,
+		CreatedCount: 2,
+		UpdatedCount: 1,
+		DeletedCount: 1,
+		SkippedCount: 1,
+		FailedCount:  0,
+	}); err != nil {
+		t.Fatalf("finish cloud sync run failed: %v", err)
+	}
+
+	runs, err := st.ListCloudSyncRuns(ctx, src.ID, 10)
+	if err != nil {
+		t.Fatalf("list cloud sync runs failed: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].Status != "SUCCEEDED" {
+		t.Fatalf("expected run status SUCCEEDED, got %s", runs[0].Status)
+	}
+	if runs[0].FinishedAt == nil || runs[0].FinishedAt.IsZero() {
+		t.Fatalf("expected finished_at to be set")
+	}
+
+	var checkpoint cloudSyncCheckpointEntity
+	if err := st.db.WithContext(ctx).Take(&checkpoint, "source_id = ?", src.ID).Error; err != nil {
+		t.Fatalf("load checkpoint failed: %v", err)
+	}
+	if strings.TrimSpace(checkpoint.LockOwner) != "" || checkpoint.LockUntil != nil {
+		t.Fatalf("expected checkpoint lock released, got owner=%q lock_until=%v", checkpoint.LockOwner, checkpoint.LockUntil)
+	}
+	if checkpoint.LastSuccessAt == nil || checkpoint.LastSuccessAt.IsZero() {
+		t.Fatalf("expected checkpoint.last_success_at to be set")
+	}
+}
+
+func TestCloudObjectIndexUpsertAndMarkDelete(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []CloudObjectIndexRecord{
+		{
+			ExternalObjectID: "obj_a",
+			ExternalPath:     "docs/a.md",
+			ExternalName:     "a.md",
+			ExternalKind:     "file",
+			ExternalVersion:  "v1",
+			LocalRelPath:     "docs/a.md",
+			LocalAbsPath:     filepath.Join(src.RootPath, "docs/a.md"),
+			Checksum:         "sha-a",
+			SizeBytes:        11,
+		},
+		{
+			ExternalObjectID: "obj_b",
+			ExternalPath:     "docs/b.md",
+			ExternalName:     "b.md",
+			ExternalKind:     "file",
+			ExternalVersion:  "v1",
+			LocalRelPath:     "docs/b.md",
+			LocalAbsPath:     filepath.Join(src.RootPath, "docs/b.md"),
+			Checksum:         "sha-b",
+			SizeBytes:        22,
+		},
+	}, now)
+	if err != nil {
+		t.Fatalf("upsert cloud object index failed: %v", err)
+	}
+
+	items, err := st.ListCloudObjectIndex(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("list cloud object index failed: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 index records, got %d", len(items))
+	}
+
+	if err := st.MarkCloudObjectsDeleted(ctx, src.ID, []string{"obj_b"}, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("mark cloud object deleted failed: %v", err)
+	}
+	items, err = st.ListCloudObjectIndex(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("list cloud object index failed: %v", err)
+	}
+	deleted := 0
+	for _, item := range items {
+		if item.IsDeleted {
+			deleted++
+		}
+	}
+	if deleted != 1 {
+		t.Fatalf("expected 1 deleted record, got %d", deleted)
 	}
 }
 

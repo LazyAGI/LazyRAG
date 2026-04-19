@@ -50,3 +50,8 @@ core:
 metrics:
   enabled: true
   tick: "30s"
+
+cloud_sync:
+  enabled: true
+  auth_service_base_url: "http://auth-service:8000"
+  auth_service_internal_token: "my-secret-token"

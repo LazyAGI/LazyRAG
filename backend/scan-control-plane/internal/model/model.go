@@ -91,6 +91,77 @@ type UpdateSourceRequest struct {
 	DefaultTriggerPolicy  string `json:"default_trigger_policy,omitempty"`
 }
 
+type UpsertCloudSourceBindingRequest struct {
+	Provider              string         `json:"provider"`
+	Enabled               *bool          `json:"enabled,omitempty"`
+	AuthConnectionID      string         `json:"auth_connection_id"`
+	TargetType            string         `json:"target_type,omitempty"`
+	TargetRef             string         `json:"target_ref,omitempty"`
+	ScheduleExpr          string         `json:"schedule_expr,omitempty"`
+	ScheduleTZ            string         `json:"schedule_tz,omitempty"`
+	ReconcileAfterSync    *bool          `json:"reconcile_after_sync,omitempty"`
+	ReconcileDelayMinutes int            `json:"reconcile_delay_minutes,omitempty"`
+	IncludePatterns       []string       `json:"include_patterns,omitempty"`
+	ExcludePatterns       []string       `json:"exclude_patterns,omitempty"`
+	MaxObjectSizeBytes    int64          `json:"max_object_size_bytes,omitempty"`
+	ProviderOptions       map[string]any `json:"provider_options,omitempty"`
+}
+
+type CloudSourceBinding struct {
+	SourceID              string         `json:"source_id"`
+	TenantID              string         `json:"tenant_id"`
+	Provider              string         `json:"provider"`
+	Enabled               bool           `json:"enabled"`
+	Status                string         `json:"status"`
+	AuthConnectionID      string         `json:"auth_connection_id"`
+	TargetType            string         `json:"target_type,omitempty"`
+	TargetRef             string         `json:"target_ref,omitempty"`
+	ScheduleExpr          string         `json:"schedule_expr"`
+	ScheduleTZ            string         `json:"schedule_tz"`
+	ReconcileAfterSync    bool           `json:"reconcile_after_sync"`
+	ReconcileDelayMinutes int            `json:"reconcile_delay_minutes"`
+	IncludePatterns       []string       `json:"include_patterns,omitempty"`
+	ExcludePatterns       []string       `json:"exclude_patterns,omitempty"`
+	MaxObjectSizeBytes    int64          `json:"max_object_size_bytes,omitempty"`
+	ProviderOptions       map[string]any `json:"provider_options,omitempty"`
+	LastError             string         `json:"last_error,omitempty"`
+	NextSyncAt            *time.Time     `json:"next_sync_at,omitempty"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
+}
+
+type TriggerCloudSyncRequest struct {
+	TriggerType string `json:"trigger_type,omitempty"`
+}
+
+type TriggerCloudSyncResponse struct {
+	RunID    string `json:"run_id"`
+	Accepted bool   `json:"accepted"`
+}
+
+type CloudSyncRun struct {
+	RunID        string     `json:"run_id"`
+	SourceID     string     `json:"source_id"`
+	TenantID     string     `json:"tenant_id"`
+	Provider     string     `json:"provider"`
+	TriggerType  string     `json:"trigger_type"`
+	Status       string     `json:"status"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	RemoteTotal  int        `json:"remote_total"`
+	CreatedCount int        `json:"created_count"`
+	UpdatedCount int        `json:"updated_count"`
+	DeletedCount int        `json:"deleted_count"`
+	SkippedCount int        `json:"skipped_count"`
+	FailedCount  int        `json:"failed_count"`
+	ErrorCode    string     `json:"error_code,omitempty"`
+	ErrorMessage string     `json:"error_message,omitempty"`
+}
+
+type ListCloudSyncRunsResponse struct {
+	Items []CloudSyncRun `json:"items"`
+}
+
 type Command struct {
 	ID        int64       `json:"id"`
 	AgentID   string      `json:"agent_id"`
@@ -404,6 +475,15 @@ type AgentPathTreeRequest struct {
 	MaxDepth     int    `json:"max_depth,omitempty"`
 	IncludeFiles bool   `json:"include_files,omitempty"`
 	ChangesOnly  bool   `json:"changes_only,omitempty"`
+	UpdatedOnly  bool   `json:"updated_only,omitempty"`
+}
+
+type SourcePathTreeRequest struct {
+	Path         string `json:"path,omitempty"`
+	MaxDepth     int    `json:"max_depth,omitempty"`
+	IncludeFiles bool   `json:"include_files,omitempty"`
+	ChangesOnly  bool   `json:"changes_only,omitempty"`
+	UpdatedOnly  bool   `json:"updated_only,omitempty"`
 }
 
 type AgentPathValidateResponse struct {

@@ -3,20 +3,29 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/lazyrag/scan_control_plane/internal/cloudsync/authclient"
+	cloudprovider "github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider/feishu"
 	"github.com/lazyrag/scan_control_plane/internal/coreclient"
 	"github.com/lazyrag/scan_control_plane/internal/model"
 	"github.com/lazyrag/scan_control_plane/internal/store"
@@ -34,29 +43,49 @@ const (
 )
 
 type Handler struct {
-	store         *store.Store
-	merger        EventMerger
-	core          coreclient.Client
-	coreDatasetID string
-	agentToken    string
-	client        *http.Client
-	log           *zap.Logger
+	store          *store.Store
+	merger         EventMerger
+	core           coreclient.Client
+	coreDatasetID  string
+	agentToken     string
+	cloudSyncTrig  func(sourceID, runID string) bool
+	cloudAuth      *authclient.Client
+	cloudProviders map[string]cloudprovider.Provider
+	client         *http.Client
+	log            *zap.Logger
 }
 
 type EventMerger interface {
 	Ingest(events []model.FileEvent)
 }
 
-func NewHandler(st *store.Store, merger EventMerger, core coreclient.Client, coreDatasetID string, agentToken string, log *zap.Logger) *Handler {
+func NewHandler(
+	st *store.Store,
+	merger EventMerger,
+	core coreclient.Client,
+	coreDatasetID string,
+	agentToken string,
+	cloudSyncTrigger func(sourceID, runID string) bool,
+	cloudAuthBaseURL string,
+	cloudAuthInternalToken string,
+	cloudHTTPTimeout time.Duration,
+	log *zap.Logger,
+) *Handler {
 	if core == nil {
 		core = coreclient.NewNoop()
 	}
+	cloudAuthClient := authclient.New(cloudAuthBaseURL, cloudAuthInternalToken, cloudHTTPTimeout)
 	return &Handler{
 		store:         st,
 		merger:        merger,
 		core:          core,
 		coreDatasetID: strings.TrimSpace(coreDatasetID),
 		agentToken:    agentToken,
+		cloudSyncTrig: cloudSyncTrigger,
+		cloudAuth:     cloudAuthClient,
+		cloudProviders: map[string]cloudprovider.Provider{
+			"feishu": feishu.New(cloudHTTPTimeout),
+		},
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -186,6 +215,8 @@ func (h *Handler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/agents/snapshots/report", h.reportSnapshot)
 	mux.HandleFunc("POST /api/v1/agents/events", h.reportEvents)
 	mux.HandleFunc("POST /api/v1/agents/scan-results", h.reportScanResults)
+	mux.HandleFunc("POST /api/v1/agents/fs/validate", h.validatePathByAgent)
+	mux.HandleFunc("POST /api/v1/agents/fs/tree", h.pathTreeByAgent)
 }
 
 func (h *Handler) registerFrontendRoutes(mux *http.ServeMux, prefix string) {
@@ -200,6 +231,10 @@ func (h *Handler) registerFrontendRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("PUT "+prefix+"/sources/{id}", h.updateSource)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/enable", h.enableSource)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/disable", h.disableSource)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/cloud/binding", h.upsertCloudBinding)
+	mux.HandleFunc("GET "+prefix+"/sources/{id}/cloud/binding", h.getCloudBinding)
+	mux.HandleFunc("POST "+prefix+"/sources/{id}/cloud/sync/trigger", h.triggerCloudSync)
+	mux.HandleFunc("GET "+prefix+"/sources/{id}/cloud/sync/runs", h.listCloudSyncRuns)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/tasks/generate", h.generateSourceTasks)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/watch/enable", h.enableSourceWatch)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/watch/disable", h.disableSourceWatch)
@@ -351,6 +386,96 @@ func (h *Handler) setSourceEnabled(w http.ResponseWriter, r *http.Request, enabl
 	writeJSON(w, http.StatusOK, src)
 }
 
+func (h *Handler) upsertCloudBinding(w http.ResponseWriter, r *http.Request) {
+	sourceID := strings.TrimSpace(r.PathValue("id"))
+	var req model.UpsertCloudSourceBindingRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	binding, err := h.store.UpsertCloudSourceBinding(r.Context(), sourceID, req)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "UPSERT_CLOUD_BINDING_FAILED", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, binding)
+}
+
+func (h *Handler) getCloudBinding(w http.ResponseWriter, r *http.Request) {
+	sourceID := strings.TrimSpace(r.PathValue("id"))
+	binding, err := h.store.GetCloudSourceBinding(r.Context(), sourceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "CLOUD_BINDING_NOT_FOUND", "cloud binding not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "GET_CLOUD_BINDING_FAILED", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, binding)
+}
+
+func (h *Handler) triggerCloudSync(w http.ResponseWriter, r *http.Request) {
+	sourceID := strings.TrimSpace(r.PathValue("id"))
+	if h.cloudSyncTrig == nil {
+		writeError(w, http.StatusServiceUnavailable, "CLOUD_SYNC_DISABLED", "cloud sync runner is disabled")
+		return
+	}
+	req := model.TriggerCloudSyncRequest{}
+	if r.ContentLength > 0 {
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+	}
+	run, err := h.store.TriggerCloudSync(r.Context(), sourceID, req)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "SOURCE_OR_BINDING_NOT_FOUND", "source or cloud binding not found")
+			return
+		}
+		if isBadRequestError(err) || strings.Contains(strings.ToLower(err.Error()), "trigger_type") {
+			writeError(w, http.StatusBadRequest, "TRIGGER_CLOUD_SYNC_FAILED", err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "TRIGGER_CLOUD_SYNC_FAILED", err.Error())
+		return
+	}
+	if h.cloudSyncTrig != nil {
+		if ok := h.cloudSyncTrig(sourceID, run.RunID); !ok {
+			h.log.Warn("cloud sync trigger queue full; fallback to scheduler",
+				zap.String("source_id", sourceID),
+				zap.String("run_id", run.RunID),
+			)
+		}
+	}
+	writeJSON(w, http.StatusOK, model.TriggerCloudSyncResponse{
+		RunID:    run.RunID,
+		Accepted: true,
+	})
+}
+
+func (h *Handler) listCloudSyncRuns(w http.ResponseWriter, r *http.Request) {
+	sourceID := strings.TrimSpace(r.PathValue("id"))
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 20)
+	items, err := h.store.ListCloudSyncRuns(r.Context(), sourceID, limit)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+			return
+		}
+		if isBadRequestError(err) {
+			writeError(w, http.StatusBadRequest, "LIST_CLOUD_SYNC_RUNS_FAILED", err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "LIST_CLOUD_SYNC_RUNS_FAILED", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, model.ListCloudSyncRunsResponse{Items: items})
+}
+
 func (h *Handler) generateSourceTasks(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req model.GenerateTasksRequest
@@ -468,13 +593,21 @@ func (h *Handler) listSourceDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.core != nil && h.core.Enabled() {
-		coreRefs, err := h.store.ListSourceDocumentCoreRefs(r.Context(), sourceID, req.TenantID)
-		if err != nil {
-			h.log.Warn("list source core refs failed", zap.Error(err), zap.String("source_id", sourceID))
-		} else {
-			states, err := h.searchCoreTaskStates(r.Context(), coreRefs)
+		pageRefs := make([]store.SourceDocumentCoreRef, 0, len(resp.Items))
+		for i := range resp.Items {
+			taskID := strings.TrimSpace(resp.Items[i].CoreTaskID)
+			if taskID == "" {
+				continue
+			}
+			pageRefs = append(pageRefs, store.SourceDocumentCoreRef{
+				CoreDatasetID: strings.TrimSpace(resp.Items[i].CoreDatasetID),
+				CoreTaskID:    taskID,
+			})
+		}
+		if len(pageRefs) > 0 {
+			states, err := h.searchCoreTaskStates(r.Context(), pageRefs)
 			if err != nil {
-				h.log.Warn("search core tasks failed", zap.Error(err), zap.String("source_id", sourceID))
+				h.log.Warn("search core tasks for current page failed", zap.Error(err), zap.String("source_id", sourceID))
 			} else {
 				for i := range resp.Items {
 					id := strings.TrimSpace(resp.Items[i].CoreTaskID)
@@ -490,7 +623,6 @@ func (h *Handler) listSourceDocuments(w http.ResponseWriter, r *http.Request) {
 						resp.Items[i].ParseState = resp.Items[i].CoreTaskState
 					}
 				}
-				resp.Summary = buildSourceDocumentsSummaryWithCore(coreRefs, states, resp.Summary.StorageBytes)
 			}
 		}
 	}
@@ -781,6 +913,108 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 	if req.MaxDepth > 8 {
 		req.MaxDepth = 8
 	}
+
+	sourceID := strings.TrimSpace(req.SourceID)
+	if sourceID != "" {
+		src, err := h.store.GetSource(r.Context(), sourceID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "GET_SOURCE_FAILED", err.Error())
+			return
+		}
+
+		treePath := filepath.Clean(strings.TrimSpace(req.Path))
+		if treePath == "" || treePath == "." {
+			treePath = filepath.Clean(strings.TrimSpace(src.RootPath))
+		}
+		if !pathInSourceRoot(treePath, src.RootPath) {
+			writeError(w, http.StatusBadRequest, "TREE_PATH_INVALID", "path must be inside source.root_path")
+			return
+		}
+
+		_, bindErr := h.store.GetCloudSourceBinding(r.Context(), sourceID)
+		hasCloudBinding := bindErr == nil
+		if bindErr != nil && !errors.Is(bindErr, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusInternalServerError, "GET_CLOUD_BINDING_FAILED", bindErr.Error())
+			return
+		}
+		if errors.Is(bindErr, gorm.ErrRecordNotFound) && strings.EqualFold(strings.TrimSpace(src.DefaultOriginType), string(model.OriginTypeCloudSync)) {
+			writeError(w, http.StatusNotFound, "CLOUD_BINDING_NOT_FOUND", "cloud binding not found")
+			return
+		}
+
+		var (
+			treeItems []model.TreeNode
+			fileStats map[string]model.TreeFileStat
+		)
+		if hasCloudBinding {
+			treeItems, fileStats, err = h.buildCloudTreeBySourceLive(r.Context(), src, sourceID, treePath, req.MaxDepth, req.IncludeFiles)
+			if err != nil {
+				switch {
+				case errors.Is(err, gorm.ErrRecordNotFound):
+					writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+				case errors.Is(err, store.ErrTreePathInvalid):
+					writeError(w, http.StatusBadRequest, "TREE_PATH_INVALID", err.Error())
+				default:
+					writeError(w, http.StatusInternalServerError, "AGENT_TREE_FAILED", err.Error())
+				}
+				return
+			}
+		} else {
+			agentID := strings.TrimSpace(req.AgentID)
+			if agentID == "" {
+				agentID = strings.TrimSpace(src.AgentID)
+			}
+			agent, err := h.store.GetAgent(r.Context(), agentID)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					writeError(w, http.StatusNotFound, "AGENT_NOT_FOUND", "agent not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "GET_AGENT_FAILED", err.Error())
+				return
+			}
+
+			var treeResp model.AgentPathTreeResponse
+			payload := map[string]any{
+				"path":          treePath,
+				"max_depth":     req.MaxDepth,
+				"include_files": req.IncludeFiles,
+			}
+			if err := h.callAgentJSON(r.Context(), agent.ListenAddr, "/api/v1/fs/tree", payload, &treeResp); err != nil {
+				writeError(w, http.StatusBadGateway, "AGENT_TREE_FAILED", err.Error())
+				return
+			}
+			fileStats, err = h.fetchTreeFileStats(r.Context(), agent.ListenAddr, treeResp.Items)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "AGENT_TREE_STAT_FAILED", err.Error())
+				return
+			}
+			treeItems = treeResp.Items
+		}
+
+		items, token, err := h.store.BuildTreeUpdateState(r.Context(), sourceID, treeItems, fileStats)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "BUILD_TREE_STATE_FAILED", err.Error())
+			return
+		}
+		if req.ChangesOnly || req.UpdatedOnly {
+			items = filterTreeToChanged(items)
+		}
+		writeJSON(w, http.StatusOK, model.AgentPathTreeResponse{
+			Items:          items,
+			SelectionToken: token,
+		})
+		return
+	}
+
 	agent, err := h.store.GetAgent(r.Context(), req.AgentID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -800,27 +1034,6 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 	if err := h.callAgentJSON(r.Context(), agent.ListenAddr, "/api/v1/fs/tree", payload, &treeResp); err != nil {
 		writeError(w, http.StatusBadGateway, "AGENT_TREE_FAILED", err.Error())
 		return
-	}
-	if strings.TrimSpace(req.SourceID) != "" {
-		fileStats, err := h.fetchTreeFileStats(r.Context(), agent.ListenAddr, treeResp.Items)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, "AGENT_TREE_STAT_FAILED", err.Error())
-			return
-		}
-		items, token, err := h.store.BuildTreeUpdateState(r.Context(), req.SourceID, treeResp.Items, fileStats)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "BUILD_TREE_STATE_FAILED", err.Error())
-			return
-		}
-		if req.ChangesOnly {
-			items = filterTreeToChanged(items)
-		}
-		treeResp.Items = items
-		treeResp.SelectionToken = token
 	}
 	writeJSON(w, http.StatusOK, treeResp)
 }
@@ -863,18 +1076,26 @@ func (h *Handler) callAgentJSON(ctx context.Context, baseURL, apiPath string, re
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, out any) bool {
-	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
-		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: "+err.Error())
-		return false
-	}
-	return true
+	return decodeJSONInternal(w, r, out, true)
 }
 
 func decodeJSONStrict(w http.ResponseWriter, r *http.Request, out any) bool {
+	return decodeJSONInternal(w, r, out, true)
+}
+
+func decodeJSONInternal(w http.ResponseWriter, r *http.Request, out any, strict bool) bool {
 	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
+	if strict {
+		dec.DisallowUnknownFields()
+	}
 	if err := dec.Decode(out); err != nil {
 		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: "+err.Error())
+		return false
+	}
+	// Reject trailing garbage to keep request validation deterministic.
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: multiple JSON values are not allowed")
 		return false
 	}
 	return true
@@ -926,58 +1147,599 @@ func isBadRequestError(err error) bool {
 		strings.Contains(msg, "does not support retry")
 }
 
-func collectTreeFilePaths(items []model.TreeNode) []string {
-	out := make([]string, 0, 64)
-	seen := make(map[string]struct{}, 64)
-	var walk func(nodes []model.TreeNode)
-	walk = func(nodes []model.TreeNode) {
-		for _, node := range nodes {
-			if node.IsDir {
-				if len(node.Children) > 0 {
-					walk(node.Children)
-				}
-				continue
-			}
-			path := strings.TrimSpace(node.Key)
-			if path == "" {
-				continue
-			}
-			if _, ok := seen[path]; ok {
-				continue
-			}
-			seen[path] = struct{}{}
-			out = append(out, path)
+func pathInSourceRoot(path, root string) bool {
+	path = filepath.Clean(strings.TrimSpace(path))
+	root = filepath.Clean(strings.TrimSpace(root))
+	if path == "" || path == "." || root == "" || root == "." {
+		return false
+	}
+	if root == string(filepath.Separator) {
+		return strings.HasPrefix(path, string(filepath.Separator))
+	}
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
+func (h *Handler) buildCloudTreeBySourceLive(
+	ctx context.Context,
+	src model.Source,
+	sourceID, treePath string,
+	maxDepth int,
+	includeFiles bool,
+) ([]model.TreeNode, map[string]model.TreeFileStat, error) {
+	if h.cloudAuth == nil {
+		return nil, nil, fmt.Errorf("cloud auth client is not configured")
+	}
+	binding, err := h.store.GetCloudSourceBinding(ctx, sourceID)
+	if err != nil {
+		return nil, nil, err
+	}
+	providerName := strings.ToLower(strings.TrimSpace(binding.Provider))
+	impl := h.cloudProviders[providerName]
+	if impl == nil {
+		return nil, nil, fmt.Errorf("unsupported cloud provider: %s", binding.Provider)
+	}
+
+	tokenResp, err := h.cloudAuth.GetAccessToken(ctx, binding.AuthConnectionID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("acquire cloud access token failed: %w", err)
+	}
+	objects, err := impl.ListObjects(ctx, cloudprovider.ListRequest{
+		AccessToken:     tokenResp.AccessToken,
+		TargetType:      binding.TargetType,
+		TargetRef:       binding.TargetRef,
+		ProviderOptions: binding.ProviderOptions,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("list remote cloud objects failed: %w", err)
+	}
+
+	indexRows, err := h.store.ListCloudObjectIndex(ctx, sourceID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load cloud object index failed: %w", err)
+	}
+	existingByID := make(map[string]store.CloudObjectIndexRecord, len(indexRows))
+	pathOwner := make(map[string]string, len(indexRows))
+	for _, row := range indexRows {
+		id := strings.TrimSpace(row.ExternalObjectID)
+		if id == "" {
+			continue
+		}
+		existingByID[id] = row
+		if row.IsDeleted {
+			continue
+		}
+		rel := strings.Trim(strings.ReplaceAll(strings.TrimSpace(row.LocalRelPath), "\\", "/"), "/")
+		if rel != "" {
+			pathOwner[rel] = id
 		}
 	}
-	walk(items)
-	return out
+
+	rootPath := filepath.Clean(strings.TrimSpace(src.RootPath))
+	nodeMap := make(map[string]*model.TreeNode, len(objects))
+	childMap := make(map[string]map[string]struct{}, len(objects))
+	fileStats := make(map[string]model.TreeFileStat, len(objects))
+	hasScopedObject := false
+	pathIsFile := false
+
+	for _, obj := range objects {
+		if !cloudIncludeObjectByPath(strings.TrimSpace(obj.ExternalPath), binding.IncludePatterns, binding.ExcludePatterns) {
+			continue
+		}
+		objectID := strings.TrimSpace(obj.ExternalObjectID)
+		if objectID == "" {
+			continue
+		}
+		kind := cloudNormalizeKind(obj.ExternalKind, obj.ProviderMeta)
+		isDir := cloudIsDirKind(kind)
+		objectPath, relPath := cloudResolveObjectPath(rootPath, obj, kind, existingByID, pathOwner)
+		if objectPath == "" {
+			continue
+		}
+		if relPath != "" {
+			pathOwner[relPath] = objectID
+		}
+		if !pathInSourceRoot(objectPath, rootPath) {
+			continue
+		}
+
+		if objectPath == treePath {
+			hasScopedObject = true
+			if !isDir {
+				pathIsFile = true
+			} else {
+				cloudEnsureNode(nodeMap, childMap, objectPath, true, strings.TrimSpace(obj.ExternalName), "")
+			}
+		}
+		if !pathInSourceRoot(objectPath, treePath) {
+			continue
+		}
+		hasScopedObject = true
+
+		depth := cloudTreeRelativeDepth(treePath, objectPath)
+		if depth < 0 {
+			continue
+		}
+		if depth > 0 {
+			cloudEnsureAncestorNodes(nodeMap, childMap, treePath, objectPath, maxDepth)
+		}
+		if depth == 0 {
+			continue
+		}
+		if depth > maxDepth {
+			continue
+		}
+		if !isDir && !includeFiles {
+			continue
+		}
+
+		externalFileID := ""
+		if !isDir {
+			externalFileID = objectID
+			stat := model.TreeFileStat{
+				Path:     objectPath,
+				IsDir:    false,
+				Size:     obj.SizeBytes,
+				Checksum: strings.TrimSpace(obj.ExternalVersion),
+			}
+			if existing, ok := existingByID[objectID]; ok {
+				if stat.Size <= 0 {
+					stat.Size = existing.SizeBytes
+				}
+				if strings.TrimSpace(stat.Checksum) == "" {
+					stat.Checksum = strings.TrimSpace(existing.Checksum)
+				}
+				if obj.ExternalModifiedAt == nil && existing.ExternalModifiedAt != nil {
+					mt := existing.ExternalModifiedAt.UTC()
+					stat.ModTime = &mt
+				}
+			}
+			if obj.ExternalModifiedAt != nil && !obj.ExternalModifiedAt.IsZero() {
+				mt := obj.ExternalModifiedAt.UTC()
+				stat.ModTime = &mt
+			}
+			fileStats[objectPath] = stat
+		}
+		cloudEnsureNode(nodeMap, childMap, objectPath, isDir, strings.TrimSpace(obj.ExternalName), externalFileID)
+	}
+
+	if treePath != rootPath {
+		if !hasScopedObject || pathIsFile {
+			return nil, nil, store.ErrTreePathInvalid
+		}
+	}
+	return cloudBuildTreeNodes(treePath, nodeMap, childMap), fileStats, nil
+}
+
+func cloudIncludeObjectByPath(remotePath string, includes, excludes []string) bool {
+	remotePath = strings.Trim(strings.ReplaceAll(strings.TrimSpace(remotePath), "\\", "/"), "/")
+	if remotePath == "" {
+		return true
+	}
+	if len(includes) > 0 {
+		matched := false
+		for _, pattern := range includes {
+			if cloudMatchesPattern(pattern, remotePath) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	for _, pattern := range excludes {
+		if cloudMatchesPattern(pattern, remotePath) {
+			return false
+		}
+	}
+	return true
+}
+
+func cloudMatchesPattern(pattern, p string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	if ok, _ := path.Match(pattern, p); ok {
+		return true
+	}
+	if ok, _ := path.Match(pattern, path.Base(p)); ok {
+		return true
+	}
+	if strings.HasPrefix(pattern, "**/") {
+		if ok, _ := path.Match(strings.TrimPrefix(pattern, "**/"), path.Base(p)); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func cloudNormalizeKind(kind string, meta map[string]any) string {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind != "" {
+		return kind
+	}
+	rawType := ""
+	if meta != nil {
+		if v, ok := meta["obj_type"]; ok && v != nil {
+			rawType = strings.TrimSpace(fmt.Sprintf("%v", v))
+		}
+	}
+	if rawType != "" {
+		return strings.ToLower(rawType)
+	}
+	return "file"
+}
+
+func cloudIsDirKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "folder", "directory", "dir", "wiki", "space":
+		return true
+	default:
+		return false
+	}
+}
+
+func cloudResolveObjectPath(
+	rootPath string,
+	obj cloudprovider.RemoteObject,
+	kind string,
+	existingByID map[string]store.CloudObjectIndexRecord,
+	pathOwner map[string]string,
+) (string, string) {
+	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
+	objectID := strings.TrimSpace(obj.ExternalObjectID)
+	if rootPath == "" || rootPath == "." || objectID == "" {
+		return "", ""
+	}
+	if existing, ok := existingByID[objectID]; ok {
+		if abs := filepath.Clean(strings.TrimSpace(existing.LocalAbsPath)); abs != "" && abs != "." {
+			rel := strings.Trim(strings.ReplaceAll(strings.TrimSpace(existing.LocalRelPath), "\\", "/"), "/")
+			return abs, rel
+		}
+		rel := strings.Trim(strings.ReplaceAll(strings.TrimSpace(existing.LocalRelPath), "\\", "/"), "/")
+		if rel != "" {
+			return filepath.Clean(filepath.Join(rootPath, filepath.FromSlash(rel))), rel
+		}
+	}
+	rel := cloudSanitizeRelativePath(obj.ExternalPath, obj.ExternalName, objectID, kind)
+	rel = cloudResolvePathCollision(rel, objectID, pathOwner)
+	abs := filepath.Clean(filepath.Join(rootPath, filepath.FromSlash(rel)))
+	return abs, rel
+}
+
+func cloudSanitizeRelativePath(externalPath, externalName, objectID, kind string) string {
+	rel := strings.TrimSpace(externalPath)
+	if rel == "" {
+		rel = strings.TrimSpace(externalName)
+	}
+	rel = strings.ReplaceAll(rel, "\\", "/")
+	if rel == "" {
+		rel = objectID
+	}
+	rel = strings.TrimPrefix(path.Clean("/"+rel), "/")
+	if rel == "" || rel == "." || strings.HasPrefix(rel, "../") || rel == ".." {
+		rel = cloudSanitizeName(cloudFirstNonEmptyString(externalName, objectID))
+	}
+	if !cloudIsDirKind(kind) && path.Ext(rel) == "" {
+		switch strings.ToLower(strings.TrimSpace(kind)) {
+		case "doc", "docx":
+			rel += ".md"
+		}
+	}
+	return rel
+}
+
+func cloudResolvePathCollision(relPath, objectID string, owner map[string]string) string {
+	relPath = strings.Trim(strings.TrimSpace(relPath), "/")
+	if relPath == "" {
+		relPath = objectID
+	}
+	if owner == nil {
+		return relPath
+	}
+	currentOwner := strings.TrimSpace(owner[relPath])
+	if currentOwner == "" || currentOwner == strings.TrimSpace(objectID) {
+		return relPath
+	}
+	dir := path.Dir(relPath)
+	base := path.Base(relPath)
+	ext := path.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	suffix := cloudShortHash(objectID)
+	candidate := path.Join(dir, name+"_"+suffix+ext)
+	if dir == "." || dir == "/" {
+		candidate = name + "_" + suffix + ext
+	}
+	i := 1
+	for {
+		ownerID := strings.TrimSpace(owner[candidate])
+		if ownerID == "" || ownerID == strings.TrimSpace(objectID) {
+			return candidate
+		}
+		candidate = path.Join(dir, fmt.Sprintf("%s_%s_%d%s", name, suffix, i, ext))
+		if dir == "." || dir == "/" {
+			candidate = fmt.Sprintf("%s_%s_%d%s", name, suffix, i, ext)
+		}
+		i++
+	}
+}
+
+func cloudTreeRelativeDepth(rootPath, targetPath string) int {
+	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
+	targetPath = filepath.Clean(strings.TrimSpace(targetPath))
+	if rootPath == "" || targetPath == "" || rootPath == "." || targetPath == "." {
+		return -1
+	}
+	rel, err := filepath.Rel(rootPath, targetPath)
+	if err != nil {
+		return -1
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." {
+		return 0
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return -1
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	depth := 0
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." {
+			continue
+		}
+		depth++
+	}
+	return depth
+}
+
+func cloudEnsureAncestorNodes(nodeMap map[string]*model.TreeNode, childMap map[string]map[string]struct{}, rootPath, targetPath string, maxDepth int) {
+	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
+	targetPath = filepath.Clean(strings.TrimSpace(targetPath))
+	if rootPath == "" || targetPath == "" || rootPath == "." || targetPath == "." {
+		return
+	}
+	rel, err := filepath.Rel(rootPath, targetPath)
+	if err != nil {
+		return
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." {
+		return
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) <= 1 {
+		return
+	}
+	maxAncestorDepth := len(parts) - 1
+	if maxAncestorDepth > maxDepth {
+		maxAncestorDepth = maxDepth
+	}
+	current := rootPath
+	for i := 0; i < maxAncestorDepth; i++ {
+		part := strings.TrimSpace(parts[i])
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Clean(filepath.Join(current, part))
+		cloudEnsureNode(nodeMap, childMap, current, true, part, "")
+	}
+}
+
+func cloudEnsureNode(nodeMap map[string]*model.TreeNode, childMap map[string]map[string]struct{}, nodePath string, isDir bool, title, externalFileID string) {
+	nodePath = filepath.Clean(strings.TrimSpace(nodePath))
+	if nodePath == "" || nodePath == "." {
+		return
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = cloudNodeTitleFromPath(nodePath)
+	}
+	node, ok := nodeMap[nodePath]
+	if !ok {
+		node = &model.TreeNode{
+			Title: title,
+			Key:   nodePath,
+			IsDir: isDir,
+		}
+		if !isDir {
+			node.ExternalFileID = strings.TrimSpace(externalFileID)
+		}
+		nodeMap[nodePath] = node
+	} else {
+		if isDir {
+			node.IsDir = true
+			node.ExternalFileID = ""
+		} else if !node.IsDir && node.ExternalFileID == "" {
+			node.ExternalFileID = strings.TrimSpace(externalFileID)
+		}
+		if strings.TrimSpace(node.Title) == "" || node.Title == cloudNodeTitleFromPath(nodePath) {
+			node.Title = title
+		}
+	}
+	parent := filepath.Clean(filepath.Dir(nodePath))
+	if parent == "" || parent == "." {
+		parent = string(filepath.Separator)
+	}
+	if _, ok := childMap[parent]; !ok {
+		childMap[parent] = make(map[string]struct{}, 4)
+	}
+	childMap[parent][nodePath] = struct{}{}
+}
+
+func cloudBuildTreeNodes(rootPath string, nodeMap map[string]*model.TreeNode, childMap map[string]map[string]struct{}) []model.TreeNode {
+	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
+	if rootPath == "" || rootPath == "." {
+		rootPath = string(filepath.Separator)
+	}
+	var walk func(parent string) []model.TreeNode
+	walk = func(parent string) []model.TreeNode {
+		childrenSet, ok := childMap[parent]
+		if !ok || len(childrenSet) == 0 {
+			return nil
+		}
+		keys := make([]string, 0, len(childrenSet))
+		for key := range childrenSet {
+			if _, exists := nodeMap[key]; !exists {
+				continue
+			}
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			left := nodeMap[keys[i]]
+			right := nodeMap[keys[j]]
+			if left.IsDir != right.IsDir {
+				return left.IsDir
+			}
+			return strings.ToLower(strings.TrimSpace(left.Title)) < strings.ToLower(strings.TrimSpace(right.Title))
+		})
+		nodes := make([]model.TreeNode, 0, len(keys))
+		for _, key := range keys {
+			base := nodeMap[key]
+			if base == nil {
+				continue
+			}
+			node := *base
+			if node.IsDir {
+				node.Children = walk(key)
+			}
+			nodes = append(nodes, node)
+		}
+		return nodes
+	}
+	return walk(rootPath)
+}
+
+func cloudNodeTitleFromPath(p string) string {
+	base := strings.TrimSpace(filepath.Base(filepath.Clean(strings.TrimSpace(p))))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return strings.TrimSpace(filepath.Clean(strings.TrimSpace(p)))
+	}
+	return base
+}
+
+func cloudShortHash(value string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(value)))
+	return hex.EncodeToString(sum[:4])
+}
+
+func cloudSanitizeName(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "unnamed"
+	}
+	v = strings.ReplaceAll(v, "/", "_")
+	v = strings.ReplaceAll(v, "\\", "_")
+	v = strings.ReplaceAll(v, "\n", "_")
+	v = strings.ReplaceAll(v, "\r", "_")
+	return v
+}
+
+func cloudFirstNonEmptyString(values ...string) string {
+	for _, item := range values {
+		if strings.TrimSpace(item) != "" {
+			return strings.TrimSpace(item)
+		}
+	}
+	return ""
 }
 
 func (h *Handler) fetchTreeFileStats(ctx context.Context, agentAddr string, items []model.TreeNode) (map[string]model.TreeFileStat, error) {
-	paths := collectTreeFilePaths(items)
+	paths := store.CollectTreeFilePaths(items)
 	stats := make(map[string]model.TreeFileStat, len(paths))
-	for _, path := range paths {
-		var resp struct {
-			Path     string    `json:"path"`
-			Size     int64     `json:"size"`
-			ModTime  time.Time `json:"mod_time"`
-			IsDir    bool      `json:"is_dir"`
-			Checksum string    `json:"checksum"`
+	if len(paths) == 0 {
+		return stats, nil
+	}
+
+	type statResult struct {
+		path string
+		stat model.TreeFileStat
+		err  error
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	const maxWorkers = 8
+	workerCount := maxWorkers
+	if len(paths) < workerCount {
+		workerCount = len(paths)
+	}
+
+	jobs := make(chan string)
+	results := make(chan statResult, len(paths))
+	var wg sync.WaitGroup
+
+	worker := func() {
+		defer wg.Done()
+		for path := range jobs {
+			if workerCtx.Err() != nil {
+				return
+			}
+			var resp struct {
+				Path     string    `json:"path"`
+				Size     int64     `json:"size"`
+				ModTime  time.Time `json:"mod_time"`
+				IsDir    bool      `json:"is_dir"`
+				Checksum string    `json:"checksum"`
+			}
+			if err := h.callAgentJSON(workerCtx, agentAddr, "/api/v1/fs/stat", map[string]any{"path": path}, &resp); err != nil {
+				select {
+				case results <- statResult{err: err}:
+				default:
+				}
+				cancel()
+				return
+			}
+			stat := model.TreeFileStat{
+				Path:     path,
+				Size:     resp.Size,
+				IsDir:    resp.IsDir,
+				Checksum: strings.TrimSpace(resp.Checksum),
+			}
+			if !resp.ModTime.IsZero() {
+				mt := resp.ModTime.UTC()
+				stat.ModTime = &mt
+			}
+			select {
+			case results <- statResult{path: path, stat: stat}:
+			case <-workerCtx.Done():
+				return
+			}
 		}
-		if err := h.callAgentJSON(ctx, agentAddr, "/api/v1/fs/stat", map[string]any{"path": path}, &resp); err != nil {
-			return nil, err
+	}
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go worker()
+	}
+	go func() {
+		defer close(jobs)
+		for _, path := range paths {
+			select {
+			case <-workerCtx.Done():
+				return
+			case jobs <- path:
+			}
 		}
-		stat := model.TreeFileStat{
-			Path:     path,
-			Size:     resp.Size,
-			IsDir:    resp.IsDir,
-			Checksum: strings.TrimSpace(resp.Checksum),
+	}()
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var firstErr error
+	for res := range results {
+		if res.err != nil {
+			if firstErr == nil {
+				firstErr = res.err
+			}
+			continue
 		}
-		if !resp.ModTime.IsZero() {
-			mt := resp.ModTime.UTC()
-			stat.ModTime = &mt
-		}
-		stats[path] = stat
+		stats[res.path] = res.stat
+	}
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	return stats, nil
 }
@@ -1073,7 +1835,7 @@ func buildSourceDocumentsSummaryWithCore(refs []store.SourceDocumentCoreRef, sta
 		delCount    int64
 	)
 	for _, ref := range refs {
-		update := inferDocumentUpdateType(ref.DesiredVersionID, ref.CurrentVersionID, ref.ParseStatus)
+		update := store.InferDocumentUpdateType(ref.DesiredVersionID, ref.CurrentVersionID, ref.ParseStatus)
 		switch update {
 		case "NEW":
 			newCount++
@@ -1105,25 +1867,6 @@ func buildSourceDocumentsSummaryWithCore(refs []store.SourceDocumentCoreRef, sta
 		DeletedCount:        delCount,
 		PendingPullCount:    newCount + modCount + delCount,
 	}
-}
-
-func inferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus string) string {
-	parseStatus = strings.ToUpper(strings.TrimSpace(parseStatus))
-	desiredVersionID = strings.TrimSpace(desiredVersionID)
-	currentVersionID = strings.TrimSpace(currentVersionID)
-	if parseStatus == "DELETED" {
-		return "DELETED"
-	}
-	if desiredVersionID != "" && currentVersionID == "" {
-		return "NEW"
-	}
-	if desiredVersionID != "" && currentVersionID != "" && desiredVersionID != currentVersionID {
-		return "MODIFIED"
-	}
-	if desiredVersionID != "" && desiredVersionID == currentVersionID {
-		return "UNCHANGED"
-	}
-	return "UNKNOWN"
 }
 
 func isCoreParsedState(state string) bool {

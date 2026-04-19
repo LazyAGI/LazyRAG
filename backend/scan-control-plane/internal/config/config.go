@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,19 +12,20 @@ import (
 )
 
 type Config struct {
-	ListenAddr        string        `yaml:"listen_addr"`
-	DatabaseDriver    string        `yaml:"database_driver"`
-	DatabaseDSN       string        `yaml:"database_dsn"`
-	DatabasePath      string        `yaml:"database_path"` // deprecated: kept for backward compatibility
-	LogLevel          string        `yaml:"log_level"`
-	AgentToken        string        `yaml:"agent_token"`
-	DefaultIdleWindow time.Duration `yaml:"default_idle_window"`
-	SchedulerTick     time.Duration `yaml:"scheduler_tick"`
-	EventMerge        MergeConfig   `yaml:"event_merge"`
-	Parser            ParserConfig  `yaml:"parser"`
-	Core              CoreConfig    `yaml:"core"`
-	Metrics           MetricsConfig `yaml:"metrics"`
-	Worker            WorkerConfig  `yaml:"worker"`
+	ListenAddr        string          `yaml:"listen_addr"`
+	DatabaseDriver    string          `yaml:"database_driver"`
+	DatabaseDSN       string          `yaml:"database_dsn"`
+	DatabasePath      string          `yaml:"database_path"` // deprecated: kept for backward compatibility
+	LogLevel          string          `yaml:"log_level"`
+	AgentToken        string          `yaml:"agent_token"`
+	DefaultIdleWindow time.Duration   `yaml:"default_idle_window"`
+	SchedulerTick     time.Duration   `yaml:"scheduler_tick"`
+	EventMerge        MergeConfig     `yaml:"event_merge"`
+	Parser            ParserConfig    `yaml:"parser"`
+	Core              CoreConfig      `yaml:"core"`
+	Metrics           MetricsConfig   `yaml:"metrics"`
+	Worker            WorkerConfig    `yaml:"worker"`
+	CloudSync         CloudSyncConfig `yaml:"cloud_sync"`
 }
 
 type MergeConfig struct {
@@ -35,7 +37,8 @@ type MergeConfig struct {
 }
 
 type WorkerConfig struct {
-	Enabled             bool          `yaml:"enabled"`
+	Enabled bool `yaml:"enabled"`
+	// Deprecated: execution mode has been unified to core_task.
 	ExecutionMode       string        `yaml:"execution_mode"`
 	Tick                time.Duration `yaml:"tick"`
 	MaxConcurrent       int           `yaml:"max_concurrent"`
@@ -54,6 +57,7 @@ type WorkerConfig struct {
 }
 
 type ParserConfig struct {
+	// Deprecated: parser is no longer used by runtime execution path.
 	Enabled   bool          `yaml:"enabled"`
 	Endpoint  string        `yaml:"endpoint"`
 	Timeout   time.Duration `yaml:"timeout"`
@@ -74,6 +78,21 @@ type CoreConfig struct {
 type MetricsConfig struct {
 	Enabled bool          `yaml:"enabled"`
 	Tick    time.Duration `yaml:"tick"`
+}
+
+type CloudSyncConfig struct {
+	Enabled                  bool          `yaml:"enabled"`
+	Tick                     time.Duration `yaml:"tick"`
+	MaxConcurrent            int           `yaml:"max_concurrent"`
+	LockTTL                  time.Duration `yaml:"lock_ttl"`
+	DefaultScheduleTZ        string        `yaml:"default_schedule_tz"`
+	HTTPTimeout              time.Duration `yaml:"http_timeout"`
+	RetryMaxAttempts         int           `yaml:"retry_max_attempts"`
+	RetryBaseBackoff         time.Duration `yaml:"retry_base_backoff"`
+	RetryMaxBackoff          time.Duration `yaml:"retry_max_backoff"`
+	AuthServiceBaseURL       string        `yaml:"auth_service_base_url"`
+	AuthServiceInternalToken string        `yaml:"auth_service_internal_token"`
+	TempDir                  string        `yaml:"temp_dir"`
 }
 
 func Load(path string) (*Config, error) {
@@ -160,6 +179,19 @@ func defaultConfig() *Config {
 			Enabled: true,
 			Tick:    30 * time.Second,
 		},
+		CloudSync: CloudSyncConfig{
+			Enabled:            true,
+			Tick:               30 * time.Second,
+			MaxConcurrent:      4,
+			LockTTL:            20 * time.Minute,
+			DefaultScheduleTZ:  "Asia/Shanghai",
+			HTTPTimeout:        30 * time.Second,
+			RetryMaxAttempts:   3,
+			RetryBaseBackoff:   time.Second,
+			RetryMaxBackoff:    30 * time.Second,
+			AuthServiceBaseURL: "http://auth-service:8000",
+			TempDir:            "/var/lib/ragscan/cloud-sync-tmp",
+		},
 	}
 }
 
@@ -178,16 +210,24 @@ func (c *Config) normalizeDatabaseConfig() {
 		c.DatabaseDriver = "postgres"
 	}
 	c.Worker.ExecutionMode = strings.ToLower(strings.TrimSpace(c.Worker.ExecutionMode))
+	c.AgentToken = strings.TrimSpace(c.AgentToken)
 	c.Core.Endpoint = strings.TrimSpace(c.Core.Endpoint)
 	c.Core.DatasetID = strings.TrimSpace(c.Core.DatasetID)
 	c.Core.UserID = strings.TrimSpace(c.Core.UserID)
 	c.Core.UserName = strings.TrimSpace(c.Core.UserName)
 	c.Core.StartMode = strings.TrimSpace(c.Core.StartMode)
+	c.CloudSync.DefaultScheduleTZ = strings.TrimSpace(c.CloudSync.DefaultScheduleTZ)
+	c.CloudSync.AuthServiceBaseURL = strings.TrimSpace(c.CloudSync.AuthServiceBaseURL)
+	c.CloudSync.AuthServiceInternalToken = strings.TrimSpace(c.CloudSync.AuthServiceInternalToken)
+	c.CloudSync.TempDir = strings.TrimSpace(c.CloudSync.TempDir)
 }
 
 func (c *Config) Validate() error {
 	if c.ListenAddr == "" {
 		return fmt.Errorf("listen_addr is required")
+	}
+	if c.AgentToken == "" && !listenAddrIsLoopback(c.ListenAddr) {
+		return fmt.Errorf("agent_token is required when listen_addr is not loopback")
 	}
 	if c.DatabaseDriver != "postgres" && c.DatabaseDriver != "sqlite" {
 		return fmt.Errorf("database_driver must be one of: postgres, sqlite")
@@ -223,7 +263,9 @@ func (c *Config) Validate() error {
 		c.Worker.ExecutionMode = "core_task"
 	}
 	if c.Worker.ExecutionMode != "core_task" {
-		return fmt.Errorf("worker.execution_mode only supports core_task; direct_parser has been removed")
+		// Keep backward compatibility with legacy configs and force the only
+		// supported runtime mode.
+		c.Worker.ExecutionMode = "core_task"
 	}
 	if c.Worker.MaxConcurrent <= 0 {
 		return fmt.Errorf("worker.max_concurrent must be > 0")
@@ -252,11 +294,34 @@ func (c *Config) Validate() error {
 	if c.Worker.CommandMaxAttempts <= 0 {
 		return fmt.Errorf("worker.command_max_attempts must be > 0")
 	}
-	if c.Parser.Enabled && c.Parser.Endpoint == "" {
-		return fmt.Errorf("parser.endpoint is required when parser.enabled=true")
+	if c.Worker.CommandAckTimeout <= 0 {
+		return fmt.Errorf("worker.command_ack_timeout must be > 0")
 	}
-	if c.Parser.Timeout <= 0 {
-		return fmt.Errorf("parser.timeout must be > 0")
+	if c.Worker.AgentOfflineTimeout <= 0 {
+		return fmt.Errorf("worker.agent_offline_timeout must be > 0")
+	}
+	if c.CloudSync.Enabled {
+		if c.CloudSync.Tick <= 0 {
+			return fmt.Errorf("cloud_sync.tick must be > 0")
+		}
+		if c.CloudSync.MaxConcurrent <= 0 {
+			return fmt.Errorf("cloud_sync.max_concurrent must be > 0")
+		}
+		if c.CloudSync.LockTTL <= 0 {
+			return fmt.Errorf("cloud_sync.lock_ttl must be > 0")
+		}
+		if c.CloudSync.HTTPTimeout <= 0 {
+			return fmt.Errorf("cloud_sync.http_timeout must be > 0")
+		}
+		if c.CloudSync.RetryMaxAttempts <= 0 {
+			return fmt.Errorf("cloud_sync.retry_max_attempts must be > 0")
+		}
+		if c.CloudSync.RetryBaseBackoff <= 0 || c.CloudSync.RetryMaxBackoff <= 0 {
+			return fmt.Errorf("cloud_sync retry backoff must be > 0")
+		}
+		if c.CloudSync.AuthServiceBaseURL == "" {
+			return fmt.Errorf("cloud_sync.auth_service_base_url is required when cloud_sync.enabled=true")
+		}
 	}
 	if c.Core.Enabled && strings.TrimSpace(c.Core.Endpoint) == "" {
 		return fmt.Errorf("core.endpoint is required when core.enabled=true")
@@ -271,4 +336,25 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("metrics.tick must be > 0")
 	}
 	return nil
+}
+
+func listenAddrIsLoopback(listenAddr string) bool {
+	host := strings.TrimSpace(listenAddr)
+	if host == "" {
+		return false
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = strings.TrimSpace(parsedHost)
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

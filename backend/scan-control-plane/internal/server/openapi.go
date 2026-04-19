@@ -98,6 +98,37 @@ func buildOpenAPISpec() map[string]any {
 					"404": errResp(),
 				}, pathParam("id")),
 			},
+			"/api/scan/sources/{id}/cloud/binding": map[string]any{
+				"post": op("Create or update cloud binding", reqBody(refSchema("UpsertCloudSourceBindingRequest")), map[string]any{
+					"200": resp("Cloud binding", refSchema("CloudSourceBinding")),
+					"400": errResp(),
+					"404": errResp(),
+				}, pathParam("id")),
+				"get": op("Get cloud binding", nil, map[string]any{
+					"200": resp("Cloud binding", refSchema("CloudSourceBinding")),
+					"404": errResp(),
+					"500": errResp(),
+				}, pathParam("id")),
+			},
+			"/api/scan/sources/{id}/cloud/sync/trigger": map[string]any{
+				"post": op("Trigger cloud sync once", reqBody(refSchema("TriggerCloudSyncRequest")), map[string]any{
+					"200": resp("Trigger accepted", refSchema("TriggerCloudSyncResponse")),
+					"400": errResp(),
+					"404": errResp(),
+					"500": errResp(),
+				}, pathParam("id")),
+			},
+			"/api/scan/sources/{id}/cloud/sync/runs": map[string]any{
+				"get": op("List cloud sync runs", nil, map[string]any{
+					"200": resp("Cloud sync runs", refSchema("ListCloudSyncRunsResponse")),
+					"400": errResp(),
+					"404": errResp(),
+					"500": errResp(),
+				},
+					pathParam("id"),
+					queryIntParam("limit", false),
+				),
+			},
 			"/api/scan/sources/{id}/tasks/generate": map[string]any{
 				"post": op("Generate parse tasks for source", reqBody(refSchema("GenerateTasksRequest")), map[string]any{
 					"200": resp("Generated task stats", refSchema("GenerateTasksResponse")),
@@ -249,6 +280,20 @@ func buildOpenAPISpec() map[string]any {
 					"500": errResp(),
 				}),
 			},
+			"/api/v1/agents/fs/validate": map[string]any{
+				"post": op("Validate path via agent", reqBody(refSchema("AgentPathRequest")), map[string]any{
+					"200": resp("Path validation result", refSchema("AgentPathValidateResponse")),
+					"404": errResp(),
+					"502": errResp(),
+				}),
+			},
+			"/api/v1/agents/fs/tree": map[string]any{
+				"post": op("Get directory tree via agent", reqBody(refSchema("AgentPathTreeRequest")), map[string]any{
+					"200": resp("Directory tree", refSchema("AgentPathTreeResponse")),
+					"404": errResp(),
+					"502": errResp(),
+				}),
+			},
 			"/api/scan/agents/fs/validate": map[string]any{
 				"post": op("Validate path via agent", reqBody(refSchema("AgentPathRequest")), map[string]any{
 					"200": resp("Path validation result", refSchema("AgentPathValidateResponse")),
@@ -333,6 +378,77 @@ func schemas() map[string]any {
 			"default_origin_platform": strSchema(),
 			"default_trigger_policy":  strSchema(),
 		}, nil),
+		"UpsertCloudSourceBindingRequest": inlineObj(map[string]any{
+			"provider":                strSchema(),
+			"enabled":                 boolSchema(),
+			"auth_connection_id":      strSchema(),
+			"target_type":             strSchema(),
+			"target_ref":              strSchema(),
+			"schedule_expr":           strSchema(),
+			"schedule_tz":             strSchema(),
+			"reconcile_after_sync":    boolSchema(),
+			"reconcile_delay_minutes": intSchema(),
+			"include_patterns":        arrSchema(strSchema()),
+			"exclude_patterns":        arrSchema(strSchema()),
+			"max_object_size_bytes":   intSchema(),
+			"provider_options": map[string]any{
+				"type":                 "object",
+				"additionalProperties": true,
+			},
+		}, []string{"provider", "auth_connection_id"}),
+		"CloudSourceBinding": inlineObj(map[string]any{
+			"source_id":               strSchema(),
+			"tenant_id":               strSchema(),
+			"provider":                strSchema(),
+			"enabled":                 boolSchema(),
+			"status":                  strSchema(),
+			"auth_connection_id":      strSchema(),
+			"target_type":             strSchema(),
+			"target_ref":              strSchema(),
+			"schedule_expr":           strSchema(),
+			"schedule_tz":             strSchema(),
+			"reconcile_after_sync":    boolSchema(),
+			"reconcile_delay_minutes": intSchema(),
+			"include_patterns":        arrSchema(strSchema()),
+			"exclude_patterns":        arrSchema(strSchema()),
+			"max_object_size_bytes":   intSchema(),
+			"provider_options": map[string]any{
+				"type":                 "object",
+				"additionalProperties": true,
+			},
+			"last_error":   strSchema(),
+			"next_sync_at": dateTimeSchema(),
+			"created_at":   dateTimeSchema(),
+			"updated_at":   dateTimeSchema(),
+		}, []string{"source_id", "tenant_id", "provider", "enabled", "status", "auth_connection_id", "schedule_expr", "schedule_tz", "created_at", "updated_at"}),
+		"TriggerCloudSyncRequest": inlineObj(map[string]any{
+			"trigger_type": strSchema(),
+		}, nil),
+		"TriggerCloudSyncResponse": inlineObj(map[string]any{
+			"run_id":   strSchema(),
+			"accepted": boolSchema(),
+		}, []string{"run_id", "accepted"}),
+		"CloudSyncRun": inlineObj(map[string]any{
+			"run_id":        strSchema(),
+			"source_id":     strSchema(),
+			"tenant_id":     strSchema(),
+			"provider":      strSchema(),
+			"trigger_type":  strSchema(),
+			"status":        strSchema(),
+			"started_at":    dateTimeSchema(),
+			"finished_at":   dateTimeSchema(),
+			"remote_total":  intSchema(),
+			"created_count": intSchema(),
+			"updated_count": intSchema(),
+			"deleted_count": intSchema(),
+			"skipped_count": intSchema(),
+			"failed_count":  intSchema(),
+			"error_code":    strSchema(),
+			"error_message": strSchema(),
+		}, []string{"run_id", "source_id", "tenant_id", "provider", "trigger_type", "status"}),
+		"ListCloudSyncRunsResponse": inlineObj(map[string]any{
+			"items": arrSchema(refSchema("CloudSyncRun")),
+		}, []string{"items"}),
 		"Agent": inlineObj(map[string]any{
 			"agent_id":            strSchema(),
 			"tenant_id":           strSchema(),
@@ -631,7 +747,15 @@ func schemas() map[string]any {
 			"max_depth":     intSchema(),
 			"include_files": boolSchema(),
 			"changes_only":  boolSchema(),
+			"updated_only":  boolSchema(),
 		}, []string{"agent_id", "path"}),
+		"SourcePathTreeRequest": inlineObj(map[string]any{
+			"path":          strSchema(),
+			"max_depth":     intSchema(),
+			"include_files": boolSchema(),
+			"changes_only":  boolSchema(),
+			"updated_only":  boolSchema(),
+		}, nil),
 		"TreeNode": inlineObj(map[string]any{
 			"title":             strSchema(),
 			"key":               strSchema(),

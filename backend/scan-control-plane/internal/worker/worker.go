@@ -178,7 +178,7 @@ func (w *Worker) executeTask(ctx context.Context, task store.PendingTask) {
 		}
 	}
 
-	taskAction := normalizeTaskAction(task.TaskAction)
+	taskAction := store.NormalizeTaskAction(task.TaskAction)
 	staged := stageResponse{}
 	if taskAction != "DELETE" {
 		if err := w.store.MarkTaskStaging(ctx, task.TaskID); err != nil {
@@ -236,17 +236,6 @@ func (w *Worker) executeTask(ctx context.Context, task store.PendingTask) {
 	)
 }
 
-func normalizeTaskAction(raw string) string {
-	switch strings.ToUpper(strings.TrimSpace(raw)) {
-	case "DELETE":
-		return "DELETE"
-	case "REPARSE":
-		return "REPARSE"
-	default:
-		return "CREATE"
-	}
-}
-
 func (w *Worker) callStage(ctx context.Context, task store.PendingTask) (stageResponse, error) {
 	var resp stageResponse
 	if task.AgentID == "" {
@@ -267,7 +256,11 @@ func (w *Worker) callStage(ctx context.Context, task store.PendingTask) (stageRe
 		zap.String("agent_id", task.AgentID),
 		zap.String("source_path", task.SourceObjectID),
 	)
-	waitCtx, cancel := context.WithTimeout(ctx, w.cfg.CommandAckTimeout)
+	waitTimeout := w.cfg.AgentTimeout
+	if waitTimeout <= 0 {
+		waitTimeout = w.cfg.CommandAckTimeout
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
 	raw, err := w.store.AwaitCommandResult(waitCtx, cmdID, 500*time.Millisecond)
 	if err != nil {

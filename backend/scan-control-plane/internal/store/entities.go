@@ -25,6 +25,92 @@ type sourceEntity struct {
 
 func (sourceEntity) TableName() string { return "sources" }
 
+type cloudSourceBindingEntity struct {
+	SourceID              string    `gorm:"column:source_id;type:text;primaryKey"`
+	TenantID              string    `gorm:"column:tenant_id;type:text;not null;index:idx_cloud_bindings_tenant_status,priority:1"`
+	Provider              string    `gorm:"column:provider;type:text;not null;index:idx_cloud_bindings_provider_status,priority:1"`
+	Enabled               bool      `gorm:"column:enabled;not null;default:true"`
+	Status                string    `gorm:"column:status;type:text;not null;index:idx_cloud_bindings_tenant_status,priority:2;index:idx_cloud_bindings_provider_status,priority:2"`
+	AuthConnectionID      string    `gorm:"column:auth_connection_id;type:text;not null"`
+	TargetType            string    `gorm:"column:target_type;type:text"`
+	TargetRef             string    `gorm:"column:target_ref;type:text"`
+	ScheduleExpr          string    `gorm:"column:schedule_expr;type:text;not null"`
+	ScheduleTZ            string    `gorm:"column:schedule_tz;type:text;not null"`
+	ReconcileAfterSync    bool      `gorm:"column:reconcile_after_sync;not null;default:true"`
+	ReconcileDelayMinutes int       `gorm:"column:reconcile_delay_minutes;not null;default:10"`
+	IncludePatternsJSON   string    `gorm:"column:include_patterns_json;type:text"`
+	ExcludePatternsJSON   string    `gorm:"column:exclude_patterns_json;type:text"`
+	MaxObjectSizeBytes    int64     `gorm:"column:max_object_size_bytes;not null;default:0"`
+	ProviderOptionsJSON   string    `gorm:"column:provider_options_json;type:text"`
+	LastError             string    `gorm:"column:last_error;type:text"`
+	CreatedAt             time.Time `gorm:"column:created_at;not null"`
+	UpdatedAt             time.Time `gorm:"column:updated_at;not null"`
+}
+
+func (cloudSourceBindingEntity) TableName() string { return "cloud_source_bindings" }
+
+type cloudSyncCheckpointEntity struct {
+	SourceID      string     `gorm:"column:source_id;type:text;primaryKey"`
+	Provider      string     `gorm:"column:provider;type:text;not null"`
+	NextSyncAt    *time.Time `gorm:"column:next_sync_at;index:idx_cloud_sync_checkpoints_next_sync_at"`
+	LastSyncAt    *time.Time `gorm:"column:last_sync_at"`
+	LastSuccessAt *time.Time `gorm:"column:last_success_at"`
+	LastRunID     string     `gorm:"column:last_run_id;type:text"`
+	RemoteCursor  string     `gorm:"column:remote_cursor;type:text"`
+	LockOwner     string     `gorm:"column:lock_owner;type:text"`
+	LockUntil     *time.Time `gorm:"column:lock_until;index:idx_cloud_sync_checkpoints_lock_until"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (cloudSyncCheckpointEntity) TableName() string { return "cloud_sync_checkpoints" }
+
+type cloudObjectIndexEntity struct {
+	ID                 int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	SourceID           string     `gorm:"column:source_id;type:text;not null;index:idx_cloud_object_source;uniqueIndex:uk_cloud_object,priority:1"`
+	Provider           string     `gorm:"column:provider;type:text;not null;index:idx_cloud_object_provider"`
+	ExternalObjectID   string     `gorm:"column:external_object_id;type:text;not null;uniqueIndex:uk_cloud_object,priority:2"`
+	ExternalParentID   string     `gorm:"column:external_parent_id;type:text"`
+	ExternalPath       string     `gorm:"column:external_path;type:text"`
+	ExternalName       string     `gorm:"column:external_name;type:text"`
+	ExternalKind       string     `gorm:"column:external_kind;type:text"`
+	ExternalVersion    string     `gorm:"column:external_version;type:text"`
+	ExternalModifiedAt *time.Time `gorm:"column:external_modified_at"`
+	LocalRelPath       string     `gorm:"column:local_rel_path;type:text"`
+	LocalAbsPath       string     `gorm:"column:local_abs_path;type:text"`
+	Checksum           string     `gorm:"column:checksum;type:text"`
+	SizeBytes          int64      `gorm:"column:size_bytes;not null;default:0"`
+	IsDeleted          bool       `gorm:"column:is_deleted;not null;default:false"`
+	LastSyncedAt       *time.Time `gorm:"column:last_synced_at"`
+	ProviderMetaJSON   string     `gorm:"column:provider_meta_json;type:text"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (cloudObjectIndexEntity) TableName() string { return "cloud_object_index" }
+
+type cloudSyncRunEntity struct {
+	RunID        string     `gorm:"column:run_id;type:text;primaryKey"`
+	SourceID     string     `gorm:"column:source_id;type:text;not null;index:idx_cloud_sync_runs_source_started,priority:1"`
+	TenantID     string     `gorm:"column:tenant_id;type:text;not null;index:idx_cloud_sync_runs_tenant,priority:1"`
+	Provider     string     `gorm:"column:provider;type:text;not null;index:idx_cloud_sync_runs_provider,priority:1"`
+	TriggerType  string     `gorm:"column:trigger_type;type:text;not null"`
+	Status       string     `gorm:"column:status;type:text;not null;index:idx_cloud_sync_runs_status"`
+	StartedAt    *time.Time `gorm:"column:started_at;index:idx_cloud_sync_runs_source_started,priority:2"`
+	FinishedAt   *time.Time `gorm:"column:finished_at"`
+	RemoteTotal  int        `gorm:"column:remote_total;not null;default:0"`
+	CreatedCount int        `gorm:"column:created_count;not null;default:0"`
+	UpdatedCount int        `gorm:"column:updated_count;not null;default:0"`
+	DeletedCount int        `gorm:"column:deleted_count;not null;default:0"`
+	SkippedCount int        `gorm:"column:skipped_count;not null;default:0"`
+	FailedCount  int        `gorm:"column:failed_count;not null;default:0"`
+	ErrorCode    string     `gorm:"column:error_code;type:text"`
+	ErrorMessage string     `gorm:"column:error_message;type:text"`
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (cloudSyncRunEntity) TableName() string { return "cloud_sync_runs" }
+
 type agentEntity struct {
 	AgentID           string    `gorm:"column:agent_id;type:text;primaryKey"`
 	TenantID          string    `gorm:"column:tenant_id;type:text;not null"`

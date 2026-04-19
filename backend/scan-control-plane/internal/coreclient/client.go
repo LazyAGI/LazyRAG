@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -113,7 +114,7 @@ func (c *httpClient) SubmitParseTask(ctx context.Context, task store.PendingTask
 	if err != nil {
 		return SubmitResult{}, err
 	}
-	action := normalizeTaskAction(task.TaskAction)
+	action := store.NormalizeTaskAction(task.TaskAction)
 	displayName := filepath.Base(strings.TrimSpace(task.SourceObjectID))
 	if displayName == "." || displayName == "" || displayName == string(filepath.Separator) {
 		displayName = "staged-file"
@@ -347,26 +348,23 @@ func (c *httpClient) uploadFile(ctx context.Context, datasetID string, stagedPat
 	}
 	defer file.Close()
 
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
 	fileName := filepath.Base(strings.TrimSpace(task.SourceObjectID))
 	if fileName == "." || fileName == "" || fileName == string(filepath.Separator) {
 		fileName = filepath.Base(stagedPath)
 	}
-	part, err := writer.CreateFormFile("files", fileName)
-	if err != nil {
-		return "", fmt.Errorf("create multipart field failed: %w", err)
-	}
-	if _, err := io.Copy(part, file); err != nil {
-		return "", fmt.Errorf("copy staged file failed: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("close multipart writer failed: %w", err)
-	}
+
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+	writeErrCh := make(chan error, 1)
+	go func() {
+		writeMultipartBody(writeErrCh, pw, writer, fileName, file)
+	}()
 
 	url := c.path("/datasets/%s/uploads", datasetID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
 	if err != nil {
+		_ = pr.CloseWithError(err)
+		_ = <-writeErrCh
 		return "", err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -374,9 +372,15 @@ func (c *httpClient) uploadFile(ctx context.Context, datasetID string, stagedPat
 
 	httpResp, err := c.client.Do(req)
 	if err != nil {
+		_ = pr.CloseWithError(err)
+		_ = <-writeErrCh
 		return "", fmt.Errorf("upload to core failed: %w", err)
 	}
 	defer httpResp.Body.Close()
+	writeErr := <-writeErrCh
+	if writeErr != nil && !isIgnorableUploadPipeError(writeErr) {
+		return "", fmt.Errorf("stream staged file failed: %w", writeErr)
+	}
 	if httpResp.StatusCode >= 400 {
 		body, _ := io.ReadAll(httpResp.Body)
 		return "", fmt.Errorf("core upload failed: status=%d body=%s", httpResp.StatusCode, strings.TrimSpace(string(body)))
@@ -393,6 +397,38 @@ func (c *httpClient) uploadFile(ctx context.Context, datasetID string, stagedPat
 		return "", fmt.Errorf("empty upload_file_id from core")
 	}
 	return strings.TrimSpace(resp.Files[0].UploadFileID), nil
+}
+
+func writeMultipartBody(writeErrCh chan<- error, pw *io.PipeWriter, writer *multipart.Writer, fileName string, file *os.File) {
+	defer close(writeErrCh)
+	part, err := writer.CreateFormFile("files", fileName)
+	if err != nil {
+		_ = pw.CloseWithError(err)
+		writeErrCh <- err
+		return
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		_ = pw.CloseWithError(err)
+		writeErrCh <- err
+		return
+	}
+	if err := writer.Close(); err != nil {
+		_ = pw.CloseWithError(err)
+		writeErrCh <- err
+		return
+	}
+	writeErrCh <- pw.Close()
+}
+
+func isIgnorableUploadPipeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.ErrClosedPipe) {
+		return true
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "broken pipe") || strings.Contains(msg, "closed pipe")
 }
 
 func (c *httpClient) createTask(ctx context.Context, datasetID string, payload map[string]any) (string, string, error) {
@@ -428,17 +464,6 @@ func (c *httpClient) resolveDatasetID(sourceDatasetID string) (string, error) {
 		return v, nil
 	}
 	return "", fmt.Errorf("missing dataset_id: source.dataset_id and core.dataset_id are both empty")
-}
-
-func normalizeTaskAction(raw string) string {
-	switch strings.ToUpper(strings.TrimSpace(raw)) {
-	case "DELETE":
-		return "DELETE"
-	case "REPARSE":
-		return "REPARSE"
-	default:
-		return "CREATE"
-	}
 }
 
 func resolveLocalPath(stagedPath, stagedURI string) string {
@@ -581,6 +606,9 @@ func (c *httpClient) doJSONAs(ctx context.Context, method, url string, payload a
 func (c *httpClient) setAuthHeaders(h http.Header, userID, userName string) {
 	h.Set("X-User-Id", firstNonEmpty(strings.TrimSpace(userID), c.cfg.UserID))
 	h.Set("X-User-Name", firstNonEmpty(strings.TrimSpace(userName), c.cfg.UserName))
+	if token := strings.TrimSpace(c.cfg.AuthToken); token != "" {
+		h.Set("Authorization", "Bearer "+token)
+	}
 }
 
 func (c *httpClient) path(format string, args ...any) string {

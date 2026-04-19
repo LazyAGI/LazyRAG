@@ -2,15 +2,18 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/lazyrag/scan_control_plane/internal/cloudsync"
 	"github.com/lazyrag/scan_control_plane/internal/config"
 	"github.com/lazyrag/scan_control_plane/internal/coreclient"
 	"github.com/lazyrag/scan_control_plane/internal/merger"
@@ -30,6 +33,7 @@ type App struct {
 	merger    *merger.EventMerger
 	worker    *worker.Worker
 	metrics   *metrics.Reporter
+	cloudSync *cloudsync.Runner
 }
 
 func New(cfg *config.Config) (*App, error) {
@@ -42,10 +46,30 @@ func New(cfg *config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	st.SetDefaultCloudScheduleTZ(cfg.CloudSync.DefaultScheduleTZ)
+	if cfg.Parser.Enabled {
+		log.Warn("parser config is enabled but parser runtime is deprecated and ignored")
+	}
 
 	evMerger := merger.New(cfg.EventMerge, st, log)
 	coreClient := coreclient.New(cfg.Core, log)
-	h := server.NewHandler(st, evMerger, coreClient, cfg.Core.DatasetID, cfg.AgentToken, log)
+	cloudSyncRunner := cloudsync.New(cfg.CloudSync, st, log)
+	var triggerFn func(sourceID, runID string) bool
+	if cloudSyncRunner != nil && cfg.CloudSync.Enabled {
+		triggerFn = cloudSyncRunner.Trigger
+	}
+	h := server.NewHandler(
+		st,
+		evMerger,
+		coreClient,
+		cfg.Core.DatasetID,
+		cfg.AgentToken,
+		triggerFn,
+		cfg.CloudSync.AuthServiceBaseURL,
+		cfg.CloudSync.AuthServiceInternalToken,
+		cfg.CloudSync.HTTPTimeout,
+		log,
+	)
 	srv := server.NewHTTPServer(cfg.ListenAddr, h)
 	sch := scheduler.New(st, cfg.SchedulerTick, log)
 	wk := worker.New(cfg.Worker, st, coreClient, log)
@@ -60,6 +84,7 @@ func New(cfg *config.Config) (*App, error) {
 		merger:    evMerger,
 		worker:    wk,
 		metrics:   metricReporter,
+		cloudSync: cloudSyncRunner,
 	}, nil
 }
 
@@ -74,12 +99,24 @@ func (a *App) Run(ctx context.Context) error {
 		a.log.Info("requeued enabled sources on startup", zap.Int("count", count))
 	}
 
-	schCtx, cancelScheduler := context.WithCancel(ctx)
-	defer cancelScheduler()
-	go a.scheduler.Run(schCtx)
-	go a.merger.Run(schCtx)
-	go a.worker.Run(schCtx)
-	go a.metrics.Run(schCtx)
+	runCtx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers()
+
+	var workerWG sync.WaitGroup
+	runComponent := func(fn func(context.Context)) {
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			fn(runCtx)
+		}()
+	}
+	runComponent(a.scheduler.Run)
+	runComponent(a.merger.Run)
+	runComponent(a.worker.Run)
+	runComponent(a.metrics.Run)
+	if a.cloudSync != nil {
+		runComponent(a.cloudSync.Run)
+	}
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -90,21 +127,51 @@ func (a *App) Run(ctx context.Context) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
+	var runErr error
 	select {
 	case <-ctx.Done():
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			runErr = ctx.Err()
+		}
 	case sig := <-sigCh:
 		a.log.Info("received signal, shutting down", zap.String("signal", sig.String()))
 	case err := <-serverErr:
 		a.log.Error("http server exited with error", zap.Error(err))
+		runErr = err
 	}
+
+	cancelWorkers()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = a.server.Shutdown(shutdownCtx)
-	_ = a.store.Close()
+	if err := a.server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		a.log.Warn("http server shutdown failed", zap.Error(err))
+		if runErr == nil {
+			runErr = err
+		}
+	}
+
+	workerStopped := make(chan struct{})
+	go func() {
+		workerWG.Wait()
+		close(workerStopped)
+	}()
+	select {
+	case <-workerStopped:
+	case <-shutdownCtx.Done():
+		a.log.Warn("background workers did not stop before shutdown timeout")
+	}
+
+	if err := a.store.Close(); err != nil {
+		a.log.Warn("close store failed", zap.Error(err))
+		if runErr == nil {
+			runErr = err
+		}
+	}
 	a.log.Info("scan-control-plane stopped")
-	return nil
+	return runErr
 }
 
 func buildLogger(level string) (*zap.Logger, error) {

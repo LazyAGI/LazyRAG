@@ -2,6 +2,7 @@ package merger
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,6 +117,7 @@ func (m *EventMerger) flushDue(ctx context.Context, now time.Time) error {
 func (m *EventMerger) flush(shouldFlush func(*mergedEvent, time.Time) bool, ctx context.Context) error {
 	now := time.Now().UTC()
 	events := make([]model.FileEvent, 0, m.cfg.FlushBatchSize)
+	candidates := make([]flushCandidate, 0, m.cfg.FlushBatchSize)
 
 	m.mu.Lock()
 	for key, item := range m.events {
@@ -123,7 +125,15 @@ func (m *EventMerger) flush(shouldFlush func(*mergedEvent, time.Time) bool, ctx 
 			continue
 		}
 		events = append(events, item.event)
-		delete(m.events, key)
+		candidates = append(candidates, flushCandidate{
+			key: key,
+			snapshot: mergedEvent{
+				event:      item.event,
+				firstSeen:  item.firstSeen,
+				lastSeen:   item.lastSeen,
+				occurredAt: item.occurredAt,
+			},
+		})
 		if len(events) >= m.cfg.FlushBatchSize {
 			break
 		}
@@ -140,8 +150,28 @@ func (m *EventMerger) flush(shouldFlush func(*mergedEvent, time.Time) bool, ctx 
 	if err := m.store.BatchApplyDocumentMutations(ctx, mutations); err != nil {
 		return err
 	}
+
+	// Drop only events that are unchanged since snapshot selection.
+	// New in-flight ingests on the same key must be kept for next flush.
+	m.mu.Lock()
+	for _, item := range candidates {
+		current, ok := m.events[item.key]
+		if !ok {
+			continue
+		}
+		if mergedEventEqual(current, item.snapshot) {
+			delete(m.events, item.key)
+		}
+	}
+	m.mu.Unlock()
+
 	m.log.Debug("flushed merged events", zap.Int("events", len(events)), zap.Int("mutations", len(mutations)))
 	return nil
+}
+
+type flushCandidate struct {
+	key      mergeKey
+	snapshot mergedEvent
 }
 
 func mergeEvent(oldEv, newEv model.FileEvent) model.FileEvent {
@@ -160,7 +190,7 @@ func mergeEvent(oldEv, newEv model.FileEvent) model.FileEvent {
 }
 
 func normalizeEventType(v string) string {
-	switch v {
+	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "created":
 		return "created"
 	case "deleted":
@@ -168,4 +198,27 @@ func normalizeEventType(v string) string {
 	default:
 		return "modified"
 	}
+}
+
+func mergedEventEqual(current *mergedEvent, snapshot mergedEvent) bool {
+	if current == nil {
+		return false
+	}
+	return current.firstSeen.Equal(snapshot.firstSeen) &&
+		current.lastSeen.Equal(snapshot.lastSeen) &&
+		current.occurredAt.Equal(snapshot.occurredAt) &&
+		fileEventEqual(current.event, snapshot.event)
+}
+
+func fileEventEqual(a, b model.FileEvent) bool {
+	return strings.TrimSpace(a.SourceID) == strings.TrimSpace(b.SourceID) &&
+		strings.TrimSpace(a.TenantID) == strings.TrimSpace(b.TenantID) &&
+		strings.TrimSpace(a.EventType) == strings.TrimSpace(b.EventType) &&
+		strings.TrimSpace(a.Path) == strings.TrimSpace(b.Path) &&
+		a.IsDir == b.IsDir &&
+		a.OccurredAt.Equal(b.OccurredAt) &&
+		strings.TrimSpace(a.OriginType) == strings.TrimSpace(b.OriginType) &&
+		strings.TrimSpace(a.OriginPlatform) == strings.TrimSpace(b.OriginPlatform) &&
+		strings.TrimSpace(a.OriginRef) == strings.TrimSpace(b.OriginRef) &&
+		strings.TrimSpace(a.TriggerPolicy) == strings.TrimSpace(b.TriggerPolicy)
 }
