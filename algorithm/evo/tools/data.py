@@ -277,8 +277,8 @@ def compare_cases(dataset_id1: str, dataset_id2: str) -> ToolResult[dict[str, An
     ac = metrics_diff.get('answer_correctness')
     if ac and ac['diff']:
         hints.append(
-            f'{'case1' if ac['better']=='case1' else 'case2'} has higher correctness; '
-            'examine its retrieval and generation pipeline for transferable patterns.'
+            f"{'case1' if ac['better']=='case1' else 'case2'} has higher correctness; "
+            "examine its retrieval and generation pipeline for transferable patterns."
         )
     if pipeline_diff['length_diff']:
         longer = 'case1' if pipeline_diff['length_diff'] > 0 else 'case2'

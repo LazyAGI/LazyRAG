@@ -18,12 +18,12 @@ def _summ_metrics(result: ToolResult[Any]) -> str:
     metrics = d.get('metrics', {})
     means = {m: round(v['mean'], 3) for m, v in metrics.items()
              if isinstance(v, dict) and v.get('mean') is not None}
-    return f'n={d.get('total_cases')} means={means}'
+    return f"n={d.get('total_cases')} means={means}"
 
 
 @tool(tags=['stats'], summarizer=_summ_metrics)
 def summarize_metrics(case_ids: list[str] | None = None) -> ToolResult[dict[str, Any]]:
-    '''Summarise metric distributions across the corpus or a subset.'''
+    """Summarise metric distributions across the corpus or a subset."""
     session = get_current_session()
     if session is None or not session.parsed_judge:
         return ToolResult.failure('summarize_metrics', ErrorCode.DATA_NOT_LOADED,
@@ -102,7 +102,7 @@ def summarize_metrics(case_ids: list[str] | None = None) -> ToolResult[dict[str,
 
 
 def _summ_step_metrics(result: ToolResult[Any]) -> str:
-    '''Highlight the worst (step, metric) pair to seed agent attention.'''
+    """Highlight the worst (step, metric) pair to seed agent attention."""
     by_step = (result.data or {}).get('by_step', {})
     worst_step = worst_metric = None
     worst_mean: float | None = None
@@ -125,14 +125,14 @@ def summarize_step_metrics(
     case_ids: list[str] | None = None,
     metric: str | None = None,
 ) -> ToolResult[dict[str, Any]]:
-    '''Step-level feature distribution. No anomaly judgment — pure stats.
+    """Step-level feature distribution. No anomaly judgment — pure stats.
 
     - ``step_key=None``: cover all pipeline steps; specified: focus one step.
     - ``case_ids=None``: full corpus; specified: subset.
     - ``metric=None``: every metric for the step; specified: single metric.
 
     Returned per (step, metric): mean / std / min / max / p10 / p90 / count.
-    '''
+    """
     session = get_current_session()
     if session is None or not session.case_step_features:
         return ToolResult.failure('summarize_step_metrics', ErrorCode.DATA_NOT_LOADED,
@@ -236,7 +236,7 @@ def correlate_metrics_enhanced(
     methods: list[str] | None = None,
     control_variables: list[str] | None = None,
 ) -> ToolResult[dict[str, Any]]:
-    '''Multi-method correlation (pearson/spearman/kendall/partial) with consensus.'''
+    """Multi-method correlation (pearson/spearman/kendall/partial) with consensus."""
     valid = {'pearson', 'spearman', 'kendall', 'partial'}
     if methods is None:
         methods = ['pearson', 'spearman', 'kendall']
@@ -306,7 +306,7 @@ def correlate_metrics_enhanced(
 
 @tool(tags=['stats'])
 def correlate_metrics(case_ids: list[str] | None = None) -> ToolResult[dict[str, Any]]:
-    '''Simple Pearson-only correlations between key metrics.'''
+    """Simple Pearson-only correlations between key metrics."""
     return correlate_metrics_enhanced(case_ids=case_ids, methods=['pearson'])
 
 

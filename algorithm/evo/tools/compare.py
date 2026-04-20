@@ -10,7 +10,7 @@ from evo.runtime.session import get_current_session
 
 @tool(tags=['compare'])
 def evaluate_dataset_quality(case_ids: list[str]) -> ToolResult[dict[str, Any]]:
-    '''Inspect eval-set data quality issues.'''
+    """Inspect eval-set data quality issues."""
     if not case_ids:
         return ToolResult.failure('evaluate_dataset_quality', ErrorCode.INVALID_ARGUMENT,
                                   'empty case_ids')
@@ -27,15 +27,15 @@ def evaluate_dataset_quality(case_ids: list[str]) -> ToolResult[dict[str, Any]]:
             continue
         if not j.generated_answer or len(j.generated_answer.strip()) < 10:
             issues.append({'case_id': did, 'issue_type': 'empty_or_short_answer',
-                            'signals': {'len': len(j.generated_answer or '')}})
+                           'signals': {'len': len(j.generated_answer or '')}})
             counts['empty_or_short_answer'] += 1
         if j.key and len(j.key) != len(set(j.key)):
             issues.append({'case_id': did, 'issue_type': 'duplicate_keys',
-                            'signals': {'total': len(j.key), 'unique': len(set(j.key))}})
+                           'signals': {'total': len(j.key), 'unique': len(set(j.key))}})
             counts['duplicate_keys'] += 1
         if session.parsed_trace and j.trace_id not in session.parsed_trace:
             issues.append({'case_id': did, 'issue_type': 'missing_trace',
-                            'signals': {'trace_id': j.trace_id}})
+                           'signals': {'trace_id': j.trace_id}})
             counts['missing_trace'] += 1
         if not j.gt_file and not j.gt_text:
             issues.append({'case_id': did, 'issue_type': 'missing_gt', 'signals': {}})
