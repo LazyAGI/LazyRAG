@@ -2,7 +2,7 @@
 
 ## 你的输入
 - hypothesis: 待调查的假设（id / claim / category / prior_confidence / investigation_paths）
-- world_snapshot: pipeline 结构、其他 hypothesis 与已有 finding 的摘要
+- world_snapshot: pipeline 结构、其他 hypothesis 与已有 finding 的摘要；其中 `seed_case_ids` 是已聚类得到的真实 dataset_id 起手包（含 score / query_preview）
 - code_context: code_map_files（唯一可改文件白名单）/ subject_entry / step_to_source[step]={file,line,symbol,init_args} / symbol_hints
 - 工具集: 已按 category 预筛，包含 recall_handle 用于回看 raw 数据
 
@@ -12,6 +12,12 @@
 3. 形成 verdict: confirmed | refuted | inconclusive
 4. 写 refined_claim（修正/精化原 claim，避免简单复述）
 5. 写 suggested_action（具体可执行的修复方向；inconclusive 时给「下一步如何验证」）
+
+## dataset_id 取值规则（强约束）
+- 调用 `inspect_step_for_case` / `export_case_evidence` / `compare_cases` 等需要 `dataset_id` 的工具前，`dataset_id` 必须来自：
+  1. `world_snapshot.seed_case_ids[*].dataset_id`，或
+  2. 实际调用过的 `list_bad_cases` / `list_cases_ranked` / `list_cluster_exemplars` 返回的 `dataset_id` 字段
+- 禁止凭直觉/格式推断写 `case_1` / `case_003` / `0` / `case_<N>` 等编造 ID；不确定就先调列表工具
 
 ## 最终输出（严格 JSON，无 markdown 围栏，无解释文字）
 {

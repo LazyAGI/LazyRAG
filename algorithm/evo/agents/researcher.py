@@ -8,6 +8,7 @@ from typing import Any
 from evo.conductor.category_tools import tools_for
 from evo.conductor.prompts import load as load_prompt
 from evo.conductor.world_model import Finding, Hypothesis, WorldModel
+from evo.harness.analysis import collect_exemplar_ids
 from evo.harness.react import LLMInvoker, ReActConfig, ReActRunner
 from evo.runtime.code_config import code_context_dict
 from evo.runtime.session import AnalysisSession
@@ -31,11 +32,29 @@ class ResearcherOutput:
     tool_calls: dict[str, int] = field(default_factory=dict)
 
 
+def _seed_case_ids(session: AnalysisSession, max_ids: int = 10) -> list[dict[str, Any]]:
+    score_field = session.config.badcase_score_field
+    ids = collect_exemplar_ids(session, max_ids=max_ids) or list(session.parsed_judge)[:max_ids]
+    seeds: list[dict[str, Any]] = []
+    for did in ids:
+        j = session.get_judge(did)
+        if j is None:
+            continue
+        trace = session.get_trace(j.trace_id)
+        seeds.append({
+            "dataset_id": did,
+            "score": getattr(j, score_field, None),
+            "query_preview": (trace.query if trace else "")[:80],
+        })
+    return seeds
+
+
 def _build_world_snapshot(session: AnalysisSession, target: Hypothesis) -> dict[str, Any]:
     w = session.world_store.world if session.world_store else None
     snap: dict[str, Any] = {
         "pipeline": list(session.trace_meta.pipeline),
         "total_cases": len(session.parsed_judge),
+        "seed_case_ids": _seed_case_ids(session),
         "target": {
             "id": target.id, "claim": target.claim, "category": target.category,
             "prior_confidence": target.confidence,

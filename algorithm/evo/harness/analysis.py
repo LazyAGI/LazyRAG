@@ -25,7 +25,7 @@ def compute_step_features(session: AnalysisSession) -> int:
 
 
 def cluster_global(session: AnalysisSession, *, badcase_limit: int, score_field: str) -> int:
-    from evo.tools.cluster import cluster_badcases
+    from evo.harness.clustering import cluster_badcases
     result = cluster_badcases(score_field=score_field, limit=badcase_limit).unwrap()
     session.set_clustering_global(result)
     _log.info("Global clustering: %d cases -> %d clusters", result.n_cases, result.n_clusters)
@@ -33,8 +33,8 @@ def cluster_global(session: AnalysisSession, *, badcase_limit: int, score_field:
 
 
 def cluster_per_step(session: AnalysisSession, *, badcase_limit: int, score_field: str) -> int:
-    from evo.tools.cluster import cluster_per_step as tool_per_step
-    result = tool_per_step(score_field=score_field, limit=badcase_limit).unwrap()
+    from evo.harness.clustering import cluster_per_step as _impl
+    result = _impl(score_field=score_field, limit=badcase_limit).unwrap()
     session.set_clustering_per_step(result)
     active = [k for k, v in result.per_step.items() if not v.skipped]
     _log.info("Per-step clustering: %d active steps", len(active))
@@ -45,7 +45,7 @@ def analyze_flow(session: AnalysisSession) -> int:
     if session.clustering_per_step is None:
         _log.info("Skipping flow analysis (per-step clustering missing)")
         return 0
-    from evo.tools.cluster import analyze_step_flow
+    from evo.harness.clustering import analyze_step_flow
     result = analyze_step_flow().unwrap()
     session.set_flow_analysis(result)
     _log.info("Flow analysis: %d transitions, critical=%s",

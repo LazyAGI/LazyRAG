@@ -44,8 +44,12 @@ def export_case_evidence(dataset_id: str) -> ToolResult[dict[str, Any]]:
                                   'No active session.')
     judge = session.get_judge(dataset_id)
     if judge is None:
-        return ToolResult.failure('export_case_evidence', ErrorCode.CASE_NOT_FOUND,
-                                  f'Not found: {dataset_id}')
+        return ToolResult.failure(
+            'export_case_evidence', ErrorCode.CASE_NOT_FOUND,
+            f'Dataset ID not found: {dataset_id}. '
+            f'Use list_bad_cases() / list_cases_ranked() to enumerate real IDs; '
+            f'examples: {session.sample_dataset_ids()}',
+        )
 
     trace = session.get_trace(judge.trace_id)
     pipeline = session.trace_meta.pipeline or (list(trace.modules.keys()) if trace else [])

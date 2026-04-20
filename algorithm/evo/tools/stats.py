@@ -6,7 +6,7 @@ from typing import Any
 from evo.domain.tool_result import ErrorCode, ToolResult
 from evo.harness.registry import tool
 from evo.runtime.session import get_current_session
-from evo.utils import kendall, partial_correlation, pearson, percentile, spearman
+from evo.utils import pearson, percentile
 
 _METRICS = ('answer_correctness', 'context_recall', 'doc_recall', 'faithfulness')
 
@@ -192,68 +192,45 @@ def summarize_step_metrics(
     })
 
 
-def _strength(r: float | None) -> str:
-    if r is None:
-        return 'N/A'
-    a = abs(r)
-    if a >= 0.8:
-        return 'very_strong'
-    if a >= 0.6:
-        return 'strong'
-    if a >= 0.4:
-        return 'moderate'
-    if a >= 0.2:
-        return 'weak'
-    return 'negligible'
-
-
-def _collect_vectors(session: Any, ids: list[str], metrics: tuple[str, ...]) -> dict[str, list[float]]:
-    data: dict[str, list[float]] = {m: [] for m in metrics}
-    for did in ids:
-        j = session.get_judge(did)
-        if j is None:
-            continue
-        vals: dict[str, float] = {}
-        skip = False
-        for m in metrics:
-            v = getattr(j, m, None)
-            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
-                skip = True
-                break
-            try:
-                vals[m] = float(v)
-            except (TypeError, ValueError):
-                skip = True
-                break
-        if skip:
-            continue
-        for m in metrics:
-            data[m].append(vals[m])
-    return data
-
-
 @tool(tags=['stats'])
-def correlate_metrics_enhanced(
-    case_ids: list[str] | None = None,
-    methods: list[str] | None = None,
-    control_variables: list[str] | None = None,
-) -> ToolResult[dict[str, Any]]:
-    """Multi-method correlation (pearson/spearman/kendall/partial) with consensus."""
-    valid = {'pearson', 'spearman', 'kendall', 'partial'}
-    if methods is None:
-        methods = ['pearson', 'spearman', 'kendall']
-    unknown = set(methods) - valid
-    if unknown:
-        return ToolResult.failure('correlate_metrics_enhanced', ErrorCode.INVALID_ARGUMENT,
-                                  f'Unknown methods: {sorted(unknown)}; valid={sorted(valid)}')
+def correlate_metrics(case_ids: list[str] | None = None) -> ToolResult[dict[str, Any]]:
+    """Pairwise Pearson correlations across the four core judge metrics."""
     session = get_current_session()
     if session is None or not session.parsed_judge:
-        return ToolResult.failure('correlate_metrics_enhanced', ErrorCode.DATA_NOT_LOADED,
+        return ToolResult.failure('correlate_metrics', ErrorCode.DATA_NOT_LOADED,
                                   'Judge corpus not loaded.')
 
     target_ids = case_ids if case_ids is not None else session.list_dataset_ids()
-    data = _collect_vectors(session, target_ids, _METRICS)
-    n = len(data[_METRICS[0]])
+    vectors: dict[str, list[float]] = {m: [] for m in _METRICS}
+    for did in target_ids:
+        j = session.get_judge(did)
+        if j is None:
+            continue
+        row: dict[str, float] = {}
+        for m in _METRICS:
+            v = getattr(j, m, None)
+            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))):
+                row = {}
+                break
+            try:
+                row[m] = float(v)
+            except (TypeError, ValueError):
+                row = {}
+                break
+        if not row:
+            continue
+        for m, v in row.items():
+            vectors[m].append(v)
+
+    n = len(vectors[_METRICS[0]])
+    matrix: dict[str, Any] = {}
+    for i, m1 in enumerate(_METRICS):
+        for m2 in _METRICS[i + 1:]:
+            r = pearson(vectors[m1], vectors[m2])
+            matrix[f'{m1}_vs_{m2}'] = {
+                'coefficient': round(r, 4) if r is not None else None,
+                'sample_size': n,
+            }
 
     warnings: list[str] = []
     if n < 3:
@@ -261,82 +238,9 @@ def correlate_metrics_enhanced(
     elif n < 10:
         warnings.append(f'Small sample ({n} cases); interpret with caution')
 
-    results: dict[str, Any] = {}
-    fns = {'pearson': pearson, 'spearman': spearman, 'kendall': kendall}
-    for method in methods:
-        if method == 'partial':
-            if not control_variables:
-                results['partial'] = {'note': 'Specify control_variables to compute partial correlations'}
-                continue
-            missing_ctrl = [c for c in control_variables if c not in data]
-            if missing_ctrl:
-                results['partial'] = {'error': f'Control variables not found: {missing_ctrl}'}
-                continue
-            ctrl_vecs = [data[c] for c in control_variables]
-            analyse = [m for m in _METRICS if m not in control_variables]
-            matrix: dict[str, Any] = {}
-            for i, m1 in enumerate(analyse):
-                for m2 in analyse[i + 1:]:
-                    r = partial_correlation(data[m1], data[m2], ctrl_vecs)
-                    matrix[f"{m1}_vs_{m2}_ctrl_{'_'.join(control_variables)}"] = {
-                        'coefficient': round(r, 4) if r is not None else None,
-                        'strength': _strength(r), 'sample_size': n,
-                        'controlled_for': control_variables,
-                    }
-            results['partial'] = matrix
-            continue
-
-        fn = fns[method]
-        matrix = {}
-        for i, m1 in enumerate(_METRICS):
-            for m2 in _METRICS[i + 1:]:
-                r = fn(data[m1], data[m2])
-                matrix[f'{m1}_vs_{m2}'] = {
-                    'coefficient': round(r, 4) if r is not None else None,
-                    'strength': _strength(r), 'sample_size': n,
-                }
-        results[method] = matrix
-
-    return ToolResult.success('correlate_metrics_enhanced', {
-        'methods_used': methods,
-        'results': results,
-        'consensus': _consensus(results),
+    return ToolResult.success('correlate_metrics', {
+        'method': 'pearson',
+        'matrix': matrix,
         'sample_size': n,
         'warnings': warnings,
     })
-
-
-@tool(tags=['stats'])
-def correlate_metrics(case_ids: list[str] | None = None) -> ToolResult[dict[str, Any]]:
-    """Simple Pearson-only correlations between key metrics."""
-    return correlate_metrics_enhanced(case_ids=case_ids, methods=['pearson'])
-
-
-def _consensus(results: dict[str, Any]) -> dict[str, Any]:
-    pair_scores: dict[str, list[float]] = {}
-    for _, matrix in results.items():
-        if not isinstance(matrix, dict):
-            continue
-        for key, val in matrix.items():
-            if not isinstance(val, dict):
-                continue
-            coef = val.get('coefficient')
-            if coef is not None:
-                pair_scores.setdefault(key, []).append(coef)
-
-    out: dict[str, Any] = {}
-    for pair, scores in pair_scores.items():
-        strong = [s for s in scores if abs(s) >= 0.4]
-        if len(strong) < 2:
-            continue
-        directions = [1 if s > 0 else -1 for s in strong]
-        if len(set(directions)) != 1:
-            continue
-        out[pair] = {
-            'methods_agreeing': len(strong),
-            'mean_coefficient': round(sum(strong) / len(strong), 4),
-            'direction': 'positive' if directions[0] > 0 else 'negative',
-            'strength': _strength(sum(strong) / len(strong)),
-            'confidence': 'high' if len(strong) >= 3 else 'medium',
-        }
-    return out

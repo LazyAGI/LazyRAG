@@ -139,6 +139,9 @@ class AnalysisSession:
     def list_dataset_ids(self) -> list[str]:
         return list(self.state.parsed_judge.keys())
 
+    def sample_dataset_ids(self, n: int = 3) -> list[str]:
+        return list(self.state.parsed_judge.keys())[:n]
+
     def iter_judge(self) -> Iterator[tuple[str, JudgeRecord]]:
         yield from self.state.parsed_judge.items()
 

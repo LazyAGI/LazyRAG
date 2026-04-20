@@ -13,7 +13,8 @@
       "supporting_metrics": ["chunk_recall_delta", "chunk_gt_survival_rate"],
       "investigation_paths": [
         "调 summarize_step_metrics(step_key='ModuleReranker') 拉具体分布",
-        "调 inspect_step_for_case(case_id='...', step_key='ModuleReranker') 看一个 case",
+        "先调 list_bad_cases(threshold=0.6, limit=5) 拿到候选 dataset_id",
+        "再调 inspect_step_for_case(dataset_id=<上一步返回的真实 id>, step_key='ModuleReranker')",
         "调 read_source_file 找 reranker 的 top_n 配置"
       ]
     }
@@ -30,4 +31,5 @@
 - 不强制每个 step 都给假设；找不到异常就少给或给空数组
 - cross_step_narrative 要叙述跨步因果链，不是简单罗列
 - investigation_paths 描述 perspective 下一步该调什么工具去验证；至少 1 条
+- investigation_paths 里描述需要具体 case 的工具时，**禁止** 把 case_id / dataset_id 写成省略号占位（任何形式的「...」都不行），必须写「先调 list_bad_cases / list_cases_ranked / list_cluster_exemplars 拿真实 dataset_id 再传入」
 - category 用领域语义短语，不要用 P0/P1 这种行政标签
