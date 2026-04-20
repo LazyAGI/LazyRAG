@@ -1,5 +1,3 @@
-'''Evidence-extraction tools: per-case facts with step features.'''
-
 from __future__ import annotations
 
 from typing import Any

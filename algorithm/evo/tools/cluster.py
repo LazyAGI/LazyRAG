@@ -106,8 +106,8 @@ def cluster_badcases(
     min_cluster_size: int = 0,
 ) -> ToolResult[ClusteringResult]:
     """Cluster badcases globally by step-level feature similarity."""
-    if order.lower() not in ("asc", "desc"):
-        return ToolResult.failure("cluster_badcases", ErrorCode.INVALID_ARGUMENT,
+    if order.lower() not in ('asc', 'desc'):
+        return ToolResult.failure('cluster_badcases', ErrorCode.INVALID_ARGUMENT,
                                   "order must be 'asc' or 'desc'")
     if limit < 1:
         return ToolResult.failure('cluster_badcases', ErrorCode.INVALID_ARGUMENT,
@@ -329,7 +329,7 @@ def analyze_step_flow() -> ToolResult[FlowAnalysisResult]:
 # ---------------------------------------------------------------------------
 
 @tool(tags=['cluster'])
-def get_cluster_summary(cluster_id: str, step_key: str = "") -> ToolResult[dict[str, Any]]:
+def get_cluster_summary(cluster_id: str, step_key: str = '') -> ToolResult[dict[str, Any]]:
     """Return one cluster summary from global or per-step clustering."""
     session = get_current_session()
     if session is None:

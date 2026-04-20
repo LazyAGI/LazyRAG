@@ -1,9 +1,9 @@
-'''Source-code inspection tools.
+"""Source-code inspection tools.
 
 Path access is sandboxed by ``session.config.code_access.read_scope`` (not
 ``code_map``). ``code_map`` only describes user-modifiable files for the
 future fix-applier stage.
-'''
+"""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def _summ_code_map(result: ToolResult[Any]) -> str:
 
 @tool(tags=['code'], summarizer=_summ_code_map)
 def list_code_map() -> ToolResult[dict[str, Any]]:
-    '''List user-modifiable files (code_map). NOT a read access list.'''
+    """List user-modifiable files (code_map). NOT a read access list."""
     sess = get_current_session()
     if sess is None:
         return ToolResult.failure('list_code_map', ErrorCode.DATA_NOT_LOADED, 'No session')
@@ -90,7 +90,7 @@ def list_subject_index() -> ToolResult[dict[str, Any]]:
 def read_source_file(
     file_path: str, start_line: int = 0, end_line: int = 0,
 ) -> ToolResult[dict[str, Any]]:
-    '''Read a file (line-numbered, truncated to 4KB). Allowed by read_scope.'''
+    """Read a file (line-numbered, truncated to 4KB). Allowed by read_scope."""
     try:
         resolved = _validate_path(file_path)
     except ValueError as exc:
@@ -126,11 +126,11 @@ def read_source_file(
 def parse_code_structure(
     file_path: str, symbol_name: str | None = None,
 ) -> ToolResult[dict[str, Any]]:
-    '''Two-mode python source inspection.
+    """Two-mode python source inspection.
 
     - ``symbol_name=None``: overview (class/function names + line ranges, top-level assignments, imports)
     - ``symbol_name=<name>``: full source of that top-level class/function
-    '''
+    """
     try:
         resolved = _validate_path(file_path)
     except ValueError as exc:
@@ -216,8 +216,8 @@ def _parse_python_ast(source: str) -> dict[str, Any]:
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if not any(node.lineno >= c['line'] for c in classes):
                 functions.append({'name': node.name,
-                                   'args': [a.arg for a in node.args.args],
-                                   'line': node.lineno})
+                                  'args': [a.arg for a in node.args.args],
+                                  'line': node.lineno})
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name):
@@ -247,7 +247,7 @@ def _parse_generic(source: str) -> dict[str, Any]:
         m = kv.match(line)
         if m:
             assignments.append({'name': m.group(1).strip(),
-                                 'value': m.group(2).strip(), 'line': i})
+                                'value': m.group(2).strip(), 'line': i})
     return {'classes': [], 'functions': [], 'assignments': assignments[:60], 'imports': []}
 
 
@@ -255,12 +255,12 @@ def _parse_generic(source: str) -> dict[str, Any]:
 def extract_config_values(
     file_path: str, keys: list[str] | None = None,
 ) -> ToolResult[dict[str, Any]]:
-    '''Look for variable / key assignments in a file.
+    """Look for variable / key assignments in a file.
 
     - ``keys=None`` or empty: scan default tunable-param vocabulary
       (topk/top_k/top_n/threshold/temperature/chunk_size/score/...)
     - ``keys=[...]``: search the given names (case-insensitive)
-    '''
+    """
     try:
         resolved = _validate_path(file_path)
     except ValueError as exc:
@@ -289,7 +289,7 @@ def extract_config_values(
                     for j in range(ctx_end - ctx_start)
                 )
                 found.append({'key': key, 'line': i,
-                               'raw_line': line.strip(), 'context': context})
+                              'raw_line': line.strip(), 'context': context})
                 matched.add(key)
     missing = [k for k in keys if k not in matched]
     return ToolResult.success('extract_config_values', {
@@ -323,13 +323,13 @@ def search_code_pattern(
     scope: Literal['project', 'package', 'all'] = 'project',
     package: str | None = None,
 ) -> ToolResult[dict[str, Any]]:
-    '''Regex search across files.
+    """Regex search across files.
 
     - file_paths given: search those (each validated against read_scope)
     - scope='project': recursive over project_roots+extra_roots (default suffixes)
     - scope='package' + package='<pkg>': recursive over that third-party package
     - scope='all': both
-    '''
+    """
     if not pattern:
         return ToolResult.failure('search_code_pattern', ErrorCode.INVALID_ARGUMENT,
                                   'pattern is required.')

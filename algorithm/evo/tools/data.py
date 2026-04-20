@@ -19,13 +19,13 @@ def get_case_detail(
     step_filter: str | None = None,
     expand_field: str | None = None,
 ) -> ToolResult[dict[str, Any]]:
-    '''Two-mode case inspection.
+    """Two-mode case inspection.
 
     - default: judge + first 5 trace modules (each input/output capped at 500 chars).
     - ``step_filter=<step_key>``: only that step's full input/output (no truncation).
     - ``expand_field=<name>``: return that judge field full text. Valid names:
       ``generated_answer | gt_answer | retrieved_text | gt_text``.
-    '''
+    """
     if not dataset_id or not isinstance(dataset_id, str):
         return ToolResult.failure('get_case_detail', ErrorCode.INVALID_ARGUMENT,
                                   'dataset_id must be a non-empty string')
@@ -121,12 +121,12 @@ def get_case_detail(
 
 @tool(tags=['inspect'])
 def inspect_step_for_case(dataset_id: str, step_key: str) -> ToolResult[dict[str, Any]]:
-    '''Full input/output for ONE step in ONE case (no truncation).
+    """Full input/output for ONE step in ONE case (no truncation).
 
     Use after ``summarize_step_metrics`` or ``get_case_detail`` flags a
     suspicious (case, step). Pairs the raw module IO with this case's
     step-level features so you can correlate observation with metric.
-    '''
+    """
     if not dataset_id or not isinstance(dataset_id, str):
         return ToolResult.failure('inspect_step_for_case', ErrorCode.INVALID_ARGUMENT,
                                   'dataset_id must be a non-empty string')
@@ -173,7 +173,7 @@ def list_bad_cases(
     offset: int = 0,
     sort: str = 'asc',
 ) -> ToolResult[dict[str, Any]]:
-    '''List paginated bad cases with a score histogram.'''
+    """List paginated bad cases with a score histogram."""
     session = get_current_session()
     if session is None or not session.parsed_judge:
         return ToolResult.failure('list_bad_cases', ErrorCode.DATA_NOT_LOADED,
@@ -207,11 +207,16 @@ def list_bad_cases(
     buckets = {k: 0 for k in ('0.0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0')}
     for case in all_cases:
         s = case['score']
-        if s < 0.2: buckets['0.0-0.2'] += 1
-        elif s < 0.4: buckets['0.2-0.4'] += 1
-        elif s < 0.6: buckets['0.4-0.6'] += 1
-        elif s < 0.8: buckets['0.6-0.8'] += 1
-        else: buckets['0.8-1.0'] += 1
+        if s < 0.2:
+            buckets['0.0-0.2'] += 1
+        elif s < 0.4:
+            buckets['0.2-0.4'] += 1
+        elif s < 0.6:
+            buckets['0.4-0.6'] += 1
+        elif s < 0.8:
+            buckets['0.6-0.8'] += 1
+        else:
+            buckets['0.8-1.0'] += 1
 
     page = all_cases[offset: offset + limit]
     next_offset = offset + limit if offset + limit < len(all_cases) else None
@@ -278,7 +283,7 @@ def compare_cases(dataset_id1: str, dataset_id2: str) -> ToolResult[dict[str, An
     if ac and ac['diff']:
         hints.append(
             f"{'case1' if ac['better']=='case1' else 'case2'} has higher correctness; "
-            "examine its retrieval and generation pipeline for transferable patterns."
+            'examine its retrieval and generation pipeline for transferable patterns.'
         )
     if pipeline_diff['length_diff']:
         longer = 'case1' if pipeline_diff['length_diff'] > 0 else 'case2'

@@ -1,5 +1,3 @@
-'''Corpus-level statistics tools (numerics live in :mod:`evo.utils`).'''
-
 from __future__ import annotations
 
 import math
@@ -198,10 +196,14 @@ def _strength(r: float | None) -> str:
     if r is None:
         return 'N/A'
     a = abs(r)
-    if a >= 0.8: return 'very_strong'
-    if a >= 0.6: return 'strong'
-    if a >= 0.4: return 'moderate'
-    if a >= 0.2: return 'weak'
+    if a >= 0.8:
+        return 'very_strong'
+    if a >= 0.6:
+        return 'strong'
+    if a >= 0.4:
+        return 'moderate'
+    if a >= 0.2:
+        return 'weak'
     return 'negligible'
 
 
@@ -312,7 +314,7 @@ def correlate_metrics(case_ids: list[str] | None = None) -> ToolResult[dict[str,
 
 def _consensus(results: dict[str, Any]) -> dict[str, Any]:
     pair_scores: dict[str, list[float]] = {}
-    for method, matrix in results.items():
+    for _, matrix in results.items():
         if not isinstance(matrix, dict):
             continue
         for key, val in matrix.items():

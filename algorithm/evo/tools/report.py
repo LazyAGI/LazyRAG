@@ -69,26 +69,26 @@ def json_to_markdown(data: dict[str, Any]) -> str:
             line = a.get('target_line') or 0
             scope_cell = f'`{target}`' + (f':{line}' if line else '')
             md.append(
-                f'| {prio} | **{_esc(a.get('title'))}** | {_esc(a.get('suggested_changes'))} '
-                f'| {scope_cell} | {impact} | {int(float(a.get('confidence', 0) or 0) * 100)}% '
-                f'| {_validity_badge(float(a.get('validity_score', 0) or 0))} |'
+                f"| {prio} | **{_esc(a.get('title'))}** | {_esc(a.get('suggested_changes'))} "
+                f"| {scope_cell} | {impact} | {int(float(a.get('confidence', 0) or 0) * 100)}% "
+                f"| {_validity_badge(float(a.get('validity_score', 0) or 0))} |"
             )
 
         md.append('\n### 行动详情')
         for a in sorted_in:
-            md.append(f'\n#### [{a.get('id')}] {a.get('title')}  ({a.get('priority')})')
-            md.append(f'- **修改方向**: {a.get('suggested_changes', '—')}')
+            md.append(f"\n#### [{a.get('id')}] {a.get('title')}  ({a.get('priority')})")
+            md.append(f"- **修改方向**: {a.get('suggested_changes', '—')}")
             target = a.get('code_map_target') or '—'
             line = a.get('target_line') or 0
             step = a.get('target_step') or ''
             loc = f'`{target}`' + (f':{line}' if line else '') + (f' ({step})' if step else '')
             md.append(f'- **修改落点**: ✓ {loc}')
-            md.append(f'- **理由**: {a.get('rationale', '—')}')
-            md.append(f'- **影响指标**: `{a.get('expected_impact_metric', '—')}` '
-                      f'{a.get('expected_direction', '')}')
-            md.append(f'- **关联 finding**: `{a.get('finding_id', '—')}` / '
-                      f'hypothesis `{a.get('hypothesis_id', '—')}` ({a.get('hypothesis_category', '')})')
-            md.append(f'- **证据 handles**: {', '.join(a.get('evidence_handles', [])) or '—'}')
+            md.append(f"- **理由**: {a.get('rationale', '—')}")
+            md.append(f"- **影响指标**: `{a.get('expected_impact_metric', '—')}` "
+                      f"{a.get('expected_direction', '')}")
+            md.append(f"- **关联 finding**: `{a.get('finding_id', '—')}` / "
+                      f"hypothesis `{a.get('hypothesis_id', '—')}` ({a.get('hypothesis_category', '')})")
+            md.append(f"- **证据 handles**: {', '.join(a.get('evidence_handles', [])) or '—'}")
             sup = a.get('supporting_evidence') or []
             con = a.get('contradicting_evidence') or []
             notes = a.get('verifier_notes') or []
@@ -114,8 +114,8 @@ def json_to_markdown(data: dict[str, Any]) -> str:
             direction = a.get('expected_direction', '')
             impact = f'`{metric}` {direction}' if metric else '—'
             md.append(
-                f'| **{_esc(a.get('title'))}** | {_esc(a.get('suggested_changes'))} '
-                f'| ⚠ {_esc(a.get('code_map_warning') or '不在 code_map')} | {impact} |'
+                f"| **{_esc(a.get('title'))}** | {_esc(a.get('suggested_changes'))} "
+                f"| ⚠ {_esc(a.get('code_map_warning') or '不在 code_map')} | {impact} |"
             )
 
     md.append('\n## 已确认假设')
@@ -128,9 +128,9 @@ def json_to_markdown(data: dict[str, Any]) -> str:
         md.append('| :--- | :--- | :--- | :--- | :--- |')
         for f in findings:
             md.append(
-                f'| `{f.get('id')}` | `{f.get('hypothesis_id')}` | {_esc(f.get('claim'))} '
-                f'| {int(float(f.get('confidence', 0) or 0) * 100)}% '
-                f'| {', '.join(f.get('evidence_handles', [])) or '—'} |'
+                f"| `{f.get('id')}` | `{f.get('hypothesis_id')}` | {_esc(f.get('claim'))} "
+                f"| {int(float(f.get('confidence', 0) or 0) * 100)}% "
+                f"| {', '.join(f.get('evidence_handles', [])) or '—'} |"
             )
 
     gaps = data.get('open_gaps', []) or []
@@ -152,7 +152,7 @@ def json_to_markdown(data: dict[str, Any]) -> str:
         for t in flow.get('transition_analysis', []) or []:
             if t.get('type') and t['type'] != 'stable':
                 md.append(
-                    f'* **{t.get('from_step', '')} → {t.get('to_step', '')}**：{t['type']} '
-                    f'(熵变 {t.get('entropy_change')})'
+                    f"* **{t.get('from_step', '')} → {t.get('to_step', '')}**：{t['type']} "
+                    f"(熵变 {t.get('entropy_change')})"
                 )
     return '\n'.join(md)
