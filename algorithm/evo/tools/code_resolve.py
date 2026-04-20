@@ -13,17 +13,17 @@ from evo.runtime.session import get_current_session
 
 def _summ_resolve(result: ToolResult[Any]) -> str:
     d = result.data or {}
-    return (f'{d.get('symbol')} -> {d.get('file')}:{d.get('line')} '
-            f'({d.get('kind')}, readable={d.get('readable')})')
+    return (f"{d.get('symbol')} -> {d.get('file')}:{d.get('line')} "
+            f"({d.get('kind')}, readable={d.get('readable')})")
 
 
 @tool(tags=['code'], summarizer=_summ_resolve)
 def resolve_import(symbol: str) -> ToolResult[dict[str, Any]]:
-    '''Resolve a Python dotted symbol (``pkg.mod.Name``) to its source file/line.
+    """Resolve a Python dotted symbol (``pkg.mod.Name``) to its source file/line.
 
     Supports module / class / function / method / attribute. Marks whether
     the resolved file is readable under the current ``read_scope``.
-    '''
+    """
     if not symbol or not isinstance(symbol, str):
         return ToolResult.failure('resolve_import', ErrorCode.INVALID_ARGUMENT,
                                   'symbol must be non-empty string')

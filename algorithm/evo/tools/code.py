@@ -67,14 +67,14 @@ def list_code_map() -> ToolResult[dict[str, Any]]:
 
 def _summ_subject_index(result: ToolResult[Any]) -> str:
     d = result.data or {}
-    return (f'entry={d.get('subject_entry')}; '
-            f'steps={list(d.get('step_to_source', {}).keys())}; '
-            f'symbols={list(d.get('symbol_hints', {}).keys())}')
+    return (f"entry={d.get('subject_entry')}; "
+            f"steps={list(d.get('step_to_source', {}).keys())}; "
+            f"symbols={list(d.get('symbol_hints', {}).keys())}")
 
 
 @tool(tags=['code'], summarizer=_summ_subject_index)
 def list_subject_index() -> ToolResult[dict[str, Any]]:
-    '''Return subject_entry + step_to_source + symbol_hints (navigation map).'''
+    """Return subject_entry + step_to_source + symbol_hints (navigation map)."""
     sess = get_current_session()
     if sess is None:
         return ToolResult.failure('list_subject_index', ErrorCode.DATA_NOT_LOADED, 'No session')

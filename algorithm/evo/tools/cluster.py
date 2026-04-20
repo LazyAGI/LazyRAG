@@ -392,7 +392,7 @@ def _summ_flow(result: ToolResult[Any]) -> str:
     d = result.data or {}
     transitions = d.get('transition_analysis', [])
     interesting = [
-        f'{t['from_step']}->{t['to_step']}({t['type']})'
+        f"{t['from_step']}->{t['to_step']}({t['type']})"
         for t in transitions if t.get('type') != 'stable'
     ][:5]
     return f"critical={d.get('critical_steps', [])}; transitions: {interesting}"

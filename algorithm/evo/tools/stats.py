@@ -276,7 +276,7 @@ def correlate_metrics_enhanced(
             for i, m1 in enumerate(analyse):
                 for m2 in analyse[i + 1:]:
                     r = partial_correlation(data[m1], data[m2], ctrl_vecs)
-                    matrix[f'{m1}_vs_{m2}_ctrl_{'_'.join(control_variables)}'] = {
+                    matrix[f"{m1}_vs_{m2}_ctrl_{'_'.join(control_variables)}"] = {
                         'coefficient': round(r, 4) if r is not None else None,
                         'strength': _strength(r), 'sample_size': n,
                         'controlled_for': control_variables,

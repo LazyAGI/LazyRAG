@@ -27,16 +27,16 @@ def _summ_export(result: ToolResult[Any]) -> str:
     d = result.data or {}
     metrics = d.get('judge_metrics', {})
     return (
-        f'case={d.get('dataset_id')} score={metrics.get('answer_correctness')} '
-        f'hit_keys={len(d.get('judge_texts', {}).get('hit_key', []))}/'
-        f'{len(d.get('judge_texts', {}).get('key_points', []))} '
-        f'steps={list(d.get('step_summaries', {}).keys())}'
+        f"case={d.get('dataset_id')} score={metrics.get('answer_correctness')} "
+        f"hit_keys={len(d.get('judge_texts', {}).get('hit_key', []))}/"
+        f"{len(d.get('judge_texts', {}).get('key_points', []))} "
+        f"steps={list(d.get('step_summaries', {}).keys())}"
     )
 
 
 @tool(tags=['evidence'], summarizer=_summ_export)
 def export_case_evidence(dataset_id: str) -> ToolResult[dict[str, Any]]:
-    '''Bundle judge metrics, step IO previews, and step features for a case.'''
+    """Bundle judge metrics, step IO previews, and step features for a case."""
     if not dataset_id:
         return ToolResult.failure('export_case_evidence', ErrorCode.INVALID_ARGUMENT,
                                   'dataset_id is required.')
@@ -89,7 +89,7 @@ def export_case_evidence(dataset_id: str) -> ToolResult[dict[str, Any]]:
 
 def _summ_ranked(result: ToolResult[Any]) -> str:
     cases = (result.data or {}).get('cases', [])[:5]
-    return f'top: {[(c.get('dataset_id'), list(c.values())[1]) for c in cases]}'
+    return f"top: {[(c.get('dataset_id'), list(c.values())[1]) for c in cases]}"
 
 
 @tool(tags=['evidence'], summarizer=_summ_ranked)
@@ -98,7 +98,7 @@ def list_cases_ranked(
     order: str = 'asc',
     limit: int = 10,
 ) -> ToolResult[dict[str, Any]]:
-    '''Rank loaded cases by a metric.'''
+    """Rank loaded cases by a metric."""
     if order.lower() not in ('asc', 'desc'):
         return ToolResult.failure('list_cases_ranked', ErrorCode.INVALID_ARGUMENT,
                                   "order must be 'asc' or 'desc'.")

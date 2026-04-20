@@ -228,7 +228,7 @@ def list_bad_cases(
 
 @tool(tags=['inspect'])
 def compare_cases(dataset_id1: str, dataset_id2: str) -> ToolResult[dict[str, Any]]:
-    '''Symmetric metric and pipeline diff between two cases.'''
+    """Symmetric metric and pipeline diff between two cases."""
     if not dataset_id1 or not dataset_id2:
         return ToolResult.failure('compare_cases', ErrorCode.INVALID_ARGUMENT,
                                   'Both dataset IDs required.')
@@ -299,7 +299,7 @@ def list_dataset_ids(
     min_score: float | None = None,
     max_score: float | None = None,
 ) -> ToolResult[dict[str, Any]]:
-    '''Enumerate dataset IDs with optional score filters.'''
+    """Enumerate dataset IDs with optional score filters."""
     session = get_current_session()
     if session is None or not session.parsed_judge:
         return ToolResult.failure('list_dataset_ids', ErrorCode.DATA_NOT_LOADED,
@@ -326,7 +326,7 @@ def list_dataset_ids(
 
 @tool(tags=['inspect'])
 def get_session_status() -> ToolResult[dict[str, Any]]:
-    '''Describe the active session: run_id, loaded counts, completed stages.'''
+    """Describe the active session: run_id, loaded counts, completed stages."""
     session = get_current_session()
     if session is None:
         return ToolResult.failure('get_session_status', ErrorCode.DATA_NOT_LOADED,
@@ -350,7 +350,7 @@ def get_session_status() -> ToolResult[dict[str, Any]]:
 
 @tool(tags=['inspect'])
 def recall_handle(handle: str) -> ToolResult[dict[str, Any]]:
-    '''Look up the raw result of a previous tool call by its handle id.'''
+    """Look up the raw result of a previous tool call by its handle id."""
     session = get_current_session()
     if session is None or session.handle_store is None:
         return ToolResult.failure('recall_handle', ErrorCode.DATA_NOT_LOADED,
