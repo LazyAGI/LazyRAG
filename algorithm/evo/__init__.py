@@ -1,3 +1,3 @@
-"""Evo: agent-first RAG diagnosis and evolution-oriented reporting."""
+'''Evo: agent-first RAG diagnosis and evolution-oriented reporting.'''
 
-__version__ = "2.0.0"
+__version__ = '1.0.0'

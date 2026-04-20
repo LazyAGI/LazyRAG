@@ -1,22 +1,19 @@
-"""
-Tool registration.
+from __future__ import annotations
 
-Call ``register_all()`` once before using tools via LazyLLM ReactAgent.
-Direct function calls (e.g. from pipeline) work without registration.
-"""
+from evo.harness.registry import discover, get_registry
 
-_registered = False
+_discovered: list[str] | None = None
 
 
-def register_all() -> None:
-    """Import all tool modules to trigger @fc_register decorators."""
-    global _registered
-    if _registered:
-        return
-    from evo.tools import evidence  # noqa: F401
-    from evo.tools import data      # noqa: F401
-    from evo.tools import stats     # noqa: F401
-    from evo.tools import code      # noqa: F401
-    from evo.tools import compare   # noqa: F401
-    from evo.tools import cluster   # noqa: F401
-    _registered = True
+def register_all() -> list[str]:
+    global _discovered
+    if _discovered is not None:
+        return _discovered
+    _discovered = discover('evo.tools')
+    return _discovered
+
+
+def tool_names() -> list[str]:
+    if _discovered is None:
+        register_all()
+    return get_registry().names()

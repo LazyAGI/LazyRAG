@@ -1,570 +1,364 @@
-"""
-Data loading and inspection tools (fc_register group ``data``).
-
-Implementation contract (README.md Phase E.1):
-    - Every tool returns a **JSON string** encoding the standard envelope:
-      success: {"ok": true, "data": {...}, "meta": optional}
-      failure: {"ok": false, "error": {"code": "...", "message": "..."}, "details": optional}
-    - Error codes include DATA_NOT_LOADED, CASE_NOT_FOUND, IO_ERROR, INVALID_ARGUMENT.
-    - No hard-coded absolute user paths: defaults come from ``EvoConfig`` / session.
-    - ``load_judge_data`` / ``load_trace_data`` validate schema and emit warnings
-      for broken judge↔trace linkage.
-    - ``get_case_detail`` must document truncation (excerpt length + full lengths).
-    - ``list_bad_cases`` supports threshold, score_field, limit, offset, sort, histogram summary.
-
-When binding to ``AnalysisSession``:
-    Replace module-level stubs with callables that read/write the active session only.
-"""
-
 from __future__ import annotations
 
-import json
-import time
-from pathlib import Path
 from typing import Any
 
-from lazyllm.tools import fc_register
-from evo.domain.schemas import ErrorCode
-from evo.tools._common import _ok, _fail
+from evo.domain.tool_result import ErrorCode, ToolResult
+from evo.harness.registry import tool
 from evo.runtime.session import get_current_session
 
 
-@fc_register("tool")
-def load_judge_data(file_path: str | None = None) -> str:
-    """
-    Load judge JSON; store in session; return overview (counts, fields, warnings).
-
-    Args:
-        file_path: Optional file path override. Defaults to config.default_judge_path.
-
-    Returns:
-        JSON string per envelope spec with LoadSummary in data field.
-
-    Error codes:
-        DATA_NOT_LOADED: Session not initialized.
-        IO_ERROR: File not found or JSON decode error.
-        INTERNAL_ERROR: Validation or parsing error.
-    """
-    start_time = time.time()
-    
-    try:
-        session = get_current_session()
-        if session is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "No active session. Call within session_scope().")
-        
-        path = Path(file_path) if file_path else None
-        summary = session.load_judge(path)
-        
-        return _ok({
-            "total_cases": summary.total_cases,
-            "field_histogram": summary.field_histogram,
-            "sample_keys": summary.sample_keys,
-            "warnings": summary.warnings
-        }, start_time)
-        
-    except FileNotFoundError as e:
-        return _fail(ErrorCode.IO_ERROR.value,
-                     f"Judge file not found: {str(e)}")
-        
-    except json.JSONDecodeError as e:
-        return _fail(ErrorCode.IO_ERROR.value,
-                     f"Invalid JSON in judge file: {str(e)}")
-        
-    except Exception as e:
-        return _fail(ErrorCode.INTERNAL_ERROR.value,
-                     f"Failed to load judge data: {str(e)}")
+_MAX_FIELD_LENGTH = 500
 
 
-@fc_register("tool")
-def load_trace_data(file_path: str | None = None) -> str:
-    """
-    Load trace JSON; store in session; return overview (pipeline/module stats).
-
-    Args:
-        file_path: Optional file path override. Defaults to config.default_trace_path.
-
-    Returns:
-        JSON string per envelope spec with LoadSummary in data field.
-
-    Error codes:
-        DATA_NOT_LOADED: Session not initialized.
-        IO_ERROR: File not found or JSON decode error.
-        INTERNAL_ERROR: Validation or parsing error.
-    """
-    start_time = time.time()
-    
-    try:
-        session = get_current_session()
-        if session is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "No active session. Call within session_scope().")
-        
-        path = Path(file_path) if file_path else None
-        summary = session.load_trace(path)
-        
-        return _ok({
-            "total_cases": summary.total_cases,
-            "field_histogram": summary.field_histogram,
-            "sample_keys": summary.sample_keys,
-            "warnings": summary.warnings,
-            "missing_traces": summary.missing_traces or []
-        }, start_time)
-        
-    except FileNotFoundError as e:
-        return _fail(ErrorCode.IO_ERROR.value,
-                     f"Trace file not found: {str(e)}")
-        
-    except json.JSONDecodeError as e:
-        return _fail(ErrorCode.IO_ERROR.value,
-                     f"Invalid JSON in trace file: {str(e)}")
-        
-    except Exception as e:
-        return _fail(ErrorCode.INTERNAL_ERROR.value,
-                     f"Failed to load trace data: {str(e)}")
+_EXPANDABLE_FIELDS = {'generated_answer', 'gt_answer', 'retrieved_text', 'gt_text'}
 
 
-@fc_register("tool")
-def get_case_detail(dataset_id: str) -> str:
-    """
-    Merge judge + trace for ``dataset_id``; include truncation metadata.
+@tool(tags=['inspect'])
+def get_case_detail(
+    dataset_id: str,
+    step_filter: str | None = None,
+    expand_field: str | None = None,
+) -> ToolResult[dict[str, Any]]:
+    '''Two-mode case inspection.
 
-    Args:
-        dataset_id: The dataset identifier to retrieve.
-
-    Preconditions:
-        Both corpora loaded; else return DATA_NOT_LOADED with prerequisite tool names.
-
-    Returns:
-        JSON string for ``MergedCaseView``-like payload with truncation metadata.
-
-    Truncation policy:
-        - Fields longer than 500 characters are truncated with full_length included.
-        - Both truncated_excerpt and full_length are provided.
-
-    Error codes:
-        DATA_NOT_LOADED: Judge or trace data not loaded.
-        CASE_NOT_FOUND: Dataset ID not found.
-        INVALID_ARGUMENT: Dataset ID is empty or invalid.
-    """
-    start_time = time.time()
-    
+    - default: judge + first 5 trace modules (each input/output capped at 500 chars).
+    - ``step_filter=<step_key>``: only that step's full input/output (no truncation).
+    - ``expand_field=<name>``: return that judge field full text. Valid names:
+      ``generated_answer | gt_answer | retrieved_text | gt_text``.
+    '''
     if not dataset_id or not isinstance(dataset_id, str):
-        return _fail(ErrorCode.INVALID_ARGUMENT.value,
-                     "dataset_id must be a non-empty string")
-    
+        return ToolResult.failure('get_case_detail', ErrorCode.INVALID_ARGUMENT,
+                                  'dataset_id must be a non-empty string')
+    if expand_field is not None and expand_field not in _EXPANDABLE_FIELDS:
+        return ToolResult.failure(
+            'get_case_detail', ErrorCode.INVALID_ARGUMENT,
+            f'expand_field must be one of {sorted(_EXPANDABLE_FIELDS)}, got {expand_field!r}',
+        )
+    session = get_current_session()
+    if session is None or not session.parsed_judge:
+        return ToolResult.failure('get_case_detail', ErrorCode.DATA_NOT_LOADED,
+                                  'Judge corpus not loaded.')
     try:
-        session = get_current_session()
-        if session is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "No active session. Call load_judge_data and load_trace_data first.")
-        
-        if session.judge_data is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "Judge data not loaded. Call load_judge_data first.")
-        
-        if session.trace_data is None and not session._parsed_trace:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "Trace data not loaded. Call load_trace_data first.")
-        
-        try:
-            merged = session.get_merged_case(dataset_id)
-        except KeyError:
-            return _fail(ErrorCode.CASE_NOT_FOUND.value,
-                         f"Dataset ID not found: {dataset_id}")
-        except ValueError as e:
-            return _fail(ErrorCode.TRACE_NOT_FOUND.value, str(e))
-        
-        MAX_FIELD_LENGTH = 500
-        truncated_fields = {}
-        
-        case_dict = merged.to_dict()
-        
-        for field_path in [
-            ("judge", "generated_answer"),
-            ("judge", "gt_answer"),
-            ("trace", "modules")
-        ]:
-            current = case_dict
-            for key in field_path[:-1]:
-                current = current.get(key, {})
-            
-            final_key = field_path[-1]
-            value = current.get(final_key)
-            
-            if isinstance(value, str) and len(value) > MAX_FIELD_LENGTH:
-                truncated_fields[f"{'.'.join(field_path)}"] = {
-                    "truncated": True,
-                    "excerpt": value[:MAX_FIELD_LENGTH] + "...",
-                    "full_length": len(value)
+        merged = session.get_merged_case(dataset_id)
+    except KeyError:
+        return ToolResult.failure('get_case_detail', ErrorCode.CASE_NOT_FOUND,
+                                  f'Dataset ID not found: {dataset_id}')
+    except ValueError as exc:
+        return ToolResult.failure('get_case_detail', ErrorCode.TRACE_NOT_FOUND, str(exc))
+
+    if step_filter is not None:
+        module = merged.trace.modules.get(step_filter)
+        if module is None:
+            return ToolResult.failure(
+                'get_case_detail', ErrorCode.INVALID_ARGUMENT,
+                f'step_filter {step_filter!r} not in trace; available: '
+                f'{list(merged.trace.modules.keys())}',
+            )
+        return ToolResult.success('get_case_detail', {
+            'dataset_id': merged.dataset_id,
+            'step_key': step_filter,
+            'input': module.input,
+            'output': module.output,
+        })
+
+    if expand_field is not None:
+        value = getattr(merged.judge, expand_field)
+        return ToolResult.success('get_case_detail', {
+            'dataset_id': merged.dataset_id,
+            'field': expand_field,
+            'value': value,
+            'length': (len(value) if isinstance(value, (str, list)) else None),
+        })
+
+    truncated_fields: dict[str, Any] = {}
+    generated = merged.judge.generated_answer
+    if len(generated) > _MAX_FIELD_LENGTH:
+        truncated_fields['judge.generated_answer'] = {
+            'truncated': True, 'excerpt': generated[:_MAX_FIELD_LENGTH] + '...',
+            'full_length': len(generated),
+        }
+    gt = merged.judge.gt_answer
+    if len(gt) > _MAX_FIELD_LENGTH:
+        truncated_fields['judge.gt_answer'] = {
+            'truncated': True, 'excerpt': gt[:_MAX_FIELD_LENGTH] + '...',
+            'full_length': len(gt),
+        }
+
+    return ToolResult.success('get_case_detail', {
+        'dataset_id': merged.dataset_id,
+        'query': merged.query,
+        'judge': {
+            'trace_id': merged.judge.trace_id,
+            'answer_correctness': merged.judge.answer_correctness,
+            'key': merged.judge.key,
+            'hit_key': merged.judge.hit_key,
+            'reason': merged.judge.reason,
+            'context_recall': merged.judge.context_recall,
+            'doc_recall': merged.judge.doc_recall,
+            'retrieved_file': merged.judge.retrieved_file,
+            'gt_file': merged.judge.gt_file,
+            'retrieved_text': merged.judge.retrieved_text[:3],
+            'gt_text': merged.judge.gt_text[:3],
+            'generated_answer': generated[:_MAX_FIELD_LENGTH],
+            'gt_answer': gt[:_MAX_FIELD_LENGTH],
+            'faithfulness': merged.judge.faithfulness,
+            'human_verified': merged.judge.human_verified,
+        },
+        'trace': {
+            'query': merged.trace.query,
+            'pipeline': session.trace_meta.pipeline,
+            'modules': {
+                k: {
+                    'input': str(v.input)[:_MAX_FIELD_LENGTH],
+                    'output': (str(v.output)[:_MAX_FIELD_LENGTH] if v.output else None),
                 }
-        
-        return _ok({
-            "dataset_id": merged.dataset_id,
-            "query": merged.query,
-            "judge": {
-                "trace_id": merged.judge.trace_id,
-                "answer_correctness": merged.judge.answer_correctness,
-                "key": merged.judge.key,
-                "hit_key": merged.judge.hit_key,
-                "reason": merged.judge.reason,
-                "context_recall": merged.judge.context_recall,
-                "doc_recall": merged.judge.doc_recall,
-                "retrieved_file": merged.judge.retrieved_file,
-                "gt_file": merged.judge.gt_file,
-                "retrieved_text": merged.judge.retrieved_text[:3],
-                "gt_text": merged.judge.gt_text[:3],
-                "generated_answer": merged.judge.generated_answer[:MAX_FIELD_LENGTH],
-                "gt_answer": merged.judge.gt_answer[:MAX_FIELD_LENGTH],
-                "faithfulness": merged.judge.faithfulness,
-                "human_verified": merged.judge.human_verified
+                for k, v in list(merged.trace.modules.items())[:5]
             },
-            "trace": {
-                "query": merged.trace.query,
-                "pipeline": session.trace_meta.pipeline,
-                "modules": {
-                    k: {
-                        "input": str(v.input)[:MAX_FIELD_LENGTH],
-                        "output": str(v.output)[:MAX_FIELD_LENGTH] if v.output else None
-                    }
-                    for k, v in list(merged.trace.modules.items())[:5]
-                }
-            },
-            "truncation_info": truncated_fields
-        }, start_time)
-        
-    except Exception as e:
-        return _fail(ErrorCode.INTERNAL_ERROR.value,
-                     f"Failed to get case detail: {str(e)}")
+        },
+        'truncation_info': truncated_fields,
+    })
 
 
-@fc_register("tool")
+@tool(tags=['inspect'])
+def inspect_step_for_case(dataset_id: str, step_key: str) -> ToolResult[dict[str, Any]]:
+    '''Full input/output for ONE step in ONE case (no truncation).
+
+    Use after ``summarize_step_metrics`` or ``get_case_detail`` flags a
+    suspicious (case, step). Pairs the raw module IO with this case's
+    step-level features so you can correlate observation with metric.
+    '''
+    if not dataset_id or not isinstance(dataset_id, str):
+        return ToolResult.failure('inspect_step_for_case', ErrorCode.INVALID_ARGUMENT,
+                                  'dataset_id must be a non-empty string')
+    if not step_key or not isinstance(step_key, str):
+        return ToolResult.failure('inspect_step_for_case', ErrorCode.INVALID_ARGUMENT,
+                                  'step_key must be a non-empty string')
+    session = get_current_session()
+    if session is None or not session.parsed_judge:
+        return ToolResult.failure('inspect_step_for_case', ErrorCode.DATA_NOT_LOADED,
+                                  'Judge corpus not loaded.')
+    try:
+        merged = session.get_merged_case(dataset_id)
+    except KeyError:
+        return ToolResult.failure('inspect_step_for_case', ErrorCode.CASE_NOT_FOUND,
+                                  f'Dataset ID not found: {dataset_id}')
+    except ValueError as exc:
+        return ToolResult.failure('inspect_step_for_case', ErrorCode.TRACE_NOT_FOUND, str(exc))
+
+    module = merged.trace.modules.get(step_key)
+    if module is None:
+        return ToolResult.failure(
+            'inspect_step_for_case', ErrorCode.INVALID_ARGUMENT,
+            f'step_key {step_key!r} not present in trace; available: '
+            f'{list(merged.trace.modules.keys())}',
+        )
+
+    feats = session.case_step_features.get(dataset_id, {}).get(step_key, {})
+    return ToolResult.success('inspect_step_for_case', {
+        'dataset_id': dataset_id,
+        'step_key': step_key,
+        'input': module.input,        # untruncated
+        'output': module.output,      # untruncated
+        'step_features': feats,
+        'judge_score': merged.judge.answer_correctness,
+        'pipeline': list(session.trace_meta.pipeline),
+    })
+
+
+@tool(tags=['inspect'])
 def list_bad_cases(
     threshold: float = 0.6,
     score_field: str | None = None,
     limit: int = 10,
     offset: int = 0,
-    sort: str = "asc",
-) -> str:
-    """
-    List paginated bad cases by metric threshold; include optional score histogram.
+    sort: str = 'asc',
+) -> ToolResult[dict[str, Any]]:
+    '''List paginated bad cases with a score histogram.'''
+    session = get_current_session()
+    if session is None or not session.parsed_judge:
+        return ToolResult.failure('list_bad_cases', ErrorCode.DATA_NOT_LOADED,
+                                  'Judge corpus not loaded.')
+    if sort not in ('asc', 'desc'):
+        return ToolResult.failure('list_bad_cases', ErrorCode.INVALID_ARGUMENT,
+                                  "sort must be 'asc' or 'desc'")
+    if limit < 1 or limit > 100:
+        return ToolResult.failure('list_bad_cases', ErrorCode.INVALID_ARGUMENT,
+                                  'limit must be between 1 and 100')
+    if offset < 0:
+        return ToolResult.failure('list_bad_cases', ErrorCode.INVALID_ARGUMENT,
+                                  'offset must be non-negative')
 
-    Args:
-        threshold: Scores strictly below are "bad". Default 0.6.
-        score_field: Override config default when provided.
-        limit: Maximum number of cases to return. Default 10.
-        offset: Number of cases to skip. Default 0.
-        sort: Sort order - ``asc`` (worst first) or ``desc`` (best among bad). Default "asc".
+    metric = score_field or session.config.badcase_score_field
 
-    Returns:
-        JSON string including:
-        - total_count: Total number of bad cases matching threshold.
-        - cases: Array of case summaries for current page.
-        - next_offset: Offset for next page, or null if no more pages.
-        - histogram: Score distribution buckets.
+    all_cases: list[dict[str, Any]] = []
+    for did, j in session.iter_judge():
+        score = getattr(j, metric, None)
+        if not isinstance(score, (int, float)) or score >= threshold:
+            continue
+        trace = session.get_trace(j.trace_id)
+        all_cases.append({
+            'dataset_id': did,
+            'score': score,
+            'trace_id': j.trace_id,
+            'query_preview': trace.query if trace else None,
+        })
+    all_cases.sort(key=lambda x: x['score'], reverse=(sort == 'desc'))
 
-    Error codes:
-        DATA_NOT_LOADED: Judge data not loaded.
-        INVALID_ARGUMENT: Invalid parameters.
-    """
-    start_time = time.time()
-    
+    buckets = {k: 0 for k in ('0.0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0')}
+    for case in all_cases:
+        s = case['score']
+        if s < 0.2: buckets['0.0-0.2'] += 1
+        elif s < 0.4: buckets['0.2-0.4'] += 1
+        elif s < 0.6: buckets['0.4-0.6'] += 1
+        elif s < 0.8: buckets['0.6-0.8'] += 1
+        else: buckets['0.8-1.0'] += 1
+
+    page = all_cases[offset: offset + limit]
+    next_offset = offset + limit if offset + limit < len(all_cases) else None
+
+    return ToolResult.success('list_bad_cases', {
+        'total_count': len(all_cases),
+        'cases': page,
+        'next_offset': next_offset,
+        'histogram': buckets,
+        'threshold': threshold,
+        'score_field': metric,
+    })
+
+
+@tool(tags=['inspect'])
+def compare_cases(dataset_id1: str, dataset_id2: str) -> ToolResult[dict[str, Any]]:
+    '''Symmetric metric and pipeline diff between two cases.'''
+    if not dataset_id1 or not dataset_id2:
+        return ToolResult.failure('compare_cases', ErrorCode.INVALID_ARGUMENT,
+                                  'Both dataset IDs required.')
+    session = get_current_session()
+    if session is None or not session.parsed_judge:
+        return ToolResult.failure('compare_cases', ErrorCode.DATA_NOT_LOADED,
+                                  'Judge corpus not loaded.')
     try:
-        session = get_current_session()
-        if session is None or session.judge_data is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "Judge data not loaded. Call load_judge_data first.")
-        
-        if sort not in ("asc", "desc"):
-            return _fail(ErrorCode.INVALID_ARGUMENT.value,
-                         "sort must be 'asc' or 'desc'")
-        
-        if limit < 1 or limit > 100:
-            return _fail(ErrorCode.INVALID_ARGUMENT.value,
-                         "limit must be between 1 and 100")
-        
-        if offset < 0:
-            return _fail(ErrorCode.INVALID_ARGUMENT.value,
-                         "offset must be non-negative")
-        
-        actual_score_field = score_field or session.config.badcase_score_field
-        
-        all_cases = []
-        for dataset_id, judge_record in session._parsed_judge.items():
-            score = getattr(judge_record, actual_score_field, None)
-            if score is None:
-                continue
-            
-            if isinstance(score, (int, float)) and score < threshold:
-                all_cases.append({
-                    "dataset_id": dataset_id,
-                    "score": score,
-                    "trace_id": judge_record.trace_id,
-                    "query_preview": session._parsed_trace.get(
-                        judge_record.trace_id
-                    ).query if judge_record.trace_id in session._parsed_trace else None
-                })
-        
-        reverse = (sort == "desc")
-        all_cases.sort(key=lambda x: x["score"], reverse=reverse)
-        
-        total_count = len(all_cases)
-        
-        histogram_buckets = {
-            "0.0-0.2": 0,
-            "0.2-0.4": 0,
-            "0.4-0.6": 0,
-            "0.6-0.8": 0,
-            "0.8-1.0": 0
+        case1 = session.get_merged_case(dataset_id1)
+        case2 = session.get_merged_case(dataset_id2)
+    except KeyError as exc:
+        return ToolResult.failure('compare_cases', ErrorCode.CASE_NOT_FOUND, str(exc))
+
+    metrics_to_compare = ['answer_correctness', 'context_recall', 'doc_recall', 'faithfulness']
+    metrics_diff: dict[str, Any] = {}
+    for m in metrics_to_compare:
+        v1 = getattr(case1.judge, m, None)
+        v2 = getattr(case2.judge, m, None)
+        if v1 is None or v2 is None:
+            continue
+        diff = v1 - v2
+        metrics_diff[m] = {
+            'case1': v1, 'case2': v2, 'diff': diff,
+            'better': 'case1' if diff > 0 else ('case2' if diff < 0 else 'equal'),
         }
-        for case in all_cases:
-            score = case["score"]
-            if score < 0.2:
-                histogram_buckets["0.0-0.2"] += 1
-            elif score < 0.4:
-                histogram_buckets["0.2-0.4"] += 1
-            elif score < 0.6:
-                histogram_buckets["0.4-0.6"] += 1
-            elif score < 0.8:
-                histogram_buckets["0.6-0.8"] += 1
-            else:
-                histogram_buckets["0.8-1.0"] += 1
-        
-        page_cases = all_cases[offset:offset + limit]
-        next_offset = offset + limit if offset + limit < total_count else None
-        
-        return _ok({
-            "total_count": total_count,
-            "cases": page_cases,
-            "next_offset": next_offset,
-            "histogram": histogram_buckets,
-            "threshold": threshold,
-            "score_field": actual_score_field
-        }, start_time)
-        
-    except Exception as e:
-        return _fail(ErrorCode.INTERNAL_ERROR.value,
-                     f"Failed to list bad cases: {str(e)}")
+
+    ppl_meta = session.trace_meta.pipeline or list(case1.trace.modules.keys())
+    ppl2 = session.trace_meta.pipeline or list(case2.trace.modules.keys())
+    pipeline_diff = {
+        'case1_pipeline': ppl_meta,
+        'case2_pipeline': ppl2,
+        'length_diff': len(ppl_meta) - len(ppl2),
+        'common_modules': list(set(ppl_meta) & set(ppl2)),
+        'unique_to_case1': list(set(ppl_meta) - set(ppl2)),
+        'unique_to_case2': list(set(ppl2) - set(ppl_meta)),
+    }
+    module_diff = {
+        'case1_module_count': len(case1.trace.modules),
+        'case2_module_count': len(case2.trace.modules),
+        'common_module_names': list(
+            set(case1.trace.modules) & set(case2.trace.modules)
+        ),
+    }
+
+    hints: list[str] = []
+    ac = metrics_diff.get('answer_correctness')
+    if ac and ac['diff']:
+        hints.append(
+            f'{'case1' if ac['better']=='case1' else 'case2'} has higher correctness; '
+            'examine its retrieval and generation pipeline for transferable patterns.'
+        )
+    if pipeline_diff['length_diff']:
+        longer = 'case1' if pipeline_diff['length_diff'] > 0 else 'case2'
+        hints.append(f'{longer} has longer pipeline; verify whether extra modules help.')
+
+    return ToolResult.success('compare_cases', {
+        'dataset_id1': dataset_id1,
+        'dataset_id2': dataset_id2,
+        'metrics_diff': metrics_diff,
+        'pipeline_diff': pipeline_diff,
+        'module_diff': module_diff,
+        'hypothesis_hints': hints,
+    })
 
 
-@fc_register("tool")
-def compare_cases(dataset_id1: str, dataset_id2: str) -> str:
-    """
-    Symmetric diff of metrics, pipelines, and module shapes; neutral hypothesis hints.
-
-    Args:
-        dataset_id1: First dataset ID.
-        dataset_id2: Second dataset ID.
-
-    Returns:
-        JSON string with:
-        - metrics_diff: Comparison of key metrics.
-        - pipeline_diff: Pipeline differences.
-        - module_diff: Module count and structure differences.
-        - hypothesis_hints: Neutral "if-then" statements, not asserted ground truth.
-
-    Error codes:
-        DATA_NOT_LOADED: Judge or trace data not loaded.
-        CASE_NOT_FOUND: One or both dataset IDs not found.
-    """
-    start_time = time.time()
-    
-    try:
-        session = get_current_session()
-        if session is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "No active session.")
-        
-        if session.judge_data is None or (session.trace_data is None and not session._parsed_trace):
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "Both judge and trace data must be loaded first.")
-        
-        try:
-            case1 = session.get_merged_case(dataset_id1)
-            case2 = session.get_merged_case(dataset_id2)
-        except KeyError as e:
-            return _fail(ErrorCode.CASE_NOT_FOUND.value,
-                         f"One or both cases not found: {str(e)}")
-        
-        metrics_to_compare = [
-            "answer_correctness", "context_recall", "doc_recall", "faithfulness"
-        ]
-        
-        metrics_diff = {}
-        for metric in metrics_to_compare:
-            val1 = getattr(case1.judge, metric, None)
-            val2 = getattr(case2.judge, metric, None)
-            if val1 is not None and val2 is not None:
-                diff = val1 - val2
-                metrics_diff[metric] = {
-                    "case1": val1,
-                    "case2": val2,
-                    "diff": diff,
-                    "better": "case1" if diff > 0 else ("case2" if diff < 0 else "equal")
-                }
-        
-        ppl = session.trace_meta.pipeline if session.trace_meta.pipeline else list(case1.trace.modules.keys())
-        ppl2 = session.trace_meta.pipeline if session.trace_meta.pipeline else list(case2.trace.modules.keys())
-        pipeline_diff = {
-            "case1_pipeline": ppl,
-            "case2_pipeline": ppl2,
-            "length_diff": len(ppl) - len(ppl2),
-            "common_modules": list(
-                set(ppl) & set(ppl2)
-            ),
-            "unique_to_case1": list(
-                set(ppl) - set(ppl2)
-            ),
-            "unique_to_case2": list(
-                set(ppl2) - set(ppl)
-            )
-        }
-        
-        module_diff = {
-            "case1_module_count": len(case1.trace.modules),
-            "case2_module_count": len(case2.trace.modules),
-            "common_module_names": list(
-                set(case1.trace.modules.keys()) & set(case2.trace.modules.keys())
-            )
-        }
-        
-        hypothesis_hints = []
-        
-        if metrics_diff.get("answer_correctness", {}).get("diff", 0) != 0:
-            better_case = metrics_diff["answer_correctness"]["better"]
-            if better_case == "case1":
-                hint = f"If {dataset_id1} has higher correctness, examine its retrieval and generation pipeline for patterns to replicate."
-            elif better_case == "case2":
-                hint = f"If {dataset_id2} has higher correctness, examine its retrieval and generation pipeline for patterns to replicate."
-            else:
-                hint = "Both cases have similar correctness; investigate other factors."
-            hypothesis_hints.append(hint)
-        
-        if pipeline_diff["length_diff"] != 0:
-            longer = "case1" if pipeline_diff["length_diff"] > 0 else "case2"
-            hint = f"If {longer} has longer pipeline, investigate whether additional modules help or hurt."
-            hypothesis_hints.append(hint)
-        
-        return _ok({
-            "dataset_id1": dataset_id1,
-            "dataset_id2": dataset_id2,
-            "metrics_diff": metrics_diff,
-            "pipeline_diff": pipeline_diff,
-            "module_diff": module_diff,
-            "hypothesis_hints": hypothesis_hints
-        }, start_time)
-        
-    except Exception as e:
-        return _fail(ErrorCode.INTERNAL_ERROR.value,
-                     f"Failed to compare cases: {str(e)}")
-
-
-@fc_register("tool")
+@tool(tags=['inspect'])
 def list_dataset_ids(
     min_score: float | None = None,
     max_score: float | None = None,
-) -> str:
-    """
-    Enumerate dataset IDs with optional metric filters for orchestration planning.
+) -> ToolResult[dict[str, Any]]:
+    '''Enumerate dataset IDs with optional score filters.'''
+    session = get_current_session()
+    if session is None or not session.parsed_judge:
+        return ToolResult.failure('list_dataset_ids', ErrorCode.DATA_NOT_LOADED,
+                                  'Judge corpus not loaded.')
+    metric = session.config.badcase_score_field
+    rows: list[dict[str, Any]] = []
+    for did, j in session.iter_judge():
+        score = getattr(j, metric, None)
+        if score is None:
+            continue
+        if min_score is not None and score < min_score:
+            continue
+        if max_score is not None and score >= max_score:
+            continue
+        rows.append({'dataset_id': did, 'score': score})
+    rows.sort(key=lambda x: x['score'])
 
-    Args:
-        min_score: Minimum score filter (inclusive).
-        max_score: Maximum score filter (exclusive).
-
-    Returns:
-        JSON string list under envelope ``data`` field.
-
-    Error codes:
-        DATA_NOT_LOADED: Judge data not loaded.
-    """
-    start_time = time.time()
-    
-    try:
-        session = get_current_session()
-        if session is None or session.judge_data is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "Judge data not loaded. Call load_judge_data first.")
-        
-        score_field = session.config.badcase_score_field
-        
-        filtered_ids = []
-        for dataset_id, judge_record in session._parsed_judge.items():
-            score = getattr(judge_record, score_field, None)
-            if score is None:
-                continue
-            
-            if min_score is not None and score < min_score:
-                continue
-            
-            if max_score is not None and score >= max_score:
-                continue
-            
-            filtered_ids.append({
-                "dataset_id": dataset_id,
-                "score": score
-            })
-        
-        filtered_ids.sort(key=lambda x: x["score"])
-        
-        return _ok({
-            "total_count": len(filtered_ids),
-            "ids": filtered_ids,
-            "filters": {
-                "min_score": min_score,
-                "max_score": max_score,
-                "score_field": score_field
-            }
-        }, start_time)
-        
-    except Exception as e:
-        return _fail(ErrorCode.INTERNAL_ERROR.value,
-                     f"Failed to list dataset IDs: {str(e)}")
+    return ToolResult.success('list_dataset_ids', {
+        'total_count': len(rows),
+        'ids': rows,
+        'filters': {'min_score': min_score, 'max_score': max_score, 'score_field': metric},
+    })
 
 
-@fc_register("tool")
-def get_session_status() -> str:
-    """
-    Return loaded flags, run_id, counts, and last recoverable errors for the active session.
+@tool(tags=['inspect'])
+def get_session_status() -> ToolResult[dict[str, Any]]:
+    '''Describe the active session: run_id, loaded counts, completed stages.'''
+    session = get_current_session()
+    if session is None:
+        return ToolResult.failure('get_session_status', ErrorCode.DATA_NOT_LOADED,
+                                  'No active session.')
+    return ToolResult.success('get_session_status', {
+        'run_id': session.run_id,
+        'created_at': session.created_at.isoformat(),
+        'judge_loaded': bool(session.parsed_judge),
+        'trace_loaded': bool(session.parsed_trace),
+        'judge_case_count': len(session.parsed_judge),
+        'trace_case_count': len(session.parsed_trace),
+        'stages_completed': sorted(session.stages_completed),
+        'config_paths': {
+            'data_dir': str(session.config.data_dir),
+            'output_dir': str(session.config.output_dir),
+            'judge_path': str(session.config.default_judge_path),
+            'trace_path': str(session.config.default_trace_path),
+        },
+    })
 
-    Purpose:
-        Reduce redundant loads and give the orchestrator model a cheap grounding call.
 
-    Returns:
-        JSON string per envelope spec with:
-        - run_id: Session run identifier.
-        - created_at: Session creation timestamp.
-        - judge_loaded: Boolean indicating judge data is loaded.
-        - trace_loaded: Boolean indicating trace data is loaded.
-        - judge_case_count: Number of judge records loaded.
-        - trace_case_count: Number of trace records loaded.
-        - config_paths: Resolved data paths.
-
-    Error codes:
-        DATA_NOT_LOADED: No active session.
-    """
-    start_time = time.time()
-    
-    try:
-        session = get_current_session()
-        if session is None:
-            return _fail(ErrorCode.DATA_NOT_LOADED.value,
-                         "No active session. Initialize with session_scope().")
-        
-        return _ok({
-            "run_id": session.run_id,
-            "created_at": session.created_at.isoformat(),
-            "judge_loaded": session.judge_data is not None,
-            "trace_loaded": session.trace_data is not None,
-            "judge_case_count": len(session._parsed_judge),
-            "trace_case_count": len(session._parsed_trace),
-            "config_paths": {
-                "data_dir": str(session.config.data_dir),
-                "output_dir": str(session.config.output_dir),
-                "judge_path": str(session.config.default_judge_path),
-                "trace_path": str(session.config.default_trace_path)
-            }
-        }, start_time)
-        
-    except Exception as e:
-        return _fail(ErrorCode.INTERNAL_ERROR.value,
-                     f"Failed to get session status: {str(e)}")
+@tool(tags=['inspect'])
+def recall_handle(handle: str) -> ToolResult[dict[str, Any]]:
+    '''Look up the raw result of a previous tool call by its handle id.'''
+    session = get_current_session()
+    if session is None or session.handle_store is None:
+        return ToolResult.failure('recall_handle', ErrorCode.DATA_NOT_LOADED,
+                                  'no handle store on session')
+    h = session.handle_store.get(handle)
+    if h is None:
+        return ToolResult.failure('recall_handle', ErrorCode.INVALID_ARGUMENT,
+                                  f'unknown handle {handle!r}')
+    return ToolResult.success('recall_handle', {
+        'tool': h.tool, 'args': h.args, 'result': h.result,
+    })

@@ -1,8 +1,5 @@
-"""Domain records for judge/trace data and parsing helpers."""
-
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field, asdict
 from typing import Any, Optional
 
@@ -24,6 +21,8 @@ class JudgeRecord:
     gt_answer: str
     faithfulness: float
     human_verified: bool
+    gt_chunk_id: list[str] = field(default_factory=list)
+    gt_docid: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -42,7 +41,6 @@ class TraceRecord:
 
 @dataclass
 class TraceMeta:
-    """Shared across all cases from the same trace file."""
     flow_skeleton: list[dict[str, Any]] = field(default_factory=list)
     pipeline: list[str] = field(default_factory=list)
 
@@ -228,7 +226,6 @@ def _parse_execution_tree_trace(data: dict[str, Any]) -> tuple[TraceRecord, list
 
 
 def parse_trace_file(raw: dict[str, Any]) -> tuple[TraceMeta, dict[str, TraceRecord], list[str]]:
-    """Parse a whole trace file. Returns shared TraceMeta + per-key TraceRecords."""
     warnings: list[str] = []
     traces: dict[str, TraceRecord] = {}
     ref_pipeline: list[str] | None = None
@@ -273,98 +270,86 @@ def _normalize_correctness(val: Any) -> float:
     return v / 100.0 if v > 1.0 else v
 
 
-def parse_eval_case(case: dict[str, Any], query_text: str | None = None) -> tuple[str, JudgeRecord, TraceRecord, list[str]]:
-    warnings: list[str] = []
+_EVAL_KNOWN_FIELDS = {
+    "case_id", "report_id", "eval_set_id", "kb_id", "trace_id", "query",
+    "rag_answer", "ground_truth", "rag_response", "retrieve_contexts",
+    "reference_contexts", "retrieve_doc", "refernce_doc", "reference_doc",
+    "reference_chunk_ids", "reference_docids",
+    "answer_correctness", "faithfulness", "context_recall", "doc_recall",
+    "is_valid", "is_deleted", "key_points", "judge_reason",
+    "is_manual_modify", "modify_user", "modify_time", "modify_reason",
+    "re_run_task_id", "hit_key",
+}
+
+_EVAL_META_FIELDS = {
+    "report_id", "report_name", "eval_set_id", "eval_set_name", "kb_id", "kb_name",
+    "trigger_type", "total_cases", "avg_score", "create_time", "finish_time",
+    "creator", "description",
+}
+
+
+def parse_eval_case(case: dict[str, Any]) -> tuple[str, JudgeRecord]:
     case_id = str(case.get("case_id", "unknown"))
     dataset_id = f"case_{case_id}"
-    trace_id = case.get("trace_id", f"trace_{case_id}")
 
     correctness = _normalize_correctness(case.get("answer_correctness", 0))
-    faithfulness = float(case.get("faithfulness", 0))
-    ctx_recall = float(case.get("context_recall", 0))
-    doc_recall = float(case.get("doc_recall", 0))
-
     key_points = case.get("key_points", [])
     if not isinstance(key_points, list):
         key_points = [str(key_points)]
+
     judge_reason = case.get("judge_reason", "")
-    reason_list = [judge_reason] if isinstance(judge_reason, str) and judge_reason else (judge_reason if isinstance(judge_reason, list) else [])
+    if isinstance(judge_reason, list):
+        reason_list = judge_reason
+    elif isinstance(judge_reason, str) and judge_reason:
+        reason_list = [judge_reason]
+    else:
+        reason_list = []
 
     hit_key = case.get("hit_key", [])
     if not hit_key and key_points and correctness > 0.5:
         hit_key = key_points[: max(1, int(len(key_points) * correctness))]
 
-    retrieve_contexts = case.get("retrieve_contexts", [])
-    reference_contexts = case.get("reference_contexts", [])
-    retrieve_doc = case.get("retrieve_doc", [])
-    reference_doc = case.get("refernce_doc", case.get("reference_doc", []))
-
-    known = {
-        "case_id", "report_id", "eval_set_id", "kb_id", "trace_id", "query",
-        "rag_answer", "ground_truth", "rag_response", "retrieve_contexts",
-        "reference_contexts", "retrieve_doc", "refernce_doc", "reference_doc",
-        "answer_correctness", "faithfulness", "context_recall", "doc_recall",
-        "is_valid", "is_deleted", "key_points", "judge_reason",
-        "is_manual_modify", "modify_user", "modify_time", "modify_reason",
-        "re_run_task_id", "hit_key",
-    }
-    extra = {k: v for k, v in case.items() if k not in known}
+    extra = {k: v for k, v in case.items() if k not in _EVAL_KNOWN_FIELDS}
 
     judge = JudgeRecord(
-        trace_id=trace_id, answer_correctness=correctness, key=key_points,
-        hit_key=hit_key, reason=reason_list, context_recall=ctx_recall,
-        doc_recall=doc_recall, retrieved_file=retrieve_doc, gt_file=reference_doc,
-        retrieved_text=retrieve_contexts, gt_text=reference_contexts,
-        generated_answer=case.get("rag_answer", ""), gt_answer=case.get("ground_truth", ""),
-        faithfulness=faithfulness, human_verified=bool(case.get("is_valid", True)), extra=extra,
+        trace_id=case.get("trace_id", f"trace_{case_id}"),
+        answer_correctness=correctness,
+        key=key_points,
+        hit_key=hit_key,
+        reason=reason_list,
+        context_recall=float(case.get("context_recall", 0)),
+        doc_recall=float(case.get("doc_recall", 0)),
+        retrieved_file=case.get("retrieve_doc", []),
+        gt_file=case.get("refernce_doc", case.get("reference_doc", [])),
+        retrieved_text=case.get("retrieve_contexts", []),
+        gt_text=case.get("reference_contexts", []),
+        generated_answer=case.get("rag_answer", ""),
+        gt_answer=case.get("ground_truth", ""),
+        faithfulness=float(case.get("faithfulness", 0)),
+        human_verified=bool(case.get("is_valid", True)),
+        gt_chunk_id=list(case.get("reference_chunk_ids", []) or []),
+        gt_docid=list(case.get("reference_docids", []) or []),
+        extra=extra,
     )
-
-    query = case.get("query", "") or query_text or case.get("ground_truth", "")
-    trace, tw = _trace_from_rag_response(case.get("rag_response", ""), query, retrieve_contexts)
-    warnings.extend(tw)
-    return dataset_id, judge, trace, warnings
+    return dataset_id, judge
 
 
-def _trace_from_rag_response(rag_response: str, query: str, retrieve_contexts: list[str]) -> tuple[TraceRecord, list[str]]:
+def parse_eval_report(
+    data: dict[str, Any],
+) -> tuple[dict[str, JudgeRecord], dict[str, Any], list[str]]:
     warnings: list[str] = []
-    retrieval_out: list[dict[str, Any]] = []
-    gen_text = ""
-    try:
-        resp = json.loads(rag_response) if isinstance(rag_response, str) else rag_response
-        if isinstance(resp, dict):
-            d = resp.get("data", resp)
-            gen_text = d.get("text", "")
-            for ch in (d.get("recall") or d.get("sources") or []):
-                if isinstance(ch, dict):
-                    retrieval_out.append({"text": ch.get("text", "")[:2000], "score": float(ch.get("score", 0)) if "score" in ch else 0.0, "file_name": ch.get("file_name", ""), "chunk_id": ch.get("id", ch.get("chunk_id", ""))})
-    except Exception as e:
-        warnings.append(f"rag_response parse failed: {e}")
-    if not retrieval_out and retrieve_contexts:
-        retrieval_out = [{"text": c[:2000], "score": 0.0, "file_name": "", "chunk_id": ""} for c in retrieve_contexts]
-    modules = {
-        "retrieval": ModuleOutput(input=query, output=retrieval_out),
-        "generator": ModuleOutput(input=query, output=gen_text or query),
-    }
-    return TraceRecord(query=query, modules=modules), warnings
-
-
-def parse_eval_report(data: dict[str, Any]) -> tuple[dict[str, JudgeRecord], dict[str, TraceRecord], dict[str, Any], list[str]]:
-    warnings: list[str] = []
-    meta_fields = {"report_id", "report_name", "eval_set_id", "eval_set_name", "kb_id", "kb_name", "trigger_type", "total_cases", "avg_score", "create_time", "finish_time", "creator", "description"}
-    report_meta = {k: data[k] for k in meta_fields if k in data}
+    report_meta = {k: data[k] for k in _EVAL_META_FIELDS if k in data}
     cases = data.get("case_details", [])
     if not isinstance(cases, list):
-        return {}, {}, report_meta, ["case_details is not a list"]
-    judge_map: dict[str, JudgeRecord] = {}
-    trace_map: dict[str, TraceRecord] = {}
+        return {}, report_meta, ["case_details is not a list"]
+
+    judges: dict[str, JudgeRecord] = {}
     for c in cases:
         if not isinstance(c, dict) or c.get("is_deleted"):
             continue
         try:
-            did, j, t, cw = parse_eval_case(c)
-            judge_map[did] = j
-            trace_map[j.trace_id] = t
-            warnings.extend(cw)
+            did, j = parse_eval_case(c)
+            judges[did] = j
         except Exception as e:
             warnings.append(f"Failed to parse case {c.get('case_id', '?')}: {e}")
-    return judge_map, trace_map, report_meta, warnings
+    return judges, report_meta, warnings

@@ -1,6 +1,6 @@
-"""Entrypoint for ``python -m evo``."""
+'''Entrypoint for ``python -m evo``.'''
 
 from evo.main import main
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

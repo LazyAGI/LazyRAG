@@ -1,30 +1,53 @@
-"""Per-step feature extraction driven by IO data shape, not step names."""
-
 from __future__ import annotations
 
+import hashlib
+import re
 from collections import Counter
 from typing import Any
 
 import numpy as np
-from scipy.special import softmax
 from scipy.stats import entropy as scipy_entropy, kendalltau
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import jaccard_score
 
 from evo.domain.models import JudgeRecord, TraceRecord, ModuleOutput
+from evo.domain.node import NodeResolver
+from evo.runtime.session import get_current_session
 
 
-# ---------------------------------------------------------------------------
-# IO introspection helpers
-# ---------------------------------------------------------------------------
+_RERANKER_DROP_RATIO = 0.8            # output_recall < 0.8 * input_recall
+_GEN_DRIFT_OVERLAP = 0.3              # answer_gt_overlap < 0.3
+_GEN_DRIFT_LENGTH = 0.5               # answer_length_ratio < 0.5
 
-def _extract_ids(data: Any) -> list[str]:
-    """Extract ordered ID list from list-of-dicts output/input."""
-    if not isinstance(data, list):
-        return []
-    return [item.get("id", item.get("file_name", item.get("chunk_id", "")))
-            for item in data if isinstance(item, dict) and
-            (item.get("id") or item.get("file_name") or item.get("chunk_id"))]
+_TOKEN_RE = re.compile(r"\w+")
+
+
+def _tokenize(text: str) -> set[str]:
+    return set(_TOKEN_RE.findall(text.lower())) if text else set()
+
+
+def _embed(text: str) -> np.ndarray | None:
+    if not text:
+        return None
+    session = get_current_session()
+    if session is None or session.embed is None or session.embed_provider is None:
+        return None
+    cache_key = hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+    def _produce() -> np.ndarray:
+        return np.asarray(session.embed_provider()(text), dtype=np.float64).ravel()
+
+    return session.embed.call(producer=_produce, cache_key=cache_key)
+
+
+def _cosine(a: np.ndarray | None, b: np.ndarray | None) -> float | None:
+    if a is None or b is None or a.size == 0 or b.size == 0:
+        return None
+    na = float(np.linalg.norm(a))
+    nb = float(np.linalg.norm(b))
+    if na == 0.0 or nb == 0.0:
+        return None
+    return float(np.dot(a, b) / (na * nb))
 
 
 def _get_args(inp: Any) -> list[Any]:
@@ -36,14 +59,14 @@ def _get_args(inp: Any) -> list[Any]:
 
 
 def _extract_text(data: Any) -> str:
-    """Extract the main text content from various shapes."""
     if isinstance(data, str):
         return data
     if isinstance(data, dict):
         for key in ("context_str", "text", "content", "query"):
-            if isinstance(data.get(key), str) and len(data[key]) > 10:
-                return data[key]
-        return " ".join(str(v) for v in data.values() if isinstance(v, str))
+            v = data.get(key)
+            if isinstance(v, str) and len(v) > 10:
+                return v
+        return ""
     if isinstance(data, list) and data and isinstance(data[0], (str, dict)):
         return _extract_text(data[0])
     return str(data) if data else ""
@@ -60,7 +83,6 @@ def _text_len(val: Any) -> int:
 
 
 def _text_jaccard(text_a: str, text_b: str) -> float:
-    """Jaccard similarity between word sets of two texts via sklearn."""
     if not text_a.strip() or not text_b.strip():
         return 0.0
     vec = CountVectorizer(binary=True, lowercase=True)
@@ -82,161 +104,285 @@ def _is_text(data: Any) -> bool:
     return False
 
 
-# ---------------------------------------------------------------------------
-# Feature computation by IO shape
-# ---------------------------------------------------------------------------
+def _collect_ids_docids(
+    items: Any, resolver: NodeResolver,
+) -> tuple[list[str], list[str | None], list[int | None], list[str | None]]:
+    if not isinstance(items, list):
+        return [], [], [], []
+    chunks: list[str] = []
+    docs: list[str | None] = []
+    pages: list[int | None] = []
+    texts: list[str | None] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        cid = item.get("id") or item.get("chunk_id")
+        if not cid:
+            continue
+        did = item.get("docid")
+        page = item.get("page")
+        text = item.get("text")
+        if did is None or page is None or text is None:
+            info = resolver(str(cid)) or {}
+            did = did if did is not None else info.get("docid")
+            page = page if page is not None else info.get("page")
+            text = text if text is not None else info.get("text")
+        chunks.append(str(cid))
+        docs.append(str(did) if did else None)
+        pages.append(int(page) if isinstance(page, (int, float)) else None)
+        texts.append(str(text) if text else None)
+    return chunks, docs, pages, texts
 
-def _ids_output_features(out_ids: list[str], gt_ids: set[str],
-                         scores: np.ndarray) -> dict[str, float]:
-    """Features when output contains document IDs."""
-    f: dict[str, float] = {}
-    out_arr = np.array(out_ids)
-    gt_arr = np.array(list(gt_ids)) if gt_ids else np.empty(0, dtype=str)
-    gt_mask = np.isin(out_arr, gt_arr)
 
-    f["retrieval_count"] = float(out_arr.size)
-
-    if gt_ids:
-        f["recall_at_k"] = float(gt_mask.sum() / len(gt_ids))
-        f["precision_at_k"] = float(np.mean(gt_mask)) if out_arr.size else 0.0
-
-        if scores.size == out_arr.size:
-            rank_order = np.argsort(-scores)
-            ranked_gt = np.isin(out_arr[rank_order], gt_arr)
-        else:
-            ranked_gt = gt_mask
-
-        hit_pos = np.flatnonzero(ranked_gt)
-        f["mrr"] = float(1.0 / (hit_pos[0] + 1)) if hit_pos.size > 0 else 0.0
-        f["gt_in_top1"] = float(ranked_gt[0]) if ranked_gt.size > 0 else 0.0
-
-    if scores.size:
-        f["score_mean"] = float(np.mean(scores))
-        f["score_max"] = float(np.max(scores))
-        f["score_min"] = float(np.min(scores))
-        if scores.size >= 2:
-            f["score_std"] = float(np.std(scores))
-            sorted_s = np.sort(scores)
-            f["top1_margin"] = float(sorted_s[-1] - sorted_s[-2])
-            f["score_gap"] = float(sorted_s[-1] - sorted_s[0])
-            if sorted_s[-1] != 0:
-                f["score_confidence"] = float(
-                    (sorted_s[-1] - sorted_s[-2]) / abs(sorted_s[-1])
-                )
-            f["score_entropy"] = float(scipy_entropy(softmax(scores)))
-
+def _score_features(scores: np.ndarray) -> dict[str, float]:
+    if not scores.size:
+        return {}
+    f = {
+        "score_mean": float(np.mean(scores)),
+        "score_max": float(np.max(scores)),
+        "score_min": float(np.min(scores)),
+        "score_active_ratio": float((scores > 1e-6).mean()),
+    }
+    if scores.size >= 2:
+        sorted_s = np.sort(scores)
+        f["score_std"] = float(np.std(scores))
+        f["top1_margin"] = float(sorted_s[-1] - sorted_s[-2])
+        f["score_gap"] = float(sorted_s[-1] - sorted_s[0])
+        if sorted_s[-1] != 0:
+            f["top1_dominance"] = float(
+                (sorted_s[-1] - sorted_s[-2]) / abs(sorted_s[-1])
+            )
+        # scale-invariant entropy: normalize by sum over clipped non-negatives
+        pos = np.clip(scores, 0.0, None)
+        total = float(pos.sum())
+        if total > 0:
+            f["score_entropy"] = float(scipy_entropy(pos / total))
     return f
 
 
-def _filtering_features(in_ids: list[str], out_ids: list[str],
-                         gt_ids: set[str]) -> dict[str, float]:
-    """Features when both input and output contain IDs (filtering/reranking)."""
-    f: dict[str, float] = {}
-    in_arr = np.array(in_ids)
-    out_arr = np.array(out_ids)
-    gt_arr = np.array(list(gt_ids)) if gt_ids else np.empty(0, dtype=str)
+def _score_gt_features(
+    scores: np.ndarray, ids: list[str], gt: set[str],
+) -> dict[str, float]:
+    if not (gt and scores.size == len(ids) and scores.size):
+        return {}
+    out = np.array(ids, dtype=object)
+    hit = np.isin(out, np.array(list(gt), dtype=object))
+    if not hit.any():
+        return {}
+    gt_scores = scores[hit]
+    f = {
+        "score_at_first_gt": float(scores[int(np.argmax(hit))]),
+        "score_gt_mean": float(gt_scores.mean()),
+    }
+    if (~hit).any():
+        non_gt = scores[~hit]
+        f["score_non_gt_mean"] = float(non_gt.mean())
+        f["score_gt_vs_non_gt"] = f["score_gt_mean"] - f["score_non_gt_mean"]
+    return f
 
-    f["input_count"] = float(in_arr.size)
-    f["output_count"] = float(out_arr.size)
-    f["selectivity"] = float(out_arr.size / in_arr.size) if in_arr.size else 0.0
 
-    if gt_ids:
-        in_gt = np.isin(in_arr, gt_arr)
-        out_gt = np.isin(out_arr, gt_arr)
-        survived = np.isin(in_arr, out_arr)
-
-        in_hits = int(in_gt.sum())
-        out_hits = int(out_gt.sum())
-        f["input_recall"] = float(in_hits / len(gt_ids))
-        f["output_recall"] = float(out_hits / len(gt_ids))
-        f["recall_delta"] = f["output_recall"] - f["input_recall"]
-
-        gt_survived = int((in_gt & survived).sum())
-        f["gt_survival_rate"] = float(gt_survived / in_hits) if in_hits > 0 else 1.0
-        f["gt_drop_count"] = float(in_hits - gt_survived)
-        f["non_gt_drop_count"] = float((~in_gt & ~survived).sum())
-
-        gt_in_input = np.flatnonzero(in_gt)
-        if gt_in_input.size:
-            first_gt = in_arr[gt_in_input[0]]
-            out_pos = np.flatnonzero(out_arr == first_gt)
-            if out_pos.size:
-                f["gt_rank_shift"] = float(gt_in_input[0] - out_pos[0])
-
-    if in_arr.size >= 2 and out_arr.size >= 2:
-        in_rank = {doc: r for r, doc in enumerate(in_ids)}
-        mapped = [in_rank[d] for d in out_ids if d in in_rank]
-        if len(mapped) >= 2:
-            tau, _ = kendalltau(np.arange(len(mapped)), mapped)
+def _shape_features(in_ids: list[str], out_ids: list[str]) -> dict[str, float]:
+    """Shape + rank-correlation, GT-agnostic. Applies to any id-based step."""
+    f: dict[str, float] = {"retrieval_count": float(len(out_ids))}
+    if not in_ids:
+        return f
+    f["input_count"] = float(len(in_ids))
+    f["output_count"] = float(len(out_ids))
+    f["selectivity"] = float(len(out_ids) / len(in_ids))
+    if len(in_ids) >= 2 and len(out_ids) >= 2:
+        rank_of = {d: r for r, d in enumerate(in_ids)}
+        mapped = np.fromiter(
+            (rank_of[d] for d in out_ids if d in rank_of),
+            dtype=np.int64,
+        )
+        if mapped.size >= 2:
+            tau, _ = kendalltau(np.arange(mapped.size), mapped)
             if np.isfinite(tau):
                 f["rank_correlation"] = float(tau)
-
+                f["rank_correlation_coverage"] = float(mapped.size / len(out_ids))
     return f
 
 
-def _text_output_features(mod: ModuleOutput, judge: JudgeRecord) -> dict[str, float]:
-    """Features when output is text (generation/formatting)."""
-    f: dict[str, float] = {}
-    out_text = _extract_text(mod.output)
-    in_text = _extract_text(_get_args(mod.input))
+def _id_output_features(
+    prefix: str, ids: list[str], gt: set[str],
+) -> dict[str, float]:
+    if not ids:
+        return {}
+    out = np.array(ids, dtype=object)
+    unique = np.unique(out)
+    f = {
+        f"{prefix}_unique_count": float(unique.size),
+        f"{prefix}_duplication_rate": float(1.0 - unique.size / out.size),
+    }
+    if not gt:
+        return f
+    gt_arr = np.array(list(gt), dtype=object)
+    hit = np.isin(out, gt_arr)
+    f[f"{prefix}_recall_at_k"] = float(np.isin(unique, gt_arr).sum() / len(gt))
+    f[f"{prefix}_precision_at_k"] = float(hit.mean())
+    f[f"{prefix}_unique_precision"] = float(np.isin(unique, gt_arr).sum() / unique.size)
+    for n in (1, 3, 5):
+        if out.size >= n:
+            f[f"{prefix}_hit_at_{n}"] = float(hit[:n].any())
+    first = int(np.argmax(hit)) if hit.any() else -1
+    f[f"{prefix}_mrr"] = float(1.0 / (first + 1)) if first >= 0 else 0.0
+    return f
 
-    f["output_text_len"] = float(len(out_text))
-    f["input_context_len"] = float(len(in_text))
-    f["answer_context_ratio"] = len(out_text) / max(len(in_text), 1)
 
+def _id_filtering_features(
+    prefix: str, in_ids: list[str], out_ids: list[str], gt: set[str],
+) -> dict[str, float]:
+    if not (in_ids and out_ids and gt):
+        return {}
+    gt_arr = np.array(list(gt), dtype=object)
+    in_unique = np.unique(np.array(in_ids, dtype=object))
+    out_unique = np.unique(np.array(out_ids, dtype=object))
+    in_hits = set(in_unique[np.isin(in_unique, gt_arr)].tolist())
+    out_hits = set(out_unique[np.isin(out_unique, gt_arr)].tolist())
+    denom = len(gt)
+    f = {
+        f"{prefix}_input_recall": float(len(in_hits) / denom),
+        f"{prefix}_output_recall": float(len(out_hits) / denom),
+    }
+    f[f"{prefix}_recall_delta"] = f[f"{prefix}_output_recall"] - f[f"{prefix}_input_recall"]
+    f[f"{prefix}_gt_dropped"] = float(len(in_hits - out_hits))
+    f[f"{prefix}_gt_survival_rate"] = (
+        float(len(in_hits & out_hits) / len(in_hits)) if in_hits else 1.0
+    )
+    return f
+
+
+def _diversity_features(prefix: str, pages: list[int | None]) -> dict[str, float]:
+    ps = [p for p in pages if p is not None]
+    if not ps:
+        return {}
+    return {f"{prefix}_page_diversity": float(len(set(ps)) / len(ps))}
+
+
+def _failure_tags(f: dict[str, float]) -> dict[str, float]:
+    tags: dict[str, float] = {}
+    doc_r = f.get("doc_recall_at_k")
+    hit_1 = f.get("chunk_hit_at_1")
+    in_r = f.get("chunk_input_recall")
+    out_r = f.get("chunk_output_recall")
+    gt_ovl = f.get("answer_gt_overlap")
+    ans_len = f.get("answer_length_ratio")
+
+    if doc_r is not None:
+        tags["tag_retrieval_miss"] = 1.0 if doc_r == 0.0 else 0.0
+        if hit_1 is not None:
+            tags["tag_ranking_fail"] = 1.0 if (doc_r > 0 and hit_1 == 0.0) else 0.0
+    if in_r is not None and out_r is not None:
+        tags["tag_reranker_drop"] = (
+            1.0 if (in_r > 0 and out_r < _RERANKER_DROP_RATIO * in_r) else 0.0
+        )
+    if gt_ovl is not None and ans_len is not None:
+        tags["tag_generation_drift"] = (
+            1.0 if (gt_ovl < _GEN_DRIFT_OVERLAP and ans_len < _GEN_DRIFT_LENGTH) else 0.0
+        )
+    return tags
+
+
+def _resolve_chunks_text(items: Any, resolver: NodeResolver) -> str:
+    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+        return ""
+    _, _, _, texts = _collect_ids_docids(items, resolver)
+    return "\n".join(t for t in texts if t)
+
+
+def _text_output_features(
+    mod: ModuleOutput, judge: JudgeRecord, query: str, resolver: NodeResolver,
+) -> dict[str, float]:
+    args = _get_args(mod.input)
+    out_text = _extract_text(mod.output) or _resolve_chunks_text(
+        mod.output if isinstance(mod.output, list) else [], resolver,
+    )
+    in_text = _extract_text(args) or _resolve_chunks_text(args, resolver)
+
+    f: dict[str, float] = {
+        "output_text_len": float(len(out_text)),
+        "input_context_len": float(len(in_text)),
+    }
+    if len(in_text) >= 10:
+        f["answer_context_ratio"] = len(out_text) / len(in_text)
     if judge.gt_answer:
         gt_len = len(judge.gt_answer)
         f["answer_length_ratio"] = float(len(out_text) / gt_len) if gt_len else 0.0
-
+        f["answer_gt_overlap"] = _text_jaccard(out_text, judge.gt_answer)
     if in_text:
         f["context_utilization"] = _text_jaccard(out_text, in_text)
-    if judge.gt_answer:
-        f["answer_gt_overlap"] = _text_jaccard(out_text, judge.gt_answer)
+    if query and out_text:
+        q_tokens = _tokenize(query)
+        if q_tokens:
+            f["answer_query_coverage"] = len(q_tokens & _tokenize(out_text)) / len(q_tokens)
 
+    if out_text:
+        out_emb = _embed(out_text)
+        if judge.gt_answer:
+            sim = _cosine(out_emb, _embed(judge.gt_answer))
+            if sim is not None:
+                f["answer_gt_semantic"] = sim
+        if in_text:
+            sim = _cosine(out_emb, _embed(in_text))
+            if sim is not None:
+                f["context_semantic_utilization"] = sim
+        if query:
+            sim = _cosine(out_emb, _embed(query))
+            if sim is not None:
+                f["query_answer_semantic"] = sim
     if out_text:
         char_freq = np.array(list(Counter(out_text).values()), dtype=np.float64)
         f["answer_entropy"] = float(scipy_entropy(char_freq / char_freq.sum()))
-
     if len(out_text) >= 3:
         trigrams = [out_text[i:i + 3] for i in range(len(out_text) - 2)]
         tri_counts = Counter(trigrams)
         repeated = sum(c - 1 for c in tri_counts.values() if c > 1)
         f["repetition_rate"] = float(repeated / len(trigrams))
-
     return f
 
 
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
 def features_for_step(
     mod: ModuleOutput,
-    gt_ids: set[str],
     judge: JudgeRecord,
+    resolver: NodeResolver,
+    query: str = "",
 ) -> dict[str, float]:
-    """Compute features based on IO data shape, not step name."""
-    f: dict[str, float] = {}
     args = _get_args(mod.input)
-    scores = np.array(mod.scores, dtype=np.float64) if mod.scores else np.empty(0)
+    in_items = args if isinstance(args, list) else []
+    out_items = mod.output if isinstance(mod.output, list) else []
 
-    in_ids = _extract_ids(args)
-    out_ids = _extract_ids(mod.output)
-    out_is_text = _is_text(mod.output)
+    in_chunks, in_docs, _, _ = _collect_ids_docids(in_items, resolver)
+    out_chunks, out_docs, out_pages, _ = _collect_ids_docids(out_items, resolver)
 
-    f["input_text_len"] = float(_text_len(mod.input))
-    f["output_text_len"] = float(_text_len(mod.output))
+    f: dict[str, float] = {
+        "input_text_len": float(_text_len(mod.input)),
+        "output_text_len": float(_text_len(mod.output)),
+    }
+    if query:
+        f["query_text_len"] = float(len(query))
+        f["query_token_count"] = float(len(_tokenize(query)))
 
-    if out_ids:
-        f.update(_ids_output_features(out_ids, gt_ids, scores))
-        if in_ids:
-            f.update(_filtering_features(in_ids, out_ids, gt_ids))
+    if out_chunks:
+        scores = np.array(mod.scores, dtype=np.float64) if mod.scores else np.empty(0)
+        gt_chunks = set(judge.gt_chunk_id or [])
+        gt_docs = set(judge.gt_docid or [])
+        in_docs_clean = [d for d in in_docs if d]
+        out_docs_clean = [d for d in out_docs if d]
 
-    if out_is_text:
-        f.update(_text_output_features(mod, judge))
+        f.update(_shape_features(in_chunks, out_chunks))
+        f.update(_score_features(scores))
+        f.update(_score_gt_features(scores, out_chunks, gt_chunks))
+        f.update(_id_output_features("chunk", out_chunks, gt_chunks))
+        f.update(_id_output_features("doc", out_docs_clean, gt_docs))
+        f.update(_diversity_features("chunk", out_pages))
+        if in_chunks:
+            f.update(_id_filtering_features("chunk", in_chunks, out_chunks, gt_chunks))
+            f.update(_id_filtering_features("doc", in_docs_clean, out_docs_clean, gt_docs))
 
-    f["global_correctness"] = judge.answer_correctness
+    if _is_text(mod.output):
+        f.update(_text_output_features(mod, judge, query, resolver))
 
+    f.update(_failure_tags(f))
     return {k: round(v, 6) for k, v in f.items()}
 
 
@@ -244,20 +390,18 @@ def build_case_step_features(
     judge: JudgeRecord,
     trace: TraceRecord,
     pipeline: list[str],
+    resolver: NodeResolver,
 ) -> dict[str, dict[str, float]]:
-    """For one case, compute features for every step in pipeline order."""
-    gt_ids = set(judge.gt_file) | set(judge.retrieved_file)
     result: dict[str, dict[str, float]] = {}
     for key in pipeline:
         mod = trace.modules.get(key)
         if mod is None:
             continue
-        result[key] = features_for_step(mod, gt_ids, judge)
+        result[key] = features_for_step(mod, judge, resolver, query=trace.query)
     return result
 
 
 def flatten_case_features(step_feats: dict[str, dict[str, float]]) -> dict[str, float]:
-    """Flatten per-step features into ``step_key:metric`` for clustering."""
     flat: dict[str, float] = {}
     for step_key, metrics in step_feats.items():
         for metric, val in metrics.items():
@@ -270,7 +414,6 @@ def build_step_matrix(
     step_key: str,
     target_ids: set[str] | None = None,
 ) -> tuple[list[str], list[str], np.ndarray]:
-    """Build a case x feature matrix for a single step. Drops zero-variance columns."""
     ids, rows = [], []
     for cid, sf in all_case_feats.items():
         if target_ids and cid not in target_ids:
@@ -285,7 +428,7 @@ def build_step_matrix(
     mat = np.array([[r.get(k, 0.0) for k in all_keys] for r in rows], dtype=np.float64)
     np.nan_to_num(mat, copy=False)
     std = mat.std(axis=0)
-    keep = std > 0
+    keep = std > 1e-9
     if keep.sum() < 2:
         return [], [], np.empty((0, 0))
     return ids, [k for k, m in zip(all_keys, keep) if m], mat[:, keep]
@@ -296,7 +439,6 @@ def aggregate_global_step_analysis(
     all_judge: dict[str, JudgeRecord],
     pipeline: list[str],
 ) -> dict[str, Any]:
-    """Aggregate per-step features across all cases for each pipeline step."""
     result: dict[str, Any] = {}
     case_ids = list(all_case_feats.keys())
     if not case_ids:
