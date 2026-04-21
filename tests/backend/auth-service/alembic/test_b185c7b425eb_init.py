@@ -40,7 +40,7 @@ class _FakeOp:
 
 
 def _column_names(elements):
-    return [element.name for element in elements if hasattr(element, 'name')]
+    return [element.name for element in elements if element.__class__.__name__ == 'Column']
 
 
 def _constraint_names(elements):
@@ -75,9 +75,10 @@ def test_upgrade_creates_auth_tables_indexes_and_constraints():
         'group_permissions',
         'user_groups',
     ]
-    assert len(create_index_calls) == 18
+    assert len(create_index_calls) == 19
     assert ('create_index', 'op_f:ix_users_username', 'users', ('username',), True) in create_index_calls
     assert ('create_index', 'op_f:ix_permission_groups_code', 'permission_groups', ('code',), True) in create_index_calls
+    assert ('create_index', 'op_f:ix_permission_groups_module', 'permission_groups', ('module',), False) in create_index_calls
 
     tables = {call[1]: call[2] for call in create_table_calls}
     assert _column_names(tables['users']) == [
@@ -123,6 +124,6 @@ def test_downgrade_drops_indexes_and_tables_in_dependency_order():
         'roles',
         'permission_groups',
     ]
-    assert len(drop_index_calls) == 18
+    assert len(drop_index_calls) == 19
     assert fake_op.calls[0] == ('drop_index', 'op_f:ix_user_groups_user_id', 'user_groups')
     assert fake_op.calls[-1] == ('drop_table', 'permission_groups')

@@ -35,7 +35,14 @@ def test_parse_group_and_user_ids_raise_expected_errors():
 def test_list_groups_returns_pagination_payload(monkeypatch):
     monkeypatch.setattr(group_api.group_service, 'list_groups', lambda **kwargs: (['g1'], 3))
 
-    result = _call(group_api.list_groups, object(), page=2, page_size=10, search='team', tenant_id='tenant-a')
+    result = _call(
+        group_api.list_groups,
+        SimpleNamespace(id=uuid.uuid4(), role=SimpleNamespace(name='user')),
+        page=2,
+        page_size=10,
+        search='team',
+        tenant_id='tenant-a',
+    )
 
     assert result == {'groups': ['g1'], 'total': 3, 'page': 2, 'page_size': 10}
 

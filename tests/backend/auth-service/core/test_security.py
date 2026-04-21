@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timezone
 
 import pytest
@@ -64,9 +65,7 @@ def test_token_generators_and_hash(monkeypatch):
 
     assert security.generate_refresh_token() == 'url-32'
     assert security.generate_jti() == 'hex-16'
-    assert security.hash_refresh_token('refresh-token') == (
-        '7b6d91fdaf76837c14170721b956b1f742ab483ec54cfb9e96f24cc9cae23d3c'
-    )
+    assert security.hash_refresh_token('refresh-token') == hashlib.sha256(b'refresh-token').hexdigest()
 
 
 def test_refresh_token_expires_at_uses_refresh_ttl(monkeypatch):

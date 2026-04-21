@@ -30,11 +30,7 @@ def test_error_payload_from_exception_matches_api_shape():
     exc = AppException(http_code=403, code=1000302, message='Forbidden', extra='missing permission')
 
     assert error_payload_from_exception(exc) == {
-        'code': 403,
+        'code': 1000302,
         'message': 'Forbidden',
-        'data': {
-            'code': 1000302,
-            'message': 'Forbidden',
-            'ex_mesage': 'missing permission',
-        },
+        'ex_mesage': 'missing permission',
     }
