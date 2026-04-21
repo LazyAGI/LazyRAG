@@ -149,10 +149,9 @@ def test_run_report_fix_loop_retries_with_full_test_log(
 
     assert outcome['status'] == 'SUCCEEDED'
     assert outcome['round_count'] == 2
-    assert outcome['last_result'] == {
-        'files_changed': [ALLOWED_FILE],
-        'change_summary': 'Fixed the failing test based on the full log.',
-    }
+    assert outcome['last_result']['files_changed'] == [ALLOWED_FILE]
+    assert outcome['last_result']['change_summary'] == 'Fixed the failing test based on the full log.'
+    assert ALLOWED_FILE in outcome['last_result']['diffs']
 
     bundle_dir = Path(outcome['bundle_dir'])
     assert bundle_dir.exists()
@@ -494,10 +493,9 @@ def test_cli_loop_mode_defaults_to_run_all_script(
     rendered = json.loads(result.stdout)
     assert rendered['status'] == 'SUCCEEDED'
     assert rendered['round_count'] == 2
-    assert rendered['last_result'] == {
-        'files_changed': [ALLOWED_FILE],
-        'change_summary': 'Fixed the failing test based on the full log.',
-    }
+    assert rendered['last_result']['files_changed'] == [ALLOWED_FILE]
+    assert rendered['last_result']['change_summary'] == 'Fixed the failing test based on the full log.'
+    assert ALLOWED_FILE in rendered['last_result']['diffs']
     test_result = json.loads(
         (Path(rendered['bundle_dir']) / 'round_1' / 'test.result.json').read_text(encoding='utf-8')
     )

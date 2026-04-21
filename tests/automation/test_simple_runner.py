@@ -76,10 +76,13 @@ def test_execute_simple_report_success(
 
     assert outcome['status'] == 'SUCCEEDED'
     assert outcome['error'] is None
-    assert outcome['result'] == {
-        'files_changed': [ALLOWED_FILE],
-        'change_summary': 'Updated retriever settings.',
-    }
+    assert outcome['result']['files_changed'] == [ALLOWED_FILE]
+    assert outcome['result']['change_summary'] == 'Updated retriever settings.'
+    assert ALLOWED_FILE in outcome['result']['diffs']
+    diff = outcome['result']['diffs'][ALLOWED_FILE]
+    assert diff['old'] == 'base\n'
+    assert diff['new'] == 'base\n\nupdated\n'
+    assert 'updated' in diff['unified']
     assert Path(outcome['artifacts_dir']).exists()
 
 
@@ -193,10 +196,9 @@ def test_execute_simple_report_returns_no_change(
     )
 
     assert outcome['status'] == 'NO_CHANGE'
-    assert outcome['result'] == {
-        'files_changed': [],
-        'change_summary': 'No change needed.',
-    }
+    assert outcome['result']['files_changed'] == []
+    assert outcome['result']['change_summary'] == 'No change needed.'
+    assert outcome['result']['diffs'] == {}
 
 
 def test_simple_runner_cli_reads_report_json(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -103,9 +104,11 @@ def execute_simple_report(
             )
 
         change_summary = extract_text(events) or _build_change_summary(changed_files)
+        diffs = _compute_diffs(repo_copy, before_snapshot, changed_files)
         result = {
             'files_changed': changed_files,
             'change_summary': change_summary or 'No changes were necessary.',
+            'diffs': diffs,
         }
 
         outcome = {
@@ -362,27 +365,34 @@ def _build_copy_ignore(target_dir: Path):
     return _ignore
 
 
-def _build_directory_snapshot(root: Path) -> Dict[str, str]:
-    snapshot: Dict[str, str] = {}
+def _build_directory_snapshot(root: Path) -> Dict[str, dict]:
+    snapshot: Dict[str, dict] = {}
     for path in root.rglob('*'):
         relative = path.relative_to(root)
         if any(part in SNAPSHOT_IGNORE_NAMES for part in relative.parts):
             continue
         if path.is_dir():
             continue
-        snapshot[relative.as_posix()] = _hash_file(path)
+        content = _read_text_safe(path)
+        snapshot[relative.as_posix()] = {'hash': _hash_content(content), 'content': content}
     return snapshot
 
 
-def _hash_file(path: Path) -> str:
+def _read_text_safe(path: Path) -> str:
+    try:
+        return path.read_text(encoding='utf-8')
+    except UnicodeDecodeError:
+        return ''
+
+
+def _hash_content(content: str) -> str:
     digest = hashlib.sha256()
-    with path.open('rb') as handle:
-        while True:
-            chunk = handle.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
+    digest.update(content.encode('utf-8'))
     return digest.hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    return _hash_content(_read_text_safe(path))
 
 
 def _run_opencode(
@@ -410,14 +420,43 @@ def _run_opencode(
     return events, result.stderr
 
 
-def _collect_changed_files(repo_copy: Path, before_snapshot: Mapping[str, str]) -> List[str]:
+def _collect_changed_files(repo_copy: Path, before_snapshot: Mapping[str, dict]) -> List[str]:
     after_snapshot = _build_directory_snapshot(repo_copy)
     changed = {
         path
         for path in set(before_snapshot) | set(after_snapshot)
-        if before_snapshot.get(path) != after_snapshot.get(path)
+        if before_snapshot.get(path, {}).get('hash') != after_snapshot.get(path, {}).get('hash')
     }
     return sorted(changed)
+
+
+def _compute_diffs(
+    repo_copy: Path,
+    before_snapshot: Mapping[str, dict],
+    changed_files: List[str],
+) -> Dict[str, dict]:
+    after_snapshot = _build_directory_snapshot(repo_copy)
+    diffs: Dict[str, dict] = {}
+    for path_str in changed_files:
+        old_content = before_snapshot.get(path_str, {}).get('content', '')
+        new_content = after_snapshot.get(path_str, {}).get('content', '')
+        if old_content == new_content:
+            unified = ''
+        else:
+            old_lines = old_content.splitlines(keepends=True)
+            new_lines = new_content.splitlines(keepends=True)
+            unified_lines = list(
+                difflib.unified_diff(
+                    old_lines,
+                    new_lines,
+                    fromfile=path_str,
+                    tofile=path_str,
+                    lineterm='',
+                )
+            )
+            unified = ''.join(unified_lines)
+        diffs[path_str] = {'old': old_content, 'new': new_content, 'unified': unified}
+    return diffs
 
 
 def _build_change_summary(files_changed: Sequence[str]) -> str:
