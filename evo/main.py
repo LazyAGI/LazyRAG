@@ -8,6 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Sequence
 
+from chat.pipelines.builders.get_models import get_automodel  # type: ignore
 from evo.runtime.config import EvoConfig, load_config
 
 
@@ -21,7 +22,6 @@ def setup_logging(verbose: bool = False) -> None:
 
 def _make_provider(role: str, *, http_timeout: int) -> Any:
     def _provider() -> Any:
-        from chat.pipelines.builders.get_models import get_automodel  # type: ignore
         model = get_automodel(role)
         if model is None:
             raise RuntimeError(f'get_automodel({role!r}) returned None.')
