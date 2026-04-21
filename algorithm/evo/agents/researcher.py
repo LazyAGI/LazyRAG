@@ -10,9 +10,10 @@ from evo.conductor.prompts import load as load_prompt
 from evo.conductor.world_model import Finding, Hypothesis, WorldModel
 from evo.harness.analysis import collect_exemplar_ids
 from evo.harness.react import LLMInvoker, ReActConfig, ReActRunner
+from evo.harness.schemas import SCHEMAS
+from evo.harness.structured import invoke_structured
 from evo.runtime.code_config import code_context_dict
 from evo.runtime.session import AnalysisSession
-from evo.utils import extract_json_object
 
 RESEARCHER_NAME = "researcher"
 _VALID_VERDICTS = ("confirmed", "refuted", "inconclusive")
@@ -97,12 +98,12 @@ def run_researcher(session: AnalysisSession, hypothesis: Hypothesis,
                         required_tools=(), use_memory_curator=True),
         logger=session.logger(f"react.{RESEARCHER_NAME}.{hypothesis.id}"),
     )
-    raw = session.llm.call(
-        producer=lambda: runner.run(_build_task(snapshot)),
-        cache_key=None, use_cache=False,
+    parsed = invoke_structured(
+        session, invoker, _build_task(snapshot),
         agent=f"{RESEARCHER_NAME}:{hypothesis.id}",
+        schema=SCHEMAS["researcher"],
+        producer=lambda task: runner.run(task),
     )
-    parsed = extract_json_object(raw or "") or {}
     verdict = str(parsed.get("verdict", "inconclusive"))
     if verdict not in _VALID_VERDICTS:
         verdict = "inconclusive"

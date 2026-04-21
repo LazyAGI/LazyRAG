@@ -9,7 +9,8 @@ from evo.conductor.prompts import load as load_prompt
 from evo.conductor.spawner import execute_batch
 from evo.harness.react import LLMInvoker
 from evo.runtime.session import AnalysisSession
-from evo.utils import extract_json_object
+from evo.harness.schemas import SCHEMAS
+from evo.harness.structured import invoke_structured
 
 CONDUCTOR_NAME = "conductor"
 
@@ -67,13 +68,11 @@ class Conductor:
 
     def _plan(self, iteration: int) -> dict[str, Any]:
         snapshot = self._snapshot(iteration)
-        raw = self.session.llm.call(
-            producer=lambda: self._invoker.invoke(
-                json.dumps(snapshot, ensure_ascii=False, indent=2),
-            ),
-            cache_key=None, use_cache=False, agent=CONDUCTOR_NAME,
-        )
-        return extract_json_object(raw or "") or {"actions": [], "done": True}
+        user = json.dumps(snapshot, ensure_ascii=False, indent=2)
+        return invoke_structured(
+            self.session, self._invoker, user,
+            agent=CONDUCTOR_NAME, schema=SCHEMAS["conductor"],
+        ) or {"actions": [], "done": True}
 
     def _snapshot(self, iteration: int) -> dict[str, Any]:
         w = self.session.world_store.world

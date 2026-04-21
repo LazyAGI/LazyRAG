@@ -1,6 +1,6 @@
 # LazyRAG Tests
 
-Unit tests for the four modules: **frontend**, **backend (core)**, **auth-service**, and **algorithm**.
+Unit tests for four modules: **frontend**, **backend (core)**, **auth-service**, and **algorithm**.
 
 ## Directory Structure
 

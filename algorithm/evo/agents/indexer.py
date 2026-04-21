@@ -7,9 +7,10 @@ from typing import Any
 from evo.conductor.prompts import load as load_prompt
 from evo.conductor.world_model import Hypothesis, WorldModel
 from evo.harness.react import LLMInvoker
+from evo.harness.schemas import SCHEMAS
+from evo.harness.structured import invoke_structured
 from evo.runtime.session import AnalysisSession
 from evo.runtime.thresholds import METRIC_DIRECTION
-from evo.utils import extract_json_object
 
 INDEXER_NAME = "indexer"
 _JUDGE_METRICS = ("answer_correctness", "context_recall", "doc_recall", "faithfulness")
@@ -85,11 +86,12 @@ def run_indexer(session: AnalysisSession, *, llm: Any | None = None) -> dict[str
     t_start = time.monotonic()
     payload = _build_input(session)
     invoker = LLMInvoker(session=session, system_prompt=load_prompt("indexer"), llm=llm)
-    raw = session.llm.call(
-        producer=lambda: invoker.invoke(json.dumps(payload, ensure_ascii=False, indent=2)),
-        cache_key=f"indexer:{session.run_id}", agent=INDEXER_NAME,
+    parsed = invoke_structured(
+        session, invoker,
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        agent=INDEXER_NAME, schema=SCHEMAS["indexer"],
+        cache_key=f"indexer:{session.run_id}",
     )
-    parsed = extract_json_object(raw or "") or {}
     hypotheses = parsed.get("hypotheses", []) or []
     open_questions = [str(q) for q in (parsed.get("open_questions") or []) if str(q)]
     if session.world_store is not None and (hypotheses or open_questions):

@@ -8,8 +8,10 @@ from typing import Any, Literal
 from evo.conductor.prompts import load as load_prompt
 from evo.conductor.world_model import Finding, WorldModel
 from evo.harness.react import LLMInvoker
+from evo.harness.schemas import SCHEMAS
+from evo.harness.structured import invoke_structured
 from evo.runtime.session import AnalysisSession
-from evo.utils import extract_json_object, jsonable
+from evo.utils import jsonable
 
 CRITIC_NAME = "critic"
 _VALID_STATUS = ("approved", "needs_revision")
@@ -57,12 +59,11 @@ def run_critic(session: AnalysisSession, finding: Finding,
     t_start = time.monotonic()
     invoker = LLMInvoker(session=session, system_prompt=load_prompt("critic"), llm=llm)
     user = _build_user(finding, _gather_evidence(session, finding))
-    raw = session.llm.call(
-        producer=lambda: invoker.invoke(user),
-        cache_key=None, use_cache=False,
+    parsed = invoke_structured(
+        session, invoker, user,
         agent=f"{CRITIC_NAME}:{finding.id}",
+        schema=SCHEMAS["critic"],
     )
-    parsed = extract_json_object(raw or "") or {}
     status = str(parsed.get("verdict", "needs_revision"))
     if status not in _VALID_STATUS:
         status = "needs_revision"

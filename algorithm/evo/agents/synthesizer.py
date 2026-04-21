@@ -14,9 +14,10 @@ from evo.conductor.synthesis import (
 )
 from evo.conductor.world_model import Hypothesis
 from evo.harness.react import LLMInvoker
+from evo.harness.schemas import SCHEMAS
+from evo.harness.structured import invoke_structured
 from evo.runtime.code_config import code_context_dict
 from evo.runtime.session import AnalysisSession
-from evo.utils import extract_json_object
 
 SYNTHESIZER_NAME = "synthesizer"
 _MAX_GAP_HYPOTHESES = 4
@@ -54,11 +55,10 @@ def _synthesize_once(session: AnalysisSession, *, iteration: int,
                      llm: Any | None) -> dict[str, Any]:
     invoker = LLMInvoker(session=session, system_prompt=load_prompt("synthesizer"), llm=llm)
     user = json.dumps(_world_summary(session, iteration), ensure_ascii=False, indent=2)
-    raw = session.llm.call(
-        producer=lambda: invoker.invoke(user),
-        cache_key=None, use_cache=False, agent=SYNTHESIZER_NAME,
+    return invoke_structured(
+        session, invoker, user,
+        agent=SYNTHESIZER_NAME, schema=SCHEMAS["synthesizer"],
     )
-    return extract_json_object(raw or "") or {}
 
 
 def _world_summary(session: AnalysisSession, iteration: int) -> dict[str, Any]:

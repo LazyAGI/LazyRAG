@@ -8,8 +8,10 @@ from evo.conductor.prompts import load as load_prompt
 from evo.conductor.synthesis import VerifiedAction
 from evo.harness.executor import SessionAwareExecutor
 from evo.harness.react import LLMInvoker
+from evo.harness.schemas import SCHEMAS
+from evo.harness.structured import invoke_structured
 from evo.runtime.session import AnalysisSession
-from evo.utils import extract_json_object, jsonable
+from evo.utils import jsonable
 
 VERIFIER_NAME = "action_verifier"
 
@@ -57,12 +59,11 @@ def run_action_verifier(session: AnalysisSession, action: VerifiedAction,
     t_start = time.monotonic()
     invoker = LLMInvoker(session=session, system_prompt=load_prompt("action_verifier"), llm=llm)
     user = _build_user(action, _gather_handles(session, action))
-    raw = session.llm.call(
-        producer=lambda: invoker.invoke(user),
-        cache_key=None, use_cache=False,
+    parsed = invoke_structured(
+        session, invoker, user,
         agent=f"{VERIFIER_NAME}:{action.id}",
+        schema=SCHEMAS["action_verifier"],
     )
-    parsed = extract_json_object(raw or "") or {}
     action.validity_score = _clamp(parsed.get("validity_score", 0.0))
     action.supporting_evidence = [str(s) for s in parsed.get("supporting_evidence", []) or []]
     action.contradicting_evidence = [str(s) for s in parsed.get("contradicting_evidence", []) or []]
