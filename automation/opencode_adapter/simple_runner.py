@@ -39,6 +39,7 @@ JSON_PATH_PATTERN = re.compile(r'(?P<path>(?:~|/|\./|\.\./)[^\s\'"“”‘’]+
 ALLOWED_FILE_SCOPE_PATH = Path(__file__).with_name('allowed_file_scope.txt')
 COPY_IGNORE_PATTERNS = ('.git', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '*.pyc', '*.pyo')
 SNAPSHOT_IGNORE_NAMES = {'.git', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache'}
+MAX_FILE_SIZE = 1024 * 1024  # 1MB limit for snapshot file reads
 
 
 def execute_simple_report(
@@ -94,7 +95,7 @@ def execute_simple_report(
         _write_jsonl(run_root / 'events.jsonl', events)
         _write_text(run_root / 'stderr.log', stderr)
 
-        changed_files = _collect_changed_files(repo_copy, before_snapshot)
+        changed_files, diffs = _collect_changed_files_and_diffs(repo_copy, before_snapshot)
         violations = sorted(path for path in changed_files if path not in set(allowed_files))
         if violations:
             raise AdapterError(
@@ -104,7 +105,6 @@ def execute_simple_report(
             )
 
         change_summary = extract_text(events) or _build_change_summary(changed_files)
-        diffs = _compute_diffs(repo_copy, before_snapshot, changed_files)
         result = {
             'files_changed': changed_files,
             'change_summary': change_summary or 'No changes were necessary.',
@@ -380,6 +380,8 @@ def _build_directory_snapshot(root: Path) -> Dict[str, dict]:
 
 def _read_text_safe(path: Path) -> str:
     try:
+        if path.stat().st_size > MAX_FILE_SIZE:
+            return ''
         return path.read_text(encoding='utf-8')
     except UnicodeDecodeError:
         return ''
@@ -420,24 +422,18 @@ def _run_opencode(
     return events, result.stderr
 
 
-def _collect_changed_files(repo_copy: Path, before_snapshot: Mapping[str, dict]) -> List[str]:
+def _collect_changed_files_and_diffs(
+    repo_copy: Path,
+    before_snapshot: Mapping[str, dict],
+) -> tuple[List[str], Dict[str, dict]]:
     after_snapshot = _build_directory_snapshot(repo_copy)
     changed = {
         path
         for path in set(before_snapshot) | set(after_snapshot)
         if before_snapshot.get(path, {}).get('hash') != after_snapshot.get(path, {}).get('hash')
     }
-    return sorted(changed)
-
-
-def _compute_diffs(
-    repo_copy: Path,
-    before_snapshot: Mapping[str, dict],
-    changed_files: List[str],
-) -> Dict[str, dict]:
-    after_snapshot = _build_directory_snapshot(repo_copy)
     diffs: Dict[str, dict] = {}
-    for path_str in changed_files:
+    for path_str in sorted(changed):
         old_content = before_snapshot.get(path_str, {}).get('content', '')
         new_content = after_snapshot.get(path_str, {}).get('content', '')
         if old_content == new_content:
@@ -456,7 +452,7 @@ def _compute_diffs(
             )
             unified = ''.join(unified_lines)
         diffs[path_str] = {'old': old_content, 'new': new_content, 'unified': unified}
-    return diffs
+    return sorted(changed), diffs
 
 
 def _build_change_summary(files_changed: Sequence[str]) -> str:
