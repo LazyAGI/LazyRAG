@@ -4,6 +4,8 @@ import importlib
 import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
+from sqlalchemy import event
+from sqlalchemy import text
 from sqlalchemy.orm import joinedload, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -25,6 +27,7 @@ def create_session():
         connect_args={'check_same_thread': False},
         poolclass=StaticPool,
     )
+    event.listen(engine, 'connect', lambda conn, _: conn.execute('PRAGMA foreign_keys=ON'))
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
     return session
@@ -210,5 +213,64 @@ def test_model_unique_constraints_are_enforced():
         session.add(RolePermission(role_id=role.id, permission_group_id=permission.id))
         with pytest.raises(IntegrityError):
             session.commit()
+    finally:
+        session.close()
+
+
+def test_model_foreign_key_delete_behaviors():
+    session = create_session()
+    try:
+        role_restrict = Role(name='restrict-role', built_in=False)
+        role_cascade = Role(name='cascade-role', built_in=False)
+        permission = PermissionGroup(code='group.manage')
+        session.add_all([role_restrict, role_cascade, permission])
+        session.commit()
+
+        user = User(username='carol', password_hash='hashed', role_id=role_restrict.id, tenant_id='tenant-a')
+        session.add(user)
+        session.commit()
+
+        group = Group(
+            tenant_id='tenant-a',
+            group_name='owners',
+            creator_user_id=user.id,
+        )
+        session.add(group)
+        session.commit()
+
+        session.add(
+            UserGroup(
+                tenant_id='tenant-a',
+                user_id=user.id,
+                group_id=group.id,
+                role='owner',
+                creator_user_id=user.id,
+            )
+        )
+        session.add(RolePermission(role_id=role_cascade.id, permission_group_id=permission.id))
+        session.add(GroupPermission(group_id=group.id, permission_group_id=permission.id))
+        session.commit()
+
+        session.delete(role_restrict)
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        session.delete(role_cascade)
+        session.commit()
+        assert session.query(RolePermission).filter_by(role_id=role_cascade.id).count() == 0
+
+        session.delete(user)
+        session.commit()
+        refreshed_group = session.get(Group, group.id)
+        assert refreshed_group.creator_user_id is None
+        assert session.query(UserGroup).filter_by(group_id=group.id).count() == 0
+
+        session.delete(group)
+        session.commit()
+        assert session.query(GroupPermission).filter_by(group_id=group.id).count() == 0
+
+        fk_state = session.execute(text('PRAGMA foreign_keys')).scalar()
+        assert fk_state == 1
     finally:
         session.close()

@@ -1,5 +1,6 @@
 import importlib
 
+import pytest
 from pydantic import ValidationError
 
 from schemas.auth import (
@@ -200,3 +201,41 @@ def test_user_schema_defaults_and_collections():
     assert item.is_bootstrap_admin is False
     assert detail.is_bootstrap_admin is False
     assert listing.users == []
+
+
+@pytest.mark.parametrize(
+    'schema_cls,payload,missing_field',
+    [
+        (LoginBody, {'password': 'Aa1!aaaa'}, 'username'),
+        (RefreshBody, {}, 'refresh_token'),
+        (AuthorizeBody, {'method': 'GET'}, 'path'),
+        (GroupCreateBody, {}, 'group_name'),
+        (GroupAddUsersBody, {}, 'user_ids'),
+        (RoleCreateBody, {}, 'name'),
+        (RolePermissionsBody, {}, 'permission_groups'),
+        (CreateUserBody, {'username': 'alice'}, 'password'),
+        (UserRoleBatchBody, {'role_id': 'r1'}, 'user_ids'),
+    ],
+)
+def test_schema_required_fields_validation(schema_cls, payload, missing_field):
+    with pytest.raises(ValidationError) as exc_info:
+        schema_cls(**payload)
+
+    assert missing_field in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    'schema_cls,payload,error_field',
+    [
+        (ValidateResponse, {'sub': 'u1', 'role': 'user', 'permissions': 'user.read'}, 'permissions'),
+        (GroupAddUsersBody, {'user_ids': 'u1'}, 'user_ids'),
+        (GroupMemberRoleBatchBody, {'user_ids': ['u1'], 'role': 1}, 'role'),
+        (RolePermissionsResponse, {'role_id': 'r1', 'permission_groups': 'user.read'}, 'permission_groups'),
+        (UserListResponse, {'users': [], 'total': 'abc', 'page': 1, 'page_size': 20}, 'total'),
+    ],
+)
+def test_schema_type_validation(schema_cls, payload, error_field):
+    with pytest.raises(ValidationError) as exc_info:
+        schema_cls(**payload)
+
+    assert error_field in str(exc_info.value)
