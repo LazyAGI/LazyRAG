@@ -8,10 +8,10 @@ ALEMBIC_ENV = Path(__file__).resolve().parents[4] / 'backend' / 'auth-service' /
 
 
 class _FakeConfig:
-    config_file_name = None
     config_ini_section = 'alembic'
 
-    def __init__(self):
+    def __init__(self, config_file_name=None):
+        self.config_file_name = config_file_name
         self.sections = {'alembic': {'script_location': 'alembic'}}
 
     def get_section(self, name):
@@ -75,8 +75,9 @@ class _FakeEngine:
         return _FakeConnection(self)
 
 
-def _load_env_module(monkeypatch, offline=True, database_url=None):
+def _load_env_module(monkeypatch, offline=True, database_url=None, config_file_name=None):
     context = _FakeAlembicContext(offline=offline)
+    context.config = _FakeConfig(config_file_name=config_file_name)
     alembic_module = types.ModuleType('alembic')
     alembic_module.context = context
     monkeypatch.setitem(sys.modules, 'alembic', alembic_module)
@@ -98,10 +99,12 @@ def test_get_url_prefers_env_database_url(monkeypatch):
     module, context = _load_env_module(monkeypatch, offline=True, database_url='postgresql://env/db')
 
     assert module._get_url() == 'postgresql://env/db'
+    assert isinstance(module._get_url(), str)
     assert context.configure_calls[0]['url'] == 'postgresql://env/db'
     assert context.configure_calls[0]['literal_binds'] is True
     assert context.configure_calls[0]['compare_type'] is True
     assert context.configure_calls[0]['dialect_opts'] == {'paramstyle': 'named'}
+    assert isinstance(context.configure_calls[0]['dialect_opts'], dict)
     assert context.migration_runs == 1
     assert context.events == ['begin_transaction', 'run_migrations', 'end_transaction']
 
@@ -110,7 +113,29 @@ def test_get_url_falls_back_to_core_database_url(monkeypatch):
     module, context = _load_env_module(monkeypatch, offline=True, database_url=None)
 
     assert module._get_url() == module.DATABASE_URL
+    assert isinstance(module._get_url(), str)
     assert context.configure_calls[0]['url'] == module.DATABASE_URL
+
+
+def test_module_import_calls_file_config_when_config_file_is_present(monkeypatch):
+    seen = {}
+
+    def fake_file_config(filename):
+        seen['filename'] = filename
+
+    import logging.config
+
+    monkeypatch.setattr(logging.config, 'fileConfig', fake_file_config)
+
+    module, _ = _load_env_module(
+        monkeypatch,
+        offline=True,
+        database_url='postgresql://cfg/db',
+        config_file_name='alembic.ini',
+    )
+
+    assert module.config.config_file_name == 'alembic.ini'
+    assert seen['filename'] == 'alembic.ini'
 
 
 def test_run_migrations_online_builds_engine_and_configures_connection(monkeypatch):
@@ -132,6 +157,7 @@ def test_run_migrations_online_builds_engine_and_configures_connection(monkeypat
     module.run_migrations_online()
 
     assert seen['configuration']['sqlalchemy.url'] == 'postgresql://online/db'
+    assert isinstance(seen['configuration'], dict)
     assert seen['prefix'] == 'sqlalchemy.'
     assert seen['poolclass'] is module.pool.NullPool
     assert engine.events == ['connect', 'connect_enter', 'connect_exit']
@@ -164,6 +190,7 @@ def test_module_import_runs_online_branch_when_context_is_online(monkeypatch):
     module, context = _load_env_module(monkeypatch, offline=False, database_url='postgresql://import/db')
 
     assert seen['configuration']['sqlalchemy.url'] == 'postgresql://import/db'
+    assert isinstance(context.configure_calls[0], dict)
     assert seen['prefix'] == 'sqlalchemy.'
     assert seen['poolclass'] is module.pool.NullPool
     assert context.configure_calls[0]['connection'].engine is engine

@@ -29,6 +29,10 @@ def test_ttl_helpers_read_env(monkeypatch):
     monkeypatch.setenv('LAZYRAG_JWT_TTL_MINUTES', '2')
     monkeypatch.setenv('LAZYRAG_JWT_REFRESH_TTL_DAYS', '3')
 
+    assert isinstance(security.jwt_ttl_minutes(), int)
+    assert isinstance(security.jwt_ttl_seconds(), int)
+    assert isinstance(security.refresh_token_ttl_days(), int)
+    assert isinstance(security.refresh_token_ttl_seconds(), int)
     assert security.jwt_ttl_minutes() == 2
     assert security.jwt_ttl_seconds() == 120
     assert security.refresh_token_ttl_days() == 3
@@ -46,6 +50,7 @@ def test_create_access_token_contains_expected_claims(monkeypatch):
         username='alice',
         jti='jti-1',
     )
+    assert isinstance(token, str)
     payload = jwt.decode(token, 'test-secret', algorithms=['HS256'])
 
     assert payload['sub'] == 'user-1'
@@ -63,9 +68,16 @@ def test_token_generators_and_hash(monkeypatch):
     monkeypatch.setattr(security.secrets, 'token_urlsafe', lambda size: f'url-{size}')
     monkeypatch.setattr(security.secrets, 'token_hex', lambda size: f'hex-{size}')
 
-    assert security.generate_refresh_token() == 'url-32'
-    assert security.generate_jti() == 'hex-16'
-    assert security.hash_refresh_token('refresh-token') == hashlib.sha256(b'refresh-token').hexdigest()
+    refresh_token = security.generate_refresh_token()
+    jti = security.generate_jti()
+    token_hash = security.hash_refresh_token('refresh-token')
+
+    assert isinstance(refresh_token, str)
+    assert isinstance(jti, str)
+    assert isinstance(token_hash, str)
+    assert refresh_token == 'url-32'
+    assert jti == 'hex-16'
+    assert token_hash == hashlib.sha256(b'refresh-token').hexdigest()
 
 
 def test_refresh_token_expires_at_uses_refresh_ttl(monkeypatch):
@@ -77,4 +89,7 @@ def test_refresh_token_expires_at_uses_refresh_ttl(monkeypatch):
     monkeypatch.setattr(security, 'datetime', FakeDatetime)
     monkeypatch.setenv('LAZYRAG_JWT_REFRESH_TTL_DAYS', '2')
 
-    assert security.refresh_token_expires_at() == datetime(2026, 1, 3, tzinfo=timezone.utc)
+    result = security.refresh_token_expires_at()
+
+    assert isinstance(result, datetime)
+    assert result == datetime(2026, 1, 3, tzinfo=timezone.utc)

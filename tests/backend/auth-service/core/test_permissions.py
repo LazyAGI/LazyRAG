@@ -17,9 +17,17 @@ def test_get_effective_permission_codes_merges_role_and_group_permissions():
         ],
     )
 
-    assert get_effective_permission_codes(user) == {'user.read', 'document.read', 'group.read'}
+    result = get_effective_permission_codes(user)
+
+    assert isinstance(result, set)
+    assert result == {'user.read', 'document.read', 'group.read'}
 
 
 def test_get_effective_permission_codes_handles_missing_relationships():
-    assert get_effective_permission_codes(SimpleNamespace()) == set()
-    assert get_effective_permission_codes(SimpleNamespace(role=None, groups=None)) == set()
+    result_1 = get_effective_permission_codes(SimpleNamespace())
+    result_2 = get_effective_permission_codes(SimpleNamespace(role=None, groups=None))
+
+    assert isinstance(result_1, set)
+    assert isinstance(result_2, set)
+    assert result_1 == set()
+    assert result_2 == set()

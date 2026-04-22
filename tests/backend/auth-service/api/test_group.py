@@ -44,6 +44,7 @@ def test_list_groups_returns_pagination_payload(monkeypatch):
         tenant_id='tenant-a',
     )
 
+    assert isinstance(result, dict)
     assert result == {'groups': ['g1'], 'total': 3, 'page': 2, 'page_size': 10}
 
 
@@ -54,6 +55,7 @@ def test_create_group_strips_name_and_uses_user_tenant(monkeypatch):
 
     result = _call(group_api.create_group, GroupCreateBody(group_name='  team  ', remark=None, tenant_id=None), user)
 
+    assert isinstance(result, dict)
     assert result == {'group_id': 'group-id'}
     assert calls == [{
         'group_name': 'team',
@@ -78,6 +80,64 @@ def test_get_group_raises_when_service_returns_none(monkeypatch):
         _call(group_api.get_group, str(group_id), object())
 
     assert exc.value.code == 1000402
+
+
+def test_create_group_prefers_body_tenant_id_over_user_tenant(monkeypatch):
+    user = SimpleNamespace(id=uuid.uuid4(), tenant_id='tenant-from-user')
+    calls = []
+    monkeypatch.setattr(group_api.group_service, 'create_group', lambda **kwargs: calls.append(kwargs) or 'group-id')
+
+    result = _call(
+        group_api.create_group,
+        GroupCreateBody(group_name='team', remark='note', tenant_id='tenant-from-body'),
+        user,
+    )
+
+    assert isinstance(result, dict)
+    assert calls == [{
+        'group_name': 'team',
+        'tenant_id': 'tenant-from-body',
+        'remark': 'note',
+        'creator_user_id': user.id,
+    }]
+
+
+def test_add_group_users_defaults_role_to_member(monkeypatch):
+    group_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    operator = SimpleNamespace(id=uuid.uuid4())
+    calls = []
+    monkeypatch.setattr(
+        group_api.group_service,
+        'add_group_users',
+        lambda gid, uids, role, operator_id: calls.append((gid, uids, role, operator_id)),
+    )
+
+    result = _call(
+        group_api.add_group_users,
+        str(group_id),
+        GroupAddUsersBody(user_ids=[str(user_id)], role='   '),
+        operator,
+    )
+
+    assert result == {'ok': True}
+    assert calls == [(group_id, [user_id], 'member', operator.id)]
+
+
+def test_update_group_passes_none_when_group_name_is_missing(monkeypatch):
+    group_id = uuid.uuid4()
+    calls = []
+    monkeypatch.setattr(group_api.group_service, 'update_group', lambda gid, **kwargs: calls.append((gid, kwargs)))
+
+    result = _call(
+        group_api.update_group,
+        str(group_id),
+        GroupUpdateBody(group_name=None, remark='r', tenant_id='tenant-b'),
+        object(),
+    )
+
+    assert result == {'ok': True}
+    assert calls == [(group_id, {'group_name': None, 'remark': 'r', 'tenant_id': 'tenant-b'})]
 
 
 def test_group_crud_and_member_endpoints_delegate_to_service(monkeypatch):

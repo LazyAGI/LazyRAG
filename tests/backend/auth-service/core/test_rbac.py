@@ -50,3 +50,15 @@ def test_permission_required_rejects_missing_user_or_permission(monkeypatch):
     with pytest.raises(AppException) as forbidden:
         rbac.permission_required('user.read')(endpoint)(user)
     assert forbidden.value.code == 1000302
+
+
+def test_permission_required_finds_user_from_kwargs(monkeypatch):
+    def endpoint(*, actor=None):
+        return 'ok'
+
+    user = SimpleNamespace(role=SimpleNamespace(name='member'))
+    monkeypatch.setattr(rbac, 'get_effective_permission_codes', lambda row: {'user.read'})
+
+    result = rbac.permission_required('user.read')(endpoint)(actor=user)
+
+    assert result == 'ok'

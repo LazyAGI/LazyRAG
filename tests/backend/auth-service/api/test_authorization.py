@@ -98,6 +98,20 @@ def test_user_id_from_token_rejects_invalid_tokens(monkeypatch):
     assert exc.value.code == 1000301
 
 
+def test_user_id_from_token_rejects_missing_or_invalid_subject(monkeypatch):
+    monkeypatch.setenv('LAZYRAG_JWT_SECRET', 'test-secret')
+    token_without_sub = authorization_api.jwt.encode({}, 'test-secret', algorithm='HS256')
+    token_with_bad_sub = authorization_api.jwt.encode({'sub': 'not-a-uuid'}, 'test-secret', algorithm='HS256')
+
+    with pytest.raises(AppException) as missing_sub:
+        authorization_api._user_id_from_token(token_without_sub)
+    with pytest.raises(AppException) as bad_sub:
+        authorization_api._user_id_from_token(token_with_bad_sub)
+
+    assert missing_sub.value.code == 1000301
+    assert bad_sub.value.code == 1000301
+
+
 def test_authorize_allows_when_no_permission_is_required(monkeypatch):
     monkeypatch.setattr(authorization_api, 'API_PERMISSIONS_MAP', {})
 
@@ -125,6 +139,7 @@ def test_authorize_checks_bearer_token_and_effective_permissions(monkeypatch):
         _request({'authorization': 'Bearer token-value'}),
     )
 
+    assert isinstance(result, dict)
     assert result == {'allowed': True}
 
 

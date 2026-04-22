@@ -2,6 +2,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from starlette.requests import Request
 from fastapi.security import HTTPAuthorizationCredentials
 from jose import JWTError
 
@@ -54,6 +55,11 @@ def test_current_user_id_requires_credentials(monkeypatch):
         deps.current_user_id(None)
     assert exc.value.code == 1000301
 
+    empty_credentials = HTTPAuthorizationCredentials(scheme='Bearer', credentials='')
+    with pytest.raises(AppException) as empty_exc:
+        deps.current_user_id(empty_credentials)
+    assert empty_exc.value.code == 1000301
+
 
 def test_current_user_loads_enabled_user(monkeypatch):
     user_id = uuid.uuid4()
@@ -90,3 +96,32 @@ def test_require_admin_allows_only_system_admin():
     with pytest.raises(AppException) as exc:
         deps.require_admin(member)
     assert exc.value.code == 1000303
+
+
+def _request(headers=None):
+    return Request({
+        'type': 'http',
+        'method': 'GET',
+        'path': '/internal',
+        'headers': [(key.lower().encode(), value.encode()) for key, value in (headers or {}).items()],
+    })
+
+
+def test_require_internal_service_token_all_branches(monkeypatch):
+    monkeypatch.delenv('LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN', raising=False)
+    with pytest.raises(AppException) as missing_expected:
+        deps.require_internal_service_token(_request({'x-lazyrag-internal-token': 'token'}))
+    assert missing_expected.value.code == 1000302
+
+    monkeypatch.setenv('LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN', 'expected-token')
+    with pytest.raises(AppException) as missing_header:
+        deps.require_internal_service_token(_request())
+    assert missing_header.value.code == 1000301
+
+    with pytest.raises(AppException) as wrong_header:
+        deps.require_internal_service_token(_request({'x-lazyrag-internal-token': 'wrong-token'}))
+    assert wrong_header.value.code == 1000301
+
+    assert deps.require_internal_service_token(
+        _request({'x-lazyrag-internal-token': 'expected-token'})
+    ) is None
