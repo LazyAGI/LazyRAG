@@ -20,6 +20,7 @@ async def chat(
     databases: Optional[List[Dict]] = Body([], description='关联数据库'),  # noqa: B008
     dataset: Optional[str] = Body(DEFAULT_CHAT_DATASET, description='数据库名称'),  # noqa: B008
     priority: Optional[int] = Body(None, description='请求优先级，用于vllm调度。数值越大优先级越高'),  # noqa: B008
+    user_id: Optional[str] = Body(None, description='用户ID，用于加载该用户的专有词表'),  # noqa: B008
     *,
     request: Request,
 ):
@@ -36,4 +37,5 @@ async def chat(
         dataset=dataset,
         priority=priority,
         is_stream=is_stream,
+        user_id=user_id,
     )

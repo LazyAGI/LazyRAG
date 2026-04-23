@@ -1,12 +1,13 @@
-"""vocab_routes: 词表热更新 API。
+"""vocab_routes: 词表热更新 API（支持多用户）。
+
+后端在用户修改同义词族后调用此接口，算法服务从数据库重新加载对应用户的词表
+并重建 AC 自动机。
 
 POST /api/vocab/reload
-    Body（可选）: {"file_path": "/path/to/vocab.json"}
-    Response:    {"status": "ok", "vocab_size": <int>}
+    Body: {"user_id": "user_001"}
+    Response: {"status": "ok", "vocab_size": <int>, "user_id": "<str>"}
 """
 from __future__ import annotations
-
-from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -17,15 +18,15 @@ router = APIRouter()
 
 
 class VocabReloadRequest(BaseModel):
-    file_path: Optional[str] = None
+    user_id: str = ''
 
 
-@router.post('/api/vocab/reload', summary='热更新词表')
+@router.post('/api/vocab/reload', summary='热更新指定用户的词表')
 async def reload_vocab(body: VocabReloadRequest = VocabReloadRequest()):  # noqa: B008
-    """重新从词表文件加载词汇并重建 AC 自动机。
+    """从 lazyrag_vocab 表重新加载指定用户的词汇并重建 AC 自动机。
 
-    - **file_path**: 可选，指定新词表文件路径；不传则沿用当前配置路径。
+    - **user_id**: 用户ID（对应 lazyrag_vocab.create_user_id）。
     """
-    manager = get_vocab_manager()
-    count = manager.reload(file_path=body.file_path)
-    return {'status': 'ok', 'vocab_size': count}
+    manager = get_vocab_manager(body.user_id)
+    count = manager.reload()
+    return {'status': 'ok', 'vocab_size': count, 'user_id': body.user_id}

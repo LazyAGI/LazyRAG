@@ -25,7 +25,7 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
 
     with lazyllm.save_pipeline_result():
         with pipeline() as search_ppl:
-            search_ppl.parse_input = lambda x: get_vocab_manager()(x['query'])
+            search_ppl.parse_input = lambda x: get_vocab_manager(x.get('user_id', ''))(x['query'])
             search_ppl.divert = ifs(
                 (lambda _, x: bool(x.get('files'))) | bind(x=search_ppl.input),
                 tpath=tmp_retriever | bind(files=search_ppl.input['files']),

@@ -1,86 +1,74 @@
-"""VocabManager: 词表管理器，封装 QueryEnhACProcessor，支持热更新。
+"""VocabManager: 多用户词表管理器，封装 QueryEnhACProcessor，支持热更新。
 
-词表文件格式（JSON 数组）：
-    [
-        {"cluster_id": "cx", "word": "民法"},
-        {"cluster_id": "cx", "word": "民事法律"}
-    ]
+每个用户（create_user_id）维护独立的 QueryEnhACProcessor 实例，词表数据从
+PostgreSQL lazyrag_vocab 表中按 user_id 查询。
+
+用法：
+    # 后端通知算法服务热更新某用户词表
+    get_vocab_manager('user_001').reload()
+
+    # 检索前对 query 进行词表增强（pipeline 中使用）
+    enhanced = get_vocab_manager('user_001')('用户的 query 文本')
 
 环境变量：
-    LAZYRAG_VOCAB_FILE_PATH  词表 JSON 文件路径（默认 /var/lib/lazyrag/uploads/vocab.json）
+    LAZYRAG_DATABASE_URL  PostgreSQL 连接 URL
 """
 from __future__ import annotations
 
-import json
-import os
 import threading
-from typing import Optional, Union
+from typing import Callable, List, Optional, Union
 
 from lazyllm import LOG
 from lazyllm.tools.rag.query_enh_ac import QueryEnhACProcessor
 
-_VOCAB_FILE_ENV = 'LAZYRAG_VOCAB_FILE_PATH'
-_DEFAULT_VOCAB_FILE = '/var/lib/lazyrag/uploads/vocab.json'
+from .db import fetch_vocab_for_user
 
 
 class VocabManager:
-    """线程安全的词表管理器，持有 QueryEnhACProcessor 单例并支持热更新。"""
+    """单用户词表管理器：绑定一个 user_id，从 DB 加载词表，支持热更新。
 
-    def __init__(self) -> None:
+    Args:
+        user_id:     用户标识（对应 lazyrag_vocab.create_user_id）。
+        data_source: 可选，自定义数据源（callable 或 list）；
+                     主要用于测试，省略时从数据库加载。
+    """
+
+    def __init__(self, user_id: str = '', *, data_source: Optional[Callable] = None) -> None:
+        self._user_id = user_id
         self._lock = threading.RLock()
-        self._file_path: str = os.getenv(_VOCAB_FILE_ENV, _DEFAULT_VOCAB_FILE)
+        actual_source = data_source if data_source is not None else self._load_from_db
         self._proc = QueryEnhACProcessor(
-            data_source=self._load_vocab_file,
+            data_source=actual_source,
             discriminator=None,
         )
-        LOG.info(f'[VocabManager] initialized, vocab_file={self._file_path}')
+        LOG.info(f'[VocabManager] initialized for user={user_id!r}, vocab_size={self.vocab_size}')
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _load_vocab_file(self) -> list:
-        """从 self._file_path 加载词表，返回记录列表；文件不存在时返回空列表。"""
-        path = self._file_path
-        try:
-            with open(path, 'r', encoding='utf-8') as fh:
-                data = json.load(fh)
-            if not isinstance(data, list):
-                LOG.warning(f'[VocabManager] vocab file root must be a JSON array, got {type(data)}; ignoring.')
-                return []
-            LOG.info(f'[VocabManager] loaded {len(data)} vocab entries from {path}')
-            return data
-        except FileNotFoundError:
-            LOG.warning(f'[VocabManager] vocab file not found: {path}; using empty vocab.')
-            return []
-        except Exception as exc:
-            LOG.error(f'[VocabManager] failed to load vocab file {path}: {exc}')
-            return []
+    def _load_from_db(self) -> List[dict]:
+        """从 lazyrag_vocab 加载当前用户的词表行，字段格式与 QueryEnhACProcessor 匹配。"""
+        return fetch_vocab_for_user(self._user_id)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def reload(self, file_path: Optional[str] = None) -> int:
-        """热更新词表。
-
-        Args:
-            file_path: 可选，指定新的词表文件路径；不传则沿用上次路径。
+    def reload(self) -> int:
+        """热更新：从数据库重新查询词表并重建 AC 自动机。
 
         Returns:
             更新后词表中 word 的总数。
         """
         with self._lock:
-            if file_path:
-                self._file_path = file_path
-                LOG.info(f'[VocabManager] vocab file path updated to {self._file_path}')
-            self._proc.update_data_source(self._load_vocab_file)
+            self._proc.update_data_source(self._load_from_db)
             count = len(self._proc.word_to_cluster)
-            LOG.info(f'[VocabManager] reloaded, vocab_size={count}')
+            LOG.info(f'[VocabManager] reloaded for user={self._user_id!r}, vocab_size={count}')
             return count
 
     def __call__(self, query: Union[str, list]) -> Union[str, list]:
-        """对 query 进行词表增强后返回；未命中或 discriminator 为 None 时原样返回。"""
+        """对 query 进行词表增强后返回；词表为空或 discriminator=None 时原样返回。"""
         with self._lock:
             return self._proc(query)
 
@@ -91,23 +79,33 @@ class VocabManager:
             return len(self._proc.word_to_cluster)
 
     @property
-    def file_path(self) -> str:
-        return self._file_path
+    def user_id(self) -> str:
+        return self._user_id
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton
+# Multi-user registry（替换原来的模块级单例）
 # ---------------------------------------------------------------------------
 
-_manager: Optional[VocabManager] = None
-_init_lock = threading.Lock()
+_registry: dict = {}
+_registry_lock = threading.Lock()
 
 
-def get_vocab_manager() -> VocabManager:
-    """返回全局 VocabManager 单例（惰性初始化）。"""
-    global _manager
-    if _manager is None:
-        with _init_lock:
-            if _manager is None:
-                _manager = VocabManager()
-    return _manager
+def get_vocab_manager(user_id: str = '') -> VocabManager:
+    """返回 user_id 对应的 VocabManager（惰性初始化，每个 user_id 一个实例）。
+
+    Args:
+        user_id: 用户标识，对应 lazyrag_vocab.create_user_id。
+                 传空字符串时返回"无用户"的默认管理器（词表通常为空）。
+    """
+    if user_id not in _registry:
+        with _registry_lock:
+            if user_id not in _registry:
+                _registry[user_id] = VocabManager(user_id)
+    return _registry[user_id]
+
+
+def clear_registry() -> None:
+    """清空注册表（仅用于测试，确保用例间互相隔离）。"""
+    with _registry_lock:
+        _registry.clear()

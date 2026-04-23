@@ -1,17 +1,27 @@
-"""Tests for VocabManager and vocab hot-reload API.
+"""Tests for multi-user VocabManager and vocab hot-reload API.
 
-Tests cover:
-- VocabManager returns query unchanged when vocab is empty
-- VocabManager.reload() updates vocab from a JSON file
-- VocabManager.reload() with a new file_path
-- VocabManager.reload() gracefully handles missing / malformed files
-- VocabManager.__call__() passes through to QueryEnhACProcessor
-- Thread-safety: concurrent reload + call does not raise
-- FastAPI route POST /api/vocab/reload returns correct response
+Test categories
+---------------
+- TestVocabManagerBasic        : single-user VocabManager with injected data_source
+- TestVocabManagerReload       : reload() refreshes the AC automaton
+- TestVocabRegistry            : get_vocab_manager() per-user isolation
+- TestVocabManagerThreadSafety : concurrent reload + call
+- TestVocabReloadRoute         : FastAPI POST /api/vocab/reload
+- TestVocabDBIntegration       : real PostgreSQL queries (requires LAZYRAG_DATABASE_URL)
+
+Run (from repo root, with lazyllm env activated):
+    source activate lazyllm
+    cd LazyLLM && export PYTHONPATH=$PWD:$PYTHONPATH && cd ../LazyRAG
+    python -m pytest tests/algorithm/test_vocab_manager.py -v
+
+Integration tests only:
+    LAZYRAG_DATABASE_URL=postgresql://root:123456@10.119.24.129:5432/app \
+        python -m pytest tests/algorithm/test_vocab_manager.py -v -m integration
 """
 from __future__ import annotations
 
-import json
+import importlib
+import os as _os
 import sys
 import threading
 from unittest.mock import MagicMock, patch
@@ -19,142 +29,189 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
-# Ensure algorithm/ is on sys.path so `from vocab...` and `from chat...` work.
-# The conftest.py in this directory already does this, but be explicit in case
-# the file is run directly.
+# Ensure algorithm/ is on sys.path
 # ---------------------------------------------------------------------------
-import os as _os
-
 _ALGO = _os.path.join(_os.path.dirname(__file__), '..', '..', 'algorithm')
 if _ALGO not in sys.path:
     sys.path.insert(0, _ALGO)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_vocab(tmp_path, rows: list) -> str:
-    tmp_path = _os.path.join(str(tmp_path))  # accept both Path and str
-    _os.makedirs(tmp_path, exist_ok=True)
-    import pathlib
-    p = pathlib.Path(tmp_path) / 'vocab.json'
-    p.write_text(json.dumps(rows, ensure_ascii=False), encoding='utf-8')
-    return str(p)
+_SAMPLE_ROWS_USER1 = [
+    {'word': '苹果',  'cluster_id': '01'},
+    {'word': 'apple', 'cluster_id': '01'},
+    {'word': '苹果',  'cluster_id': '02'},   # same word, different cluster
+    {'word': 'apple', 'cluster_id': '02'},
+]
+
+_SAMPLE_ROWS_USER2 = [
+    {'word': '民法',    'cluster_id': 'g1'},
+    {'word': '民事法律','cluster_id': 'g1'},
+]
 
 
-def _fresh_manager(vocab_file: str = ''):
-    """Create an isolated VocabManager (bypasses the global singleton)."""
+def _make_manager(rows: list, user_id: str = 'test_user'):
+    """Create an isolated VocabManager using an in-memory data_source (no DB)."""
     from vocab.vocab_manager import VocabManager
-    with patch.dict(_os.environ, {'LAZYRAG_VOCAB_FILE_PATH': vocab_file}):
-        mgr = VocabManager()
-    return mgr
+    return VocabManager(user_id=user_id, data_source=rows)
+
+
+def _reset_registry():
+    """Clear the global registry between tests."""
+    from vocab.vocab_manager import clear_registry
+    clear_registry()
 
 
 # ---------------------------------------------------------------------------
-# VocabManager unit tests
+# TestVocabManagerBasic
 # ---------------------------------------------------------------------------
 
 class TestVocabManagerBasic:
 
-    def test_empty_vocab_query_unchanged(self, tmp_path):
-        """With no vocab file / empty vocab the query passes through unchanged."""
-        path = _make_vocab(tmp_path, [])
-        mgr = _fresh_manager(path)
+    def test_empty_vocab_query_unchanged(self):
+        mgr = _make_manager([])
         assert mgr('任意查询') == '任意查询'
         assert mgr(['a', 'b']) == ['a', 'b']
 
-    def test_vocab_size_reflects_loaded_entries(self, tmp_path):
-        rows = [
-            {'cluster_id': 'c1', 'word': 'alpha'},
-            {'cluster_id': 'c1', 'word': 'beta'},
-            {'cluster_id': 'c2', 'word': 'gamma'},
-        ]
-        path = _make_vocab(tmp_path, rows)
-        mgr = _fresh_manager(path)
-        assert mgr.vocab_size == 3
+    def test_vocab_size_reflects_loaded_entries(self):
+        mgr = _make_manager(_SAMPLE_ROWS_USER1)
+        # word_to_cluster key is the word string; 苹果/apple appear in two clusters
+        # but QueryEnhACProcessor deduplicates by word (last wins)
+        assert mgr.vocab_size == 2  # unique words: '苹果', 'apple'
 
-    def test_file_path_property(self, tmp_path):
-        path = _make_vocab(tmp_path, [])
-        mgr = _fresh_manager(path)
-        assert mgr.file_path == path
+    def test_user_id_property(self):
+        mgr = _make_manager([], user_id='alice')
+        assert mgr.user_id == 'alice'
 
-    def test_missing_vocab_file_returns_empty_vocab(self, tmp_path):
-        missing = str(tmp_path / 'nonexistent.json')
-        mgr = _fresh_manager(missing)
-        assert mgr.vocab_size == 0
-        assert mgr('hello') == 'hello'
+    def test_call_with_string_no_discriminator(self):
+        """With discriminator=None, AC matches are skipped → query unchanged."""
+        mgr = _make_manager(_SAMPLE_ROWS_USER2)
+        # discriminator=None means words are detected but enhancement is skipped
+        result = mgr('关于民法的问题')
+        assert isinstance(result, str)
 
-    def test_malformed_vocab_file_returns_empty_vocab(self, tmp_path):
-        bad = tmp_path / 'bad.json'
-        bad.write_text('not valid json', encoding='utf-8')
-        mgr = _fresh_manager(str(bad))
-        assert mgr.vocab_size == 0
+    def test_call_with_list(self):
+        mgr = _make_manager([])
+        result = mgr(['query1', 'query2'])
+        assert result == ['query1', 'query2']
 
-    def test_non_list_root_vocab_file_returns_empty_vocab(self, tmp_path):
-        p = tmp_path / 'obj.json'
-        p.write_text('{"key": "value"}', encoding='utf-8')
-        mgr = _fresh_manager(str(p))
-        assert mgr.vocab_size == 0
 
+# ---------------------------------------------------------------------------
+# TestVocabManagerReload
+# ---------------------------------------------------------------------------
 
 class TestVocabManagerReload:
 
-    def test_reload_updates_vocab(self, tmp_path):
-        empty = _make_vocab(tmp_path, [])
-        mgr = _fresh_manager(empty)
+    def test_reload_updates_vocab(self):
+        mgr = _make_manager([], user_id='u_reload')
         assert mgr.vocab_size == 0
 
-        rows = [
-            {'cluster_id': 'k', 'word': 'reloadtoken'},
-            {'cluster_id': 'k', 'word': 'reload_alias'},
+        new_rows = [
+            {'word': 'alpha', 'cluster_id': 'c1'},
+            {'word': 'beta',  'cluster_id': 'c1'},
         ]
-        full = _make_vocab(tmp_path, rows)
-        count = mgr.reload(file_path=full)
+        # Patch _load_from_db so reload() reads new_rows
+        with patch.object(mgr, '_load_from_db', return_value=new_rows):
+            count = mgr.reload()
         assert count == 2
         assert mgr.vocab_size == 2
 
-    def test_reload_without_new_path_reuses_current_path(self, tmp_path):
-        rows = [{'cluster_id': 'x', 'word': 'tok'}]
-        path = _make_vocab(tmp_path, rows)
-        mgr = _fresh_manager(path)
-        assert mgr.vocab_size == 1
-        count = mgr.reload()
-        assert count == 1
-
-    def test_reload_with_new_path_updates_file_path(self, tmp_path):
-        old = _make_vocab(tmp_path, [])
-        mgr = _fresh_manager(old)
-
-        new_rows = [{'cluster_id': 'y', 'word': 'newtok'}]
-        new_path = _make_vocab(tmp_path / 'sub', new_rows)  # sub dir created by tmp_path fixture
-        mgr.reload(file_path=new_path)
-        assert mgr.file_path == new_path
+    def test_reload_clears_stale_vocab(self):
+        old_rows = [{'word': 'stale', 'cluster_id': 'x'}]
+        mgr = _make_manager(old_rows)
         assert mgr.vocab_size == 1
 
-    def test_reload_missing_file_empties_vocab(self, tmp_path):
-        rows = [{'cluster_id': 'z', 'word': 'exists'}]
-        path = _make_vocab(tmp_path, rows)
-        mgr = _fresh_manager(path)
-        assert mgr.vocab_size == 1
+        with patch.object(mgr, '_load_from_db', return_value=[]):
+            mgr.reload()
+        assert mgr.vocab_size == 0
 
-        mgr.reload(file_path=str(tmp_path / 'gone.json'))
+    def test_reload_without_db_returns_zero(self):
+        """When DB returns empty, reload gives vocab_size=0."""
+        mgr = _make_manager([{'word': 'existing', 'cluster_id': 'x'}])
+        assert mgr.vocab_size == 1
+        # Patch the module-level fetch_vocab_for_user that _load_from_db calls
+        with patch('vocab.vocab_manager.fetch_vocab_for_user', return_value=[]):
+            mgr.reload()
         assert mgr.vocab_size == 0
 
 
+# ---------------------------------------------------------------------------
+# TestVocabRegistry
+# ---------------------------------------------------------------------------
+
+class TestVocabRegistry:
+
+    def setup_method(self):
+        _reset_registry()
+
+    def teardown_method(self):
+        _reset_registry()
+
+    def test_different_users_get_different_managers(self):
+        from vocab.vocab_manager import get_vocab_manager
+        with patch('vocab.vocab_manager.fetch_vocab_for_user', return_value=[]):
+            mgr_a = get_vocab_manager('alice')
+            mgr_b = get_vocab_manager('bob')
+        assert mgr_a is not mgr_b
+        assert mgr_a.user_id == 'alice'
+        assert mgr_b.user_id == 'bob'
+
+    def test_same_user_gets_same_manager_instance(self):
+        from vocab.vocab_manager import get_vocab_manager
+        with patch('vocab.vocab_manager.fetch_vocab_for_user', return_value=[]):
+            mgr1 = get_vocab_manager('charlie')
+            mgr2 = get_vocab_manager('charlie')
+        assert mgr1 is mgr2
+
+    def test_user_isolation_vocab_does_not_bleed(self):
+        """user_001's vocab should not affect user_002's query."""
+        from vocab.vocab_manager import get_vocab_manager
+
+        def _side_effect(uid):
+            return _SAMPLE_ROWS_USER1 if uid == 'user_001' else _SAMPLE_ROWS_USER2
+
+        # patch the name used inside vocab_manager.py (from .db import fetch_vocab_for_user)
+        with patch('vocab.vocab_manager.fetch_vocab_for_user', side_effect=_side_effect):
+            mgr1 = get_vocab_manager('user_001')
+            mgr2 = get_vocab_manager('user_002')
+
+        # user_001 has '苹果'/'apple' — user_002 should NOT
+        assert '苹果' in mgr1._proc.word_to_cluster
+        assert '苹果' not in mgr2._proc.word_to_cluster
+
+        # user_002 has '民法' — user_001 should NOT
+        assert '民法' in mgr2._proc.word_to_cluster
+        assert '民法' not in mgr1._proc.word_to_cluster
+
+    def test_empty_user_id_allowed(self):
+        from vocab.vocab_manager import get_vocab_manager
+        with patch('vocab.vocab_manager.fetch_vocab_for_user', return_value=[]):
+            mgr = get_vocab_manager('')
+        assert mgr.user_id == ''
+        assert mgr.vocab_size == 0
+
+
+# ---------------------------------------------------------------------------
+# TestVocabManagerThreadSafety
+# ---------------------------------------------------------------------------
+
 class TestVocabManagerThreadSafety:
 
-    def test_concurrent_reload_and_call_no_exception(self, tmp_path):
-        rows = [{'cluster_id': 'th', 'word': 'threadtok'}]
-        path = _make_vocab(tmp_path, rows)
-        mgr = _fresh_manager(path)
-
+    def test_concurrent_reload_and_call_no_exception(self):  # noqa: D401
+        rows = [
+            {'word': 'threadtok', 'cluster_id': 'th'},
+            {'word': 'tok2',      'cluster_id': 'th'},
+        ]
+        mgr = _make_manager(rows, user_id='thread_user')
         errors: list = []
 
         def _reload():
             try:
                 for _ in range(20):
-                    mgr.reload()
+                    with patch.object(mgr, '_load_from_db', return_value=rows):
+                        mgr.reload()
             except Exception as exc:  # pragma: no cover
                 errors.append(exc)
 
@@ -176,65 +233,142 @@ class TestVocabManagerThreadSafety:
 
 
 # ---------------------------------------------------------------------------
-# FastAPI route tests
+# TestVocabReloadRoute
 # ---------------------------------------------------------------------------
 
 class TestVocabReloadRoute:
 
     @pytest.fixture()
-    def app(self, tmp_path):
+    def client(self, tmp_path):
         """Build a minimal FastAPI test app with vocab_routes registered."""
-        import importlib.util
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
         test_app = FastAPI()
 
-        # Patch get_vocab_manager to return an isolated manager so tests are
-        # independent of the global singleton.
-        rows = [{'cluster_id': 'r', 'word': 'routetok'}]
-        vocab_file = _make_vocab(tmp_path, rows)
-        with patch.dict(_os.environ, {'LAZYRAG_VOCAB_FILE_PATH': vocab_file}):
-            from vocab.vocab_manager import VocabManager
-            mock_mgr = VocabManager()
-
-        # Import vocab_routes directly (bypassing chat.app.api.__init__ which
-        # would trigger the full ChatServer singleton requiring model files).
+        # Load vocab_routes without triggering ChatServer (which needs model files)
         _routes_file = _os.path.join(_ALGO, 'chat', 'app', 'api', 'vocab_routes.py')
         spec = importlib.util.spec_from_file_location('_vocab_routes_test', _routes_file)
         vocab_routes_mod = importlib.util.module_from_spec(spec)
 
+        # Patch get_vocab_manager inside the routes module
+        mock_mgr = MagicMock()
+        mock_mgr.reload.return_value = 3
+
         with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr):
             spec.loader.exec_module(vocab_routes_mod)
             test_app.include_router(vocab_routes_mod.router)
-            client = TestClient(test_app)
-            yield client, mock_mgr
 
-    def test_reload_returns_ok(self, app):
-        client, _ = app
-        resp = client.post('/api/vocab/reload')
+        yield TestClient(test_app), mock_mgr
+
+    def test_reload_returns_ok_with_user_id(self, client):
+        tc, mock_mgr = client
+        resp = tc.post('/api/vocab/reload', json={'user_id': 'user_001'})
         assert resp.status_code == 200
         body = resp.json()
         assert body['status'] == 'ok'
+        assert body['user_id'] == 'user_001'
         assert isinstance(body['vocab_size'], int)
 
-    def test_reload_with_new_file_path(self, app, tmp_path):
-        client, mgr = app
-        new_rows = [
-            {'cluster_id': 'nr', 'word': 'newtok1'},
-            {'cluster_id': 'nr', 'word': 'newtok2'},
-        ]
-        new_file = _make_vocab(tmp_path / 'new', new_rows)
-        resp = client.post('/api/vocab/reload', json={'file_path': new_file})
+    def test_reload_default_empty_user_id(self, client):
+        tc, _ = client
+        resp = tc.post('/api/vocab/reload')
         assert resp.status_code == 200
-        body = resp.json()
-        assert body['status'] == 'ok'
-        assert body['vocab_size'] == 2
-        assert mgr.file_path == new_file
+        assert resp.json()['user_id'] == ''
 
-    def test_reload_missing_file_returns_zero_size(self, app, tmp_path):
-        client, _ = app
-        missing = str(tmp_path / 'nope.json')
-        resp = client.post('/api/vocab/reload', json={'file_path': missing})
-        assert resp.status_code == 200
-        assert resp.json()['vocab_size'] == 0
+    def test_reload_different_users_call_respective_manager(self, tmp_path):
+        """Each user_id triggers reload on its own VocabManager instance."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from vocab.vocab_manager import clear_registry
+
+        clear_registry()
+
+        test_app = FastAPI()
+        _routes_file = _os.path.join(_ALGO, 'chat', 'app', 'api', 'vocab_routes.py')
+        spec = importlib.util.spec_from_file_location('_vocab_routes_multi', _routes_file)
+        vocab_routes_mod = importlib.util.module_from_spec(spec)
+
+        called_users: list = []
+
+        def fake_get_manager(uid=''):
+            called_users.append(uid)
+            m = MagicMock()
+            m.reload.return_value = 0
+            return m
+
+        with patch('vocab.vocab_manager.get_vocab_manager', side_effect=fake_get_manager):
+            spec.loader.exec_module(vocab_routes_mod)
+            test_app.include_router(vocab_routes_mod.router)
+            tc = TestClient(test_app)
+            tc.post('/api/vocab/reload', json={'user_id': 'alice'})
+            tc.post('/api/vocab/reload', json={'user_id': 'bob'})
+
+        assert 'alice' in called_users
+        assert 'bob' in called_users
+        clear_registry()
+
+
+# ---------------------------------------------------------------------------
+# TestVocabDBIntegration  (requires real DB — skipped when env var absent)
+# ---------------------------------------------------------------------------
+
+_DB_URL = _os.getenv('LAZYRAG_DATABASE_URL', '')
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _DB_URL, reason='LAZYRAG_DATABASE_URL not set')
+class TestVocabDBIntegration:
+    """Integration tests that hit the real lazyrag_vocab table."""
+
+    def test_fetch_vocab_for_user001(self):
+        from vocab.db import fetch_vocab_for_user
+        rows = fetch_vocab_for_user('user_001')
+        assert len(rows) >= 4, f'expected ≥4 rows for user_001, got {rows}'
+        words = {r['word'] for r in rows}
+        assert '苹果' in words
+        assert 'apple' in words
+
+    def test_fetch_vocab_for_user002(self):
+        from vocab.db import fetch_vocab_for_user
+        rows = fetch_vocab_for_user('user_002')
+        words = {r['word'] for r in rows}
+        assert '民法' in words
+        assert '民事法律' in words
+
+    def test_fetch_vocab_unknown_user_returns_empty(self):
+        from vocab.db import fetch_vocab_for_user
+        rows = fetch_vocab_for_user('__nonexistent_user_xyz__')
+        assert rows == []
+
+    def test_vocab_manager_loads_from_db(self):
+        _reset_registry()
+        from vocab.vocab_manager import get_vocab_manager
+        mgr = get_vocab_manager('user_001')
+        assert mgr.vocab_size >= 2   # at least 苹果, apple (deduped by word)
+        _reset_registry()
+
+    def test_reload_reads_db(self):
+        _reset_registry()
+        from vocab.vocab_manager import get_vocab_manager
+        mgr = get_vocab_manager('user_002')
+        count = mgr.reload()
+        assert count >= 2
+        _reset_registry()
+
+    def test_user_isolation_in_full_stack(self):
+        """user_001 and user_002 managers are completely independent."""
+        _reset_registry()
+        from vocab.vocab_manager import get_vocab_manager
+        mgr1 = get_vocab_manager('user_001')
+        mgr2 = get_vocab_manager('user_002')
+
+        assert '苹果'    in mgr1._proc.word_to_cluster
+        assert '苹果'    not in mgr2._proc.word_to_cluster
+        assert '民法'    in mgr2._proc.word_to_cluster
+        assert '民法'    not in mgr1._proc.word_to_cluster
+        _reset_registry()
+
+
+
+
