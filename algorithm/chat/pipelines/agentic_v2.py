@@ -32,6 +32,7 @@ from chat.prompts.agentic_v2 import (
     DEFAULT_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
     SKILLS_GUIDANCE,
+    TOOL_CALL_STATUS_GUIDANCE,
     TOOL_USE_ENFORCEMENT_GUIDANCE,
     _SKILL_REVIEW_PROMPT,
     _MEMORY_REVIEW_PROMPT,
@@ -61,10 +62,9 @@ AVAILABLE_TOOLS = [
 CITATION_GUIDANCE = '''# Citation Rules
 When using evidence returned by knowledge-base tools, cite it with the exact `ref` marker from the tool result, such as `[[1]]`.
 Put the citation immediately after the supported sentence or paragraph.
-Do not put citation markers inside `<think>` or reasoning content.
 Do not invent citation numbers. Do not rewrite `[[n]]` into links yourself.
 使用知识库工具返回的证据作答时，必须使用工具结果中的原始 `ref` 标记（如 `[[1]]`）作为引用。
-引用应紧跟被该证据支持的句子或段落；不要在 `<think>` 或推理内容中写引用标记；不要自造编号，也不要自己把 `[[n]]` 改写成链接。'''
+引用应紧跟被该证据支持的句子或段落；不要自造编号，也不要自己把 `[[n]]` 改写成链接。'''
 
 _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
@@ -87,6 +87,16 @@ _REVIEW_PROMPTS: dict[str, str] = {
     'combined': _COMBINED_REVIEW_PROMPT,
 }
 
+_REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
+    'kb_search': 'query',
+    'kb_get_parent_node': 'node_id',
+    'kb_get_window_nodes': 'number',
+    'kb_keyword_search': 'keyword',
+    'memory': 'target',
+    'skill_manage': 'name',
+}
+
+
 def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
     function = tool_call.get('function') or {}
     arguments = function.get('arguments', {})
@@ -99,6 +109,13 @@ def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
         'name': function.get('name', ''),
         'arguments': arguments,
     }
+
+
+def _representative_tool_argument(tool_name: str, arguments: Any) -> Any:
+    key = _REPRESENTATIVE_TOOL_ARGUMENTS.get(tool_name)
+    if not key or not isinstance(arguments, dict):
+        return arguments
+    return arguments.get(key, '')
 
 
 class _StreamingFunctionCall(FunctionCall):
@@ -245,6 +262,8 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
         tool_guidance.append(SKILLS_GUIDANCE)
     if tool_guidance:
         prompt_parts.append(' '.join(tool_guidance))
+    if available_tools:
+        prompt_parts.append(TOOL_CALL_STATUS_GUIDANCE)
     if any(tool.startswith('kb_') for tool in available_tools):
         prompt_parts.append(CITATION_GUIDANCE)
 
@@ -280,10 +299,6 @@ def _rewrite_citations(text: str, config: dict) -> tuple[str, list[dict[str, Any
     return _CITATION_PATTERN.sub(_replace, text), list(collected.values())
 
 
-def _strip_citation_markers(text: str) -> str:
-    return _CITATION_PATTERN.sub('', text or '')
-
-
 def _split_think_and_body(raw_text: str, existing_think: Any = '') -> tuple[str, str]:
     think_parts: list[str] = []
     if existing_think:
@@ -305,7 +320,7 @@ def _split_think_and_body(raw_text: str, existing_think: Any = '') -> tuple[str,
             body = before
     body = body.replace('</think>', '')
     think = '\n'.join(part.strip() for part in think_parts if str(part).strip())
-    return _strip_citation_markers(think).strip(), body
+    return think.strip(), body
 
 
 def _format_non_stream_result(result: Any, config: dict) -> dict[str, Any]:
@@ -343,6 +358,29 @@ def _stream_frame(
     if extra:
         frame.update(extra)
     return frame
+
+
+def _format_tool_stream_frame(tool_event: dict[str, Any]) -> Optional[dict[str, Any]]:
+    tool_calls = tool_event.get('tool_calls') or []
+    if not tool_calls:
+        return None
+
+    _, visible_content = _split_think_and_body(str(tool_event.get('content') or ''))
+    tools = [
+        {
+            'name': tool_call.get('name', ''),
+            'argument': _representative_tool_argument(
+                tool_call.get('name', ''),
+                tool_call.get('arguments', {}),
+            ),
+        }
+        for tool_call in tool_calls
+        if isinstance(tool_call, dict)
+    ]
+    return _stream_frame(
+        think=visible_content.strip(),
+        extra={'tools': tools},
+    )
 
 
 def _iter_text_chunks(text: str, chunk_size: int = _STREAM_CHUNK_SIZE):
@@ -593,17 +631,10 @@ async def _agentic_forward_stream(
                 final_result = event.get('result')
             elif isinstance(event, dict) and event.get('type') == 'tool_event':
                 tool_event = event.get('event') or {}
-                tool_calls = tool_event.get('tool_calls') or []
-                if not tool_calls:
+                frame = _format_tool_stream_frame(tool_event)
+                if frame is None:
                     continue
-                yield _stream_frame(
-                    text=str(tool_event.get('content') or ''),
-                    extra={
-                        'event_type': 'tool',
-                        'round': tool_event.get('round'),
-                        'tool_calls': tool_calls,
-                    },
-                )
+                yield frame
 
         elapsed_s = int(time.time() - started_at)
         output = _format_non_stream_result(final_result, runtime_params)

@@ -229,6 +229,76 @@ def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
     )
 
 
+def test_tool_stream_frame_moves_visible_content_to_think():
+    frame = agentic_v2._format_tool_stream_frame({
+        'round': 3,
+        'content': (
+            '<think>参考文件不存在。让我检查一下skill目录中实际有哪些文件。\n'
+            '</think>\n\n让我查看技能目录中有哪些可用的参考文件：\n'
+        ),
+        'tool_calls': [{
+            'name': 'run_script',
+            'arguments': {
+                'name': 'railway-foundation-bearing-capacity-review',
+                'rel_path': 'scripts/list_files.sh',
+            },
+        }],
+    })
+
+    assert frame == {
+        'think': '让我查看技能目录中有哪些可用的参考文件：',
+        'text': None,
+        'sources': [],
+        'tools': [{
+            'name': 'run_script',
+            'argument': {
+                'name': 'railway-foundation-bearing-capacity-review',
+                'rel_path': 'scripts/list_files.sh',
+            },
+        }],
+    }
+
+
+def test_tool_stream_frame_uses_representative_kb_arguments():
+    frame = agentic_v2._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'tool_calls': [
+            {
+                'name': 'kb_search',
+                'arguments': {
+                    'query': '全风化 软岩 风化岩分组 地基承载力 σ0 表',
+                    'topk': 15,
+                },
+            },
+            {
+                'name': 'kb_get_window_nodes',
+                'arguments': {
+                    'docid': 'doc_7e052315556b40323f5007c5b9f549ab',
+                    'number': '36',
+                    'group': 'block',
+                },
+            },
+        ],
+    })
+
+    assert frame == {
+        'think': '',
+        'text': None,
+        'sources': [],
+        'tools': [
+            {
+                'name': 'kb_search',
+                'argument': '全风化 软岩 风化岩分组 地基承载力 σ0 表',
+            },
+            {
+                'name': 'kb_get_window_nodes',
+                'argument': '36',
+            },
+        ],
+    }
+
+
 def test_review_debug_forces_combined(monkeypatch):
     monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
 

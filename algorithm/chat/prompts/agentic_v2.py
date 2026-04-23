@@ -37,6 +37,11 @@ SKILLS_GUIDANCE = (
     "- action='remove': when a skill is superseded or no longer correct, request "
     "its deletion by name (no `content` / `suggestions`)."
 )
+TOOL_CALL_STATUS_GUIDANCE = (
+    "Before calling a tool, write one concise, user-visible sentence explaining "
+    "what you are about to do. Keep it action-oriented and do not reveal hidden "
+    "reasoning. Then make the tool call in the same response."
+)
 TOOL_USE_ENFORCEMENT_GUIDANCE = (
     "# Tool-use enforcement\n"
     "You MUST use your tools to take action. Do not describe what you plan to do "

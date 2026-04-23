@@ -80,3 +80,4 @@ volumes/
 .conda
 AGENTS.md
 algorithm/.agentic_rag/
+version.*
