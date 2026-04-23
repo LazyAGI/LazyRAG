@@ -7,9 +7,9 @@
 llm:
   source: openai
   type: llm
-  model: lazyllm
-  url: http://10.119.29.126:25121/v1/
-  skip_auth: true
+  model: minimax-m27
+  url: http://106.75.235.251:9000/v1/
+  api_key: ${LAZYLLM_MINIMAX_API_KEY}
 
 # Instruction / reasoning LLM.
 # Previously aligned with: qwen3_moe_custom
@@ -65,9 +65,18 @@ retrieval:
   # Uncomment below only if you need to pin an explicit multi-route order.
   # retriever_configs:
   #   - group_name: line
-  #     embed_keys: [embed_1]
+  #     embed_keys: [bge_m3_dense]
   #     topk: 20
   #     target: block
   #   - group_name: block
-  #     embed_keys: [embed_1]
+  #     embed_keys: [bge_m3_dense]
   #     topk: 20
+
+agentic_v2:
+  kb_url: http://10.119.24.129:8056
+  core_api_url: http://10.119.24.129:9090
+  kb_name: general_algo
+  kb_id: ds_9e96150bb1ceeec7d96055638072b8a9
+  es_url: https://10.119.24.129:9200
+  es_user: admin
+  es_password: LazyRAG_OpenSearch123!

@@ -78,3 +78,5 @@ lazyllm_cpp.egg-info/
 data/
 volumes/
 .conda
+AGENTS.md
+algorithm/.agentic_rag/

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from lazyllm import LOG, once_wrapper
 
 from chat.config import URL_MAP, SENSITIVE_WORDS_PATH, DEFAULT_CHAT_DATASET
-from chat.pipelines.agentic import agentic_rag
+from chat.pipelines.agentic_v2 import agentic_rag_v2
 from chat.pipelines.naive import get_ppl_naive
 from chat.components.process.sensitive_filter import SensitiveFilter
 
@@ -16,10 +16,11 @@ def create_app() -> FastAPI:
         description='基于知识库的对话 API 服务',
         version='1.0.0',
     )
-    from chat.app.api import chat_routes, health_routes
+    from chat.app.api import chat_routes, health_routes, memory_generate_routes
 
     app.include_router(health_routes.router)
     app.include_router(chat_routes.router)
+    app.include_router(memory_generate_routes.router)
     return app
 
 
@@ -34,7 +35,7 @@ class ChatServer:
         try:
             self.query_ppl: Dict[str, Any] = {}
             self.query_ppl_stream: Dict[str, Any] = {}
-            self.query_ppl_reasoning = agentic_rag
+            self.query_ppl_reasoning = agentic_rag_v2
             self.sensitive_filter = SensitiveFilter(SENSITIVE_WORDS_PATH)
 
             if self.sensitive_filter.loaded:

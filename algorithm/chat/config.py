@@ -28,7 +28,7 @@ DEFAULT_TMP_BLOCK_TOPK = 20
 
 DEFAULT_ALGO_SERVICE_URL = os.getenv('LAZYRAG_ALGO_SERVICE_URL', 'http://lazyllm-algo:8000').rstrip('/')
 DEFAULT_ALGO_DATASET_NAME = os.getenv('LAZYRAG_ALGO_DATASET_NAME', 'general_algo')
-DEFAULT_CHAT_DATASET = os.getenv('LAZYRAG_DEFAULT_CHAT_DATASET', 'algo')
+DEFAULT_CHAT_DATASET = os.getenv('LAZYRAG_DEFAULT_CHAT_DATASET', 'tyy')
 
 URL_MAP: Dict[str, str] = {
     'algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
@@ -41,4 +41,5 @@ URL_MAP: Dict[str, str] = {
     '3m': 'http://10.119.16.66:9006,threem_0303',
     'crag': 'http://10.119.16.66:9001,crag_0130_a',
     'debug': 'http://127.0.0.1:8525',
+    'tyy': 'http://10.119.24.129:8056,general_algo',
 }
