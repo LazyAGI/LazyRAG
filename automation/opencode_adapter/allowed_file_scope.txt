@@ -1,0 +1,17 @@
+# Allowed file scope for the simplified OpenCode runner.
+algorithm/chat/prompts/rewrite.py
+algorithm/chat/prompts/agentic.py
+algorithm/chat/prompts/rag_answer.py
+algorithm/chat/components/process/multiturn_query_rewriter.py
+algorithm/chat/components/process/sensitive_filter.py
+algorithm/chat/components/process/context_expansion.py
+algorithm/chat/components/process/adaptive_topk.py
+algorithm/chat/components/generate/output_parser.py
+algorithm/chat/components/generate/prompt_formatter.py
+algorithm/chat/components/generate/aggregate.py
+algorithm/chat/components/tmp/local_models.py
+algorithm/chat/components/tmp/tool_registry.py
+algorithm/chat/pipelines/builders/get_retriever.py
+algorithm/chat/pipelines/builders/get_ppl_search.py
+algorithm/chat/pipelines/builders/get_ppl_generate.py
+algorithm/chat/pipelines/naive.py
