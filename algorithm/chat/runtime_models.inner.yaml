@@ -73,10 +73,9 @@ retrieval:
   #     topk: 20
 
 agentic_v2:
-  kb_url: http://10.119.24.129:8056
-  core_api_url: http://10.119.24.129:9090
-  kb_name: general_algo
-  kb_id: ds_9e96150bb1ceeec7d96055638072b8a9
-  es_url: https://10.119.24.129:9200
-  es_user: admin
-  es_password: LazyRAG_OpenSearch123!
+  kb_url: ${LAZYRAG_AGENTIC_KB_URL:-http://lazyllm-algo:8000}
+  core_api_url: ${LAZYRAG_CORE_API_URL:-http://core:8000/api/core}
+  kb_name: ${LAZYRAG_AGENTIC_KB_NAME:-general_algo}
+  es_url: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
+  es_user: ${LAZYRAG_OPENSEARCH_USER:-admin}
+  es_password: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}

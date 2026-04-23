@@ -6,9 +6,9 @@
 
 | 接口 | 用途 |
 |------|------|
-| `POST /skill/generate` | 依据 `content` + `suggestions` + `user_instruct` 生成新的 SKILL.md 全文 |
-| `POST /memory/generate` | 依据入参生成新的 agent memory 全文 |
-| `POST /user_preference/generate` | 依据入参生成新的 user_preference 全文 |
+| `POST /api/chat/skill/generate` | 依据 `content` + `suggestions` + `user_instruct` 生成新的 SKILL.md 全文 |
+| `POST /api/chat/memory/generate` | 依据入参生成新的 agent memory 全文 |
+| `POST /api/chat/user_preference/generate` | 依据入参生成新的 user_preference 全文 |
 
 > **算法侧是无状态的**：每次请求从 request body 拿齐全部上下文（`content` + `suggestions` + `user_instruct`），不读写算法侧任何持久状态，仅负责生成新内容并保证格式合法。
 
@@ -98,7 +98,7 @@
 
 ## 生成接口
 
-### 1. `POST /skill/generate` — 生成新的 skill content
+### 1. `POST /api/chat/skill/generate` — 生成新的 skill content
 
 **Request Body**：参见[通用请求体](#通用请求体)。`content` 为当前 skill 的 SKILL.md 全文。
 
@@ -122,7 +122,7 @@
 
 ---
 
-### 2. `POST /memory/generate` — 生成新的 memory content
+### 2. `POST /api/chat/memory/generate` — 生成新的 memory content
 
 **Request Body**：参见[通用请求体](#通用请求体)。`content` 为当前 agent memory 的全文。
 
@@ -145,7 +145,7 @@
 
 ---
 
-### 3. `POST /user_preference/generate` — 生成新的 user_preference content
+### 3. `POST /api/chat/user_preference/generate` — 生成新的 user_preference content
 
 **Request Body**：参见[通用请求体](#通用请求体)。`content` 为当前用户偏好文本全文。
 

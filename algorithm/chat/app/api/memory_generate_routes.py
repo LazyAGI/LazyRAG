@@ -64,16 +64,16 @@ def _handle_generate(memory_type: MemoryType, payload: GeneratePayload):
         return _fail(500, f'generate failed: {exc}')
 
 
-@router.post('/skill/generate', summary='生成新的 skill content')
+@router.post('/api/chat/skill/generate', summary='生成新的 skill content')
 async def generate_skill(payload: GeneratePayload):
     return _handle_generate('skill', payload)
 
 
-@router.post('/memory/generate', summary='生成新的 memory content')
+@router.post('/api/chat/memory/generate', summary='生成新的 memory content')
 async def generate_memory(payload: GeneratePayload):
     return _handle_generate('memory', payload)
 
 
-@router.post('/user_preference/generate', summary='生成新的 user_preference content')
+@router.post('/api/chat/user_preference/generate', summary='生成新的 user_preference content')
 async def generate_user_preference(payload: GeneratePayload):
     return _handle_generate('user_preference', payload)

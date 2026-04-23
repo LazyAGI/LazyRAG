@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
+from termios import FLUSHO
 import threading
 import time
 import traceback
@@ -56,17 +58,6 @@ AVAILABLE_TOOLS = [
     'skill_manage',
 ]
 
-DEFAULT_PROMPT_TEMPLATE = '''你是一个铁路领域的法律助手，可以使用知识库检索工具检索，也可以使用文件工具补充相关信息，当使用工具检索不到相关证据时就回答我不知道，不要硬答，不要有其他解释
-有一些可复用的经验存在skill中，鼓励多使用skill以减少查询并提高准确率。
-使用知识库检索工具鼓励多query并行查询以减少知识库检索次数，已知条文号、表名、章节号、标题名等精确术语时，优先用 keyword 检索，不要一上来做宽泛语义搜索。多 query 要覆盖不同维度，比如“精确术语”“核心概念”“适用条件”，不要只是同义改写。命中关键证据后就停止重复检索，优先扩展上下文获取完整内容，再进入分析和作答。整体目标是用尽量少的轮次完成定位，通常 2 轮内解决，最多不超过 3 轮
-我给你的一句话中可能存在错误，或者不完全，你的任务是根据法律法规找出错误并且把证据列出来，或者进行补全，相关证据中要列出所属法规名称以及具体条目
-如果对query中的某些字段存在歧义，则必须先查阅来源文件补充信息。
-格式：
-错误点：xxx
-纠正：xxx
-法规名称《xxx》第x.x.x条
-通常仅有一个错误，最多列出两个错误，每个错误可以列出至多2条法规，仅给出错误点和法规信息即可，不要过多解释。'''
-
 CITATION_GUIDANCE = '''# Citation Rules
 When using evidence returned by knowledge-base tools, cite it with the exact `ref` marker from the tool result, such as `[[1]]`.
 Put the citation immediately after the supported sentence or paragraph.
@@ -95,17 +86,6 @@ _REVIEW_PROMPTS: dict[str, str] = {
     'skill':    _SKILL_REVIEW_PROMPT,
     'combined': _COMBINED_REVIEW_PROMPT,
 }
-
-_RUNTIME_AGENT_PARAM_KEYS = (
-    'prompt_template',
-    'available_tools',
-    'available_skills',
-    'skill_fs_url',
-    'memory',
-    'user_preference',
-    'use_memory',
-)
-
 
 def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
     function = tool_call.get('function') or {}
@@ -199,13 +179,54 @@ def _normalize_available_tools(tools: Any) -> list[str]:
     return [t for t in tools if isinstance(t, str) and t]
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == '':
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _sync_request_context(config: dict) -> None:
+    filters = config.get('filters') if isinstance(config.get('filters'), dict) else {}
+    kb_id = str(filters.get('kb_id') or config.get('kb_id') or '').strip()
+    if kb_id:
+        config['kb_id'] = kb_id
+    else:
+        config.pop('kb_id', None)
+
+    files = config.get('files') or []
+    config['temp_files'] = files if isinstance(files, list) else []
+
+    kb_url, kb_name = _parse_dataset_url(config.get('document_url') or '')
+    if kb_url:
+        config['kb_url'] = kb_url
+    if kb_name:
+        config['kb_name'] = kb_name
+
+
+def _filter_tools_for_request(tools: list[str], config: dict) -> list[str]:
+    if config.get('kb_id'):
+        return tools
+
+    has_temp_files = bool(config.get('temp_files'))
+    filtered = []
+    for tool in tools:
+        if not tool.startswith('kb_'):
+            filtered.append(tool)
+        elif has_temp_files and tool == 'kb_search':
+            filtered.append(tool)
+    return filtered
+
+
 def _with_agentic_defaults(config: dict) -> dict:
     defaults = {
         'available_tools': AVAILABLE_TOOLS,
-        'prompt_template': DEFAULT_PROMPT_TEMPLATE,
         'skill_fs_local_base_dir': '.agentic_rag/skills',
         'memory_fs_dir': '.agentic_rag/memory',
-        'core_api_url': 'http://10.119.24.129:9090',
+        'core_api_url': os.getenv('LAZYRAG_CORE_API_URL', 'http://core:8000/api/core'),
         'workspace': './workspace',
     }
     for key, value in defaults.items():
@@ -226,17 +247,6 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
         prompt_parts.append(' '.join(tool_guidance))
     if any(tool.startswith('kb_') for tool in available_tools):
         prompt_parts.append(CITATION_GUIDANCE)
-
-    prompt_template = str(
-        config.get('prompt_template')
-        or config.get('user_constraints')
-        or ''
-    ).strip()
-    if prompt_template:
-        prompt_parts.append(
-            '# Prompt Template\n'
-            + prompt_template
-        )
 
     return '\n\n'.join(prompt_parts)
 
@@ -372,8 +382,10 @@ def _decide_review_mode(
     memory_review_interval: int,
     skill_review_interval: int,
 ) -> str | None:
-    return 'combined'
     """Decide which background review (if any) to spawn after this turn."""
+    if os.getenv('LAZYRAG_SKILL_REVIEW_DEBUG', '').lower() in ('1', 'true', 'yes'):
+        return 'combined'
+
     memory_due = (
         'memory' in available_tools
         and user_turns > memory_review_interval
@@ -428,16 +440,19 @@ def _spawn_background_review(
             review_agent = lazyllm.tools.agent.ReactAgent(
                 llm=llm,
                 tools=review_tools,
-                max_retries=5,
+                max_retries=_env_int('LAZYRAG_REVIEW_MAX_RETRIES', 5),
                 return_trace=False,
+                prompt=review_prompt,
                 skills=list(review_skills.keys()),
                 keep_full_turns=keep_full_turns,
                 sandbox=sandbox,
                 fs=FS,
                 skills_dir=config['skill_fs_local_base_dir'],
                 enable_builtin_tools=False,
+                force_summarize=True,
+                force_summarize_context=review_prompt,
             )
-            res = review_agent(review_prompt + '尽量总结一些可以复用的经验，压缩后续工具调用轮次，提高准确率', llm_chat_history=snapshot)
+            res = review_agent(_MEMORY_FLUSH_MESSAGES['session_end'], llm_chat_history=snapshot)
             print(f'[bg-review:{review_mode}] DONE thread={tname}\n{res}')
         except Exception:
             print(f'[bg-review:{review_mode}] FAILED thread={tname}')
@@ -446,10 +461,12 @@ def _spawn_background_review(
             lazyllm.locals.clear()
             print(f'[bg-review:{review_mode}] EXIT thread={tname}')
 
-    _worker()
-    # thread = threading.Thread(target=_worker, daemon=True)
-    # print(f'[bg-review] spawn mode={review_mode} sid={request_global_sid}')
-    # thread.start()
+    if os.getenv('LAZYRAG_REVIEW_DEBUG', '').lower() in ('1', 'true', 'yes'):
+        _worker()
+    else:
+        thread = threading.Thread(target=_worker, daemon=True)
+        print(f'[bg-review:{review_mode}] spawn sid={request_global_sid}')
+        thread.start()
 
 
 def agentic_forward(
@@ -465,7 +482,10 @@ def agentic_forward(
     llm = get_automodel('llm')
     sandbox = create_sandbox(project_dir=str(base_dir))
     available_skills = list_all_skills_with_category(config.get('skill_fs_local_base_dir'))
-    available_tools = _normalize_available_tools(config.get('available_tools'))
+    available_tools = _filter_tools_for_request(
+        _normalize_available_tools(config.get('available_tools')),
+        config,
+    )
     config['available_tools'] = available_tools
 
     keep_full_turns = config.get('keep_full_turns', 3)
@@ -474,7 +494,7 @@ def agentic_forward(
     agent_kwargs = {
         'llm': llm,
         'tools': available_tools,
-        'max_retries': config.get('max_retries', 8),
+        'max_retries': _env_int('LAZYRAG_MAX_RETRIES', 20),
         'return_trace': config.get('return_trace', False),
         'prompt': runtime_prompt,
         'skills': list(available_skills.keys()),
@@ -484,6 +504,8 @@ def agentic_forward(
         'fs': FS,
         'skills_dir': config['skill_fs_local_base_dir'],
         'enable_builtin_tools': False,
+        'force_summarize': True,
+        'force_summarize_context': query,
     }
     if stream_event_callback:
         agent_kwargs['stream_event_callback'] = stream_event_callback
@@ -505,8 +527,8 @@ def agentic_forward(
         available_tools=available_tools,
         tool_turns=tool_turns,
         user_turns=user_turns,
-        memory_review_interval=config.get('memory_review_interval', 1),
-        skill_review_interval=config.get('skill_review_interval', 5),
+        memory_review_interval=_env_int('LAZYRAG_MEMORY_REVIEW_INTERVAL', 1),
+        skill_review_interval=_env_int('LAZYRAG_SKILL_REVIEW_INTERVAL', 5),
     )
     if review_mode is not None:
         _spawn_background_review(
@@ -652,6 +674,7 @@ def agentic_rag_v2(
     runtime_params.update(kwargs)
     runtime_params['stream'] = stream
     runtime_params = _with_agentic_defaults(runtime_params)
+    _sync_request_context(runtime_params)
     _reset_citation_state(runtime_params)
 
     lazyllm.globals['agentic_config'] = runtime_params
@@ -686,14 +709,10 @@ if __name__ == '__main__':
         'es_user': 'admin',
         'es_password': 'LazyRAG_OpenSearch123!',
         'available_tools': AVAILABLE_TOOLS,
-        'prompt_template': DEFAULT_PROMPT_TEMPLATE,
         'skill_fs_local_base_dir': '.agentic_rag/skills',
         'memory_fs_dir': '.agentic_rag/memory',
         'core_api_url': 'http://10.119.24.129:9090',
         'workspace': '/tmp/test_agentic_workspace',
-        'max_retries': 20,
-        'memory_review_interval': 0,
-        'skill_review_interval': 0,
     }
 
     lazyllm.globals['agentic_config'] = agentic_config

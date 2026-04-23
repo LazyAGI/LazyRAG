@@ -57,6 +57,9 @@ class _FakeAgent:
                 'config': snapshot,
                 'agent_kwargs_prompt': self._kwargs.get('prompt'),
                 'agent_kwargs_tools': tuple(self._kwargs.get('tools') or ()),
+                'agent_kwargs_max_retries': self._kwargs.get('max_retries'),
+                'agent_kwargs_force_summarize': self._kwargs.get('force_summarize'),
+                'agent_kwargs_force_summarize_context': self._kwargs.get('force_summarize_context'),
             })
         return {
             'query': query,
@@ -187,3 +190,80 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
             'the asyncio task should still see its own agentic_config after '
             'the streaming worker finishes'
         )
+
+
+def test_kb_tools_disabled_without_kb_id_or_files(fake_pipeline):
+    lazyllm.globals._init_sid(sid='no-kb-session')
+    lazyllm.locals._init_sid(sid='no-kb-session')
+
+    agentic_v2.agentic_rag_v2({
+        'query': 'hello',
+        'available_tools': ['all'],
+        'filters': {},
+        'files': [],
+    })
+
+    assert fake_pipeline.observations[-1]['agent_kwargs_tools'] == (
+        'memory',
+        'skill_manage',
+    )
+
+
+def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
+    lazyllm.globals._init_sid(sid='file-session')
+    lazyllm.locals._init_sid(sid='file-session')
+
+    agentic_v2.agentic_rag_v2({
+        'query': 'summarize this file',
+        'available_tools': ['all'],
+        'filters': {},
+        'files': ['/var/lib/lazyrag/uploads/a.pdf'],
+    })
+
+    obs = fake_pipeline.observations[-1]
+    assert obs['config']['temp_files'] == ['/var/lib/lazyrag/uploads/a.pdf']
+    assert obs['agent_kwargs_tools'] == (
+        'kb_search',
+        'memory',
+        'skill_manage',
+    )
+
+
+def test_review_debug_forces_combined(monkeypatch):
+    monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
+
+    assert agentic_v2._decide_review_mode(
+        available_tools=[],
+        tool_turns=0,
+        user_turns=0,
+        memory_review_interval=99,
+        skill_review_interval=99,
+    ) == 'combined'
+
+
+def test_review_mode_uses_intervals_without_debug(monkeypatch):
+    monkeypatch.delenv('LAZYRAG_SKILL_REVIEW_DEBUG', raising=False)
+
+    assert agentic_v2._decide_review_mode(
+        available_tools=['memory', 'skill_manage'],
+        tool_turns=0,
+        user_turns=2,
+        memory_review_interval=1,
+        skill_review_interval=5,
+    ) == 'memory'
+
+
+def test_max_retries_and_force_summary_use_lazyrag_env(fake_pipeline, monkeypatch):
+    monkeypatch.setenv('LAZYRAG_MAX_RETRIES', '13')
+    lazyllm.globals._init_sid(sid='max-retries-session')
+    lazyllm.locals._init_sid(sid='max-retries-session')
+
+    agentic_v2.agentic_rag_v2({
+        'query': 'hello',
+        'available_tools': [],
+    })
+
+    obs = fake_pipeline.observations[-1]
+    assert obs['agent_kwargs_max_retries'] == 13
+    assert obs['agent_kwargs_force_summarize'] is True
+    assert obs['agent_kwargs_force_summarize_context'] == 'hello'
