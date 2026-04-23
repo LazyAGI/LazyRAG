@@ -99,8 +99,44 @@ func callExternalReparseDocs(r *http.Request, req reparseRequest) error {
 }
 
 func callExternalTransferDocs(r *http.Request, req transferRequest) error {
+	url := common.JoinURL(parsingServiceEndpoint(), "/v1/docs/transfer")
+	log.Logger.Info().
+		Str("handler", "StartTask").
+		Str("external_url", url).
+		Int("items_count", len(req.Items)).
+		Any("request_body", req).
+		Msg("calling external transfer-docs request")
+	for i, item := range req.Items {
+		log.Logger.Info().
+			Str("handler", "StartTask").
+			Str("external_url", url).
+			Int("item_index", i).
+			Str("doc_id", item.DocID).
+			Str("target_doc_id", item.TargetDocID).
+			Str("source_kb_id", item.SourceKbID).
+			Str("target_kb_id", item.TargetKbID).
+			Str("mode", item.Mode).
+			Msg("calling external transfer-docs item")
+	}
 	var resp map[string]any
-	return common.ApiPost(r.Context(), common.JoinURL(parsingServiceEndpoint(), "/v1/docs/transfer"), req, nil, &resp, 15*time.Second)
+	if err := common.ApiPost(r.Context(), url, req, nil, &resp, 15*time.Second); err != nil {
+		log.Logger.Error().
+			Err(err).
+			Str("handler", "StartTask").
+			Str("external_url", url).
+			Int("items_count", len(req.Items)).
+			Any("request_body", req).
+			Msg("external transfer-docs request failed")
+		return err
+	}
+	log.Logger.Info().
+		Str("handler", "StartTask").
+		Str("external_url", url).
+		Int("items_count", len(req.Items)).
+		Any("request_body", req).
+		Any("response_body", resp).
+		Msg("external transfer-docs request succeeded")
+	return nil
 }
 
 func callExternalSuspendJob(r *http.Request, req ExternalCancelTaskRequest) error {

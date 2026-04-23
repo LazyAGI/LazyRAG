@@ -3,6 +3,7 @@ package doc
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,7 @@ type Dataset struct {
 	Parsers        []ParserConfig `json:"parsers"`
 	Algo           Algo           `json:"algo"`
 	Creator        string         `json:"creator"`
+	IsOwner        bool           `json:"is_owner"`
 	CreateTime     time.Time      `json:"create_time"`
 	UpdateTime     time.Time      `json:"update_time"`
 	Acl            []string       `json:"acl"`
@@ -254,7 +256,15 @@ func userIDFromPath(r *http.Request) string {
 	return strings.TrimSpace(common.PathVar(r, "user_id"))
 }
 
+func groupIDFromPath(r *http.Request) string {
+	return strings.TrimSpace(common.PathVar(r, "group_id"))
+}
+
 func datasetACLForUser(ds *orm.Dataset, userID string) []string {
+	return datasetACLForUserWithGroups(ds, userID, nil)
+}
+
+func datasetACLForUserWithGroups(ds *orm.Dataset, userID string, groupIDs []string) []string {
 	if ds == nil {
 		return nil
 	}
@@ -265,7 +275,7 @@ func datasetACLForUser(ds *orm.Dataset, userID string) []string {
 	if strings.TrimSpace(ds.CreateUserID) == userID {
 		return []string{acl.PermissionDatasetRead, acl.PermissionDatasetWrite, acl.PermissionDatasetUpload}
 	}
-	permissions, _ := acl.PermissionsFor(acl.ResourceTypeDB, ds.ID, userID)
+	permissions, _ := acl.PermissionsForWithGroups(acl.ResourceTypeDB, ds.ID, userID, groupIDs)
 	return permissions
 }
 
@@ -298,7 +308,7 @@ func ListAlgos(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", timeout).
 			Dur("elapsed", time.Since(start)).
 			Msg("algo service request failed")
-		common.ReplyErr(w, "algo service unavailable", http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "algo service unavailable", err), http.StatusBadGateway)
 		return
 	}
 	if ar.Code != 200 {
@@ -375,12 +385,12 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 
 	offset := 0
 	if pageToken != "" {
-		if v, err := strconv.Atoi(pageToken); err == nil && v >= 0 {
+		if v, err := parseDatasetPageToken(pageToken); err == nil && v >= 0 {
 			offset = v
 		}
 	}
 
-	// text tags（query text tags=...，text tags=a,b）
+	// Parse tags (query supports tags=a,b and repeated tags params)
 	tagSet := map[string]struct{}{}
 	var wantTags []string
 	for _, rt := range rawTags {
@@ -397,88 +407,83 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	db := corestore.DB().Model(&orm.Dataset{}).
+	db := corestore.DB()
+	base := db.Model(&orm.Dataset{}).
 		Where("deleted_at IS NULL")
+	if keyword != "" {
+		kw := "%" + strings.ToLower(keyword) + "%"
+		base = base.Where(`LOWER(display_name) LIKE ? OR LOWER("desc") LIKE ?`, kw, kw)
+	}
 
-	// order_by: "create_time desc" / "update_time desc" / "display_name asc"
+	orderClause := "updated_at desc"
 	if orderBy != "" {
 		if ob, err := normalizeDatasetOrderBy(orderBy); err == nil {
-			db = db.Order(ob)
-		}
-	} else {
-		db = db.Order("updated_at desc")
-	}
-
-	// text tags text：text（text，text DB text JSON text）
-	fetchLimit := pageSize
-	if len(wantTags) > 0 || keyword != "" {
-		fetchLimit = 1000
-		if fetchLimit < pageSize {
-			fetchLimit = pageSize
+			orderClause = ob
 		}
 	}
 
-	var rows []orm.Dataset
-	if err := db.
-		// NOTE: desc is reserved; use ANSI quoting for Postgres compatibility.
-		Select(`id, kb_id, create_user_id, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
-		Limit(fetchLimit).
-		Offset(0).
-		Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
-		return
+	groupIDs := acl.ResolveUserGroupIDs(userID)
+
+	const fetchFactor = 5
+	fetchSize := pageSize * fetchFactor
+	if fetchSize < pageSize {
+		fetchSize = pageSize
+	}
+	if fetchSize > 500 {
+		fetchSize = 500
 	}
 
-	visible := rows[:0]
-	parserCache := map[string][]ParserConfig{}
-	for _, ds := range rows {
-		if len(datasetACLForUser(&ds, userID)) > 0 {
-			visible = append(visible, ds)
+	total := 0
+	page := make([]orm.Dataset, 0, pageSize)
+	scanOffset := 0
+	hasMoreRows := true
+
+	for hasMoreRows {
+		var rows []orm.Dataset
+		query := base.
+			Select(`id, kb_id, create_user_id, create_user_name, display_name, "desc", cover_image, created_at, updated_at, ext, type, share_type, dataset_state`).
+			Order(orderClause).
+			Offset(scanOffset).
+			Limit(fetchSize)
+		if err := query.Find(&rows).Error; err != nil {
+			common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
+			return
 		}
-	}
+		if len(rows) < fetchSize {
+			hasMoreRows = false
+		}
+		scanOffset += len(rows)
+		if len(rows) == 0 {
+			break
+		}
 
-	filtered := make([]orm.Dataset, 0, len(visible))
-	if keyword != "" {
-		for _, ds := range visible {
-			if datasetMatchesKeyword(&ds, keyword) {
-				filtered = append(filtered, ds)
+		for _, ds := range rows {
+			perms := datasetACLForUserWithGroups(&ds, userID, groupIDs)
+			if len(perms) == 0 {
+				continue
 			}
-		}
-	} else {
-		filtered = append(filtered, visible...)
-	}
-
-	if len(wantTags) > 0 {
-		tagFiltered := make([]orm.Dataset, 0, len(filtered))
-		for _, ds := range filtered {
-			tags := parseDatasetTags(ds.Ext)
-			if containsAll(tags, wantTags) {
-				tagFiltered = append(tagFiltered, ds)
+			if len(wantTags) > 0 && !containsAll(parseDatasetTags(ds.Ext), wantTags) {
+				continue
 			}
+			if total >= offset && len(page) < pageSize {
+				page = append(page, ds)
+			}
+			total++
 		}
-		filtered = tagFiltered
 	}
 
-	total := len(filtered)
-	end := offset + pageSize
-	if offset > total {
-		offset = total
-	}
-	if end > total {
-		end = total
-	}
-	page := filtered[offset:end]
+	end := offset + len(page)
 
 	out := make([]Dataset, 0, len(page))
-	// Batch-calculate file counts and total sizes for all datasets, avoiding N+1 queries.
 	dsIDs := make([]string, 0, len(page))
 	for _, ds := range page {
 		dsIDs = append(dsIDs, ds.ID)
 	}
 	statsMap := calcDatasetStatsBatch(r.Context(), dsIDs)
+	parserCache := map[string][]ParserConfig{}
 
 	for _, ds := range page {
-		datasetACL := datasetACLForUser(&ds, userID)
+		datasetACL := datasetACLForUserWithGroups(&ds, userID, groupIDs)
 		algo := parseDatasetAlgo(ds.Ext)
 		parsers := parseDatasetParsers(ds.Ext)
 		if len(parsers) == 0 {
@@ -504,26 +509,88 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			TokenCount:     0,
 			Parsers:        parsers,
 			Algo:           algo,
-			Creator:        "", // text create_user_name
+			Creator:        ds.CreateUserName,
+			IsOwner:        ds.CreateUserID == userID,
 			CreateTime:     ds.CreatedAt,
 			UpdateTime:     ds.UpdatedAt,
 			Acl:            datasetACL,
 			ShareType:      shareTypeToPB(ds.ShareType),
 			Type:           datasetTypeToPB(ds.Type),
 			Tags:           parseDatasetTags(ds.Ext),
-			DefaultDataset: false,
+			DefaultDataset: isDefaultDatasetForUser(r.Context(), userID, ds.ID),
 		})
 	}
 
 	nextToken := ""
 	if end < total {
-		nextToken = strconv.Itoa(end)
+		nextToken = encodeDatasetPageToken(end, pageSize, total)
 	}
 	common.ReplyJSON(w, ListDatasetsResponse{
 		Datasets:      out,
 		TotalSize:     int32(total),
 		NextPageToken: nextToken,
 	})
+}
+
+func parseDatasetPageToken(token string) (int, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return 0, nil
+	}
+	// Backward compatibility: old token format is plain offset integer.
+	if v, err := strconv.Atoi(token); err == nil && v >= 0 {
+		return v, nil
+	}
+
+	decoders := []*base64.Encoding{
+		base64.RawStdEncoding,
+		base64.StdEncoding,
+		base64.RawURLEncoding,
+		base64.URLEncoding,
+	}
+	for _, decoder := range decoders {
+		b, err := decoder.DecodeString(token)
+		if err != nil {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(b, &payload); err != nil {
+			continue
+		}
+		candidates := []string{"Start", "start", "offset", "Offset"}
+		for _, key := range candidates {
+			if raw, ok := payload[key]; ok {
+				switch v := raw.(type) {
+				case float64:
+					if v >= 0 {
+						return int(v), nil
+					}
+				case int:
+					if v >= 0 {
+						return v, nil
+					}
+				case string:
+					if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 {
+						return n, nil
+					}
+				}
+			}
+		}
+	}
+	return 0, errors.New("invalid page_token")
+}
+
+func encodeDatasetPageToken(start, limit, total int) string {
+	payload := map[string]int{
+		"Start":      start,
+		"Limit":      limit,
+		"TotalCount": total,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return strconv.Itoa(start)
+	}
+	return base64.RawStdEncoding.EncodeToString(b)
 }
 
 func normalizeDatasetOrderBy(orderBy string) (string, error) {
@@ -648,7 +715,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	var body Dataset
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	displayName := strings.TrimSpace(body.DisplayName)
@@ -706,7 +773,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", kbTimeout).
 			Dur("elapsed", time.Since(kbStart)).
 			Msg("kb service create failed")
-		common.ReplyErr(w, "kb service create failed", http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "kb service create failed", err), http.StatusBadGateway)
 		return
 	}
 
@@ -775,7 +842,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := corestore.DB().WithContext(context.Background()).Create(&ds).Error; err != nil {
-		common.ReplyErr(w, "create dataset failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "create dataset failed", err), http.StatusInternalServerError)
 		return
 	}
 	if st := acl.GetStore(); st != nil {
@@ -798,6 +865,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Parsers:        parsers,
 		Algo:           Algo{AlgoID: algoID, DisplayName: body.Algo.DisplayName, Description: body.Algo.Description},
 		Creator:        userName,
+		IsOwner:        true,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
 		Acl:            []string{acl.PermissionDatasetRead, acl.PermissionDatasetWrite, acl.PermissionDatasetUpload},
@@ -814,6 +882,7 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	datasetID := datasetIDFromPath(r)
+	log.Logger.Info().Str("dataset_id", datasetID).Str("user_id", userID).Msg("get dataset requested")
 	if datasetID == "" {
 		common.ReplyErr(w, "invalid dataset id", http.StatusBadRequest)
 		return
@@ -855,6 +924,7 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		Parsers:        parsers,
 		Algo:           algo,
 		Creator:        ds.CreateUserName,
+		IsOwner:        ds.CreateUserID == userID,
 		CreateTime:     ds.CreatedAt,
 		UpdateTime:     ds.UpdatedAt,
 		Acl:            datasetACL,
@@ -883,7 +953,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
 		return
 	}
-	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+	if !canAccessDataset(&ds, userID, acl.PermRead) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(common.ForbiddenBody))
@@ -908,7 +978,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", kbTimeout).
 			Dur("elapsed", time.Since(kbStart)).
 			Msg("kb service delete failed")
-		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		common.ReplyErr(w, "external delete failed", http.StatusBadGateway)
 		return
 	}
 	log.Logger.Info().
@@ -924,7 +994,7 @@ func DeleteDataset(w http.ResponseWriter, r *http.Request) {
 	ds.DeletedAt = &now
 	ds.UpdatedAt = now
 	if err := corestore.DB().Save(&ds).Error; err != nil {
-		common.ReplyErr(w, "DeleteKnowledge baseFailed，text", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "delete dataset failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -950,7 +1020,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 
 	var body Dataset
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 
@@ -961,7 +1031,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
 		return
 	}
-	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+	if !canAccessDataset(&ds, userID, acl.PermRead) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(common.ForbiddenBody))
@@ -1031,7 +1101,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 			Dur("timeout", kbTimeout).
 			Dur("elapsed", time.Since(kbStart)).
 			Msg("kb service update failed")
-		common.ReplyErr(w, "kb service update failed", http.StatusBadGateway)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "kb service update failed", err), http.StatusBadGateway)
 		return
 	}
 	log.Logger.Info().
@@ -1052,7 +1122,7 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	ds.CreateUserName = userName
 
 	if err := corestore.DB().Save(&ds).Error; err != nil {
-		common.ReplyErr(w, "update dataset failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "update dataset failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1096,7 +1166,7 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	var body SetDefaultDatasetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
@@ -1112,7 +1182,7 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
 		return
 	}
-	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+	if !canAccessDataset(&ds, userID, acl.PermRead) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(common.ForbiddenBody))
@@ -1135,7 +1205,7 @@ func SetDefault(w http.ResponseWriter, r *http.Request) {
 		Where("create_user_id = ? AND dataset_id = ?", userID, datasetID).
 		Delete(&orm.DefaultDataset{}).Error
 	if err := corestore.DB().Create(&row).Error; err != nil {
-		common.ReplyErr(w, "set default failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "set default failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -1154,7 +1224,7 @@ func UnsetDefault(w http.ResponseWriter, r *http.Request) {
 	}
 	var body UnsetDefaultDatasetRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
@@ -1169,7 +1239,7 @@ func UnsetDefault(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "dataset not found", http.StatusNotFound)
 		return
 	}
-	if !canAccessDataset(&ds, userID, acl.PermWrite) {
+	if !canAccessDataset(&ds, userID, acl.PermRead) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(common.ForbiddenBody))

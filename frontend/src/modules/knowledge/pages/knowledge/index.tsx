@@ -125,7 +125,7 @@ const Detail = () => {
             searchParams.get("from") ?? "",
           );
           if (bool) {
-            navigate(`/detail/${knowledgeBaseId}?from=aiwrite`);
+            navigate(`/lib/knowledge/detail/${knowledgeBaseId}?from=aiwrite`);
           } else {
             navigate(-1);
           }

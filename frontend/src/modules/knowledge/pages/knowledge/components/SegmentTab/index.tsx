@@ -232,6 +232,8 @@ const SegmentTab = (props: SegmentTabProps) => {
         content: t("knowledge.segmentDeleteConfirm", { number: segment.number }),
         centered: true,
         okType: "danger",
+        okText: t("common.confirm"),
+        cancelText: t("common.cancel"),
         onOk() {
           setSegments((draft) => {
             const index = draft.findIndex(

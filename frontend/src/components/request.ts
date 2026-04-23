@@ -2,6 +2,7 @@ import axios from "axios";
 import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
 import { message } from "antd";
 import { AgentAppsAuth } from "@/components/auth";
+import i18n from "@/i18n";
 
 export const BASE_URL =
   (typeof import.meta !== "undefined" &&
@@ -53,8 +54,35 @@ function isCanceledError(error: any): boolean {
   );
 }
 
-function extractErrorMessage(error: any): string | undefined {
-  const responseData = error?.response?.data;
+function getErrorPayload(error: any): any {
+  return error?.response?.data ?? error;
+}
+
+export function extractErrorCode(error: any): string | undefined {
+  const responseData = getErrorPayload(error);
+  const candidates = [
+    responseData?.code,
+    responseData?.error_code,
+    responseData?.errorCode,
+    responseData?.data?.code,
+    responseData?.data?.error_code,
+    responseData?.data?.errorCode,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null) {
+      const normalized = String(candidate).trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function extractRawErrorMessage(error: any): string | undefined {
+  const responseData = getErrorPayload(error);
   const detail = responseData?.detail;
 
   if (Array.isArray(detail)) {
@@ -94,6 +122,19 @@ function extractErrorMessage(error: any): string | undefined {
   return undefined;
 }
 
+export function getLocalizedErrorMessage(
+  error: any,
+  fallback?: string,
+): string | undefined {
+  const errorCode = extractErrorCode(error);
+
+  if (errorCode && i18n.exists(`errors.${errorCode}`)) {
+    return i18n.t(`errors.${errorCode}`);
+  }
+
+  return extractRawErrorMessage(error) || fallback;
+}
+
 function isRefreshEndpoint(url?: string): boolean {
   if (!url) return false;
   return url.includes("/auth/refresh") || url.includes("/auth/login") || url.includes("/auth/logout");
@@ -106,19 +147,26 @@ export const handleError = async (error: AxiosError) => {
   
   if (error.response) {
     if (error.response.status === 403) {
-      const errMsg = extractErrorMessage(error);
-      if (errMsg === "User is disabled") {
-        message.error("用户被禁用");
+      const errMsg = getLocalizedErrorMessage(
+        error,
+        i18n.t("common.accessDenied"),
+      );
+      const errorCode = extractErrorCode(error);
+      if (
+        errorCode === "1000106" ||
+        extractRawErrorMessage(error) === "User is disabled"
+      ) {
+        message.error(errMsg || i18n.t("auth.userDisabled"));
         void AgentAppsAuth.logout(
           `${BASE_URL || window.location.origin}${window.BASENAME || ""}/agent/chat`,
         );
         return Promise.reject(error);
       }
-      message.error(errMsg || "访问被拒绝");
+      message.error(errMsg || i18n.t("common.accessDenied"));
     } else if (error.response.status === 401) {
       if (isRefreshEndpoint(originalRequest?.url)) {
         if (AgentAppsAuth.isLoggedIn()) {
-          message.warning("登录状态已失效，请重新登录");
+          message.warning(i18n.t("auth.sessionExpired"));
         }
         void AgentAppsAuth.logout();
         return Promise.reject(error);
@@ -126,7 +174,7 @@ export const handleError = async (error: AxiosError) => {
 
       if (!originalRequest || originalRequest._retry) {
         if (AgentAppsAuth.isLoggedIn()) {
-          message.warning("认证失败，请重新登录");
+          message.warning(i18n.t("auth.authFailedRelogin"));
         }
         void AgentAppsAuth.logout();
         return Promise.reject(error);
@@ -165,19 +213,25 @@ export const handleError = async (error: AxiosError) => {
         });
         refreshQueue = [];
         
-        message.warning("登录状态已失效，请重新登录");
+        message.warning(i18n.t("auth.sessionExpired"));
         void AgentAppsAuth.logout();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
       }
     } else {
-      message.error(extractErrorMessage(error) || "请求失败");
+      message.error(
+        getLocalizedErrorMessage(error, i18n.t("common.requestFailed")) ||
+          i18n.t("common.requestFailed"),
+      );
     }
   } else if (error.request) {
-    message.error("服务器无响应");
+    message.error(i18n.t("common.serverNoResponse"));
   } else {
-    message.error(error.message || "请求发生错误");
+    message.error(
+      getLocalizedErrorMessage(error, i18n.t("common.requestError")) ||
+        i18n.t("common.requestError"),
+    );
   }
   return Promise.reject(error);
 };

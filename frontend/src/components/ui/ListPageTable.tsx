@@ -1,4 +1,6 @@
 import { Table, type TableProps } from "antd";
+import { useTranslation } from "react-i18next";
+import { getLocalizedTablePagination } from "./pagination";
 import { useStyles } from "./useStyles";
 
 const listTableCss = `
@@ -64,17 +66,26 @@ export default function ListPageTable(props: ListPageTableProps) {
     rootClassName = "",
     style,
     scroll,
+    pagination,
     ...restProps
   } = props;
+  const { t } = useTranslation();
   useStyles("list-page-table-styles", listTableCss);
   const minWidth = scroll ? resolveMinWidth(scroll.x) : undefined;
+  const localizedPagination = getLocalizedTablePagination(pagination, t);
 
   return (
     <div className={`list-page-table ${rootClassName}`} style={style}>
       {title && <div className="list-page-table-title">{title}</div>}
       <div className="list-page-table-scroll">
         <div className="list-page-table-inner" style={minWidth ? { minWidth } : undefined}>
-          <Table dataSource={dataSource} columns={columns} scroll={scroll} {...restProps} />
+          <Table
+            dataSource={dataSource}
+            columns={columns}
+            scroll={scroll}
+            pagination={localizedPagination}
+            {...restProps}
+          />
         </div>
       </div>
     </div>

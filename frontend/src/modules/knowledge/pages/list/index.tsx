@@ -81,7 +81,8 @@ const KnowledgePage: FC = () => {
     total: 0,
   });
   const [dataSource, setDataSource] = useState<Dataset[] | undefined>([]);
-  const [tags, setTags] = useState<string[]>([]);
+  // Keep a local default option to avoid label flicker while tags are loading.
+  const [tags, setTags] = useState<string[]>([ALL_TAGS]);
   const [knowledgeType, setKnowledgeType] = useState<string>("knowledgeBase");
   const [showTagEditModal, setShowTagEditModal] = useState(false);
   const [tagEditRecord, setTagEditRecord] = useState<DocRow | null>(null);
@@ -259,13 +260,13 @@ const KnowledgePage: FC = () => {
                 const datasetId = record?.dataset_id;
                 const relPathtype = record?.type;
                 if (relPathtype === "FOLDER") {
-                  navigate({ pathname: `/detail/${datasetId}` });
+                  navigate({ pathname: `/lib/knowledge/detail/${datasetId}` });
                 } else {
                   navigate({
                     pathname:
                       documentId && datasetId
-                        ? `/knowledge/${datasetId}/${documentId}`
-                        : `/detail/${datasetId}`,
+                        ? `/lib/knowledge/knowledge/${datasetId}/${documentId}`
+                        : `/lib/knowledge/detail/${datasetId}`,
                   });
                 }
               }}
@@ -417,7 +418,8 @@ const KnowledgePage: FC = () => {
     KnowledgeBaseServiceApi()
       .datasetServiceAllDatasetTags()
       .then((res) => {
-        setTags([ALL_TAGS, ...res.data.tags]);
+        const uniqueTags = Array.from(new Set((res.data.tags || []).filter(Boolean)));
+        setTags([ALL_TAGS, ...uniqueTags.filter((tag) => tag !== ALL_TAGS)]);
       })
       .catch(() => {
         setTags([ALL_TAGS]);
@@ -614,7 +616,7 @@ const KnowledgePage: FC = () => {
                 form.setFieldsValue({ tags: ALL_TAGS });
                 setKnowledgeType(key);
               }}
-              defaultValue={knowledgeType}
+              value={knowledgeType}
             />
           }
         />

@@ -1,6 +1,8 @@
+import os
+import secrets
 import uuid
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
@@ -12,6 +14,20 @@ from repositories import UserRepository
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+_INTERNAL_TOKEN_HEADER = 'X-LazyRAG-Internal-Token'
+
+
+def require_internal_service_token(request: Request) -> None:
+    """Restrict server-to-server routes; core must send matching header."""
+    expected = (os.environ.get('LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN') or '').strip()
+    if not expected:
+        raise_error(ErrorCodes.FORBIDDEN)
+    got = (request.headers.get(_INTERNAL_TOKEN_HEADER) or '').strip()
+    exp_b = expected.encode('utf-8')
+    got_b = got.encode('utf-8')
+    if len(got_b) != len(exp_b) or not secrets.compare_digest(got_b, exp_b):
+        raise_error(ErrorCodes.UNAUTHORIZED)
 
 
 def _user_id_from_token(token: str) -> uuid.UUID:

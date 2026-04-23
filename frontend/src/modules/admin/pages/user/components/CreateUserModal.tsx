@@ -1,6 +1,7 @@
 import { Modal, Form, Input, Select, message } from "antd";
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { getLocalizedErrorMessage } from "@/components/request";
 import { createUserApi, createRoleApi } from "@/modules/signin/utils/request";
 import {
   passwordRules,
@@ -12,9 +13,13 @@ const USERNAME_MAX_LENGTH = 100;
 const EMAIL_MAX_LENGTH = 100;
 const PASSWORD_MAX_LENGTH = 32;
 
+type EditableUserItem = UserItem & {
+  is_bootstrap_admin?: boolean;
+};
+
 interface CreateUserModalProps {
   visible: boolean;
-  editingUser?: UserItem | null;
+  editingUser?: EditableUserItem | null;
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -67,6 +72,11 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
   }, [visible, editingUser, form]);
 
   const onFinish = async (values: any) => {
+    if (editingUser?.is_bootstrap_admin) {
+      message.warning(t("admin.bootstrapAdminRoleLocked"));
+      return;
+    }
+
     setLoading(true);
     try {
       const userApi = createUserApi();
@@ -90,8 +100,12 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
       onSuccess();
     } catch (error: any) {
       console.error("Operation failed:", error);
-      const errorMsg = error.response?.data?.message || error.message || t("common.failed");
-      message.error(errorMsg);
+      if (!error?.response && !error?.request) {
+        message.error(
+          getLocalizedErrorMessage(error, t("common.failed")) ||
+            t("common.failed"),
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -104,6 +118,7 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
       onCancel={onCancel}
       onOk={() => form.submit()}
       confirmLoading={loading}
+      okButtonProps={{ disabled: !!editingUser?.is_bootstrap_admin }}
       destroyOnHidden
     >
       <Form
@@ -189,7 +204,10 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
           label={t("admin.role")}
           rules={[{ required: true, message: t("admin.selectRoleRequired") }]}
         >
-          <Select placeholder={t("admin.selectRole")}>
+          <Select
+            placeholder={t("admin.selectRole")}
+            disabled={!!editingUser?.is_bootstrap_admin}
+          >
             {roles.map((role: any) => (
               <Select.Option key={role.id} value={role.id}>
                 {role.name}

@@ -9,6 +9,8 @@ import "./index.scss";
 import Polling from "@/modules/knowledge/utils/polling";
 import { TaskServiceApi } from "@/modules/knowledge/utils/request";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
+import { IMPORT_TASK_POLL_INTERVAL } from "@/modules/knowledge/constants/common";
 
 interface IProps {
   datasetId: string;
@@ -89,7 +91,7 @@ const ImportTaskList = (props: IProps) => {
     }
 
     pollingRef.current.start({
-      interval: 10 * 1000,
+      interval: IMPORT_TASK_POLL_INTERVAL,
       request: () => TaskServiceApi().listTasks(datasetId),
       onSuccess: updateTableData,
       onError: (err) => {
@@ -254,11 +256,11 @@ const ImportTaskList = (props: IProps) => {
         columns={columns}
         dataSource={dataSource}
         rowKey="task_id"
-        pagination={{
+        pagination={getLocalizedTablePagination({
           current: page,
           pageSize,
           total,
-        }}
+        }, t)}
         onChange={(pagination) => {
           getTableData({ page: pagination.current, size: pagination.pageSize });
         }}

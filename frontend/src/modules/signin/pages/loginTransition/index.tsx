@@ -1,12 +1,14 @@
 import { Button, message, Spin } from "antd";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { BASE_URL } from "@/components/request";
+import { BASE_URL, getLocalizedErrorMessage } from "@/components/request";
+import { useTranslation } from "react-i18next";
 import "./index.scss";
 
 const LoginTransition = () => {
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
+  const { t } = useTranslation();
 
   useEffect(() => {
     callThirdPartyLogin();
@@ -41,13 +43,12 @@ const LoginTransition = () => {
       setLoading(false);
       if (!res.ok) {
         message.error(
-          data?.message ||
-            data?.data?.message ||
-            "未成功登录，请刷新页面后重试",
+          getLocalizedErrorMessage(data, t("auth.loginRetryHint")) ||
+            t("auth.loginRetryHint"),
         );
       }
     } catch {
-      message.error("登录失败，请刷新页面后重试");
+      message.error(t("auth.loginRetryHint"));
       setLoading(false);
     }
   };
@@ -61,7 +62,7 @@ const LoginTransition = () => {
   };
 
   return (
-    <Spin tip="登录中，请稍等..." size="large" spinning={loading}>
+    <Spin tip={t("auth.loggingInWait")} size="large" spinning={loading}>
       <div
         className="login-transition-page"
         style={{
@@ -79,7 +80,7 @@ const LoginTransition = () => {
               </span>
             </div>
             <Button className="retry-btn" onClick={retryWithNewChallenge}>
-              重试登录
+              {t("auth.retryLogin")}
             </Button>
           </div>
           <div className="card-footer">

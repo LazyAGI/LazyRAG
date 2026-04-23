@@ -365,6 +365,18 @@ export interface ErrorResponse {
     'code'?: number;
     'message'?: string;
 }
+export interface ExportConversationsRequest {
+    'conversation_ids'?: Array<string>;
+    'create_user_names'?: Array<string>;
+    'end_time'?: string;
+    'feed_back'?: number;
+    'file_types'?: Array<string>;
+    'keyword'?: string;
+    'start_time'?: string;
+}
+export interface ExportConversationsResponse {
+    'uris'?: Array<string>;
+}
 export interface GetKBAuthorizationResponse {
     'grants'?: Array<AuthorizationSubjectGrant>;
     'kb_id'?: string;
@@ -480,6 +492,7 @@ export interface SearchDatasetMemberRequest {
 export interface SearchDocumentsRequest {
     'dir_path'?: string;
     'keyword'?: string;
+    'keyword_list'?: Array<string>;
     'order_by'?: string;
     'p_id'?: string;
     'page_size'?: number;
@@ -510,6 +523,7 @@ export interface StartTaskRequest {
     'task_ids': Array<string>;
 }
 export interface StartTaskResult {
+    'detail'?: string;
     'display_name'?: string;
     'document_id'?: string;
     'message'?: string;
@@ -644,8 +658,193 @@ export interface UploadPartResponse {
     'uploaded_parts'?: number;
 }
 export interface UserInfo {
-    'display_name'?: string;
+    'id'?: string;
+    'name'?: string;
 }
+
+/**
+ * ConversationsApi - axios parameter creator
+ */
+export const ConversationsApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         * 
+         * @summary Download exported conversation file
+         * @param {string} fileId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreConversationExportFilesFileIdGet: async (fileId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'fileId' is not null or undefined
+            assertParamExists('apiCoreConversationExportFilesFileIdGet', 'fileId', fileId)
+            const localVarPath = `/api/core/conversation:export/files/{file_id}`
+                .replace(`{${"file_id"}}`, encodeURIComponent(String(fileId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/octet-stream';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Export conversations
+         * @param {ExportConversationsRequest} exportConversationsRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreConversationExportPost: async (exportConversationsRequest: ExportConversationsRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'exportConversationsRequest' is not null or undefined
+            assertParamExists('apiCoreConversationExportPost', 'exportConversationsRequest', exportConversationsRequest)
+            const localVarPath = `/api/core/conversation:export`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(exportConversationsRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * ConversationsApi - functional programming interface
+ */
+export const ConversationsApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = ConversationsApiAxiosParamCreator(configuration)
+    return {
+        /**
+         * 
+         * @summary Download exported conversation file
+         * @param {string} fileId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiCoreConversationExportFilesFileIdGet(fileId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<File>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreConversationExportFilesFileIdGet(fileId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConversationsApi.apiCoreConversationExportFilesFileIdGet']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Export conversations
+         * @param {ExportConversationsRequest} exportConversationsRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiCoreConversationExportPost(exportConversationsRequest: ExportConversationsRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<ExportConversationsResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreConversationExportPost(exportConversationsRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['ConversationsApi.apiCoreConversationExportPost']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * ConversationsApi - factory interface
+ */
+export const ConversationsApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = ConversationsApiFp(configuration)
+    return {
+        /**
+         * 
+         * @summary Download exported conversation file
+         * @param {ConversationsApiApiCoreConversationExportFilesFileIdGetRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreConversationExportFilesFileIdGet(requestParameters: ConversationsApiApiCoreConversationExportFilesFileIdGetRequest, options?: RawAxiosRequestConfig): AxiosPromise<File> {
+            return localVarFp.apiCoreConversationExportFilesFileIdGet(requestParameters.fileId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Export conversations
+         * @param {ConversationsApiApiCoreConversationExportPostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreConversationExportPost(requestParameters: ConversationsApiApiCoreConversationExportPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<ExportConversationsResponse> {
+            return localVarFp.apiCoreConversationExportPost(requestParameters.exportConversationsRequest, options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * Request parameters for apiCoreConversationExportFilesFileIdGet operation in ConversationsApi.
+ */
+export interface ConversationsApiApiCoreConversationExportFilesFileIdGetRequest {
+    readonly fileId: string
+}
+
+/**
+ * Request parameters for apiCoreConversationExportPost operation in ConversationsApi.
+ */
+export interface ConversationsApiApiCoreConversationExportPostRequest {
+    readonly exportConversationsRequest: ExportConversationsRequest
+}
+
+/**
+ * ConversationsApi - object-oriented interface
+ */
+export class ConversationsApi extends BaseAPI {
+    /**
+     * 
+     * @summary Download exported conversation file
+     * @param {ConversationsApiApiCoreConversationExportFilesFileIdGetRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiCoreConversationExportFilesFileIdGet(requestParameters: ConversationsApiApiCoreConversationExportFilesFileIdGetRequest, options?: RawAxiosRequestConfig) {
+        return ConversationsApiFp(this.configuration).apiCoreConversationExportFilesFileIdGet(requestParameters.fileId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Export conversations
+     * @param {ConversationsApiApiCoreConversationExportPostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiCoreConversationExportPost(requestParameters: ConversationsApiApiCoreConversationExportPostRequest, options?: RawAxiosRequestConfig) {
+        return ConversationsApiFp(this.configuration).apiCoreConversationExportPost(requestParameters.exportConversationsRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
 
 /**
  * DatasetsApi - axios parameter creator
@@ -1940,6 +2139,39 @@ export const DefaultApiAxiosParamCreator = function (configuration?: Configurati
         },
         /**
          * 
+         * @summary POST /datasets/{dataset}/documents:batchUpdateTags
+         * @param {string} dataset 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost: async (dataset: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'dataset' is not null or undefined
+            assertParamExists('apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost', 'dataset', dataset)
+            const localVarPath = `/api/core/datasets/{dataset}/documents:batchUpdateTags`
+                .replace(`{${"dataset"}}`, encodeURIComponent(String(dataset)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
          * @summary Preview document content
          * @param {string} dataset 
          * @param {string} document 
@@ -2157,6 +2389,87 @@ export const DefaultApiAxiosParamCreator = function (configuration?: Configurati
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Delete dataset group member
+         * @param {string} dataset 
+         * @param {string} groupId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreDatasetsDatasetMembersGroupsGroupIdDelete: async (dataset: string, groupId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'dataset' is not null or undefined
+            assertParamExists('apiCoreDatasetsDatasetMembersGroupsGroupIdDelete', 'dataset', dataset)
+            // verify required parameter 'groupId' is not null or undefined
+            assertParamExists('apiCoreDatasetsDatasetMembersGroupsGroupIdDelete', 'groupId', groupId)
+            const localVarPath = `/api/core/datasets/{dataset}/members/groups/{group_id}`
+                .replace(`{${"dataset"}}`, encodeURIComponent(String(dataset)))
+                .replace(`{${"group_id"}}`, encodeURIComponent(String(groupId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'DELETE', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Update dataset group member
+         * @param {string} dataset 
+         * @param {string} groupId 
+         * @param {UpdateDatasetMemberRequest} updateDatasetMemberRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreDatasetsDatasetMembersGroupsGroupIdPatch: async (dataset: string, groupId: string, updateDatasetMemberRequest: UpdateDatasetMemberRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'dataset' is not null or undefined
+            assertParamExists('apiCoreDatasetsDatasetMembersGroupsGroupIdPatch', 'dataset', dataset)
+            // verify required parameter 'groupId' is not null or undefined
+            assertParamExists('apiCoreDatasetsDatasetMembersGroupsGroupIdPatch', 'groupId', groupId)
+            // verify required parameter 'updateDatasetMemberRequest' is not null or undefined
+            assertParamExists('apiCoreDatasetsDatasetMembersGroupsGroupIdPatch', 'updateDatasetMemberRequest', updateDatasetMemberRequest)
+            const localVarPath = `/api/core/datasets/{dataset}/members/groups/{group_id}`
+                .replace(`{${"dataset"}}`, encodeURIComponent(String(dataset)))
+                .replace(`{${"group_id"}}`, encodeURIComponent(String(groupId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'PATCH', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(updateDatasetMemberRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -3834,6 +4147,19 @@ export const DefaultApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
+         * @summary POST /datasets/{dataset}/documents:batchUpdateTags
+         * @param {string} dataset 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost(dataset: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<void>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost(dataset, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @summary Preview document content
          * @param {string} dataset 
          * @param {string} document 
@@ -3914,6 +4240,35 @@ export const DefaultApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreDatasetsDatasetMembersGet(dataset, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['DefaultApi.apiCoreDatasetsDatasetMembersGet']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Delete dataset group member
+         * @param {string} dataset 
+         * @param {string} groupId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiCoreDatasetsDatasetMembersGroupsGroupIdDelete(dataset: string, groupId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<object>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreDatasetsDatasetMembersGroupsGroupIdDelete(dataset, groupId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.apiCoreDatasetsDatasetMembersGroupsGroupIdDelete']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Update dataset group member
+         * @param {string} dataset 
+         * @param {string} groupId 
+         * @param {UpdateDatasetMemberRequest} updateDatasetMemberRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiCoreDatasetsDatasetMembersGroupsGroupIdPatch(dataset: string, groupId: string, updateDatasetMemberRequest: UpdateDatasetMemberRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<DatasetMember>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreDatasetsDatasetMembersGroupsGroupIdPatch(dataset, groupId, updateDatasetMemberRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.apiCoreDatasetsDatasetMembersGroupsGroupIdPatch']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -4622,6 +4977,16 @@ export const DefaultApiFactory = function (configuration?: Configuration, basePa
         },
         /**
          * 
+         * @summary POST /datasets/{dataset}/documents:batchUpdateTags
+         * @param {DefaultApiApiCoreDatasetsDatasetDocumentsBatchUpdateTagsPostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost(requestParameters: DefaultApiApiCoreDatasetsDatasetDocumentsBatchUpdateTagsPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<void> {
+            return localVarFp.apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost(requestParameters.dataset, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @summary Preview document content
          * @param {DefaultApiApiCoreDatasetsDatasetDocumentsDocumentContentGetRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
@@ -4679,6 +5044,26 @@ export const DefaultApiFactory = function (configuration?: Configuration, basePa
          */
         apiCoreDatasetsDatasetMembersGet(requestParameters: DefaultApiApiCoreDatasetsDatasetMembersGetRequest, options?: RawAxiosRequestConfig): AxiosPromise<ListDatasetMembersResponse> {
             return localVarFp.apiCoreDatasetsDatasetMembersGet(requestParameters.dataset, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Delete dataset group member
+         * @param {DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdDeleteRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreDatasetsDatasetMembersGroupsGroupIdDelete(requestParameters: DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdDeleteRequest, options?: RawAxiosRequestConfig): AxiosPromise<object> {
+            return localVarFp.apiCoreDatasetsDatasetMembersGroupsGroupIdDelete(requestParameters.dataset, requestParameters.groupId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Update dataset group member
+         * @param {DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdPatchRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreDatasetsDatasetMembersGroupsGroupIdPatch(requestParameters: DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdPatchRequest, options?: RawAxiosRequestConfig): AxiosPromise<DatasetMember> {
+            return localVarFp.apiCoreDatasetsDatasetMembersGroupsGroupIdPatch(requestParameters.dataset, requestParameters.groupId, requestParameters.updateDatasetMemberRequest, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -5170,6 +5555,13 @@ export interface DefaultApiApiCoreDatasetsDatasetBatchAddMemberPostRequest {
 }
 
 /**
+ * Request parameters for apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost operation in DefaultApi.
+ */
+export interface DefaultApiApiCoreDatasetsDatasetDocumentsBatchUpdateTagsPostRequest {
+    readonly dataset: string
+}
+
+/**
  * Request parameters for apiCoreDatasetsDatasetDocumentsDocumentContentGet operation in DefaultApi.
  */
 export interface DefaultApiApiCoreDatasetsDatasetDocumentsDocumentContentGetRequest {
@@ -5221,6 +5613,26 @@ export interface DefaultApiApiCoreDatasetsDatasetDocumentsDocumentSegmentsSegmen
  */
 export interface DefaultApiApiCoreDatasetsDatasetMembersGetRequest {
     readonly dataset: string
+}
+
+/**
+ * Request parameters for apiCoreDatasetsDatasetMembersGroupsGroupIdDelete operation in DefaultApi.
+ */
+export interface DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdDeleteRequest {
+    readonly dataset: string
+
+    readonly groupId: string
+}
+
+/**
+ * Request parameters for apiCoreDatasetsDatasetMembersGroupsGroupIdPatch operation in DefaultApi.
+ */
+export interface DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdPatchRequest {
+    readonly dataset: string
+
+    readonly groupId: string
+
+    readonly updateDatasetMemberRequest: UpdateDatasetMemberRequest
 }
 
 /**
@@ -5718,6 +6130,17 @@ export class DefaultApi extends BaseAPI {
 
     /**
      * 
+     * @summary POST /datasets/{dataset}/documents:batchUpdateTags
+     * @param {DefaultApiApiCoreDatasetsDatasetDocumentsBatchUpdateTagsPostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost(requestParameters: DefaultApiApiCoreDatasetsDatasetDocumentsBatchUpdateTagsPostRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).apiCoreDatasetsDatasetDocumentsBatchUpdateTagsPost(requestParameters.dataset, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
      * @summary Preview document content
      * @param {DefaultApiApiCoreDatasetsDatasetDocumentsDocumentContentGetRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -5780,6 +6203,28 @@ export class DefaultApi extends BaseAPI {
      */
     public apiCoreDatasetsDatasetMembersGet(requestParameters: DefaultApiApiCoreDatasetsDatasetMembersGetRequest, options?: RawAxiosRequestConfig) {
         return DefaultApiFp(this.configuration).apiCoreDatasetsDatasetMembersGet(requestParameters.dataset, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Delete dataset group member
+     * @param {DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdDeleteRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiCoreDatasetsDatasetMembersGroupsGroupIdDelete(requestParameters: DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdDeleteRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).apiCoreDatasetsDatasetMembersGroupsGroupIdDelete(requestParameters.dataset, requestParameters.groupId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Update dataset group member
+     * @param {DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdPatchRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiCoreDatasetsDatasetMembersGroupsGroupIdPatch(requestParameters: DefaultApiApiCoreDatasetsDatasetMembersGroupsGroupIdPatchRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).apiCoreDatasetsDatasetMembersGroupsGroupIdPatch(requestParameters.dataset, requestParameters.groupId, requestParameters.updateDatasetMemberRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

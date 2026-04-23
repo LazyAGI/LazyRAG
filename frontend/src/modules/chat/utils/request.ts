@@ -6,7 +6,6 @@ import {
   type ConversationDetail,
   type ConversationServiceApiConversationServiceBatchChatRequest,
   type ConversationServiceApiConversationServiceDeleteConversationRequest,
-  type ConversationServiceApiConversationServiceExportConversationsRequest,
   type ConversationServiceApiConversationServiceFeedBackChatHistoryRequest,
   type ConversationServiceApiConversationServiceGetBatchChatJobRequest,
   type ConversationServiceApiConversationServiceGetChatStatusRequest,
@@ -16,7 +15,6 @@ import {
   type ConversationServiceApiConversationServiceSetChatHistoryRequest,
   type ConversationServiceApiConversationServiceSetMultiAnswersSwitchStatusRequest,
   type ConversationServiceApiConversationServiceStopChatGenerationRequest,
-  type ExportConversationsResponse,
   type FileServiceApiFileServicePresignAttachmentRequest,
   type GetChatStatusResponse,
   type GetMultiAnswersSwitchStatusResponse,
@@ -158,16 +156,6 @@ export function ChatServiceApi() {
       return axiosInstance.get<ConversationDetail>(
         `${coreApiBaseUrl}/conversations/${encodeURIComponent(requestParameters.conversation)}:detail`,
         options,
-      );
-    },
-    conversationServiceExportConversations(
-      requestParameters: ConversationServiceApiConversationServiceExportConversationsRequest,
-      options?: RawAxiosRequestConfig,
-    ) {
-      return axiosInstance.post<ExportConversationsResponse>(
-        `${BASE_URL}/api/v1/conversation:export`,
-        requestParameters.exportConversationsRequest,
-        withJsonOptions(options),
       );
     },
     conversationServiceBatchChat(

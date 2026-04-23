@@ -63,6 +63,9 @@ export default function AdminLayout() {
       children: menuChildren,
     },
   ];
+  const logoSrc =
+    (import.meta.env as ImportMetaEnv & { VITE_APP_LOGO?: string })
+      .VITE_APP_LOGO || "";
 
   const onMenuClick: MenuProps["onClick"] = ({ key }) => {
     if (String(key).startsWith("/admin/")) {
@@ -82,7 +85,11 @@ export default function AdminLayout() {
     <Layout className="admin-layout">
       <Sider width={232} className="admin-layout-sider">
         <div className="admin-layout-brand">
-          <img src={logoImage} alt="logo" className="admin-layout-brand-logo" />
+          <img
+            src={logoSrc || logoImage}
+            alt="logo"
+            className="admin-layout-brand-logo"
+          />
         </div>
         <Menu
           mode="inline"

@@ -58,7 +58,7 @@ CREATE TABLE "prompts" (
   "deleted_at" timestamptz,
   PRIMARY KEY ("id")
 );
-CREATE UNIQUE INDEX IF NOT EXISTS "idx_prompts_name" ON "prompts" ("name");
+CREATE UNIQUE INDEX IF NOT EXISTS "uk_prompts_user_name" ON "prompts" ("create_user_id", "name");
 
 CREATE TABLE "default_prompts" (
   "id" bigserial,

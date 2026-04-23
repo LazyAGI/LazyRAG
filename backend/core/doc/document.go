@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,7 +34,10 @@ import (
 // - schema A (core-owned diff): orm.documents / orm.tasks
 // - schema B (readonly, maintained by lazy-llm-server): lazy_llm_server.lazyllm_*
 
-const externalDeleteFailedMessage = "textDeleteFailed，text"
+var fuzzyPunctRe = regexp.MustCompile(`[._\-\s（）()]+`)
+
+// fuzzySearchMaxCandidates caps DB rows loaded for in-memory fuzzy scoring (avoids OOM).
+const fuzzySearchMaxCandidates = 5000
 
 func requireDatasetPermission(r *http.Request, datasetID string, action string) (*orm.Dataset, string, bool) {
 	userID := strings.TrimSpace(store.UserID(r))
@@ -176,16 +180,16 @@ func streamLocalFile(w http.ResponseWriter, fullPath, filename, fallbackContentT
 	f, err := os.Open(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			common.ReplyErr(w, "file not found", http.StatusNotFound)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "file not found", err), http.StatusNotFound)
 			return
 		}
-		common.ReplyErr(w, "open file failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "open file failed", err), http.StatusInternalServerError)
 		return
 	}
 	defer f.Close()
 	stat, err := f.Stat()
 	if err != nil {
-		common.ReplyErr(w, "read file failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "read file failed", err), http.StatusInternalServerError)
 		return
 	}
 	name := strings.TrimSpace(filename)
@@ -215,7 +219,7 @@ func GetSignedStaticFile(w http.ResponseWriter, r *http.Request) {
 	}
 	decodedPath, err := url.PathUnescape(rawPath)
 	if err != nil {
-		common.ReplyErr(w, "invalid path encoding", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid path encoding", err), http.StatusBadRequest)
 		return
 	}
 	relPath := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+decodedPath)), "/")
@@ -287,7 +291,7 @@ func streamDocumentFile(w http.ResponseWriter, r *http.Request, inline bool) {
 	}
 	row, ext, err := loadDocumentFileMeta(r.Context(), datasetID, docID)
 	if err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return
 	}
 	storedPath := previewPathForContent(ext)
@@ -361,13 +365,13 @@ func ListDocuments(w http.ResponseWriter, r *http.Request) {
 
 	rows, total, err := loadDatasetDocuments(r.Context(), datasetID, "", pid, true, pageSize, offset)
 	if err != nil {
-		common.ReplyErr(w, "query documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query documents failed", err), http.StatusInternalServerError)
 		return
 	}
 
 	next := ""
 	if offset+len(rows) < int(total) {
-		next = strconv.Itoa(offset + len(rows))
+		next = encodeDatasetPageToken(offset+len(rows), int(pageSize), int(total))
 	}
 
 	relPaths := buildDocumentTreeRelPaths(r.Context(), rows)
@@ -404,7 +408,7 @@ func CreateDocument(w http.ResponseWriter, r *http.Request) {
 
 	var body Doc
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	display := strings.TrimSpace(body.DisplayName)
@@ -433,7 +437,7 @@ func CreateDocument(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if err := store.DB().WithContext(r.Context()).Create(&row).Error; err != nil {
-		common.ReplyErr(w, "create document failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "create document failed", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -467,7 +471,7 @@ func GetDocument(w http.ResponseWriter, r *http.Request) {
 
 	rr, err := loadDocumentByID(r.Context(), datasetID, docID)
 	if err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return
 	}
 	doc := docFromRow(rr)
@@ -492,11 +496,11 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var row orm.Document
 	if err := store.DB().WithContext(r.Context()).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).Take(&row).Error; err != nil {
-		common.ReplyErr(w, "document not found", http.StatusNotFound)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "document not found", err), http.StatusNotFound)
 		return
 	}
 	if err := deleteExternalDocs(r, datasetID, []orm.Document{row}); err != nil {
-		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		common.ReplyErr(w, "external delete failed", http.StatusBadGateway)
 		return
 	}
 	now := time.Now().UTC()
@@ -504,7 +508,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		Model(&orm.Document{}).
 		Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docID, datasetID).
 		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
-		common.ReplyErr(w, "Delete documentFailed，text", http.StatusInternalServerError)
+		common.ReplyErr(w, "delete document failed", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -528,7 +532,7 @@ func UpdateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var body Doc
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	updates := map[string]any{}
@@ -569,7 +573,7 @@ func UpdateDocument(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 		if err := db.Create(&row).Error; err != nil {
-			common.ReplyErr(w, "update document failed", http.StatusInternalServerError)
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "update document failed", err), http.StatusInternalServerError)
 			return
 		}
 		common.ReplyJSON(w, docFromRow(mergedDocRow{
@@ -586,7 +590,7 @@ func UpdateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := db.Model(&orm.Document{}).Where("id = ? AND deleted_at IS NULL", cd.ID).Updates(updates).Error; err != nil {
-		common.ReplyErr(w, "update document failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "update document failed", err), http.StatusInternalServerError)
 		return
 	}
 	// return refreshed
@@ -625,16 +629,19 @@ func SearchDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := 0
 	if strings.TrimSpace(req.PageToken) != "" {
-		if v, err := strconv.Atoi(strings.TrimSpace(req.PageToken)); err == nil && v >= 0 {
-			offset = v
+		v, err := parseDatasetPageToken(req.PageToken)
+		if err != nil {
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
+			return
 		}
+		offset = v
 	}
 	keyword := strings.TrimSpace(req.Keyword)
 	pid := firstNonEmpty(strings.TrimSpace(req.PID), parseDocumentPIDFromParentName(strings.TrimSpace(req.Parent)))
 
 	rows, total, err := loadDatasetDocuments(r.Context(), datasetID, keyword, pid, true, int(pageSize), offset)
 	if err != nil {
-		common.ReplyErr(w, "search documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "search documents failed", err), http.StatusInternalServerError)
 		return
 	}
 	relPaths := buildDocumentTreeRelPaths(r.Context(), rows)
@@ -647,7 +654,7 @@ func SearchDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if offset+len(rows) < int(total) {
-		next = strconv.Itoa(offset + len(rows))
+		next = encodeDatasetPageToken(offset+len(rows), int(pageSize), int(total))
 	}
 	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(total), NextPageToken: next})
 }
@@ -664,37 +671,239 @@ func SearchAllDocuments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	keyword := strings.TrimSpace(req.Keyword)
-	if keyword == "" {
+
+	datasetIDs, err := accessibleDatasetIDs(r.Context(), userID)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "search documents failed", err), http.StatusInternalServerError)
+		return
+	}
+	if len(datasetIDs) == 0 {
 		common.ReplyJSON(w, ListDocumentsResponse{Documents: []Doc{}, TotalSize: 0, NextPageToken: ""})
 		return
+	}
+
+	offset := 0
+	if strings.TrimSpace(req.PageToken) != "" {
+		v, err := parseDatasetPageToken(req.PageToken)
+		if err != nil {
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid page_token", err), http.StatusBadRequest)
+			return
+		}
+		offset = v
 	}
 	pageSize := req.PageSize
 	if pageSize <= 0 {
 		pageSize = 20
 	}
-	if pageSize > 1000 {
-		pageSize = 1000
+	if pageSize > 100 {
+		pageSize = 100
 	}
 
-	rows, err := searchAllDocumentsMerged(r.Context(), keyword, int(pageSize))
+	rows, total, err := searchAllDocumentsMerged(r.Context(), searchAllDocumentsParams{
+		DatasetIDs:  datasetIDs,
+		Keyword:     strings.TrimSpace(req.Keyword),
+		KeywordList: req.KeywordList,
+		PageSize:    int(pageSize),
+		Offset:      offset,
+	})
 	if err != nil {
-		common.ReplyErr(w, "search documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "search documents failed", err), http.StatusInternalServerError)
 		return
 	}
 	relPaths := buildDocumentTreeRelPaths(r.Context(), rows)
 	out := make([]Doc, 0, len(rows))
 	for _, rr := range rows {
-		if !canAccessDataset(&orm.Dataset{ID: rr.DatasetID}, userID, acl.PermissionDatasetRead) {
-			continue
-		}
 		rr.RelPath = relPaths[rr.DocID]
 		doc := docFromRow(rr)
 		setDocumentURI(&doc)
 		out = append(out, doc)
 	}
-	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(len(out)), NextPageToken: ""})
+	next := ""
+	if offset+len(rows) < int(total) {
+		next = encodeDatasetPageToken(offset+len(rows), int(pageSize), int(total))
+	}
+	common.ReplyJSON(w, ListDocumentsResponse{Documents: out, TotalSize: int32(total), NextPageToken: next})
 }
+
+func BatchUpdateDocumentTags(w http.ResponseWriter, r *http.Request) {
+	datasetID := datasetIDFromPath(r)
+	if datasetID == "" {
+		common.ReplyErr(w, "missing dataset", http.StatusBadRequest)
+		return
+	}
+	if _, userID, ok := requireDatasetPermission(r, datasetID, acl.PermissionDatasetWrite); !ok {
+		if userID == "" {
+			common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		} else {
+			replyDatasetForbidden(w)
+		}
+		return
+	}
+
+	var req BatchUpdateDocumentTagsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	parent := strings.TrimSpace(req.Parent)
+	if parent == "" {
+		common.ReplyErr(w, "parent required", http.StatusBadRequest)
+		return
+	}
+	parentDatasetID := strings.TrimPrefix(parent, "datasets/")
+	if parentDatasetID == "" || parentDatasetID != datasetID {
+		common.ReplyErr(w, "parent does not match dataset", http.StatusBadRequest)
+		return
+	}
+
+	mode := strings.TrimSpace(req.Mode)
+	if mode == "" {
+		mode = "UPDATE_MODE_UNSPECIFIED"
+	}
+	if mode != "UPDATE_MODE_UNSPECIFIED" && mode != "APPEND" && mode != "OVERWRITE" {
+		common.ReplyErr(w, "invalid mode", http.StatusBadRequest)
+		return
+	}
+
+	targetIDs := map[string]struct{}{}
+	for _, id := range req.DocumentIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			targetIDs[id] = struct{}{}
+		}
+	}
+	for _, folderID := range req.FolderIDs {
+		folderID = strings.TrimSpace(folderID)
+		if folderID == "" {
+			continue
+		}
+		subtree, err := loadDocumentSubtree(r.Context(), datasetID, folderID)
+		if err != nil {
+			common.ReplyErr(w, fmt.Sprintf("%s: %v", "folder not found", err), http.StatusBadRequest)
+			return
+		}
+		for _, row := range subtree {
+			if isFolderLikeDocument(row) {
+				continue
+			}
+			targetIDs[strings.TrimSpace(row.ID)] = struct{}{}
+		}
+	}
+
+	if len(targetIDs) == 0 {
+		common.ReplyJSON(w, BatchUpdateDocumentTagsResponse{AffectedFiles: 0, TruncatedDocs: 0})
+		return
+	}
+
+	ids := make([]string, 0, len(targetIDs))
+	for id := range targetIDs {
+		ids = append(ids, id)
+	}
+
+	var docs []orm.Document
+	if err := store.DB().WithContext(r.Context()).
+		Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, ids).
+		Find(&docs).Error; err != nil {
+		common.ReplyErr(w, "query documents failed", http.StatusInternalServerError)
+		return
+	}
+
+	requestTags := normalizeBatchDocumentTags(req.Tags)
+	now := time.Now().UTC()
+	affected := int32(0)
+	truncated := int32(0)
+
+	for _, docRow := range docs {
+		if isFolderLikeDocument(docRow) {
+			continue
+		}
+		affected++
+		finalTags := append([]string(nil), requestTags...)
+		if mode == "APPEND" || mode == "UPDATE_MODE_UNSPECIFIED" {
+			var existing []string
+			_ = json.Unmarshal(docRow.Tags, &existing)
+			finalTags = mergeAppendDocumentTags(existing, requestTags, 10)
+		} else if len(finalTags) > 10 {
+			finalTags = finalTags[:10]
+			truncated++
+		}
+		if len(finalTags) > 10 {
+			finalTags = finalTags[:10]
+			truncated++
+		}
+		tagsBytes, _ := json.Marshal(finalTags)
+		if err := store.DB().WithContext(r.Context()).
+			Model(&orm.Document{}).
+			Where("dataset_id = ? AND id = ? AND deleted_at IS NULL", datasetID, docRow.ID).
+			Updates(map[string]any{"tags": tagsBytes, "updated_at": now}).Error; err != nil {
+			common.ReplyErr(w, "update document tags failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	common.ReplyJSON(w, BatchUpdateDocumentTagsResponse{
+		AffectedFiles: affected,
+		TruncatedDocs: truncated,
+	})
+}
+
+func normalizeBatchDocumentTags(tags []string) []string {
+	if len(tags) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		t := strings.TrimSpace(tag)
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}
+
+func mergeAppendDocumentTags(existing, incoming []string, limit int) []string {
+	existing = normalizeBatchDocumentTags(existing)
+	incoming = normalizeBatchDocumentTags(incoming)
+	if limit <= 0 {
+		return []string{}
+	}
+	if len(incoming) == 0 {
+		if len(existing) > limit {
+			return existing[:limit]
+		}
+		return existing
+	}
+	keptExisting := make([]string, 0, len(existing))
+	incomingSet := make(map[string]struct{}, len(incoming))
+	for _, tag := range incoming {
+		incomingSet[tag] = struct{}{}
+	}
+	for _, tag := range existing {
+		if _, ok := incomingSet[tag]; ok {
+			continue
+		}
+		keptExisting = append(keptExisting, tag)
+	}
+	available := limit - len(incoming)
+	if available < 0 {
+		available = 0
+	}
+	if len(keptExisting) > available {
+		keptExisting = keptExisting[len(keptExisting)-available:]
+	}
+	out := append(keptExisting, incoming...)
+	if len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
 func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	datasetID := datasetIDFromPath(r)
 	userID := store.UserID(r)
@@ -712,7 +921,7 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var req BatchDeleteDocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
 	if len(req.Names) == 0 {
@@ -721,11 +930,11 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows []orm.Document
 	if err := store.DB().WithContext(r.Context()).Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).Find(&rows).Error; err != nil {
-		common.ReplyErr(w, "query documents failed", http.StatusInternalServerError)
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "query documents failed", err), http.StatusInternalServerError)
 		return
 	}
 	if err := deleteExternalDocs(r, datasetID, rows); err != nil {
-		common.ReplyErr(w, externalDeleteFailedMessage, http.StatusBadGateway)
+		common.ReplyErr(w, "external delete failed", http.StatusBadGateway)
 		return
 	}
 	now := time.Now().UTC()
@@ -733,7 +942,7 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		Model(&orm.Document{}).
 		Where("dataset_id = ? AND id IN ? AND deleted_at IS NULL", datasetID, req.Names).
 		Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error; err != nil {
-		common.ReplyErr(w, "BatchDelete documentFailed，text", http.StatusInternalServerError)
+		common.ReplyErr(w, "batch delete document failed", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -742,20 +951,26 @@ func AllDocumentCreators(w http.ResponseWriter, r *http.Request) {
 	type resp struct {
 		Creators []UserInfo `json:"creators"`
 	}
-	var names []string
+	type creatorRow struct {
+		ID   string
+		Name string
+	}
+	var rows []creatorRow
 	_ = store.DB().WithContext(r.Context()).
 		Model(&orm.Document{}).
+		Select("create_user_id AS id", "create_user_name AS name").
 		Where("deleted_at IS NULL").
-		Distinct().
-		Pluck("create_user_name", &names).Error
-	sort.Strings(names)
-	out := make([]UserInfo, 0, len(names))
-	for _, n := range names {
-		nn := strings.TrimSpace(n)
-		if nn == "" {
+		Group("create_user_id, create_user_name").
+		Order("create_user_name ASC").
+		Find(&rows).Error
+	out := make([]UserInfo, 0, len(rows))
+	for _, row := range rows {
+		id := strings.TrimSpace(row.ID)
+		name := strings.TrimSpace(row.Name)
+		if id == "" && name == "" {
 			continue
 		}
-		out = append(out, UserInfo{DisplayName: nn})
+		out = append(out, UserInfo{ID: id, Name: name})
 	}
 	common.ReplyJSON(w, resp{Creators: out})
 }
@@ -843,14 +1058,28 @@ type ListDocumentsResponse struct {
 }
 
 type SearchDocumentsRequest struct {
-	Parent    string `json:"parent,omitempty"`
-	PID       string `json:"p_id,omitempty"`
-	DirPath   string `json:"dir_path,omitempty"`
-	OrderBy   string `json:"order_by,omitempty"`
-	PageToken string `json:"page_token,omitempty"`
-	PageSize  int32  `json:"page_size,omitempty"`
-	Keyword   string `json:"keyword,omitempty"`
-	Recursive bool   `json:"recursive,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
+	PID         string   `json:"p_id,omitempty"`
+	DirPath     string   `json:"dir_path,omitempty"`
+	OrderBy     string   `json:"order_by,omitempty"`
+	PageToken   string   `json:"page_token,omitempty"`
+	PageSize    int32    `json:"page_size,omitempty"`
+	Keyword     string   `json:"keyword,omitempty"`
+	KeywordList []string `json:"keyword_list,omitempty"`
+	Recursive   bool     `json:"recursive,omitempty"`
+}
+
+type BatchUpdateDocumentTagsRequest struct {
+	Parent      string   `json:"parent"`
+	DocumentIDs []string `json:"document_ids,omitempty"`
+	FolderIDs   []string `json:"folder_ids,omitempty"`
+	Mode        string   `json:"mode"`
+	Tags        []string `json:"tags"`
+}
+
+type BatchUpdateDocumentTagsResponse struct {
+	AffectedFiles int32 `json:"affected_files,omitempty"`
+	TruncatedDocs int32 `json:"truncated_docs,omitempty"`
 }
 
 type BatchDeleteDocumentRequest struct {
@@ -915,7 +1144,8 @@ func deleteExternalDocs(r *http.Request, datasetID string, rows []orm.Document) 
 }
 
 type UserInfo struct {
-	DisplayName string `json:"display_name,omitempty"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 func newDocID() string {
@@ -961,78 +1191,27 @@ func loadDatasetDocuments(ctx context.Context, datasetID, keyword, pid string, a
 		limit = 20
 	}
 
-	rows := make([]mergedDocRow, 0)
-
-	var kbRows []readonlyorm.LazyLLMKBDocRow
-	if err := store.LazyLLMDB().WithContext(ctx).
-		Table((readonlyorm.LazyLLMKBDocRow{}).TableName()).
-		Where("kb_id = ?", datasetID).
-		Find(&kbRows).Error; err != nil {
-		return nil, 0, err
-	}
-	if len(kbRows) > 0 {
-		docIDs := make([]string, 0, len(kbRows))
-		for _, row := range kbRows {
-			docIDs = append(docIDs, row.DocID)
-		}
-		extRows, _, err := loadMergedDocumentsByDocIDs(ctx, docIDs, datasetID, keyword, pid, applyPIDFilter, len(docIDs), 0)
-		if err != nil {
-			return nil, 0, err
-		}
-		rows = append(rows, extRows...)
-	}
-
-	coreOnlyRows, err := loadCoreOnlyDocuments(ctx, datasetID, keyword, pid, applyPIDFilter)
-	if err != nil {
-		return nil, 0, err
-	}
-	rows = append(rows, coreOnlyRows...)
-
-	sort.Slice(rows, func(i, j int) bool { return rows[i].BaseUpdatedAt.After(rows[j].BaseUpdatedAt) })
-	total := int64(len(rows))
-	if offset >= len(rows) {
-		return []mergedDocRow{}, total, nil
-	}
-	end := offset + limit
-	if end > len(rows) {
-		end = len(rows)
-	}
-	return rows[offset:end], total, nil
-}
-
-func loadCoreOnlyDocuments(ctx context.Context, datasetID, keyword, pid string, applyPIDFilter bool) ([]mergedDocRow, error) {
+	var docs []orm.Document
 	db := store.DB().WithContext(ctx).
-		Where("dataset_id = ? AND lazyllm_doc_id = '' AND deleted_at IS NULL", datasetID)
+		Where("dataset_id = ? AND deleted_at IS NULL", datasetID)
 	if applyPIDFilter {
 		db = db.Where("COALESCE(p_id, '') = ?", pid)
 	}
+	if err := db.Order("updated_at DESC").Find(&docs).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(docs) == 0 {
+		return []mergedDocRow{}, 0, nil
+	}
 
-	var docs []orm.Document
-	if err := db.Find(&docs).Error; err != nil {
-		return nil, err
-	}
-	rows := make([]mergedDocRow, 0, len(docs))
+	docIDs := make([]string, 0, len(docs))
 	for _, doc := range docs {
-		row, err := mergedDocRowFromCoreOnly(ctx, doc, datasetID)
-		if err != nil {
-			return nil, err
-		}
-		if !mergedDocMatchesKeyword(row, keyword) {
-			continue
-		}
-		rows = append(rows, row)
+		docIDs = append(docIDs, doc.ID)
 	}
-	return rows, nil
+	return loadMergedDocumentsByDocIDs(ctx, docIDs, datasetID, keyword, pid, applyPIDFilter, limit, offset)
 }
 
-func mergedDocRowFromCoreOnly(ctx context.Context, row orm.Document, datasetID string) (mergedDocRow, error) {
-	var dsDisplay string
-	if row.DatasetID != "" {
-		var ds orm.Dataset
-		if err := store.DB().WithContext(ctx).Where("id = ? AND deleted_at IS NULL", row.DatasetID).Take(&ds).Error; err == nil {
-			dsDisplay = strings.TrimSpace(ds.DisplayName)
-		}
-	}
+func mergedDocRowFromCoreOnlyWithDatasetDisplay(row orm.Document, datasetDisplay string) mergedDocRow {
 	var dExt documentExt
 	_ = json.Unmarshal(row.Ext, &dExt)
 	documentSize := dExt.FileSize
@@ -1044,7 +1223,7 @@ func mergedDocRowFromCoreOnly(ctx context.Context, row orm.Document, datasetID s
 		Path:             dExt.StoredPath,
 		Ext:              row.Ext,
 		DatasetID:        row.DatasetID,
-		DatasetDisplay:   dsDisplay,
+		DatasetDisplay:   datasetDisplay,
 		BaseCreatedAt:    row.CreatedAt,
 		BaseUpdatedAt:    row.UpdatedAt,
 		DisplayName:      row.DisplayName,
@@ -1058,7 +1237,7 @@ func mergedDocRowFromCoreOnly(ctx context.Context, row orm.Document, datasetID s
 		RelPath:          relPath,
 		DocumentStage:    "",
 		PDFConvertResult: strings.TrimSpace(row.PDFConvertResult),
-	}, nil
+	}
 }
 
 func loadDocumentByID(ctx context.Context, datasetID, docID string) (mergedDocRow, error) {
@@ -1067,7 +1246,7 @@ func loadDocumentByID(ctx context.Context, datasetID, docID string) (mergedDocRo
 		return mergedDocRow{}, err
 	}
 	if strings.TrimSpace(row.LazyllmDocID) == "" {
-		return mergedDocRowFromCoreOnly(ctx, row, datasetID)
+		return mergedDocRowFromCoreOnlyWithDatasetDisplay(row, ""), nil
 	}
 	rows, _, err := loadMergedDocumentsByDocIDs(ctx, []string{row.LazyllmDocID}, datasetID, "", "", false, 1, 0)
 	if err != nil {
@@ -1078,65 +1257,142 @@ func loadDocumentByID(ctx context.Context, datasetID, docID string) (mergedDocRo
 			return rr, nil
 		}
 	}
-	return mergedDocRowFromCoreOnly(ctx, row, datasetID)
+	return mergedDocRowFromCoreOnlyWithDatasetDisplay(row, ""), nil
 }
 
-func searchAllDocumentsMerged(ctx context.Context, keyword string, limit int) ([]mergedDocRow, error) {
+type searchAllDocumentsParams struct {
+	DatasetIDs  []string
+	Keyword     string
+	KeywordList []string
+	PageSize    int
+	Offset      int
+}
+
+func searchAllDocumentsMerged(ctx context.Context, params searchAllDocumentsParams) ([]mergedDocRow, int64, error) {
+	if len(params.DatasetIDs) == 0 {
+		return []mergedDocRow{}, 0, nil
+	}
+	enableFuzzy := strings.TrimSpace(params.Keyword) != ""
+	searchKeyword := strings.TrimSpace(params.Keyword)
+	searchKeywordList := normalizeKeywordList(params.KeywordList)
+	queryKeyword := searchKeyword
+	queryKeywordList := searchKeywordList
+	offset := params.Offset
+	limit := params.PageSize
 	if limit <= 0 {
 		limit = 20
 	}
-	like := "%" + strings.ToLower(strings.ReplaceAll(keyword, "%", "\\%")) + "%"
-	var baseRows []readonlyorm.LazyLLMDocRow
-	if err := store.LazyLLMDB().WithContext(ctx).
-		Table((readonlyorm.LazyLLMDocRow{}).TableName()).
-		Where("LOWER(filename) LIKE ? OR LOWER(path) LIKE ?", like, like).
-		Order("updated_at DESC").
-		Limit(limit * 3).
-		Find(&baseRows).Error; err != nil {
-		return nil, err
+	if enableFuzzy {
+		queryKeyword = ""
+		queryKeywordList = nil
+		offset = 0
+		limit = fuzzySearchMaxCandidates
 	}
-	if len(baseRows) == 0 {
-		return []mergedDocRow{}, nil
-	}
-	docIDs := make([]string, 0, len(baseRows))
-	for _, row := range baseRows {
-		docIDs = append(docIDs, row.DocID)
-	}
-	rows, _, err := loadMergedDocumentsByDocIDs(ctx, docIDs, "", keyword, "", false, limit, 0)
-	return rows, err
-}
 
-func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID, keyword, pid string, applyPIDFilter bool, limit, offset int) ([]mergedDocRow, int64, error) {
-	if len(docIDs) == 0 {
-		return []mergedDocRow{}, 0, nil
-	}
-	var baseRows []readonlyorm.LazyLLMDocRow
-	baseQuery := store.LazyLLMDB().WithContext(ctx).
-		Table((readonlyorm.LazyLLMDocRow{}).TableName()).
-		Where("doc_id IN ?", docIDs)
-	if keyword != "" && strings.TrimSpace(datasetID) == "" {
-		like := "%" + strings.ToLower(strings.ReplaceAll(keyword, "%", "\\%")) + "%"
-		baseQuery = baseQuery.Where("LOWER(filename) LIKE ? OR LOWER(path) LIKE ?", like, like)
-	}
-	if err := baseQuery.Find(&baseRows).Error; err != nil {
+	rows, total, err := loadMergedDocumentsBySearch(ctx, params.DatasetIDs, queryKeyword, queryKeywordList, limit, offset)
+	if err != nil {
 		return nil, 0, err
 	}
-	if len(baseRows) == 0 {
+	if enableFuzzy {
+		scored := scoreMergedDocuments(searchKeyword, rows)
+		return pageScoredMergedDocuments(scored, params.Offset, params.PageSize), int64(len(scored)), nil
+	}
+	return rows, total, nil
+}
+
+func normalizeKeywordList(keywordList []string) []string {
+	if len(keywordList) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(keywordList))
+	seen := map[string]struct{}{}
+	for _, keyword := range keywordList {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+		if _, ok := seen[keyword]; ok {
+			continue
+		}
+		seen[keyword] = struct{}{}
+		out = append(out, keyword)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func accessibleDatasetIDs(ctx context.Context, userID string) ([]string, error) {
+	var datasets []orm.Dataset
+	if err := store.DB().WithContext(ctx).Where("deleted_at IS NULL").Find(&datasets).Error; err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(datasets))
+	for _, ds := range datasets {
+		if canAccessDataset(&ds, userID, acl.PermissionDatasetRead) {
+			ids = append(ids, ds.ID)
+		}
+	}
+	return ids, nil
+}
+
+func loadMergedDocumentsBySearch(ctx context.Context, datasetIDs []string, keyword string, keywordList []string, limit, offset int) ([]mergedDocRow, int64, error) {
+	if len(datasetIDs) == 0 {
 		return []mergedDocRow{}, 0, nil
 	}
-	baseByExternalID := make(map[string]readonlyorm.LazyLLMDocRow, len(baseRows))
-	filteredExternalIDs := make([]string, 0, len(baseRows))
-	for _, row := range baseRows {
-		baseByExternalID[row.DocID] = row
-		filteredExternalIDs = append(filteredExternalIDs, row.DocID)
+
+	var docs []orm.Document
+	if err := store.DB().WithContext(ctx).
+		Where("dataset_id IN ? AND deleted_at IS NULL", datasetIDs).
+		Order("updated_at DESC").
+		Find(&docs).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(docs) == 0 {
+		return []mergedDocRow{}, 0, nil
 	}
 
-	latestTaskStatusByExternalID := make(map[string]string, len(filteredExternalIDs))
-	if len(filteredExternalIDs) > 0 {
+	datasetDisplayByID := make(map[string]string, len(datasetIDs))
+	var datasets []orm.Dataset
+	if err := store.DB().WithContext(ctx).
+		Where("id IN ? AND deleted_at IS NULL", datasetIDs).
+		Find(&datasets).Error; err != nil {
+		return nil, 0, err
+	}
+	for _, ds := range datasets {
+		datasetDisplayByID[ds.ID] = strings.TrimSpace(ds.DisplayName)
+	}
+
+	externalIDs := make([]string, 0, len(docs))
+	coreIDs := make([]string, 0, len(docs))
+	for _, doc := range docs {
+		coreIDs = append(coreIDs, doc.ID)
+		if extID := strings.TrimSpace(doc.LazyllmDocID); extID != "" {
+			externalIDs = append(externalIDs, extID)
+		}
+	}
+
+	baseByExternalID := make(map[string]readonlyorm.LazyLLMDocRow, len(externalIDs))
+	if len(externalIDs) > 0 {
+		var baseRows []readonlyorm.LazyLLMDocRow
+		if err := store.LazyLLMDB().WithContext(ctx).
+			Table((readonlyorm.LazyLLMDocRow{}).TableName()).
+			Where("doc_id IN ?", externalIDs).
+			Find(&baseRows).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, row := range baseRows {
+			baseByExternalID[row.DocID] = row
+		}
+	}
+
+	latestTaskStatusByExternalID := make(map[string]string, len(externalIDs))
+	if len(externalIDs) > 0 {
 		var extTasks []readonlyorm.LazyLLMDocServiceTaskRow
 		if err := store.LazyLLMDB().WithContext(ctx).
 			Table((readonlyorm.LazyLLMDocServiceTaskRow{}).TableName()).
-			Where("doc_id IN ?", filteredExternalIDs).
+			Where("doc_id IN ?", externalIDs).
 			Order("updated_at DESC").
 			Find(&extTasks).Error; err != nil {
 			return nil, 0, err
@@ -1148,34 +1404,367 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 		}
 	}
 
-	var diffs []orm.Document
-	diffQuery := store.DB().WithContext(ctx).
-		Where("lazyllm_doc_id IN ? AND deleted_at IS NULL", filteredExternalIDs)
-	if datasetID != "" {
-		diffQuery = diffQuery.Where("dataset_id = ?", datasetID)
-	}
-	if applyPIDFilter {
-		diffQuery = diffQuery.Where("COALESCE(p_id, '') = ?", pid)
-	}
-	if err := diffQuery.Find(&diffs).Error; err != nil {
-		return nil, 0, err
-	}
-	diffByLazyllmID := make(map[string]orm.Document, len(diffs))
-	coreIDs := make([]string, 0, len(diffs))
-	datasetIDs := make([]string, 0, len(diffs))
-	datasetSeen := make(map[string]struct{}, len(diffs))
-	for _, diff := range diffs {
-		diffByLazyllmID[diff.LazyllmDocID] = diff
-		coreIDs = append(coreIDs, diff.ID)
-		if diff.DatasetID != "" {
-			if _, ok := datasetSeen[diff.DatasetID]; !ok {
-				datasetSeen[diff.DatasetID] = struct{}{}
-				datasetIDs = append(datasetIDs, diff.DatasetID)
+	latestTaskDataSourceByExternalID := make(map[string]string, len(externalIDs))
+	if len(coreIDs) > 0 {
+		var coreTasks []orm.Task
+		if err := store.DB().WithContext(ctx).
+			Where("doc_id IN ? AND deleted_at IS NULL", coreIDs).
+			Order("updated_at DESC").
+			Find(&coreTasks).Error; err != nil {
+			return nil, 0, err
+		}
+		docByID := make(map[string]orm.Document, len(docs))
+		for _, doc := range docs {
+			docByID[doc.ID] = doc
+		}
+		for _, task := range coreTasks {
+			doc, ok := docByID[task.DocID]
+			if !ok {
+				continue
+			}
+			extID := strings.TrimSpace(doc.LazyllmDocID)
+			if extID == "" {
+				continue
+			}
+			if _, ok := latestTaskDataSourceByExternalID[extID]; ok {
+				continue
+			}
+			var ext taskExt
+			_ = json.Unmarshal(task.Ext, &ext)
+			if s := strings.TrimSpace(ext.DataSourceType); s != "" {
+				latestTaskDataSourceByExternalID[extID] = s
 			}
 		}
 	}
 
-	latestTaskDataSourceByExternalID := make(map[string]string, len(filteredExternalIDs))
+	rows := make([]mergedDocRow, 0, len(docs))
+	for _, doc := range docs {
+		datasetDisplay := datasetDisplayByID[doc.DatasetID]
+		extID := strings.TrimSpace(doc.LazyllmDocID)
+		if extID == "" {
+			rows = append(rows, mergedDocRowFromCoreOnlyWithDatasetDisplay(doc, datasetDisplay))
+			continue
+		}
+
+		base, ok := baseByExternalID[extID]
+		if !ok {
+			rows = append(rows, mergedDocRowFromCoreOnlyWithDatasetDisplay(doc, datasetDisplay))
+			continue
+		}
+
+		displayName := strings.TrimSpace(base.Filename)
+		if strings.TrimSpace(doc.DisplayName) != "" {
+			displayName = strings.TrimSpace(doc.DisplayName)
+		}
+		documentSize := int64(0)
+		if base.SizeBytes != nil {
+			documentSize = int64(*base.SizeBytes)
+		}
+		docType := documentTypeFromName(base.Filename)
+		relPath := relativePathFromFullPath(base.Path)
+		documentStage := strings.TrimSpace(base.UploadStatus)
+		if taskStatus := strings.TrimSpace(latestTaskStatusByExternalID[extID]); taskStatus != "" {
+			documentStage = taskStatus
+		}
+		dataSourceType := strings.TrimSpace(latestTaskDataSourceByExternalID[extID])
+		if dataSourceType == "" && strings.TrimSpace(base.SourceType) != "" {
+			dataSourceType = dataSourceTypeFromSourceType(base.SourceType)
+		}
+		if dataSourceType == "" {
+			dataSourceType = "LOCAL_FILE"
+		}
+		var dExt documentExt
+		_ = json.Unmarshal(doc.Ext, &dExt)
+		if dExt.FileSize > 0 {
+			documentSize = dExt.FileSize
+		}
+		if strings.TrimSpace(dExt.RelativePath) != "" {
+			relPath = strings.TrimSpace(dExt.RelativePath)
+		}
+		if strings.TrimSpace(dExt.OriginalFilename) != "" {
+			docType = documentTypeFromName(dExt.OriginalFilename)
+		}
+		rows = append(rows, mergedDocRow{
+			DocID:            doc.ID,
+			Filename:         base.Filename,
+			Path:             firstNonEmpty(strings.TrimSpace(dExt.StoredPath), strings.TrimSpace(base.Path)),
+			Ext:              doc.Ext,
+			DatasetID:        doc.DatasetID,
+			DatasetDisplay:   datasetDisplay,
+			BaseCreatedAt:    base.CreatedAt,
+			BaseUpdatedAt:    base.UpdatedAt,
+			DisplayName:      displayName,
+			PID:              doc.PID,
+			Tags:             doc.Tags,
+			FileID:           doc.FileID,
+			Creator:          doc.CreateUserName,
+			DocumentSize:     documentSize,
+			DataSourceType:   dataSourceType,
+			Type:             docType,
+			RelPath:          relPath,
+			DocumentStage:    documentStage,
+			PDFConvertResult: strings.TrimSpace(doc.PDFConvertResult),
+		})
+	}
+
+	if kw := strings.TrimSpace(keyword); kw != "" {
+		filtered := rows[:0]
+		for _, row := range rows {
+			if mergedDocMatchesKeyword(row, kw) {
+				filtered = append(filtered, row)
+			}
+		}
+		rows = filtered
+	}
+	if kws := normalizeKeywordList(keywordList); len(kws) > 0 {
+		filtered := rows[:0]
+		for _, row := range rows {
+			for _, kw := range kws {
+				if mergedDocMatchesKeyword(row, kw) {
+					filtered = append(filtered, row)
+					break
+				}
+			}
+		}
+		rows = filtered
+	}
+
+	sort.Slice(rows, func(i, j int) bool { return rows[i].BaseUpdatedAt.After(rows[j].BaseUpdatedAt) })
+	total := int64(len(rows))
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset >= len(rows) {
+		return []mergedDocRow{}, total, nil
+	}
+	end := offset + limit
+	if end > len(rows) {
+		end = len(rows)
+	}
+	return rows[offset:end], total, nil
+}
+
+type scoredMergedDoc struct {
+	row   mergedDocRow
+	score int
+}
+
+func scoreMergedDocuments(keyword string, rows []mergedDocRow) []scoredMergedDoc {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" || len(rows) == 0 {
+		return nil
+	}
+	normalizedKw := normalizeForFuzzy(keyword)
+	if normalizedKw == "" {
+		return nil
+	}
+	scored := make([]scoredMergedDoc, 0, len(rows))
+	for _, row := range rows {
+		bestScore := -1
+		if strings.Contains(normalizeForFuzzy(row.DisplayName), normalizedKw) {
+			bestScore = 0
+		}
+		if bestScore < 0 && strings.Contains(normalizeForFuzzy(row.Creator), normalizedKw) {
+			bestScore = 2
+		}
+		if bestScore < 0 {
+			var tags []string
+			_ = json.Unmarshal(row.Tags, &tags)
+			for _, tag := range tags {
+				if strings.Contains(normalizeForFuzzy(tag), normalizedKw) {
+					bestScore = 1
+					break
+				}
+			}
+		}
+		if bestScore >= 0 {
+			scored = append(scored, scoredMergedDoc{row: row, score: bestScore})
+		}
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score < scored[j].score
+		}
+		if !scored[i].row.BaseUpdatedAt.Equal(scored[j].row.BaseUpdatedAt) {
+			return scored[i].row.BaseUpdatedAt.After(scored[j].row.BaseUpdatedAt)
+		}
+		return strings.ToLower(scored[i].row.DisplayName) < strings.ToLower(scored[j].row.DisplayName)
+	})
+	return scored
+}
+
+func pageScoredMergedDocuments(scored []scoredMergedDoc, offset, pageSize int) []mergedDocRow {
+	if len(scored) == 0 {
+		return []mergedDocRow{}
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(scored) {
+		return []mergedDocRow{}
+	}
+	end := offset + pageSize
+	if end > len(scored) {
+		end = len(scored)
+	}
+	out := make([]mergedDocRow, 0, end-offset)
+	for _, item := range scored[offset:end] {
+		out = append(out, item.row)
+	}
+	return out
+}
+
+func boundedLevenshtein(a, b string, _ int) int {
+	la, lb := len(a), len(b)
+	if a == b {
+		return 0
+	}
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	if la > lb {
+		a, b = b, a
+		la, lb = lb, la
+	}
+	prev := make([]int, la+1)
+	curr := make([]int, la+1)
+	for i := 0; i <= la; i++ {
+		prev[i] = i
+	}
+	for j := 1; j <= lb; j++ {
+		curr[0] = j
+		bj := b[j-1]
+		for i := 1; i <= la; i++ {
+			cost := 0
+			if a[i-1] != bj {
+				cost = 1
+			}
+			deletion := prev[i] + 1
+			insertion := curr[i-1] + 1
+			substitution := prev[i-1] + cost
+			curr[i] = deletion
+			if insertion < curr[i] {
+				curr[i] = insertion
+			}
+			if substitution < curr[i] {
+				curr[i] = substitution
+			}
+		}
+		prev, curr = curr, prev
+	}
+	return prev[la]
+}
+
+func normalizeForFuzzy(s string) string {
+	s = strings.ToLower(s)
+	s = fuzzyPunctRe.ReplaceAllString(s, "")
+	s = strings.TrimSuffix(s, ".docx")
+	s = strings.TrimSuffix(s, ".doc")
+	s = strings.TrimSuffix(s, ".pdf")
+	return s
+}
+
+func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID, keyword, pid string, applyPIDFilter bool, limit, offset int) ([]mergedDocRow, int64, error) {
+	if len(docIDs) == 0 {
+		return []mergedDocRow{}, 0, nil
+	}
+
+	var docs []orm.Document
+	docQuery := store.DB().WithContext(ctx).
+		Where("deleted_at IS NULL").
+		Where("(id IN ? OR lazyllm_doc_id IN ?)", docIDs, docIDs)
+	if datasetID != "" {
+		docQuery = docQuery.Where("dataset_id = ?", datasetID)
+	}
+	if applyPIDFilter {
+		docQuery = docQuery.Where("COALESCE(p_id, '') = ?", pid)
+	}
+	if err := docQuery.Order("updated_at DESC").Find(&docs).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(docs) == 0 {
+		return []mergedDocRow{}, 0, nil
+	}
+
+	datasetIDs := make([]string, 0, len(docs))
+	datasetSeen := make(map[string]struct{}, len(docs))
+	externalIDs := make([]string, 0, len(docs))
+	for _, doc := range docs {
+		if doc.DatasetID != "" {
+			if _, ok := datasetSeen[doc.DatasetID]; !ok {
+				datasetSeen[doc.DatasetID] = struct{}{}
+				datasetIDs = append(datasetIDs, doc.DatasetID)
+			}
+		}
+		if extID := strings.TrimSpace(doc.LazyllmDocID); extID != "" {
+			externalIDs = append(externalIDs, extID)
+		}
+	}
+
+	datasetDisplayByID := make(map[string]string, len(datasetIDs))
+	if len(datasetIDs) > 0 {
+		var datasets []orm.Dataset
+		if err := store.DB().WithContext(ctx).
+			Where("id IN ? AND deleted_at IS NULL", datasetIDs).
+			Find(&datasets).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, ds := range datasets {
+			datasetDisplayByID[ds.ID] = strings.TrimSpace(ds.DisplayName)
+		}
+	}
+
+	baseByExternalID := make(map[string]readonlyorm.LazyLLMDocRow, len(externalIDs))
+	if len(externalIDs) > 0 {
+		var baseRows []readonlyorm.LazyLLMDocRow
+		baseQuery := store.LazyLLMDB().WithContext(ctx).
+			Table((readonlyorm.LazyLLMDocRow{}).TableName()).
+			Where("doc_id IN ?", externalIDs)
+		if keyword != "" && strings.TrimSpace(datasetID) == "" {
+			like := "%" + strings.ToLower(strings.ReplaceAll(keyword, "%", "\\%")) + "%"
+			baseQuery = baseQuery.Where("LOWER(filename) LIKE ? OR LOWER(path) LIKE ?", like, like)
+		}
+		if err := baseQuery.Find(&baseRows).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, row := range baseRows {
+			baseByExternalID[row.DocID] = row
+		}
+	}
+
+	latestTaskStatusByExternalID := make(map[string]string, len(externalIDs))
+	if len(externalIDs) > 0 {
+		var extTasks []readonlyorm.LazyLLMDocServiceTaskRow
+		if err := store.LazyLLMDB().WithContext(ctx).
+			Table((readonlyorm.LazyLLMDocServiceTaskRow{}).TableName()).
+			Where("doc_id IN ?", externalIDs).
+			Order("updated_at DESC").
+			Find(&extTasks).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, task := range extTasks {
+			if _, ok := latestTaskStatusByExternalID[task.DocID]; !ok {
+				latestTaskStatusByExternalID[task.DocID] = strings.TrimSpace(task.Status)
+			}
+		}
+	}
+
+	coreIDs := make([]string, 0, len(docs))
+	docByID := make(map[string]orm.Document, len(docs))
+	for _, doc := range docs {
+		coreIDs = append(coreIDs, doc.ID)
+		docByID[doc.ID] = doc
+	}
+	latestTaskDataSourceByExternalID := make(map[string]string, len(externalIDs))
 	if len(coreIDs) > 0 {
 		var coreTasks []orm.Task
 		if err := store.DB().WithContext(ctx).
@@ -1185,133 +1774,125 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 			return nil, 0, err
 		}
 		for _, task := range coreTasks {
-			var doc orm.Document
-			for _, d := range diffs {
-				if d.ID == task.DocID {
-					doc = d
-					break
-				}
-			}
-			if strings.TrimSpace(doc.LazyllmDocID) == "" {
+			doc, ok := docByID[task.DocID]
+			if !ok {
 				continue
 			}
-			if _, ok := latestTaskDataSourceByExternalID[doc.LazyllmDocID]; ok {
+			extID := strings.TrimSpace(doc.LazyllmDocID)
+			if extID == "" {
+				continue
+			}
+			if _, ok := latestTaskDataSourceByExternalID[extID]; ok {
 				continue
 			}
 			var ext taskExt
 			_ = json.Unmarshal(task.Ext, &ext)
 			if s := strings.TrimSpace(ext.DataSourceType); s != "" {
-				latestTaskDataSourceByExternalID[doc.LazyllmDocID] = s
+				latestTaskDataSourceByExternalID[extID] = s
 			}
 		}
 	}
 
-	datasetDisplayByID := make(map[string]string, len(datasetIDs))
-	if len(datasetIDs) > 0 {
-		var datasets []orm.Dataset
-		if err := store.DB().WithContext(ctx).Where("id IN ? AND deleted_at IS NULL", datasetIDs).Find(&datasets).Error; err != nil {
-			return nil, 0, err
-		}
-		for _, ds := range datasets {
-			datasetDisplayByID[ds.ID] = strings.TrimSpace(ds.DisplayName)
-		}
-	}
-
-	rows := make([]mergedDocRow, 0, len(baseRows))
+	rows := make([]mergedDocRow, 0, len(docs))
 	likeKeyword := strings.ToLower(strings.TrimSpace(keyword))
-	for _, extDocID := range filteredExternalIDs {
-		base := baseByExternalID[extDocID]
-		diff, ok := diffByLazyllmID[extDocID]
-		if datasetID != "" && !ok {
+	for _, doc := range docs {
+		datasetDisplay := datasetDisplayByID[doc.DatasetID]
+		extID := strings.TrimSpace(doc.LazyllmDocID)
+		if extID == "" {
+			row := mergedDocRowFromCoreOnlyWithDatasetDisplay(doc, datasetDisplay)
+			if likeKeyword != "" && !mergedDocMatchesKeyword(row, likeKeyword) {
+				continue
+			}
+			rows = append(rows, row)
 			continue
 		}
-		coreDocID := extDocID
-		if ok {
-			coreDocID = diff.ID
+
+		base, ok := baseByExternalID[extID]
+		if !ok {
+			row := mergedDocRowFromCoreOnlyWithDatasetDisplay(doc, datasetDisplay)
+			if likeKeyword != "" && !mergedDocMatchesKeyword(row, likeKeyword) {
+				continue
+			}
+			rows = append(rows, row)
+			continue
 		}
+
 		displayName := strings.TrimSpace(base.Filename)
-		pidValue := ""
-		var tags []byte
-		fileID := ""
-		creator := ""
+		if strings.TrimSpace(doc.DisplayName) != "" {
+			displayName = strings.TrimSpace(doc.DisplayName)
+		}
 		documentSize := int64(0)
 		if base.SizeBytes != nil {
 			documentSize = int64(*base.SizeBytes)
 		}
 		docType := documentTypeFromName(base.Filename)
-		relPath := ""
+		relPath := relativePathFromFullPath(base.Path)
 		documentStage := strings.TrimSpace(base.UploadStatus)
-		dataSourceType := ""
-		datasetValue := datasetID
-		datasetDisplay := ""
-		if s, ok := latestTaskDataSourceByExternalID[base.DocID]; ok && strings.TrimSpace(s) != "" {
-			dataSourceType = strings.TrimSpace(s)
+		if taskStatus, ok := latestTaskStatusByExternalID[extID]; ok && strings.TrimSpace(taskStatus) != "" {
+			documentStage = strings.TrimSpace(taskStatus)
 		}
-		if ok {
-			datasetValue = diff.DatasetID
-			datasetDisplay = datasetDisplayByID[diff.DatasetID]
-			if strings.TrimSpace(diff.DisplayName) != "" {
-				displayName = strings.TrimSpace(diff.DisplayName)
-			}
-			pidValue = diff.PID
-			tags = diff.Tags
-			fileID = diff.FileID
-			creator = diff.CreateUserName
-			var dExt documentExt
-			_ = json.Unmarshal(diff.Ext, &dExt)
-			if dExt.FileSize > 0 {
-				documentSize = dExt.FileSize
-			}
-			if strings.TrimSpace(dExt.RelativePath) != "" {
-				relPath = strings.TrimSpace(dExt.RelativePath)
-			}
-			if strings.TrimSpace(dExt.OriginalFilename) != "" {
-				docType = documentTypeFromName(dExt.OriginalFilename)
-			}
-			if strings.TrimSpace(base.SourceType) != "" {
-				dataSourceType = dataSourceTypeFromSourceType(base.SourceType)
-			}
-			if taskStatus, ok2 := latestTaskStatusByExternalID[base.DocID]; ok2 && strings.TrimSpace(taskStatus) != "" {
-				documentStage = strings.TrimSpace(taskStatus)
-			}
-		}
-		if strings.TrimSpace(dataSourceType) == "" && strings.TrimSpace(base.SourceType) != "" {
+		dataSourceType := strings.TrimSpace(latestTaskDataSourceByExternalID[extID])
+		if dataSourceType == "" && strings.TrimSpace(base.SourceType) != "" {
 			dataSourceType = dataSourceTypeFromSourceType(base.SourceType)
 		}
-		if strings.TrimSpace(dataSourceType) == "" {
+		if dataSourceType == "" {
 			dataSourceType = "LOCAL_FILE"
 		}
-		if relPath == "" {
-			relPath = relativePathFromFullPath(base.Path)
+		var dExt documentExt
+		_ = json.Unmarshal(doc.Ext, &dExt)
+		if dExt.FileSize > 0 {
+			documentSize = dExt.FileSize
+		}
+		if strings.TrimSpace(dExt.RelativePath) != "" {
+			relPath = strings.TrimSpace(dExt.RelativePath)
+		}
+		if strings.TrimSpace(dExt.OriginalFilename) != "" {
+			docType = documentTypeFromName(dExt.OriginalFilename)
+		}
+		if strings.TrimSpace(dExt.StoredPath) != "" {
+			base.Path = strings.TrimSpace(dExt.StoredPath)
 		}
 		row := mergedDocRow{
-			DocID:            coreDocID,
+			DocID:            doc.ID,
 			Filename:         base.Filename,
 			Path:             base.Path,
-			Ext:              diff.Ext,
-			DatasetID:        datasetValue,
+			Ext:              doc.Ext,
+			DatasetID:        doc.DatasetID,
 			DatasetDisplay:   datasetDisplay,
 			BaseCreatedAt:    base.CreatedAt,
 			BaseUpdatedAt:    base.UpdatedAt,
 			DisplayName:      displayName,
-			PID:              pidValue,
-			Tags:             tags,
-			FileID:           fileID,
-			Creator:          creator,
+			PID:              doc.PID,
+			Tags:             doc.Tags,
+			FileID:           doc.FileID,
+			Creator:          doc.CreateUserName,
 			DocumentSize:     documentSize,
 			DataSourceType:   dataSourceType,
 			Type:             docType,
 			RelPath:          relPath,
 			DocumentStage:    documentStage,
-			PDFConvertResult: strings.TrimSpace(diff.PDFConvertResult),
+			PDFConvertResult: strings.TrimSpace(doc.PDFConvertResult),
+		}
+		if row.BaseCreatedAt.IsZero() {
+			row.BaseCreatedAt = doc.CreatedAt
+		}
+		if row.BaseUpdatedAt.IsZero() {
+			row.BaseUpdatedAt = doc.UpdatedAt
 		}
 		if likeKeyword != "" && !mergedDocMatchesKeyword(row, likeKeyword) {
 			continue
 		}
 		rows = append(rows, row)
 	}
+
 	sort.Slice(rows, func(i, j int) bool { return rows[i].BaseUpdatedAt.After(rows[j].BaseUpdatedAt) })
 	total := int64(len(rows))
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 20
+	}
 	if offset >= len(rows) {
 		return []mergedDocRow{}, total, nil
 	}

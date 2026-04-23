@@ -31,7 +31,7 @@ func Proxy(targetURL string, flushInterval time.Duration) http.HandlerFunc {
 }
 
 // ForbiddenBody text 403 Responsetext JSON text，text acl.APIResponse text（code, message, data）。
-const ForbiddenBody = `{"code":1,"message":"forbidden: no permission for this resource","data":null}`
+const ForbiddenBody = `{"code":2000102,"message":"forbidden: no permission for this resource","data":null}`
 
 // ProxyWithACL text ACL text：text body，text extractor text (userID, items)。
 // items textAuthorization；text acl.Can，text。extractor text nil text（text Proxy）。
@@ -57,7 +57,7 @@ func ProxyWithACL(targetURL string, flushInterval time.Duration, extractor ACLEx
 			if err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write([]byte(`{"code":1,"message":"read request body failed","data":null}`))
+				_, _ = w.Write([]byte(`{"code":2000103,"message":"read request body failed","data":null}`))
 				return
 			}
 		}
@@ -97,7 +97,7 @@ func ProxyWithACLDynamicFlush(
 			if err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write([]byte(`{"code":1,"message":"read request body failed","data":null}`))
+				_, _ = w.Write([]byte(`{"code":2000103,"message":"read request body failed","data":null}`))
 				return
 			}
 		}
