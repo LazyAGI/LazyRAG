@@ -13,12 +13,12 @@ llm_instruct:
   model: ${EVO_MODEL_NAME:-qwen3-max}
   api_key: ${LAZYLLM_QWEN_API_KEY}
 
-# Dedicated role for evo diagnostic agents (same model, separate config for flexibility)
 evo_llm:
-  source: qwen
+  source: openai
   type: llm
-  model: ${EVO_MODEL_NAME:-qwen3-max}
-  api_key: ${LAZYLLM_QWEN_API_KEY}
+  model: ${MAAS_MODEL_NAME:-minimax-m27}
+  url: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
+  api_key: ${LAZYRAG_MAAS_API_KEY}
 
 reranker:
   source: qwen

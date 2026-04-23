@@ -64,6 +64,7 @@ class AnalysisSession:
     llm_provider: LLMProvider | None = None
     embed_provider: EmbedProvider | None = None
     node_resolver: NodeResolver = field(default=get_node)
+    schema_failure_count: int = 0
     _node_cache: dict[str, NodeInfo | None] = field(default_factory=dict, repr=False)
 
     # ---- lifecycle ------------------------------------------------------
@@ -252,10 +253,9 @@ def create_session(
     if run_id is None:
         run_id = f'run_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}'
 
-    config.output_dir.mkdir(parents=True, exist_ok=True)
-    (config.output_dir / 'reports').mkdir(parents=True, exist_ok=True)
-    telemetry_path = config.output_dir / 'telemetry' / f'{run_id}.jsonl'
-    run_dir = config.output_dir / 'runs' / run_id
+    run_dir = config.storage.runs_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    telemetry_path = run_dir / 'telemetry.jsonl'
     handle_store = HandleStore(run_dir / 'handles.jsonl')
     world_store = WorldModelStore(run_dir / 'world_model.json', run_id=run_id)
 

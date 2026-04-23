@@ -14,6 +14,7 @@ from evo.harness.schemas import SCHEMAS
 from evo.harness.structured import invoke_structured
 from evo.runtime.code_config import code_context_dict
 from evo.runtime.session import AnalysisSession
+from evo.utils import coerce_confidence
 
 RESEARCHER_NAME = "researcher"
 _VALID_VERDICTS = ("confirmed", "refuted", "inconclusive")
@@ -110,7 +111,7 @@ def run_researcher(session: AnalysisSession, hypothesis: Hypothesis,
     out = ResearcherOutput(
         hypothesis_id=hypothesis.id,
         verdict=verdict,
-        confidence=float(parsed.get("confidence", 0.0) or 0.0),
+        confidence=coerce_confidence(parsed.get("confidence"), default=0.0),
         refined_claim=str(parsed.get("refined_claim") or hypothesis.claim),
         evidence_handles=[str(h) for h in parsed.get("evidence_handles", [])],
         suggested_action=str(parsed.get("suggested_action", "")),

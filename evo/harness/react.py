@@ -91,6 +91,15 @@ def _args_brief(args: dict[str, Any], max_chars: int = 80) -> str:
     return out if len(out) <= max_chars else out[:max_chars - 3] + "..."
 
 
+_FORMAT_VIOLATION_RES: tuple[re.Pattern, ...] = (
+    re.compile(r"\[TOOL_CALL\]"),
+    re.compile(r"<invoke\b"),
+    re.compile(r"<\w+:tool_call\b"),
+    re.compile(r'"\s*(?:tool|name|function|tool_name)\s*"\s*:\s*"'),
+    re.compile(r"```tool_code"),
+)
+
+
 def _parse_action(text: str) -> tuple[str, dict[str, Any]] | None:
     m = re.search(r"Action:\s*(\w+)", text)
     if m is None:
@@ -117,6 +126,10 @@ def _parse_action(text: str) -> tuple[str, dict[str, Any]] | None:
         return tool_name, json.loads(remainder[:end])
     except json.JSONDecodeError:
         return tool_name, {}
+
+
+def _looks_like_pseudo_tool_call(text: str) -> bool:
+    return any(p.search(text) for p in _FORMAT_VIOLATION_RES)
 
 
 class ReActRunner:
@@ -165,7 +178,13 @@ class ReActRunner:
 
             action = _parse_action(response)
             if action is None:
-                violations = self._check_finish(self.stats)
+                violations = list(self._check_finish(self.stats))
+                if _looks_like_pseudo_tool_call(response):
+                    violations.append("non-standard tool-call syntax")
+                    self.session.telemetry.emit(
+                        "react_format_violation", agent=self.agent,
+                        round=round_idx + 1, preview=response[:200],
+                    )
                 if violations and self.stats.finish_warnings < self.cfg.max_finish_warnings:
                     self.stats.finish_warnings += 1
                     hints.clear()
@@ -249,11 +268,18 @@ class ReActRunner:
 
     def _format_finish_hint(self, violations: list[str]) -> str:
         remaining = self.cfg.max_finish_warnings - self.stats.finish_warnings
-        return (
-            "提示：你试图结束但证据不足 — " + "; ".join(violations) + "。"
-            "请继续调用相关工具完善证据；"
-            f"再连续坚持结束 {remaining} 次后将允许放行。"
-        )
+        parts = ["提示：本轮输出无法被解析 — " + "; ".join(violations) + "。"]
+        if any("non-standard" in v for v in violations):
+            parts.append(
+                "本系统【唯一】支持的工具调用格式是：\n"
+                "Thought: <thought>\nAction: <tool_name>\nAction Input: {<json>}\n"
+                "请勿使用 [TOOL_CALL]{...} / <invoke> / <tool_call> 等其它格式；"
+                "若已收集到足够证据则直接输出最终 JSON 结果（不要再写 Action）。"
+            )
+        else:
+            parts.append("请继续调用相关工具完善证据；")
+        parts.append(f"再连续 {remaining} 次违规将允许放行。")
+        return " ".join(parts)
 
     def _build_prompt(self, header: str, turns: list[_Turn], hints: list[str],
                       working_memory: str, round_idx: int) -> str:
@@ -320,11 +346,12 @@ class LLMInvoker:
             return json.dumps(raw, ensure_ascii=False)[:50_000]
         return str(raw)
 
-    def invoke(self, user_text: str) -> str:
+    def invoke(self, user_text: str, *, system_prompt: str | None = None) -> str:
         llm = self._build_llm()
+        sp = self.system_prompt if system_prompt is None else system_prompt
         try:
             from lazyllm.components import ChatPrompter  # type: ignore
-            out = llm.share(prompt=ChatPrompter(instruction=self.system_prompt))(user_text)
+            out = llm.share(prompt=ChatPrompter(instruction=sp))(user_text)
         except Exception:
-            out = llm(f"{self.system_prompt}\n\n---\n\n{user_text}")
+            out = llm(f"{sp}\n\n---\n\n{user_text}")
         return self._normalize(out)

@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import logging
+import pickle
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any, Callable, Protocol
 
 from evo.runtime.session import AnalysisSession
+
+
+class CancelTokenProto(Protocol):
+    def requested(self) -> bool: ...
+
+
+class StopRequested(Exception):
+    def __init__(self, at_step: str | None = None) -> None:
+        self.at_step = at_step
+        super().__init__(f'stop requested at {at_step}')
 
 
 @dataclass
@@ -36,14 +48,14 @@ class Step:
     fn: StepFn
     skip_if: Predicate | None = None
     optional: bool = False
-    description: str = ""
+    description: str = ''
     always_run: bool = False
 
 
 @dataclass
 class StepOutcome:
     name: str
-    status: str  # "ok" | "skipped" | "failed"
+    status: str  # "ok" | "skipped" | "failed" | "resumed"
     elapsed_seconds: float
     value: Any = None
     error: str | None = None
@@ -58,59 +70,91 @@ class PlanResult:
 
     @property
     def completed(self) -> list[str]:
-        return [o.name for o in self.outcomes if o.status == "ok"]
+        return [o.name for o in self.outcomes if o.status in ('ok', 'resumed')]
 
     @property
     def failed(self) -> list[StepOutcome]:
-        return [o for o in self.outcomes if o.status == "failed"]
+        return [o for o in self.outcomes if o.status == 'failed']
 
     def get(self, step_name: str) -> Any:
         for o in self.outcomes:
-            if o.name == step_name and o.status == "ok":
+            if o.name == step_name and o.status in ('ok', 'resumed'):
                 return o.value
         return None
 
 
-class Plan:
-    def __init__(self, steps: list[Step], *, logger: logging.Logger | None = None) -> None:
-        self.steps = steps
-        self._log = logger or logging.getLogger("evo.harness.plan")
+def _checkpoints_dir(session: AnalysisSession) -> Path:
+    p = session.config.storage.runs_dir / session.run_id / 'steps'
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
-    def run(self, session: AnalysisSession) -> PlanResult:
+
+def _ckpt_path(steps_dir: Path, name: str) -> Path:
+    return steps_dir / f'{name}.pickle'
+
+
+class Plan:
+    def __init__(self, steps: list[Step], *,
+                 logger: logging.Logger | None = None) -> None:
+        self.steps = steps
+        self._log = logger or logging.getLogger('evo.harness.plan')
+
+    def run(self, session: AnalysisSession, *,
+            cancel_token: CancelTokenProto | None = None) -> PlanResult:
         ctx = StepContext(session=session)
+        steps_dir = _checkpoints_dir(session)
         start = time.time()
         outcomes: list[StepOutcome] = []
         fatal = False
         optional_by_name = {s.name: s.optional for s in self.steps}
 
+        def _abort_check(step_name: str) -> None:
+            if cancel_token is not None and cancel_token.requested():
+                raise StopRequested(at_step=step_name)
+
         for step in self.steps:
+            _abort_check(step.name)
+            ckpt = _ckpt_path(steps_dir, step.name)
+            if ckpt.exists():
+                value = pickle.loads(ckpt.read_bytes())
+                ctx._results[step.name] = value
+                session.mark_stage(step.name)
+                outcomes.append(StepOutcome(step.name, 'resumed', 0.0, value=value))
+                self._log.info('Step %s resumed from checkpoint', step.name)
+                continue
             if fatal and not step.always_run:
-                outcomes.append(StepOutcome(step.name, "skipped", 0.0,
-                                            error="prior fatal failure"))
+                outcomes.append(StepOutcome(step.name, 'skipped', 0.0,
+                                            error='prior fatal failure'))
                 continue
             if step.skip_if and step.skip_if(ctx):
-                self._log.info("Step %s skipped by predicate", step.name)
-                outcomes.append(StepOutcome(step.name, "skipped", 0.0))
+                self._log.info('Step %s skipped by predicate', step.name)
+                outcomes.append(StepOutcome(step.name, 'skipped', 0.0))
                 continue
             t0 = time.time()
             try:
-                self._log.info("Step %s start", step.name)
+                self._log.info('Step %s start', step.name)
                 value = step.fn(ctx)
                 elapsed = time.time() - t0
-                outcomes.append(StepOutcome(step.name, "ok", elapsed, value=value))
+                outcomes.append(StepOutcome(step.name, 'ok', elapsed, value=value))
                 ctx._results[step.name] = value
                 session.mark_stage(step.name)
-                self._log.info("Step %s done in %.2fs", step.name, elapsed)
+                try:
+                    ckpt.write_bytes(pickle.dumps(value))
+                except Exception as exc:
+                    self._log.warning('Step %s checkpoint failed: %s', step.name, exc)
+                self._log.info('Step %s done in %.2fs', step.name, elapsed)
+            except StopRequested:
+                raise
             except Exception as exc:
                 elapsed = time.time() - t0
-                self._log.error("Step %s failed: %s", step.name, exc, exc_info=True)
-                outcomes.append(StepOutcome(step.name, "failed", elapsed,
-                                            error=f"{type(exc).__name__}: {exc}"))
+                self._log.error('Step %s failed: %s', step.name, exc, exc_info=True)
+                outcomes.append(StepOutcome(step.name, 'failed', elapsed,
+                                            error=f'{type(exc).__name__}: {exc}'))
                 if not step.optional:
                     fatal = True
 
         success = not any(
-            o.status == "failed" and not optional_by_name.get(o.name, False)
+            o.status == 'failed' and not optional_by_name.get(o.name, False)
             for o in outcomes
         )
         return PlanResult(success=success, session=session, outcomes=outcomes,

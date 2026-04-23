@@ -1,12 +1,38 @@
 from __future__ import annotations
 
-import json
 import math
 import re
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+_CONFIDENCE_WORDS = {
+    'low': 0.3, 'medium': 0.6, 'med': 0.6, 'mid': 0.6,
+    'high': 0.85, 'very_high': 0.95, 'very high': 0.95,
+}
+
+
+def coerce_confidence(value: Any, default: float = 0.5) -> float:
+    """Best-effort numeric coercion for LLM-emitted confidence fields."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        v = float(value)
+    else:
+        s = str(value).strip().lower()
+        if not s:
+            return default
+        if s in _CONFIDENCE_WORDS:
+            v = _CONFIDENCE_WORDS[s]
+        else:
+            try:
+                v = float(s.rstrip('%')) / (100.0 if s.endswith('%') else 1.0)
+            except ValueError:
+                return default
+    return max(0.0, min(1.0, v))
 
 
 def safe_under(base: Path, user_path: str) -> Path:
@@ -42,42 +68,6 @@ _THINK_RE = re.compile(r'<think>.*?</think>', flags=re.DOTALL)
 
 def strip_thinking(text: str) -> str:
     return _THINK_RE.sub('', text).strip()
-
-
-def extract_json_object(text: str) -> dict[str, Any] | None:
-    text = strip_thinking(text)
-    stripped = text
-    if stripped.startswith('```'):
-        stripped = stripped.split('\n', 1)[-1]
-    if stripped.endswith('```'):
-        stripped = stripped.rsplit('```', 1)[0]
-    stripped = stripped.strip()
-
-    try:
-        data = json.loads(stripped)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
-        pass
-
-    for m in re.finditer(r'\{', stripped):
-        start = m.start()
-        depth, i = 0, start
-        while i < len(stripped):
-            ch = stripped[i]
-            if ch == '{':
-                depth += 1
-            elif ch == '}':
-                depth -= 1
-                if depth == 0:
-                    try:
-                        candidate = json.loads(stripped[start: i + 1])
-                        if isinstance(candidate, dict):
-                            return candidate
-                    except json.JSONDecodeError:
-                        break
-            i += 1
-    return None
 
 
 def percentile(sorted_values: list[float], p: float) -> float:

@@ -3,17 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from evo.apply.errors import ApplyError
-
-
-_CREDENTIALS_RE = re.compile(r'(\d+)\s+credentials')
 
 log = logging.getLogger('evo.apply.opencode')
 
@@ -44,30 +40,36 @@ def resolve_binary(binary: str | None) -> str:
     return candidate
 
 
-def preflight(binary: str | None) -> str:
+def default_auth_dir() -> Path:
+    env = os.getenv('OPENCODE_DATA_DIR')
+    if env:
+        return Path(env)
+    return Path.home() / '.local' / 'share' / 'opencode'
+
+
+def preflight(binary: str | None, *, auth_dir: Path | None = None) -> str:
     resolved = resolve_binary(binary)
+    auth = (auth_dir or default_auth_dir()) / 'auth.json'
+    if not auth.is_file() or auth.stat().st_size == 0:
+        raise ApplyError('OPENCODE_AUTH_MISSING',
+                         'opencode auth.json missing or empty',
+                         {'path': str(auth)})
     try:
-        result = subprocess.run(
-            [resolved, 'auth', 'list'],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, timeout=30, check=False,
-        )
+        r = subprocess.run([resolved, '--version'], capture_output=True,
+                           text=True, timeout=15, check=False)
     except FileNotFoundError as exc:
         raise ApplyError('OPENCODE_BIN_MISSING', 'opencode binary not executable',
                          {'binary': resolved}) from exc
     except subprocess.TimeoutExpired as exc:
-        raise ApplyError('OPENCODE_AUTH_MISSING', 'opencode auth list timed out',
+        raise ApplyError('OPENCODE_BIN_MISSING', 'opencode --version timed out',
                          {'binary': resolved}) from exc
-
-    combined = '\n'.join(p for p in (result.stdout, result.stderr) if p)
-    if result.returncode != 0:
-        raise ApplyError('OPENCODE_AUTH_MISSING', 'opencode auth list failed',
-                         {'stdout': result.stdout, 'stderr': result.stderr})
-    match = _CREDENTIALS_RE.search(combined)
-    if not match or int(match.group(1)) < 1:
-        raise ApplyError('OPENCODE_AUTH_MISSING', 'opencode has no configured credentials',
-                         {'output': combined})
+    if r.returncode != 0:
+        raise ApplyError('OPENCODE_BIN_MISSING', 'opencode --version failed',
+                         {'stderr': r.stderr[-500:]})
     return resolved
+
+
+ProcSink = Callable[[subprocess.Popen], None]
 
 
 def run_opencode(
@@ -77,6 +79,7 @@ def run_opencode(
     artifact_dir: Path,
     binary: str,
     options: OpencodeOptions,
+    on_proc: ProcSink | None = None,
 ) -> OpencodeOutcome:
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
@@ -89,25 +92,27 @@ def run_opencode(
 
     log.info('opencode run: cwd=%s timeout_s=%d model=%s agent=%s variant=%s',
              cwd, options.timeout_s, options.model, options.agent, options.variant)
+    proc = subprocess.Popen(cmd, cwd=str(cwd),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True)
+    if on_proc:
+        on_proc(proc)
     try:
-        proc = subprocess.run(
-            cmd, cwd=str(cwd),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, timeout=options.timeout_s, check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
+        stdout, stderr = proc.communicate(timeout=options.timeout_s)
+    except subprocess.TimeoutExpired:
+        _terminate(proc)
         raise ApplyError('OPENCODE_TIMEOUT', 'opencode run timed out',
-                         {'timeout_s': options.timeout_s, 'cwd': str(cwd)}) from exc
+                         {'timeout_s': options.timeout_s, 'cwd': str(cwd)})
 
     stdout_path = artifact_dir / 'stdout.log'
     stderr_path = artifact_dir / 'stderr.log'
     events_path = artifact_dir / 'events.jsonl'
     summary_path = artifact_dir / 'text_summary.md'
 
-    stdout_path.write_text(proc.stdout or '', encoding='utf-8')
-    stderr_path.write_text(proc.stderr or '', encoding='utf-8')
+    stdout_path.write_text(stdout or '', encoding='utf-8')
+    stderr_path.write_text(stderr or '', encoding='utf-8')
 
-    events, text_chunks, last_error = _parse_event_stream(proc.stdout or '')
+    events, text_chunks, last_error = _parse_event_stream(stdout or '')
     events_path.write_text(
         ''.join(json.dumps(e, ensure_ascii=False) + '\n' for e in events),
         encoding='utf-8',
@@ -123,6 +128,20 @@ def run_opencode(
         stdout_path=stdout_path,
         stderr_path=stderr_path,
     )
+
+
+def _terminate(proc: subprocess.Popen, grace_s: float = 5.0) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=grace_s)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=grace_s)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def _parse_event_stream(raw: str) -> tuple[list[dict], list[str], dict | None]:

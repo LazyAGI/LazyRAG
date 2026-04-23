@@ -11,7 +11,7 @@ from evo.harness.react import LLMInvoker
 from evo.harness.schemas import SCHEMAS
 from evo.harness.structured import invoke_structured
 from evo.runtime.session import AnalysisSession
-from evo.utils import jsonable
+from evo.utils import coerce_confidence, jsonable
 
 CRITIC_NAME = "critic"
 _VALID_STATUS = ("approved", "needs_revision")
@@ -71,7 +71,8 @@ def run_critic(session: AnalysisSession, finding: Finding,
     verdict = CriticVerdict(
         finding_id=finding.id, status=status,
         challenges=list(parsed.get("challenges", []) or []),
-        approved_confidence=(float(approved_conf) if approved_conf is not None else None),
+        approved_confidence=(coerce_confidence(approved_conf)
+                             if approved_conf is not None else None),
     )
     if session.world_store is not None:
         session.world_store.update(lambda w: _record(w, verdict))
@@ -84,12 +85,20 @@ def run_critic(session: AnalysisSession, finding: Finding,
     return verdict
 
 
+def _challenge_text(c: Any) -> str:
+    if isinstance(c, dict):
+        return str(c.get("issue") or c.get("note") or c.get("text") or "")
+    if isinstance(c, str):
+        return c
+    return str(c)
+
+
 def _record(world: WorldModel, v: CriticVerdict) -> None:
     for f in world.findings:
         if f.id != v.finding_id:
             continue
         f.critic_status = "approved" if v.status == "approved" else "needs_revision"
-        f.critic_notes = [str(c.get("issue", "")) for c in v.challenges]
+        f.critic_notes = [t for t in (_challenge_text(c) for c in v.challenges) if t]
         if v.approved_confidence is not None:
             f.confidence = v.approved_confidence
         break

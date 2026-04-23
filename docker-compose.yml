@@ -480,10 +480,44 @@ services:
       LAZYRAG_MAX_CONCURRENCY: "10"
       LAZYRAG_LLM_PRIORITY: "0"
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
+      EVO_CHAT_INTERNAL_TOKEN: ${EVO_CHAT_INTERNAL_TOKEN:-dev-internal-service-token}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-true}
+      LAZYLLM_TRACE_BACKEND: langfuse
       <<: [*llm-api-keys, *upload-paths]
-    command: ["python", "chat/chat.py", "--port", "8046"]
+    command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
       lazyllm-algo:
+        condition: service_healthy
+
+  evo-api:
+    build:
+      context: .
+      dockerfile: evo/Dockerfile
+      args:
+        OPENCODE_VERSION: 1.4.3
+    expose:
+      - "8047"
+    ports:
+      - "8047:8047"
+    environment:
+      EVO_CHAT_BASE_URL: http://chat:8046
+      EVO_CHAT_INTERNAL_TOKEN: ${EVO_CHAT_INTERNAL_TOKEN:-dev-internal-service-token}
+      EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
+      EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
+    volumes:
+      - ./data/evo:/var/lib/lazyrag/evo
+      - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8047/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      chat:
         condition: service_healthy
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------

@@ -34,15 +34,54 @@ CRITIC: dict = {
     },
 }
 
+_ACTION_ITEM: dict = {
+    "type": "object",
+    "required": ["id", "title", "suggested_changes", "code_map_target", "priority"],
+    "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "finding_id": {"type": "string"},
+        "hypothesis_id": {"type": "string"},
+        "hypothesis_category": {"type": "string"},
+        "title": {"type": "string", "minLength": 1},
+        "rationale": {"type": "string"},
+        "suggested_changes": {"type": "string", "minLength": 1},
+        "code_map_target": {"type": "string", "minLength": 1},
+        "target_step": {"type": "string"},
+        "target_line": {"type": "integer"},
+        "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
+        "expected_impact_metric": {"type": "string"},
+        "expected_direction": {"type": "string", "enum": ["+", "-"]},
+        "confidence": {"type": "number"},
+        "evidence_handles": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+_GAP_HYPOTHESIS_ITEM: dict = {
+    "type": "object",
+    "required": ["id", "claim", "category"],
+    "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "claim": {"type": "string", "minLength": 1},
+        "category": {
+            "type": "string",
+            "enum": [
+                "retrieval_miss", "rerank_failure", "generation_drift",
+                "score_anomaly", "score_scale_mismatch", "code_issue",
+            ],
+        },
+        "investigation_paths": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
 SYNTHESIZER: dict = {
     "type": "object",
     "required": ["summary", "actions"],
     "properties": {
         "summary": {"type": "string", "minLength": 1},
         "guidance": {"type": "string"},
-        "actions": {"type": "array"},
-        "open_gaps": {"type": "array"},
-        "gap_hypotheses": {"type": "array"},
+        "actions": {"type": "array", "items": _ACTION_ITEM},
+        "open_gaps": {"type": "array", "items": {"type": "string"}},
+        "gap_hypotheses": {"type": "array", "items": _GAP_HYPOTHESIS_ITEM},
     },
 }
 

@@ -81,6 +81,7 @@ volumes/
 
 # evo runtime artifacts
 evo/output/
+data/evo/
 
 # macOS
 .DS_Store

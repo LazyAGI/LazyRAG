@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from evo.conductor.synthesis import PRIORITY_ORDER
+from evo.utils import coerce_confidence
 
 _PRIORITY_MAP = {'P0': '🔴 P0', 'P1': '🟡 P1', 'P2': '🔵 P2'}
 
@@ -26,6 +27,24 @@ def _validity_badge(score: float) -> str:
 
 def _esc(text: Any) -> str:
     return str(text or '').replace('|', '\\|').replace('\n', ' ')
+
+
+def _action_title(a: dict[str, Any]) -> str:
+    title = str(a.get('title') or '').strip()
+    if title:
+        return title
+    rationale = str(a.get('rationale') or a.get('suggested_changes') or '').strip()
+    if rationale:
+        return rationale[:80] + ('…' if len(rationale) > 80 else '')
+    return f"[{a.get('id', '?')}]"
+
+
+def _action_change(a: dict[str, Any]) -> str:
+    text = str(a.get('suggested_changes') or '').strip()
+    if text:
+        return text
+    rationale = str(a.get('rationale') or '').strip()
+    return rationale or '—'
 
 
 def json_to_markdown(data: dict[str, Any]) -> str:
@@ -69,15 +88,15 @@ def json_to_markdown(data: dict[str, Any]) -> str:
             line = a.get('target_line') or 0
             scope_cell = f'`{target}`' + (f':{line}' if line else '')
             md.append(
-                f"| {prio} | **{_esc(a.get('title'))}** | {_esc(a.get('suggested_changes'))} "
-                f"| {scope_cell} | {impact} | {int(float(a.get('confidence', 0) or 0) * 100)}% "
+                f"| {prio} | **{_esc(_action_title(a))}** | {_esc(_action_change(a))} "
+                f"| {scope_cell} | {impact} | {int(coerce_confidence(a.get('confidence'), 0.0) * 100)}% "
                 f"| {_validity_badge(float(a.get('validity_score', 0) or 0))} |"
             )
 
         md.append('\n### 行动详情')
         for a in sorted_in:
-            md.append(f"\n#### [{a.get('id')}] {a.get('title')}  ({a.get('priority')})")
-            md.append(f"- **修改方向**: {a.get('suggested_changes', '—')}")
+            md.append(f"\n#### [{a.get('id')}] {_action_title(a)}  ({a.get('priority')})")
+            md.append(f"- **修改方向**: {_action_change(a)}")
             target = a.get('code_map_target') or '—'
             line = a.get('target_line') or 0
             step = a.get('target_step') or ''
@@ -114,7 +133,7 @@ def json_to_markdown(data: dict[str, Any]) -> str:
             direction = a.get('expected_direction', '')
             impact = f'`{metric}` {direction}' if metric else '—'
             md.append(
-                f"| **{_esc(a.get('title'))}** | {_esc(a.get('suggested_changes'))} "
+                f"| **{_esc(_action_title(a))}** | {_esc(_action_change(a))} "
                 f"| ⚠ {_esc(a.get('code_map_warning') or '不在 code_map')} | {impact} |"
             )
 
@@ -129,7 +148,7 @@ def json_to_markdown(data: dict[str, Any]) -> str:
         for f in findings:
             md.append(
                 f"| `{f.get('id')}` | `{f.get('hypothesis_id')}` | {_esc(f.get('claim'))} "
-                f"| {int(float(f.get('confidence', 0) or 0) * 100)}% "
+                f"| {int(coerce_confidence(f.get('confidence'), 0.0) * 100)}% "
                 f"| {', '.join(f.get('evidence_handles', [])) or '—'} |"
             )
 

@@ -12,7 +12,7 @@ from evo.conductor.conductor import Conductor
 from evo.domain.node import NodeResolver, get_node
 from evo.harness import analysis as analysis_steps
 from evo.harness import data_loader, report as report_mod
-from evo.harness.plan import Plan, Step, StepContext, StepOutcome
+from evo.harness.plan import CancelTokenProto, Plan, Step, StepContext, StepOutcome
 from evo.runtime.config import EvoConfig, load_config
 from evo.runtime.session import (
     AnalysisSession, EmbedProvider, LLMProvider, create_session, session_scope,
@@ -128,6 +128,7 @@ class RAGAnalysisPipeline:
             badcase_limit: int = 200,
             run_id: str | None = None,
             score_field: str = "answer_correctness",
+            cancel_token: CancelTokenProto | None = None,
             **_kw: Any) -> PipelineResult:
         opts = PipelineOptions(badcase_limit=badcase_limit, score_field=score_field)
         session = create_session(
@@ -139,7 +140,7 @@ class RAGAnalysisPipeline:
 
         plan = build_standard_plan(opts, logger=self.log)
         with session_scope(session):
-            result = plan.run(session)
+            result = plan.run(session, cancel_token=cancel_token)
 
         paths = result.get("persist") or {}
         errors = [o.error or "" for o in result.failed]

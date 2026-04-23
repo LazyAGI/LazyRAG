@@ -12,17 +12,6 @@ from evo.utils import safe_under
 
 @tool(tags=['io'])
 def write_artifact(relpath: str, content: str) -> ToolResult[dict[str, Any]]:
-    """Write *content* to ``output_dir/relpath`` (sandboxed via ``safe_under``).
-
-    Args:
-        relpath: Path relative to the session's ``config.output_dir``.
-        content: Text content to write (UTF-8).
-
-    Returns:
-        ``{'path': str, 'size_bytes': int}``. Does NOT mutate Session state.
-        The caller (Harness) is responsible for recording the artifact via
-        ``session.add_artifact(...)`` if it wants to track the path.
-    """
     if not relpath:
         return ToolResult.failure('write_artifact', ErrorCode.INVALID_ARGUMENT,
                                   'relpath is required.')
@@ -34,7 +23,7 @@ def write_artifact(relpath: str, content: str) -> ToolResult[dict[str, Any]]:
         return ToolResult.failure('write_artifact', ErrorCode.DATA_NOT_LOADED,
                                   'No active session.')
     try:
-        path = safe_under(session.config.output_dir, relpath)
+        path = safe_under(session.config.storage.base_dir, relpath)
     except ValueError as exc:
         return ToolResult.failure('write_artifact', ErrorCode.INVALID_ARGUMENT, str(exc))
     path.parent.mkdir(parents=True, exist_ok=True)

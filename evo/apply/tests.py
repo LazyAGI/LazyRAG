@@ -6,6 +6,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 
 _TRACEBACK_HEAD = re.compile(r'^Traceback \(most recent call last\):', re.MULTILINE)
@@ -25,15 +26,20 @@ class TestOutcome:
 
 
 def run_tests(repo_root: Path, artifact_dir: Path,
-              command: Sequence[str] = ('bash', 'tests/run-all.sh')) -> TestOutcome:
+              command: Sequence[str] = ('bash', 'tests/run-all.sh'),
+              *,
+              on_proc: Callable[[subprocess.Popen], None] | None = None) -> TestOutcome:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     log.info('running tests: cmd=%s cwd=%s', list(command), repo_root)
-    proc = subprocess.run(
+    proc = subprocess.Popen(
         list(command), cwd=str(repo_root),
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, check=False,
+        text=True,
     )
-    log_text = '\n'.join(p for p in (proc.stdout, proc.stderr) if p)
+    if on_proc:
+        on_proc(proc)
+    stdout, stderr = proc.communicate()
+    log_text = '\n'.join(p for p in (stdout, stderr) if p)
     log_path = artifact_dir / 'test.log'
     log_path.write_text(log_text, encoding='utf-8')
 

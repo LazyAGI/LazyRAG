@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from chat.app.api import create_app
+from chat.app.core.chat_server import create_app
 
 app = create_app()
 

@@ -11,6 +11,7 @@ from evo.harness.schemas import SCHEMAS
 from evo.harness.structured import invoke_structured
 from evo.runtime.session import AnalysisSession
 from evo.runtime.thresholds import METRIC_DIRECTION
+from evo.utils import coerce_confidence
 
 INDEXER_NAME = "indexer"
 _JUDGE_METRICS = ("answer_correctness", "context_recall", "doc_recall", "faithfulness")
@@ -61,23 +62,37 @@ def _build_input(session: AnalysisSession) -> dict[str, Any]:
     }
 
 
-def _append_hypotheses(world: WorldModel, hyps: list[dict[str, Any]]) -> None:
+def _normalize_hypothesis(h: Any) -> dict[str, Any] | None:
+    if isinstance(h, dict):
+        return h
+    if isinstance(h, str) and h.strip():
+        return {"claim": h.strip()}
+    return None
+
+
+def _append_hypotheses(world: WorldModel, hyps: list[Any]) -> None:
     seen = {h.id for h in world.hypotheses}
     seq = len(world.hypotheses)
-    for h in hyps:
+    for raw in hyps:
+        h = _normalize_hypothesis(raw)
+        if h is None:
+            continue
         seq += 1
         hid = h.get("id") or f"H{seq:03d}"
         if hid in seen:
             continue
         seen.add(hid)
+        paths = h.get("investigation_paths") or []
+        if not isinstance(paths, list):
+            paths = [paths]
         world.hypotheses.append(Hypothesis(
             id=hid,
             claim=str(h.get("claim", "")),
             category=str(h.get("category", "")),
             status="proposed",
-            confidence=float(h.get("confidence", 0.5)),
+            confidence=coerce_confidence(h.get("confidence")),
             evidence_handles=[],
-            investigation_paths=[str(p) for p in h.get("investigation_paths", [])],
+            investigation_paths=[str(p) for p in paths],
             source=INDEXER_NAME,
         ))
 

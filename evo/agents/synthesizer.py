@@ -18,6 +18,7 @@ from evo.harness.schemas import SCHEMAS
 from evo.harness.structured import invoke_structured
 from evo.runtime.code_config import code_context_dict
 from evo.runtime.session import AnalysisSession
+from evo.utils import coerce_confidence
 
 SYNTHESIZER_NAME = "synthesizer"
 _MAX_GAP_HYPOTHESES = 4
@@ -39,7 +40,8 @@ def run_synthesizer(session: AnalysisSession, *, llm: Any | None = None) -> Synt
         summary=str(parsed.get("summary", "")),
         guidance=str(parsed.get("guidance", "")),
         actions=actions,
-        open_gaps=[str(g) for g in parsed.get("open_gaps", []) or []],
+        open_gaps=[g for g in (_format_gap(g) for g in parsed.get("open_gaps", []) or [])
+                    if g],
         iterations=iterations,
     )
     session.telemetry.emit(
@@ -92,11 +94,17 @@ def _world_summary(session: AnalysisSession, iteration: int) -> dict[str, Any]:
 
 
 def _append_gaps_and_research(session: AnalysisSession,
-                              gap_hypotheses: list[dict[str, Any]]) -> list[str]:
+                              gap_hypotheses: list[Any]) -> list[str]:
     new_hids: list[str] = []
 
     def _append(world):
-        for gh in (gap_hypotheses or [])[:_MAX_GAP_HYPOTHESES]:
+        for raw in (gap_hypotheses or [])[:_MAX_GAP_HYPOTHESES]:
+            if isinstance(raw, dict):
+                gh = raw
+            elif isinstance(raw, str) and raw.strip():
+                gh = {"claim": raw.strip()}
+            else:
+                continue
             existing = {h.id for h in world.hypotheses}
             base = gh.get("id") or f"GH{len(world.hypotheses) + 1:03d}"
             hid = base
@@ -104,10 +112,13 @@ def _append_gaps_and_research(session: AnalysisSession,
             while hid in existing:
                 n += 1
                 hid = f"{base}_{n}"
+            paths = gh.get("investigation_paths") or []
+            if not isinstance(paths, list):
+                paths = [paths]
             world.hypotheses.append(Hypothesis(
                 id=hid, claim=str(gh.get("claim", "")),
                 category=str(gh.get("category", "")), status="proposed",
-                investigation_paths=[str(p) for p in gh.get("investigation_paths", [])],
+                investigation_paths=[str(p) for p in paths],
                 source=SYNTHESIZER_NAME,
             ))
             new_hids.append(hid)
@@ -127,23 +138,60 @@ def _append_gaps_and_research(session: AnalysisSession,
     return new_hids
 
 
+def _format_gap(g: Any) -> str:
+    if isinstance(g, str):
+        return g.strip()
+    if isinstance(g, dict):
+        gid = str(g.get("gap_id") or g.get("id") or "").strip()
+        desc = str(g.get("description") or g.get("question") or g.get("claim") or "").strip()
+        blocking = str(g.get("blocking") or g.get("block") or "").strip()
+        head = f"[{gid}] " if gid else ""
+        if desc and blocking:
+            return f"{head}{desc} (阻塞: {blocking})"
+        return f"{head}{desc or blocking}".strip() or ""
+    return str(g).strip()
+
+
+_PRIORITY_ALIAS = {
+    "high": "P0", "p0": "P0", "critical": "P0", "urgent": "P0",
+    "medium": "P1", "med": "P1", "p1": "P1", "normal": "P1",
+    "low": "P2", "p2": "P2", "minor": "P2", "optional": "P2",
+}
+
+_DIRECTION_ALIAS = {
+    "up": "+", "increase": "+", "higher": "+", "positive": "+",
+    "down": "-", "decrease": "-", "lower": "-", "negative": "-",
+}
+
+
+def _normalize_priority(raw: Any) -> str:
+    val = str(raw or "").strip()
+    if val in PRIORITY_ORDER:
+        return val
+    return _PRIORITY_ALIAS.get(val.lower(), "P2")
+
+
+def _normalize_direction(raw: Any) -> str:
+    val = str(raw or "").strip()
+    if val in DIRECTION_VALUES:
+        return val
+    return _DIRECTION_ALIAS.get(val.lower(), "+")
+
+
 def _to_action(raw: Any, session: AnalysisSession) -> VerifiedAction | None:
     if not isinstance(raw, dict):
         return None
     aid = str(raw.get("id") or "")
     if not aid:
         return None
-    priority = str(raw.get("priority", "P2"))
-    if priority not in PRIORITY_ORDER:
-        priority = "P2"
-    direction = str(raw.get("expected_direction", "+"))
-    if direction not in DIRECTION_VALUES:
-        direction = "+"
-    try:
-        confidence = float(raw.get("confidence", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        confidence = 0.0
-    target = str(raw.get("code_map_target") or raw.get("target_file") or "")
+    title = str(raw.get("title") or raw.get("task") or raw.get("name") or "").strip()
+    rationale = str(raw.get("rationale") or raw.get("reason") or "").strip()
+    suggested = str(raw.get("suggested_changes") or raw.get("change")
+                    or raw.get("task") or rationale).strip()
+    if not title:
+        title = suggested[:80] or aid
+    confidence = coerce_confidence(raw.get("confidence"), default=0.0)
+    target = str(raw.get("code_map_target") or raw.get("target_file") or "").strip()
     try:
         line = int(raw.get("target_line", 0) or 0)
     except (TypeError, ValueError):
@@ -153,12 +201,12 @@ def _to_action(raw: Any, session: AnalysisSession) -> VerifiedAction | None:
         finding_id=str(raw.get("finding_id", "")),
         hypothesis_id=str(raw.get("hypothesis_id", "")),
         hypothesis_category=str(raw.get("hypothesis_category", "")),
-        title=str(raw.get("title", "")),
-        rationale=str(raw.get("rationale", "")),
-        suggested_changes=str(raw.get("suggested_changes", "")),
-        priority=priority,                                       # type: ignore[arg-type]
+        title=title,
+        rationale=rationale,
+        suggested_changes=suggested,
+        priority=_normalize_priority(raw.get("priority")),  # type: ignore[arg-type]
         expected_impact_metric=str(raw.get("expected_impact_metric", "")),
-        expected_direction=direction,                            # type: ignore[arg-type]
+        expected_direction=_normalize_direction(raw.get("expected_direction")),  # type: ignore[arg-type]
         confidence=max(0.0, min(1.0, confidence)),
         evidence_handles=[str(h) for h in raw.get("evidence_handles", []) or []],
         code_map_target=target,
