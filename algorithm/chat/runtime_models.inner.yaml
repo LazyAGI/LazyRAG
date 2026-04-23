@@ -74,7 +74,7 @@ retrieval:
 
 agentic_v2:
   kb_url: ${LAZYRAG_AGENTIC_KB_URL:-http://lazyllm-algo:8000}
-  core_api_url: ${LAZYRAG_CORE_API_URL:-http://core:8000/api/core}
+  core_api_url: ${LAZYRAG_CORE_API_URL:-http://core:8000}
   kb_name: ${LAZYRAG_AGENTIC_KB_NAME:-general_algo}
   es_url: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
   es_user: ${LAZYRAG_OPENSEARCH_USER:-admin}

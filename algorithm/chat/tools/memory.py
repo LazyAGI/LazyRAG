@@ -65,8 +65,6 @@ def _core_api_base_url(agentic_config: Optional[Dict[str, Any]] = None) -> str:
 def _core_api_endpoint(path: str, agentic_config: Optional[Dict[str, Any]] = None) -> str:
     base_url = _core_api_base_url(agentic_config)
     normalized_path = '/' + path.lstrip('/')
-    if base_url.endswith('/api/core') and normalized_path.startswith('/api/core/'):
-        normalized_path = normalized_path[len('/api/core'):]
     return f'{base_url}{normalized_path}'
 
 

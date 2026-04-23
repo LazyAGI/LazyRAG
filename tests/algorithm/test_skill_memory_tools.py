@@ -2,6 +2,16 @@ from chat.tools import memory as memory_mod
 from chat.tools import skill_manager as skill_manager_mod
 
 
+def test_core_api_endpoint_uses_internal_core_base_url():
+    assert (
+        memory_mod._core_api_endpoint(
+            '/memory/suggestion',
+            {'core_api_url': 'http://core:8000'},
+        )
+        == 'http://core:8000/memory/suggestion'
+    )
+
+
 def test_memory_submits_core_api_suggestion_paths(monkeypatch):
     calls = []
 

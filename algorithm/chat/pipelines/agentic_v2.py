@@ -243,7 +243,7 @@ def _with_agentic_defaults(config: dict) -> dict:
         'available_tools': AVAILABLE_TOOLS,
         'skill_fs_local_base_dir': '.agentic_rag/skills',
         'memory_fs_dir': '.agentic_rag/memory',
-        'core_api_url': os.getenv('LAZYRAG_CORE_API_URL', 'http://core:8000/api/core'),
+        'core_api_url': os.getenv('LAZYRAG_CORE_API_URL', 'http://core:8000'),
         'workspace': './workspace',
     }
     for key, value in defaults.items():
