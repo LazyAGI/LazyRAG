@@ -167,7 +167,7 @@ class ParallelKGBuilder:
     "ground_truth": "答案",
     "is_single_chunk_unanswerable": true,
     "reason": "双跳逻辑说明",
-    "key_points" :"答题关键点",
+    "key_points" :"答题关键点"
 }}
 """
             try:
