@@ -120,6 +120,7 @@ def create_app(config: EvoConfig | None = None,
                       {'name': 'runs', 'description': 'Diagnosis flow'},
                       {'name': 'applies', 'description': 'Code modification flow'},
                       {'name': 'reports', 'description': 'Final reports & diffs'},
+                      {'name': 'threads', 'description': 'Thread-scoped aggregates'},
                       {'name': 'admin', 'description': 'opencode credential management'},
                       {'name': 'health', 'description': 'Liveness probe'},
                   ])
@@ -307,6 +308,12 @@ def _register_apply_routes(app: FastAPI, cfg: EvoConfig, jm: jobs.JobManager) ->
     async def stream_apply_telemetry(apply_id: str) -> EventSourceResponse:
         path = cfg.storage.applies_dir / apply_id / 'telemetry.jsonl'
         return EventSourceResponse(sse.tail_jsonl(jm.conn, apply_id, path))
+
+
+    @app.get('/v1/evo/threads/{thread_id}/apply-commits', tags=['threads'],
+             summary='Apply tasks and commits for a thread (FsState thread_id)')
+    def thread_apply_commits(thread_id: str) -> list[dict]:
+        return jm.apply_commits_for_thread(thread_id)
 
     @app.get('/v1/evo/applies/{apply_id}/diff-map', tags=tag,
              summary='Self-describing diff index (per-file change kinds + diff URIs)')

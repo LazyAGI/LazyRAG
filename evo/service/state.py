@@ -20,6 +20,7 @@ from evo.service.fs_state import (  # noqa: F401
     has_active,
     latest_succeeded_run,
     list_recent,
+    list_flow_tasks_by_thread,
     list_rounds,
     must_get,
     next_status,
@@ -34,6 +35,6 @@ from evo.service.fs_state import (  # noqa: F401
 __all__ = [
     'APPLY_TERMINAL', 'FLOWS', 'FsStateStore', 'RUN_TERMINAL', 'StateError',
     'append_round', 'create_task', 'get', 'has_active', 'latest_succeeded_run',
-    'list_recent', 'list_rounds', 'must_get', 'next_status', 'open_db',
+    'list_recent', 'list_flow_tasks_by_thread', 'list_rounds', 'must_get', 'next_status', 'open_db',
     'patch', 'signals', 'terminal_for', 'transition', 'update_round',
 ]

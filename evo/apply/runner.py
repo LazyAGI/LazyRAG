@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -41,6 +42,7 @@ class ApplyResult:
     branch_name: str
     status: Literal['SUCCEEDED', 'FAILED']
     rounds: list[RoundResult] = field(default_factory=list)
+    final_commit: str | None = None
     error: dict | None = None
     diff_index_path: Path | None = None
 
@@ -68,12 +70,47 @@ def _filter_actions(report: dict) -> list[dict]:
             and a.get('code_map_target')]
 
 
-def _build_allowlist(config: EvoConfig) -> list[str]:
-    out: set[str] = set()
-    for k in config.code_access.code_map.keys():
-        if k:
-            out.add(Path(k).as_posix())
-    return sorted(out)
+def _rel_under_chat(key: str, base: Path) -> str:
+    p = Path(key.strip())
+    if p.is_absolute():
+        try:
+            return p.resolve().relative_to(base).as_posix()
+        except ValueError:
+            return p.as_posix()
+    return p.as_posix().replace(os.sep, '/')
+
+
+def _allow_spec(config: EvoConfig) -> tuple[frozenset[str], tuple[str, ...]]:
+    base = config.chat_source.resolve()
+    files: set[str] = set()
+    for k in config.code_access.code_map:
+        sk = str(k).strip()
+        if not sk or sk.rstrip().endswith('/'):
+            continue
+        files.add(_rel_under_chat(sk, base))
+    roots: list[str] = []
+    for r0 in config.code_access.new_file_roots:
+        s = str(r0).strip().rstrip('/')
+        if s:
+            roots.append(_rel_under_chat(s, base))
+    ru = list(dict.fromkeys(roots))
+    ru.sort(key=lambda x: (-len(x), x))
+    return frozenset(files), tuple(ru)
+
+
+def _prompt_allow_lines(
+    allow_files: frozenset[str], new_roots: tuple[str, ...],
+) -> list[str]:
+    lines = [f'file: {x}' for x in sorted(allow_files)]
+    lines += [f'dir (new files allowed): {x}/' for x in new_roots]
+    return lines
+
+
+def _allowlist_violation_context(paths: list[str]) -> str:
+    body = '\n'.join(f'- {p}' for p in paths) if paths else ''
+    return (
+        '以下路径不在 allowlist，已回滚；请只改允许范围内的文件：\n' + body
+    ).strip()
 
 
 def _build_modification_plan(actions: list[dict]) -> list[dict]:
@@ -88,10 +125,10 @@ def _build_modification_plan(actions: list[dict]) -> list[dict]:
 
 
 def _build_prompt(instruction: str, plan: list[dict],
-                  allowlist: list[str], prior_failure: str) -> str:
+                  allow_lines: list[str], prior_failure: str) -> str:
     parts: list[str] = [instruction.strip(), '']
-    parts.append('允许修改的文件（严格遵守，禁止改动其它文件）：')
-    parts.extend(f'- {f}' for f in allowlist)
+    parts.append('允许修改的范围（严格遵守，禁止改动其它路径）：')
+    parts.extend(f'- {f}' for f in allow_lines)
     parts.append('')
     parts.append('修改计划（JSON）：')
     parts.append(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -115,6 +152,11 @@ def _failure_context(files_changed: list[str],
     return '\n'.join(parts).strip()
 
 
+def _commit_subj(apply_id: str, thread_id: str | None, round_idx: int) -> str:
+    t = thread_id if thread_id else 'unknown'
+    return f'evo apply_id={apply_id} thread={t} round={round_idx}'
+
+
 def _exhausted_error(rounds: list[RoundResult], max_rounds: int) -> dict:
     last = rounds[-1] if rounds else None
     code = (last.error or {}).get('code') if last else None
@@ -124,6 +166,14 @@ def _exhausted_error(rounds: list[RoundResult], max_rounds: int) -> dict:
             'kind': 'transient',
             'message': f'opencode 在 {max_rounds} 轮内均未产生文件变更',
             'details': {'rounds': max_rounds},
+        }
+    if code == 'APPLY_PATH_OUT_OF_ALLOWLIST':
+        det = (last.error or {}).get('details') or {} if last else {}
+        return {
+            'code': 'APPLY_PATH_OUT_OF_ALLOWLIST',
+            'kind': 'transient',
+            'message': f'allowlist 越界在 {max_rounds} 轮内未解决',
+            'details': dict(det),
         }
     return {
         'code': 'MAX_ROUNDS_EXCEEDED',
@@ -139,6 +189,7 @@ def execute_apply(
     report: dict,
     config: EvoConfig,
     workspace: GitWorkspace,
+    thread_id: str | None = None,
     options: ApplyOptions | None = None,
     cancel_token: Any | None = None,
     on_round: Callable[[RoundResult], None] | None = None,
@@ -148,9 +199,10 @@ def execute_apply(
     actions = _filter_actions(report)
     if not actions:
         raise ApplyError('REPORT_INVALID', 'report has no in-scope actions')
-    allowlist = _build_allowlist(config)
-    if not allowlist:
+    allow_files, new_roots = _allow_spec(config)
+    if not allow_files and not new_roots:
         raise ApplyError('CODE_MAP_EMPTY', 'code_map is empty; nothing modifiable')
+    allow_lines = _prompt_allow_lines(allow_files, new_roots)
 
     binary = oc.preflight(options.opencode_options.binary,
                           auth_dir=config.storage.opencode_dir)
@@ -169,6 +221,7 @@ def execute_apply(
     prior_failure = ''
     final_status: Literal['SUCCEEDED', 'FAILED'] = 'FAILED'
     final_error: dict | None = None
+    final_commit: str | None = None
     final_round_files: list[str] = []
 
     for i in range(1, options.max_rounds + 1):
@@ -179,7 +232,7 @@ def execute_apply(
         (round_dir / 'input').mkdir(parents=True, exist_ok=True)
 
         rr = RoundResult(index=i, started_at=time.time())
-        prompt = _build_prompt(options.instruction, plan, allowlist, prior_failure)
+        prompt = _build_prompt(options.instruction, plan, allow_lines, prior_failure)
         (round_dir / 'input' / 'prompt.txt').write_text(prompt, encoding='utf-8')
 
         try:
@@ -213,8 +266,25 @@ def execute_apply(
             break
 
         _check(cancel_token, at=f'round_{i:03d}.opencode_done')
-        sha = workspace.commit_all(worktree, f'evo apply {apply_id} round {i}')
+        sha, oob = workspace.commit_allowlisted(
+            worktree, _commit_subj(apply_id, thread_id, i),
+            allow_files, new_roots)
         rr.commit_sha = sha
+
+        if oob is not None:
+            rr.test_passed = False
+            rr.error = {
+                'code': 'APPLY_PATH_OUT_OF_ALLOWLIST',
+                'kind': 'transient',
+                'message': 'changes outside allowlist were reverted',
+                'details': {'paths': oob},
+            }
+            rr.finished_at = time.time()
+            rounds.append(rr)
+            if on_round:
+                on_round(rr)
+            prior_failure = _allowlist_violation_context(oob)
+            continue
 
         if sha is None:
             rr.test_passed = False
@@ -247,6 +317,7 @@ def execute_apply(
 
         if test_outcome.passed:
             final_status = 'SUCCEEDED'
+            final_commit = sha
             break
         prior_failure = _failure_context(rr.files_changed, test_outcome)
     else:
@@ -267,6 +338,7 @@ def execute_apply(
         branch_name=branch,
         status=final_status,
         rounds=rounds,
+        final_commit=final_commit,
         error=final_error,
         diff_index_path=diff_index_path,
     )

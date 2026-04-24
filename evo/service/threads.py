@@ -4,7 +4,7 @@ import asyncio
 import json
 import time
 import uuid
-from pathlib import Path
+from dataclasses import replace
 from typing import Any, AsyncIterator, Callable
 
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Query
@@ -12,19 +12,23 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from evo.orchestrator import (
-    AgentTurn, AutoInputs, AutoOperator, ConversationAgent, Dispatcher,
+    AgentTurn, AutoInputs, AutoOperator, AutoTurn, ConversationAgent, Dispatcher,
 )
+from evo.orchestrator.llm import make_auto_user_llm, make_evo_llm
 from evo.runtime.config import EvoConfig
 from evo.service.jobs import JobManager
 from evo.service.thread_workspace import (
     CheckpointStore, EventLog, ThreadLocks, ThreadWorkspace,
 )
 
+from evo.runtime.fs import atomic_write_json as _atomic_write_json
+
 
 class ThreadCreate(BaseModel):
-    mode: str = 'interactive'   # 'auto' | 'interactive'
+    mode: str = 'interactive'
     title: str | None = None
     inputs: dict[str, Any] | None = None
+    start_auto: bool = True
 
 
 class MessageIn(BaseModel):
@@ -35,9 +39,6 @@ class CheckpointResponse(BaseModel):
     choice: str
     feedback: str | None = None
     responder: str = 'user'
-
-
-from evo.runtime.fs import atomic_write_json as _atomic_write_json  # noqa: E402
 
 
 def _append_message(ws: ThreadWorkspace, role: str, content: str) -> None:
@@ -54,10 +55,13 @@ def _sse(event: str, payload: dict | None) -> dict:
 
 class ThreadHub:
     def __init__(self, *, jm: JobManager, cfg: EvoConfig,
-                 llm_factory: Callable[[], Callable[[str], AsyncIterator[str]]]) -> None:
+                 llm_factory: Callable[[], Callable[[str], Any]],
+                 auto_user_llm_factory: Callable[
+                     [], Callable[[str], Any]] | None = None) -> None:
         self.jm = jm
         self.cfg = cfg
         self.llm_factory = llm_factory
+        self._au_factory = auto_user_llm_factory or make_auto_user_llm(cfg)
         self.locks = ThreadLocks()
         self._active_turn: dict[str, AgentTurn] = {}
         self._auto_ops: dict[str, AutoOperator] = {}
@@ -94,7 +98,7 @@ class ThreadHub:
         _atomic_write_json(ws.thread_meta_path, meta)
         self.event_log(tid).append('system', 'thread.created',
                                     {'mode': payload.mode})
-        if payload.mode == 'auto':
+        if payload.mode == 'auto' and payload.start_auto:
             self._start_auto(tid, payload.inputs or {})
         return meta
 
@@ -113,7 +117,36 @@ class ThreadHub:
             raise HTTPException(404, f'thread {thread_id} not found')
         meta = json.loads(ws.thread_meta_path.read_text(encoding='utf-8'))
         return self._stream_message(thread_id, content,
-                                     self.event_log(thread_id), meta)
+                                     self.event_log(thread_id), meta, 'user')
+
+    async def run_auto_synthetic(self, thread_id: str, content: str) -> None:
+        ws = self.workspace(thread_id)
+        if not ws.thread_meta_path.exists():
+            raise HTTPException(404, f'thread {thread_id} not found')
+        meta = json.loads(ws.thread_meta_path.read_text(encoding='utf-8'))
+        if meta.get('mode') != 'auto':
+            raise HTTPException(400, 'not an auto thread')
+        log = self.event_log(thread_id)
+        log.append('auto_user', 'message', {'content': content})
+        _append_message(ws, 'auto_user', content)
+        turn = AgentTurn(
+            agent=self._agent_for(thread_id, log),
+            user_message=content,
+        )
+        self._active_turn[thread_id] = turn
+        lock = self.locks.get(thread_id)
+        await lock.acquire()
+        try:
+            async for _ in turn.stream():
+                pass
+            if turn.final is not None:
+                _append_message(ws, 'agent', turn.final.answer)
+        finally:
+            lock.release()
+            self._active_turn.pop(thread_id, None)
+
+    async def step_auto_once(self, thread_id: str) -> AutoTurn:
+        return await self.ensure_auto(thread_id).step_once()
 
     async def cancel_active_turn(self, thread_id: str) -> None:
         turn = self._active_turn.get(thread_id)
@@ -132,11 +165,45 @@ class ThreadHub:
         return self.checkpoints(thread_id).respond(
             cp_id, choice=choice, feedback=feedback, responder=responder)
 
-    def _agent(self, thread_id: str, log: EventLog) -> ConversationAgent:
-        disp = Dispatcher(jm=self.jm, base_dir=self.cfg.storage.base_dir,
-                            log=log, thread_id=thread_id)
-        return ConversationAgent(llm=self.llm_factory(),
-                                  dispatcher=disp, log=log)
+    def _message_pairs(self, thread_id: str) -> list[tuple[str, str]]:
+        p = self.workspace(thread_id).messages_path
+        if not p.is_file():
+            return []
+        lines = p.read_text(encoding='utf-8', errors='replace').splitlines()[-64:]
+        out: list[tuple[str, str]] = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                o = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            r, c = o.get('role', ''), o.get('content', '')
+            if r in ('user', 'auto_user', 'agent') and c:
+                out.append((str(r), str(c)))
+        return out
+
+    def _thread_state_str(self, thread_id: str) -> str:
+        try:
+            m = self.get_thread(thread_id)
+        except Exception:
+            return ''
+        m.pop('title', None)
+        m.pop('created_at', None)
+        s = json.dumps(m, ensure_ascii=False, default=str)
+        return s[: 12000]
+
+    def _agent_for(self, thread_id: str, log: EventLog) -> ConversationAgent:
+        return ConversationAgent(
+            llm=self.llm_factory(),
+            dispatcher=Dispatcher(
+                jm=self.jm, base_dir=self.cfg.storage.base_dir,
+                log=log, thread_id=thread_id,
+            ),
+            log=log,
+            history_provider=lambda: self._message_pairs(thread_id),
+            state_provider=lambda: self._thread_state_str(thread_id),
+        )
 
     def auto(self, thread_id: str) -> AutoOperator | None:
         return self._auto_ops.get(thread_id)
@@ -153,11 +220,18 @@ class ThreadHub:
         log = self.event_log(thread_id)
         disp = Dispatcher(jm=self.jm, base_dir=self.cfg.storage.base_dir,
                             log=log, thread_id=thread_id)
-        op = AutoOperator(thread_id=thread_id,
-                           inputs=AutoInputs(**inputs),
-                           dispatcher=disp,
-                           store=self.jm.store,
-                           workspace=self.workspace(thread_id), log=log)
+        u = {k: v for k, v in (inputs or {}).items()
+              if k in AutoInputs.__dataclass_fields__}
+        op = AutoOperator(
+            thread_id=thread_id,
+            inputs=replace(AutoInputs(), **u) if u else AutoInputs(),
+            store=self.jm.store,
+            workspace=self.workspace(thread_id), log=log, cfg=self.cfg,
+            run_synthetic=lambda c: self.run_auto_synthetic(thread_id, c),
+            user_message_llm=self._au_factory,
+            checkpoints=self.checkpoints(thread_id),
+        )
+        op._attach_dispatcher(disp)
         self._auto_ops[thread_id] = op
         return op
 
@@ -165,16 +239,20 @@ class ThreadHub:
         self._build_auto(thread_id, inputs).start()
 
     async def _stream_message(self, thread_id: str, content: str,
-                                log: EventLog, meta: dict) -> AsyncIterator[dict]:
-        if meta.get('mode') == 'auto':
-            yield _sse('error', {'message': 'auto mode does not accept messages'})
+                                log: EventLog, meta: dict, role: str
+                                ) -> AsyncIterator[dict]:
+        if meta.get('mode') == 'auto' and role == 'user':
+            yield _sse('error', {'message': 'auto mode does not accept user messages'})
             return
         await self.cancel_active_turn(thread_id)
         ws = self.workspace(thread_id)
-        log.append('user', 'message', {'content': content})
-        _append_message(ws, 'user', content)
-        turn = AgentTurn(agent=self._agent(thread_id, log),
-                          user_message=content)
+        if role == 'user':
+            log.append('user', 'message', {'content': content})
+            _append_message(ws, 'user', content)
+        turn = AgentTurn(
+            agent=self._agent_for(thread_id, log),
+            user_message=content,
+        )
         self._active_turn[thread_id] = turn
         lock = self.locks.get(thread_id)
         await lock.acquire()
@@ -235,13 +313,20 @@ def build_router(hub: ThreadHub) -> APIRouter:
     @router.get('/threads/{thread_id}/auto/decision')
     async def get_decision(thread_id: str) -> dict:
         op = hub.auto(thread_id)
-        if op is None or op.last_decision is None:
-            raise HTTPException(404, 'no decision yet')
-        return op.last_decision.to_dict()
+        if op is None:
+            raise HTTPException(404, 'no auto operator')
+        t = op.last_turn
+        if t is not None:
+            return t.to_dict()
+        d = op.last_decision
+        if d is not None and hasattr(d, 'to_dict'):
+            return d.to_dict()
+        raise HTTPException(404, 'no turn yet')
 
     @router.post('/threads/{thread_id}/auto/step')
     async def step_decision(thread_id: str) -> dict:
-        return hub.ensure_auto(thread_id).decide().to_dict()
+        r = await hub.step_auto_once(thread_id)
+        return r.to_dict()
 
     @router.get('/threads/{thread_id}/events')
     async def tail_events(thread_id: str,

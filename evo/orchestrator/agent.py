@@ -17,7 +17,7 @@ LLM = Callable[[str], AsyncIterator[str]]
 
 @dataclass
 class StreamEvent:
-    kind: str   # 'thinking' | 'action' | 'answer' | 'cancelled' | 'done'
+    kind: str
     text: str = ''
     payload: dict | None = None
 
@@ -43,12 +43,15 @@ class _SectionStreamer:
 
     def _step(self, out: list[tuple[str, str]]) -> bool:
         if self.section is None:
-            for tag, name in _OPEN_TAGS:
+            best, name, tlen = -1, '', 0
+            for tag, nm in _OPEN_TAGS:
                 pos = self.buf.find(tag, self.flushed)
-                if pos != -1:
-                    self.section = name
-                    self.flushed = pos + len(tag)
-                    return True
+                if pos != -1 and (best == -1 or pos < best):
+                    best, name, tlen = pos, nm, len(tag)
+            if best != -1:
+                self.section = name
+                self.flushed = best + tlen
+                return True
             return False
         close = _CLOSE[self.section]
         end = self.buf.find(close, self.flushed)
@@ -119,6 +122,24 @@ class ConversationAgent:
         sections = _SectionStreamer()
         thinking = ''
         results: list[OpResult] = []
+        pending_raw: str | None = None
+        pending_ops: list[Op] = []
+
+        def bump_plan() -> list[StreamEvent]:
+            nonlocal pending_raw, pending_ops
+            raw = sections.ops_raw
+            if raw is None or raw == pending_raw:
+                return []
+            pending_raw = raw
+            pending_ops = sections.parse_ops()
+            out: list[StreamEvent] = []
+            if self.log:
+                self.log.append('agent', 'plan',
+                                {'ops': [vars(o) for o in pending_ops]})
+            out.append(StreamEvent(
+                'plan_ready', payload={'ops': [vars(o) for o in pending_ops]}))
+            return out
+
         try:
             async for chunk in self.llm(prompt):
                 segments = think.feed(chunk)
@@ -132,16 +153,8 @@ class ConversationAgent:
                         continue
                     for skind, stext in sections.feed(text):
                         yield StreamEvent(skind, stext)
-                if sections.ops_raw is not None and not results:
-                    ops = sections.parse_ops()
-                    if self.log:
-                        self.log.append('agent', 'plan',
-                                        {'ops': [vars(o) for o in ops]})
-                    for op, result in zip(ops, self.dispatcher.dispatch(ops)):
-                        results.append(result)
-                        yield _action_event(op, result)
-                        if result.status == 'failed':
-                            break
+                    for ev in bump_plan():
+                        yield ev
             for kind, text in think.flush():
                 if kind == 'think':
                     thinking += text
@@ -149,6 +162,15 @@ class ConversationAgent:
                 else:
                     for skind, stext in sections.feed(text):
                         yield StreamEvent(skind, stext)
+                    for ev in bump_plan():
+                        yield ev
+            if pending_raw is not None:
+                for op, result in zip(
+                        pending_ops, self.dispatcher.dispatch(pending_ops)):
+                    results.append(result)
+                    yield _action_event(op, result)
+                    if result.status == 'failed':
+                        break
         except asyncio.CancelledError:
             yield StreamEvent('cancelled', payload={
                 'thinking_partial': thinking,

@@ -98,6 +98,8 @@ GET    /v1/evo/reports/{rid}/content?fmt=json|md
 GET    /v1/evo/applies/{id}/diff-map         {apply_id, base_commit, files[]}
 GET    /v1/evo/diffs/{apply_id}/{name}.diff
 
+`GET /v1/evo/threads/{thread_id}/apply-commits` lists all apply tasks for that `thread_id` (from task store) with `final_commit` and per-round `commit_sha` records. After reject/cancel, branch refs may be removed while stored SHAs still identify commits until git gc.
+
 # admin
 GET    /v1/evo/admin/opencode/status
 PUT    /v1/evo/admin/opencode/config         body: {provider, api_key, model?}
@@ -132,10 +134,20 @@ python3 -m pip install --user -r evo/requirements.txt
 export LAZYRAG_USE_INNER_MODEL=true      # or LAZYRAG_MODEL_CONFIG_PATH=/abs/path.yaml
 export LAZYRAG_MAAS_API_KEY=...          # or LAZYLLM_QWEN_API_KEY depending on yaml
 
-# 3. start the service (factory mode, picks up config from env)
+# 3. CLI (same entrypoint as ``python -m evo``): harness pipeline or ThreadHub flows
+#    Global options (--base-dir, --data-dir, --code-map, -v) must come *before* the subcommand.
+python3 -m evo.main pipeline --code-map /path/to/code_map.json
+#    Legacy shorthand: flags without ``pipeline`` still run the harness pipeline.
+python3 -m evo.main --code-map /path/to/code_map.json
+#    Orchestrator / threads (no HTTP): auto loop, one-shot chat, or single decide()
+python3 -m evo.main --base-dir ./data/evo thread auto --timeout-s 3600
+python3 -m evo.main thread chat -m "Summarize bad-case themes"
+python3 -m evo.main thread decide --badcase-limit 50
+
+# 4. start the service (factory mode, picks up config from env)
 python3 -m uvicorn evo.service.api:get_app --factory --host 0.0.0.0 --port 8047
 
-# 4. seed opencode auth (one-time, then API takes over)
+# 5. seed opencode auth (one-time, then API takes over)
 curl -X PUT http://localhost:8047/v1/evo/admin/opencode/config \
   -H 'Content-Type: application/json' \
   -d '{"provider":"anthropic","api_key":"YOUR_KEY"}'

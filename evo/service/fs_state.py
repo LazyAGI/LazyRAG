@@ -37,7 +37,7 @@ APPLY_TERMINAL = ('accepted', 'rejected', 'cancelled')
 FLOWS: tuple[str, ...] = ('run', 'apply', 'eval', 'abtest')
 
 _PATCH_FIELDS = frozenset({
-    'parent_run_id', 'report_id', 'base_commit', 'branch_name',
+    'parent_run_id', 'report_id', 'base_commit', 'branch_name', 'final_commit',
     'current_step', 'current_round', 'error_code', 'error_kind',
     'thread_id', 'payload', 'status',
 })
@@ -154,7 +154,7 @@ def create_task(store: FsStateStore, flow: str, *,
             'id': tid, 'flow': flow, 'status': 'queued',
             'thread_id': thread_id,
             'parent_run_id': parent_run_id, 'report_id': report_id,
-            'base_commit': None, 'branch_name': None,
+            'base_commit': None, 'branch_name': None, 'final_commit': None,
             'current_step': None, 'current_round': None,
             'request_stop': 0, 'request_cancel': 0,
             'error_code': None, 'error_kind': None,
@@ -285,6 +285,18 @@ def list_rounds(store: FsStateStore, apply_id: str) -> list[dict]:
         return []
     return [rec for path in sorted(d.glob('*.json'))
             if (rec := _read_task(path)) is not None]
+
+
+def list_flow_tasks_by_thread(store: FsStateStore, flow: str,
+                               thread_id: str) -> list[dict]:
+    out: list[dict] = []
+    for path in store._all_task_files():
+        rec = _read_task(path)
+        if (rec and rec.get('flow') == flow
+                and rec.get('thread_id') == thread_id):
+            out.append(rec)
+    out.sort(key=lambda r: r.get('created_at', 0.0))
+    return out
 
 
 def _read_task(path: Path) -> dict | None:

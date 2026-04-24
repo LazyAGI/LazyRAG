@@ -38,6 +38,7 @@ class ReadScope:
 @dataclass(frozen=True)
 class CodeAccessConfig:
     code_map: dict[str, str] = field(default_factory=dict)
+    new_file_roots: tuple[str, ...] = ()
     read_scope: ReadScope = field(default_factory=ReadScope)
     subject_index: SubjectIndex = field(default_factory=SubjectIndex)
 
@@ -95,4 +96,17 @@ def load_code_access(path: Path | None) -> CodeAccessConfig:
     symbol_hints = {str(k): str(v) for k, v in (si_raw.get('symbol_hints') or {}).items()}
     si = SubjectIndex(subject_entry, step_to_source, symbol_hints)
 
-    return CodeAccessConfig(code_map=cm, read_scope=rs, subject_index=si)
+    nfr_raw: list[str] = []
+    for x in raw.get('new_file_roots') or []:
+        s = str(x).strip()
+        if s:
+            nfr_raw.append(s)
+    for k, _v in cm.items():
+        if not k or not k.rstrip().endswith('/'):
+            continue
+        nfr_raw.append(str(k).rstrip().rstrip('/'))
+    nfr: tuple[str, ...] = tuple(dict.fromkeys(nfr_raw))
+
+    return CodeAccessConfig(
+        code_map=cm, new_file_roots=nfr, read_scope=rs, subject_index=si,
+    )

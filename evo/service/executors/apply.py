@@ -11,7 +11,7 @@ from evo.apply.runner import ApplyOptions, RoundResult, execute_apply
 from evo.harness.plan import StopRequested
 from evo.runtime.fs import load_json
 from evo.service import state
-from evo.service.thread_workspace import ThreadWorkspace
+from evo.service.thread_workspace import EventLog, ThreadWorkspace
 
 from .context import CancelToken, ExecCtx
 
@@ -51,17 +51,27 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken) -> None:
 
     result = execute_apply(
         apply_id=tid, report=report, config=ctx.cfg,
-        workspace=workspace, options=opts,
+        workspace=workspace, thread_id=cur.get('thread_id'),
+        options=opts,
         cancel_token=token, on_round=on_round, on_proc=on_proc,
     )
-    state.patch(ctx.store, tid,
-                base_commit=result.base_commit,
-                branch_name=result.branch_name)
+    state.patch(
+        ctx.store, tid,
+        base_commit=result.base_commit,
+        branch_name=result.branch_name,
+        final_commit=result.final_commit,
+    )
     cur = state.get(ctx.store, tid)
     if cur['status'] not in ('running', 'stopping'):
         return
     if result.status == 'SUCCEEDED':
         state.transition(ctx.store, tid, 'finish')
+        c2 = state.get(ctx.store, tid) or {}
+        w2 = c2.get('thread_id')
+        if w2:
+            el = EventLog(
+                ThreadWorkspace(ctx.cfg.storage.base_dir, w2).events_path)
+            el.append(f'task:{tid}', 'apply.complete', {'apply_id': tid})
     else:
         err = result.error or {}
         code = err.get('code', 'UNKNOWN')
@@ -83,6 +93,11 @@ def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
         finished_at=rr.finished_at,
     )
     state.patch(ctx.store, tid, current_round=rr.index)
+    c = state.get(ctx.store, tid) or {}
+    wid = c.get('thread_id')
+    if wid:
+        el = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, wid).events_path)
+        el.append(f'task:{tid}', 'apply.round', {'round': rr.index, 'commit_sha': rr.commit_sha})
 
 
 def cleanup(ctx: ExecCtx, tid: str, *, drop_logs: bool, drop_diffs: bool) -> None:

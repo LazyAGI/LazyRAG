@@ -54,6 +54,7 @@ class AnalysisConfig:
 class EvoModelConfig:
     llm_role: str = 'evo_llm'
     embed_role: str = 'evo_embed'
+    auto_user_role: str = 'evo_llm'
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,7 @@ def load_config(
     model_config = EvoModelConfig(
         llm_role=os.getenv('EVO_LLM_ROLE', 'evo_llm'),
         embed_role=os.getenv('EVO_EMBED_ROLE', 'evo_embed'),
+        auto_user_role=os.getenv('EVO_AUTO_USER_ROLE', 'evo_llm'),
     )
 
     storage = StorageConfig(base_dir=base_dir)

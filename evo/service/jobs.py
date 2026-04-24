@@ -66,6 +66,36 @@ class JobManager:
     def list_rounds(self, apply_id: str) -> list[dict]:
         return state.list_rounds(self._store, apply_id)
 
+    def apply_commits_for_thread(self, thread_id: str) -> list[dict]:
+        rows = state.list_flow_tasks_by_thread(self._store, 'apply', thread_id)
+        out: list[dict] = []
+        for row in rows:
+            aid = row['id']
+            rounds = state.list_rounds(self._store, aid)
+            commits = []
+            for r in rounds:
+                sha = r.get('commit_sha')
+                if not sha:
+                    continue
+                commits.append({
+                    'round': r.get('round'),
+                    'commit_sha': sha,
+                    'test_passed': r.get('test_passed'),
+                    'files_changed': r.get('files_changed'),
+                })
+            out.append({
+                'apply_id': aid,
+                'status': row.get('status'),
+                'thread_id': row.get('thread_id'),
+                'branch_name': row.get('branch_name'),
+                'base_commit': row.get('base_commit'),
+                'final_commit': row.get('final_commit'),
+                'commits': commits,
+                'rounds': rounds,
+            })
+        return out
+
+
     # ---- submission ----------------------------------------------------------
 
     def submit_run(self, *, thread_id: str | None = None,
