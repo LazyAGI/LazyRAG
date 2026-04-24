@@ -382,6 +382,55 @@ def test_tool_result_preview_is_truncated_to_fifty_chars():
     }
 
 
+def test_tool_result_failure_uses_failure_preview_template():
+    frame = agentic_v2._format_tool_stream_frame({
+        'round': 6,
+        'content': '',
+        'tool_results': [{
+            'id': 'toolcall-6-1',
+            'tool_name': 'read_file',
+            'result': {
+                'status': 'missing',
+                'path': '/tmp/missing.txt',
+            },
+        }],
+    })
+
+    assert frame == {
+        'think': None,
+        'text': (
+            '<trp id="toolcall-6-1">暂时没能读取文件内容：/tmp/missing.txt</trp>'
+            '<tool_result>{"id":"toolcall-6-1","name":"read_file","result":{"status":"missing","path":"/tmp/missing.txt"}}</tool_result>'
+        ),
+        'sources': [],
+    }
+
+
+def test_tool_result_needs_approval_uses_approval_preview_template():
+    frame = agentic_v2._format_tool_stream_frame({
+        'round': 7,
+        'content': '',
+        'tool_results': [{
+            'id': 'toolcall-7-1',
+            'tool_name': 'delete_file',
+            'result': {
+                'status': 'needs_approval',
+                'reason': 'Deleting files requires approval.',
+                'path': '/tmp/demo.txt',
+            },
+        }],
+    })
+
+    assert frame == {
+        'think': None,
+        'text': (
+            '<trp id="toolcall-7-1">删除文件前还需要进一步确认：Deleting files requires approval.</trp>'
+            '<tool_result>{"id":"toolcall-7-1","name":"delete_file","result":{"status":"needs_approval","reason":"Deleting files requires approval.","path":"/tmp/demo.txt"}}</tool_result>'
+        ),
+        'sources': [],
+    }
+
+
 def test_review_debug_forces_combined(monkeypatch):
     monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
 

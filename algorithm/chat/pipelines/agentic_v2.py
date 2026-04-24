@@ -161,8 +161,37 @@ _TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
     'move_file': '文件位置已更新：{value}',
     'download_file': '所需文件已下载：{value}',
 }
+_TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
+    'kb_search': '暂时没能找到相关资料：{value}',
+    'kb_get_parent_node': '暂时没能补充上文信息：{value}',
+    'kb_get_window_nodes': '暂时没能展开相关片段：{value}',
+    'kb_keyword_search': '暂时没能按关键词找到资料：{value}',
+    'memory': '暂时没能记录这条信息：{value}',
+    'skill_manage': '暂时没能整理可复用经验：{value}',
+    'get_skill': '暂时没能获取处理方案：{value}',
+    'read_reference': '暂时没能读取参考资料：{value}',
+    'run_script': '辅助脚本暂时没能运行完成：{value}',
+    'read_file': '暂时没能读取文件内容：{value}',
+    'list_dir': '暂时没能获取文件夹内容：{value}',
+    'search_in_files': '暂时没能完成内容查找：{value}',
+    'make_dir': '暂时没能准备好文件夹：{value}',
+    'write_file': '暂时没能写入文件：{value}',
+    'delete_file': '暂时没能删除文件：{value}',
+    'move_file': '暂时没能整理文件位置：{value}',
+    'download_file': '暂时没能下载所需文件：{value}',
+}
+_TOOL_RESULT_APPROVAL_TEMPLATES: dict[str, str] = {
+    'delete_file': '删除文件前还需要进一步确认：{value}',
+    'move_file': '调整文件位置前还需要进一步确认：{value}',
+    'write_file': '写入文件前还需要进一步确认：{value}',
+    'download_file': '下载文件前还需要进一步确认：{value}',
+}
 _TOOL_RESULT_FALLBACK_TEMPLATE = '已获得处理结果'
 _TOOL_RESULT_FALLBACK_VALUE_TEMPLATE = '已获得处理结果：{value}'
+_TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE = '暂时没能完成这一步'
+_TOOL_RESULT_FAILURE_FALLBACK_VALUE_TEMPLATE = '暂时没能完成这一步：{value}'
+_TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE = '这一步还需要进一步确认'
+_TOOL_RESULT_APPROVAL_FALLBACK_VALUE_TEMPLATE = '这一步还需要进一步确认：{value}'
 _FALLBACK_REPRESENTATIVE_RESULT_KEYS = (
     'result',
     'content',
@@ -256,29 +285,82 @@ def _truncate_tool_result_preview(value: Any) -> str:
     return f'{text[:_MAX_TOOL_RESULT_PREVIEW_LENGTH]}...'
 
 
+def _tool_result_status(result: Any) -> str:
+    if isinstance(result, dict):
+        success = result.get('success')
+        if success is False:
+            return 'failed'
+        status = str(result.get('status') or '').strip().lower()
+        if status == 'needs_approval':
+            return 'needs_approval'
+        if status in ('error', 'missing', 'failed', 'fail'):
+            return 'failed'
+    return 'ok'
+
+
+def _tool_result_failure_detail(result: Any) -> str:
+    if isinstance(result, dict):
+        for key in ('reason', 'error', 'message', 'path', 'status'):
+            value = result.get(key)
+            if value:
+                return _truncate_tool_result_preview(value)
+    return _truncate_tool_result_preview(result)
+
+
+def _render_preview_template(
+    tool_name: str,
+    value: str,
+    template_map: dict[str, str],
+    fallback_template: str,
+    fallback_value_template: str,
+) -> str:
+    template = template_map.get(tool_name)
+    if template and value:
+        return template.format(value=value)
+    if template:
+        return template.split('：{value}')[0]
+    if value:
+        return fallback_value_template.format(value=value)
+    return fallback_template
+
+
 def _tool_call_preview(tool_name: str, arguments: Any) -> str:
     representative_argument = _representative_tool_argument(tool_name, arguments)
     preview = _tool_preview_value(representative_argument)
-    template = _TOOL_CALL_PREVIEW_TEMPLATES.get(tool_name)
-    if template and preview:
-        return template.format(value=preview)
-    if template:
-        return template.split('：{value}')[0]
-    if preview:
-        return _TOOL_CALL_FALLBACK_VALUE_TEMPLATE.format(value=preview)
-    return _TOOL_CALL_FALLBACK_TEMPLATE
+    return _render_preview_template(
+        tool_name,
+        preview,
+        _TOOL_CALL_PREVIEW_TEMPLATES,
+        _TOOL_CALL_FALLBACK_TEMPLATE,
+        _TOOL_CALL_FALLBACK_VALUE_TEMPLATE,
+    )
 
 
 def _tool_result_preview(tool_name: str, result: Any) -> str:
-    preview = _truncate_tool_result_preview(_representative_tool_result(tool_name, result))
-    template = _TOOL_RESULT_PREVIEW_TEMPLATES.get(tool_name)
-    if template and preview:
-        return template.format(value=preview)
-    if template:
-        return template.split('：{value}')[0]
-    if preview:
-        return _TOOL_RESULT_FALLBACK_VALUE_TEMPLATE.format(value=preview)
-    return _TOOL_RESULT_FALLBACK_TEMPLATE
+    status = _tool_result_status(result)
+    if status == 'needs_approval':
+        return _render_preview_template(
+            tool_name,
+            _tool_result_failure_detail(result),
+            _TOOL_RESULT_APPROVAL_TEMPLATES,
+            _TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE,
+            _TOOL_RESULT_APPROVAL_FALLBACK_VALUE_TEMPLATE,
+        )
+    if status == 'failed':
+        return _render_preview_template(
+            tool_name,
+            _tool_result_failure_detail(result),
+            _TOOL_RESULT_FAILURE_TEMPLATES,
+            _TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE,
+            _TOOL_RESULT_FAILURE_FALLBACK_VALUE_TEMPLATE,
+        )
+    return _render_preview_template(
+        tool_name,
+        _truncate_tool_result_preview(_representative_tool_result(tool_name, result)),
+        _TOOL_RESULT_PREVIEW_TEMPLATES,
+        _TOOL_RESULT_FALLBACK_TEMPLATE,
+        _TOOL_RESULT_FALLBACK_VALUE_TEMPLATE,
+    )
 
 
 def _tagged_tool_frame(payload_tag: str, payload: dict[str, Any]) -> str:
