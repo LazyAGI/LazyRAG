@@ -116,7 +116,7 @@ class ParallelKGBuilder:
             "is_cross_document": is_cross_doc
         }
 
-    def is_valid_real_multihop(self,item):
+    def is_valid_real_multihop(self, item):
         try:
             question = item["question"]
             chunk1 = item["reference_context"][0][:800]
@@ -151,7 +151,7 @@ class ParallelKGBuilder:
             log.error(f"校验失败: {e}")
             return False
 
-    def generate_single_question(self, path):
+    def generate_single_question(self, path, cross_doc=True):
         try:
             if len(path) != 3:
                 return None
@@ -162,18 +162,33 @@ class ParallelKGBuilder:
             desc = f"{s} {left_rel} {bridge} → {bridge} {right_rel} {t}"
             source = self.get_triple_source_by_path(path)
 
-            if not source["is_cross_document"]:
-                return None
+            doc_ids = source.get("source_doc_ids", [])
+            chunk_uids = source.get("source_chunk_uids", [])
+
+            # 规则分支
+            if cross_doc:
+                if not source["is_cross_document"]:
+                    return None
+                question_type = 2
+                log_prefix = "跨文档"
+            else:
+                # 单文档同文件、不同片段
+                if len(set(doc_ids)) != 1:
+                    return None
+                if len(chunk_uids) < 2 or chunk_uids[0] == chunk_uids[1]:
+                    return None
+                question_type = 3
+                log_prefix = "单文档"
 
             c1 = source["source_chunks"][0]["content"]
             c2 = source["source_chunks"][1]["content"]
-            cu1 = source["source_chunk_uids"][0] if len(source["source_chunk_uids"]) > 0 else ""
-            cu2 = source["source_chunk_uids"][1] if len(source["source_chunk_uids"]) > 1 else ""
-            d1 = source["source_doc_ids"][0] if len(source["source_doc_ids"]) > 0 else ""
-            d2 = source["source_doc_ids"][1] if len(source["source_doc_ids"]) > 1 else ""
+            cu1 = chunk_uids[0] if len(chunk_uids) > 0 else ""
+            cu2 = chunk_uids[1] if len(chunk_uids) > 1 else ""
+            d1 = doc_ids[0] if len(doc_ids) > 0 else ""
+            d2 = doc_ids[1] if len(doc_ids) > 1 else ""
 
             prompt = f"""
-【任务：生成业界标准严格跨文档双跳多跳问题】
+【任务：生成业界标准严格双跳多跳问题】
 请严格遵循以下全部规则，生成自然口语、符合人类日常提问习惯的问题：
 
 1. 以【{bridge}】作为唯一桥梁实体
@@ -186,7 +201,6 @@ class ParallelKGBuilder:
 8. 子问题围绕桥梁实体
 9. 主问题隐藏桥梁实体，自然连贯
 10. key_points 是答题关键点，最多五个，需要根据question和ground_truth提取最核心的关键实体信息，只抽取答案中最核心实体，忽略次要信息，也是一个列表格式
-
 
 推理路径：{desc}
 桥梁实体：{bridge}
@@ -219,7 +233,7 @@ class ParallelKGBuilder:
                 return None
 
             res = {
-                "question_type": 2,
+                "question_type": question_type,
                 "bridge_entity": bridge,
                 "path": path,
                 "path_detail": desc,
@@ -236,7 +250,7 @@ class ParallelKGBuilder:
             }
 
             if not self.is_valid_real_multihop(res):
-                log.info("校验失败：非真实双跳问题，已丢弃")
+                log.info(f"校验失败：非真实{log_prefix}双跳问题，已丢弃")
                 return None
 
             return res
@@ -245,8 +259,13 @@ class ParallelKGBuilder:
             log.error(f"生成问题失败: {e}")
             return None
 
-    def generate_multi_file_questions(self, max_questions=20):
-        log.info("开始生成跨文档多跳问题")
+    # 合并后唯一入口方法
+    def generate_multi_hop_questions(self, max_questions=20, cross_doc: bool = True):
+        if cross_doc:
+            log.info("开始生成跨文档多跳问题")
+        else:
+            log.info("开始生成单文档多跳问题")
+
         entities = list(self.graph.nodes())
         candidates = []
 
@@ -255,7 +274,7 @@ class ParallelKGBuilder:
                 path = nx.shortest_path(self.graph, s, t)
                 if len(path) == 3:
                     candidates.append(path)
-            except:
+            except Exception:
                 continue
 
         log.info(f"找到候选双跳路径：{len(candidates)}")
@@ -263,7 +282,7 @@ class ParallelKGBuilder:
         generated = set()
 
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = [executor.submit(self.generate_single_question, p) for p in candidates]
+            futures = [executor.submit(self.generate_single_question, p, cross_doc) for p in candidates]
             try:
                 for f in as_completed(futures):
                     if len(results) >= max_questions:
@@ -272,9 +291,9 @@ class ParallelKGBuilder:
                     if r and tuple(r["path"]) not in generated:
                         generated.add(tuple(r["path"]))
                         results.append(r)
-                        log.info(f"合格 {len(results)}/{max_questions} | {r['multi_hop_question']}")
+                        log.info(f"合格 {len(results)}/{max_questions} | {r['question']}")
             finally:
                 executor.shutdown(wait=False, cancel_futures=True)
 
-        log.info(f"生成完成！总计：{len(results)} 条合格双跳问题")
+        log.info(f"多跳问题生成完成！总计：{len(results)} 条合格问题")
         return results

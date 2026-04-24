@@ -5,14 +5,14 @@ from services.llm_service import chat
 from config import TASK_SETTINGS
 from utils.logger import log
 from utils.checker import is_qa_json_valid
-from services.kg_services import ParallelKGBuilder
+from services.graph_services import ParallelKGBuilder
 from utils.writer import write_full_eval_set, build_full_eval_set
 import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-def create_task_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
+def generate_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
     result_list = []
     lock = threading.Lock()
     max_retries = 100
@@ -97,10 +97,14 @@ def create_task_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
     log.info(f"单跳任务完成 | 总数：{len(result_list)} 条")
     return result_list
 
-def create_task_multi_file(kb_id):
+def generate_multi_hop(kb_id):
     builder = ParallelKGBuilder()
     builder.build_global_graph_from_all_docs(kb_id)
-    questions = builder.generate_multi_file_questions(max_questions=300)
+    # 1. 跨文档多跳
+    cross_list = builder.generate_multi_hop_questions(max_questions=20, cross_doc=True)
+    # 2. 单文档同文件多跳
+    single_list = builder.generate_multi_hop_questions(max_questions=20, cross_doc=False)
+    questions = cross_list + single_list
     result_list = []
     for item in questions:
         result_list.append({"qa": item})
@@ -111,15 +115,15 @@ def create_task_multi_file(kb_id):
 def run_generate_pipeline(kb_id, algo_id, eval_name):
     # with pipeline() as ppl:
     #     ppl.all = parallel(
-    #         create_task_single_hop(prompt_generate_single_hop, TASK_SETTINGS["single_hop"]["num"], kb_id, algo_id, max_workers=5)
-    # create_task_multihop(kb_id, algo_id)
+    #         generate_single_hop(prompt_generate_single_hop, TASK_SETTINGS["single_hop"]["num"], kb_id, algo_id, max_workers=5)
+    #         generate_multi_hop(kb_id, algo_id)
     # )
     # return ppl(None)
     log.info("开始生成评测集")
-    result_single_hop = create_task_single_hop(prompt_generate_single_hop, TASK_SETTINGS["single_hop"]["num"], kb_id,
+    result_single_hop = generate_single_hop(prompt_generate_single_hop, TASK_SETTINGS["single_hop"]["num"], kb_id,
                                                algo_id,
                                                max_workers=5)
-    result_multi_hop = create_task_multi_file(kb_id)
+    result_multi_hop = generate_multi_hop(kb_id)
     result = result_single_hop + result_multi_hop
     final_data = build_full_eval_set(
         qa_result=result,
