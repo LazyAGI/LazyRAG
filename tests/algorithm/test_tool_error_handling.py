@@ -35,7 +35,7 @@ def test_skill_manage_returns_error_result_for_skill_index_exception(monkeypatch
     monkeypatch.setattr(
         skill_manager_mod,
         '_agentic_config',
-        lambda: {'session_id': 'sid-1', 'skill_fs_local_base_dir': '/tmp/skills'},
+        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
     )
     monkeypatch.setattr(skill_manager_mod, 'list_all_skills_with_category', raise_unexpected)
 

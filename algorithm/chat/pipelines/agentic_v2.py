@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import asyncio
 import json
 import os
 import re
 import sys
-from termios import FLUSHO
 import threading
-import time
 import traceback
 from collections import OrderedDict
 from functools import lru_cache
@@ -33,7 +33,6 @@ from chat.prompts.agentic_v2 import (
     MEMORY_GUIDANCE,
     SKILLS_GUIDANCE,
     TOOL_CALL_STATUS_GUIDANCE,
-    TOOL_USE_ENFORCEMENT_GUIDANCE,
     _SKILL_REVIEW_PROMPT,
     _MEMORY_REVIEW_PROMPT,
     _COMBINED_REVIEW_PROMPT,
@@ -41,16 +40,7 @@ from chat.prompts.agentic_v2 import (
 )
 
 
-ALL_TOOLS = [
-    'kb_search',
-    'kb_get_parent_node',
-    'kb_get_window_nodes',
-    'kb_keyword_search',
-    'memory',
-    'skill_manage',
-]
-
-AVAILABLE_TOOLS = [
+DEFAULT_TOOLS = [
     'kb_search',
     'kb_get_parent_node',
     'kb_get_window_nodes',
@@ -71,6 +61,11 @@ _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
 _CITATION_PATTERN = re.compile(r'\[\[(\d+)\]\]')
 _THINK_BLOCK_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+_HISTORY_TAG_PATTERN = re.compile(
+    r'<(?P<tag>tp|trp|tool_call|tool_result)(?P<attrs>[^>]*)>(?P<body>.*?)</(?P=tag)>',
+    re.DOTALL,
+)
+_HISTORY_TAG_ID_PATTERN = re.compile(r'\bid="([^"]+)"')
 _STREAM_CHUNK_SIZE = 24
 _FINISH_REASON_UNSPECIFIED = 'FINISH_REASON_UNSPECIFIED'
 _FINISH_REASON_STOP = 'FINISH_REASON_STOP'
@@ -224,6 +219,108 @@ def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
         'name': function.get('name', ''),
         'arguments': arguments,
     }
+
+
+def _history_message_content(message: dict[str, Any]) -> str:
+    content = message.get('content')
+    return content if isinstance(content, str) else ''
+
+
+def _tool_result_message_content(result: Any) -> str:
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, ensure_ascii=False, separators=(',', ':'))
+
+
+def _parse_history_assistant_content(content: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    text_parts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    tool_results: list[dict[str, Any]] = []
+    cursor = 0
+
+    for match in _HISTORY_TAG_PATTERN.finditer(content or ''):
+        text_parts.append(content[cursor:match.start()])
+        cursor = match.end()
+        tag = match.group('tag')
+        body = match.group('body') or ''
+        if tag in (_TOOL_PREVIEW_TAG, _TOOL_RESULT_PREVIEW_TAG):
+            continue
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if tag == _TOOL_CALL_TAG:
+            tool_calls.append({
+                'id': str(payload.get('id') or ''),
+                'function': {
+                    'name': str(payload.get('name') or ''),
+                    'arguments': json.dumps(payload.get('arguments', {}), ensure_ascii=False),
+                },
+            })
+        elif tag == _TOOL_RESULT_TAG:
+            tool_results.append({
+                'id': str(payload.get('id') or ''),
+                'name': str(payload.get('name') or ''),
+                'result': payload.get('result'),
+            })
+    text_parts.append(content[cursor:])
+    return ''.join(text_parts).strip(), tool_calls, tool_results
+
+
+def _normalize_history_for_agent(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for message in history or []:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get('role') or '').strip()
+        if role == 'assistant':
+            content = _history_message_content(message)
+            body_text, tool_calls, tool_results = _parse_history_assistant_content(content)
+            assistant_message = {'role': 'assistant', 'content': body_text}
+            if tool_calls:
+                assistant_message['tool_calls'] = tool_calls
+            normalized.append(assistant_message)
+
+            valid_tool_call_ids = {
+                str(tool_call.get('id') or '')
+                for tool_call in tool_calls
+                if str(tool_call.get('id') or '')
+            }
+            for tool_result in tool_results:
+                tool_call_id = str(tool_result.get('id') or '')
+                if not tool_call_id or tool_call_id not in valid_tool_call_ids:
+                    continue
+                normalized.append({
+                    'role': 'tool',
+                    'tool_call_id': tool_call_id,
+                    'name': str(tool_result.get('name') or ''),
+                    'content': _tool_result_message_content(tool_result.get('result')),
+                })
+            continue
+
+        if role == 'user':
+            content = _history_message_content(message)
+            if content:
+                normalized.append({'role': 'user', 'content': content})
+            continue
+
+        if role == 'tool':
+            content = _history_message_content(message)
+            tool_message = {
+                'role': 'tool',
+                'tool_call_id': str(message.get('tool_call_id') or ''),
+                'name': str(message.get('name') or ''),
+                'content': content,
+            }
+            normalized.append(tool_message)
+            continue
+
+        content = _history_message_content(message)
+        if content:
+            normalized.append({'role': role or 'assistant', 'content': content})
+    return normalized
 
 
 def _representative_tool_argument(tool_name: str, arguments: Any) -> Any:
@@ -507,14 +604,24 @@ class _StreamingReactAgent(lazyllm.tools.agent.ReactAgent):
 
 def _normalize_available_tools(tools: Any) -> list[str]:
     if tools is None:
-        return list(AVAILABLE_TOOLS)
+        return list(DEFAULT_TOOLS)
     if isinstance(tools, str):
         tools = [tools]
     if not isinstance(tools, list):
-        return list(AVAILABLE_TOOLS)
+        return list(DEFAULT_TOOLS)
     if any(isinstance(t, str) and t.lower() == 'all' for t in tools):
-        return list(ALL_TOOLS)
+        return list(DEFAULT_TOOLS)
     return [t for t in tools if isinstance(t, str) and t]
+
+
+def _normalize_available_skills(skills: Any) -> list[str]:
+    if skills is None:
+        return []
+    if isinstance(skills, str):
+        skills = [skills]
+    if not isinstance(skills, list):
+        return []
+    return [skill for skill in skills if isinstance(skill, str) and skill]
 
 
 def _env_int(name: str, default: int) -> int:
@@ -561,8 +668,9 @@ def _filter_tools_for_request(tools: list[str], config: dict) -> list[str]:
 
 def _with_agentic_defaults(config: dict) -> dict:
     defaults = {
-        'available_tools': AVAILABLE_TOOLS,
-        'skill_fs_local_base_dir': '.agentic_rag/skills',
+        'available_tools': DEFAULT_TOOLS,
+        'available_skills': [],
+        'skill_fs_url': '.agentic_rag/skills',
         'memory_fs_dir': '.agentic_rag/memory',
         'core_api_url': os.getenv('LAZYRAG_CORE_API_URL', 'http://core:8000'),
         'workspace': './workspace',
@@ -724,7 +832,12 @@ def _count_tool_turns(history: list[dict[str, Any]]) -> int:
     """Count assistant turns that contain at least one tool call."""
     count = 0
     for msg in history or []:
-        if isinstance(msg, dict) and msg.get('role') != 'tool':
+        if (
+            isinstance(msg, dict)
+            and msg.get('role') == 'assistant'
+            and isinstance(msg.get('tool_calls'), list)
+            and msg.get('tool_calls')
+        ):
             count += 1
     return count
 
@@ -773,11 +886,10 @@ def _spawn_background_review(
         return
 
     snapshot = list(history_snapshot)
-    # Only skill / combined reviews need the skill catalogue; memory-only
-    # review has no use for it.
+    skills_dir = config.get('skill_fs_url') or ''
     review_skills = (
-        list_all_skills_with_category(config.get('skill_fs_local_base_dir'))
-        if review_mode in ('skill', 'combined')
+        list(list_all_skills_with_category(skills_dir).keys())
+        if review_mode in ('skill', 'combined') and skills_dir
         else []
     )
 
@@ -797,11 +909,11 @@ def _spawn_background_review(
                 max_retries=_env_int('LAZYRAG_REVIEW_MAX_RETRIES', 5),
                 return_trace=False,
                 prompt=review_prompt,
-                skills=list(review_skills.keys()),
+                skills=review_skills,
                 keep_full_turns=keep_full_turns,
                 sandbox=sandbox,
                 fs=FS,
-                skills_dir=config['skill_fs_local_base_dir'],
+                skills_dir=skills_dir,
                 enable_builtin_tools=True,
                 force_summarize=True,
                 force_summarize_context=review_prompt,
@@ -835,12 +947,14 @@ def agentic_forward(
 
     llm = get_automodel('llm')
     sandbox = create_sandbox(project_dir=str(base_dir))
-    available_skills = list_all_skills_with_category(config.get('skill_fs_local_base_dir'))
     available_tools = _filter_tools_for_request(
         _normalize_available_tools(config.get('available_tools')),
         config,
     )
+    available_skills = _normalize_available_skills(config.get('available_skills'))
+    skills_dir = config.get('skill_fs_url') or ''
     config['available_tools'] = available_tools
+    config['available_skills'] = available_skills
 
     keep_full_turns = config.get('keep_full_turns', 3)
     runtime_prompt = _build_runtime_system_prompt(config, available_tools)
@@ -852,12 +966,12 @@ def agentic_forward(
         'return_trace': config.get('return_trace', False),
         'stream': bool(stream_event_callback),
         'prompt': runtime_prompt,
-        'skills': list(available_skills.keys()),
+        'skills': available_skills,
         'workspace': config.get('workspace', './workspace'),
         'keep_full_turns': keep_full_turns,
         'sandbox': sandbox,
         'fs': FS,
-        'skills_dir': f"{config['skill_fs_local_base_dir']},/home/mnt/dengyuang/workspace/tyy/hermes-agent-core/.agentic_rag/skills",
+        'skills_dir': skills_dir,
         'enable_builtin_tools': True,
         'force_summarize': True,
         'force_summarize_context': query,
@@ -909,7 +1023,6 @@ async def _agentic_forward_stream(
     event_queue: Queue = Queue()
     sentinel = object()
     closed = threading.Event()
-    started_at = time.time()
     streamed_text = False
 
     lazyllm.globals._init_sid(global_sid)
@@ -983,7 +1096,6 @@ async def _agentic_forward_stream(
                     continue
                 yield frame
 
-        elapsed_s = int(time.time() - started_at)
         for frame in _drain_stream_frames():
             yield frame
 
@@ -1045,6 +1157,7 @@ def agentic_rag_v2(
     history = (global_params or {}).get('history') or []
     if not isinstance(history, list):
         history = []
+    history = _normalize_history_for_agent(history)
 
     runtime_params = _get_runtime_agent_defaults()
     runtime_params.update(global_params or {})
@@ -1085,8 +1198,9 @@ if __name__ == '__main__':
         'es_index': 'tyy_recall_0319_a',
         'es_user': 'admin',
         'es_password': 'LazyRAG_OpenSearch123!',
-        'available_tools': AVAILABLE_TOOLS,
-        'skill_fs_local_base_dir': '.agentic_rag/skills',
+        'available_tools': DEFAULT_TOOLS,
+        'available_skills': [],
+        'skill_fs_url': '.agentic_rag/skills',
         'memory_fs_dir': '.agentic_rag/memory',
         'core_api_url': 'http://10.119.24.129:9090',
         'workspace': '/tmp/test_agentic_workspace',

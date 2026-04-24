@@ -64,7 +64,7 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
     monkeypatch.setattr(
         skill_manager_mod,
         '_agentic_config',
-        lambda: {'session_id': 'sid-1', 'skill_fs_local_base_dir': '/tmp/skills'},
+        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
     )
     monkeypatch.setattr(skill_manager_mod, '_post_core_api', fake_post_core_api)
     monkeypatch.setattr(
@@ -117,7 +117,7 @@ def test_skill_manage_rejects_missing_skill_without_post(monkeypatch):
     monkeypatch.setattr(
         skill_manager_mod,
         '_agentic_config',
-        lambda: {'session_id': 'sid-1', 'skill_fs_local_base_dir': '/tmp/skills'},
+        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
     )
     monkeypatch.setattr(skill_manager_mod, '_post_core_api', lambda path, payload: calls.append((path, payload)))
     monkeypatch.setattr(skill_manager_mod, 'list_all_skills_with_category', lambda _base_dir: {})

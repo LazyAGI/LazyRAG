@@ -4,7 +4,6 @@ import sys
 from functools import wraps
 from typing import Any, Dict, List, Literal, Optional
 
-import lazyllm
 import requests
 from lazyllm import fc_register
 from lazyllm.tools.agent.skill_manager import SkillManager as LazySkillManager
@@ -14,7 +13,7 @@ if __package__ in (None, ''):
     if _algorithm_root not in sys.path:
         sys.path.insert(0, _algorithm_root)
 
-from common.local_fs import LocalFileSystem
+from lazyllm.tools.fs.client import FS
 from chat.tools.memory import (
     MAX_SUGGESTIONS_PER_CALL,
     Suggestion,
@@ -125,9 +124,9 @@ def _extract_category_from_path(skill_dir: str, skill_name: str) -> str:
     return '/'.join(parts)
 
 def list_all_skills_with_category(
-    skill_fs_local_base_dir: str,
+    skill_fs_url: str,
 ) -> Dict[str, str]:
-    manager = LazySkillManager(dir='./', fs=LocalFileSystem(base_dir=skill_fs_local_base_dir))
+    manager = LazySkillManager(dir=skill_fs_url, fs=FS)
     manager._load_skills_index()
     results: Dict[str, str] = {}
     for name, info in manager._skills_index.items():
@@ -168,7 +167,7 @@ def skill_manage(
     if not session_id:
         return _fail("'session_id' is required in agentic_config.")
 
-    existing_skills = list_all_skills_with_category(agentic_config.get('skill_fs_local_base_dir'))
+    existing_skills = list_all_skills_with_category(agentic_config.get('skill_fs_url') or '')
 
     if action == 'create':
         content_error = _validate_skill_content(content or '')

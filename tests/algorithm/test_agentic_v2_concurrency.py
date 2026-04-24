@@ -57,6 +57,7 @@ class _FakeAgent:
                 'config': snapshot,
                 'agent_kwargs_prompt': self._kwargs.get('prompt'),
                 'agent_kwargs_tools': tuple(self._kwargs.get('tools') or ()),
+                'agent_kwargs_skills': tuple(self._kwargs.get('skills') or ()),
                 'agent_kwargs_max_retries': self._kwargs.get('max_retries'),
                 'agent_kwargs_force_summarize': self._kwargs.get('force_summarize'),
                 'agent_kwargs_force_summarize_context': self._kwargs.get('force_summarize_context'),
@@ -74,9 +75,6 @@ def fake_pipeline(monkeypatch):
 
     monkeypatch.setattr(agentic_v2, 'get_automodel', lambda *_a, **_kw: object())
     monkeypatch.setattr(agentic_v2, 'create_sandbox', lambda **_kw: object())
-    monkeypatch.setattr(
-        agentic_v2, 'list_all_skills_with_category', lambda *_a, **_kw: {}
-    )
     monkeypatch.setattr(agentic_v2, '_ensure_tools_registered', lambda: None)
     monkeypatch.setattr(agentic_v2, '_spawn_background_review', lambda **_kw: None)
     monkeypatch.setattr(agentic_v2, '_get_runtime_agent_defaults', lambda: {})
@@ -94,6 +92,8 @@ def _build_configs(prefix: str, n: int) -> List[Dict[str, Any]]:
             'kb_id': f'{prefix}id_{i}',
             'kb_url': f'http://{prefix}host/{i}',
             'available_tools': [f'tool_{prefix}{i}'],
+            'available_skills': [f'skill_{prefix}{i}'],
+            'skill_fs_url': f'file:///tmp/{prefix}skills/{i}',
         }
         for i in range(n)
     ]
@@ -131,6 +131,7 @@ def test_thread_parallel_requests_see_isolated_config(fake_pipeline):
         assert obs['config']['kb_id'] == f't_id_{i}'
         assert obs['config']['kb_url'] == f'http://t_host/{i}'
         assert obs['agent_kwargs_tools'] == (f'tool_t_{i}',)
+        assert obs['config']['available_skills'] == [f'skill_t_{i}']
         assert results[i]['observed_kb_name'] == f't_kb_{i}'
 
     assert len(sids) == n, f'threads should get distinct SIDs, got {sids!r}'
@@ -158,6 +159,8 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
                 'kb_id': f's_id_{i}',
                 'kb_url': f'http://s_host/{i}',
                 'available_tools': [f's_tool_{i}'],
+                'available_skills': [f's_skill_{i}'],
+                'skill_fs_url': f'file:///tmp/stream-skills/{i}',
             }
             stream = agentic_v2.agentic_rag_v2(params, stream=True)
             events = []
@@ -182,6 +185,7 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
         assert obs['config']['kb_id'] == f's_id_{i}'
         assert obs['config']['kb_url'] == f'http://s_host/{i}'
         assert obs['agent_kwargs_tools'] == (f's_tool_{i}',)
+        assert obs['config']['available_skills'] == [f's_skill_{i}']
 
     for i, (events, outer, session_id) in enumerate(results):
         assert session_id == f'stream-session-{i}'
@@ -431,6 +435,48 @@ def test_tool_result_needs_approval_uses_approval_preview_template():
     }
 
 
+def test_normalize_history_keeps_plain_chat_messages_unchanged():
+    history = [
+        {'role': 'user', 'content': 'hello'},
+        {'role': 'assistant', 'content': 'world'},
+    ]
+
+    assert agentic_v2._normalize_history_for_agent(history) == history
+
+
+def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '先看文件。'
+            '<tp id="toolcall-1-1">正在查看文件内容：/tmp/demo.txt</tp>'
+            '<tool_call>{"id":"toolcall-1-1","name":"read_file","arguments":{"path":"/tmp/demo.txt"}}</tool_call>'
+            '<trp id="toolcall-1-1">已读取文件内容：hello world</trp>'
+            '<tool_result>{"id":"toolcall-1-1","name":"read_file","result":{"status":"ok","content":"hello world"}}</tool_result>'
+        ),
+    }]
+
+    assert agentic_v2._normalize_history_for_agent(history) == [
+        {
+            'role': 'assistant',
+            'content': '先看文件。',
+            'tool_calls': [{
+                'id': 'toolcall-1-1',
+                'function': {
+                    'name': 'read_file',
+                    'arguments': '{"path":"/tmp/demo.txt"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'toolcall-1-1',
+            'name': 'read_file',
+            'content': '{"status":"ok","content":"hello world"}',
+        },
+    ]
+
+
 def test_review_debug_forces_combined(monkeypatch):
     monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
 
@@ -453,6 +499,71 @@ def test_review_mode_uses_intervals_without_debug(monkeypatch):
         memory_review_interval=1,
         skill_review_interval=5,
     ) == 'memory'
+
+
+def test_count_tool_turns_only_counts_assistant_messages_with_tool_calls():
+    history = agentic_v2._normalize_history_for_agent([
+        {'role': 'assistant', 'content': 'plain text'},
+        {
+            'role': 'assistant',
+            'content': (
+                '<tool_call>{"id":"call-1","name":"kb_search","arguments":{"query":"foo"}}</tool_call>'
+                '<tool_result>{"id":"call-1","name":"kb_search","result":{"total":1}}</tool_result>'
+            ),
+        },
+        {
+            'role': 'assistant',
+            'content': (
+                'done'
+                '<tool_call>{"id":"call-2","name":"memory","arguments":{"target":"memory"}}</tool_call>'
+                '<tool_result>{"id":"call-2","name":"memory","result":{"status":"ok"}}</tool_result>'
+            ),
+        },
+    ])
+
+    assert agentic_v2._count_tool_turns(history) == 2
+
+
+def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch):
+    captured = {}
+
+    class _ReviewAgent:
+        def __init__(self, **kwargs):
+            captured['skills'] = tuple(kwargs.get('skills') or ())
+            captured['skills_dir'] = kwargs.get('skills_dir')
+
+        def __call__(self, *_args, **_kwargs):
+            return 'ok'
+
+    monkeypatch.setattr(
+        agentic_v2,
+        'list_all_skills_with_category',
+        lambda _path: {
+            'skill_a': '',
+            'skill_b': 'ops',
+            'skill_c': 'drafts',
+        },
+    )
+    monkeypatch.setattr(lazyllm.tools.agent, 'ReactAgent', _ReviewAgent)
+    monkeypatch.setenv('LAZYRAG_REVIEW_DEBUG', '1')
+
+    agentic_v2._spawn_background_review(
+        config={
+            'available_skills': ['skill_a'],
+            'skill_fs_url': 'file:///tmp/skills',
+        },
+        llm=object(),
+        sandbox=object(),
+        keep_full_turns=3,
+        history_snapshot=[],
+        review_mode='skill',
+        request_global_sid='sid-review',
+    )
+
+    assert captured == {
+        'skills': ('skill_a', 'skill_b', 'skill_c'),
+        'skills_dir': 'file:///tmp/skills',
+    }
 
 
 def test_max_retries_and_force_summary_use_lazyrag_env(fake_pipeline, monkeypatch):

@@ -1,4 +1,5 @@
 import json
+import os
 from functools import wraps
 from typing import Any, Dict, List, Optional
 
@@ -11,10 +12,10 @@ from chat.pipelines.builders.get_ppl_search import get_ppl_search
 
 _MAX_TEXT_LEN = 1200
 _MAX_RESULT_ITEMS = 50
-_DEFAULT_KB_URL = 'http://10.119.24.129:8056'
-_DEFAULT_ES_URL = 'https://10.119.24.129:9200'
-_DEFAULT_ES_USER = 'admin'
-_DEFAULT_ES_PASSWORD = 'LazyRAG_OpenSearch123!'
+_DEFAULT_KB_URL = os.getenv('LAZYRAG_AGENTIC_KB_URL', 'http://lazyllm-algo:8000')
+_DEFAULT_ES_URL = os.getenv('LAZYRAG_OPENSEARCH_URI', 'https://opensearch:9200')
+_DEFAULT_ES_USER = os.getenv('LAZYRAG_OPENSEARCH_USER', 'admin')
+_DEFAULT_ES_PASSWORD = os.getenv('LAZYRAG_OPENSEARCH_PASSWORD', '')
 _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
