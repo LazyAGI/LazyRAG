@@ -9,6 +9,7 @@ from config import DATA_PATH, CHAT_API
 
 def call_rag_api(query):
     try:
+        # mock 数据
         return {'code': 200, 'msg': 'success', 'trace_id': 'e02d7c25c9bd9ecaacf04','data': {'think': '', 'text': '编译原理、操作系统的知识', 'sources': [{'index': 3, 'number': 154, 'page': 63, 'bbox': [88, 234, 508, 750],'docid': 'doc_10b4ed1e02d7c25c9bd9ecaacf04aac2', 'kb_id': 'default','file_name': '21061-(6)-公共交通优先导向下的城市客运交通_同济大学.pdf','id': 'c114b524-adc2-4ea4-936b-35fc2d6bf5fb','text': '4.3 上海客运交通发展战略','group': 'block'}]}, 'cost': 36.6}
     except Exception as e:
         return {

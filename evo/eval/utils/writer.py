@@ -11,14 +11,13 @@ import uuid
 
 def build_eval_report(eval_results, eval_data):
     total = len(eval_results)
-    answer_correctness_list = []  # 用来收集所有分数
+    answer_correctness_list = []
 
     for item in eval_results:
         if "evaluate_result" in item:
             eval_result = item.pop("evaluate_result")
             item.update(eval_result)
 
-            # 🔥 收集 answer_correctness 分数
             if "answer_correctness" in eval_result:
                 try:
                     score = float(eval_result["answer_correctness"])
@@ -26,7 +25,6 @@ def build_eval_report(eval_results, eval_data):
                 except:
                     pass
 
-    # 🔥 计算平均分
     if answer_correctness_list:
         avg_score = round(sum(answer_correctness_list) / len(answer_correctness_list), 4)
     else:
