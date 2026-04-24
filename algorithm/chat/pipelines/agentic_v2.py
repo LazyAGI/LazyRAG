@@ -13,7 +13,7 @@ from collections import OrderedDict
 from functools import lru_cache
 from html import escape
 from pathlib import Path
-from queue import Queue
+from queue import Empty, Queue
 from typing import Any, Dict, Optional, Tuple
 
 import lazyllm
@@ -94,7 +94,92 @@ _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'kb_keyword_search': 'keyword',
     'memory': 'target',
     'skill_manage': 'name',
+    'get_skill': 'name',
+    'read_reference': 'rel_path',
+    'run_script': 'rel_path',
+    'read_file': 'path',
+    'list_dir': 'path',
+    'search_in_files': 'pattern',
+    'make_dir': 'path',
+    'write_file': 'path',
+    'delete_file': 'path',
+    'move_file': 'src',
+    'download_file': 'url',
 }
+
+_REPRESENTATIVE_TOOL_RESULTS: dict[str, str] = {
+    'skill_manage': 'reason',
+    'get_skill': 'content',
+    'read_reference': 'content',
+    'run_script': 'stdout',
+    'read_file': 'content',
+    'list_dir': 'path',
+    'search_in_files': 'status',
+    'make_dir': 'path',
+    'write_file': 'path',
+    'delete_file': 'path',
+    'move_file': 'dst',
+    'download_file': 'path',
+}
+_TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
+    'kb_search': '正在知识库中查找{value}相关资料',
+    'kb_get_parent_node': '正在补充上下文信息：{value}',
+    'kb_get_window_nodes': '正在展开相关片段：{value}',
+    'kb_keyword_search': '正在按关键词在目标文档中查找资料：{value}',
+    'memory': '正在记录这条信息：{value}',
+    'skill_manage': '正在整理可复用经验：{value}',
+    'get_skill': '正在查看处理方案：{value}',
+    'read_reference': '正在查看参考资料：{value}',
+    'run_script': '正在运行现成的辅助脚本：{value}',
+    'read_file': '正在查看文件内容：{value}',
+    'list_dir': '正在查看文件夹内容：{value}',
+    'search_in_files': '正在查找相关内容：{value}',
+    'make_dir': '正在准备文件夹：{value}',
+    'write_file': '正在写入文件：{value}',
+    'delete_file': '正在删除文件：{value}',
+    'move_file': '正在整理文件位置：{value}',
+    'download_file': '正在下载所需文件：{value}',
+}
+_TOOL_CALL_FALLBACK_TEMPLATE = '正在处理请求'
+_TOOL_CALL_FALLBACK_VALUE_TEMPLATE = '正在处理请求：{value}'
+_TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
+    'kb_search': '已找到{value}个相关资料',
+    'kb_get_parent_node': '已补充上文信息：{value}',
+    'kb_get_window_nodes': '已展开相关片段：{value}',
+    'kb_keyword_search': '已找到关键词相关资料：{value}',
+    'memory': '已记录这条信息：{value}',
+    'skill_manage': '已整理可复用经验：{value}',
+    'get_skill': '已获取处理方案：{value}',
+    'read_reference': '已获取参考资料：{value}',
+    'run_script': '辅助脚本已运行完成：{value}',
+    'read_file': '已读取文件内容：{value}',
+    'list_dir': '已获取文件夹内容：{value}',
+    'search_in_files': '已完成内容查找：{value}',
+    'make_dir': '文件夹已准备好：{value}',
+    'write_file': '文件已写入：{value}',
+    'delete_file': '文件已删除：{value}',
+    'move_file': '文件位置已更新：{value}',
+    'download_file': '所需文件已下载：{value}',
+}
+_TOOL_RESULT_FALLBACK_TEMPLATE = '已获得处理结果'
+_TOOL_RESULT_FALLBACK_VALUE_TEMPLATE = '已获得处理结果：{value}'
+_FALLBACK_REPRESENTATIVE_RESULT_KEYS = (
+    'result',
+    'content',
+    'text',
+    'reason',
+    'message',
+    'stdout',
+    'stderr',
+    'status',
+    'path',
+)
+_MAX_REPRESENTATIVE_RESULT_LENGTH = 200
+_MAX_TOOL_RESULT_PREVIEW_LENGTH = 50
+_TOOL_CALL_TAG = 'tool_call'
+_TOOL_RESULT_TAG = 'tool_result'
+_TOOL_PREVIEW_TAG = 'tp'
+_TOOL_RESULT_PREVIEW_TAG = 'trp'
 
 
 def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -106,6 +191,7 @@ def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
     return {
+        'id': tool_call.get('id', ''),
         'name': function.get('name', ''),
         'arguments': arguments,
     }
@@ -116,6 +202,129 @@ def _representative_tool_argument(tool_name: str, arguments: Any) -> Any:
     if not key or not isinstance(arguments, dict):
         return arguments
     return arguments.get(key, '')
+
+
+def _truncate_representative_result(value: Any) -> str:
+    text = '' if value is None else str(value)
+    if len(text) <= _MAX_REPRESENTATIVE_RESULT_LENGTH:
+        return text
+    return f'{text[:_MAX_REPRESENTATIVE_RESULT_LENGTH]}...'
+
+
+def _representative_tool_result(tool_name: str, result: Any) -> str:
+    if isinstance(result, dict):
+        key = _REPRESENTATIVE_TOOL_RESULTS.get(tool_name)
+        if key and result.get(key) is not None:
+            return _truncate_representative_result(result.get(key))
+        for fallback_key in _FALLBACK_REPRESENTATIVE_RESULT_KEYS:
+            if result.get(fallback_key) is not None:
+                return _truncate_representative_result(result.get(fallback_key))
+        if result:
+            first_key = next(iter(result))
+            return _truncate_representative_result(result.get(first_key))
+        return ''
+    if isinstance(result, list):
+        if not result:
+            return ''
+        first_item = result[0]
+        if len(result) > 1:
+            return _truncate_representative_result(f'{first_item} ... ({len(result)} items)')
+        return _truncate_representative_result(first_item)
+    return _truncate_representative_result(result)
+
+
+def _tool_payload_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+
+
+def _tool_call_id(tool_call: dict[str, Any], round_index: int, ordinal: int) -> str:
+    tool_call_id = str(tool_call.get('id') or '').strip()
+    if tool_call_id:
+        return tool_call_id
+    return f'toolcall-{round_index}-{ordinal}'
+
+
+def _tool_preview_value(value: Any) -> str:
+    text = _truncate_representative_result(value)
+    return text.replace('\n', ' ').strip()
+
+
+def _truncate_tool_result_preview(value: Any) -> str:
+    text = _tool_preview_value(value)
+    if len(text) <= _MAX_TOOL_RESULT_PREVIEW_LENGTH:
+        return text
+    return f'{text[:_MAX_TOOL_RESULT_PREVIEW_LENGTH]}...'
+
+
+def _tool_call_preview(tool_name: str, arguments: Any) -> str:
+    representative_argument = _representative_tool_argument(tool_name, arguments)
+    preview = _tool_preview_value(representative_argument)
+    template = _TOOL_CALL_PREVIEW_TEMPLATES.get(tool_name)
+    if template and preview:
+        return template.format(value=preview)
+    if template:
+        return template.split('：{value}')[0]
+    if preview:
+        return _TOOL_CALL_FALLBACK_VALUE_TEMPLATE.format(value=preview)
+    return _TOOL_CALL_FALLBACK_TEMPLATE
+
+
+def _tool_result_preview(tool_name: str, result: Any) -> str:
+    preview = _truncate_tool_result_preview(_representative_tool_result(tool_name, result))
+    template = _TOOL_RESULT_PREVIEW_TEMPLATES.get(tool_name)
+    if template and preview:
+        return template.format(value=preview)
+    if template:
+        return template.split('：{value}')[0]
+    if preview:
+        return _TOOL_RESULT_FALLBACK_VALUE_TEMPLATE.format(value=preview)
+    return _TOOL_RESULT_FALLBACK_TEMPLATE
+
+
+def _tagged_tool_frame(payload_tag: str, payload: dict[str, Any]) -> str:
+    return f'<{payload_tag}>{_tool_payload_json(payload)}</{payload_tag}>'
+
+
+def _tagged_preview_frame(preview_tag: str, tool_call_id: str, preview: str) -> str:
+    return f'<{preview_tag} id="{escape(tool_call_id, quote=True)}">{escape(preview)}</{preview_tag}>'
+
+
+def _tool_call_frame_text(tool_call: dict[str, Any]) -> str:
+    tool_call_id = str(tool_call.get('id') or '')
+    tool_name = str(tool_call.get('name', ''))
+    arguments = tool_call.get('arguments', {})
+    payload = {
+        'id': tool_call_id,
+        'name': tool_name,
+        'arguments': arguments,
+    }
+    return (
+        _tagged_preview_frame(
+            _TOOL_PREVIEW_TAG,
+            tool_call_id,
+            _tool_call_preview(tool_name, arguments),
+        )
+        + _tagged_tool_frame(_TOOL_CALL_TAG, payload)
+    )
+
+
+def _tool_result_frame_text(tool_result: dict[str, Any]) -> str:
+    tool_call_id = str(tool_result.get('id') or '')
+    tool_name = str(tool_result.get('tool_name', ''))
+    result = tool_result.get('result')
+    payload = {
+        'id': tool_call_id,
+        'name': tool_name,
+        'result': result,
+    }
+    return (
+        _tagged_preview_frame(
+            _TOOL_RESULT_PREVIEW_TAG,
+            tool_call_id,
+            _tool_result_preview(tool_name, result),
+        )
+        + _tagged_tool_frame(_TOOL_RESULT_TAG, payload)
+    )
 
 
 class _StreamingFunctionCall(FunctionCall):
@@ -145,18 +354,48 @@ class _StreamingFunctionCall(FunctionCall):
                     }]
                 except json.JSONDecodeError:
                     pass
-        if self._stream_event_callback and isinstance(llm_output, dict):
-            tool_calls = llm_output.get('tool_calls') or []
+        tool_calls = []
+        if isinstance(llm_output, dict):
+            for idx, tc in enumerate((llm_output.get('tool_calls') or []), start=1):
+                if not isinstance(tc, dict):
+                    continue
+                normalized_tool_call = _normalize_tool_call(tc)
+                normalized_tool_call['id'] = _tool_call_id(
+                    normalized_tool_call, self._round_index, idx
+                )
+                tool_calls.append(normalized_tool_call)
+
+        if self._stream_event_callback and isinstance(llm_output, dict) and tool_calls:
             self._stream_event_callback({
                 'round': self._round_index,
                 'content': llm_output.get('content', ''),
-                'tool_calls': [
-                    _normalize_tool_call(tc)
-                    for tc in tool_calls
-                    if isinstance(tc, dict)
+                'tool_calls': tool_calls,
+                'tool_results': [],
+            })
+
+        result = super()._post_action(llm_output)
+
+        if self._stream_event_callback and isinstance(llm_output, dict) and tool_calls:
+            tool_call_trace = (
+                lazyllm.locals.get('_lazyllm_agent', {})
+                .get('workspace', {})
+                .get('tool_call_trace', [])
+            )
+            self._stream_event_callback({
+                'round': self._round_index,
+                'content': '',
+                'tool_calls': [],
+                'tool_results': [
+                    {
+                        'id': tool_call.get('id', ''),
+                        'tool_name': tool_call.get('name', ''),
+                        'result': tool_trace.get('tool_call_result'),
+                    }
+                    for tool_call, tool_trace in zip(tool_calls, tool_call_trace)
+                    if isinstance(tool_trace, dict)
                 ],
             })
-        return super()._post_action(llm_output)
+        return result
 
 
 class _StreamingReactAgent(lazyllm.tools.agent.ReactAgent):
@@ -362,24 +601,19 @@ def _stream_frame(
 
 def _format_tool_stream_frame(tool_event: dict[str, Any]) -> Optional[dict[str, Any]]:
     tool_calls = tool_event.get('tool_calls') or []
-    if not tool_calls:
+    tool_results = tool_event.get('tool_results') or []
+    if not tool_calls and not tool_results:
         return None
 
-    _, visible_content = _split_think_and_body(str(tool_event.get('content') or ''))
-    tools = [
-        {
-            'name': tool_call.get('name', ''),
-            'argument': _representative_tool_argument(
-                tool_call.get('name', ''),
-                tool_call.get('arguments', {}),
-            ),
-        }
-        for tool_call in tool_calls
-        if isinstance(tool_call, dict)
-    ]
+    frame_parts: list[str] = []
+    for tool_call in tool_calls:
+        if isinstance(tool_call, dict):
+            frame_parts.append(_tool_call_frame_text(tool_call))
+    for tool_result in tool_results:
+        if isinstance(tool_result, dict):
+            frame_parts.append(_tool_result_frame_text(tool_result))
     return _stream_frame(
-        think=visible_content.strip(),
-        extra={'tools': tools},
+        text=''.join(frame_parts),
     )
 
 
@@ -486,7 +720,7 @@ def _spawn_background_review(
                 sandbox=sandbox,
                 fs=FS,
                 skills_dir=config['skill_fs_local_base_dir'],
-                enable_builtin_tools=False,
+                enable_builtin_tools=True,
                 force_summarize=True,
                 force_summarize_context=review_prompt,
             )
@@ -534,14 +768,15 @@ def agentic_forward(
         'tools': available_tools,
         'max_retries': _env_int('LAZYRAG_MAX_RETRIES', 20),
         'return_trace': config.get('return_trace', False),
+        'stream': bool(stream_event_callback),
         'prompt': runtime_prompt,
         'skills': list(available_skills.keys()),
         'workspace': config.get('workspace', './workspace'),
         'keep_full_turns': keep_full_turns,
         'sandbox': sandbox,
         'fs': FS,
-        'skills_dir': config['skill_fs_local_base_dir'],
-        'enable_builtin_tools': False,
+        'skills_dir': f"{config['skill_fs_local_base_dir']},/home/mnt/dengyuang/workspace/tyy/hermes-agent-core/.agentic_rag/skills",
+        'enable_builtin_tools': True,
         'force_summarize': True,
         'force_summarize_context': query,
     }
@@ -593,10 +828,31 @@ async def _agentic_forward_stream(
     sentinel = object()
     closed = threading.Event()
     started_at = time.time()
+    streamed_text = False
+
+    lazyllm.globals._init_sid(global_sid)
+    lazyllm.locals._init_sid(local_sid)
+    lazyllm.FileSystemQueue().clear()
+    lazyllm.FileSystemQueue.get_instance('think').clear()
 
     def _emit_event(event: dict[str, Any]) -> None:
         if not closed.is_set():
             event_queue.put({'type': 'tool_event', 'event': event})
+
+    def _drain_stream_frames() -> list[dict[str, Any]]:
+        nonlocal streamed_text
+        frames: list[dict[str, Any]] = []
+
+        lazyllm.FileSystemQueue.get_instance('think').dequeue()
+
+        text_values = lazyllm.FileSystemQueue().dequeue()
+        if text_values:
+            text = ''.join(text_values)
+            if text:
+                streamed_text = True
+                frames.append(_stream_frame(text=text))
+
+        return frames
 
     def _worker() -> None:
         lazyllm.globals._init_sid(global_sid)
@@ -622,7 +878,14 @@ async def _agentic_forward_stream(
     final_result = None
     try:
         while True:
-            event = await asyncio.to_thread(event_queue.get)
+            for frame in _drain_stream_frames():
+                yield frame
+
+            try:
+                event = await asyncio.to_thread(event_queue.get, True, 0.05)
+            except Empty:
+                continue
+
             if event is sentinel:
                 break
             if isinstance(event, Exception):
@@ -630,6 +893,8 @@ async def _agentic_forward_stream(
             if isinstance(event, dict) and event.get('type') == 'final':
                 final_result = event.get('result')
             elif isinstance(event, dict) and event.get('type') == 'tool_event':
+                for frame in _drain_stream_frames():
+                    yield frame
                 tool_event = event.get('event') or {}
                 frame = _format_tool_stream_frame(tool_event)
                 if frame is None:
@@ -637,17 +902,16 @@ async def _agentic_forward_stream(
                 yield frame
 
         elapsed_s = int(time.time() - started_at)
+        for frame in _drain_stream_frames():
+            yield frame
+
         output = _format_non_stream_result(final_result, runtime_params)
         chunk_size = int(runtime_params.get('stream_chunk_size') or _STREAM_CHUNK_SIZE)
-        for chunk in _iter_text_chunks(str(output.get('think') or ''), chunk_size):
-            yield _stream_frame(
-                think=chunk,
-            )
-
-        for chunk in _iter_text_chunks(str(output.get('text') or ''), chunk_size):
-            yield _stream_frame(
-                text=chunk,
-            )
+        if not streamed_text:
+            for chunk in _iter_text_chunks(str(output.get('text') or ''), chunk_size):
+                yield _stream_frame(
+                    text=chunk,
+                )
 
         sources = output.get('sources') or []
         if sources:

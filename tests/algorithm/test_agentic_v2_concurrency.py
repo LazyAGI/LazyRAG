@@ -229,7 +229,7 @@ def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
     )
 
 
-def test_tool_stream_frame_moves_visible_content_to_think():
+def test_tool_stream_frame_serializes_tool_call_into_text_tags():
     frame = agentic_v2._format_tool_stream_frame({
         'round': 3,
         'content': (
@@ -237,6 +237,7 @@ def test_tool_stream_frame_moves_visible_content_to_think():
             '</think>\n\n让我查看技能目录中有哪些可用的参考文件：\n'
         ),
         'tool_calls': [{
+            'id': 'toolcall-3-1',
             'name': 'run_script',
             'arguments': {
                 'name': 'railway-foundation-bearing-capacity-review',
@@ -246,16 +247,12 @@ def test_tool_stream_frame_moves_visible_content_to_think():
     })
 
     assert frame == {
-        'think': '让我查看技能目录中有哪些可用的参考文件：',
-        'text': None,
+        'think': None,
+        'text': (
+            '<tp id="toolcall-3-1">正在运行现成的辅助脚本：scripts/list_files.sh</tp>'
+            '<tool_call>{"id":"toolcall-3-1","name":"run_script","arguments":{"name":"railway-foundation-bearing-capacity-review","rel_path":"scripts/list_files.sh"}}</tool_call>'
+        ),
         'sources': [],
-        'tools': [{
-            'name': 'run_script',
-            'argument': {
-                'name': 'railway-foundation-bearing-capacity-review',
-                'rel_path': 'scripts/list_files.sh',
-            },
-        }],
     }
 
 
@@ -265,6 +262,7 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
         'content': '',
         'tool_calls': [
             {
+                'id': 'toolcall-1-1',
                 'name': 'kb_search',
                 'arguments': {
                     'query': '全风化 软岩 风化岩分组 地基承载力 σ0 表',
@@ -272,6 +270,7 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
                 },
             },
             {
+                'id': 'toolcall-1-2',
                 'name': 'kb_get_window_nodes',
                 'arguments': {
                     'docid': 'doc_7e052315556b40323f5007c5b9f549ab',
@@ -283,19 +282,103 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
     })
 
     assert frame == {
-        'think': '',
-        'text': None,
+        'think': None,
+        'text': (
+            '<tp id="toolcall-1-1">正在知识库中查找全风化 软岩 风化岩分组 地基承载力 σ0 表相关资料</tp>'
+            '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"全风化 软岩 风化岩分组 地基承载力 σ0 表","topk":15}}</tool_call>'
+            '<tp id="toolcall-1-2">正在展开相关片段：36</tp>'
+            '<tool_call>{"id":"toolcall-1-2","name":"kb_get_window_nodes","arguments":{"docid":"doc_7e052315556b40323f5007c5b9f549ab","number":"36","group":"block"}}</tool_call>'
+        ),
         'sources': [],
-        'tools': [
-            {
-                'name': 'kb_search',
-                'argument': '全风化 软岩 风化岩分组 地基承载力 σ0 表',
+    }
+
+
+def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
+    frame = agentic_v2._format_tool_stream_frame({
+        'round': 2,
+        'content': '',
+        'tool_results': [{
+            'id': 'toolcall-2-1',
+            'tool_name': 'memory',
+            'result': {
+                'status': 'success',
+                'message': 'memory saved',
+                'path': '/tmp/memory.json',
             },
-            {
-                'name': 'kb_get_window_nodes',
-                'argument': '36',
+        }],
+    })
+
+    assert frame == {
+        'think': None,
+        'text': (
+            '<trp id="toolcall-2-1">已记录这条信息：memory saved</trp>'
+            '<tool_result>{"id":"toolcall-2-1","name":"memory","result":{"status":"success","message":"memory saved","path":"/tmp/memory.json"}}</tool_result>'
+        ),
+        'sources': [],
+    }
+
+
+def test_builtin_file_tool_uses_natural_preview_templates():
+    frame = agentic_v2._format_tool_stream_frame({
+        'round': 4,
+        'content': '',
+        'tool_calls': [{
+            'id': 'toolcall-4-1',
+            'name': 'read_file',
+            'arguments': {
+                'path': '/tmp/demo.txt',
+                'start_line': 1,
+                'end_line': 20,
             },
-        ],
+        }],
+        'tool_results': [{
+            'id': 'toolcall-4-1',
+            'tool_name': 'read_file',
+            'result': {
+                'status': 'ok',
+                'path': '/tmp/demo.txt',
+                'content': 'hello world',
+            },
+        }],
+    })
+
+    assert frame == {
+        'think': None,
+        'text': (
+            '<tp id="toolcall-4-1">正在查看文件内容：/tmp/demo.txt</tp>'
+            '<tool_call>{"id":"toolcall-4-1","name":"read_file","arguments":{"path":"/tmp/demo.txt","start_line":1,"end_line":20}}</tool_call>'
+            '<trp id="toolcall-4-1">已读取文件内容：hello world</trp>'
+            '<tool_result>{"id":"toolcall-4-1","name":"read_file","result":{"status":"ok","path":"/tmp/demo.txt","content":"hello world"}}</tool_result>'
+        ),
+        'sources': [],
+    }
+
+
+def test_tool_result_preview_is_truncated_to_fifty_chars():
+    long_result = 'a' * 60
+
+    frame = agentic_v2._format_tool_stream_frame({
+        'round': 5,
+        'content': '',
+        'tool_results': [{
+            'id': 'toolcall-5-1',
+            'tool_name': 'read_file',
+            'result': {
+                'status': 'ok',
+                'path': '/tmp/long.txt',
+                'content': long_result,
+            },
+        }],
+    })
+
+    assert frame == {
+        'think': None,
+        'text': (
+            '<trp id="toolcall-5-1">已读取文件内容：'
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...</trp>'
+            '<tool_result>{"id":"toolcall-5-1","name":"read_file","result":{"status":"ok","path":"/tmp/long.txt","content":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}</tool_result>'
+        ),
+        'sources': [],
     }
 
 

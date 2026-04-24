@@ -198,6 +198,7 @@ def skill_manage(
         }
         payload = {
             'session_id': session_id,
+            'category': normalized_category,
             'skill_name': name,
             'content': content,
         }
@@ -232,6 +233,7 @@ def skill_manage(
         payload = {
             'session_id': session_id,
             'skill_name': name,
+            'category': resolved_category,
             'suggestions': [dict(s) for s in suggestions],
         }
         try:
@@ -255,6 +257,7 @@ def skill_manage(
         payload = {
             'session_id': session_id,
             'skill_name': name,
+            'category': resolved_category,
         }
         try:
             result.update(_post_core_api('/skill/remove', payload))
