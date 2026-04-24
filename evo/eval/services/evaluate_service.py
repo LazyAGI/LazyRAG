@@ -30,14 +30,15 @@ def get_rag_response(query, url=CHAT_API, kb_name='', is_debug=False, is_reasoni
         "accept": "application/json",
         "Content-Type": "application/json"
     }
-    out_data = ""
     try:
         # with requests.Session() as session:
         # response = session.post(url, json=data, stream=True, headers=header)
         # text = response.content.decode('utf-8', errors='replace')
-        # out_data = text
-        # json_data = json.loads(out_data)
+        # json_data = json.loads(text)
+
+        # todo delete mock
         json_data = call_rag_api(query)
+
         trace_id = json_data["trace_id"]
         data = json_data["data"]
         answer = data["text"]
