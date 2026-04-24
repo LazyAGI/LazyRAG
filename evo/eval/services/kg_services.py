@@ -245,7 +245,7 @@ class ParallelKGBuilder:
             log.error(f"生成问题失败: {e}")
             return None
 
-    def generate_multi_hop_questions(self, max_questions=10):
+    def generate_multi_file_questions(self, max_questions=20):
         log.info("开始生成跨文档多跳问题")
         entities = list(self.graph.nodes())
         candidates = []

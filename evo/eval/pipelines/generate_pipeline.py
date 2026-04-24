@@ -100,7 +100,7 @@ def create_task_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
 def create_task_multi_file(kb_id):
     builder = ParallelKGBuilder()
     builder.build_global_graph_from_all_docs(kb_id)
-    questions = builder.generate_multi_hop_questions(max_questions=300)
+    questions = builder.generate_multi_file_questions(max_questions=300)
     result_list = []
     for item in questions:
         result_list.append({"qa": item})
