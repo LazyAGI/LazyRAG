@@ -36,7 +36,7 @@ URL_MAP: Dict[str, str] = {
     'general_algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
     'research_center': 'http://10.119.16.66:9003,research_center_0131_a',
     'quantum': 'http://10.119.16.66:9002,quantum_0131_a',
-    'tyy': 'http://10.119.16.66:9007,tyy_0302',
+    # 'tyy': 'http://10.119.16.66:9007,tyy_0302',
     'cf': 'http://10.119.16.66:9005,cf_0304',
     '3m': 'http://10.119.16.66:9006,threem_0303',
     'crag': 'http://10.119.16.66:9001,crag_0130_a',

@@ -37,6 +37,12 @@ SKILLS_GUIDANCE = (
     "- action='remove': when a skill is superseded or no longer correct, request "
     "its deletion by name (no `content` / `suggestions`)."
 )
+CITATION_GUIDANCE = '''# Citation Rules
+When using evidence returned by knowledge-base tools, cite it with the exact `ref` marker from the tool result, such as `[[1]]`.
+Put the citation immediately after the supported sentence or paragraph.
+Do not invent citation numbers. Do not rewrite `[[n]]` into links yourself.
+使用知识库工具返回的证据作答时，必须使用工具结果中的原始 `ref` 标记（如 `[[1]]`）作为引用。
+引用应紧跟被该证据支持的句子或段落；不要自造编号，也不要自己把 `[[n]]` 改写成链接。'''
 TOOL_CALL_STATUS_GUIDANCE = (
     "Before calling a tool, write one concise, user-visible sentence explaining "
     "what you are about to do. Keep it action-oriented and do not reveal hidden "

@@ -22,6 +22,7 @@ import pytest
 import lazyllm
 
 from chat.pipelines import agentic_v2
+from chat.components.agentic import review as agentic_v2_review
 
 
 class _FakeAgent:
@@ -536,7 +537,7 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
             return 'ok'
 
     monkeypatch.setattr(
-        agentic_v2,
+        agentic_v2_review,
         'list_all_skills_with_category',
         lambda _path: {
             'skill_a': '',
