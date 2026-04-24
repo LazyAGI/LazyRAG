@@ -127,9 +127,10 @@ the cached response within 30 seconds.
 # 1. install deps
 python3 -m pip install --user -r evo/requirements.txt
 
-# 2. ensure chat is reachable (defaults to http://chat:8046)
-export EVO_CHAT_BASE_URL=http://localhost:8046
-export EVO_CHAT_INTERNAL_TOKEN=dev-internal-service-token
+# 2. configure models (evo reuses chat.pipelines.builders.get_models; default yaml is
+#    algorithm/chat/runtime_models.yaml with evo_llm + evo_embed roles already defined)
+export LAZYRAG_USE_INNER_MODEL=true      # or LAZYRAG_MODEL_CONFIG_PATH=/abs/path.yaml
+export LAZYRAG_MAAS_API_KEY=...          # or LAZYLLM_QWEN_API_KEY depending on yaml
 
 # 3. start the service (factory mode, picks up config from env)
 python3 -m uvicorn evo.service.api:get_app --factory --host 0.0.0.0 --port 8047
@@ -147,7 +148,7 @@ docker compose build evo-api
 docker compose up -d evo-api
 docker compose logs -f evo-api
 
-# end-to-end smoke (after chat is up):
+# end-to-end smoke (evo-api runs standalone, no chat dependency):
 curl http://localhost:8047/healthz
 curl -X PUT http://localhost:8047/v1/evo/admin/opencode/config \
   -H 'Content-Type: application/json' \
@@ -168,10 +169,10 @@ All knobs are environment variables, picked up by `load_config()`:
 |--------------------------------|------------------------------------------|
 | `EVO_BASE_DIR`                 | `<repo>/data/evo`                        |
 | `EVO_DATA_DIR`                 | `<evo>/data`                             |
-| `EVO_CHAT_BASE_URL`            | `http://chat:8046`                       |
-| `EVO_CHAT_INTERNAL_TOKEN`      | (empty)                                  |
-| `EVO_CHAT_LLM_ROLE`            | `evo_llm`                                |
-| `EVO_CHAT_EMBED_ROLE`          | `evo_embed`                              |
+| `LAZYRAG_MODEL_CONFIG_PATH`    | `<repo>/algorithm/chat/runtime_models.yaml` |
+| `LAZYRAG_USE_INNER_MODEL`      | `false` (picks `runtime_models.inner.yaml` when true) |
+| `EVO_LLM_ROLE`                 | `evo_llm`                                |
+| `EVO_EMBED_ROLE`               | `evo_embed`                              |
 | `EVO_CHAT_SOURCE`              | `<repo>/algorithm/chat`                  |
 | `EVO_CODE_MAP`                 | (empty; required for apply)              |
 | `OPENCODE_DATA_DIR`            | `/var/lib/lazyrag/evo/opencode` (container) |

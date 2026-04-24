@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import re
 from collections import Counter
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from scipy.stats import entropy as scipy_entropy, kendalltau
@@ -12,8 +11,8 @@ from sklearn.metrics import jaccard_score
 
 from evo.domain.models import JudgeRecord, TraceRecord, ModuleOutput
 from evo.domain.node import NodeResolver
-from evo.runtime.session import get_current_session
 
+EmbedFn = Callable[[str], 'np.ndarray | None']
 
 _RERANKER_DROP_RATIO = 0.8            # output_recall < 0.8 * input_recall
 _GEN_DRIFT_OVERLAP = 0.3              # answer_gt_overlap < 0.3
@@ -26,18 +25,10 @@ def _tokenize(text: str) -> set[str]:
     return set(_TOKEN_RE.findall(text.lower())) if text else set()
 
 
-def _embed(text: str) -> np.ndarray | None:
-    if not text:
+def _embed(text: str, embed_fn: EmbedFn | None) -> np.ndarray | None:
+    if not text or embed_fn is None:
         return None
-    session = get_current_session()
-    if session is None or session.embed is None or session.embed_provider is None:
-        return None
-    cache_key = hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
-
-    def _produce() -> np.ndarray:
-        return np.asarray(session.embed_provider()(text), dtype=np.float64).ravel()
-
-    return session.embed.call(producer=_produce, cache_key=cache_key)
+    return embed_fn(text)
 
 
 def _cosine(a: np.ndarray | None, b: np.ndarray | None) -> float | None:
@@ -292,6 +283,7 @@ def _resolve_chunks_text(items: Any, resolver: NodeResolver) -> str:
 
 def _text_output_features(
     mod: ModuleOutput, judge: JudgeRecord, query: str, resolver: NodeResolver,
+    embed_fn: EmbedFn | None,
 ) -> dict[str, float]:
     args = _get_args(mod.input)
     out_text = _extract_text(mod.output) or _resolve_chunks_text(
@@ -317,17 +309,17 @@ def _text_output_features(
             f["answer_query_coverage"] = len(q_tokens & _tokenize(out_text)) / len(q_tokens)
 
     if out_text:
-        out_emb = _embed(out_text)
+        out_emb = _embed(out_text, embed_fn)
         if judge.gt_answer:
-            sim = _cosine(out_emb, _embed(judge.gt_answer))
+            sim = _cosine(out_emb, _embed(judge.gt_answer, embed_fn))
             if sim is not None:
                 f["answer_gt_semantic"] = sim
         if in_text:
-            sim = _cosine(out_emb, _embed(in_text))
+            sim = _cosine(out_emb, _embed(in_text, embed_fn))
             if sim is not None:
                 f["context_semantic_utilization"] = sim
         if query:
-            sim = _cosine(out_emb, _embed(query))
+            sim = _cosine(out_emb, _embed(query, embed_fn))
             if sim is not None:
                 f["query_answer_semantic"] = sim
     if out_text:
@@ -346,6 +338,7 @@ def features_for_step(
     judge: JudgeRecord,
     resolver: NodeResolver,
     query: str = "",
+    embed_fn: EmbedFn | None = None,
 ) -> dict[str, float]:
     args = _get_args(mod.input)
     in_items = args if isinstance(args, list) else []
@@ -380,7 +373,7 @@ def features_for_step(
             f.update(_id_filtering_features("doc", in_docs_clean, out_docs_clean, gt_docs))
 
     if _is_text(mod.output):
-        f.update(_text_output_features(mod, judge, query, resolver))
+        f.update(_text_output_features(mod, judge, query, resolver, embed_fn))
 
     f.update(_failure_tags(f))
     return {k: round(v, 6) for k, v in f.items()}
@@ -391,13 +384,15 @@ def build_case_step_features(
     trace: TraceRecord,
     pipeline: list[str],
     resolver: NodeResolver,
+    embed_fn: EmbedFn | None = None,
 ) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
     for key in pipeline:
         mod = trace.modules.get(key)
         if mod is None:
             continue
-        result[key] = features_for_step(mod, judge, resolver, query=trace.query)
+        result[key] = features_for_step(mod, judge, resolver, query=trace.query,
+                                          embed_fn=embed_fn)
     return result
 
 

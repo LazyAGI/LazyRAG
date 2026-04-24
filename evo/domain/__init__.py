@@ -12,7 +12,7 @@ from evo.domain.models import (
     JudgeRecord, LoadSummary, MergedCaseView, ModuleOutput,
     TraceMeta, TraceRecord,
 )
-from evo.domain.node import NodeInfo, NodeResolver, get_node
+from evo.domain.node import NodeInfo, NodeResolver
 
 __all__ = [
     "ErrorCode", "ToolError", "ToolFailure", "ToolResult",
@@ -21,5 +21,5 @@ __all__ = [
     "PerStepClusteringResult", "PerStepSummary", "StepTransition",
     "JudgeRecord", "LoadSummary", "MergedCaseView", "ModuleOutput",
     "TraceMeta", "TraceRecord",
-    "NodeInfo", "NodeResolver", "get_node",
+    "NodeInfo", "NodeResolver",
 ]

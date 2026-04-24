@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -10,14 +9,14 @@ from evo.service import state
 POLL_INTERVAL_S = 0.5
 
 
-def _is_terminal(conn: sqlite3.Connection, task_id: str) -> bool:
-    row = state.get(conn, task_id)
+def _is_terminal(store: state.FsStateStore, task_id: str) -> bool:
+    row = state.get(store, task_id)
     if row is None:
         return True
     return row['status'] in state.terminal_for(row['flow'])
 
 
-async def tail_jsonl(conn: sqlite3.Connection, task_id: str, path: Path,
+async def tail_jsonl(store: state.FsStateStore, task_id: str, path: Path,
                      *, since_offset: int = 0) -> AsyncIterator[dict]:
     offset = since_offset
     while True:
@@ -32,7 +31,7 @@ async def tail_jsonl(conn: sqlite3.Connection, task_id: str, path: Path,
                     text = line.decode('utf-8', 'replace').strip()
                     if text:
                         yield {'event': 'message', 'data': text}
-        if _is_terminal(conn, task_id):
+        if _is_terminal(store, task_id):
             yield {'event': 'terminal', 'data': f'{{"task_id":"{task_id}"}}'}
             return
         await asyncio.sleep(POLL_INTERVAL_S)

@@ -1,99 +1,172 @@
 from __future__ import annotations
 
-import json
 import logging
 import shutil
-import sqlite3
 import subprocess
 import threading
-from typing import Callable
+from pathlib import Path
+from typing import Any, Callable
 
-from evo.apply import GitWorkspace
+from evo.abtest import VerdictPolicy
 from evo.apply.errors import classify
-from evo.apply.runner import ApplyOptions, RoundResult, execute_apply
-from evo.harness.plan import StopRequested
+from evo.apply.runner import ApplyOptions
+from evo.chat_runner import ChatRegistry, ChatRunner, SubprocessChatRunner
+from evo.providers import (
+    EvalProvider, TraceProvider, get_eval_provider, get_trace_provider,
+)
 from evo.runtime.config import EvoConfig
 from evo.service import state
+from evo.service.executors import EXECUTORS, ExecCtx, apply as apply_exec
+from evo.service.thread_workspace import EventLog, ThreadWorkspace
 
 log = logging.getLogger('evo.service.jobs')
 
 
-class CancelToken:
-    def __init__(self, jm: 'JobManager', tid: str) -> None:
-        self._jm = jm
-        self._tid = tid
-
-    def requested(self) -> bool:
-        s = self._jm.signals(self._tid)
-        return s['stop'] or s['cancel']
-
-
 class JobManager:
-    def __init__(self, conn: sqlite3.Connection, config: EvoConfig,
-                 *, apply_opts: ApplyOptions | None = None) -> None:
-        self._conn = conn
+    def __init__(self, store: state.FsStateStore, config: EvoConfig,
+                 *, apply_opts: ApplyOptions | None = None,
+                 eval_provider: EvalProvider | None = None,
+                 trace_provider: TraceProvider | None = None,
+                 chat_runner: ChatRunner | None = None,
+                 chat_registry: ChatRegistry | None = None) -> None:
+        self._store = store
         self._cfg = config
         self._apply_opts = apply_opts
+        self._eval_provider = eval_provider
+        self._trace_provider = trace_provider
+        self._chat_runner = chat_runner
+        self._chat_registry = chat_registry or ChatRegistry(config.storage.base_dir)
         self._threads: dict[str, threading.Thread] = {}
         self._procs: dict[str, list[subprocess.Popen]] = {}
         self._procs_lock = threading.Lock()
+        self._abtest_policy: dict[str, VerdictPolicy] = {}
 
     @property
-    def conn(self) -> sqlite3.Connection:
-        return self._conn
+    def store(self) -> state.FsStateStore:
+        return self._store
+
+    @property
+    def conn(self) -> state.FsStateStore:
+        return self._store
 
     @property
     def config(self) -> EvoConfig:
         return self._cfg
 
+    @property
+    def chat_registry(self) -> ChatRegistry:
+        return self._chat_registry
+
     def signals(self, tid: str) -> dict:
-        return state.signals(self._conn, tid)
+        return state.signals(self._store, tid)
 
     def list_recent(self, flow: str, limit: int = 50) -> list[dict]:
-        return state.list_recent(self._conn, flow, limit)
+        return state.list_recent(self._store, flow, limit)
 
     def list_rounds(self, apply_id: str) -> list[dict]:
-        return state.list_rounds(self._conn, apply_id)
+        return state.list_rounds(self._store, apply_id)
 
-    def submit_run(self) -> str:
-        tid = state.create_task(self._conn, 'run')
-        self._spawn(tid, self._exec_run)
+    # ---- submission ----------------------------------------------------------
+
+    def submit_run(self, *, thread_id: str | None = None,
+                   eval_id: str | None = None,
+                   badcase_limit: int | None = None,
+                   score_field: str | None = None) -> str:
+        eid = eval_id or self._latest_thread_eval(thread_id)
+        payload: dict[str, Any] = {}
+        if eid: payload['eval_id'] = eid
+        if badcase_limit is not None: payload['badcase_limit'] = badcase_limit
+        if score_field: payload['score_field'] = score_field
+        tid = state.create_task(self._store, 'run', thread_id=thread_id,
+                                payload=payload)
+        self._attach_thread_artifact(thread_id, 'run_ids', tid)
+        self._spawn(tid, 'run')
         return tid
 
-    def submit_apply(self, *, report_id: str | None = None) -> str:
-        report_id, parent_run_id, _ = self._resolve_report(report_id)
-        tid = state.create_task(self._conn, 'apply',
+    def submit_apply(self, *, report_id: str | None = None,
+                     thread_id: str | None = None) -> str:
+        rid, parent_run_id, _ = apply_exec.resolve_report(
+            self._make_ctx(), report_id, thread_id=thread_id)
+        tid = state.create_task(self._store, 'apply',
                                 parent_run_id=parent_run_id,
-                                report_id=report_id)
-        self._spawn(tid, self._exec_apply)
+                                report_id=rid, thread_id=thread_id)
+        self._attach_thread_artifact(thread_id, 'apply_ids', tid)
+        self._spawn(tid, 'apply')
         return tid
+
+    def submit_eval(self, *, thread_id: str,
+                     eval_id: str | None = None,
+                     dataset_id: str | None = None,
+                     target_chat_url: str | None = None,
+                     options: dict | None = None) -> str:
+        if not eval_id and not dataset_id:
+            raise state.StateError('EVAL_NO_TARGET',
+                                    'need eval_id or dataset_id')
+        payload: dict[str, Any] = {}
+        if eval_id: payload['eval_id'] = eval_id
+        if dataset_id: payload['dataset_id'] = dataset_id
+        if target_chat_url: payload['target_chat_url'] = target_chat_url
+        if options: payload['eval_options'] = options
+        tid = state.create_task(self._store, 'eval',
+                                thread_id=thread_id, payload=payload)
+        if eval_id:
+            self._attach_thread_artifact(thread_id, 'eval_ids', eval_id)
+        self._spawn(tid, 'eval')
+        return tid
+
+    def submit_abtest(self, *, thread_id: str, apply_id: str,
+                      baseline_eval_id: str, dataset_id: str,
+                      apply_worktree: Path | None = None,
+                      eval_options: dict | None = None,
+                      policy: VerdictPolicy | None = None) -> str:
+        worktree = apply_worktree or apply_exec.resolve_worktree(
+            self._make_ctx(), apply_id)
+        payload = {
+            'apply_id': apply_id,
+            'baseline_eval_id': baseline_eval_id,
+            'dataset_id': dataset_id,
+            'apply_worktree': str(worktree),
+            'eval_options': eval_options or {},
+        }
+        tid = state.create_task(self._store, 'abtest',
+                                thread_id=thread_id, payload=payload)
+        self._attach_thread_artifact(thread_id, 'abtest_ids', tid)
+        self._abtest_policy[tid] = policy or VerdictPolicy()
+        self._spawn(tid, 'abtest')
+        return tid
+
+    # ---- transitions --------------------------------------------------------
 
     def stop(self, tid: str) -> dict:
-        return state.transition(self._conn, tid, 'stop')
+        return state.transition(self._store, tid, 'stop')
 
     def cancel(self, tid: str) -> dict:
-        row = state.transition(self._conn, tid, 'cancel')
+        row = state.transition(self._store, tid, 'cancel')
         self._kill_procs(tid)
         if row['flow'] == 'run':
             shutil.rmtree(self._cfg.storage.runs_dir / tid, ignore_errors=True)
-        else:
-            self._cleanup_apply(tid, drop_logs=True, drop_diffs=True)
+        elif row['flow'] == 'apply':
+            apply_exec.cleanup(self._make_ctx(), tid,
+                                drop_logs=True, drop_diffs=True)
         return row
 
     def cont(self, tid: str) -> dict:
-        row = state.transition(self._conn, tid, 'continue')
-        if row['flow'] == 'run':
-            self._spawn(tid, self._exec_run)
-        else:
-            self._spawn(tid, self._exec_apply)
+        row = state.transition(self._store, tid, 'continue')
+        flow = row['flow']
+        target = EXECUTORS.get(flow)
+        if target is None:
+            raise state.StateError('UNSUPPORTED_FLOW',
+                                    f'cannot continue flow {flow}')
+        self._spawn(tid, flow)
         return row
 
     def accept(self, tid: str) -> dict:
-        return state.transition(self._conn, tid, 'accept')
+        return state.transition(self._store, tid, 'accept')
 
     def reject(self, tid: str) -> dict:
-        row = state.transition(self._conn, tid, 'reject')
-        self._cleanup_apply(tid, drop_logs=False, drop_diffs=True)
+        row = state.transition(self._store, tid, 'reject')
+        apply_exec.cleanup(self._make_ctx(), tid,
+                            drop_logs=False, drop_diffs=True)
         return row
 
     def join(self, tid: str, timeout: float = 30.0) -> None:
@@ -101,17 +174,48 @@ class JobManager:
         if t is not None:
             t.join(timeout=timeout)
 
-    # ---- internal ----
+    # ---- internal -----------------------------------------------------------
 
-    def _spawn(self, tid: str, target: Callable[[str], None]) -> None:
-        t = threading.Thread(target=target, args=(tid,), daemon=True,
-                             name=f'evo-job-{tid}')
+    def _spawn(self, tid: str, flow: str) -> None:
+        target = EXECUTORS[flow]
+        ctx = self._make_ctx()
+        t = threading.Thread(target=target, args=(ctx, tid), daemon=True,
+                              name=f'evo-job-{tid}')
         self._threads[tid] = t
         t.start()
+
+    def _make_ctx(self) -> ExecCtx:
+        return ExecCtx(
+            store=self._store, cfg=self._cfg,
+            is_cancelled=self._is_cancelled,
+            register_proc=self._register_proc,
+            eval_provider_factory=lambda: self._eval_provider or get_eval_provider(),
+            trace_provider_factory=lambda: self._trace_provider or get_trace_provider(),
+            chat_runner_factory=lambda: self._chat_runner or _default_chat_runner(self._cfg),
+            chat_registry=self._chat_registry,
+            apply_opts=self._apply_opts,
+            abtest_policy=self._abtest_policy,
+            on_stop=self._on_stop,
+            on_failure=self._on_failure,
+            on_success=self._on_success,
+            pop_thread=self._pop_thread,
+            pop_procs=self._pop_procs,
+        )
+
+    def _is_cancelled(self, tid: str) -> bool:
+        s = state.signals(self._store, tid)
+        return s['stop'] or s['cancel']
 
     def _register_proc(self, tid: str, proc: subprocess.Popen) -> None:
         with self._procs_lock:
             self._procs.setdefault(tid, []).append(proc)
+
+    def _pop_thread(self, tid: str) -> None:
+        self._threads.pop(tid, None)
+
+    def _pop_procs(self, tid: str) -> None:
+        with self._procs_lock:
+            self._procs.pop(tid, None)
 
     def _kill_procs(self, tid: str) -> None:
         with self._procs_lock:
@@ -131,183 +235,72 @@ class JobManager:
                 except ProcessLookupError:
                     pass
 
-    def _resolve_report(self, report_id: str | None) -> tuple[str, str, dict]:
-        if report_id is None:
-            run_row = state.latest_succeeded_run(self._conn)
-            if run_row is None:
-                raise state.StateError('NO_REPORT_AVAILABLE',
-                                       'no succeeded run with a report')
-            run_id = run_row['id']
-            reports_dir = self._cfg.storage.reports_dir
-            cands = sorted(reports_dir.glob(f'*{run_id[-8:]}*.json'))
-            if not cands:
-                cands = sorted(reports_dir.glob('*.json'),
-                               key=lambda p: p.stat().st_mtime, reverse=True)
-            if not cands:
-                raise state.StateError('NO_REPORT_AVAILABLE',
-                                       'no report file found',
-                                       {'run_id': run_id})
-            report_path = cands[0]
-        else:
-            report_path = self._cfg.storage.reports_dir / f'{report_id}.json'
-            if not report_path.is_file():
-                raise state.StateError('NO_REPORT_AVAILABLE',
-                                       f'report {report_id} not found',
-                                       {'path': str(report_path)})
-        data = json.loads(report_path.read_text(encoding='utf-8'))
-        rid = data.get('report_id') or report_path.stem
-        meta = data.get('metadata') or {}
-        parent_run_id = meta.get('run_id', '')
-        return rid, parent_run_id, data
+    def _latest_thread_eval(self, thread_id: str | None) -> str | None:
+        if not thread_id:
+            return None
+        ws = ThreadWorkspace(self._cfg.storage.base_dir, thread_id)
+        evals = (ws.load_artifacts() or {}).get('eval_ids') or []
+        return evals[-1] if evals else None
 
-    def _cleanup_apply(self, tid: str, *, drop_logs: bool,
-                       drop_diffs: bool) -> None:
-        ws = GitWorkspace(self._cfg.storage.git_dir, self._cfg.chat_source)
-        try:
-            ws.remove_worktree(tid)
-        except Exception as exc:
-            log.warning('worktree cleanup failed for %s: %s', tid, exc)
-        if drop_logs:
-            shutil.rmtree(self._cfg.storage.applies_dir / tid, ignore_errors=True)
-        if drop_diffs:
-            shutil.rmtree(self._cfg.storage.diffs_dir / tid, ignore_errors=True)
-
-    # ---- run ----
-
-    def _exec_run(self, tid: str) -> None:
-        cur = state.get(self._conn, tid)
-        if cur is None:
+    def _attach_thread_artifact(self, thread_id: str | None,
+                                kind: str, value: str) -> None:
+        if not thread_id:
             return
-        if cur['status'] == 'queued':
-            state.patch(self._conn, tid, status='running')
-        token = CancelToken(self, tid)
-        try:
-            self._do_run_pipeline(tid, token)
-        except StopRequested as exc:
-            self._on_stop(tid, exc.at_step)
-        except Exception as exc:
-            self._on_failure(tid, exc)
-        else:
-            self._on_success(tid)
-        finally:
-            self._threads.pop(tid, None)
+        ThreadWorkspace(self._cfg.storage.base_dir, thread_id) \
+            .attach_artifact(kind, value)
 
-    def _do_run_pipeline(self, tid: str, token: CancelToken) -> None:
-        from evo.harness.pipeline import RAGAnalysisPipeline
-        from evo.main import default_embed_provider, default_llm_provider
-        pipeline = RAGAnalysisPipeline(
-            config=self._cfg,
-            llm_provider=default_llm_provider(self._cfg),
-            embed_provider=default_embed_provider(self._cfg),
-        )
-        pipeline.run(run_id=tid, cancel_token=token)
+    def _thread_log(self, thread_id: str | None) -> EventLog | None:
+        if not thread_id:
+            return None
+        ws = ThreadWorkspace(self._cfg.storage.base_dir, thread_id)
+        return EventLog(ws.events_path)
 
-    # ---- apply ----
-
-    def _exec_apply(self, tid: str) -> None:
-        cur = state.get(self._conn, tid)
-        if cur is None:
-            return
-        if cur['status'] == 'queued':
-            state.patch(self._conn, tid, status='running')
-        token = CancelToken(self, tid)
-        try:
-            self._do_apply(tid, token)
-        except StopRequested as exc:
-            self._on_stop(tid, exc.at_step)
-        except Exception as exc:
-            self._on_failure(tid, exc)
-        finally:
-            self._threads.pop(tid, None)
-            with self._procs_lock:
-                self._procs.pop(tid, None)
-
-    def _do_apply(self, tid: str, token: CancelToken) -> None:
-        cur = state.get(self._conn, tid)
-        report_id = cur['report_id']
-        report_path = self._cfg.storage.reports_dir / f'{report_id}.json'
-        report = json.loads(report_path.read_text(encoding='utf-8'))
-        workspace = GitWorkspace(self._cfg.storage.git_dir, self._cfg.chat_source)
-        opts = self._apply_opts or ApplyOptions()
-
-        def on_round(rr: RoundResult) -> None:
-            self._record_round(tid, rr)
-
-        def on_proc(proc: subprocess.Popen) -> None:
-            self._register_proc(tid, proc)
-
-        result = execute_apply(
-            apply_id=tid, report=report, config=self._cfg,
-            workspace=workspace, options=opts,
-            cancel_token=token, on_round=on_round, on_proc=on_proc,
-        )
-        state.patch(self._conn, tid,
-                    base_commit=result.base_commit,
-                    branch_name=result.branch_name)
-        cur = state.get(self._conn, tid)
-        if cur['status'] not in ('running', 'stopping'):
-            return
-        if result.status == 'SUCCEEDED':
-            state.transition(self._conn, tid, 'finish')
-        else:
-            err = result.error or {}
-            code = err.get('code', 'UNKNOWN')
-            kind = err.get('kind') or classify(code)
-            action = 'fail_permanent' if kind == 'permanent' else 'fail_transient'
-            state.transition(self._conn, tid, action,
-                             error_code=code, error_kind=kind)
-
-    def _record_round(self, tid: str, rr: RoundResult) -> None:
-        state.append_round(self._conn, tid, rr.index, phase='running')
-        state.update_round(
-            self._conn, tid, rr.index,
-            phase='completed',
-            commit_sha=rr.commit_sha,
-            files_changed=rr.files_changed,
-            test_passed=int(rr.test_passed) if rr.test_passed is not None else None,
-            error_json=json.dumps(rr.error, ensure_ascii=False) if rr.error else None,
-            finished_at=rr.finished_at,
-        )
-        state.patch(self._conn, tid, current_round=rr.index)
-
-    # ---- transitions ----
+    # ---- transitions called by executors ------------------------------------
 
     def _on_stop(self, tid: str, at: str | None) -> None:
         log.info('task %s stop requested at %s', tid, at)
-        cur = state.get(self._conn, tid)
+        cur = state.get(self._store, tid)
         if cur is None or cur['status'] != 'stopping':
             return
         kw = {'current_step': at} if cur['flow'] == 'run' else {}
-        state.transition(self._conn, tid, 'ack', **kw)
+        state.transition(self._store, tid, 'ack', **kw)
 
     def _on_failure(self, tid: str, exc: Exception) -> None:
         log.exception('task %s failed: %s', tid, exc)
         code = getattr(exc, 'code', type(exc).__name__)
         kind = getattr(exc, 'kind', None) or classify(code)
-        cur = state.get(self._conn, tid)
+        cur = state.get(self._store, tid)
         if cur is None or cur['status'] not in ('running', 'stopping'):
             return
         action = 'fail_permanent' if kind == 'permanent' else 'fail_transient'
-        state.transition(self._conn, tid, action, error_code=code, error_kind=kind)
+        state.transition(self._store, tid, action,
+                          error_code=code, error_kind=kind)
 
     def _on_success(self, tid: str) -> None:
-        cur = state.get(self._conn, tid)
+        cur = state.get(self._store, tid)
         if cur is None or cur['status'] not in ('running', 'stopping'):
             return
-        state.transition(self._conn, tid, 'finish')
+        state.transition(self._store, tid, 'finish')
 
 
 _singleton: JobManager | None = None
+_singleton_lock = threading.Lock()
 
 
 def get_manager(config: EvoConfig) -> JobManager:
     global _singleton
     if _singleton is None:
-        conn = state.open_db(config.storage.state_db_path)
-        _singleton = JobManager(conn, config)
+        with _singleton_lock:
+            if _singleton is None:
+                store = state.open_db(config.storage.state_db_path)
+                _singleton = JobManager(store, config)
     return _singleton
 
 
 def reset_for_tests() -> None:
     global _singleton
     _singleton = None
+
+
+def _default_chat_runner(cfg: EvoConfig) -> ChatRunner:
+    return SubprocessChatRunner(log_dir=cfg.storage.base_dir / 'state' / 'chats')

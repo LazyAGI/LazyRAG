@@ -480,7 +480,6 @@ services:
       LAZYRAG_MAX_CONCURRENCY: "10"
       LAZYRAG_LLM_PRIORITY: "0"
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
-      EVO_CHAT_INTERNAL_TOKEN: ${EVO_CHAT_INTERNAL_TOKEN:-dev-internal-service-token}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
@@ -503,10 +502,16 @@ services:
     ports:
       - "8047:8047"
     environment:
-      EVO_CHAT_BASE_URL: http://chat:8046
-      EVO_CHAT_INTERNAL_TOKEN: ${EVO_CHAT_INTERNAL_TOKEN:-dev-internal-service-token}
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
+      EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
+      EVO_EMBED_ROLE: ${EVO_EMBED_ROLE:-evo_embed}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
+      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-}
+      LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
+      MAAS_BASE_URL: ${MAAS_BASE_URL:-}
+      MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-}
+      <<: *llm-api-keys
     volumes:
       - ./data/evo:/var/lib/lazyrag/evo
       - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
@@ -516,9 +521,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    depends_on:
-      chat:
-        condition: service_healthy
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------
   milvus-etcd:

@@ -16,11 +16,10 @@ def create_app() -> FastAPI:
         description='基于知识库的对话 API 服务',
         version='1.0.0',
     )
-    from chat.app.api import chat_routes, health_routes, internal_routes
+    from chat.app.api import chat_routes, health_routes
 
     app.include_router(health_routes.router)
     app.include_router(chat_routes.router)
-    app.include_router(internal_routes.router)
     return app
 
 

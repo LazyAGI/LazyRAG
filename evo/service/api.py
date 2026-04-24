@@ -19,8 +19,14 @@ _IDEMPOTENCY_TTL = 30.0
 API_DESCRIPTION = """
 Evo POC service.
 
-Two flows: **run** (diagnosis) and **apply** (code modification driven by opencode).
-Each flow is a single-admin singleton: only one non-terminal task per flow at a time.
+Flows: **run** (diagnosis), **apply** (code modification), **eval** (evaluation
+adapter), **abtest** (production-vs-candidate comparison).
+
+Concurrency model:
+
+1. HTTP direct submission (thread_id=None): each flow is globally single-flight.
+2. Thread-bound submission (thread_id=X): per-thread single-flight; different
+   threads can run the same flow in parallel.
 
 State machine (per flow):
 queued -> running -> stopping -> paused -> running -> succeeded
@@ -38,6 +44,14 @@ class TaskId(BaseModel):
 
 class ApplyCreate(BaseModel):
     report_id: str | None = None
+    thread_id: str | None = None
+
+
+class RunCreate(BaseModel):
+    thread_id: str | None = None
+    eval_id: str | None = None
+    badcase_limit: int | None = None
+    score_field: str | None = None
 
 
 class OpencodeCfg(BaseModel):
@@ -96,7 +110,8 @@ def _idem_key(idempotency_key: str | None = Header(default=None,
 # ---------- app factory ----------
 
 def create_app(config: EvoConfig | None = None,
-               *, job_manager: jobs.JobManager | None = None) -> FastAPI:
+               *, job_manager: jobs.JobManager | None = None,
+               thread_hub: 'Any | None' = None) -> FastAPI:
     cfg = config or load_config()
     jm = job_manager if job_manager is not None else jobs.get_manager(cfg)
     app = FastAPI(title='evo service', version='poc-1',
@@ -118,11 +133,25 @@ def create_app(config: EvoConfig | None = None,
     _register_artifact_routes(app, cfg)
     _register_admin_routes(app, cfg)
 
+    hub = thread_hub if thread_hub is not None else _maybe_build_thread_hub(cfg, jm)
+    if hub is not None:
+        from evo.service.threads import mount as _mount_threads
+        _mount_threads(app, hub)
+
     @app.get('/healthz', tags=['health'], summary='Liveness probe')
     def healthz() -> dict:
         return {'ok': True}
 
     return app
+
+
+def _maybe_build_thread_hub(cfg: EvoConfig, jm: jobs.JobManager):
+    import os as _os
+    if _os.getenv('EVO_THREADS_ENABLED', 'true').lower() not in ('1', 'true', 'yes'):
+        return None
+    from evo.orchestrator import make_evo_llm
+    from evo.service.threads import ThreadHub
+    return ThreadHub(jm=jm, cfg=cfg, llm_factory=make_evo_llm(cfg))
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
@@ -153,8 +182,11 @@ def _register_run_routes(app: FastAPI, cfg: EvoConfig, jm: jobs.JobManager) -> N
 
     @app.post('/v1/evo/runs', tags=tag, response_model=TaskId,
               summary='Start a diagnosis run')
-    async def create_run(idem: str | None = Depends(_idem_key)) -> dict:
-        return app.state.idem.get_or_run(idem, lambda: {'id': jm.submit_run()})
+    async def create_run(body: RunCreate = Body(default_factory=RunCreate),
+                          idem: str | None = Depends(_idem_key)) -> dict:
+        return app.state.idem.get_or_run(idem, lambda: {'id': jm.submit_run(
+            thread_id=body.thread_id, eval_id=body.eval_id,
+            badcase_limit=body.badcase_limit, score_field=body.score_field)})
 
     @app.get('/v1/evo/runs', tags=tag, summary='List recent runs')
     def list_runs(limit: int = Query(50, ge=1, le=500)) -> list[dict]:
@@ -233,7 +265,8 @@ def _register_apply_routes(app: FastAPI, cfg: EvoConfig, jm: jobs.JobManager) ->
     async def create_apply(body: ApplyCreate = Body(default_factory=ApplyCreate),
                             idem: str | None = Depends(_idem_key)) -> dict:
         return app.state.idem.get_or_run(
-            idem, lambda: {'id': jm.submit_apply(report_id=body.report_id)})
+            idem, lambda: {'id': jm.submit_apply(report_id=body.report_id,
+                                                  thread_id=body.thread_id)})
 
     @app.get('/v1/evo/applies', tags=tag, summary='List recent applies')
     def list_applies(limit: int = Query(50, ge=1, le=500)) -> list[dict]:

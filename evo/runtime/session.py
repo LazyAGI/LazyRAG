@@ -11,8 +11,9 @@ from typing import Any, Callable, Iterator
 from evo.domain import (
     ClusteringResult, FlowAnalysisResult, JudgeRecord,
     MergedCaseView, NodeInfo, NodeResolver, PerStepClusteringResult,
-    TraceMeta, TraceRecord, get_node,
+    TraceMeta, TraceRecord,
 )
+from evo.runtime.node_http import http_get_node
 from evo.conductor.handle_store import HandleStore
 from evo.conductor.world_model import WorldModelStore
 from evo.runtime.config import EvoConfig
@@ -63,7 +64,7 @@ class AnalysisSession:
     world_store: WorldModelStore | None = None
     llm_provider: LLMProvider | None = None
     embed_provider: EmbedProvider | None = None
-    node_resolver: NodeResolver = field(default=get_node)
+    node_resolver: NodeResolver = field(default=http_get_node)
     schema_failure_count: int = 0
     _node_cache: dict[str, NodeInfo | None] = field(default_factory=dict, repr=False)
 
@@ -245,7 +246,7 @@ def create_session(
     run_id: str | None = None,
     llm_provider: LLMProvider | None = None,
     embed_provider: EmbedProvider | None = None,
-    node_resolver: NodeResolver = get_node,
+    node_resolver: NodeResolver = http_get_node,
 ) -> AnalysisSession:
     if config is None:
         from evo.runtime.config import load_config

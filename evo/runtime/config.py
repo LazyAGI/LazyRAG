@@ -18,7 +18,7 @@ class ModelGovernanceConfig:
     use_cache: bool = True
     on_failure: Literal['raise', 'disable'] = 'raise'
     producer_timeout_s: float = 600.0   # cap each producer call; 0 disables
-    http_timeout_s: int = 300           # HTTP read timeout for HttpLLM/HttpEmbed
+    http_timeout_s: int = 300           # HTTP read timeout for AutoModel clients
 
 
 def _default_llm_governance() -> ModelGovernanceConfig:
@@ -51,9 +51,7 @@ class AnalysisConfig:
 
 
 @dataclass(frozen=True)
-class ChatInternalConfig:
-    base_url: str = 'http://chat:8046'
-    token: str = ''
+class EvoModelConfig:
     llm_role: str = 'evo_llm'
     embed_role: str = 'evo_embed'
 
@@ -107,7 +105,7 @@ class EvoConfig:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     llm: ModelGovernanceConfig = field(default_factory=_default_llm_governance)
     embed: ModelGovernanceConfig = field(default_factory=_default_embed_governance)
-    chat_internal: ChatInternalConfig = field(default_factory=ChatInternalConfig)
+    model_config: EvoModelConfig = field(default_factory=EvoModelConfig)
 
     @property
     def badcase_score_field(self) -> str:
@@ -144,11 +142,9 @@ def load_config(
     eval_file = os.getenv('EVO_EVAL_FILE', '')
     judge_path = Path(eval_file) if eval_file else data_dir / 'eval_mock.json'
 
-    chat_internal = ChatInternalConfig(
-        base_url=os.getenv('EVO_CHAT_BASE_URL', 'http://chat:8046'),
-        token=os.getenv('EVO_CHAT_INTERNAL_TOKEN', ''),
-        llm_role=os.getenv('EVO_CHAT_LLM_ROLE', 'evo_llm'),
-        embed_role=os.getenv('EVO_CHAT_EMBED_ROLE', 'evo_embed'),
+    model_config = EvoModelConfig(
+        llm_role=os.getenv('EVO_LLM_ROLE', 'evo_llm'),
+        embed_role=os.getenv('EVO_EMBED_ROLE', 'evo_embed'),
     )
 
     storage = StorageConfig(base_dir=base_dir)
@@ -165,5 +161,5 @@ def load_config(
         chat_source=chat_source,
         code_access=code_access,
         analysis=AnalysisConfig(badcase_score_field=score_field),
-        chat_internal=chat_internal,
+        model_config=model_config,
     )

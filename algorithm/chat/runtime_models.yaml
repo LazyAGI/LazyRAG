@@ -20,6 +20,17 @@ evo_llm:
   url: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
   api_key: ${LAZYRAG_MAAS_API_KEY}
 
+evo_embed:
+    source: qwen
+    type: embed
+    model: text-embedding-v3
+    api_key: ${LAZYLLM_QWEN_API_KEY}
+    index_kwargs:
+      index_type: IVF_FLAT
+      metric_type: COSINE
+      params:
+        nlist: 128
+
 reranker:
   source: qwen
   type: rerank
@@ -37,17 +48,7 @@ embeddings:
       metric_type: COSINE
       params:
         nlist: 128
-  
-  evo_embed:
-    source: qwen
-    type: embed
-    model: text-embedding-v3
-    api_key: ${LAZYLLM_QWEN_API_KEY}
-    index_kwargs:
-      index_type: IVF_FLAT
-      metric_type: COSINE
-      params:
-        nlist: 128
+
   # embed_2:
   #   source: qwen
   #   type: embed

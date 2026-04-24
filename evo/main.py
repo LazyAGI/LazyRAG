@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from chat.pipelines.builders.get_models import get_automodel
+
 from evo.runtime.config import EvoConfig, load_config
-from evo.service.llm_client import HttpEmbed, HttpLLM
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -19,15 +20,11 @@ def setup_logging(verbose: bool = False) -> None:
 
 
 def default_llm_provider(cfg: EvoConfig) -> Any:
-    chat = cfg.chat_internal
-    timeout = float(cfg.llm.http_timeout_s or 60)
-    return lambda: HttpLLM(chat.base_url, chat.llm_role, chat.token, timeout=timeout)
+    return lambda: get_automodel(cfg.model_config.llm_role)
 
 
 def default_embed_provider(cfg: EvoConfig) -> Any:
-    chat = cfg.chat_internal
-    timeout = float(cfg.embed.http_timeout_s or 60)
-    return lambda: HttpEmbed(chat.base_url, chat.embed_role, chat.token, timeout=timeout)
+    return lambda: get_automodel(cfg.model_config.embed_role)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -46,25 +43,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def run_full(config: EvoConfig, args: argparse.Namespace) -> int:
-    from evo.harness.pipeline import RAGAnalysisPipeline
+    from evo.harness.pipeline import PipelineOptions, build_standard_plan
+    from evo.runtime.session import create_session, session_scope
     log = logging.getLogger('evo.main')
     log.info('Running pipeline (conductor-driven)')
-    pipeline = RAGAnalysisPipeline(
-        config=config,
+    session = create_session(
+        config=config, run_id=args.run_id,
         llm_provider=default_llm_provider(config),
         embed_provider=default_embed_provider(config),
     )
-    result = pipeline.run(
-        badcase_limit=args.badcase_limit,
-        run_id=args.run_id,
-        score_field=args.score_field,
+    plan = build_standard_plan(
+        PipelineOptions(badcase_limit=args.badcase_limit,
+                         score_field=args.score_field),
+        logger=session.logger('plan'),
     )
+    with session_scope(session):
+        result = plan.run(session)
+    paths = result.get('persist') or {}
+    report_path = paths.get('report')
     log.info('=' * 50)
     if result.success:
-        log.info('Done in %.1fs  report=%s', result.elapsed_seconds, result.report_path)
+        log.info('Done in %.1fs  report=%s', result.elapsed_seconds, report_path)
     else:
-        for err in result.errors:
-            log.error('  %s', err)
+        for outcome in result.failed:
+            log.error('  %s', outcome.error or outcome.name)
     for o in result.outcomes:
         log.info('  %-20s %-8s %.2fs', o.name, o.status, o.elapsed_seconds)
     return 0 if result.success else 1

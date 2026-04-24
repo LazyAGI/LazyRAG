@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import logging
+
+import numpy as np
 
 from evo.domain.step_features import aggregate_global_step_analysis, build_case_step_features
 from evo.runtime.session import AnalysisSession
@@ -8,16 +11,31 @@ from evo.runtime.session import AnalysisSession
 _log = logging.getLogger("evo.harness.analysis")
 
 
+def _make_session_embed_fn(session: AnalysisSession):
+    if session.embed is None or session.embed_provider is None:
+        return None
+
+    def embed(text: str) -> 'np.ndarray | None':
+        cache_key = hashlib.sha1(text.encode('utf-8')).hexdigest()[:16]
+
+        def _produce() -> np.ndarray:
+            return np.asarray(session.embed_provider()(text),
+                                dtype=np.float64).ravel()
+        return session.embed.call(producer=_produce, cache_key=cache_key)
+    return embed
+
+
 def compute_step_features(session: AnalysisSession) -> int:
     pipeline = session.trace_meta.pipeline
-    # Single session-cached resolver shared across every case.
     resolver = session.resolve_node
+    embed_fn = _make_session_embed_fn(session)
     features: dict = {}
     for cid, j in session.iter_judge():
         trace = session.get_trace(j.trace_id)
         if trace is None:
             continue
-        features[cid] = build_case_step_features(j, trace, pipeline, resolver)
+        features[cid] = build_case_step_features(j, trace, pipeline, resolver,
+                                                    embed_fn=embed_fn)
     global_analysis = aggregate_global_step_analysis(features, session.parsed_judge, pipeline)
     session.set_step_features(features, global_analysis)
     _log.info("Step features: %d cases, %d steps", len(features), len(pipeline))
