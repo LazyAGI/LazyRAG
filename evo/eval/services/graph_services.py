@@ -169,7 +169,7 @@ class ParallelKGBuilder:
             if cross_doc:
                 if not source["is_cross_document"]:
                     return None
-                question_type = 2
+                question_type = 3
                 log_prefix = "跨文档"
             else:
                 # 单文档同文件、不同片段
@@ -177,7 +177,7 @@ class ParallelKGBuilder:
                     return None
                 if len(chunk_uids) < 2 or chunk_uids[0] == chunk_uids[1]:
                     return None
-                question_type = 3
+                question_type = 2
                 log_prefix = "单文档"
 
             c1 = source["source_chunks"][0]["content"]
