@@ -18,11 +18,11 @@ def call_rag_api(query):
         }
 
 
-def get_rag_response(query, url=CHAT_API, kb_name='', is_debug=False, is_reasoning=False):
+def get_rag_response(query, url=CHAT_API, dataset_name='', is_debug=False, is_reasoning=False):
     # todo 改为真实调用
     data = {
         "query": query,
-        "dataset": kb_name,
+        "dataset": dataset_name,
         "debug": is_debug,
         "reasoning": is_reasoning
     }
@@ -67,7 +67,7 @@ def get_rag_response(query, url=CHAT_API, kb_name='', is_debug=False, is_reasoni
         return []
     return [answer, text_list, file_list, rag_response, chunk_ids, doc_ids, trace_id]
 
-def get_eval_queue(eval_name, case_id=''):
+def get_eval_queue(eval_name, case_id='',dataset_name=''):
     base_dir = DATA_PATH + f"/datasets/{eval_name}"
     eval_file = os.path.join(base_dir, "eval_data.json")
 
@@ -84,7 +84,7 @@ def get_eval_queue(eval_name, case_id=''):
         question = case["question"]
         ground_truth = case["ground_truth"]
 
-        rag_response = get_rag_response(question, '', '', '', '')
+        rag_response = get_rag_response(query=question,  dataset_name=dataset_name)
         # 计算召回率
         metrics = calculate_metrics(
             case["reference_chunk_ids"],
