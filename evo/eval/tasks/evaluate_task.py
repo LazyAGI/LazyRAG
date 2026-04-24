@@ -26,14 +26,14 @@ def save_eval_tasks():
 
 
 def create_evaluate_task(background_tasks: BackgroundTasks, eval_names):
-    # 自动兼容 str / list
+
     if isinstance(eval_names, str):
         eval_names = [eval_names]
 
     task_id = str(uuid.uuid4())
     eval_tasks[task_id] = {
         "status": "running",
-        "eval_names": eval_names,  # 改成复数，支持多个
+        "eval_names": eval_names,
         "result": None,
         "error": None,
         "report_paths": None
@@ -42,7 +42,6 @@ def create_evaluate_task(background_tasks: BackgroundTasks, eval_names):
 
     def runner():
         try:
-            # 现在返回的是 list
             reports, paths = run_evaluate_pipeline(eval_names)
 
             eval_tasks[task_id]["status"] = "success"

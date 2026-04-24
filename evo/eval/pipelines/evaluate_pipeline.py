@@ -9,7 +9,6 @@ def create_evaluate_task(eval_queue):
     result_list = []
     total = len(eval_queue)
 
-    # 并行执行评测
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_map = {
             executor.submit(
@@ -23,7 +22,6 @@ def create_evaluate_task(eval_queue):
             for item in eval_queue
         }
 
-        # 按顺序收集结果
         for future in as_completed(future_map):
             item = future_map[future]
             try:
@@ -31,7 +29,6 @@ def create_evaluate_task(eval_queue):
             except Exception as e:
                 evaluate_result = {"error": str(e)}
 
-            # 拼接返回结构
             result_list.append({
                 **item,
                 "evaluate_result": evaluate_result

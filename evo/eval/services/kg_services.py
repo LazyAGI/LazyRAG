@@ -190,7 +190,7 @@ class ParallelKGBuilder:
                 "path_detail": desc,
                 "sub_question1": qa["sub_question1"],
                 "sub_question2": qa["sub_question2"],
-                "question": qa["multi_hop_question"],
+                "question": qa["question"],
                 "ground_truth": qa["ground_truth"],
                 "reference_doc": source["source_files"],
                 "reference_context": [c["content"] for c in source["source_chunks"]],
@@ -212,7 +212,7 @@ class ParallelKGBuilder:
 
     def is_valid_real_multihop(item):
         try:
-            question = item["multi_hop_question"]
+            question = item["question"]
             chunk1 = item["source_chunks"][0][:800]
             chunk2 = item["source_chunks"][1][:800]
 
