@@ -116,6 +116,41 @@ class ParallelKGBuilder:
             "is_cross_document": is_cross_doc
         }
 
+    def is_valid_real_multihop(self,item):
+        try:
+            question = item["question"]
+            chunk1 = item["source_chunks"][0][:800]
+            chunk2 = item["source_chunks"][1][:800]
+
+            prompt = f"""
+            你是专业严谨的RAG多跳问题评测专家，请严格判断当前问题是否为【合格、可用、自然的跨文档双跳问题】，必须同时满足以下全部条件才输出“是”，否则一律输出“否”：
+
+            判定条件（必须全部满足）：
+            1. 仅阅读文档1，完全无法得出答案；
+            2. 仅阅读文档2，完全无法得出答案；
+            3. 必须同时结合文档1+文档2的信息，串联推理才能回答；
+            4. 问题语句通顺自然，符合人类日常真实问答习惯；
+            5. 问题不生硬、不奇怪、不机械、无病句、无歧义、无拗口表达；
+            6. 问题不含这个、那个、那份、该项等冗余指示代词。
+
+            不符合以上任意一条，一律输出“否”并丢弃该问题。
+            禁止输出多余文字、解释、理由，只输出一个字：是 或 否。
+
+            问题：{question}
+            文档1：{chunk1}
+            文档2：{chunk2}
+            """
+
+            try:
+                res = chat(prompt)
+            except Exception as e:
+                log.error(e)
+                res = "否"
+            return res == "是"
+        except Exception as e:
+            log.error(f"校验失败: {e}")
+            return False
+
     def generate_single_question(self, path):
         try:
             if len(path) != 3:
@@ -200,7 +235,7 @@ class ParallelKGBuilder:
                 "key_points": qa["key_points"]
             }
 
-            if not is_valid_real_multihop(res):
+            if not self.is_valid_real_multihop(res):
                 log.info("校验失败：非真实双跳问题，已丢弃")
                 return None
 
@@ -209,41 +244,6 @@ class ParallelKGBuilder:
         except Exception as e:
             log.error(f"生成问题失败: {e}")
             return None
-
-    def is_valid_real_multihop(item):
-        try:
-            question = item["question"]
-            chunk1 = item["source_chunks"][0][:800]
-            chunk2 = item["source_chunks"][1][:800]
-
-            prompt = f"""
-            你是专业严谨的RAG多跳问题评测专家，请严格判断当前问题是否为【合格、可用、自然的跨文档双跳问题】，必须同时满足以下全部条件才输出“是”，否则一律输出“否”：
-
-            判定条件（必须全部满足）：
-            1. 仅阅读文档1，完全无法得出答案；
-            2. 仅阅读文档2，完全无法得出答案；
-            3. 必须同时结合文档1+文档2的信息，串联推理才能回答；
-            4. 问题语句通顺自然，符合人类日常真实问答习惯；
-            5. 问题不生硬、不奇怪、不机械、无病句、无歧义、无拗口表达；
-            6. 问题不含这个、那个、那份、该项等冗余指示代词。
-
-            不符合以上任意一条，一律输出“否”并丢弃该问题。
-            禁止输出多余文字、解释、理由，只输出一个字：是 或 否。
-
-            问题：{question}
-            文档1：{chunk1}
-            文档2：{chunk2}
-            """
-
-            try:
-                res = chat(prompt)
-            except Exception as e:
-                log.error(e)
-                res = "否"
-            return res == "是"
-        except Exception as e:
-            log.error(f"校验失败: {e}")
-            return False
 
     def generate_multi_hop_questions(self, max_questions=10):
         log.info("开始生成跨文档多跳问题")

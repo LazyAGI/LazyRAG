@@ -196,7 +196,7 @@ def get_eval_queue(eval_name, case_id=''):
     cases = eval_data.get("cases", [])
     eval_queue = []
 
-    if case_id:  # 如果传入了 case_id，只保留匹配的那一条
+    if case_id:
         cases = [c for c in cases if c.get("case_id") == case_id]
 
     for case in cases:
@@ -204,7 +204,6 @@ def get_eval_queue(eval_name, case_id=''):
         ground_truth = case["ground_truth"]
 
         rag_response = get_rag_response(question, '', '', '', '')
-
         # 计算召回率
         metrics = calculate_metrics(
             case["reference_chunk_ids"],
@@ -264,17 +263,14 @@ def calculate_metrics(reference_chunk_ids, reference_doc_ids, retrieve_chunk_ids
     """
     计算 RAG 检索效果：context_recall(chunk级) + doc_recall(文档级)
     """
-    # 转集合方便计算
     ref_chunks = set(reference_chunk_ids)
     ref_docs = set(reference_doc_ids)
     ret_chunks = set(retrieve_chunk_ids)
     ret_docs = set(retrieve_doc_ids)
 
-    # 命中数量
     hit_chunks = len(ref_chunks & ret_chunks)
     hit_docs = len(ref_docs & ret_docs)
 
-    # 计算召回率（避免除0）
     context_recall = hit_chunks / len(ref_chunks) if ref_chunks else 0.0
     doc_recall = hit_docs / len(ref_docs) if ref_docs else 0.0
 
