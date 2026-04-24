@@ -119,8 +119,8 @@ class ParallelKGBuilder:
     def is_valid_real_multihop(self,item):
         try:
             question = item["question"]
-            chunk1 = item["source_chunks"][0][:800]
-            chunk2 = item["source_chunks"][1][:800]
+            chunk1 = item["reference_context"][0][:800]
+            chunk2 = item["reference_context"][1][:800]
 
             prompt = f"""
             你是专业严谨的RAG多跳问题评测专家，请严格判断当前问题是否为【合格、可用、自然的跨文档双跳问题】，必须同时满足以下全部条件才输出“是”，否则一律输出“否”：
