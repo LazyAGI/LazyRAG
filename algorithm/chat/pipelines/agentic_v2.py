@@ -329,7 +329,7 @@ async def _agentic_forward_stream(
 
 def _ensure_tools_registered() -> None:
     # Trigger @fc_register side effects once so ReactAgent can resolve tool names.
-    from chat.tools import kb, memory, skill_manager  # noqa: F401
+    from chat.tools import kb, memory, skill_manager, web_search  # noqa: F401
 
 
 @lru_cache(maxsize=1)

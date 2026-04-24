@@ -8,6 +8,7 @@ from chat.prompts.agentic_v2 import (
     CITATION_GUIDANCE,
     DEFAULT_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
+    SEARCH_GUIDANCE,
     SKILLS_GUIDANCE,
     TOOL_CALL_STATUS_GUIDANCE,
     _COMBINED_REVIEW_PROMPT,
@@ -21,6 +22,8 @@ DEFAULT_TOOLS = [
     'kb_get_parent_node',
     'kb_get_window_nodes',
     'kb_keyword_search',
+    'web_search',
+    'arxiv_search',
     'memory',
     'skill_manage',
 ]
@@ -117,6 +120,28 @@ def _with_agentic_defaults(config: dict) -> dict:
         'memory_fs_dir': '.agentic_rag/memory',
         'core_api_url': os.getenv('LAZYRAG_CORE_API_URL', 'http://core:8000'),
         'workspace': './workspace',
+        'web_search_timeout': 10,
+        'web_search_auto_sources': ['bocha', 'google', 'bing', 'wikipedia'],
+        'web_search_wikipedia_base_url': os.getenv(
+            'LAZYRAG_WEB_SEARCH_WIKIPEDIA_BASE_URL', 'https://zh.wikipedia.org'
+        ),
+        'web_search_wikipedia_user_agent': os.getenv(
+            'LAZYRAG_WEB_SEARCH_WIKIPEDIA_USER_AGENT',
+            'LazyRAG/1.0 (Wikipedia search integration)',
+        ),
+        'web_search_google_api_key': os.getenv('LAZYRAG_WEB_SEARCH_GOOGLE_API_KEY', ''),
+        'web_search_google_search_engine_id': os.getenv(
+            'LAZYRAG_WEB_SEARCH_GOOGLE_SEARCH_ENGINE_ID', ''
+        ),
+        'web_search_bing_subscription_key': os.getenv(
+            'LAZYRAG_WEB_SEARCH_BING_SUBSCRIPTION_KEY', ''
+        ),
+        'web_search_bing_endpoint': os.getenv('LAZYRAG_WEB_SEARCH_BING_ENDPOINT', ''),
+        'web_search_bocha_api_key': os.getenv('LAZYRAG_WEB_SEARCH_BOCHA_API_KEY', ''),
+        'web_search_bocha_base_url': os.getenv(
+            'LAZYRAG_WEB_SEARCH_BOCHA_BASE_URL', 'https://api.bochaai.com'
+        ),
+        'arxiv_search_timeout': 15,
     }
     for key, value in defaults.items():
         if config.get(key) is None:
@@ -138,6 +163,8 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
         prompt_parts.append(TOOL_CALL_STATUS_GUIDANCE)
     if any(tool.startswith('kb_') for tool in available_tools):
         prompt_parts.append(CITATION_GUIDANCE)
+    if 'web_search' in available_tools or 'arxiv_search' in available_tools:
+        prompt_parts.append(SEARCH_GUIDANCE)
 
     return '\n\n'.join(prompt_parts)
 
