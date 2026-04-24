@@ -37,7 +37,7 @@ def create_evaluate_task(eval_queue):
     return result_list
 
 
-def run_evaluate_pipeline(eval_names):
+def run_evaluate_pipeline(eval_names,dataset_name=''):
     """
     支持批量评测：传入 eval_names 列表（可单个、可多个）
     返回：所有评测的 report 和 path 列表
@@ -51,7 +51,7 @@ def run_evaluate_pipeline(eval_names):
     for eval_name in eval_names:
         log.info(f"开始执行评测任务：{eval_name}")
 
-        eval_data = get_eval_queue(eval_name)
+        eval_data = get_eval_queue(eval_name=eval_name,dataset_name=dataset_name)
         eval_queue = eval_data["eval_queue"]
 
         result = create_evaluate_task(eval_queue)
@@ -67,10 +67,11 @@ def run_evaluate_pipeline(eval_names):
     return all_reports, all_paths
 
 
-def run_evaluate_pipeline_id(eval_name, case_id):
+def run_evaluate_pipeline_id(eval_name, case_id, dataset_name=''):
     log.info(f"开始执行评测任务：{eval_name}")
 
-    eval_data = get_eval_queue(eval_name, case_id)
+    eval_data = get_eval_queue(eval_name=eval_name, case_id=case_id,dataset_name=dataset_name)
+    eval_queue = eval_data["eval_queue"]
     eval_queue = eval_data["eval_queue"]
 
     result = create_evaluate_task(eval_queue)

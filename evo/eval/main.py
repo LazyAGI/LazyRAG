@@ -8,47 +8,48 @@ from tasks.evaluate_task import create_evaluate_task, get_evaluate_task, get_all
 
 app = FastAPI(title="评测服务", version="1.0")
 
-# ====================== 请求模型 ======================
 class GenerateRequest(BaseModel):
     kb_id: str
     eval_name: Optional[str] = None
     algo_id: Optional[str] = "general_algo"
 
-# 👇 这里改成支持 list
 class EvalRunRequest(BaseModel):
-    eval_names: List[str]  # 批量评测名称列表
+    eval_names: List[str]
+    dataset_name: Optional[str] = ""
 
-
-# ====================== 生成任务接口 ======================
 @app.post("/api/generate")
 async def api_generate(req: GenerateRequest, background_tasks: BackgroundTasks):
     task_id = create_generate_task(background_tasks, req.kb_id, req.eval_name, req.algo_id)
     return {"task_id": task_id, "status": "running", "eval_name": req.eval_name}
+
 
 @app.get("/api/generate_task/{task_id}")
 async def api_generate_task(task_id: str):
     task = get_generate_task(task_id)
     return task if task else {"code": 404, "msg": "任务不存在"}
 
+
 @app.get("/api/generate_tasks")
 async def api_all_generate_tasks():
     return get_all_generate_tasks()
 
-
 @app.post("/api/evaluate")
 async def api_evaluate(req: EvalRunRequest, background_tasks: BackgroundTasks):
+    task_id = create_evaluate_task(background_tasks, req.eval_names, req.dataset_name)
 
-    task_id = create_evaluate_task(background_tasks, req.eval_names)
     return {
         "eval_task_id": task_id,
         "status": "running",
-        "eval_names": req.eval_names
+        "eval_names": req.eval_names,
+        "dataset_name": req.dataset_name
     }
+
 
 @app.get("/api/evaluate_task/{task_id}")
 async def api_evaluate_task(task_id: str):
     task = get_evaluate_task(task_id)
     return task if task else {"code": 404, "msg": "评测任务不存在"}
+
 
 @app.get("/api/evaluate_tasks")
 async def api_all_eval_tasks():

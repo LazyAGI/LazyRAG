@@ -6,11 +6,12 @@ if __name__ == "__main__":
     kb_id="ds_e030b437e04837ef4dbb952d45e16902"
     eval_name="研究院"
     algo_id="general_algo"
+    dataset_name ='' #算法接口需要的参数
     # test generate
-    run_generate_pipeline(kb_id, algo_id, eval_name)
+    #run_generate_pipeline(kb_id, algo_id, eval_name)
     eval_names=["研究院"]
     # test eval
-    #run_evaluate_pipeline(eval_names)
+    run_evaluate_pipeline(eval_names,dataset_name)
     # test case
     # run_evaluate_pipeline_id(eval_name,'ce3453e7-cf88-4456-a75e-6b0c82aeedb6')
 

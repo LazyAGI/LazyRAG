@@ -25,7 +25,7 @@ def save_eval_tasks():
         json.dump(eval_tasks, f, ensure_ascii=False, indent=2)
 
 
-def create_evaluate_task(background_tasks: BackgroundTasks, eval_names):
+def create_evaluate_task(background_tasks: BackgroundTasks, eval_names, dataset_name=""):
 
     if isinstance(eval_names, str):
         eval_names = [eval_names]
@@ -34,6 +34,7 @@ def create_evaluate_task(background_tasks: BackgroundTasks, eval_names):
     eval_tasks[task_id] = {
         "status": "running",
         "eval_names": eval_names,
+        "dataset_name": dataset_name,  # 存入任务信息
         "result": None,
         "error": None,
         "report_paths": None
@@ -42,11 +43,12 @@ def create_evaluate_task(background_tasks: BackgroundTasks, eval_names):
 
     def runner():
         try:
-            reports, paths = run_evaluate_pipeline(eval_names)
+            # 传给评估流水线
+            reports, paths = run_evaluate_pipeline(eval_names, dataset_name=dataset_name)
 
             eval_tasks[task_id]["status"] = "success"
             eval_tasks[task_id]["result"] = reports
-            eval_tasks[task_id]["report_paths"] = paths  # 复数
+            eval_tasks[task_id]["report_paths"] = paths
 
         except Exception as e:
             eval_tasks[task_id]["status"] = "failed"
