@@ -1,7 +1,6 @@
 package wordgroup
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"lazyrag/core/log"
 	"lazyrag/core/store"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -30,6 +30,17 @@ type CreateWordGroupRequest struct {
 type CreatedAlias struct {
 	ID   string `json:"id"`
 	Word string `json:"word"`
+}
+
+// CheckWordsExistRequest is the JSON body for POST /word_group:checkExists.
+type CheckWordsExistRequest struct {
+	Term    string   `json:"term"`
+	Aliases []string `json:"aliases"`
+}
+
+// CheckWordsExistResponse lists which submitted words already appear in words (any group/kind).
+type CheckWordsExistResponse struct {
+	Existing []string `json:"existing"`
 }
 
 // CreateWordGroupResponse is returned in APIResponse.Data after create.
@@ -139,6 +150,68 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// CheckWordsExist returns words among term + aliases that already exist in the words table.
+func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body CheckWordsExistRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	candidates := uniqueWordCandidates(body.Term, body.Aliases)
+	if len(candidates) == 0 {
+		common.ReplyErr(w, "term and aliases are empty", http.StatusBadRequest)
+		return
+	}
+	if store.UserID(r) == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	var hits []string
+	q := store.DB().Model(&orm.Word{}).
+		Where("word IN ?", candidates).
+		Distinct("word").
+		Pluck("word", &hits)
+	if q.Error != nil {
+		log.Logger.Error().Err(q.Error).Msg("check words exist query failed")
+		common.ReplyErr(w, "check words exist failed", http.StatusInternalServerError)
+		return
+	}
+	hit := make(map[string]struct{}, len(hits))
+	for _, s := range hits {
+		hit[s] = struct{}{}
+	}
+	existing := make([]string, 0, len(hits))
+	for _, c := range candidates {
+		if _, ok := hit[c]; ok {
+			existing = append(existing, c)
+		}
+	}
+	common.ReplyOK(w, CheckWordsExistResponse{Existing: existing})
+}
+
+func uniqueWordCandidates(term string, aliases []string) []string {
+	term = strings.TrimSpace(term)
+	var out []string
+	seen := make(map[string]struct{})
+	if term != "" {
+		out = append(out, term)
+		seen[term] = struct{}{}
+	}
+	for _, a := range normalizeAliases(aliases) {
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		out = append(out, a)
+		seen[a] = struct{}{}
+	}
+	return out
+}
+
 func normalizeAliases(raw []string) []string {
 	var out []string
 	for _, s := range raw {
@@ -165,11 +238,6 @@ func normalizeSource(s string) string {
 
 // GenerateID returns a random 32-char hex id (UUID v4, no dashes). Each call is independent.
 func GenerateID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(fmt.Sprintf("wordgroup.GenerateID: %v", err))
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return hex.EncodeToString(b[:])
+	u := uuid.New()
+	return hex.EncodeToString(u[:])
 }

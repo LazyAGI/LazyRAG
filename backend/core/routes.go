@@ -109,6 +109,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "GET", "/conversation:export/files/{file_id}", []string{"qa.read"}, chat.DownloadExportConversationFile)
 
 	// ----- Word group -----
+	handleAPI(r, "POST", "/word_group:checkExists", []string{}, wordgroup.CheckWordsExist)
 	handleAPI(r, "POST", "/word_group", []string{}, wordgroup.CreateWordGroup)
 
 	// ----- Prompttext -----
