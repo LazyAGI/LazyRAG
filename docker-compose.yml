@@ -488,6 +488,10 @@ services:
       LAZYRAG_SKILL_REVIEW_INTERVAL: ${LAZYRAG_SKILL_REVIEW_INTERVAL:-5}
       LAZYRAG_SKILL_REVIEW_DEBUG: ${LAZYRAG_SKILL_REVIEW_DEBUG:-false}
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
+      http_proxy: ${http_proxy:-}
+      https_proxy: ${https_proxy:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
       <<: [*llm-api-keys, *upload-paths]
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
