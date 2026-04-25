@@ -68,6 +68,7 @@ class _StreamingFunctionCall(FunctionCall):
             if match:
                 try:
                     llm_output['tool_calls'] = [{
+                        'type': 'function',
                         'function': {
                             'name': match.group(1),
                             'arguments': json.loads(match.group(2)),
@@ -85,6 +86,21 @@ class _StreamingFunctionCall(FunctionCall):
                     normalized_tool_call, self._round_index, idx
                 )
                 tool_calls.append(normalized_tool_call)
+            if tool_calls:
+                llm_output['tool_calls'] = [
+                    {
+                        'id': tool_call['id'],
+                        'type': 'function',
+                        'function': {
+                            'name': tool_call.get('name', ''),
+                            'arguments': json.dumps(
+                                tool_call.get('arguments', {}),
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                    for tool_call in tool_calls
+                ]
 
         if self._stream_event_callback and isinstance(llm_output, dict) and tool_calls:
             self._stream_event_callback({
