@@ -4,8 +4,8 @@ from pathlib import Path
 
 from evo.harness.plan import StopRequested
 from evo.runtime.fs import load_json
-from evo.service import state
-from evo.service.thread_workspace import ThreadWorkspace
+from evo.service.core import store as _store
+from evo.service.threads.workspace import ThreadWorkspace
 
 from .context import CancelToken, ExecCtx
 
@@ -14,13 +14,18 @@ class PipelineFailed(Exception):
     code = 'PIPELINE_FAILED'
     kind = 'permanent'
 
+    def __init__(self, message: str, details: dict | None = None) -> None:
+        super().__init__(f'[{self.code}] {message}')
+        self.message = message
+        self.details = dict(details or {})
+
 
 def execute(ctx: ExecCtx, tid: str) -> None:
-    cur = state.get(ctx.store, tid)
+    cur = _store.get(ctx.store, tid)
     if cur is None:
         return
     if cur['status'] == 'queued':
-        state.patch(ctx.store, tid, status='running')
+        ctx.report_start(tid)
     token = CancelToken(ctx, tid)
     try:
         _run_pipeline(ctx, tid, token)
@@ -39,7 +44,7 @@ def _run_pipeline(ctx: ExecCtx, tid: str, token: CancelToken) -> None:
     from evo.main import default_embed_provider, default_llm_provider
     from evo.runtime.session import create_session, session_scope
 
-    cur = state.get(ctx.store, tid) or {}
+    cur = _store.get(ctx.store, tid) or {}
     thread_id = cur.get('thread_id')
     payload = cur.get('payload') or {}
     eval_id = payload.get('eval_id')
@@ -63,14 +68,15 @@ def _run_pipeline(ctx: ExecCtx, tid: str, token: CancelToken) -> None:
 
     if not result.success:
         failed = [(o.name, o.error) for o in result.failed]
-        raise PipelineFailed(f'pipeline failed at {failed}')
+        raise PipelineFailed(f'pipeline failed at {failed}',
+                             details={'failed_steps': failed})
 
     paths = result.get('persist') or {}
     report_path = paths.get('report')
     if report_path is not None:
         data = load_json(report_path)
         rid = data.get('report_id') or Path(report_path).stem
-        state.patch(ctx.store, tid, report_id=rid)
+        ctx.update_payload(tid, {'report_id': rid})
 
 
 def _resolve_corpus_paths(ctx: ExecCtx, thread_id: str | None,

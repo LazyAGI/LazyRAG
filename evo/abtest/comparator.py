@@ -72,11 +72,31 @@ def compare_evals(report_a: dict, report_b: dict, *,
                   primary_metric: str = 'answer_correctness') -> dict:
     idx_a, idx_b = _index_cases(report_a), _index_cases(report_b)
     aligned = sorted(set(idx_a) & set(idx_b))
+
+    if not aligned:
+        return {
+            'aligned_cases': 0,
+            'unique_to_a': sorted(set(idx_a) - set(idx_b))[:top_k],
+            'unique_to_b': sorted(set(idx_b) - set(idx_a))[:top_k],
+            'metrics': {},
+            'missing_metrics': list(metrics),
+            'top_diff_cases': [],
+            'invalid_reason': 'No aligned cases found between baseline and candidate reports. '
+                              'Check that case_ids match and both reports have case_details.',
+        }
+
     a_cases = [idx_a[k] for k in aligned]
     b_cases = [idx_b[k] for k in aligned]
 
-    metric_diffs = {m: _metric_diff(_scores(a_cases, m), _scores(b_cases, m))
-                    for m in metrics}
+    metric_diffs = {}
+    missing_metrics = []
+    for m in metrics:
+        a_scores = _scores(a_cases, m)
+        b_scores = _scores(b_cases, m)
+        if not a_scores or not b_scores:
+            missing_metrics.append(m)
+            continue
+        metric_diffs[m] = _metric_diff(a_scores, b_scores)
 
     deltas = []
     for k in aligned:
@@ -91,12 +111,18 @@ def compare_evals(report_a: dict, report_b: dict, *,
         'unique_to_a': sorted(set(idx_a) - set(idx_b))[:top_k],
         'unique_to_b': sorted(set(idx_b) - set(idx_a))[:top_k],
         'metrics': metric_diffs,
+        'missing_metrics': missing_metrics,
         'top_diff_cases': [{'case_key': k, 'delta': d, 'a': a, 'b': b}
                            for k, d, a, b in deltas[:top_k]],
     }
 
 
 def judge_verdict(summary: dict, policy: VerdictPolicy = VerdictPolicy()) -> dict:
+    if summary.get('aligned_cases', 0) == 0:
+        return {'verdict': 'invalid',
+                'reasons': [summary.get('invalid_reason', 'aligned_cases=0, cannot judge')],
+                'policy': policy.__dict__}
+
     metrics = summary.get('metrics') or {}
     policy_dict = policy.__dict__
 

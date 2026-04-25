@@ -7,8 +7,8 @@ from dataclasses import asdict, dataclass
 from typing import Any, Awaitable, Callable
 
 from evo.runtime.config import EvoConfig
-from evo.service import state
-from evo.service.thread_workspace import (
+from evo.service.core import store as state
+from evo.service.threads.workspace import (
     CheckpointStore, EventLog, ThreadWorkspace,
 )
 
@@ -104,7 +104,8 @@ class AutoOperator:
         if self._last is None:
             return None
         t = self._last
-        return _LegacyDecision(t.trigger or 'idle', t.user_message, t.waiting, t.terminal, None)
+        return {'reasoning': t.trigger or 'idle', 'user_message': t.user_message,
+                'waiting': t.waiting, 'terminal': t.terminal, 'next_op': None}
 
     def start(self) -> asyncio.Task:
         if self._task and not self._task.done():
@@ -286,7 +287,7 @@ class AutoOperator:
     def _has_pending_work(self) -> bool:
         if self.checkpoints.list_pending():
             return True
-        for flow in ('eval', 'run', 'apply', 'abtest'):
+        for flow in ('eval', 'run', 'apply', 'abtest', 'dataset_gen', 'merge', 'deploy'):
             r = self._latest_tasks().get(flow)
             if r and r.get('status') in (
                     'running', 'queued', 'stopping', 'paused', 'failed_transient'):
@@ -297,7 +298,9 @@ class AutoOperator:
         out: dict[str, dict] = {}
         a = self.ws.load_artifacts()
         for kind, flow in (('run_ids', 'run'), ('apply_ids', 'apply'),
-                            ('eval_ids', 'eval'), ('abtest_ids', 'abtest')):
+                            ('eval_ids', 'eval'), ('abtest_ids', 'abtest'),
+                            ('dataset_ids', 'dataset_gen'), ('merge_ids', 'merge'),
+                            ('deploy_ids', 'deploy')):
             for tid in reversed(a.get(kind) or []):
                 r = state.get(self.store, tid)
                 if r is not None:
@@ -309,7 +312,7 @@ class AutoOperator:
         if self.checkpoints.list_pending():
             return False
         tasks = self._latest_tasks()
-        for flow in ('eval', 'run', 'apply', 'abtest'):
+        for flow in ('eval', 'run', 'apply', 'abtest', 'dataset_gen', 'merge', 'deploy'):
             rec = tasks.get(flow)
             if not rec:
                 continue
@@ -353,25 +356,6 @@ class AutoOperator:
         return inst.role if inst else None
 
 
-@dataclass
-class _LegacyDecision:
-    reasoning: str
-    user_message: str
-    waiting: bool
-    terminal: bool
-    next_op: Op | None = None
-
-    @property
-    def pipeline_done(self) -> bool:
-        return self.terminal
-
-    def to_dict(self) -> dict:
-        return {
-            'reasoning': self.reasoning, 'user_message': self.user_message,
-            'waiting': self.waiting, 'terminal': self.terminal, 'next_op': None,
-        }
-
-
 def _build_context(
     tr_name: str, data: Any, ws: ThreadWorkspace, store: Any, cfg: EvoConfig,
     run_line: dict[str, int], cps: CheckpointStore, inputs: AutoInputs,
@@ -388,8 +372,9 @@ def _build_context(
     arts = ws.load_artifacts()
     parts.append('artifacts:' + json.dumps(arts, ensure_ascii=False))
     parts.append('pending_checkpoints:' + str(len(cps.list_pending())))
-    for fl in 'eval', 'run', 'apply', 'abtest':
-        for tid in reversed(arts.get(f'{fl}_ids' if fl != 'eval' else 'eval_ids') or []):
+    for fl in 'eval', 'run', 'apply', 'abtest', 'dataset_gen', 'merge', 'deploy':
+        key = f'{fl}_ids' if fl != 'eval' else 'eval_ids'
+        for tid in reversed(arts.get(key) or []):
             rec = state.get(store, tid)
             if rec:
                 parts.append(f'{fl}:{json.dumps(rec, ensure_ascii=False)[: 2000]}')

@@ -87,12 +87,44 @@ class StorageConfig:
 
     @property
     def state_db_path(self) -> Path:
-        return self.base_dir / 'state.db'
+        return self.base_dir / 'state'
 
     def ensure(self) -> None:
         for p in (self.runs_dir, self.applies_dir, self.reports_dir,
-                  self.diffs_dir, self.opencode_dir, self.git_dir):
+                  self.diffs_dir, self.opencode_dir, self.git_dir,
+                  self.base_dir / 'datasets', self.base_dir / 'deploys'):
             p.mkdir(parents=True, exist_ok=True)
+        for flow in ('dataset_gen', 'eval', 'run', 'apply', 'abtest', 'merge', 'deploy'):
+            (self.base_dir / flow).mkdir(parents=True, exist_ok=True)
+
+
+@dataclass(frozen=True)
+class DatasetGenConfig:
+    kb_base_url: str = 'http://localhost:8055'
+    chunk_base_url: str = 'http://localhost:8055'
+    max_workers: int = 5
+    task_settings: dict = field(default_factory=lambda: {
+        'single_hop': {'num': 1},
+        'multi_hop': {'num': 20},
+        'multi_file': {'num': 20},
+        'formula': {'num': 5},
+        'table': {'num': 5},
+    })
+
+
+@dataclass(frozen=True)
+class DeployConfig:
+    adapter: str = 'none'
+    adapter_base_url: str = ''
+    health_path: str = '/healthz'
+
+
+@dataclass(frozen=True)
+class EvalRunConfig:
+    provider: str = ''
+    base_url: str = ''
+    token: str = ''
+    mock_path: str = ''
 
 
 @dataclass(frozen=True)
@@ -107,6 +139,10 @@ class EvoConfig:
     llm: ModelGovernanceConfig = field(default_factory=_default_llm_governance)
     embed: ModelGovernanceConfig = field(default_factory=_default_embed_governance)
     model_config: EvoModelConfig = field(default_factory=EvoModelConfig)
+    dataset_gen: DatasetGenConfig = field(default_factory=DatasetGenConfig)
+    deploy: DeployConfig = field(default_factory=DeployConfig)
+    eval_run: EvalRunConfig = field(default_factory=EvalRunConfig)
+    profile: str = 'dev'
 
     @property
     def badcase_score_field(self) -> str:
@@ -155,7 +191,28 @@ def load_config(
     chat_source = Path(os.getenv('EVO_CHAT_SOURCE',
                                   str(project_root / 'algorithm' / 'chat')))
 
-    return EvoConfig(
+    dataset_gen = DatasetGenConfig(
+        kb_base_url=os.getenv('EVO_KB_BASE_URL', 'http://localhost:8055'),
+        chunk_base_url=os.getenv('EVO_CHUNK_BASE_URL', 'http://localhost:8055'),
+        max_workers=int(os.getenv('EVO_DATASETGEN_MAX_WORKERS', '5')),
+    )
+
+    deploy = DeployConfig(
+        adapter=os.getenv('EVO_DEPLOY_ADAPTER', 'none'),
+        adapter_base_url=os.getenv('EVO_DEPLOY_ADAPTER_BASE_URL', ''),
+        health_path=os.getenv('EVO_DEPLOY_HEALTH_PATH', '/healthz'),
+    )
+
+    eval_run = EvalRunConfig(
+        provider=os.getenv('EVO_EVAL_PROVIDER', ''),
+        base_url=os.getenv('EVO_EVAL_BASE_URL', ''),
+        token=os.getenv('EVO_EVAL_TOKEN', ''),
+        mock_path=os.getenv('EVO_EVAL_MOCK_PATH', ''),
+    )
+
+    profile = os.getenv('EVO_PROFILE', 'dev')
+
+    cfg = EvoConfig(
         data_dir=data_dir,
         storage=storage,
         default_judge_path=judge_path,
@@ -164,4 +221,25 @@ def load_config(
         code_access=code_access,
         analysis=AnalysisConfig(badcase_score_field=score_field),
         model_config=model_config,
+        dataset_gen=dataset_gen,
+        deploy=deploy,
+        eval_run=eval_run,
+        profile=profile,
     )
+
+    if profile == 'prod':
+        missing = []
+        if not os.getenv('EVO_EVAL_PROVIDER'):
+            missing.append('EVO_EVAL_PROVIDER')
+        if not os.getenv('EVO_TRACE_PROVIDER'):
+            missing.append('EVO_TRACE_PROVIDER')
+        if not os.getenv('EVO_DEPLOY_ADAPTER'):
+            missing.append('EVO_DEPLOY_ADAPTER')
+        if not os.getenv('EVO_CHAT_SOURCE'):
+            missing.append('EVO_CHAT_SOURCE')
+        if missing:
+            raise RuntimeError(
+                f"EVO_PROFILE=prod missing required env vars: {', '.join(missing)}")
+        storage.ensure()
+
+    return cfg

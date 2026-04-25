@@ -24,18 +24,15 @@ def setup_logging(verbose: bool = False) -> None:
 
 def default_llm_provider(cfg: EvoConfig) -> Any:
     from chat.pipelines.builders.get_models import get_automodel
-
     return lambda: get_automodel(cfg.model_config.llm_role)
 
 
 def default_embed_provider(cfg: EvoConfig) -> Any:
     from chat.pipelines.builders.get_models import get_automodel
-
     return lambda: get_automodel(cfg.model_config.embed_role)
 
 
 def prepend_pipeline_argv(argv: Sequence[str]) -> list[str]:
-    """Insert *pipeline* after leading global options so argparse sees parent args first."""
     av = list(argv)
     if not av:
         return ['pipeline']
@@ -80,44 +77,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     pipe.add_argument('--badcase-limit', type=int, default=200)
     pipe.add_argument('--run-id', default=None)
 
-    thread = sub.add_parser('thread',
-                            help='ThreadHub: auto / interactive chat / single decide().')
-    th_sub = thread.add_subparsers(dest='thread_cmd', required=True)
+    # New direct flow commands (REST-less CLI)
+    eval_p = sub.add_parser('eval', help='Direct eval flow commands.')
+    eval_sub = eval_p.add_subparsers(dest='eval_cmd', required=True)
+    eval_run_p = eval_sub.add_parser('run', help='Run an evaluation.')
+    eval_run_p.add_argument('--dataset-id', required=True)
+    eval_run_p.add_argument('--thread-id', default=None)
 
-    auto_p = th_sub.add_parser('auto', help='AutoOperator until done or timeout.')
-    auto_p.add_argument('--timeout-s', type=float, default=3600.0,
-                        help='Seconds before stop_thread + exit 1 (default 3600).')
-    auto_p.add_argument('--poll-s', type=float, default=2.0,
-                        help='Log cadence while waiting (default 2).')
-    auto_p.add_argument('--inputs-json', type=Path, default=None,
-                        help='JSON object merged over CLI auto fields.')
-    auto_p.add_argument('--badcase-limit', type=int, default=200)
-    auto_p.add_argument('--dataset-id', default='ds-default')
-    auto_p.add_argument('--baseline-eval-id', default='')
-    auto_p.add_argument('--target-chat-url', default='')
-    auto_p.add_argument('--on-improvement', default='keep')
-    auto_p.add_argument('--on-regression', default='keep')
-    auto_p.add_argument('--no-auto-apply', action='store_true',
-                        help='Set auto_apply=False')
-    auto_p.add_argument('--no-auto-abtest', action='store_true',
-                        help='Set auto_abtest=False')
-
-    chat_p = th_sub.add_parser('chat', help='One-shot interactive agent message.')
-    chat_p.add_argument('--message', '-m', required=True)
-    chat_p.add_argument('--thread-id', default=None,
-                        help='Resume existing interactive thread.')
-
-    dec_p = th_sub.add_parser(
-        'decide', help='One decide() on new auto thread (no background loop).')
-    dec_p.add_argument('--inputs-json', type=Path, default=None)
-    dec_p.add_argument('--badcase-limit', type=int, default=200)
-    dec_p.add_argument('--dataset-id', default='ds-default')
-    dec_p.add_argument('--baseline-eval-id', default='')
-    dec_p.add_argument('--target-chat-url', default='')
-    dec_p.add_argument('--on-improvement', default='keep')
-    dec_p.add_argument('--on-regression', default='keep')
-    dec_p.add_argument('--no-auto-apply', action='store_true')
-    dec_p.add_argument('--no-auto-abtest', action='store_true')
+    ds_p = sub.add_parser('dataset', help='Dataset generation.')
+    ds_sub = ds_p.add_subparsers(dest='ds_cmd', required=True)
+    ds_gen_p = ds_sub.add_parser('gen', help='Generate dataset from KB.')
+    ds_gen_p.add_argument('--kb-id', required=True)
+    ds_gen_p.add_argument('--algo-id', default='general_algo')
+    ds_gen_p.add_argument('--eval-name', default=None)
+    ds_gen_p.add_argument('--thread-id', default=None)
 
     return parser
 
@@ -130,27 +103,7 @@ def _shared_config_args(ns: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def _auto_inputs_from_ns(ns: argparse.Namespace) -> dict[str, Any]:
-    from evo.orchestrator.auto_operator import AutoInputs
-
-    data: dict[str, Any] = {
-        'badcase_limit': ns.badcase_limit,
-        'dataset_id': ns.dataset_id,
-        'baseline_eval_id': ns.baseline_eval_id,
-        'target_chat_url': ns.target_chat_url,
-        'on_improvement': ns.on_improvement,
-        'on_regression': ns.on_regression,
-        'auto_apply': not getattr(ns, 'no_auto_apply', False),
-        'auto_abtest': not getattr(ns, 'no_auto_abtest', False),
-    }
-    path = getattr(ns, 'inputs_json', None)
-    if path is not None:
-        extra = json.loads(path.read_text(encoding='utf-8'))
-        if not isinstance(extra, dict):
-            raise ValueError('--inputs-json must contain a JSON object')
-        data.update(extra)
-    keys = frozenset(AutoInputs.__dataclass_fields__)
-    return {k: v for k, v in data.items() if k in keys}
+# AutoInputs helper removed in third-wave cleanup (AutoOperator deleted)
 
 
 def run_full(config: EvoConfig, args: argparse.Namespace) -> int:
@@ -194,27 +147,38 @@ def main(argv: list[str] | None = None) -> int:
                 badcase_score_field=args.score_field,
             )
             return run_full(config, args)
-        if args.command == 'thread':
+        if args.command == 'eval':
             config = load_config(**_shared_config_args(args))
-            from evo.cli_threads import (
-                build_thread_hub, run_auto_cli, run_chat_cli, run_decide_cli,
-            )
-            hub = build_thread_hub(config)
-            if args.thread_cmd == 'auto':
-                inputs = _auto_inputs_from_ns(args)
-                return asyncio.run(run_auto_cli(
-                    hub, inputs=inputs,
-                    timeout_s=args.timeout_s, poll_s=args.poll_s))
-            if args.thread_cmd == 'chat':
-                return asyncio.run(run_chat_cli(
-                    hub, message=args.message, thread_id=args.thread_id))
-            if args.thread_cmd == 'decide':
-                inputs = _auto_inputs_from_ns(args)
-                return run_decide_cli(hub, inputs=inputs)
+            from evo.service.core.manager import build_manager
+            jm = build_manager(config)
+            if args.eval_cmd == 'run':
+                tid = jm.submit_eval(
+                    thread_id=args.thread_id or '',
+                    dataset_id=args.dataset_id)
+                print(json.dumps({'eval_id': tid}, ensure_ascii=False))
+                return 0
+        if args.command == 'dataset':
+            config = load_config(**_shared_config_args(args))
+            from evo.service.core.manager import build_manager
+            jm = build_manager(config)
+            if args.ds_cmd == 'gen':
+                tid = jm.submit_dataset_gen(
+                    thread_id=args.thread_id,
+                    kb_id=args.kb_id,
+                    algo_id=args.algo_id,
+                    eval_name=args.eval_name)
+                print(json.dumps({'dataset_id': tid}, ensure_ascii=False))
+                return 0
         raise AssertionError(f'unknown command {args.command!r}')
     except Exception as exc:
         logging.getLogger('evo.main').error('Fatal: %s', exc, exc_info=True)
         return 1
+
+
+# ---- CLI thread commands removed in third-wave cleanup ----
+# Thread interaction is now via REST API (Planner + IntentStore + OpsExecutor)
+# Old ThreadHub CLI commands (auto/chat/decide) have been deleted.
+# Use the API server or direct JobManager calls instead.
 
 
 if __name__ == '__main__':

@@ -182,6 +182,15 @@ class GitWorkspace:
         sha = self.head_commit(wt)
         return wt, sha
 
+    def get_or_create_worktree(self, apply_id: str,
+                                base_ref: str = 'main') -> tuple[Path, str]:
+        self._worktrees.mkdir(parents=True, exist_ok=True)
+        wt = self.worktree_path(apply_id)
+        branch = self.branch_name(apply_id)
+        if wt.exists() and (wt / '.git').exists():
+            return wt, self.head_commit(wt)
+        return self.create_worktree(apply_id, base_ref=base_ref)
+
     def commit_all(self, worktree: Path, msg: str) -> str | None:
         _git(['add', '-A'], worktree)
         status = _git(['status', '--porcelain'], worktree).strip()

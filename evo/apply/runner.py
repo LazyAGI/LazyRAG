@@ -60,6 +60,34 @@ def _check(token: Any | None, at: str | None = None) -> None:
         raise StopRequested(at_step=at)
 
 
+def _write_checkpoint(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                    encoding='utf-8')
+
+
+def _load_checkpoint(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
+def _build_initial_checkpoint(apply_id: str, base_commit: str,
+                               branch_name: str, worktree: str) -> dict:
+    return {
+        'apply_id': apply_id,
+        'status': 'running',
+        'base_commit': base_commit,
+        'branch_name': branch_name,
+        'worktree': str(worktree),
+        'next_round': 1,
+        'prior_failure': '',
+        'rounds': [],
+        'final_commit': None,
+        'preview_ready': False,
+    }
+
+
 def _filter_actions(report: dict) -> list[dict]:
     actions = report.get('actions') or []
     if not isinstance(actions, list):
@@ -194,8 +222,33 @@ def execute_apply(
     cancel_token: Any | None = None,
     on_round: Callable[[RoundResult], None] | None = None,
     on_proc: Callable[[Any], None] | None = None,
+    resume: bool = False,
 ) -> ApplyResult:
     options = options or ApplyOptions()
+    apply_dir = config.storage.applies_dir / apply_id
+    apply_dir.mkdir(parents=True, exist_ok=True)
+    cp_path = apply_dir / 'checkpoint.json'
+
+    if resume:
+        cp = _load_checkpoint(cp_path)
+        if cp is not None and cp.get('preview_ready'):
+            return ApplyResult(
+                apply_id=apply_id, base_commit=cp.get('base_commit', ''),
+                branch_name=cp.get('branch_name', ''),
+                status='SUCCEEDED',
+                rounds=[RoundResult(**r) for r in cp.get('rounds', [])],
+                final_commit=cp.get('final_commit'),
+                diff_index_path=Path(cp.get('preview_dir', '')) / 'index.json'
+                if cp.get('preview_dir') else None,
+            )
+        start_round = cp.get('next_round', 1) if cp else 1
+        prior_failure = cp.get('prior_failure', '') if cp else ''
+        existing_rounds = [RoundResult(**r) for r in (cp.get('rounds') or [])] if cp else []
+    else:
+        start_round = 1
+        prior_failure = ''
+        existing_rounds = []
+
     actions = _filter_actions(report)
     if not actions:
         raise ApplyError('REPORT_INVALID', 'report has no in-scope actions')
@@ -205,27 +258,33 @@ def execute_apply(
     allow_lines = _prompt_allow_lines(allow_files, new_roots)
 
     binary = oc.preflight(options.opencode_options.binary,
-                          auth_dir=config.storage.opencode_dir)
+                           auth_dir=config.storage.opencode_dir)
     workspace.ensure_bare()
-    worktree, base_commit = workspace.create_worktree(apply_id)
+    worktree, base_commit = workspace.get_or_create_worktree(apply_id)
     branch = GitWorkspace.branch_name(apply_id)
 
-    apply_dir = config.storage.applies_dir / apply_id
-    apply_dir.mkdir(parents=True, exist_ok=True)
     (apply_dir / 'input').mkdir(parents=True, exist_ok=True)
     plan = _build_modification_plan(actions)
     (apply_dir / 'input' / 'modification_plan.json').write_text(
         json.dumps(plan, ensure_ascii=False, indent=2), encoding='utf-8')
 
-    rounds: list[RoundResult] = []
-    prior_failure = ''
+    cp = _build_initial_checkpoint(apply_id, base_commit, branch, str(worktree))
+    cp['next_round'] = start_round
+    cp['prior_failure'] = prior_failure
+    cp['rounds'] = [r.__dict__ for r in existing_rounds]
+    _write_checkpoint(cp_path, cp)
+
+    rounds: list[RoundResult] = list(existing_rounds)
     final_status: Literal['SUCCEEDED', 'FAILED'] = 'FAILED'
     final_error: dict | None = None
     final_commit: str | None = None
     final_round_files: list[str] = []
 
-    for i in range(1, options.max_rounds + 1):
+    for i in range(start_round, options.max_rounds + 1):
         _check(cancel_token, at=f'round_{i:03d}.start')
+        cp['next_round'] = i
+        _write_checkpoint(cp_path, cp)
+
         round_dir = apply_dir / 'rounds' / f'round_{i:03d}'
         if round_dir.exists():
             shutil.rmtree(round_dir)
@@ -246,6 +305,8 @@ def execute_apply(
             rr.error = exc.to_payload()
             rr.finished_at = time.time()
             rounds.append(rr)
+            _append_checkpoint_round(cp, rr)
+            _write_checkpoint(cp_path, cp)
             if on_round:
                 on_round(rr)
             final_error = rr.error
@@ -260,6 +321,8 @@ def execute_apply(
             }
             rr.finished_at = time.time()
             rounds.append(rr)
+            _append_checkpoint_round(cp, rr)
+            _write_checkpoint(cp_path, cp)
             if on_round:
                 on_round(rr)
             final_error = rr.error
@@ -281,9 +344,12 @@ def execute_apply(
             }
             rr.finished_at = time.time()
             rounds.append(rr)
+            _append_checkpoint_round(cp, rr)
+            cp['prior_failure'] = _allowlist_violation_context(oob)
+            _write_checkpoint(cp_path, cp)
             if on_round:
                 on_round(rr)
-            prior_failure = _allowlist_violation_context(oob)
+            prior_failure = cp['prior_failure']
             continue
 
         if sha is None:
@@ -296,9 +362,12 @@ def execute_apply(
             }
             rr.finished_at = time.time()
             rounds.append(rr)
+            _append_checkpoint_round(cp, rr)
+            cp['prior_failure'] = _NO_CHANGES_FEEDBACK
+            _write_checkpoint(cp_path, cp)
             if on_round:
                 on_round(rr)
-            prior_failure = _NO_CHANGES_FEEDBACK
+            prior_failure = cp['prior_failure']
             continue
 
         diffs = workspace.diff(worktree, base_commit)
@@ -307,11 +376,12 @@ def execute_apply(
 
         _check(cancel_token, at=f'round_{i:03d}.diff_done')
         test_outcome = run_tests(worktree, round_dir / 'tests',
-                                 command=options.test_command,
-                                 on_proc=on_proc)
+                                  command=options.test_command,
+                                  on_proc=on_proc)
         rr.test_passed = test_outcome.passed
         rr.finished_at = time.time()
         rounds.append(rr)
+        _append_checkpoint_round(cp, rr)
         if on_round:
             on_round(rr)
 
@@ -320,17 +390,28 @@ def execute_apply(
             final_commit = sha
             break
         prior_failure = _failure_context(rr.files_changed, test_outcome)
+        cp['prior_failure'] = prior_failure
+        _write_checkpoint(cp_path, cp)
     else:
         final_error = _exhausted_error(rounds, options.max_rounds)
 
     diff_index_path: Path | None = None
+    preview_dir = apply_dir / 'preview'
     if final_status == 'SUCCEEDED':
+        preview_dir.mkdir(parents=True, exist_ok=True)
         from evo.service.diff_map import write_diff_map
         diff_index_path = write_diff_map(
             workspace=workspace, apply_id=apply_id,
             worktree=worktree, base_commit=base_commit,
-            out_dir=config.storage.diffs_dir,
+            out_dir=preview_dir,
         )
+
+    cp['final_commit'] = final_commit
+    cp['preview_ready'] = final_status == 'SUCCEEDED'
+    cp['preview_dir'] = str(preview_dir) if final_status == 'SUCCEEDED' else None
+    cp['status'] = final_status.lower()
+    cp['rounds'] = [r.__dict__ for r in rounds]
+    _write_checkpoint(cp_path, cp)
 
     return ApplyResult(
         apply_id=apply_id,
@@ -342,3 +423,9 @@ def execute_apply(
         error=final_error,
         diff_index_path=diff_index_path,
     )
+
+
+def _append_checkpoint_round(cp: dict, rr: RoundResult) -> None:
+    rounds = list(cp.get('rounds') or [])
+    rounds.append(rr.__dict__)
+    cp['rounds'] = rounds
