@@ -8,6 +8,7 @@ import (
 
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
+	"lazyrag/core/wordgroup"
 )
 
 type schemaSource struct {
@@ -728,6 +729,22 @@ func registeredCoreOperations() []openAPIOperation {
 			}{},
 			RequestBody: jsonBodyOf(doc.AbortUploadRequest{}, false),
 			Responses:   map[int]openAPIResponse{200: refResp("Abort uploadtext", "AbortUploadResponse")},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:checkExists",
+			Summary:     "Check which words already exist",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CheckWordsExistRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Existing words among term and aliases", wordgroup.CheckWordsExistResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group",
+			Summary:     "Create word group",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CreateWordGroupRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created word group", wordgroup.CreateWordGroupResponse{})},
 		},
 	}
 }

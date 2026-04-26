@@ -23,6 +23,7 @@ func AllModelsForDDL() []interface{} {
 		&Task{},
 		&UploadSession{},
 		&UploadedFile{},
+		&Word{},
 	}
 }
 
@@ -45,5 +46,6 @@ func TableNamesForDDL() []string {
 		"tasks",
 		"upload_sessions",
 		"uploaded_files",
+		"words",
 	}
 }
