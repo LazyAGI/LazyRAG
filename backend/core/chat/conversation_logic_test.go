@@ -4,10 +4,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"lazyrag/core/evolution"
 )
 
 func TestBuildChatRequestBodyUsesConversationIDDerivedSessionID(t *testing.T) {
-	body := buildChatRequestBody("conv-1", "hello", nil, map[string]any{})
+	body := buildChatRequestBody("conv-1", "", "hello", nil, map[string]any{}, nil)
 	sessionID, ok := body["session_id"].(string)
 	if !ok {
 		t.Fatalf("expected session_id string, got %T", body["session_id"])
@@ -25,7 +27,7 @@ func TestBuildChatRequestBodyUsesConversationIDDerivedSessionID(t *testing.T) {
 }
 
 func TestBuildChatRequestBodyUsesDatasetListFilters(t *testing.T) {
-	body := buildChatRequestBody("conv-1", "hello", nil, map[string]any{
+	body := buildChatRequestBody("conv-1", "", "hello", nil, map[string]any{
 		"conversation": map[string]any{
 			"search_config": map[string]any{
 				"dataset_list": []any{
@@ -36,7 +38,7 @@ func TestBuildChatRequestBodyUsesDatasetListFilters(t *testing.T) {
 				"tags":     []any{"tag_a", "tag_b"},
 			},
 		},
-	})
+	}, nil)
 
 	filters, ok := body["filters"].(map[string]any)
 	if !ok {
@@ -70,14 +72,14 @@ func TestBuildChatRequestBodyUsesDatasetListFilters(t *testing.T) {
 
 func TestBuildChatRequestBodyKeepsExistingFilters(t *testing.T) {
 	existing := map[string]any{"kb_id": []string{"manual"}}
-	body := buildChatRequestBody("conv-1", "hello", nil, map[string]any{
+	body := buildChatRequestBody("conv-1", "", "hello", nil, map[string]any{
 		"filters": existing,
 		"conversation": map[string]any{
 			"search_config": map[string]any{
 				"dataset_list": []any{map[string]any{"id": "ds_1"}},
 			},
 		},
-	})
+	}, nil)
 
 	filters, ok := body["filters"].(map[string]any)
 	if !ok {
@@ -90,6 +92,75 @@ func TestBuildChatRequestBodyKeepsExistingFilters(t *testing.T) {
 	}
 	if len(kbIDs) != 1 || kbIDs[0] != "manual" {
 		t.Fatalf("expected existing filters to be preserved, got %#v", kbIDs)
+	}
+}
+
+func TestBuildChatRequestBodyAddsEvolutionContext(t *testing.T) {
+	ctx := &evolution.ChatResourceContext{
+		AvailableTools:     []string{"all"},
+		AvailableSkills:    []string{"coding/git-workflow"},
+		SkillFSURL:         "/data/skill-volume/skills/u1",
+		Memory:             "memory-content",
+		UserPreference:     "preference-content",
+		UsePersonalization: true,
+	}
+	body := buildChatRequestBody("conv-1", "session-1", "hello", nil, map[string]any{}, ctx)
+
+	if got := body["session_id"]; got != "session-1" {
+		t.Fatalf("expected session_id to be preserved, got %#v", got)
+	}
+	if got, ok := body["available_tools"].([]string); !ok || len(got) != 1 || got[0] != "all" {
+		t.Fatalf("unexpected available_tools: %#v", body["available_tools"])
+	}
+	if got, ok := body["available_skills"].([]string); !ok || len(got) != 1 || got[0] != "coding/git-workflow" {
+		t.Fatalf("unexpected available_skills: %#v", body["available_skills"])
+	}
+	if got := body["skill_fs_url"]; got != "/data/skill-volume/skills/u1" {
+		t.Fatalf("unexpected skill_fs_url: %#v", got)
+	}
+	if got := body["memory"]; got != "memory-content" {
+		t.Fatalf("unexpected memory: %#v", got)
+	}
+	if got := body["user_preference"]; got != "preference-content" {
+		t.Fatalf("unexpected user_preference: %#v", got)
+	}
+	if got, ok := body["use_memory"].(bool); !ok || !got {
+		t.Fatalf("expected use_memory default true, got %#v", body["use_memory"])
+	}
+	if got, ok := body["reasoning"].(bool); !ok || !got {
+		t.Fatalf("expected reasoning default true, got %#v", body["reasoning"])
+	}
+}
+
+func TestBuildChatRequestBodySkipsMemoryAndPreferenceWhenPersonalizationDisabled(t *testing.T) {
+	ctx := &evolution.ChatResourceContext{
+		AvailableTools:     []string{"all"},
+		AvailableSkills:    []string{"coding/git-workflow"},
+		SkillFSURL:         "/data/skill-volume/skills/u1",
+		Memory:             "memory-content",
+		UserPreference:     "preference-content",
+		UsePersonalization: false,
+	}
+	body := buildChatRequestBody("conv-1", "session-1", "hello", nil, map[string]any{}, ctx)
+
+	if got, ok := body["use_memory"].(bool); !ok || got {
+		t.Fatalf("expected use_memory false, got %#v", body["use_memory"])
+	}
+	if _, ok := body["memory"]; ok {
+		t.Fatalf("expected memory to be omitted when personalization is disabled")
+	}
+	if _, ok := body["user_preference"]; ok {
+		t.Fatalf("expected user_preference to be omitted when personalization is disabled")
+	}
+}
+
+func TestBuildChatRequestBodyPreservesExplicitReasoningFalse(t *testing.T) {
+	body := buildChatRequestBody("conv-1", "", "hello", nil, map[string]any{
+		"reasoning": false,
+	}, nil)
+
+	if got, ok := body["reasoning"].(bool); !ok || got {
+		t.Fatalf("expected reasoning false, got %#v", body["reasoning"])
 	}
 }
 
@@ -107,8 +178,17 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 			"tags":    []any{"t1"},
 		},
 		"files":           []any{"f1", "f2"},
+		"reasoning":       false,
 		"databases":       []any{map[string]any{"name": "db1"}},
 		"enable_thinking": true,
+		"available_tools": []any{"all"},
+		"available_skills": []any{
+			"coding/git-workflow",
+		},
+		"skill_fs_url":    "/data/skill-volume/skills/u1",
+		"memory":          "memory-content",
+		"user_preference": "preference-content",
+		"use_memory":      true,
 	})
 
 	if req.Query != "hello" || req.SessionID != "conv-1" {
@@ -132,7 +212,36 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	if len(req.Databases) != 1 {
 		t.Fatalf("unexpected databases: %#v", req.Databases)
 	}
+	if req.Reasoning {
+		t.Fatalf("expected reasoning to be false")
+	}
 	if !req.EnableThinking {
 		t.Fatalf("expected enable_thinking to be true")
+	}
+	if len(req.AvailableTools) != 1 || req.AvailableTools[0] != "all" {
+		t.Fatalf("unexpected available_tools: %#v", req.AvailableTools)
+	}
+	if len(req.AvailableSkills) != 1 || req.AvailableSkills[0] != "coding/git-workflow" {
+		t.Fatalf("unexpected available_skills: %#v", req.AvailableSkills)
+	}
+	if req.SkillFSURL != "/data/skill-volume/skills/u1" {
+		t.Fatalf("unexpected skill_fs_url: %q", req.SkillFSURL)
+	}
+	if req.Memory != "memory-content" || req.UserPreference != "preference-content" {
+		t.Fatalf("unexpected memory context: %+v", req)
+	}
+	if !req.UseMemory {
+		t.Fatalf("expected use_memory to be true")
+	}
+}
+
+func TestBuildLazyChatRequestDefaultsReasoningTrue(t *testing.T) {
+	req := buildLazyChatRequest(map[string]any{
+		"query":      "hello",
+		"session_id": "conv-1",
+	})
+
+	if !req.Reasoning {
+		t.Fatalf("expected reasoning default true")
 	}
 }

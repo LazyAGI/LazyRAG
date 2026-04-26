@@ -65,7 +65,7 @@ func exportOpenAPIArtifacts(openAPIJSON []byte) {
 // handleAPI textPermissiontext。perms text extract_api_permissions.py text api_permissions.json（Kong RBAC），
 // text core text（text Kong + auth-service Authorization）。text gorilla/mux，text path text，text ":action" text。
 func handleAPI(r *mux.Router, method, path string, perms []string, h http.HandlerFunc) {
-	r.HandleFunc(path, h).Methods(method)
+	r.HandleFunc(path, withMutationRequestAudit(method, path, h)).Methods(method)
 }
 
 func main() {

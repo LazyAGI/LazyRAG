@@ -4,7 +4,11 @@ import (
 	"lazyrag/core/acl"
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
+	"lazyrag/core/evolution"
 	"lazyrag/core/file"
+	"lazyrag/core/memory"
+	"lazyrag/core/preference"
+	"lazyrag/core/skill"
 
 	"github.com/gorilla/mux"
 )
@@ -92,6 +96,40 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/conversations:resumeChat", []string{"qa.read"}, chat.ResumeChat)
 	handleAPI(r, "POST", "/conversations:stopChatGeneration", []string{"qa.read"}, chat.StopChatGeneration)
 	handleAPI(r, "GET", "/conversations/{conversation_id}:status", []string{"qa.read"}, chat.GetChatStatus)
+	handleAPI(r, "GET", "/evolution/suggestions", []string{"qa.read"}, evolution.ListSuggestions)
+	handleAPI(r, "GET", "/evolution/suggestions/{id}", []string{"qa.read"}, evolution.GetSuggestion)
+	handleAPI(r, "POST", "/evolution/suggestions/{id}:approve", []string{"qa.read"}, evolution.ApproveSuggestion)
+	handleAPI(r, "POST", "/evolution/suggestions/{id}:reject", []string{"qa.read"}, evolution.RejectSuggestion)
+	handleAPI(r, "POST", "/evolution/suggestions:batchApprove", []string{"qa.read"}, evolution.BatchApproveSuggestions)
+	handleAPI(r, "POST", "/evolution/suggestions:batchReject", []string{"qa.read"}, evolution.BatchRejectSuggestions)
+	handleAPI(r, "GET", "/personalization-items", []string{"qa.read"}, evolution.ListManagedStates)
+	handleAPI(r, "GET", "/personalization-setting", []string{"qa.read"}, evolution.GetPersonalizationSetting)
+	handleAPI(r, "PUT", "/personalization-setting", []string{"qa.read"}, evolution.SetPersonalizationSetting)
+	handleAPI(r, "GET", "/skills", []string{"qa.read"}, skill.List)
+	handleAPI(r, "POST", "/skills", []string{"qa.read"}, skill.CreateManaged)
+	handleAPI(r, "GET", "/skill-shares/incoming", []string{"qa.read"}, skill.IncomingShares)
+	handleAPI(r, "GET", "/skill-shares/outgoing", []string{"qa.read"}, skill.OutgoingShares)
+	handleAPI(r, "GET", "/skill-shares/{share_item_id}", []string{"qa.read"}, skill.GetShareItem)
+	handleAPI(r, "POST", "/skill-shares/{share_item_id}:accept", []string{"qa.read"}, skill.AcceptShare)
+	handleAPI(r, "POST", "/skill-shares/{share_item_id}:reject", []string{"qa.read"}, skill.RejectShare)
+	handleAPI(r, "GET", "/skills/{skill_id}", []string{"qa.read"}, skill.Get)
+	handleAPI(r, "GET", "/skills/{skill_id}:draft-preview", []string{"qa.read"}, skill.DraftPreview)
+	handleAPI(r, "PATCH", "/skills/{skill_id}", []string{"qa.read"}, skill.UpdateManaged)
+	handleAPI(r, "DELETE", "/skills/{skill_id}", []string{"qa.read"}, skill.DeleteManaged)
+	handleAPI(r, "POST", "/skills/{skill_id}:generate", []string{"qa.read"}, skill.Generate)
+	handleAPI(r, "POST", "/skills/{skill_id}:confirm", []string{"qa.read"}, skill.Confirm)
+	handleAPI(r, "POST", "/skills/{skill_id}:discard", []string{"qa.read"}, skill.Discard)
+	handleAPI(r, "POST", "/skills/{skill_id}:share", []string{"qa.read"}, skill.Share)
+	handleAPI(r, "PUT", "/memory", []string{"qa.read"}, memory.Upsert)
+	handleAPI(r, "GET", "/memory:draft-preview", []string{"qa.read"}, memory.DraftPreview)
+	handleAPI(r, "POST", "/memory:generate", []string{"qa.read"}, memory.Generate)
+	handleAPI(r, "POST", "/memory:confirm", []string{"qa.read"}, memory.Confirm)
+	handleAPI(r, "POST", "/memory:discard", []string{"qa.read"}, memory.Discard)
+	handleAPI(r, "PUT", "/user-preference", []string{"qa.read"}, preference.Upsert)
+	handleAPI(r, "GET", "/user-preference:draft-preview", []string{"qa.read"}, preference.DraftPreview)
+	handleAPI(r, "POST", "/user-preference:generate", []string{"qa.read"}, preference.Generate)
+	handleAPI(r, "POST", "/user-preference:confirm", []string{"qa.read"}, preference.Confirm)
+	handleAPI(r, "POST", "/user-preference:discard", []string{"qa.read"}, preference.Discard)
 
 	// :detail text {name} text，text /conversations/xxx:detail text {name} text GetConversation（text history）
 	handleAPI(r, "GET", "/conversations/{name}:detail", []string{"qa.read"}, chat.GetConversationDetail)
@@ -116,6 +154,13 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "DELETE", "/prompts/{name}", []string{"document.write"}, chat.DeletePrompt)
 	handleAPI(r, "GET", "/prompts/{name}", []string{"document.read"}, chat.GetPrompt)
 	handleAPI(r, "GET", "/prompts", []string{"document.read"}, chat.ListPrompts)
+
+	// ----- Evolution / long-term state -----
+	handleAPI(r, "POST", "/skill/suggestion", []string{}, skill.Suggestion)
+	handleAPI(r, "POST", "/skill/create", []string{}, skill.Create)
+	handleAPI(r, "POST", "/skill/remove", []string{}, skill.Remove)
+	handleAPI(r, "POST", "/memory/suggestion", []string{}, memory.Suggestion)
+	handleAPI(r, "POST", "/user_preference/suggestion", []string{}, preference.Suggestion)
 
 	// ----- ACL（Knowledge basetextPermission） -----
 	handleAPI(r, "GET", "/kb/list", []string{"document.read"}, acl.ListKB)
