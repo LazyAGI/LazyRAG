@@ -101,7 +101,7 @@ def get_eval_queue(eval_name, case_id='',dataset_name=''):
             "reference_chunk_ids": case["reference_chunk_ids"],
             "reference_doc_ids": case["reference_doc_ids"],
             "ground_truth": ground_truth,
-            "rag_answer": rag_response[0],
+            # "rag_answer": rag_response[0],
             "retrieve_contexts": rag_response[1],
             "retrieve_doc": rag_response[2],
             "rag_response": rag_response[3],

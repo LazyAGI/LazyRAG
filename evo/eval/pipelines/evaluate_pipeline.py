@@ -15,7 +15,7 @@ def create_evaluate_task(eval_queue):
                 evaluate_answer,
                 item["question"],
                 item["ground_truth"],
-                item["rag_answer"],
+                # item["rag_answer"],
                 item["key_points"],
                 item["retrieve_contexts"]
             ): item
@@ -71,7 +71,6 @@ def run_evaluate_pipeline_id(eval_name, case_id, dataset_name=''):
     log.info(f"开始执行评测任务：{eval_name}")
 
     eval_data = get_eval_queue(eval_name=eval_name, case_id=case_id,dataset_name=dataset_name)
-    eval_queue = eval_data["eval_queue"]
     eval_queue = eval_data["eval_queue"]
 
     result = create_evaluate_task(eval_queue)

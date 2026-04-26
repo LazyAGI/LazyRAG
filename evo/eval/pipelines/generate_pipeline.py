@@ -1,8 +1,8 @@
 from lazyllm import pipeline, parallel, loop
-from services.chunk_service import get_doc_list, get_single_file_chunks
+from services.chunk_service import get_doc_list, get_all_chunks_with_docid
 from services.prompt_service import prompt_generate_single_hop, prompt_generate_multihop
 from services.llm_service import chat
-from config import TASK_SETTINGS
+from config import TASK_SETTINGS,TOTAL_NUM
 from utils.logger import log
 from utils.checker import is_qa_json_valid
 from services.graph_services import ParallelKGBuilder
@@ -10,7 +10,6 @@ from utils.writer import write_full_eval_set, build_full_eval_set
 import random
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
 
 def generate_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
     result_list = []
@@ -28,7 +27,6 @@ def generate_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
 
         try:
             doc_list = get_doc_list(kb_id, algo_id)
-
             if not doc_list:
                 with lock:
                     no_doc_flag = True
@@ -39,7 +37,7 @@ def generate_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
             doc_id = selected_doc["doc_id"]
             filename = selected_doc.get("filename", "unknown.pdf")
 
-            chunk_list = get_single_file_chunks(kb_id, doc_id, algo_id)
+            chunk_list = get_all_chunks_with_docid(kb_id, doc_id, algo_id)
             valid_chunks = [c for c in chunk_list if len(c["content"]) > 50]
             if not valid_chunks:
                 return None
@@ -113,18 +111,39 @@ def generate_multi_hop(kb_id):
 
 
 def run_generate_pipeline(kb_id, algo_id, eval_name):
-    # with pipeline() as ppl:
-    #     ppl.all = parallel(
-    #         generate_single_hop(prompt_generate_single_hop, TASK_SETTINGS["single_hop"]["num"], kb_id, algo_id, max_workers=5)
-    #         generate_multi_hop(kb_id, algo_id)
-    # )
-    # return ppl(None)
+    """
+    生成评测集主流程：
+    1. 生成单跳 + 多跳问题
+    2. 不足 100 题则用单跳补齐
+    3. 构建最终评测集并写入文件
+    """
     log.info("开始生成评测集")
-    result_single_hop = generate_single_hop(prompt_generate_single_hop, TASK_SETTINGS["single_hop"]["num"], kb_id,
-                                               algo_id,
-                                               max_workers=5)
-    result_multi_hop = generate_multi_hop(kb_id)
-    result = result_single_hop + result_multi_hop
+
+    result_single = generate_single_hop(
+        prompt_generate_single_hop,
+        TASK_SETTINGS["single_hop"]["num"],
+        kb_id,
+        algo_id,
+        max_workers=5
+    )
+    result_multi = generate_multi_hop(kb_id)
+    result = result_single + result_multi
+    log.info(f"单跳生成 {len(result_single)} 条，多跳生成 {len(result_multi)} 条，总计 {len(result)} 条")
+
+    # 2. 不足 TOTAL_NUM，则补充单跳
+    deficit = TOTAL_NUM - len(result)
+    if deficit > 0:
+        log.info(f"总量不足 {TOTAL_NUM} 条，需补充 {deficit} 条单跳问题")
+        supplementary = generate_single_hop(
+            prompt_generate_single_hop,
+            deficit,
+            kb_id,
+            algo_id,
+            max_workers=5
+        )
+        result += supplementary
+        log.info(f"补充完成，最终总量：{len(result)} 条")
+
     final_data = build_full_eval_set(
         qa_result=result,
         eval_name=eval_name,
@@ -132,4 +151,5 @@ def run_generate_pipeline(kb_id, algo_id, eval_name):
     )
     file_path = write_full_eval_set(eval_name, final_data)
 
+    log.info(f"评测集生成完成，保存路径：{file_path}")
     return file_path, final_data

@@ -8,7 +8,7 @@ if __name__ == "__main__":
     algo_id="general_algo"
     dataset_name ='' #算法接口需要的参数
     # test generate
-    #run_generate_pipeline(kb_id, algo_id, eval_name)
+    run_generate_pipeline(kb_id, algo_id, eval_name)
     eval_names=["研究院"]
     # test eval
     run_evaluate_pipeline(eval_names,dataset_name)

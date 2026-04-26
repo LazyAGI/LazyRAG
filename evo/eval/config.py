@@ -22,8 +22,9 @@ REQUEST_TIMEOUT = 10
 DATA_PATH = "./data"
 
 # 评测集数量配置
+TOTAL_NUM = 10
 TASK_SETTINGS = {
-    "single_hop": {"num": 1},
+    "single_hop": {"num": 2},
     "multi_hop": {"num": 20},
     "multi_file": {"num": 20},
     "formula": {"num": 5},

@@ -4,11 +4,10 @@ from itertools import combinations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.logger import log
 from utils.cleaner import clean_and_filter_chunk
-from services.chunk_service import get_doc_list, get_all_chunks_with_filename
+from services.chunk_service import get_doc_list, get_all_chunks_with_docid
 from config import MAX_PROCESS_CHUNK_PER_DOC, MAX_WORKERS
 from services.llm_service import chat
 from utils.checker import is_qa_json_valid
-
 
 class ParallelKGBuilder:
     def __init__(self):
@@ -18,7 +17,7 @@ class ParallelKGBuilder:
     def extract_single_chunk_triples(self, chunk):
         content = chunk["content"]
         filename = chunk["filename"]
-        chunk_uid = chunk.get("uid", "")
+        chunk_id = chunk.get("id", "")
         doc_id = chunk.get("doc_id", "")
         content = clean_and_filter_chunk(content)
         if not content:
@@ -43,6 +42,7 @@ class ParallelKGBuilder:
     def build_global_graph_from_all_docs(self, kb_id):
         log.info("\n加载全部文档构建全局知识图谱...")
         doc_list = get_doc_list(kb_id)
+
         log.info(f"总文档数：{len(doc_list)}")
 
         all_chunks = []
@@ -50,7 +50,8 @@ class ParallelKGBuilder:
             doc_id = doc_item["doc"]["doc_id"]
             doc_name = doc_item["doc"].get("name", f"{doc_id}")
             log.info(f"读取第 {idx + 1}/{len(doc_list)} 篇：{doc_name}")
-            chunks = get_all_chunks_with_filename(kb_id, doc_id)
+
+            chunks = get_all_chunks_with_docid(kb_id, doc_id)
             chunks = chunks[:MAX_PROCESS_CHUNK_PER_DOC]
             for c in chunks:
                 if not c.get("doc_id"):
@@ -66,7 +67,7 @@ class ParallelKGBuilder:
             for i, future in enumerate(as_completed(future_to_chunk)):
                 triples, chunk = future.result()
                 filename = chunk["filename"]
-                uid = chunk.get("uid", "")
+                chunk_id = chunk.get("chunk_id", "")
                 doc_id = chunk.get("doc_id", "")
                 if i % 20 == 0:
                     log.info(f"进度：{i + 1}/{len(all_chunks)} | {filename}")
@@ -83,7 +84,7 @@ class ParallelKGBuilder:
                             "s": s, "p": p, "o": o,
                             "file": filename,
                             "chunk": chunk,
-                            "chunk_uid": chunk.get("uid", ""),
+                            "chunk_id": chunk.get("chunk_id", ""),
                             "doc_id": chunk.get("doc_id", "")
                         })
 
@@ -92,7 +93,7 @@ class ParallelKGBuilder:
     def get_triple_source_by_path(self, path):
         source_files = set()
         source_chunks = []
-        source_chunk_uids = []
+        source_chunk_ids = []
         source_doc_ids = []
 
         for i in range(len(path) - 1):
@@ -103,7 +104,7 @@ class ParallelKGBuilder:
                 if raw["s"] == s and raw["p"] == rel and raw["o"] == o:
                     source_files.add(raw["file"])
                     source_chunks.append(raw["chunk"])
-                    source_chunk_uids.append(raw["chunk_uid"])
+                    source_chunk_ids.append(raw["chunk_id"])
                     source_doc_ids.append(raw["doc_id"])
                     break
 
@@ -111,7 +112,7 @@ class ParallelKGBuilder:
         return {
             "source_files": list(source_files),
             "source_chunks": source_chunks,
-            "source_chunk_uids": source_chunk_uids,
+            "source_chunk_ids": source_chunk_ids,
             "source_doc_ids": source_doc_ids,
             "is_cross_document": is_cross_doc
         }
@@ -134,7 +135,10 @@ class ParallelKGBuilder:
             6. 问题不含这个、那个、那份、该项等冗余指示代词。
 
             不符合以上任意一条，一律输出“否”并丢弃该问题。
-            禁止输出多余文字、解释、理由，只输出一个字：是 或 否。
+            禁止输出多余文字、解释、理由，只输出True(是的情况) 或 False（否的情况），必须JSON格式输出
+            {{
+               "is_multihop":"True or False",
+            }}
 
             问题：{question}
             文档1：{chunk1}
@@ -143,10 +147,10 @@ class ParallelKGBuilder:
 
             try:
                 res = chat(prompt)
+                return res.get("is_multihop")
             except Exception as e:
                 log.error(e)
-                res = "否"
-            return res == "是"
+                return False
         except Exception as e:
             log.error(f"校验失败: {e}")
             return False
@@ -163,7 +167,7 @@ class ParallelKGBuilder:
             source = self.get_triple_source_by_path(path)
 
             doc_ids = source.get("source_doc_ids", [])
-            chunk_uids = source.get("source_chunk_uids", [])
+            chunk_ids = source.get("source_chunk_ids", [])
 
             # 规则分支
             if cross_doc:
@@ -175,15 +179,15 @@ class ParallelKGBuilder:
                 # 单文档同文件、不同片段
                 if len(set(doc_ids)) != 1:
                     return None
-                if len(chunk_uids) < 2 or chunk_uids[0] == chunk_uids[1]:
+                if len(chunk_ids) < 2 or chunk_ids[0] == chunk_ids[1]:
                     return None
                 question_type = 2
                 log_prefix = "单文档"
 
             c1 = source["source_chunks"][0]["content"]
             c2 = source["source_chunks"][1]["content"]
-            cu1 = chunk_uids[0] if len(chunk_uids) > 0 else ""
-            cu2 = chunk_uids[1] if len(chunk_uids) > 1 else ""
+            cu1 = chunk_ids[0] if len(chunk_ids) > 0 else ""
+            cu2 = chunk_ids[1] if len(chunk_ids) > 1 else ""
             d1 = doc_ids[0] if len(doc_ids) > 0 else ""
             d2 = doc_ids[1] if len(doc_ids) > 1 else ""
 
@@ -226,9 +230,7 @@ class ParallelKGBuilder:
                 out = None
             if not out:
                 return None
-            out = out.replace("```json", "").replace("```", "").strip()
-            qa = json.loads(out)
-
+            qa = out
             if not qa.get("is_single_chunk_unanswerable"):
                 return None
 
