@@ -23,6 +23,9 @@ from chat.tools.memory import (
 )
 
 _PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9._-]+$')
+_UUID_SEGMENT_RE = re.compile(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
 _FRONTMATTER_RE = re.compile(r'^---\s*\n(.*?)\n---\s*\n(.*)$', re.DOTALL)
 _MAX_DESCRIPTION_LENGTH = 1024
 
@@ -121,16 +124,57 @@ def _extract_category_from_path(skill_dir: str, skill_name: str) -> str:
     if parts[-1] == skill_name:
         parts = parts[:-1]
 
-    return '/'.join(parts)
+    if parts and _UUID_SEGMENT_RE.match(parts[0]):
+        parts = parts[1:]
+
+    return parts[-1] if parts else ''
+
+
+def _skill_identity(category: str, skill_name: str) -> str:
+    return f'{category}/{skill_name}' if category else skill_name
+
+
+def list_all_skill_entries(
+    skill_fs_url: str,
+) -> Dict[str, Dict[str, str]]:
+    manager = LazySkillManager(dir=skill_fs_url, fs=FS)
+    results: Dict[str, Dict[str, str]] = {}
+
+    for skill_dir, skill_md in manager._iter_skill_files():
+        if manager._fs_getsize(skill_md) > manager._max_skill_md_bytes:
+            continue
+        try:
+            content = manager._fs_read(skill_md)
+        except Exception:
+            continue
+
+        meta = manager._extract_yaml_meta(content)
+        if not manager._is_meta_valid(meta):
+            continue
+
+        name = str(meta.get('name') or '').strip()
+        if not name:
+            continue
+
+        category = _extract_category_from_path(skill_dir, name)
+        skill_id = _skill_identity(category, name)
+        if skill_id in results:
+            continue
+
+        results[skill_id] = {
+            'name': name,
+            'category': category,
+            'path': skill_dir,
+        }
+    return results
+
 
 def list_all_skills_with_category(
     skill_fs_url: str,
 ) -> Dict[str, str]:
-    manager = LazySkillManager(dir=skill_fs_url, fs=FS)
-    manager._load_skills_index()
     results: Dict[str, str] = {}
-    for name, info in manager._skills_index.items():
-        results[name] = _extract_category_from_path(info.get('path', ''), name)
+    for info in list_all_skill_entries(skill_fs_url).values():
+        results.setdefault(info['name'], info['category'])
     return results
 
 
@@ -139,7 +183,7 @@ def list_all_skills_with_category(
 def skill_manage(
     name: str,
     action: Literal['create', 'modify', 'remove'],
-    category: Optional[str] = '',
+    category: Optional[str],
     content: Optional[str] = None,
     suggestions: Optional[List[Suggestion]] = None,
 ) -> Dict[str, Any]:
@@ -167,7 +211,16 @@ def skill_manage(
     if not session_id:
         return _fail("'session_id' is required in agentic_config.")
 
-    existing_skills = list_all_skills_with_category(agentic_config.get('skill_fs_url') or '')
+    normalized_category = _normalize_category(category)
+    if normalized_category is None:
+        return _fail(
+            f"Category {category!r} is invalid; it must be a single "
+            "ASCII-safe path segment (only letters, digits, '-', '_' "
+            "and '.'; no spaces, no Chinese, no '/')."
+        )
+
+    existing_skills = list_all_skill_entries(agentic_config.get('skill_fs_url') or '')
+    skill_id = _skill_identity(normalized_category or '', name)
 
     if action == 'create':
         content_error = _validate_skill_content(content or '')
@@ -175,18 +228,10 @@ def skill_manage(
             return _fail(content_error)
         if suggestions:
             return _fail("action='create' must not include 'suggestions'.")
-        if name in existing_skills:
+        if skill_id in existing_skills:
             return _fail(
-                f"Skill {name!r} already exists; use action='modify' to edit it "
-                "or action='remove' to delete it first."
-            )
-
-        normalized_category = _normalize_category(category)
-        if normalized_category is None:
-            return _fail(
-                f"Category {category!r} is invalid; it must be a single "
-                "ASCII-safe path segment (only letters, digits, '-', '_' "
-                "and '.'; no spaces, no Chinese, no '/')."
+                f"Skill {name!r} already exists in category {normalized_category!r}; "
+                "use action='modify' to edit it or action='remove' to delete it first."
             )
 
         result: Dict[str, Any] = {
@@ -217,22 +262,22 @@ def skill_manage(
                 f'At most {MAX_SUGGESTIONS_PER_CALL} suggestions are allowed per call; '
                 f'got {len(suggestions)}.'
             )
-        if name not in existing_skills:
+        if skill_id not in existing_skills:
             return _fail(
-                f"Skill {name!r} does not exist; use action='create' to add a new skill."
+                f"Skill {name!r} does not exist in category {normalized_category!r}; "
+                "use action='create' to add a new skill."
             )
 
-        resolved_category = existing_skills[name]
         result = {
             'name': name,
             'action': action,
-            'category': resolved_category,
+            'category': normalized_category,
             'suggestions': list(suggestions),
         }
         payload = {
             'session_id': session_id,
             'skill_name': name,
-            'category': resolved_category,
+            'category': normalized_category,
             'suggestions': [dict(s) for s in suggestions],
         }
         try:
@@ -244,19 +289,21 @@ def skill_manage(
     if action == 'remove':
         if content is not None or suggestions:
             return _fail("action='remove' must not include 'content' or 'suggestions'.")
-        if name not in existing_skills:
-            return _fail(f"Skill {name!r} does not exist; nothing to remove.")
+        if skill_id not in existing_skills:
+            return _fail(
+                f"Skill {name!r} does not exist in category {normalized_category!r}; "
+                "nothing to remove."
+            )
 
-        resolved_category = existing_skills[name]
         result = {
             'name': name,
             'action': action,
-            'category': resolved_category,
+            'category': normalized_category,
         }
         payload = {
             'session_id': session_id,
             'skill_name': name,
-            'category': resolved_category,
+            'category': normalized_category,
         }
         try:
             result.update(_post_core_api('/skill/remove', payload))

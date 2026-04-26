@@ -6,9 +6,9 @@
 
 | 接口 | 用途 | 对应算法侧工具 |
 |------|------|----------------|
-| `POST /skill/suggestion` | 对已有 skill 提交修改建议 | `skill_manage(name, action='modify', suggestions=...)` |
-| `POST /skill/create` | 新建 skill | `skill_manage(name, action='create', content=...)` |
-| `POST /skill/remove` | 删除 skill | `skill_manage(name, action='remove')` |
+| `POST /skill/suggestion` | 对已有 skill 提交修改建议 | `skill_manage(name, action='modify', category=..., suggestions=...)` |
+| `POST /skill/create` | 新建 skill | `skill_manage(name, action='create', category=..., content=...)` |
+| `POST /skill/remove` | 删除 skill | `skill_manage(name, action='remove', category=...)` |
 | `POST /memory/suggestion` | 记录 agent memory 修改建议 | `memory(target='memory', suggestions=...)` |
 | `POST /user_preference/suggestion` | 记录用户偏好修改建议 | `memory(target='user', suggestions=...)` |
 
@@ -18,11 +18,11 @@
 
 | `action` | 对应 HTTP 接口 | 存在性约束（基于用户**全量** skill 列表） |
 |----------|----------------|-------------------------------------------|
-| `create` | `POST /skill/create`     | `skill_name` 必须**不存在** |
-| `modify` | `POST /skill/suggestion` | `skill_name` 必须**已存在** |
-| `remove` | `POST /skill/remove`     | `skill_name` 必须**已存在** |
+| `create` | `POST /skill/create`     | (`category`, `skill_name`) 必须**不存在** |
+| `modify` | `POST /skill/suggestion` | (`category`, `skill_name`) 必须**已存在** |
+| `remove` | `POST /skill/remove`     | (`category`, `skill_name`) 必须**已存在** |
 
-> 存在性校验以用户的**全量 skill 列表**为准，不是 agent 的 `available_skills` 白名单；算法侧通过 `skill_manager.list_all_skills` 从远端 skill 文件系统读取全量目录。
+> 存在性校验以用户的**全量 skill 列表**为准，不是 agent 的 `available_skills` 白名单；算法侧通过远端 skill 文件系统读取全量目录。`category` 取 skill 路径中 `skill_name` 的直接上一层目录；若 `/skills/` 之后先出现 UUID 样式的 user_id 目录，需要忽略该段。
 
 ---
 
@@ -75,6 +75,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `session_id` | `string` | 是 | 会话 ID |
+| `category` | `string` | 是 | 目标 skill 的分类目录，与 `skill_name` 一起唯一标识一个 skill |
 | `skill_name` | `string` | 是 | 目标 skill 名（必须为已存在的 skill） |
 | `suggestions` | `Suggestion[]` | 是 | 建议列表，长度 **≤ 5** |
 
@@ -83,6 +84,7 @@
 ```json
 {
   "session_id": "sess-abc",
+  "category": "engineering",
   "skill_name": "git-workflow",
   "suggestions": [
     {
@@ -98,7 +100,7 @@
 
 - `len(suggestions) > 5` → `400`；
 - 字段类型 / 必填缺失 → `400`；
-- `skill_name` 对应 skill 不存在 → `404`（由后端决定是否改为引导调用 `/skill/create`）。
+- (`category`, `skill_name`) 对应 skill 不存在 → `404`（由后端决定是否改为引导调用 `/skill/create`）。
 
 ---
 
@@ -109,6 +111,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `session_id` | `string` | 是 | 会话 ID |
+| `category` | `string` | 是 | 新建 skill 的分类目录 |
 | `skill_name` | `string` | 是 | 新建 skill 的名称（必须是当前不存在的 skill） |
 | `content` | `string` | 是 | 新 skill 的完整 SKILL.md 正文（非空） |
 
@@ -117,6 +120,7 @@
 ```json
 {
   "session_id": "sess-abc",
+  "category": "engineering",
   "skill_name": "git-workflow",
   "content": "# Git Workflow\n\n## Commit\n- 团队内优先使用 rebase 保持提交线性。\n"
 }
@@ -125,7 +129,7 @@
 **校验规则**
 
 - `content` 缺失 / 为空字符串 → `400`；
-- `skill_name` 已存在 → `409`（由后端定义，亦可要求 Agent 改走 `/skill/suggestion`）；
+- (`category`, `skill_name`) 已存在 → `409`（由后端定义，亦可要求 Agent 改走 `/skill/suggestion`）；
 - 字段类型 / 必填缺失 → `400`。
 
 > 注意：本接口**不接受 `suggestions` 字段**；创建语义下传入 suggestions 视为 `400`。
@@ -139,6 +143,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `session_id` | `string` | 是 | 会话 ID |
+| `category` | `string` | 是 | 目标 skill 的分类目录，与 `skill_name` 一起唯一标识一个 skill |
 | `skill_name` | `string` | 是 | 目标 skill 名（必须为已存在的 skill） |
 
 **请求示例**
@@ -146,13 +151,14 @@
 ```json
 {
   "session_id": "sess-abc",
+  "category": "engineering",
   "skill_name": "git-workflow"
 }
 ```
 
 **校验规则**
 
-- `skill_name` 不存在 → `404`；
+- (`category`, `skill_name`) 不存在 → `404`；
 - 字段类型 / 必填缺失 → `400`；
 - 请求体中出现 `content` 或 `suggestions` → `400`（删除语义不接受任何正文字段）。
 
@@ -249,8 +255,8 @@
 | HTTP 状态 | 典型场景 |
 |-----------|----------|
 | `400` | 参数格式错误；必填字段缺失；单次 `suggestions` 超过 5；`create` 缺少 `content`；`remove` 传入正文字段 |
-| `404` | `/skill/suggestion`、`/skill/remove` 指定的 `skill_name` 不存在 |
-| `409` | `/skill/create` 指定的 `skill_name` 已存在 |
+| `404` | `/skill/suggestion`、`/skill/remove` 指定的 (`category`, `skill_name`) 不存在 |
+| `409` | `/skill/create` 指定的 (`category`, `skill_name`) 已存在 |
 | `500` | 后端异常 |
 
 ---
@@ -259,9 +265,9 @@
 
 | HTTP 接口 | 对应 Python 工具 |
 |-----------|------------------|
-| `POST /skill/suggestion` | `chat.tools.skill_manager.skill_manage(name, action='modify', suggestions=...)` |
-| `POST /skill/create` | `chat.tools.skill_manager.skill_manage(name, action='create', content=...)` |
-| `POST /skill/remove` | `chat.tools.skill_manager.skill_manage(name, action='remove')` |
+| `POST /skill/suggestion` | `chat.tools.skill_manager.skill_manage(name, action='modify', category=..., suggestions=...)` |
+| `POST /skill/create` | `chat.tools.skill_manager.skill_manage(name, action='create', category=..., content=...)` |
+| `POST /skill/remove` | `chat.tools.skill_manager.skill_manage(name, action='remove', category=...)` |
 | `POST /memory/suggestion` | `chat.tools.memory.memory(target='memory', suggestions=...)` |
 | `POST /user_preference/suggestion` | `chat.tools.memory.memory(target='user', suggestions=...)` |
 

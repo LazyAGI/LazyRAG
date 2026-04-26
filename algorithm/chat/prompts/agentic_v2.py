@@ -33,9 +33,13 @@ SKILLS_GUIDANCE = (
     "frontmatter. The layout is always category/name/SKILL.md.\n"
     "- action='modify': when using a skill and finding it outdated, incomplete, or "
     "wrong, submit targeted edit proposals via `suggestions` (natural-language, "
-    "max 5 per call).\n"
+    "max 5 per call). Existing skills are identified by the pair (`category`, `name`), "
+    "not by `name` alone. Derive `category` from the directory immediately above "
+    "the `skill_name` directory in the skill path. For example, in "
+    "`.../skills/<user_id>/testing/test-full-flow`, `name` is `test-full-flow` and "
+    "`category` is `testing`; ignore the UUID-like `<user_id>` segment.\n"
     "- action='remove': when a skill is superseded or no longer correct, request "
-    "its deletion by name (no `content` / `suggestions`)."
+    "its deletion by (`category`, `name`) (no `content` / `suggestions`)."
 )
 CITATION_GUIDANCE = '''# Citation Rules
 When using evidence returned by knowledge-base tools, cite it with the exact `ref` marker from the tool result, such as `[[1]]`.
@@ -98,6 +102,9 @@ _SKILL_REVIEW_PROMPT = (
     "The final skill must be no more than 1000 Chinese characters (or equivalent length in other languages). "
     "Prefer a short, high-density SOP over a detailed explanation.\n\n"
     "If a relevant existing skill already covers this scenario, update it rather than creating a duplicate. "
+    "When you update or remove an existing skill with `skill_manage`, identify it by both `category` and `name`. "
+    "The `category` is the directory immediately above the skill directory in the skill path; "
+    "ignore any UUID-like user-id directory under `/skills/`.\n\n"
     "If the conversation does not contain a sufficiently generalizable workflow, reply exactly: Nothing to save."
 )
 _MEMORY_REVIEW_PROMPT = (
@@ -113,6 +120,9 @@ _COMBINED_REVIEW_PROMPT = (
     "Save durable preferences or environment facts with the memory tool. "
     "Save reusable multi-step workflows or troubleshooting procedures as skills with skill_manage. "
     "Prefer updating an existing skill if one already covers the task. "
+    "For existing skills, identify the target by both `category` and `name`; "
+    "the `category` is the directory immediately above the skill directory in the skill path, "
+    "ignoring any UUID-like user-id directory under `/skills/`. "
     "Do not save ephemeral task state.\n"
     "If nothing is worth saving, reply exactly: Nothing to save."
 )

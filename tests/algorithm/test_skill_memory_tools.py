@@ -69,8 +69,14 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
     monkeypatch.setattr(skill_manager_mod, '_post_core_api', fake_post_core_api)
     monkeypatch.setattr(
         skill_manager_mod,
-        'list_all_skills_with_category',
-        lambda _base_dir: {'existing': 'writing'},
+        'list_all_skill_entries',
+        lambda _base_dir: {
+            'writing/existing': {
+                'name': 'existing',
+                'category': 'writing',
+                'path': '/tmp/skills/writing/existing',
+            }
+        },
     )
 
     content = (
@@ -91,9 +97,10 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
     modify_result = skill_manager_mod.skill_manage(
         'existing',
         'modify',
+        category='writing',
         suggestions=[suggestion],
     )
-    remove_result = skill_manager_mod.skill_manage('existing', 'remove')
+    remove_result = skill_manager_mod.skill_manage('existing', 'remove', category='writing')
 
     assert create_result['success'] is True
     assert modify_result['success'] is True
@@ -101,13 +108,26 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
     assert calls == [
         (
             '/skill/create',
-            {'session_id': 'sid-1', 'skill_name': 'new_skill', 'content': content},
+            {
+                'session_id': 'sid-1',
+                'category': 'drafts',
+                'skill_name': 'new_skill',
+                'content': content,
+            },
         ),
         (
             '/skill/suggestion',
-            {'session_id': 'sid-1', 'skill_name': 'existing', 'suggestions': [suggestion]},
+            {
+                'session_id': 'sid-1',
+                'skill_name': 'existing',
+                'category': 'writing',
+                'suggestions': [suggestion],
+            },
         ),
-        ('/skill/remove', {'session_id': 'sid-1', 'skill_name': 'existing'}),
+        (
+            '/skill/remove',
+            {'session_id': 'sid-1', 'skill_name': 'existing', 'category': 'writing'},
+        ),
     ]
 
 
@@ -120,16 +140,17 @@ def test_skill_manage_rejects_missing_skill_without_post(monkeypatch):
         lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
     )
     monkeypatch.setattr(skill_manager_mod, '_post_core_api', lambda path, payload: calls.append((path, payload)))
-    monkeypatch.setattr(skill_manager_mod, 'list_all_skills_with_category', lambda _base_dir: {})
+    monkeypatch.setattr(skill_manager_mod, 'list_all_skill_entries', lambda _base_dir: {})
 
     result = skill_manager_mod.skill_manage(
         'missing',
         'modify',
+        category='writing',
         suggestions=[{'title': 'Update instructions', 'content': 'Tighten the wording.'}],
     )
 
     assert result == {
         'success': False,
-        'reason': "Skill 'missing' does not exist; use action='create' to add a new skill.",
+        'reason': "Skill 'missing' does not exist in category 'writing'; use action='create' to add a new skill.",
     }
     assert calls == []
