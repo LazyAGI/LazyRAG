@@ -9,6 +9,7 @@ from services.graph_services import ParallelKGBuilder
 from utils.writer import write_full_eval_set, build_full_eval_set
 import random
 import threading
+import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def generate_single_hop(p_func, count, kb_id, algo_id, max_workers=5):
@@ -112,44 +113,69 @@ def generate_multi_hop(kb_id):
 
 def run_generate_pipeline(kb_id, algo_id, eval_name):
     """
-    生成评测集主流程：
-    1. 生成单跳 + 多跳问题
-    2. 不足 100 题则用单跳补齐
-    3. 构建最终评测集并写入文件
+    并行生成评测集主流程：
+    - 支持：单跳、多跳、表格、公式 等任意任务扩展
+    - 并行执行，速度翻倍
+    - 最终自动凑够 100 题
     """
     log.info("开始生成评测集")
 
-    result_single = generate_single_hop(
-        prompt_generate_single_hop,
-        TASK_SETTINGS["single_hop"]["num"],
-        kb_id,
-        algo_id,
-        max_workers=5
-    )
-    result_multi = generate_multi_hop(kb_id)
-    result = result_single + result_multi
-    log.info(f"单跳生成 {len(result_single)} 条，多跳生成 {len(result_multi)} 条，总计 {len(result)} 条")
-
-    # 2. 不足 TOTAL_NUM，则补充单跳
-    deficit = TOTAL_NUM - len(result)
-    if deficit > 0:
-        log.info(f"总量不足 {TOTAL_NUM} 条，需补充 {deficit} 条单跳问题")
-        supplementary = generate_single_hop(
+    def task_single():
+        return generate_single_hop(
             prompt_generate_single_hop,
-            deficit,
-            kb_id,
-            algo_id,
-            max_workers=5
+            TASK_SETTINGS["single_hop"]["num"],
+            kb_id, algo_id, max_workers=5
         )
-        result += supplementary
-        log.info(f"补充完成，最终总量：{len(result)} 条")
+
+    def task_multi():
+        return generate_multi_hop(kb_id)
+
+    # 在这里继续加任务
+    # def task_table(): return generate_table_questions(kb_id, algo_id)
+    # def task_formula(): return generate_formula_questions(kb_id, algo_id)
+
+    # 任务列表
+    tasks = [
+        ("单跳", task_single),
+        ("多跳", task_multi),
+        # ("表格", task_table),
+        # ("公式", task_formula),
+    ]
+
+    log.info("开始并行执行所有生成任务...")
+    all_results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        future_map = {executor.submit(task): name for name, task in tasks}
+        for future in concurrent.futures.as_completed(future_map):
+            task_name = future_map[future]
+            try:
+                res = future.result()
+                log.info(f"✅ {task_name} 任务完成，生成 {len(res)} 条")
+                all_results.extend(res)
+            except Exception as e:
+                log.error(f"❌ {task_name} 任务失败: {str(e)}")
+
+    total = len(all_results)
+    log.info(f"所有任务并行完成，总计生成: {total} 条")
+
+    deficit = max(TOTAL_NUM - total, 0)
+    if deficit > 0:
+        log.info(f"需要补充 {deficit} 条单跳问题，确保达到 {TOTAL_NUM} 条")
+        supplement = generate_single_hop(
+            prompt_generate_single_hop, deficit, kb_id, algo_id, max_workers=5
+        )
+        all_results.extend(supplement)
+        log.info(f"补充完成，最终总量: {len(all_results)} 条")
+
+    all_results = all_results[:TOTAL_NUM]
 
     final_data = build_full_eval_set(
-        qa_result=result,
+        qa_result=all_results,
         eval_name=eval_name,
         kb_id=kb_id,
     )
     file_path = write_full_eval_set(eval_name, final_data)
 
-    log.info(f"评测集生成完成，保存路径：{file_path}")
+    log.info(f"评测集生成完成！文件路径：{file_path}，总题数：{len(all_results)}")
     return file_path, final_data
+
