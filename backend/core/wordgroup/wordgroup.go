@@ -92,7 +92,7 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	base := orm.BaseModel{
+	base := orm.WordBase{
 		CreateUserID:   userID,
 		CreateUserName: userName,
 		CreatedAt:      now,
@@ -113,7 +113,7 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 			Source:        src,
 			ReferenceInfo: ref,
 			Locked:        body.Lock,
-			BaseModel:     base,
+			WordBase:      base,
 		}
 		if err := tx.Create(&termRow).Error; err != nil {
 			return err
@@ -129,7 +129,7 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 				Source:        src,
 				ReferenceInfo: ref,
 				Locked:        body.Lock,
-				BaseModel:     base,
+				WordBase:      base,
 			}
 			if err := tx.Create(&ar).Error; err != nil {
 				return err
