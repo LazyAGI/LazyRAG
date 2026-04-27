@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -171,7 +172,7 @@ class AnalysisSession:
         if node_id in cache:
             return cache[node_id]
         try:
-            info = self.node_resolver(node_id)
+            info = self._resolve_node_with_eval_kb(node_id)
         except Exception as exc:
             self.logger('node_resolver').debug(
                 'get_node(%r) failed: %s', node_id, exc,
@@ -179,6 +180,20 @@ class AnalysisSession:
             info = None
         cache[node_id] = info
         return info
+
+    def _resolve_node_with_eval_kb(self, node_id: str) -> NodeInfo | None:
+        kb_id = (self.state.eval_report_meta or {}).get('kb_id')
+        if not kb_id or os.getenv('EVO_NODE_KB_IDS'):
+            return self.node_resolver(node_id)
+        old = os.environ.get('EVO_NODE_KB_IDS')
+        os.environ['EVO_NODE_KB_IDS'] = str(kb_id)
+        try:
+            return self.node_resolver(node_id)
+        finally:
+            if old is None:
+                os.environ.pop('EVO_NODE_KB_IDS', None)
+            else:
+                os.environ['EVO_NODE_KB_IDS'] = old
 
     def score_lookup(self, score_field: str) -> Callable[[str], float | None]:
         def _lookup(dataset_id: str) -> float | None:

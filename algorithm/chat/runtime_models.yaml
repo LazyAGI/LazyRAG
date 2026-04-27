@@ -32,13 +32,14 @@ evo_embed:
         nlist: 128
 
 reranker:
-  source: qwen
+  source: qwen3rerank
   type: rerank
-  model: gte-rerank
-  api_key: ${LAZYLLM_QWEN_API_KEY}
+  model: Qwen3-Reranker-8B
+  url: http://10.119.24.104:8331/v1/rerank
+  skip_auth: true
 
 embeddings:
-  embed_1:
+  embed_1
     source: qwen
     type: embed
     model: text-embedding-v3
@@ -49,11 +50,11 @@ embeddings:
       params:
         nlist: 128
 
-  # embed_2:
-  #   source: qwen
-  #   type: embed
-  #   model: text-embedding-v2
-  #   api_key: ${LAZYLLM_QWEN_API_KEY}
+  embed_2:
+    source: qwen
+    type: embed
+    model: text-embedding-v2
+    api_key: ${LAZYLLM_QWEN_API_KEY}
 
 retrieval:
   temp_doc_embed_key: embed_1

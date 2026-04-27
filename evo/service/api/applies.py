@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Query
@@ -11,6 +13,21 @@ from evo.service.api.lifecycle import lifecycle_router, _result_to_dict
 
 
 def build_applies_router(jm: JobManager) -> APIRouter:
+    def _apply_detail(tid: str, row: dict) -> dict:
+        row['rounds'] = jm.list_rounds(row['id'])
+        result = (row.get('payload') or {}).get('result') or {}
+        preview_dir = result.get('preview_dir', '')
+        index_path = Path(preview_dir) / 'index.json'
+        try:
+            preview_index = json.loads(index_path.read_text(encoding='utf-8'))
+            row['preview'] = {
+                'base_commit': preview_index.get('base_commit'),
+                'file_count': len(preview_index.get('files', [])),
+            }
+        except Exception:
+            row['preview'] = None
+        return row
+
     router = lifecycle_router(
         jm,
         flow='apply',
@@ -19,8 +36,7 @@ def build_applies_router(jm: JobManager) -> APIRouter:
         start_op='apply.start',
         action_ops={'stop': 'apply.stop', 'continue': 'apply.continue',
                     'cancel': 'apply.cancel'},
-        get_task_hook=lambda _tid, row: {**row,
-                                          'rounds': jm.list_rounds(row['id'])},
+        get_task_hook=_apply_detail,
     )
     ops = OpsExecutor(jm)
 

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -97,7 +99,7 @@ class JobManager:
         self._store = st
         self._cfg = config
         self._apply_opts = apply_opts
-        self._chat_runner = chat_runner
+        self._chat_runner = chat_runner or _default_chat_runner(config)
         self._chat_registry = chat_registry or ChatRegistry(config.storage.base_dir)
         self._registry = TaskRegistry()
         self._binder = ArtifactBinder(config.storage.base_dir)
@@ -213,10 +215,13 @@ class JobManager:
                       baseline_eval_id: str, dataset_id: str,
                       apply_worktree: Path | None = None,
                       target_chat_url: str | None = None,
+                      candidate_chat_id: str | None = None,
                       eval_options: dict | None = None,
                       policy: VerdictPolicy | dict | None = None) -> str:
+        apply_row = store.must_get(self._store, apply_id)
         worktree = apply_worktree or apply_exec.resolve_worktree(
             self._make_ctx(), apply_id)
+        apply_result = (apply_row.get('payload') or {}).get('result') or {}
         verdict_policy = _coerce_policy(policy)
         payload = {
             'apply_id': apply_id,
@@ -226,8 +231,12 @@ class JobManager:
             'eval_options': eval_options or {},
             'policy': verdict_policy.__dict__,
         }
-        if target_chat_url:
-            payload['target_chat_url'] = target_chat_url
+        cid = candidate_chat_id or apply_result.get('candidate_chat_id')
+        if cid:
+            payload['candidate_chat_id'] = cid
+        url = target_chat_url or apply_result.get('candidate_chat_url')
+        if url:
+            payload['target_chat_url'] = url
         tid = store.create_task(self._store, 'abtest',
                                 thread_id=thread_id, payload=payload)
         self._binder.attach(thread_id, 'abtest_ids', tid)
@@ -245,7 +254,8 @@ class JobManager:
             payload['eval_name'] = eval_name
         tid = store.create_task(self._store, 'dataset_gen',
                                 thread_id=thread_id, payload=payload)
-        self._binder.attach(thread_id, 'dataset_ids', tid)
+        if eval_name:
+            self._binder.attach(thread_id, 'dataset_ids', eval_name)
         self._spawn(tid, 'dataset_gen')
         return tid
 
@@ -274,8 +284,10 @@ class JobManager:
         return tid
 
     def submit_deploy(self, *, merge_id: str, adapter: str = 'local',
-                      version: str = 'latest',
-                      thread_id: str | None = None) -> str:
+                       version: str = 'latest',
+                       thread_id: str | None = None,
+                       role: str = 'production',
+                       keep_old: bool = True) -> str:
         merge_row = store.must_get(self._store, merge_id)
         if merge_row.get('flow') != 'merge':
             raise store.StateError('DEPLOY_BAD_MERGE',
@@ -291,6 +303,8 @@ class JobManager:
                 'merge_id': merge_id,
                 'adapter': adapter,
                 'version': version,
+                'role': role,
+                'keep_old': keep_old,
             },
         )
         self._binder.attach(thread_id, 'deploy_ids', tid)
@@ -306,6 +320,7 @@ class JobManager:
         if row['flow'] == 'run':
             shutil.rmtree(self._cfg.storage.runs_dir / tid, ignore_errors=True)
         elif row['flow'] == 'apply':
+            self._stop_apply_candidate(row)
             apply_exec.cleanup(self._make_ctx(), tid,
                                 drop_logs=True, drop_diffs=True)
         return row
@@ -315,7 +330,7 @@ class JobManager:
         if row is None:
             raise store.StateError('TASK_NOT_FOUND', f'task {tid} not found')
         flow = row['flow']
-        if flow not in ('apply', 'deploy'):
+        if flow not in ('dataset_gen', 'eval', 'run', 'apply', 'abtest', 'deploy'):
             raise store.StateError('UNSUPPORTED_CONTINUE',
                                     f'flow {flow} does not support continue')
         row = store.transition(self._store, tid, 'continue')
@@ -324,6 +339,22 @@ class JobManager:
 
     def accept(self, tid: str, auto_next: str | bool = 'none') -> dict:
         row = store.transition(self._store, tid, 'accept')
+        payload = dict(row.get('payload') or {})
+        result = dict(payload.get('result') or {})
+        final_commit = row.get('final_commit') or result.get('final_commit')
+        if final_commit:
+            result['accepted_commit'] = final_commit
+            result['accepted_at'] = time.time()
+            payload['result'] = result
+            store.patch(self._store, tid, payload=payload)
+            row = store.get(self._store, tid) or row
+            thread_id = row.get('thread_id')
+            if thread_id:
+                self._binder.attach(thread_id, 'apply_commit_ids', final_commit)
+                elog = self._binder.event_log(thread_id)
+                if elog:
+                    elog.append(f'task:{tid}', 'apply.accepted',
+                                {'apply_id': tid, 'commit': final_commit})
         mode = _normalize_auto_next(auto_next)
         if mode in ('merge', 'merge_deploy'):
             merge_id = self.submit_merge(
@@ -337,6 +368,7 @@ class JobManager:
 
     def reject(self, tid: str) -> dict:
         row = store.transition(self._store, tid, 'reject')
+        self._stop_apply_candidate(row)
         apply_exec.cleanup(self._make_ctx(), tid,
                             drop_logs=False, drop_diffs=True)
         return row
@@ -373,7 +405,7 @@ class JobManager:
             store=self._store, cfg=self._cfg,
             is_cancelled=self._is_cancelled,
             register_proc=self._registry.register_proc,
-            chat_runner_factory=lambda: self._chat_runner or _default_chat_runner(self._cfg),
+            chat_runner_factory=lambda: self._chat_runner,
             chat_registry=self._chat_registry,
             apply_opts=self._apply_opts,
             abtest_policy=self._registry._abtest_policy,
@@ -387,6 +419,22 @@ class JobManager:
     def _is_cancelled(self, tid: str) -> bool:
         s = store.signals(self._store, tid)
         return s['stop'] or s['cancel']
+
+    def _stop_apply_candidate(self, row: dict) -> None:
+        result = ((row.get('payload') or {}).get('result') or {})
+        chat_id = result.get('candidate_chat_id')
+        if not chat_id:
+            return
+        try:
+            self._chat_runner.stop(chat_id)
+        except Exception:
+            inst = self._chat_registry.get(chat_id)
+            if inst and inst.pid:
+                try:
+                    os.kill(inst.pid, 15)
+                except OSError:
+                    pass
+        self._chat_registry.purge(chat_id)
 
     def _latest_thread_eval(self, thread_id: str | None) -> str | None:
         if not thread_id:
@@ -434,7 +482,11 @@ def build_manager(config: EvoConfig) -> JobManager:
 
 
 def _default_chat_runner(cfg: EvoConfig) -> ChatRunner:
-    return SubprocessChatRunner(log_dir=cfg.storage.base_dir / 'state' / 'chats')
+    return SubprocessChatRunner(
+        log_dir=cfg.storage.base_dir / 'state' / 'chats',
+        health_path=os.getenv('EVO_CANDIDATE_CHAT_HEALTH_PATH', '/health'),
+        startup_timeout_s=float(os.getenv('EVO_CANDIDATE_CHAT_STARTUP_TIMEOUT_S', '120')),
+    )
 
 
 def _normalize_auto_next(auto_next: str | bool | None) -> str:

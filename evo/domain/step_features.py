@@ -95,34 +95,56 @@ def _is_text(data: Any) -> bool:
     return False
 
 
+def _looks_like_node_id(value: str) -> bool:
+    s = value.strip()
+    if not s or any(ch.isspace() for ch in s):
+        return False
+    if s.startswith(("doc_", "chunk_", "node_", "seg_", "segment_", "uid_")):
+        return True
+    return len(s) >= 24 and all(ch.isalnum() or ch in "_-" for ch in s)
+
+
 def _collect_ids_docids(
     items: Any, resolver: NodeResolver,
-) -> tuple[list[str], list[str | None], list[int | None], list[str | None]]:
+) -> tuple[list[str], list[str | None], list[str | None], list[int | None], list[str | None]]:
     if not isinstance(items, list):
-        return [], [], [], []
+        return [], [], [], [], []
     chunks: list[str] = []
     docs: list[str | None] = []
+    files: list[str | None] = []
     pages: list[int | None] = []
     texts: list[str | None] = []
     for item in items:
-        if not isinstance(item, dict):
+        if isinstance(item, str):
+            if not _looks_like_node_id(item):
+                continue
+            cid = item
+            did = page = text = file_name = None
+        elif isinstance(item, dict):
+            cid = (
+                item.get("id") or item.get("uid") or item.get("chunk_id")
+                or item.get("node_id") or item.get("segment_id") or item.get("segement_id")
+            )
+            did = item.get("docid") or item.get("doc_id") or item.get("document_id")
+            page = item.get("page")
+            text = item.get("text") or item.get("content")
+            file_name = item.get("file_name") or item.get("filename")
+        else:
             continue
-        cid = item.get("id") or item.get("chunk_id")
         if not cid:
             continue
-        did = item.get("docid")
-        page = item.get("page")
-        text = item.get("text")
-        if did is None or page is None or text is None:
+        if did is None or page is None or text is None or file_name is None:
             info = resolver(str(cid)) or {}
             did = did if did is not None else info.get("docid")
             page = page if page is not None else info.get("page")
             text = text if text is not None else info.get("text")
+            file_name = file_name if file_name is not None else info.get("file_name")
         chunks.append(str(cid))
         docs.append(str(did) if did else None)
+        files.append(str(file_name) if file_name else None)
         pages.append(int(page) if isinstance(page, (int, float)) else None)
         texts.append(str(text) if text else None)
-    return chunks, docs, pages, texts
+    return chunks, docs, files, pages, texts
 
 
 def _score_features(scores: np.ndarray) -> dict[str, float]:
@@ -275,9 +297,9 @@ def _failure_tags(f: dict[str, float]) -> dict[str, float]:
 
 
 def _resolve_chunks_text(items: Any, resolver: NodeResolver) -> str:
-    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+    if not isinstance(items, list) or not items:
         return ""
-    _, _, _, texts = _collect_ids_docids(items, resolver)
+    _, _, _, _, texts = _collect_ids_docids(items, resolver)
     return "\n".join(t for t in texts if t)
 
 
@@ -344,8 +366,8 @@ def features_for_step(
     in_items = args if isinstance(args, list) else []
     out_items = mod.output if isinstance(mod.output, list) else []
 
-    in_chunks, in_docs, _, _ = _collect_ids_docids(in_items, resolver)
-    out_chunks, out_docs, out_pages, _ = _collect_ids_docids(out_items, resolver)
+    in_chunks, in_docs, in_files, _, _ = _collect_ids_docids(in_items, resolver)
+    out_chunks, out_docs, out_files, out_pages, _ = _collect_ids_docids(out_items, resolver)
 
     f: dict[str, float] = {
         "input_text_len": float(_text_len(mod.input)),
@@ -358,9 +380,12 @@ def features_for_step(
     if out_chunks:
         scores = np.array(mod.scores, dtype=np.float64) if mod.scores else np.empty(0)
         gt_chunks = set(judge.gt_chunk_id or [])
-        gt_docs = set(judge.gt_docid or [])
+        gt_docs = set(judge.gt_docid or judge.gt_file or [])
         in_docs_clean = [d for d in in_docs if d]
         out_docs_clean = [d for d in out_docs if d]
+        if not judge.gt_docid and judge.gt_file:
+            in_docs_clean = [d for d in in_files if d]
+            out_docs_clean = [d for d in out_files if d]
 
         f.update(_shape_features(in_chunks, out_chunks))
         f.update(_score_features(scores))

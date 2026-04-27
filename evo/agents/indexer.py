@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from typing import Any
@@ -97,15 +98,24 @@ def _append_hypotheses(world: WorldModel, hyps: list[Any]) -> None:
         ))
 
 
-def run_indexer(session: AnalysisSession, *, llm: Any | None = None) -> dict[str, Any]:
+def run_indexer(session: AnalysisSession, *, llm: Any | None = None,
+                user_feedback: str | None = None) -> dict[str, Any]:
     t_start = time.monotonic()
     payload = _build_input(session)
+    if user_feedback:
+        payload['user_feedback'] = user_feedback
+    feedback_hash = hashlib.md5(
+        (user_feedback or '').encode('utf-8')
+    ).hexdigest()[:12] if user_feedback else ''
+    cache_key = f"indexer:{session.run_id}"
+    if feedback_hash:
+        cache_key = f"{cache_key}:{feedback_hash}"
     invoker = LLMInvoker(session=session, system_prompt=load_prompt("indexer"), llm=llm)
     parsed = invoke_structured(
         session, invoker,
         json.dumps(payload, ensure_ascii=False, indent=2),
         agent=INDEXER_NAME, schema=SCHEMAS["indexer"],
-        cache_key=f"indexer:{session.run_id}",
+        cache_key=cache_key,
     )
     hypotheses = parsed.get("hypotheses", []) or []
     open_questions = [str(q) for q in (parsed.get("open_questions") or []) if str(q)]

@@ -21,7 +21,7 @@ TERMINAL_STATUSES = frozenset({
 
 ARTIFACT_KINDS: tuple[str, ...] = (
     'run_ids', 'apply_ids', 'eval_ids', 'abtest_ids', 'chat_ids',
-    'dataset_ids', 'merge_ids', 'deploy_ids',
+    'dataset_ids', 'merge_ids', 'deploy_ids', 'apply_commit_ids',
 )
 
 _SUBDIRS: tuple[str, ...] = (

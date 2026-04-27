@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 
@@ -58,23 +59,55 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken,
         cancel_token=token, on_round=on_round, on_proc=on_proc,
         resume=resume,
     )
+    preview_dir = ctx.cfg.storage.applies_dir / tid / 'preview'
+    diff_index = str(preview_dir / 'index.json') if (preview_dir / 'index.json').is_file() else None
     _store.patch(
         ctx.store, tid,
         base_commit=result.base_commit,
         branch_name=result.branch_name,
         final_commit=result.final_commit,
     )
+    ctx.update_payload(tid, {
+        'result': {
+            'base_commit': result.base_commit,
+            'branch_name': result.branch_name,
+            'final_commit': result.final_commit,
+            'preview_dir': str(preview_dir),
+            'diff_index': diff_index,
+            'round_count': len(result.rounds),
+            'status': result.status,
+        },
+    })
     cur = _store.get(ctx.store, tid)
     if cur['status'] not in ('running', 'stopping'):
         return
     if result.status == 'SUCCEEDED':
+        candidate = None
+        try:
+            candidate = _launch_candidate_chat(ctx, tid, cur.get('thread_id'),
+                                               workspace.worktree_path(tid))
+            ctx.update_payload(tid, {'result': {
+                **(((_store.get(ctx.store, tid) or {}).get('payload') or {}).get('result') or {}),
+                **_candidate_payload(candidate),
+            }})
+        except Exception as exc:
+            ctx.update_payload(tid, {'result': {
+                **(((_store.get(ctx.store, tid) or {}).get('payload') or {}).get('result') or {}),
+                'candidate_error': str(exc),
+            }})
+            raise
         ctx.on_success(tid)
         c2 = _store.get(ctx.store, tid) or {}
         w2 = c2.get('thread_id')
         if w2:
-            el = EventLog(
-                ThreadWorkspace(ctx.cfg.storage.base_dir, w2).events_path)
-            el.append(f'task:{tid}', 'apply.complete', {'apply_id': tid})
+            ws = ThreadWorkspace(ctx.cfg.storage.base_dir, w2)
+            if candidate:
+                ws.attach_artifact('chat_ids', candidate.chat_id)
+            el = EventLog(ws.events_path)
+            data = {'apply_id': tid}
+            if candidate:
+                data.update(_candidate_payload(candidate))
+            el.append(f'task:{tid}', 'apply.complete', data)
     else:
         err = result.error or {}
         code = err.get('code', 'UNKNOWN')
@@ -101,6 +134,60 @@ def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
     if wid:
         el = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, wid).events_path)
         el.append(f'task:{tid}', 'apply.round', {'round': rr.index, 'commit_sha': rr.commit_sha})
+
+
+def _launch_candidate_chat(ctx: ExecCtx, apply_id: str, thread_id: str | None,
+                           worktree) -> object:
+    _ensure_chat_package_alias(worktree)
+    runner = ctx.chat_runner_factory()
+    candidate = runner.launch(
+        source_dir=worktree,
+        label=f'apply-{apply_id[-6:]}',
+        env={'PYTHONPATH': _candidate_pythonpath(worktree), **_chat_env()},
+        owner_thread_id=thread_id,
+    )
+    ctx.chat_registry.register(candidate)
+    return candidate
+
+
+def _candidate_payload(candidate) -> dict:
+    return {
+        'candidate_chat_id': candidate.chat_id,
+        'candidate_chat_url': candidate.base_url,
+        'candidate_health_url': candidate.health_url,
+        'candidate_status': candidate.status,
+    }
+
+
+def _chat_env() -> dict[str, str]:
+    keys = (
+        'LAZYRAG_MODEL_CONFIG_PATH', 'LAZYRAG_USE_INNER_MODEL',
+        'LAZYRAG_MAAS_API_KEY', 'MAAS_BASE_URL', 'MAAS_MODEL_NAME',
+        'LANGFUSE_HOST', 'LANGFUSE_BASE_URL', 'LANGFUSE_PUBLIC_KEY',
+        'LANGFUSE_SECRET_KEY', 'LAZYLLM_TRACE_BACKEND',
+        'http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY',
+        'no_proxy', 'NO_PROXY',
+    )
+    env = {k: v for k in keys if (v := os.getenv(k))}
+    env['LAZYRAG_SKIP_STARTUP_PIPELINE'] = '1'
+    return env
+
+
+def _ensure_chat_package_alias(worktree) -> None:
+    from pathlib import Path
+    wt = Path(worktree)
+    alias = wt / 'chat'
+    if alias.exists():
+        return
+    if (wt / 'app' / 'chat.py').is_file():
+        alias.symlink_to(wt, target_is_directory=True)
+
+
+def _candidate_pythonpath(worktree) -> str:
+    existing = os.getenv('PYTHONPATH', '')
+    parts = [str(worktree), '/app', '/opt/lazyllm']
+    parts.extend(p for p in existing.split(':') if p)
+    return ':'.join(dict.fromkeys(parts))
 
 
 def cleanup(ctx: ExecCtx, tid: str, *, drop_logs: bool, drop_diffs: bool) -> None:

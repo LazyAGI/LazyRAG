@@ -14,10 +14,18 @@ from evo.apply.errors import ApplyError
 log = logging.getLogger('evo.apply.opencode')
 
 
+def _default_model() -> str | None:
+    model = os.getenv('EVO_OPENCODE_MODEL') or os.getenv('OPENCODE_MODEL')
+    provider = os.getenv('EVO_OPENCODE_PROVIDER') or os.getenv('OPENCODE_PROVIDER')
+    if model and provider and '/' not in model:
+        return f'{provider}/{model}'
+    return model
+
+
 @dataclass
 class OpencodeOptions:
     binary: str | None = None
-    model: str | None = None
+    model: str | None = _default_model()
     agent: str | None = None
     variant: str | None = None
     timeout_s: int = 600
@@ -90,19 +98,28 @@ def run_opencode(
             cmd.extend([flag, value])
     cmd.append(prompt)
 
+    temp_config = _ensure_project_provider_config(cwd, options.model)
+    env = dict(os.environ)
+    api_key = _auth_api_key('deepseek')
+    if api_key and (options.model or '').startswith('deepseek/'):
+        env.setdefault('DEEPSEEK_API_KEY', api_key)
+
     log.info('opencode run: cwd=%s timeout_s=%d model=%s agent=%s variant=%s',
              cwd, options.timeout_s, options.model, options.agent, options.variant)
     proc = subprocess.Popen(cmd, cwd=str(cwd),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True)
+                            text=True, env=env)
     if on_proc:
         on_proc(proc)
     try:
         stdout, stderr = proc.communicate(timeout=options.timeout_s)
     except subprocess.TimeoutExpired:
         _terminate(proc)
+        _cleanup_temp_config(temp_config)
         raise ApplyError('OPENCODE_TIMEOUT', 'opencode run timed out',
                          {'timeout_s': options.timeout_s, 'cwd': str(cwd)})
+    finally:
+        _cleanup_temp_config(temp_config)
 
     stdout_path = artifact_dir / 'stdout.log'
     stderr_path = artifact_dir / 'stderr.log'
@@ -128,6 +145,56 @@ def run_opencode(
         stdout_path=stdout_path,
         stderr_path=stderr_path,
     )
+
+
+def _auth_api_key(provider: str) -> str | None:
+    path = default_auth_dir() / 'auth.json'
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+    entry = data.get(provider) if isinstance(data, dict) else None
+    if isinstance(entry, dict) and isinstance(entry.get('key'), str):
+        return entry['key']
+    return None
+
+
+def _ensure_project_provider_config(cwd: Path, model: str | None) -> Path | None:
+    if not (model or '').startswith('deepseek/'):
+        return None
+    path = cwd / 'opencode.json'
+    if path.exists():
+        return None
+    config = {
+        '$schema': 'https://opencode.ai/config.json',
+        'provider': {
+            'deepseek': {
+                'npm': '@ai-sdk/openai-compatible',
+                'name': 'DeepSeek',
+                'options': {
+                    'baseURL': 'https://api.deepseek.com',
+                    'apiKey': '{env:DEEPSEEK_API_KEY}',
+                },
+                'models': {
+                    'deepseek-chat': {'name': 'DeepSeek Chat'},
+                    'deepseek-v4-flash': {'name': 'DeepSeek V4 Flash'},
+                    'deepseek-v4-pro': {'name': 'DeepSeek V4 Pro'},
+                },
+            },
+        },
+    }
+    path.write_text(json.dumps(config, ensure_ascii=False, indent=2),
+                    encoding='utf-8')
+    return path
+
+
+def _cleanup_temp_config(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _terminate(proc: subprocess.Popen, grace_s: float = 5.0) -> None:

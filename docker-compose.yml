@@ -481,10 +481,17 @@ services:
       LAZYRAG_LLM_PRIORITY: "0"
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-true}
       LAZYLLM_TRACE_BACKEND: langfuse
+      http_proxy: ${http_proxy:-}
+      https_proxy: ${https_proxy:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      no_proxy: ${no_proxy:-${NO_PROXY:-}}
+      NO_PROXY: ${NO_PROXY:-}
       <<: [*llm-api-keys, *upload-paths]
     command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
@@ -503,14 +510,30 @@ services:
       - "8047:8047"
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
+      EVO_CODE_MAP: /app/evo/code_map.json
+      EVO_OPENCODE_MODEL: ${EVO_OPENCODE_MODEL:-deepseek-chat}
+      EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-180}
       EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
       EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
       EVO_EMBED_ROLE: ${EVO_EMBED_ROLE:-evo_embed}
+      EVO_KB_BASE_URL: http://doc-server:8000
+      EVO_CHUNK_BASE_URL: http://doc-server:8000
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
       LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-}
       LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
       MAAS_BASE_URL: ${MAAS_BASE_URL:-}
       MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LAZYLLM_TRACE_BACKEND: langfuse
+      http_proxy: ${http_proxy:-}
+      https_proxy: ${https_proxy:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      no_proxy: ${no_proxy:-${NO_PROXY:-}}
+      NO_PROXY: ${NO_PROXY:-}
       <<: *llm-api-keys
     volumes:
       - ./data/evo:/var/lib/lazyrag/evo

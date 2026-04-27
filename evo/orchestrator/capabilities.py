@@ -37,6 +37,13 @@ _add(Capability('run.continue', 'run', '继续上次暂停的分析',
 _add(Capability('run.cancel', 'run', '彻底取消分析任务',
                 params_schema=_required('task_id'), idempotent=True, safety='destructive'))
 
+_add(Capability('task.stop_active', 'task', '暂停当前 thread 中指定 flow 的活跃任务',
+                params_schema={'optional': ['flow']}, idempotent=True, safety='destructive'))
+_add(Capability('task.cancel_active', 'task', '取消当前 thread 中指定 flow 的活跃任务',
+                params_schema={'optional': ['flow']}, idempotent=True, safety='destructive'))
+_add(Capability('task.continue_latest', 'task', '续跑当前 thread 中最近的暂停或瞬时失败任务',
+                params_schema={'optional': ['flow', 'task_id']}, blocking=True, safety='long_running'))
+
 _add(Capability('apply.start', 'apply', '基于报告启动代码修改',
                 params_schema={'optional': ['report_id', 'extra_instructions']},
                 blocking=True, safety='long_running'))
@@ -56,12 +63,16 @@ _add(Capability('apply.reject', 'apply', '拒绝 apply 结果',
 _add(Capability('eval.fetch', 'eval', '拉取已存在的评测报告与全部 trace',
                 params_schema=_required('eval_id'), blocking=True, safety='safe'))
 _add(Capability('eval.run', 'eval', '在指定数据集上跑一次评测并拉 trace',
-                params_schema=_required('dataset_id'), blocking=True, safety='long_running'))
+                params_schema={'required': ['dataset_id'],
+                               'optional': ['target_chat_url', 'options']},
+                blocking=True, safety='long_running'))
 _add(Capability('eval.cancel', 'eval', '取消评测任务',
                 params_schema=_required('task_id'), idempotent=True, safety='destructive'))
 
 _add(Capability('abtest.create', 'abtest', '基于 apply 起 abtest 并比对',
-                params_schema=_required('apply_id', 'baseline_eval_id', 'dataset_id'),
+                params_schema={'required': ['apply_id', 'baseline_eval_id', 'dataset_id'],
+                               'optional': ['candidate_chat_id', 'target_chat_url',
+                                            'eval_options', 'policy']},
                 blocking=True, safety='long_running'))
 _add(Capability('abtest.stop', 'abtest', '暂停 abtest',
                 params_schema=_required('task_id'), idempotent=True, safety='destructive'))
