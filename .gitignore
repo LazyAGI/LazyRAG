@@ -78,3 +78,10 @@ lazyllm_cpp.egg-info/
 data/
 volumes/
 .conda
+
+# evo runtime artifacts
+evo/output/
+data/evo/
+
+# macOS
+.DS_Store

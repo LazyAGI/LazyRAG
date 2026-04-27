@@ -25,4 +25,5 @@ pyahocorasick
 autocorrect-py==2.14.0
 rapidfuzz==3.14.3
 json-repair==0.54.3
+jsonschema>=4
 pandas==2.3.3

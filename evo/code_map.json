@@ -1,0 +1,102 @@
+{
+  "code_map": {
+    "/Users/chenhao7/LocalScripts/LazyRAG/LazyRAG/algorithm/chat/pipelines/naive.py": "Naive RAG 入口：rewriter → search → generate；可改：是否启用多轮 rewriter、ifs 分支条件、bind 字段；retriever_configs 默认从 load_config 读",
+    "/Users/chenhao7/LocalScripts/LazyRAG/LazyRAG/algorithm/chat/pipelines/builders/get_ppl_search.py": "Search 子管道：parallel(KB retrievers) → RRFFusion(top_k=50) → Reranker(model='ModuleReranker', topk=20) → AdaptiveK(k_max=10, bias=2, gap_tau=0.2, max_tokens=2048) → ContextExpansion(token_budget=1500, score_decay=0.97, max_seeds=1)。所有数值都是关键可调参数",
+    "/Users/chenhao7/LocalScripts/LazyRAG/LazyRAG/algorithm/chat/pipelines/builders/get_ppl_generate.py": "Generate 子管道：AggregateComponent → RAGContextFormatter → answer LLM(get_automodel('llm') + RAG_ANSWER_SYSTEM) → CustomOutputParser；可改：聚合策略、formatter 模板、answer 角色",
+    "/Users/chenhao7/LocalScripts/LazyRAG/LazyRAG/algorithm/chat/pipelines/builders/get_retriever.py": "Retriever 构造：基于 retriever_configs 创建多路 KB Retriever，加上 TempDocRetriever(name='block', topk=DEFAULT_TMP_BLOCK_TOPK)；可改：retriever_configs 列表、tmp_block_topk、temp_doc_embed_key",
+    "/Users/chenhao7/LocalScripts/LazyRAG/LazyRAG/algorithm/chat/runtime_models.yaml": "运行时模型配置：llm/llm_instruct/reranker/embeddings 的 source/model/api_key；embed_1 的 index_type=IVF_FLAT/metric_type=COSINE/nlist=128 影响召回；reranker 默认 source=qwen, model=gte-rerank"
+  },
+  "read_scope": {
+    "project_roots": ["/Users/chenhao7/LocalScripts/LazyRAG"],
+    "third_party_packages": ["lazyllm"],
+    "exclude_globs": [
+      "**/__pycache__/**", "**/.git/**", "**/.venv/**",
+      "**/node_modules/**", "**/build/**", "**/dist/**",
+      "**/output/**", "**/data/**"
+    ]
+  },
+  "subject_index": {
+    "subject_entry": "/Users/chenhao7/LocalScripts/LazyRAG/LazyRAG/algorithm/chat/pipelines/naive.py",
+    "step_to_source": {
+      "MultiturnQueryRewriter": {
+        "file": "pipelines/naive.py", "line": 18,
+        "symbol": "chat.components.process.multiturn_query_rewriter.MultiturnQueryRewriter",
+        "init_args": {"llm_role": "llm_instruct"}
+      },
+      "Retriever_KB": {
+        "file": "pipelines/builders/get_retriever.py", "line": 29,
+        "symbol": "lazyllm.Retriever",
+        "init_args": {"source": "retriever_configs from chat.utils.load_config.get_retrieval_settings"}
+      },
+      "Retriever_Tmp_Block": {
+        "file": "pipelines/builders/get_retriever.py", "line": 33,
+        "symbol": "lazyllm.tools.rag.TempDocRetriever.add_subretriever",
+        "init_args": {"name": "block", "topk": "DEFAULT_TMP_BLOCK_TOPK"}
+      },
+      "RRFFusion": {
+        "file": "pipelines/builders/get_ppl_search.py", "line": 34,
+        "symbol": "lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion.RRFFusion",
+        "init_args": {"top_k": 50}
+      },
+      "ModuleReranker": {
+        "file": "pipelines/builders/get_ppl_search.py", "line": 35,
+        "symbol": "lazyllm.tools.rag.Reranker",
+        "init_args": {"name": "ModuleReranker", "model_role": "reranker", "topk": 20}
+      },
+      "AdaptiveKComponent": {
+        "file": "pipelines/builders/get_ppl_search.py", "line": 38,
+        "symbol": "chat.components.process.AdaptiveKComponent",
+        "init_args": {"bias": 2, "k_max": 10, "gap_tau": 0.2, "max_tokens": 2048}
+      },
+      "ContextExpansionComponent": {
+        "file": "pipelines/builders/get_ppl_search.py", "line": 41,
+        "symbol": "chat.components.process.ContextExpansionComponent",
+        "init_args": {"token_budget": 1500, "score_decay": 0.97, "max_seeds": 1}
+      },
+      "AggregateComponent": {
+        "file": "pipelines/builders/get_ppl_generate.py", "line": 20,
+        "symbol": "chat.components.generate.AggregateComponent",
+        "init_args": {}
+      },
+      "RAGContextFormatter": {
+        "file": "pipelines/builders/get_ppl_generate.py", "line": 21,
+        "symbol": "chat.components.generate.RAGContextFormatter",
+        "init_args": {}
+      },
+      "AnswerLLM": {
+        "file": "pipelines/builders/get_ppl_generate.py", "line": 22,
+        "symbol": "lazyllm.AutoModel via get_automodel('llm')",
+        "init_args": {"role": "llm", "system_prompt": "RAG_ANSWER_SYSTEM", "wrap_simple_llm": true}
+      },
+      "CustomOutputParser": {
+        "file": "pipelines/builders/get_ppl_generate.py", "line": 24,
+        "symbol": "chat.components.generate.CustomOutputParser",
+        "init_args": {"llm_type_think": "LLM_TYPE_THINK"}
+      },
+      "Embed_embed_1": {
+        "file": "runtime_models.yaml", "line": 31,
+        "symbol": "embeddings.embed_1",
+        "init_args": {"source": "qwen", "model": "text-embedding-v3", "index_type": "IVF_FLAT", "metric_type": "COSINE", "nlist": 128}
+      },
+      "Reranker_Model": {
+        "file": "runtime_models.yaml", "line": 24,
+        "symbol": "reranker",
+        "init_args": {"source": "qwen", "type": "rerank", "model": "gte-rerank"}
+      }
+    },
+    "symbol_hints": {
+      "lazyllm.Retriever": "group_name 决定从哪个 chunk group 召回；topk 决定召回数；similarity 默认 cosine",
+      "lazyllm.tools.rag.TempDocRetriever": "针对当次会话临时上传文件的检索器；add_subretriever 决定 group/topk",
+      "lazyllm.tools.rag.Reranker": "name='ModuleReranker' 时由 model 参数决定具体 reranker（如 gte-rerank）；topk 控制 rerank 后保留",
+      "lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion.RRFFusion": "Reciprocal Rank Fusion 合并多路召回；top_k 决定融合后保留",
+      "chat.components.process.AdaptiveKComponent": "动态决定 top-k：bias/k_max/gap_tau/max_tokens 控制截断与停止条件",
+      "chat.components.process.ContextExpansionComponent": "对召回 chunk 做上下文扩展；token_budget/score_decay/max_seeds 控制扩展量",
+      "chat.components.process.multiturn_query_rewriter.MultiturnQueryRewriter": "多轮历史改写当前 query；优先级、history、has_appendix 影响触发",
+      "chat.components.generate.AggregateComponent": "聚合多路召回 nodes；可改聚合策略",
+      "chat.components.generate.RAGContextFormatter": "把召回 nodes 渲染为给 LLM 的 context；模板与字段裁剪是关键",
+      "chat.components.generate.CustomOutputParser": "解析 LLM 输出（含可选 think 块）",
+      "lazyllm.AutoModel": "根据 runtime_models.yaml 的角色 (llm/llm_instruct/reranker/embeddings) 路由 OnlineLLM/Rerank/Embed",
+      "embeddings.embed_1": "向量索引参数（IVF_FLAT, COSINE, nlist=128）影响召回质量"
+    }
+  }
+}

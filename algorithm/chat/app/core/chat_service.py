@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, List, Optional, Union
 import lazyllm
 from lazyllm import LOG
+from lazyllm.tracing import current_trace, enable_trace
 from fastapi.responses import StreamingResponse
 from chat.config import (URL_MAP, RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT)
@@ -13,6 +14,27 @@ from chat.app.core.chat_server import chat_server
 
 
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
+
+
+def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
+    if not trace_enabled:
+        return ppl(*ppl_args), None
+
+    captured: Dict[str, Any] = {}
+
+    def naive_rag(*args, **kwargs):
+        out = ppl(*args, **kwargs)
+        ct = current_trace()
+        captured['trace_id'] = ct.trace_id if ct else None
+        captured['result'] = out
+        return out
+
+    enable_trace(
+        naive_rag, *ppl_args,
+        session_id=session_id,
+        request_tags=[f'dataset:{dataset}', f'mode:{mode_tag}'],
+    )
+    return captured.get('result'), captured.get('trace_id')
 
 
 def _sse_line(payload: Dict[str, Any]) -> str:
@@ -84,7 +106,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       session_id: str, filters: Optional[Dict[str, Any]],
                       files: Optional[List[str]], debug: Optional[bool], reasoning: Optional[bool],
                       databases: Optional[List[Dict[str, Any]]], dataset: Optional[str],
-                      priority: Optional[int], is_stream: bool) -> Union[Dict[str, Any], StreamingResponse]:
+                      priority: Optional[int], is_stream: bool,
+                      trace: bool = False) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
 
@@ -116,11 +139,18 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             async with rag_sem:
                 lazyllm.globals._init_sid(sid=session_id)
                 lazyllm.locals._init_sid(sid=session_id)
-                result = await _run_sync_ppl(
-                    bool(reasoning), dataset, query_params, query, filters, priority
+                result, trace_id = await _run_sync_ppl(
+                    bool(reasoning), dataset, query_params, query, filters, priority,
+                    session_id=session_id, trace_enabled=trace,
                 )
                 cost = round(time.time() - start_time, 3)
-                return _resp(200, 'success', result, cost)
+                if trace_id is None:
+                    data = result
+                elif isinstance(result, dict):
+                    data = {**result, 'trace_id': trace_id}
+                else:
+                    data = {'data': result, 'trace_id': trace_id}
+                return _resp(200, 'success', data, cost)
         except Exception as exc:
             LOG.exception(exc)
             cost = round(time.time() - start_time, 3)
@@ -166,7 +196,14 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                 async with rag_sem:
                     lazyllm.globals._init_sid(sid=session_id)
                     lazyllm.locals._init_sid(sid=session_id)
-                    async_result = await asyncio.to_thread(ppl, *args)
+                    async_result, trace_id = await asyncio.to_thread(
+                        _run_ppl_with_trace, ppl, args,
+                        session_id=session_id, dataset=dataset,
+                        mode_tag='stream_reasoning' if reasoning else 'stream',
+                        trace_enabled=trace,
+                    )
+                    if trace_id is not None:
+                        yield _sse_line(_resp(200, 'success', {'trace_id': trace_id}, 0.0))
                     async for chunk in async_result:
                         now = time.time()
                         if not first_frame_logged:
@@ -209,10 +246,11 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
 
 async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, Any],
-                        query: str, filters: Optional[Dict[str, Any]], priority: Any) -> Any:
+                        query: str, filters: Optional[Dict[str, Any]], priority: Any,
+                        *, session_id: str, trace_enabled: bool) -> tuple[Any, Optional[str]]:
     if reasoning:
-        return await asyncio.to_thread(
-            chat_server.query_ppl_reasoning,
+        ppl = chat_server.query_ppl_reasoning
+        ppl_args = (
             {'query': query},
             {
                 'kb_search': {
@@ -225,4 +263,14 @@ async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, A
             },
             False,
         )
-    return await asyncio.to_thread(chat_server.get_query_pipeline(dataset), query_params)
+        mode_tag = 'sync_reasoning'
+    else:
+        ppl = chat_server.get_query_pipeline(dataset)
+        ppl_args = (query_params,)
+        mode_tag = 'sync'
+
+    return await asyncio.to_thread(
+        _run_ppl_with_trace, ppl, ppl_args,
+        session_id=session_id, dataset=dataset, mode_tag=mode_tag,
+        trace_enabled=trace_enabled,
+    )

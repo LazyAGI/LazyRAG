@@ -20,6 +20,7 @@ async def chat(
     databases: Optional[List[Dict]] = Body([], description='关联数据库'),  # noqa: B008
     dataset: Optional[str] = Body(DEFAULT_CHAT_DATASET, description='数据库名称'),  # noqa: B008
     priority: Optional[int] = Body(None, description='请求优先级，用于vllm调度。数值越大优先级越高'),  # noqa: B008
+    trace: Optional[bool] = Body(False, description='是否记录 trace（仅管理员调试时开启）'),  # noqa: B008
     *,
     request: Request,
 ):
@@ -35,5 +36,6 @@ async def chat(
         databases=databases,
         dataset=dataset,
         priority=priority,
+        trace=bool(trace),
         is_stream=is_stream,
     )
