@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -11,20 +9,13 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/mysql"
-	migratepostgres "github.com/golang-migrate/migrate/v4/database/postgres"
-	"github.com/golang-migrate/migrate/v4/database/sqlite3"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/mattn/go-sqlite3"
 	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
 	"lazyrag/core/common/orm"
 	"lazyrag/core/log"
+	coremigrate "lazyrag/core/migrate"
 )
 
 func main() {
@@ -249,16 +240,14 @@ func upCmd(args []string) {
 	n := fs.Int("n", 0, "steps to apply (0 = all)")
 	_ = fs.Parse(args)
 
-	m := mustMigrator()
-	defer closeMigrator(m)
-
-	var err error
-	if *n <= 0 {
-		err = m.Up()
-	} else {
-		err = m.Steps(*n)
+	runner, err := coremigrate.NewRunnerFromEnv()
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("open runner failed")
+		os.Exit(1)
 	}
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+	defer runner.Close()
+
+	if err := runner.Up(*n); err != nil {
 		log.Logger.Error().Err(err).Msg("up failed")
 		os.Exit(1)
 	}
@@ -270,15 +259,19 @@ func downCmd(args []string) {
 	n := fs.Int("n", 1, "steps to rollback")
 	_ = fs.Parse(args)
 
-	m := mustMigrator()
-	defer closeMigrator(m)
-
 	if *n <= 0 {
 		log.Logger.Error().Msg("down: -n must be > 0")
 		os.Exit(2)
 	}
-	err := m.Steps(-*n)
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+
+	runner, err := coremigrate.NewRunnerFromEnv()
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("open runner failed")
+		os.Exit(1)
+	}
+	defer runner.Close()
+
+	if err := runner.Down(*n); err != nil {
 		log.Logger.Error().Err(err).Msg("down failed")
 		os.Exit(1)
 	}
@@ -294,34 +287,41 @@ func gotoCmd(args []string) {
 		os.Exit(2)
 	}
 
-	m := mustMigrator()
-	defer closeMigrator(m)
-
-	if err := m.Migrate(*v); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		log.Logger.Error().Err(err).Uint("version", *v).Msg("goto failed")
+	runner, err := coremigrate.NewRunnerFromEnv()
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("open runner failed")
 		os.Exit(1)
 	}
-	log.Logger.Info().Uint("version", *v).Msg("goto ok")
+	defer runner.Close()
+
+	target := uint64(*v)
+	if err := runner.Goto(target); err != nil {
+		log.Logger.Error().Err(err).Uint64("version", target).Msg("goto failed")
+		os.Exit(1)
+	}
+	log.Logger.Info().Uint64("version", target).Msg("goto ok")
 }
 
 func versionCmd(args []string) {
 	_ = args
-	m := mustMigrator()
-	defer closeMigrator(m)
-	v, dirty, err := m.Version()
+
+	runner, err := coremigrate.NewRunnerFromEnv()
 	if err != nil {
-		if errors.Is(err, migrate.ErrNilVersion) {
-			log.Logger.Info().Msg("version: 0 clean")
-			return
-		}
+		log.Logger.Error().Err(err).Msg("open runner failed")
+		os.Exit(1)
+	}
+	defer runner.Close()
+
+	v, dirty, err := runner.Version()
+	if err != nil {
 		log.Logger.Error().Err(err).Msg("version failed")
 		os.Exit(1)
 	}
 	if dirty {
-		log.Logger.Info().Uint("version", v).Msg("version: dirty")
+		log.Logger.Info().Uint64("version", v).Msg("version: dirty")
 		return
 	}
-	log.Logger.Info().Uint("version", v).Msg("version: clean")
+	log.Logger.Info().Uint64("version", v).Msg("version: clean")
 }
 
 // forceCmd text schema_migrations text dirty，text "Dirty database version" text。
@@ -334,112 +334,18 @@ func forceCmd(args []string) {
 		log.Logger.Error().Msg("force: -version is required (e.g. 20260315095955)")
 		os.Exit(2)
 	}
-	m := mustMigrator()
-	defer closeMigrator(m)
-	if err := m.Force(int(*v)); err != nil {
-		log.Logger.Error().Err(err).Uint("version", *v).Msg("force failed")
+
+	runner, err := coremigrate.NewRunnerFromEnv()
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("open runner failed")
 		os.Exit(1)
 	}
-	log.Logger.Info().Uint("version", *v).Msg("force ok")
-}
+	defer runner.Close()
 
-func closeMigrator(m *migrate.Migrate) {
-	if m == nil {
-		return
+	target := uint64(*v)
+	if err := runner.Force(target); err != nil {
+		log.Logger.Error().Err(err).Uint64("version", target).Msg("force failed")
+		os.Exit(1)
 	}
-	_, _ = m.Close()
-}
-
-func mustMigrator() *migrate.Migrate {
-	driver, dsn := dbConfigFromEnv()
-	if strings.TrimSpace(dsn) == "" {
-		log.Logger.Error().Msg("ACL_DB_DSN is empty")
-		os.Exit(2)
-	}
-
-	mDir := migrationsDir()
-	absDir, err := filepath.Abs(mDir)
-	if err != nil {
-		log.Logger.Error().Err(err).Str("dir", mDir).Msg("invalid MIGRATIONS_DIR")
-		os.Exit(2)
-	}
-	sourceURL := "file://" + filepath.ToSlash(absDir)
-
-	db, dbName := mustOpenSQL(driver, dsn)
-
-	var mig *migrate.Migrate
-	switch driver {
-	case "sqlite":
-		inst, err := sqlite3.WithInstance(db, &sqlite3.Config{
-			DatabaseName: dbName,
-		})
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("sqlite3 instance failed")
-			os.Exit(1)
-		}
-		mig, err = migrate.NewWithDatabaseInstance(sourceURL, "sqlite3", inst)
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("migrate init failed")
-			os.Exit(1)
-		}
-	case "postgres":
-		inst, err := migratepostgres.WithInstance(db, &migratepostgres.Config{})
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("postgres instance failed")
-			os.Exit(1)
-		}
-		mig, err = migrate.NewWithDatabaseInstance(sourceURL, "postgres", inst)
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("migrate init failed")
-			os.Exit(1)
-		}
-	case "mysql":
-		inst, err := mysql.WithInstance(db, &mysql.Config{})
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("mysql instance failed")
-			os.Exit(1)
-		}
-		mig, err = migrate.NewWithDatabaseInstance(sourceURL, "mysql", inst)
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("migrate init failed")
-			os.Exit(1)
-		}
-	default:
-		log.Logger.Error().Str("driver", driver).Msg("unsupported ACL_DB_DRIVER (use sqlite|postgres|mysql)")
-		os.Exit(2)
-	}
-
-	return mig
-}
-
-func mustOpenSQL(driver, dsn string) (*sql.DB, string) {
-	switch driver {
-	case "sqlite":
-		// golang-migrate text sqlite3 text mattn/go-sqlite3。
-		db, err := sql.Open("sqlite3", dsn)
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("open sqlite failed")
-			os.Exit(1)
-		}
-		return db, dsn
-	case "postgres":
-		// text pgx text；DSN text URL text key=value，text "pgx"。
-		db, err := sql.Open("pgx", dsn)
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("open postgres failed")
-			os.Exit(1)
-		}
-		return db, ""
-	case "mysql":
-		db, err := sql.Open("mysql", dsn)
-		if err != nil {
-			log.Logger.Error().Err(err).Msg("open mysql failed")
-			os.Exit(1)
-		}
-		return db, ""
-	default:
-		log.Logger.Error().Str("driver", driver).Msg("unsupported driver")
-		os.Exit(2)
-		return nil, ""
-	}
+	log.Logger.Info().Uint64("version", target).Msg("force ok")
 }
