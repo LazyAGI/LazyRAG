@@ -33,6 +33,7 @@ type openAPIOperation struct {
 	Method      string
 	Path        string
 	Summary     string
+	Description string
 	Tags        []string
 	PathParams  any
 	QueryParams any
@@ -75,6 +76,9 @@ func operationRegistryOpenAPISpec() map[string]any {
 func (op openAPIOperation) toOpenAPI(builder *schemaBuilder) map[string]any {
 	result := map[string]any{
 		"summary": op.Summary,
+	}
+	if strings.TrimSpace(op.Description) != "" {
+		result["description"] = op.Description
 	}
 	if len(op.Tags) > 0 {
 		result["tags"] = op.Tags
@@ -462,16 +466,12 @@ type shareItemPathParams struct {
 }
 
 type suggestionListQueryParams struct {
-	Page             int32  `query:"page"`
-	PageSize         int32  `query:"page_size"`
-	EvolutionID      string `query:"evolution_id"`
-	ResourceType     string `query:"resource_type"`
-	ResourceKey      string `query:"resource_key"`
-	UserID           string `query:"user_id"`
-	SkillID          string `query:"skill_id"`
-	MemoryID         string `query:"memory_id"`
-	UserPreferenceID string `query:"user_preference_id"`
-	Keyword          string `query:"keyword"`
+	Page         int32  `query:"page"`
+	PageSize     int32  `query:"page_size"`
+	EvolutionID  string `query:"evolution_id"`
+	ResourceType string `query:"resource_type"`
+	ResourceKey  string `query:"resource_key"`
+	Keyword      string `query:"keyword"`
 }
 
 type skillListQueryParams struct {
@@ -1082,6 +1082,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "GET",
 			Path:        "/evolution/suggestions",
 			Summary:     "List evolution suggestions",
+			Description: "Use evolution_id=<resource_type>:<resource_id> for a single-parameter resource filter. resource_type and resource_key remain available as optional compatibility filters.",
 			Tags:        []string{"evolution"},
 			QueryParams: suggestionListQueryParams{},
 			Responses:   map[int]openAPIResponse{200: resp("Suggestion list", suggestionListOpenAPIResponse{})},
@@ -1114,6 +1115,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "POST",
 			Path:        "/evolution/suggestions:batchApprove",
 			Summary:     "Batch approve evolution suggestions",
+			Description: "Sets every listed suggestion to accepted regardless of its current status, as long as the suggestion exists.",
 			Tags:        []string{"evolution"},
 			RequestBody: jsonBodyOf(suggestionBatchReviewOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Approved suggestions", suggestionBatchReviewOpenAPIResponse{})},
@@ -1122,6 +1124,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "POST",
 			Path:        "/evolution/suggestions:batchReject",
 			Summary:     "Batch reject evolution suggestions",
+			Description: "Sets every listed suggestion to rejected regardless of its current status, as long as the suggestion exists.",
 			Tags:        []string{"evolution"},
 			RequestBody: jsonBodyOf(suggestionBatchReviewOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Rejected suggestions", suggestionBatchReviewOpenAPIResponse{})},

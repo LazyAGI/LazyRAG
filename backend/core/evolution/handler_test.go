@@ -59,7 +59,7 @@ type batchSuggestionAPITestResponse struct {
 	} `json:"data"`
 }
 
-func TestListSuggestionsSupportsExtendedFilters(t *testing.T) {
+func TestListSuggestionsSupportsEvolutionAndResourceFilters(t *testing.T) {
 	db := newTestDB(t)
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
@@ -174,36 +174,36 @@ func TestListSuggestionsSupportsExtendedFilters(t *testing.T) {
 		wantStale   []bool
 	}{
 		{
-			name:        "filter by skill id and resource type",
-			query:       "/api/core/evolution/suggestions?resource_type=skill&skill_id=skill-1",
+			name:        "filter by evolution id and resource type for skill",
+			query:       "/api/core/evolution/suggestions?resource_type=skill&evolution_id=skill:skill-1",
 			wantIDs:     []string{"s-skill"},
 			wantTotal:   1,
 			wantUserIDs: []string{"u1"},
 			wantStale:   []bool{true},
 		},
 		{
-			name:        "filter by memory id and resource key",
-			query:       "/api/core/evolution/suggestions?resource_key=memory&memory_id=memory-1",
+			name:        "filter by evolution id and resource key for memory",
+			query:       "/api/core/evolution/suggestions?resource_key=memory&evolution_id=memory:memory-1",
 			wantIDs:     []string{"s-memory"},
 			wantTotal:   1,
 			wantUserIDs: []string{"u1"},
 			wantStale:   []bool{false},
 		},
 		{
-			name:        "filter by preference id and user id",
-			query:       "/api/core/evolution/suggestions?preference_id=preference-1&user_id=u2",
+			name:        "filter by evolution id for user preference",
+			query:       "/api/core/evolution/suggestions?evolution_id=user_preference:preference-1",
 			wantIDs:     []string{"s-pref"},
 			wantTotal:   1,
 			wantUserIDs: []string{"u2"},
 			wantStale:   []bool{false},
 		},
 		{
-			name:        "filter by user id only",
-			query:       "/api/core/evolution/suggestions?user_id=u1",
-			wantIDs:     []string{"s-memory", "s-skill"},
-			wantTotal:   2,
-			wantUserIDs: []string{"u1", "u1"},
-			wantStale:   []bool{false, true},
+			name:        "filter by resource type only",
+			query:       "/api/core/evolution/suggestions?resource_type=skill",
+			wantIDs:     []string{"s-skill"},
+			wantTotal:   1,
+			wantUserIDs: []string{"u1"},
+			wantStale:   []bool{true},
 		},
 	}
 
@@ -246,7 +246,7 @@ func TestListSuggestionsSupportsExtendedFilters(t *testing.T) {
 	}
 }
 
-func TestListSuggestionsSupportsLegacyResourceFiltersWithoutResourceKey(t *testing.T) {
+func TestListSuggestionsSupportsEvolutionIDFiltersWithoutResourceKey(t *testing.T) {
 	db := newTestDB(t)
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
@@ -372,36 +372,6 @@ func TestListSuggestionsSupportsLegacyResourceFiltersWithoutResourceKey(t *testi
 		wantIDs   []string
 		wantTotal int64
 	}{
-		{
-			name:      "filter by parent skill id",
-			query:     "/api/core/evolution/suggestions?skill_id=skill-parent",
-			wantIDs:   []string{"s-skill-legacy"},
-			wantTotal: 1,
-		},
-		{
-			name:      "filter by child skill id uses parent suggestion key",
-			query:     "/api/core/evolution/suggestions?skill_id=skill-child",
-			wantIDs:   []string{"s-skill-legacy"},
-			wantTotal: 1,
-		},
-		{
-			name:      "filter by memory id",
-			query:     "/api/core/evolution/suggestions?memory_id=memory-1",
-			wantIDs:   []string{"s-memory-legacy"},
-			wantTotal: 1,
-		},
-		{
-			name:      "filter by preference id",
-			query:     "/api/core/evolution/suggestions?preference_id=preference-1",
-			wantIDs:   []string{"s-pref-legacy"},
-			wantTotal: 1,
-		},
-		{
-			name:      "filter by user preference id alias",
-			query:     "/api/core/evolution/suggestions?user_preference_id=preference-1",
-			wantIDs:   []string{"s-pref-legacy"},
-			wantTotal: 1,
-		},
 		{
 			name:      "filter by typed evolution id for parent skill",
 			query:     "/api/core/evolution/suggestions?evolution_id=skill:skill-parent",

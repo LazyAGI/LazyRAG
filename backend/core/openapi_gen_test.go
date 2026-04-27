@@ -110,4 +110,40 @@ func TestOpenAPISpecCoversEvolutionSkillMemoryPreferenceOperations(t *testing.T)
 			}
 		}
 	}
+
+	pathItem, ok := paths["/api/core/evolution/suggestions"].(map[string]any)
+	if !ok {
+		t.Fatalf("path missing from openapi spec: /api/core/evolution/suggestions")
+	}
+	getOp, ok := pathItem["get"].(map[string]any)
+	if !ok {
+		t.Fatalf("operation missing from openapi spec: get /api/core/evolution/suggestions")
+	}
+	params, ok := getOp["parameters"].([]any)
+	if !ok {
+		t.Fatalf("parameters missing for get /api/core/evolution/suggestions")
+	}
+
+	paramNames := make(map[string]struct{}, len(params))
+	for _, item := range params {
+		param, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := param["name"].(string)
+		if name != "" {
+			paramNames[name] = struct{}{}
+		}
+	}
+
+	for _, name := range []string{"page", "page_size", "evolution_id", "resource_type", "resource_key", "keyword"} {
+		if _, ok := paramNames[name]; !ok {
+			t.Fatalf("expected query parameter %q on get /api/core/evolution/suggestions", name)
+		}
+	}
+	for _, name := range []string{"user_id", "skill_id", "memory_id", "user_preference_id", "preference_id"} {
+		if _, ok := paramNames[name]; ok {
+			t.Fatalf("unexpected removed query parameter %q on get /api/core/evolution/suggestions", name)
+		}
+	}
 }

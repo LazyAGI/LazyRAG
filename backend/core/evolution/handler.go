@@ -302,24 +302,9 @@ func applySuggestionListFilters(ctx context.Context, db *gorm.DB, query *gorm.DB
 	if resourceKey := strings.TrimSpace(values.Get("resource_key")); resourceKey != "" {
 		query = query.Where("resource_key = ?", resourceKey)
 	}
-	if userID := strings.TrimSpace(values.Get("user_id")); userID != "" {
-		query = query.Where("user_id = ?", userID)
-	}
 
 	var err error
 	query, err = applySuggestionEvolutionFilter(ctx, db, query, values.Get("evolution_id"))
-	if err != nil {
-		return nil, err
-	}
-	query, err = applySuggestionSkillFilter(ctx, db, query, values.Get("skill_id"))
-	if err != nil {
-		return nil, err
-	}
-	query, err = applySuggestionMemoryFilter(ctx, db, query, values.Get("memory_id"))
-	if err != nil {
-		return nil, err
-	}
-	query, err = applySuggestionPreferenceFilter(ctx, db, query, firstNonEmptyFilterValue(values.Get("user_preference_id"), values.Get("preference_id")))
 	if err != nil {
 		return nil, err
 	}
