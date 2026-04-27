@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,6 +71,13 @@ type CreateWordGroupResponse struct {
 	Source      string         `json:"source"`
 	Reference   string         `json:"reference"`
 	Lock        bool           `json:"lock"`
+}
+
+// ListWordGroupsResponse is returned in APIResponse.Data for GET /word_group.
+type ListWordGroupsResponse struct {
+	Items         []CreateWordGroupResponse `json:"items"`
+	TotalSize     int32                     `json:"total_size"`
+	NextPageToken string                    `json:"next_page_token"`
 }
 
 // CreateWordGroup persists one term row and zero or more alias rows (same group / metadata).
@@ -210,6 +218,114 @@ func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	common.ReplyOK(w, CheckWordsExistResponse{Existing: existing})
+}
+
+// ListWordGroups returns active word groups for the request user, ordered by each group's term row updated_at DESC.
+// Query: page_token (offset), page_size (default 20, max 100); same semantics as dataset list.
+func ListWordGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	q := r.URL.Query()
+	pageToken := strings.TrimSpace(q.Get("page_token"))
+	pageSizeStr := strings.TrimSpace(q.Get("page_size"))
+
+	pageSize := 20
+	if pageSizeStr != "" {
+		if v, err := strconv.Atoi(pageSizeStr); err == nil && v > 0 {
+			pageSize = v
+		}
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	offset := 0
+	if pageToken != "" {
+		if v, err := parseListPageToken(pageToken); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
+	db := store.DB()
+	termScope := db.Model(&orm.Word{}).
+		Where("create_user_id = ? AND deleted_at IS NULL AND word_kind = ?", userID, orm.WordKindTerm)
+
+	var total int64
+	if err := termScope.Count(&total).Error; err != nil {
+		log.Logger.Error().Err(err).Msg("list word_group count failed")
+		common.ReplyErr(w, "list word group failed", http.StatusInternalServerError)
+		return
+	}
+
+	var terms []orm.Word
+	if err := db.Where("create_user_id = ? AND deleted_at IS NULL AND word_kind = ?", userID, orm.WordKindTerm).
+		Order("updated_at DESC, id ASC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&terms).Error; err != nil {
+		log.Logger.Error().Err(err).Msg("list word_group query failed")
+		common.ReplyErr(w, "list word group failed", http.StatusInternalServerError)
+		return
+	}
+
+	aliasByGroup := make(map[string][]CreatedAlias, len(terms))
+	if len(terms) > 0 {
+		groupIDs := make([]string, 0, len(terms))
+		for i := range terms {
+			groupIDs = append(groupIDs, terms[i].GroupID)
+		}
+		var aliasRows []orm.Word
+		if err := db.Where("group_id IN ? AND create_user_id = ? AND deleted_at IS NULL AND word_kind = ?",
+			groupIDs, userID, orm.WordKindAlias).
+			Order("group_id ASC, id ASC").
+			Find(&aliasRows).Error; err != nil {
+			log.Logger.Error().Err(err).Msg("list word_group aliases query failed")
+			common.ReplyErr(w, "list word group failed", http.StatusInternalServerError)
+			return
+		}
+		for i := range aliasRows {
+			a := &aliasRows[i]
+			aliasByGroup[a.GroupID] = append(aliasByGroup[a.GroupID], CreatedAlias{ID: a.ID, Word: a.Word})
+		}
+	}
+
+	items := make([]CreateWordGroupResponse, 0, len(terms))
+	for i := range terms {
+		t := &terms[i]
+		aliases := aliasByGroup[t.GroupID]
+		if aliases == nil {
+			aliases = []CreatedAlias{}
+		}
+		items = append(items, CreateWordGroupResponse{
+			TermID:      t.ID,
+			Term:        t.Word,
+			GroupID:     t.GroupID,
+			Aliases:     aliases,
+			Description: t.Description,
+			Source:      t.Source,
+			Reference:   t.ReferenceInfo,
+			Lock:        t.Locked,
+		})
+	}
+
+	end := offset + len(items)
+	nextToken := ""
+	if end < int(total) {
+		nextToken = encodeListPageToken(end, pageSize, int(total))
+	}
+	common.ReplyOK(w, ListWordGroupsResponse{
+		Items:         items,
+		TotalSize:     int32(total),
+		NextPageToken: nextToken,
+	})
 }
 
 // GetWordGroup returns one active word group for path group_id (same payload shape as create response).

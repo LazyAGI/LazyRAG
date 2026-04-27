@@ -413,6 +413,11 @@ type listDocumentsQueryParams struct {
 	PageSize  int32  `query:"page_size"`
 }
 
+type listWordGroupsQueryParams struct {
+	PageToken string `query:"page_token"`
+	PageSize  int32  `query:"page_size"`
+}
+
 type listTasksQueryParams struct {
 	PageToken   string `query:"page_token"`
 	PageSize    int32  `query:"page_size"`
@@ -737,6 +742,16 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"word_group"},
 			RequestBody: jsonBodyOf(wordgroup.CheckWordsExistRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Existing words among term and aliases", wordgroup.CheckWordsExistResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/word_group",
+			Summary:     "List word groups (term row updated_at DESC)",
+			Tags:        []string{"word_group"},
+			QueryParams: listWordGroupsQueryParams{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group list", wordgroup.ListWordGroupsResponse{}),
+			},
 		},
 		{
 			Method:  "GET",
