@@ -38,9 +38,15 @@ type CheckWordsExistRequest struct {
 	Aliases []string `json:"aliases"`
 }
 
-// CheckWordsExistResponse lists which submitted words already appear in words (any group/kind).
+// CheckWordsExistResponse lists which submitted words already appear in words for the request user (any group/kind).
 type CheckWordsExistResponse struct {
 	Existing []string `json:"existing"`
+}
+
+// DeleteWordGroupResponse is returned in APIResponse.Data after delete.
+type DeleteWordGroupResponse struct {
+	GroupID     string `json:"group_id"`
+	DeletedRows int64  `json:"deleted_rows"`
 }
 
 // CreateWordGroupResponse is returned in APIResponse.Data after create.
@@ -150,7 +156,7 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// CheckWordsExist returns words among term + aliases that already exist in the words table.
+// CheckWordsExist returns words among term + aliases that already exist in the words table for the request user.
 func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -166,14 +172,15 @@ func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "term and aliases are empty", http.StatusBadRequest)
 		return
 	}
-	if store.UserID(r) == "" {
+	userID := store.UserID(r)
+	if userID == "" {
 		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 
 	var hits []string
 	q := store.DB().Model(&orm.Word{}).
-		Where("word IN ?", candidates).
+		Where("word IN ? AND create_user_id = ? AND deleted_at IS NULL", candidates, userID).
 		Distinct("word").
 		Pluck("word", &hits)
 	if q.Error != nil {
@@ -192,6 +199,52 @@ func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	common.ReplyOK(w, CheckWordsExistResponse{Existing: existing})
+}
+
+// DeleteWordGroup soft-deletes all active words rows for the given group_id owned by the request user.
+func DeleteWordGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	groupID := strings.TrimSpace(common.PathVar(r, "group_id"))
+	if groupID == "" {
+		common.ReplyErr(w, "missing group_id", http.StatusBadRequest)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	db := store.DB()
+	var total int64
+	if err := db.Model(&orm.Word{}).
+		Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, userID).
+		Count(&total).Error; err != nil {
+		log.Logger.Error().Err(err).Str("group_id", groupID).Msg("delete word_group count failed")
+		common.ReplyErr(w, "delete word group failed", http.StatusInternalServerError)
+		return
+	}
+	if total == 0 {
+		common.ReplyErr(w, "word group not found", http.StatusNotFound)
+		return
+	}
+
+	now := time.Now().UTC()
+	tx := db.Model(&orm.Word{}).
+		Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, userID).
+		Updates(map[string]interface{}{
+			"deleted_at": now,
+			"updated_at": now,
+		})
+	if tx.Error != nil {
+		log.Logger.Error().Err(tx.Error).Str("group_id", groupID).Msg("delete word_group rows failed")
+		common.ReplyErr(w, "delete word group failed", http.StatusInternalServerError)
+		return
+	}
+	common.ReplyOK(w, DeleteWordGroupResponse{GroupID: groupID, DeletedRows: tx.RowsAffected})
 }
 
 func uniqueWordCandidates(term string, aliases []string) []string {

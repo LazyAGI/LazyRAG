@@ -110,6 +110,7 @@ func registerAllRoutes(r *mux.Router) {
 
 	// ----- Word group -----
 	handleAPI(r, "POST", "/word_group:checkExists", []string{}, wordgroup.CheckWordsExist)
+	handleAPI(r, "DELETE", "/word_group/{group_id}", []string{}, wordgroup.DeleteWordGroup)
 	handleAPI(r, "POST", "/word_group", []string{}, wordgroup.CreateWordGroup)
 
 	// ----- Prompttext -----
