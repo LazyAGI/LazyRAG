@@ -396,6 +396,36 @@ func TestListSuggestionsSupportsLegacyResourceFiltersWithoutResourceKey(t *testi
 			wantIDs:   []string{"s-pref-legacy"},
 			wantTotal: 1,
 		},
+		{
+			name:      "filter by user preference id alias",
+			query:     "/api/core/evolution/suggestions?user_preference_id=preference-1",
+			wantIDs:   []string{"s-pref-legacy"},
+			wantTotal: 1,
+		},
+		{
+			name:      "filter by typed evolution id for parent skill",
+			query:     "/api/core/evolution/suggestions?evolution_id=skill:skill-parent",
+			wantIDs:   []string{"s-skill-legacy"},
+			wantTotal: 1,
+		},
+		{
+			name:      "filter by typed evolution id for child skill uses parent suggestion key",
+			query:     "/api/core/evolution/suggestions?evolution_id=skill:skill-child",
+			wantIDs:   []string{"s-skill-legacy"},
+			wantTotal: 1,
+		},
+		{
+			name:      "filter by typed evolution id for memory",
+			query:     "/api/core/evolution/suggestions?evolution_id=memory:memory-1",
+			wantIDs:   []string{"s-memory-legacy"},
+			wantTotal: 1,
+		},
+		{
+			name:      "filter by typed evolution id for user preference",
+			query:     "/api/core/evolution/suggestions?evolution_id=user_preference:preference-1",
+			wantIDs:   []string{"s-pref-legacy"},
+			wantTotal: 1,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -428,6 +458,24 @@ func TestListSuggestionsSupportsLegacyResourceFiltersWithoutResourceKey(t *testi
 				}
 			}
 		})
+	}
+}
+
+func TestListSuggestionsRejectsInvalidEvolutionIDFilter(t *testing.T) {
+	db := newTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/evolution/suggestions?evolution_id=memory", nil)
+	rec := httptest.NewRecorder()
+
+	ListSuggestions(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid suggestion filter") || !strings.Contains(rec.Body.String(), "evolution_id must use") {
+		t.Fatalf("expected invalid evolution_id message, got body=%s", rec.Body.String())
 	}
 }
 
@@ -602,6 +650,214 @@ func TestBatchReviewSuggestionsAndRejectedItemsAreHiddenFromDefaultList(t *testi
 		if item.ID != "s-approve-2" && item.ID != "s-approve-1" {
 			t.Fatalf("unexpected listed suggestion id %q", item.ID)
 		}
+	}
+}
+
+func TestBatchReviewSuggestionsIgnoresOriginalStatus(t *testing.T) {
+	db := newTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	rows := []orm.ResourceSuggestion{
+		{
+			ID:           "s-accepted",
+			UserID:       "u1",
+			ResourceType: ResourceTypeMemory,
+			ResourceKey:  SystemResourceKey(ResourceTypeMemory),
+			Action:       SuggestionActionModify,
+			SessionID:    "session-accepted",
+			Title:        "accepted",
+			Content:      "memory change 1",
+			Status:       SuggestionStatusAccepted,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			ID:           "s-rejected",
+			UserID:       "u1",
+			ResourceType: ResourceTypeMemory,
+			ResourceKey:  SystemResourceKey(ResourceTypeMemory),
+			Action:       SuggestionActionModify,
+			SessionID:    "session-rejected",
+			Title:        "rejected",
+			Content:      "memory change 2",
+			Status:       SuggestionStatusRejected,
+			CreatedAt:    now.Add(1 * time.Second),
+			UpdatedAt:    now.Add(1 * time.Second),
+		},
+		{
+			ID:           "s-applied",
+			UserID:       "u1",
+			ResourceType: ResourceTypeMemory,
+			ResourceKey:  SystemResourceKey(ResourceTypeMemory),
+			Action:       SuggestionActionModify,
+			SessionID:    "session-applied",
+			Title:        "applied",
+			Content:      "memory change 3",
+			Status:       SuggestionStatusApplied,
+			CreatedAt:    now.Add(2 * time.Second),
+			UpdatedAt:    now.Add(2 * time.Second),
+		},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("create suggestions: %v", err)
+	}
+
+	approveReq := httptest.NewRequest(http.MethodPost, "/api/core/evolution/suggestions:batchApprove", strings.NewReader(`{"ids":["s-accepted","s-rejected","s-applied"]}`))
+	approveReq.Header.Set("Content-Type", "application/json")
+	approveReq.Header.Set("X-User-Id", "reviewer-approve")
+	approveReq.Header.Set("X-User-Name", "Reviewer Approve")
+	approveRec := httptest.NewRecorder()
+
+	BatchApproveSuggestions(approveRec, approveReq)
+
+	if approveRec.Code != http.StatusOK {
+		t.Fatalf("expected approve status 200, got %d body=%s", approveRec.Code, approveRec.Body.String())
+	}
+	var approveResp batchSuggestionAPITestResponse
+	if err := json.Unmarshal(approveRec.Body.Bytes(), &approveResp); err != nil {
+		t.Fatalf("decode approve response: %v", err)
+	}
+	if approveResp.Code != 0 {
+		t.Fatalf("expected approve code 0, got %d", approveResp.Code)
+	}
+	if len(approveResp.Data.Items) != 3 {
+		t.Fatalf("expected 3 approved items, got %d", len(approveResp.Data.Items))
+	}
+	for _, item := range approveResp.Data.Items {
+		if item.Status != SuggestionStatusAccepted {
+			t.Fatalf("expected accepted status, got %q", item.Status)
+		}
+		if item.ReviewerID != "reviewer-approve" || item.ReviewerName != "Reviewer Approve" {
+			t.Fatalf("unexpected approve reviewer: %#v", item)
+		}
+		if item.ReviewedAt == nil || *item.ReviewedAt == "" {
+			t.Fatalf("expected approve reviewed_at to be populated")
+		}
+	}
+
+	rejectReq := httptest.NewRequest(http.MethodPost, "/api/core/evolution/suggestions:batchReject", strings.NewReader(`{"ids":["s-accepted","s-rejected","s-applied"]}`))
+	rejectReq.Header.Set("Content-Type", "application/json")
+	rejectReq.Header.Set("X-User-Id", "reviewer-reject")
+	rejectReq.Header.Set("X-User-Name", "Reviewer Reject")
+	rejectRec := httptest.NewRecorder()
+
+	BatchRejectSuggestions(rejectRec, rejectReq)
+
+	if rejectRec.Code != http.StatusOK {
+		t.Fatalf("expected reject status 200, got %d body=%s", rejectRec.Code, rejectRec.Body.String())
+	}
+	var rejectResp batchSuggestionAPITestResponse
+	if err := json.Unmarshal(rejectRec.Body.Bytes(), &rejectResp); err != nil {
+		t.Fatalf("decode reject response: %v", err)
+	}
+	if rejectResp.Code != 0 {
+		t.Fatalf("expected reject code 0, got %d", rejectResp.Code)
+	}
+	if len(rejectResp.Data.Items) != 3 {
+		t.Fatalf("expected 3 rejected items, got %d", len(rejectResp.Data.Items))
+	}
+	for _, item := range rejectResp.Data.Items {
+		if item.Status != SuggestionStatusRejected {
+			t.Fatalf("expected rejected status, got %q", item.Status)
+		}
+		if item.ReviewerID != "reviewer-reject" || item.ReviewerName != "Reviewer Reject" {
+			t.Fatalf("unexpected reject reviewer: %#v", item)
+		}
+		if item.ReviewedAt == nil || *item.ReviewedAt == "" {
+			t.Fatalf("expected reject reviewed_at to be populated")
+		}
+	}
+}
+
+func TestListSuggestionsIgnoresStatusQueryAndOnlyReturnsVisibleStatuses(t *testing.T) {
+	db := newTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	rows := []orm.ResourceSuggestion{
+		{
+			ID:           "s-pending",
+			UserID:       "u1",
+			ResourceType: ResourceTypeMemory,
+			ResourceKey:  SystemResourceKey(ResourceTypeMemory),
+			Action:       SuggestionActionModify,
+			SessionID:    "session-pending",
+			Title:        "pending",
+			Content:      "memory change 1",
+			Status:       SuggestionStatusPendingReview,
+			CreatedAt:    now.Add(1 * time.Second),
+			UpdatedAt:    now.Add(1 * time.Second),
+		},
+		{
+			ID:           "s-accepted",
+			UserID:       "u1",
+			ResourceType: ResourceTypeMemory,
+			ResourceKey:  SystemResourceKey(ResourceTypeMemory),
+			Action:       SuggestionActionModify,
+			SessionID:    "session-accepted",
+			Title:        "accepted",
+			Content:      "memory change 2",
+			Status:       SuggestionStatusAccepted,
+			CreatedAt:    now.Add(2 * time.Second),
+			UpdatedAt:    now.Add(2 * time.Second),
+		},
+		{
+			ID:           "s-rejected",
+			UserID:       "u1",
+			ResourceType: ResourceTypeMemory,
+			ResourceKey:  SystemResourceKey(ResourceTypeMemory),
+			Action:       SuggestionActionModify,
+			SessionID:    "session-rejected",
+			Title:        "rejected",
+			Content:      "memory change 3",
+			Status:       SuggestionStatusRejected,
+			CreatedAt:    now.Add(3 * time.Second),
+			UpdatedAt:    now.Add(3 * time.Second),
+		},
+		{
+			ID:           "s-applied",
+			UserID:       "u1",
+			ResourceType: ResourceTypeMemory,
+			ResourceKey:  SystemResourceKey(ResourceTypeMemory),
+			Action:       SuggestionActionModify,
+			SessionID:    "session-applied",
+			Title:        "applied",
+			Content:      "memory change 4",
+			Status:       SuggestionStatusApplied,
+			CreatedAt:    now.Add(4 * time.Second),
+			UpdatedAt:    now.Add(4 * time.Second),
+		},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("create suggestions: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/evolution/suggestions?resource_type=memory&status=applied&status=rejected&page=1&page_size=20", nil)
+	rec := httptest.NewRecorder()
+
+	ListSuggestions(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected list status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp listSuggestionsAPITestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if resp.Code != 0 {
+		t.Fatalf("expected list code 0, got %d", resp.Code)
+	}
+	if resp.Data.Total != 2 {
+		t.Fatalf("expected total 2 after ignoring status filter, got %d", resp.Data.Total)
+	}
+	if len(resp.Data.Items) != 2 {
+		t.Fatalf("expected 2 visible items after ignoring status filter, got %d", len(resp.Data.Items))
+	}
+	if resp.Data.Items[0].ID != "s-accepted" || resp.Data.Items[1].ID != "s-pending" {
+		t.Fatalf("expected visible suggestions in created_at desc order, got ids %q and %q", resp.Data.Items[0].ID, resp.Data.Items[1].ID)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
+	"lazyrag/core/wordgroup"
 )
 
 type schemaSource struct {
@@ -456,16 +457,16 @@ type shareItemPathParams struct {
 }
 
 type suggestionListQueryParams struct {
-	Page         int32    `query:"page"`
-	PageSize     int32    `query:"page_size"`
-	ResourceType string   `query:"resource_type"`
-	ResourceKey  string   `query:"resource_key"`
-	UserID       string   `query:"user_id"`
-	SkillID      string   `query:"skill_id"`
-	MemoryID     string   `query:"memory_id"`
-	PreferenceID string   `query:"preference_id"`
-	Status       []string `query:"status"`
-	Keyword      string   `query:"keyword"`
+	Page             int32  `query:"page"`
+	PageSize         int32  `query:"page_size"`
+	EvolutionID      string `query:"evolution_id"`
+	ResourceType     string `query:"resource_type"`
+	ResourceKey      string `query:"resource_key"`
+	UserID           string `query:"user_id"`
+	SkillID          string `query:"skill_id"`
+	MemoryID         string `query:"memory_id"`
+	UserPreferenceID string `query:"user_preference_id"`
+	Keyword          string `query:"keyword"`
 }
 
 type skillListQueryParams struct {
@@ -1405,6 +1406,22 @@ func registeredCoreOperations() []openAPIOperation {
 			}{},
 			RequestBody: jsonBodyOf(doc.AbortUploadRequest{}, false),
 			Responses:   map[int]openAPIResponse{200: refResp("Abort uploadtext", "AbortUploadResponse")},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:checkExists",
+			Summary:     "Check which words already exist",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CheckWordsExistRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Existing words among term and aliases", wordgroup.CheckWordsExistResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group",
+			Summary:     "Create word group",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CreateWordGroupRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created word group", wordgroup.CreateWordGroupResponse{})},
 		},
 	}
 }

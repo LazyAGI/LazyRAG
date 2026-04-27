@@ -1,6 +1,13 @@
 -- 20260321131500_add_documents_pdf_convert_result (merged full init)
 -- +migrate Up
 
+CREATE TABLE IF NOT EXISTS "schema_migration_history" (
+  "version" bigint NOT NULL,
+  "name" varchar(255) NOT NULL DEFAULT '',
+  "applied_at" timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY ("version")
+);
+
 -- ACL tables
 
 CREATE TABLE "acl_visibility" (

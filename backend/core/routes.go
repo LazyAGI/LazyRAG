@@ -9,6 +9,7 @@ import (
 	"lazyrag/core/memory"
 	"lazyrag/core/preference"
 	"lazyrag/core/skill"
+	"lazyrag/core/wordgroup"
 
 	"github.com/gorilla/mux"
 )
@@ -144,6 +145,10 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/conversation:switchStatus", []string{"qa.read"}, chat.SetMultiAnswersSwitchStatus)
 	handleAPI(r, "POST", "/conversation:export", []string{"qa.read"}, chat.ExportConversations)
 	handleAPI(r, "GET", "/conversation:export/files/{file_id}", []string{"qa.read"}, chat.DownloadExportConversationFile)
+
+	// ----- Word group -----
+	handleAPI(r, "POST", "/word_group:checkExists", []string{}, wordgroup.CheckWordsExist)
+	handleAPI(r, "POST", "/word_group", []string{}, wordgroup.CreateWordGroup)
 
 	// ----- Prompttext -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)

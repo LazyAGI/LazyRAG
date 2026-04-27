@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 	"lazyrag/core/common/orm"
 	"lazyrag/core/store"
 )
+
+var errInvalidSuggestionFilter = errors.New("invalid suggestion filter")
 
 func ListSuggestions(w http.ResponseWriter, r *http.Request) {
 	db := store.DB()
@@ -34,15 +37,14 @@ func ListSuggestions(w http.ResponseWriter, r *http.Request) {
 	var err error
 	query, err = applySuggestionListFilters(r.Context(), db, query, r.URL.Query())
 	if err != nil {
+		if errors.Is(err, errInvalidSuggestionFilter) {
+			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		common.ReplyErr(w, "query suggestions failed", http.StatusInternalServerError)
 		return
 	}
-	statuses := compactQueryValues(r.URL.Query()["status"])
-	if len(statuses) == 0 {
-		query = query.Where("status IN ?", VisibleSuggestionStatuses())
-	} else {
-		query = query.Where("status IN ?", statuses)
-	}
+	query = query.Where("status IN ?", VisibleSuggestionStatuses())
 	if keyword := strings.TrimSpace(r.URL.Query().Get("keyword")); keyword != "" {
 		like := "%" + keyword + "%"
 		query = query.Where("title LIKE ? OR content LIKE ?", like, like)
@@ -219,10 +221,6 @@ func batchReviewSuggestions(w http.ResponseWriter, r *http.Request, targetStatus
 			common.ReplyErr(w, "suggestion not found", http.StatusNotFound)
 			return
 		}
-		if row.Status != SuggestionStatusPendingReview {
-			common.ReplyErr(w, "suggestion is not pending_review", http.StatusConflict)
-			return
-		}
 		orderedRows = append(orderedRows, row)
 	}
 
@@ -309,6 +307,10 @@ func applySuggestionListFilters(ctx context.Context, db *gorm.DB, query *gorm.DB
 	}
 
 	var err error
+	query, err = applySuggestionEvolutionFilter(ctx, db, query, values.Get("evolution_id"))
+	if err != nil {
+		return nil, err
+	}
 	query, err = applySuggestionSkillFilter(ctx, db, query, values.Get("skill_id"))
 	if err != nil {
 		return nil, err
@@ -317,11 +319,36 @@ func applySuggestionListFilters(ctx context.Context, db *gorm.DB, query *gorm.DB
 	if err != nil {
 		return nil, err
 	}
-	query, err = applySuggestionPreferenceFilter(ctx, db, query, values.Get("preference_id"))
+	query, err = applySuggestionPreferenceFilter(ctx, db, query, firstNonEmptyFilterValue(values.Get("user_preference_id"), values.Get("preference_id")))
 	if err != nil {
 		return nil, err
 	}
 	return query, nil
+}
+
+func applySuggestionEvolutionFilter(ctx context.Context, db *gorm.DB, query *gorm.DB, evolutionID string) (*gorm.DB, error) {
+	evolutionID = strings.TrimSpace(evolutionID)
+	if evolutionID == "" {
+		return query, nil
+	}
+
+	resourceType, resourceID, ok := strings.Cut(evolutionID, ":")
+	resourceType = strings.TrimSpace(resourceType)
+	resourceID = strings.TrimSpace(resourceID)
+	if !ok || resourceType == "" || resourceID == "" {
+		return nil, fmt.Errorf("%w: evolution_id must use <resource_type>:<resource_id>", errInvalidSuggestionFilter)
+	}
+
+	switch resourceType {
+	case ResourceTypeSkill:
+		return applySuggestionSkillFilter(ctx, db, query, resourceID)
+	case ResourceTypeMemory:
+		return applySuggestionMemoryFilter(ctx, db, query, resourceID)
+	case ResourceTypeUserPreference:
+		return applySuggestionPreferenceFilter(ctx, db, query, resourceID)
+	default:
+		return nil, fmt.Errorf("%w: unsupported evolution_id resource_type %q", errInvalidSuggestionFilter, resourceType)
+	}
 }
 
 func applySuggestionSkillFilter(ctx context.Context, db *gorm.DB, query *gorm.DB, skillID string) (*gorm.DB, error) {
