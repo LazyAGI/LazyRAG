@@ -107,25 +107,47 @@ _COMMON_OUTPUT_SPEC = (
     '输出要求：\n'
     '1. 只能输出 JSON 对象，不要输出 markdown 代码块，不要输出额外文本。\n'
     '2. JSON 结构必须是 {"content": "<新的完整文本>"}。\n'
-    '3. content 必须是合并有效 suggestions + user_instruct 后的最终完整文本，不能只给 patch。\n'
+    '3. content 必须是合并所有有效输入修改要求后的最终完整文本，不能只给 patch。\n'
 )
 
 
 def _format_inputs_block(
     content: str,
     suggestions: List[Dict[str, Any]],
-    user_instruct: str,
+    user_instruct: Optional[str],
 ) -> str:
-    return (
+    sections = [
         '输入信息如下：\n'
         '1) 当前 content（完整旧文本）：\n'
         f'{content}\n\n'
-        '2) suggestions（JSON 数组，可能为空；每条可能包含 outdated 字段）：\n'
-        '- outdated 为 TRUE 表示该建议已经过期，仅供参考；若对当前修改无意义，可以忽略。\n'
-        '- outdated 为 FALSE 或缺失表示该建议仍有效，需要根据建议修改 content。\n'
-        f'{json.dumps(suggestions, ensure_ascii=False)}\n\n'
-        f'3) user_instruct（用户直接指令）：\n{user_instruct}\n\n'
-    )
+    ]
+
+    next_index = 2
+    if suggestions:
+        sections.append(
+            f'{next_index}) suggestions（JSON 数组；每条可能包含 outdated 字段）：\n'
+            '- outdated 为 TRUE 表示该建议已经过期，仅供参考；若对当前修改无意义，可以忽略。\n'
+            '- outdated 为 FALSE 或缺失表示该建议仍有效，需要根据建议修改 content。\n'
+            f'{json.dumps(suggestions, ensure_ascii=False)}\n\n'
+        )
+        next_index += 1
+
+    if user_instruct:
+        sections.append(
+            f'{next_index}) user_instruct（用户直接指令）：\n{user_instruct}\n\n'
+        )
+
+    return ''.join(sections)
+
+
+def _normalize_user_instruct(raw_user_instruct: Any) -> Optional[str]:
+    if raw_user_instruct is None:
+        return None
+    if not isinstance(raw_user_instruct, str):
+        raise BadRequestError("'user_instruct' must be a string when provided.")
+
+    normalized = raw_user_instruct.strip()
+    return normalized or None
 
 
 def _format_retry_note(previous_error: Optional[str]) -> str:
@@ -137,7 +159,7 @@ def _format_retry_note(previous_error: Optional[str]) -> str:
 def _build_skill_prompt(
     content: str,
     suggestions: List[Dict[str, Any]],
-    user_instruct: str,
+    user_instruct: Optional[str],
     previous_error: Optional[str] = None,
 ) -> str:
     return (
@@ -177,7 +199,7 @@ def _build_skill_prompt(
 def _build_memory_prompt(
     content: str,
     suggestions: List[Dict[str, Any]],
-    user_instruct: str,
+    user_instruct: Optional[str],
     previous_error: Optional[str] = None,
 ) -> str:
     return (
@@ -206,7 +228,7 @@ def _build_memory_prompt(
 def _build_user_preference_prompt(
     content: str,
     suggestions: List[Dict[str, Any]],
-    user_instruct: str,
+    user_instruct: Optional[str],
     previous_error: Optional[str] = None,
 ) -> str:
     return (
@@ -243,7 +265,7 @@ def _build_generate_prompt(
     memory_type: MemoryType,
     content: str,
     suggestions: List[Dict[str, Any]],
-    user_instruct: str,
+    user_instruct: Optional[str],
     previous_error: Optional[str] = None,
 ) -> str:
     try:
@@ -271,10 +293,13 @@ class MemoryGeneratePipeline:
     ) -> str:
         if not isinstance(content, str):
             raise BadRequestError("'content' is required and must be a string.")
-        if not isinstance(user_instruct, str) or not user_instruct.strip():
-            raise BadRequestError("'user_instruct' is required and must be a non-empty string.")
 
         normalized_suggestions = _normalize_suggestions(suggestions)
+        normalized_user_instruct = _normalize_user_instruct(user_instruct)
+        if not normalized_suggestions and normalized_user_instruct is None:
+            raise BadRequestError(
+                "At least one of 'suggestions' or 'user_instruct' must be provided."
+            )
 
         error: Optional[str] = None
         for _ in range(_MAX_GENERATE_ATTEMPTS):
@@ -282,7 +307,7 @@ class MemoryGeneratePipeline:
                 memory_type=memory_type,
                 content=content,
                 suggestions=normalized_suggestions,
-                user_instruct=user_instruct.strip(),
+                user_instruct=normalized_user_instruct,
                 previous_error=error,
             )
             raw = self.llm(prompt)

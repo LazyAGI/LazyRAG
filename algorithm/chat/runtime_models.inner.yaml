@@ -83,7 +83,6 @@ agentic_v2:
   web_search_timeout: ${LAZYRAG_WEB_SEARCH_TIMEOUT:-10}
   web_search_auto_sources: ${LAZYRAG_WEB_SEARCH_AUTO_SOURCES:-bocha,google,bing,wikipedia}
   web_search_wikipedia_base_url: ${LAZYRAG_WEB_SEARCH_WIKIPEDIA_BASE_URL:-https://zh.wikipedia.org}
-  web_search_wikipedia_user_agent: ${LAZYRAG_WEB_SEARCH_WIKIPEDIA_USER_AGENT:-LazyRAG/1.0 (Wikipedia search integration)}
   web_search_google_api_key: ${LAZYRAG_WEB_SEARCH_GOOGLE_API_KEY:-}
   web_search_google_search_engine_id: ${LAZYRAG_WEB_SEARCH_GOOGLE_SEARCH_ENGINE_ID:-}
   web_search_bing_subscription_key: ${LAZYRAG_WEB_SEARCH_BING_SUBSCRIPTION_KEY:-}

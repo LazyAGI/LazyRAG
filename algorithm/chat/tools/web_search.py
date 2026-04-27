@@ -2,24 +2,21 @@ from __future__ import annotations
 
 from functools import wraps
 from socket import gaierror
-from typing import Any, Dict, List, Literal, Optional
-from urllib.parse import quote
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import lazyllm
-from lazyllm import fc_register
 from httpx import ConnectError, HTTPError, HTTPStatusError, NetworkError, TimeoutException
-from lazyllm.thirdparty import httpx
+from lazyllm import fc_register
 from lazyllm.tools.tools.search import ArxivSearch, BingSearch, BochaSearch, GoogleSearch, WikipediaSearch
 
 
 _MAX_TEXT_LEN = 2000
 _DEFAULT_WEB_SOURCES = ['bocha', 'google', 'bing', 'wikipedia']
-_WIKIPEDIA_API_PATH = '/w/api.php'
+_SUPPORTED_WEB_SOURCES = {'google', 'bing', 'bocha', 'wikipedia'}
 _DEFAULT_WIKIPEDIA_URLS = {
     'zh': 'https://zh.wikipedia.org',
     'en': 'https://en.wikipedia.org',
 }
-_DEFAULT_WIKIPEDIA_USER_AGENT = 'LazyRAG/1.0 (Wikipedia search integration)'
 
 
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
@@ -74,7 +71,8 @@ def _normalize_auto_sources(value: Any) -> List[str]:
         items = [str(part).strip().lower() for part in value]
     else:
         items = list(_DEFAULT_WEB_SOURCES)
-    return [item for item in items if item in {'google', 'bing', 'bocha', 'wikipedia'}] or list(_DEFAULT_WEB_SOURCES)
+    normalized = [item for item in items if item in _SUPPORTED_WEB_SOURCES]
+    return normalized or list(_DEFAULT_WEB_SOURCES)
 
 
 def _truncate_text(text: Any, max_len: int = _MAX_TEXT_LEN) -> str:
@@ -169,32 +167,6 @@ def _build_wikipedia_search(config: Dict[str, Any], lang: str) -> WikipediaSearc
     return WikipediaSearch(base_url=base_url, timeout=timeout, source_name='wikipedia')
 
 
-def _wikipedia_headers(config: Dict[str, Any]) -> Dict[str, str]:
-    return {
-        'User-Agent': _config_str(
-            config,
-            'web_search_wikipedia_user_agent',
-            _DEFAULT_WIKIPEDIA_USER_AGENT,
-        ),
-    }
-
-
-def _get_json(url: str, *, params: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None,
-              timeout: int = 10) -> Dict[str, Any]:
-    response = httpx.get(url, params=params, headers=headers, timeout=timeout)
-    response.raise_for_status()
-    data = response.json()
-    return data if isinstance(data, dict) else {}
-
-
-def _post_json(url: str, *, json_body: Dict[str, Any], headers: Optional[Dict[str, str]] = None,
-               timeout: int = 10) -> Dict[str, Any]:
-    response = httpx.post(url, json=json_body, headers=headers, timeout=timeout)
-    response.raise_for_status()
-    data = response.json()
-    return data if isinstance(data, dict) else {}
-
-
 def _provider_available(config: Dict[str, Any], source: str) -> bool:
     if source == 'wikipedia':
         return True
@@ -249,162 +221,70 @@ def _build_provider(config: Dict[str, Any], source: str, lang: str):
     raise ValueError(f'unsupported web_search source: {source}')
 
 
-def _search_wikipedia(config: Dict[str, Any], query: str, topk: int, lang: str) -> List[Dict[str, Any]]:
-    base_url = _config_str(
-        config,
-        'web_search_wikipedia_base_url',
-        _DEFAULT_WIKIPEDIA_URLS.get(_normalize_lang(lang), _DEFAULT_WIKIPEDIA_URLS['zh']),
-    ).rstrip('/')
-    timeout = _config_int(config, 'web_search_timeout', 10)
-    data = _get_json(
-        f'{base_url}{_WIKIPEDIA_API_PATH}',
-        params={
-            'action': 'query',
-            'list': 'search',
-            'srsearch': query,
-            'srlimit': min(topk, 50),
-            'format': 'json',
-        },
-        headers=_wikipedia_headers(config),
-        timeout=timeout,
-    )
-    items = data.get('query', {}).get('search') or []
-    results = []
-    for item in items:
-        title = item.get('title', '')
-        snippet = str(item.get('snippet') or '')
-        snippet = snippet.replace('<span class=\"searchmatch\">', '').replace('</span>', '')
-        results.append({
-            'title': title,
-            'url': f'{base_url}/wiki/{quote(title.replace(" ", "_"))}',
-            'snippet': snippet,
-            'source': 'wikipedia',
-            'extra': {'pageid': item.get('pageid')},
-        })
-    return results
-
-
-def _search_google(config: Dict[str, Any], query: str, topk: int) -> List[Dict[str, Any]]:
-    api_key = _config_str(config, 'web_search_google_api_key')
-    search_engine_id = _config_str(config, 'web_search_google_search_engine_id')
-    data = _get_json(
-        'https://customsearch.googleapis.com/customsearch/v1',
-        params={
-            'key': api_key,
-            'cx': search_engine_id,
-            'q': query,
-            'start': 0,
-            'num': min(topk, 10),
-        },
-        timeout=_config_int(config, 'web_search_timeout', 10),
-    )
-    items = data.get('items') or []
-    return [
-        {
-            'title': item.get('title', ''),
-            'url': item.get('link', ''),
-            'snippet': item.get('snippet', ''),
-            'source': 'google',
-        }
-        for item in items
-    ]
-
-
-def _search_bing(config: Dict[str, Any], query: str, topk: int) -> List[Dict[str, Any]]:
-    subscription_key = _config_str(config, 'web_search_bing_subscription_key')
-    endpoint = _config_str(config, 'web_search_bing_endpoint', 'https://api.bing.microsoft.com/v7.0/search')
-    data = _get_json(
-        endpoint,
-        params={'q': query, 'count': min(topk, 50)},
-        headers={'Ocp-Apim-Subscription-Key': subscription_key},
-        timeout=_config_int(config, 'web_search_timeout', 10),
-    )
-    if data.get('_type') == 'ErrorResponse':
-        raise RuntimeError(str(data))
-    items = data.get('webPages', {}).get('value') or []
-    return [
-        {
-            'title': item.get('name', ''),
-            'url': item.get('url', ''),
-            'snippet': item.get('snippet', ''),
-            'source': 'bing',
-        }
-        for item in items
-    ]
-
-
-def _search_bocha(config: Dict[str, Any], query: str, topk: int) -> List[Dict[str, Any]]:
-    api_key = _config_str(config, 'web_search_bocha_api_key')
-    base_url = _config_str(config, 'web_search_bocha_base_url', 'https://api.bochaai.com').rstrip('/')
-    data = _post_json(
-        f'{base_url}/v1/web-search',
-        json_body={'query': query, 'count': min(topk, 20), 'summary': False},
-        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
-        timeout=_config_int(config, 'web_search_timeout', 10),
-    )
-    items = data.get('results') or data.get('data') or data.get('items') or []
-    if isinstance(items, dict):
-        items = items.get('value', items.get('results', [])) or []
-    return [
-        {
-            'title': item.get('title') or item.get('name') or '',
-            'url': item.get('url') or item.get('link') or '',
-            'snippet': item.get('snippet') or item.get('description') or item.get('summary') or '',
-            'source': 'bocha',
-        }
-        for item in items
-        if isinstance(item, dict)
-    ]
-
-
-def _run_search(config: Dict[str, Any], provider: Any, source: str, query: str, topk: int,
-                lang: str) -> List[Dict[str, Any]]:
+def _search_provider(provider: Any, source: str, query: str, topk: int) -> List[Dict[str, Any]]:
     if source == 'wikipedia':
-        return _search_wikipedia(config, query, topk, lang)
+        return provider.search(query, limit=topk, raise_on_error=True)[:topk]
     if source == 'google':
-        return _search_google(config, query, topk)
+        return provider.search(query, date_restrict='', raise_on_error=True)[:topk]
     if source == 'bing':
-        return _search_bing(config, query, topk)
+        return provider.search(query, count=topk, raise_on_error=True)[:topk]
     if source == 'bocha':
-        return _search_bocha(config, query, topk)
+        return provider.search(query, count=topk, summary=False, raise_on_error=True)[:topk]
     raise ValueError(f'unsupported web_search source: {source}')
 
 
-def _run_search_with_error(
+def _candidate_sources(config: Dict[str, Any], requested_source: str) -> List[str]:
+    if requested_source != 'auto':
+        return [requested_source]
+
+    candidates = _normalize_auto_sources(config.get('web_search_auto_sources'))
+    if 'wikipedia' not in candidates:
+        candidates.append('wikipedia')
+    return candidates
+
+
+def _run_candidate_searches(
     config: Dict[str, Any],
-    provider: Any,
     source: str,
     query: str,
     topk: int,
     lang: str,
-) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    try:
-        return _run_search(config, provider, source, query, topk, lang), None
-    except Exception as exc:
-        return [], _classify_search_exception(exc)
-
-
-def _resolve_source(
-    config: Dict[str, Any],
-    source: str,
-    lang: str,
-) -> tuple[str, Any, List[str]]:
+) -> Tuple[Optional[str], List[str], List[Dict[str, Any]], Optional[Any], Optional[Dict[str, Any]]]:
     requested = str(source or 'auto').strip().lower()
-    if requested != 'auto':
-        provider = _build_provider(config, requested, lang)
-        return requested, provider, [requested]
+    tried_sources: List[str] = []
+    last_error: Optional[Dict[str, Any]] = None
+    last_error_source: Optional[str] = None
+    last_non_error_source: Optional[str] = None
 
-    tried: List[str] = []
-    for candidate in _normalize_auto_sources(config.get('web_search_auto_sources')):
-        tried.append(candidate)
-        if not _provider_available(config, candidate):
+    for candidate in _candidate_sources(config, requested):
+        tried_sources.append(candidate)
+        if requested == 'auto' and not _provider_available(config, candidate):
             continue
-        return candidate, _build_provider(config, candidate, lang), tried
 
-    provider = _build_wikipedia_search(config, lang)
-    if 'wikipedia' not in tried:
-        tried.append('wikipedia')
-    return 'wikipedia', provider, tried
+        provider = _build_provider(config, candidate, lang)
+        try:
+            items = _search_provider(provider, candidate, query, topk)
+        except Exception as exc:
+            last_error = _classify_search_exception(exc)
+            last_error_source = candidate
+            if requested != 'auto':
+                return candidate, tried_sources, [], None, last_error
+            continue
+
+        last_non_error_source = candidate
+        if items:
+            return candidate, tried_sources, items[:topk], provider, None
+        if requested != 'auto':
+            return candidate, tried_sources, [], provider, None
+
+    resolved_source = last_non_error_source or last_error_source
+    return resolved_source, tried_sources, [], None, last_error
+
+
+def _content_for_item(provider: Any, item: Dict[str, Any], include_content: bool) -> Optional[str]:
+    if not include_content:
+        return None
+    return provider.get_content(item)
 
 
 @fc_register('tool', execute_in_sandbox=False)
@@ -425,8 +305,9 @@ def web_search(
 
     This tool supports multiple providers through a single interface:
     `source='auto'|'wikipedia'|'google'|'bing'|'bocha'`.
-    In `auto` mode, the provider order is read from runtime config and falls
-    back to Wikipedia when no keyed provider is configured.
+    In `auto` mode, providers are tried in configured order. Unconfigured
+    providers are skipped, runtime failures fall through to the next
+    candidate, and Wikipedia is always appended as the final fallback.
 
     Args:
         query: Natural-language search query.
@@ -448,21 +329,25 @@ def web_search(
     config = _agentic_config()
     resolved_lang = _normalize_lang(lang)
     limit = max(1, min(int(topk), 10))
-    resolved_source, provider, tried_sources = _resolve_source(config, source, resolved_lang)
-    items, error = _run_search_with_error(config, provider, resolved_source, normalized_query, limit, resolved_lang)
+    resolved_source, tried_sources, items, provider, error = _run_candidate_searches(
+        config,
+        source,
+        normalized_query,
+        limit,
+        resolved_lang,
+    )
     if error is not None:
         return _search_failure(
             normalized_query,
-            resolved_source,
+            resolved_source or str(source),
             error,
             lang=resolved_lang,
             tried_sources=tried_sources,
         )
-    items = items[:limit]
 
     serialized_items = []
     for item in items:
-        content = provider.get_content(item) if include_content else None
+        content = _content_for_item(provider, item, include_content) if provider is not None else None
         serialized_items.append(_serialize_item(item, content=content))
 
     return {
@@ -470,7 +355,7 @@ def web_search(
         'status': 'ok' if serialized_items else 'no_results',
         'query': normalized_query,
         'requested_source': source,
-        'resolved_source': resolved_source,
+        'resolved_source': resolved_source or str(source),
         'tried_sources': tried_sources,
         'lang': resolved_lang,
         'total': len(serialized_items),
@@ -511,13 +396,18 @@ def arxiv_search(
     limit = max(1, min(int(max_results), 10))
     provider = ArxivSearch(timeout=timeout, source_name='arxiv')
     try:
-        items = provider.search(normalized_query, max_results=limit, sort_by=sort_by)[:limit]
+        items = provider.search(
+            normalized_query,
+            max_results=limit,
+            sort_by=sort_by,
+            raise_on_error=True,
+        )[:limit]
     except Exception as exc:
         return _search_failure(normalized_query, 'arxiv', _classify_search_exception(exc))
 
     serialized_items = []
     for item in items:
-        content = provider.get_content(item) if include_content else None
+        content = _content_for_item(provider, item, include_content)
         serialized_items.append(_serialize_item(item, content=content))
 
     return {

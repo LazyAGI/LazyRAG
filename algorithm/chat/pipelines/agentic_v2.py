@@ -26,6 +26,7 @@ from chat.components.agentic.config import (
     _env_int,
     _filter_tools_for_request,
     _get_runtime_agent_defaults,
+    _merge_builtin_file_tools,
     _normalize_available_skills,
     _normalize_available_tools,
     _sync_request_context,
@@ -48,6 +49,7 @@ from chat.components.agentic.tool_stream import (
     _tool_call_id,
 )
 from chat.pipelines.builders.get_models import get_automodel
+
 class _StreamingFunctionCall(FunctionCall):
     def __init__(self, *args: Any, stream_event_callback=None, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -171,11 +173,11 @@ def agentic_forward(
     config = _with_agentic_defaults(config)
 
     llm = get_automodel('llm')
-    sandbox = create_sandbox(project_dir=str(base_dir))
     available_tools = _filter_tools_for_request(
         _normalize_available_tools(config.get('available_tools')),
         config,
     )
+    available_tools = _merge_builtin_file_tools(available_tools)
     available_skills = _normalize_available_skills(config.get('available_skills'))
     skills_dir = config.get('skill_fs_url') or ''
     config['available_tools'] = available_tools
@@ -194,10 +196,8 @@ def agentic_forward(
         'skills': available_skills,
         'workspace': config.get('workspace', './workspace'),
         'keep_full_turns': keep_full_turns,
-        'sandbox': sandbox,
         'fs': FS,
         'skills_dir': skills_dir,
-        'enable_builtin_tools': True,
         'force_summarize': True,
         'force_summarize_context': query,
     }
@@ -228,7 +228,6 @@ def agentic_forward(
         _spawn_background_review(
             config=config,
             llm=llm,
-            sandbox=sandbox,
             keep_full_turns=keep_full_turns,
             history_snapshot=history_snapshot,
             review_mode=review_mode,
@@ -346,6 +345,7 @@ async def _agentic_forward_stream(
 def _ensure_tools_registered() -> None:
     # Trigger @fc_register side effects once so ReactAgent can resolve tool names.
     from chat.tools import kb, memory, skill_manager, web_search  # noqa: F401
+    from lazyllm.tools.agent import file_tool  # noqa: F401
 
 
 @lru_cache(maxsize=1)

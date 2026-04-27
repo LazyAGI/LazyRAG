@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic import model_validator
 
 from chat.pipelines.memory_generate import (
     BadRequestError,
@@ -33,7 +34,15 @@ class GeneratePayload(BaseModel):
         default=None,
         description='待合入建议列表',
     )
-    user_instruct: str = Field(..., description='用户直接下达的自然语言指令')
+    user_instruct: Optional[str] = Field(default=None, description='用户直接下达的自然语言指令')
+
+    @model_validator(mode='after')
+    def validate_generation_inputs(self) -> 'GeneratePayload':
+        has_suggestions = bool(self.suggestions)
+        has_user_instruct = bool(self.user_instruct and self.user_instruct.strip())
+        if not has_suggestions and not has_user_instruct:
+            raise ValueError("At least one of 'suggestions' or 'user_instruct' must be provided.")
+        return self
 
 
 def _ok(content: str) -> Dict[str, Any]:

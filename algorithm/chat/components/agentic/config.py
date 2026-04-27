@@ -28,6 +28,16 @@ DEFAULT_TOOLS = [
     'skill_manage',
 ]
 
+BUILTIN_FILE_TOOLS = (
+    'read_file',
+    'list_dir',
+    'search_in_files',
+    'make_dir',
+    'write_file',
+    'delete_file',
+    'move_file',
+)
+
 REVIEW_TOOLS: dict[str, list[str]] = {
     'memory': ['memory'],
     'skill': ['skill_manage'],
@@ -51,6 +61,28 @@ def _normalize_available_tools(tools: Any) -> list[str]:
     if any(isinstance(t, str) and t.lower() == 'all' for t in tools):
         return list(DEFAULT_TOOLS)
     return [t for t in tools if isinstance(t, str) and t]
+
+
+def _merge_builtin_file_tools(tools: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen_names: set[str] = set()
+
+    for tool in tools:
+        if not isinstance(tool, str) or not tool:
+            continue
+        tool_name = tool.rsplit('.', 1)[-1]
+        if tool_name in seen_names:
+            continue
+        seen_names.add(tool_name)
+        merged.append(tool)
+
+    for tool_name in BUILTIN_FILE_TOOLS:
+        if tool_name in seen_names:
+            continue
+        seen_names.add(tool_name)
+        merged.append(tool_name)
+
+    return merged
 
 
 def _normalize_available_skills(skills: Any) -> list[str]:
@@ -124,10 +156,6 @@ def _with_agentic_defaults(config: dict) -> dict:
         'web_search_auto_sources': ['bocha', 'google', 'bing', 'wikipedia'],
         'web_search_wikipedia_base_url': os.getenv(
             'LAZYRAG_WEB_SEARCH_WIKIPEDIA_BASE_URL', 'https://zh.wikipedia.org'
-        ),
-        'web_search_wikipedia_user_agent': os.getenv(
-            'LAZYRAG_WEB_SEARCH_WIKIPEDIA_USER_AGENT',
-            'LazyRAG/1.0 (Wikipedia search integration)',
         ),
         'web_search_google_api_key': os.getenv('LAZYRAG_WEB_SEARCH_GOOGLE_API_KEY', ''),
         'web_search_google_search_engine_id': os.getenv(
