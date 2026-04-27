@@ -16,6 +16,8 @@ tenacity>=8.0
 rapidfuzz>=3.14
 pyahocorasick>=2.0
 pandas>=2.3
+python-dotenv>=1.0.0
+networkx>=3.6.1
 fsspec
 pypdf
 docx2txt
