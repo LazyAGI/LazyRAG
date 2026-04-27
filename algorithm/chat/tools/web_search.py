@@ -5,12 +5,15 @@ from socket import gaierror
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import lazyllm
+import requests
+from bs4 import BeautifulSoup
 from httpx import ConnectError, HTTPError, HTTPStatusError, NetworkError, TimeoutException
 from lazyllm import fc_register
 from lazyllm.tools.tools.search import ArxivSearch, BingSearch, BochaSearch, GoogleSearch, WikipediaSearch
 
 
 _MAX_TEXT_LEN = 2000
+_MAX_FETCH_TEXT_LEN = 4000
 _DEFAULT_WEB_SOURCES = ['bocha', 'google', 'bing', 'wikipedia']
 _SUPPORTED_WEB_SOURCES = {'google', 'bing', 'bocha', 'wikipedia'}
 _DEFAULT_WIKIPEDIA_URLS = {
@@ -80,6 +83,15 @@ def _truncate_text(text: Any, max_len: int = _MAX_TEXT_LEN) -> str:
         return ''
     raw = text if isinstance(text, str) else str(text)
     return raw if len(raw) <= max_len else f'{raw[:max_len]}...'
+
+
+def _absolute_url(url: str) -> str:
+    normalized = str(url or '').strip()
+    if not normalized:
+        return ''
+    if normalized.startswith(('http://', 'https://')):
+        return normalized
+    return f'https://{normalized}'
 
 
 def _serialize_item(item: Dict[str, Any], content: Optional[str] = None) -> Dict[str, Any]:
@@ -287,6 +299,63 @@ def _content_for_item(provider: Any, item: Dict[str, Any], include_content: bool
     return provider.get_content(item)
 
 
+def _fetch_timeout(config: Dict[str, Any]) -> int:
+    return _config_int(config, 'url_fetch_timeout', _config_int(config, 'web_search_timeout', 10))
+
+
+def _fetch_text_limit(config: Dict[str, Any]) -> int:
+    return max(200, _config_int(config, 'url_fetch_max_length', _MAX_FETCH_TEXT_LEN))
+
+
+def _extract_page_text(html: str) -> str:
+    soup = BeautifulSoup(html, 'html.parser')
+
+    for tag in soup(['script', 'style', 'noscript']):
+        tag.decompose()
+
+    content_root = soup.find('main') or soup.find('article') or soup.body or soup
+    lines: List[str] = []
+    for node in content_root.find_all(['h1', 'h2', 'h3', 'p', 'li']):
+        text = node.get_text(' ', strip=True)
+        if text:
+            lines.append(text)
+
+    if not lines:
+        text = content_root.get_text('\n', strip=True)
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    deduped_lines: List[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        if line in seen:
+            continue
+        seen.add(line)
+        deduped_lines.append(line)
+    return '\n'.join(deduped_lines)
+
+
+def _extract_page_title(soup: BeautifulSoup) -> str:
+    if soup.title and soup.title.string:
+        return soup.title.string.strip()
+
+    og_title = soup.find('meta', attrs={'property': 'og:title'})
+    if og_title and og_title.get('content'):
+        return str(og_title['content']).strip()
+    return ''
+
+
+def _extract_page_description(soup: BeautifulSoup) -> str:
+    candidates = [
+        {'name': 'description'},
+        {'property': 'og:description'},
+    ]
+    for attrs in candidates:
+        tag = soup.find('meta', attrs=attrs)
+        if tag and tag.get('content'):
+            return str(tag['content']).strip()
+    return ''
+
+
 @fc_register('tool', execute_in_sandbox=False)
 @_handle_tool_errors
 def web_search(
@@ -418,4 +487,73 @@ def arxiv_search(
         'sort_by': sort_by,
         'total': len(serialized_items),
         'items': serialized_items,
+    }
+
+
+@fc_register('tool', execute_in_sandbox=False)
+@_handle_tool_errors
+def url_fetch(
+    url: str,
+) -> Dict[str, Any]:
+    """Fetch and summarize the readable content of a public web page.
+
+    Use this when the user provides a concrete URL or when search results
+    already identified a page that needs direct inspection.
+
+    Args:
+        url: Absolute URL, or a domain/path that can be normalized to HTTPS.
+
+    Returns:
+        A compact dict containing page metadata and extracted text content.
+    """
+    normalized_url = _absolute_url(url)
+    if not normalized_url:
+        raise ValueError('url is required')
+
+    config = _agentic_config()
+    timeout = _fetch_timeout(config)
+    text_limit = _fetch_text_limit(config)
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        )
+    }
+
+    with requests.sessions.Session() as session:
+        session.trust_env = False
+        response = session.get(
+            normalized_url,
+            timeout=timeout,
+            headers=headers,
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+
+    content_type = str(response.headers.get('Content-Type') or '').lower()
+    if 'text/html' not in content_type and 'application/xhtml+xml' not in content_type:
+        raw_text = response.text.strip()
+        return {
+            'success': True,
+            'status': 'ok',
+            'url': normalized_url,
+            'final_url': response.url,
+            'status_code': response.status_code,
+            'content_type': content_type,
+            'title': '',
+            'description': '',
+            'content': _truncate_text(raw_text, text_limit),
+        }
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+    return {
+        'success': True,
+        'status': 'ok',
+        'url': normalized_url,
+        'final_url': response.url,
+        'status_code': response.status_code,
+        'content_type': content_type,
+        'title': _extract_page_title(soup),
+        'description': _truncate_text(_extract_page_description(soup), 500),
+        'content': _truncate_text(_extract_page_text(response.text), text_limit),
     }

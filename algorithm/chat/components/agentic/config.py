@@ -23,6 +23,7 @@ DEFAULT_TOOLS = [
     'kb_get_window_nodes',
     'kb_keyword_search',
     'web_search',
+    'url_fetch',
     'arxiv_search',
     'memory',
     'skill_manage',
@@ -153,6 +154,8 @@ def _with_agentic_defaults(config: dict) -> dict:
         'core_api_url': os.getenv('LAZYRAG_CORE_API_URL', 'http://core:8000'),
         'workspace': './workspace',
         'web_search_timeout': 10,
+        'url_fetch_timeout': 10,
+        'url_fetch_max_length': 4000,
         'web_search_auto_sources': ['bocha', 'google', 'bing', 'wikipedia'],
         'web_search_wikipedia_base_url': os.getenv(
             'LAZYRAG_WEB_SEARCH_WIKIPEDIA_BASE_URL', 'https://zh.wikipedia.org'
@@ -191,7 +194,11 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
         prompt_parts.append(TOOL_CALL_STATUS_GUIDANCE)
     if any(tool.startswith('kb_') for tool in available_tools):
         prompt_parts.append(CITATION_GUIDANCE)
-    if 'web_search' in available_tools or 'arxiv_search' in available_tools:
+    if (
+        'web_search' in available_tools
+        or 'arxiv_search' in available_tools
+        or 'url_fetch' in available_tools
+    ):
         prompt_parts.append(SEARCH_GUIDANCE)
 
     return '\n\n'.join(prompt_parts)

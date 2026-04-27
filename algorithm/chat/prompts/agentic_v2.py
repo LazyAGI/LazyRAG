@@ -44,24 +44,19 @@ SKILLS_GUIDANCE = (
 CITATION_GUIDANCE = '''# Citation Rules
 When using evidence returned by knowledge-base tools, cite it with the exact `ref` marker from the tool result, such as `[[1]]`.
 Put the citation immediately after the supported sentence or paragraph.
-Do not invent citation numbers. Do not rewrite `[[n]]` into links yourself.
-使用知识库工具返回的证据作答时，必须使用工具结果中的原始 `ref` 标记（如 `[[1]]`）作为引用。
-引用应紧跟被该证据支持的句子或段落；不要自造编号，也不要自己把 `[[n]]` 改写成链接。'''
+Do not invent citation numbers. Do not rewrite `[[n]]` into links yourself.'''
 SEARCH_GUIDANCE = (
     "# Search Tool Rules\n"
     "Prefer `kb_search` for retrieval. Use `web_search` only as a supplement when "
     "the knowledge base has no relevant result, the evidence is clearly insufficient, "
     "or the user is asking for public information outside the knowledge base.\n"
+    "When the user gives a concrete URL or asks you to inspect a specific page, "
+    "prefer `url_fetch` to read that page directly.\n"
     "For papers, research topics, arXiv ids, abstracts, or author-related questions, "
     "prefer `arxiv_search` over `web_search`.\n"
     "When answering with knowledge-base evidence, keep using the original `[[n]]` citations. "
-    "When answering with `web_search` or `arxiv_search`, do not fabricate `[[n]]`; instead, "
+    "When answering with `web_search`, `url_fetch`, or `arxiv_search`, do not fabricate `[[n]]`; instead, "
     "mention the source title or URL plainly.\n"
-    "优先使用 `kb_search` 检索知识库。只有当知识库没有相关结果、证据明显不足，或用户明确在问知识库之外的公共信息时，"
-    "才使用 `web_search` 作为补充。\n"
-    "如果问题涉及论文、研究主题、arXiv 编号、摘要或作者信息，优先使用 `arxiv_search`，而不是 `web_search`。\n"
-    "使用知识库证据时继续使用原始 `[[n]]` 引用；使用 `web_search` 或 `arxiv_search` 时不要伪造 `[[n]]`，"
-    "应直接给出来源标题或 URL。"
 )
 TOOL_CALL_STATUS_GUIDANCE = (
     "Before calling a tool, write one concise, user-visible sentence explaining "
