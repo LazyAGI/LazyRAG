@@ -49,6 +49,17 @@ type DeleteWordGroupResponse struct {
 	DeletedRows int64  `json:"deleted_rows"`
 }
 
+// BatchDeleteWordGroupsRequest is the JSON body for POST /word_group:batchDelete.
+type BatchDeleteWordGroupsRequest struct {
+	GroupIDs []string `json:"group_ids"`
+}
+
+// BatchDeleteWordGroupsResponse is returned in APIResponse.Data after batch soft-delete.
+type BatchDeleteWordGroupsResponse struct {
+	GroupIDs    []string `json:"group_ids"`
+	DeletedRows int64    `json:"deleted_rows"`
+}
+
 // CreateWordGroupResponse is returned in APIResponse.Data after create.
 type CreateWordGroupResponse struct {
 	TermID      string         `json:"term_id"`
@@ -201,6 +212,35 @@ func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
 	common.ReplyOK(w, CheckWordsExistResponse{Existing: existing})
 }
 
+// deleteWordGroupsForUser soft-deletes active word rows for the given group_ids owned by userID.
+// It returns distinct group_ids that had at least one active row, and total rows updated.
+func deleteWordGroupsForUser(db *gorm.DB, userID string, groupIDs []string) ([]string, int64, error) {
+	if len(groupIDs) == 0 {
+		return nil, 0, nil
+	}
+	var hitGroups []string
+	if err := db.Model(&orm.Word{}).
+		Where("group_id IN ? AND create_user_id = ? AND deleted_at IS NULL", groupIDs, userID).
+		Distinct("group_id").
+		Pluck("group_id", &hitGroups).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(hitGroups) == 0 {
+		return nil, 0, nil
+	}
+	now := time.Now().UTC()
+	tx := db.Model(&orm.Word{}).
+		Where("group_id IN ? AND create_user_id = ? AND deleted_at IS NULL", hitGroups, userID).
+		Updates(map[string]interface{}{
+			"deleted_at": now,
+			"updated_at": now,
+		})
+	if tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+	return hitGroups, tx.RowsAffected, nil
+}
+
 // DeleteWordGroup soft-deletes all active words rows for the given group_id owned by the request user.
 func DeleteWordGroup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
@@ -219,32 +259,66 @@ func DeleteWordGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := store.DB()
-	var total int64
-	if err := db.Model(&orm.Word{}).
-		Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, userID).
-		Count(&total).Error; err != nil {
-		log.Logger.Error().Err(err).Str("group_id", groupID).Msg("delete word_group count failed")
+	hitGroups, rows, err := deleteWordGroupsForUser(db, userID, []string{groupID})
+	if err != nil {
+		log.Logger.Error().Err(err).Str("group_id", groupID).Msg("delete word_group failed")
 		common.ReplyErr(w, "delete word group failed", http.StatusInternalServerError)
 		return
 	}
-	if total == 0 {
+	if len(hitGroups) == 0 {
 		common.ReplyErr(w, "word group not found", http.StatusNotFound)
 		return
 	}
+	common.ReplyOK(w, DeleteWordGroupResponse{GroupID: groupID, DeletedRows: rows})
+}
 
-	now := time.Now().UTC()
-	tx := db.Model(&orm.Word{}).
-		Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, userID).
-		Updates(map[string]interface{}{
-			"deleted_at": now,
-			"updated_at": now,
-		})
-	if tx.Error != nil {
-		log.Logger.Error().Err(tx.Error).Str("group_id", groupID).Msg("delete word_group rows failed")
-		common.ReplyErr(w, "delete word group failed", http.StatusInternalServerError)
+// BatchDeleteWordGroups soft-deletes active word rows for each requested group_id owned by the request user.
+func BatchDeleteWordGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	common.ReplyOK(w, DeleteWordGroupResponse{GroupID: groupID, DeletedRows: tx.RowsAffected})
+	var body BatchDeleteWordGroupsRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	uniqueIDs := make([]string, 0, len(body.GroupIDs))
+	seen := make(map[string]struct{}, len(body.GroupIDs))
+	for _, id := range body.GroupIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		common.ReplyErr(w, "group_ids required", http.StatusBadRequest)
+		return
+	}
+
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	db := store.DB()
+	hitGroups, rows, err := deleteWordGroupsForUser(db, userID, uniqueIDs)
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("batch delete word_group failed")
+		common.ReplyErr(w, "batch delete word group failed", http.StatusInternalServerError)
+		return
+	}
+	if len(hitGroups) == 0 {
+		common.ReplyErr(w, "word group not found", http.StatusNotFound)
+		return
+	}
+	common.ReplyOK(w, BatchDeleteWordGroupsResponse{GroupIDs: hitGroups, DeletedRows: rows})
 }
 
 func uniqueWordCandidates(term string, aliases []string) []string {

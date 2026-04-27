@@ -750,6 +750,14 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
+			Path:        "/word_group:batchDelete",
+			Summary:     "Batch soft-delete word groups by group_ids",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.BatchDeleteWordGroupsRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Batch deleted word groups", wordgroup.BatchDeleteWordGroupsResponse{})},
+		},
+		{
+			Method:      "POST",
 			Path:        "/word_group",
 			Summary:     "Create word group",
 			Tags:        []string{"word_group"},
