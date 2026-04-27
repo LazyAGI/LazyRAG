@@ -417,6 +417,11 @@ type listDocumentsQueryParams struct {
 	PageSize  int32  `query:"page_size"`
 }
 
+type listWordGroupsQueryParams struct {
+	PageToken string `query:"page_token"`
+	PageSize  int32  `query:"page_size"`
+}
+
 type listTasksQueryParams struct {
 	PageToken   string `query:"page_token"`
 	PageSize    int32  `query:"page_size"`
@@ -1414,6 +1419,70 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"word_group"},
 			RequestBody: jsonBodyOf(wordgroup.CheckWordsExistRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Existing words among term and aliases", wordgroup.CheckWordsExistResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:update",
+			Summary:     "Update word group (term, description, lock, replace aliases)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.UpdateWordGroupRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Updated word group", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:search",
+			Summary:     "Search word groups by keyword and optional source (paginated list)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.SearchWordGroupsRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group search results", wordgroup.ListWordGroupsResponse{}),
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/word_group",
+			Summary:     "List word groups (term row updated_at DESC)",
+			Tags:        []string{"word_group"},
+			QueryParams: listWordGroupsQueryParams{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group list", wordgroup.ListWordGroupsResponse{}),
+			},
+		},
+		{
+			Method:  "GET",
+			Path:    "/word_group/{group_id}",
+			Summary: "Get word group detail by group_id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				GroupID string `path:"group_id"`
+			}{},
+			Responses: map[int]openAPIResponse{200: resp("Word group detail", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:  "DELETE",
+			Path:    "/word_group/{group_id}",
+			Summary: "Delete word group by group_id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				GroupID string `path:"group_id"`
+			}{},
+			Responses: map[int]openAPIResponse{200: resp("Deleted word group", wordgroup.DeleteWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:batchDelete",
+			Summary:     "Batch soft-delete word groups by group_ids",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.BatchDeleteWordGroupsRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Batch deleted word groups", wordgroup.BatchDeleteWordGroupsResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:merge",
+			Summary:     "Merge word groups into the first group_id (first term kept; others become aliases)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.MergeWordGroupsRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Merged word group", wordgroup.CreateWordGroupResponse{})},
 		},
 		{
 			Method:      "POST",
