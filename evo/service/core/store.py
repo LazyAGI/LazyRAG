@@ -362,4 +362,9 @@ def list_flow_tasks_by_thread(store: FsStateStore, flow: str,
 
 
 def _read_task(path: Path) -> dict | None:
-    return json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None

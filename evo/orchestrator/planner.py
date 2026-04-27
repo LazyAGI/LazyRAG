@@ -221,6 +221,14 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
                      'args': {'cp_id': cp_id, 'choice': 'revise', 'feedback': message}}],
             'reply': '我会把你的修改意见写入检查点并继续执行。',
         }
+    if checkpoints and ('checkpoint' in text or '检查点' in text or '批准' in text):
+        cp_id = checkpoints[0].get('id')
+        return {
+            'ops': [{'op': 'checkpoint.respond',
+                     'reason': '批准当前待处理 checkpoint 并继续任务',
+                     'args': {'cp_id': cp_id, 'choice': 'approve'}}],
+            'reply': '我会批准当前检查点并继续执行。',
+        }
 
     if any(k in message for k in ('拒绝修改', '拒绝代码', '不接受修改', 'reject apply', 'reject code')):
         task_id = _latest_task_id(latest, 'apply')
@@ -298,15 +306,6 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
                          'reason': '暂停当前活跃任务',
                          'args': ({'flow': flow} if flow else {})}],
                 'reply': '我会暂停当前活跃任务。'}
-
-    if checkpoints and ('checkpoint' in text or '检查点' in text or '批准' in text):
-        cp_id = checkpoints[0].get('id')
-        return {
-            'ops': [{'op': 'checkpoint.respond',
-                     'reason': '批准当前待处理 checkpoint 并继续任务',
-                     'args': {'cp_id': cp_id, 'choice': 'approve'}}],
-            'reply': '我会批准当前检查点并继续执行。',
-        }
 
     if ('数据集' in message or '评测集' in message) and any(k in message for k in ('重新生成', '重生成', '再生成', '生成有问题', '有问题')):
         ds = latest.get('dataset_gen') or {}

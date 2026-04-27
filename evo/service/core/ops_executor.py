@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -333,4 +334,30 @@ def _resolve_latest_resumable_task(jm: JobManager, args: dict[str, Any]) -> str:
                 best = row
     if best:
         return best['id']
+    stopping = _latest_stopping_task(jm, args)
+    if stopping:
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            row = store.get(jm.store, stopping['id'])
+            if row and row.get('status') in ('paused', 'failed_transient'):
+                return row['id']
+            if row and row.get('status') not in ('stopping', 'running'):
+                break
+            time.sleep(0.25)
     raise StateError('NO_RESUMABLE_TASK', f'no paused or transient failed task found for flow={flow!r}')
+
+
+def _latest_stopping_task(jm: JobManager, args: dict[str, Any]) -> dict | None:
+    thread_id = args.get('thread_id')
+    flow = args.get('flow')
+    flows = (flow,) if flow else _FLOW_PRIORITY
+    best: dict | None = None
+    for fl in flows:
+        rows = (store.list_flow_tasks_by_thread(jm.store, fl, thread_id)
+                if thread_id else store.list_recent(jm.store, fl, 100))
+        for row in rows:
+            if row.get('status') != 'stopping':
+                continue
+            if best is None or row.get('updated_at', 0) > best.get('updated_at', 0):
+                best = row
+    return best
