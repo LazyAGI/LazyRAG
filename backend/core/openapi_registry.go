@@ -801,6 +801,14 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
+			Path:        "/word_group:merge",
+			Summary:     "Merge word groups into the first group_id (first term kept; others become aliases)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.MergeWordGroupsRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Merged word group", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
 			Path:        "/word_group",
 			Summary:     "Create word group",
 			Tags:        []string{"word_group"},

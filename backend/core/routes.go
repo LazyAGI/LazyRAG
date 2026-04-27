@@ -116,6 +116,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "GET", "/word_group/{group_id}", []string{}, wordgroup.GetWordGroup)
 	handleAPI(r, "DELETE", "/word_group/{group_id}", []string{}, wordgroup.DeleteWordGroup)
 	handleAPI(r, "POST", "/word_group:batchDelete", []string{}, wordgroup.BatchDeleteWordGroups)
+	handleAPI(r, "POST", "/word_group:merge", []string{}, wordgroup.MergeWordGroups)
 	handleAPI(r, "POST", "/word_group", []string{}, wordgroup.CreateWordGroup)
 
 	// ----- Prompttext -----

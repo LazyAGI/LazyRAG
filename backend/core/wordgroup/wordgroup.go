@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,11 @@ type BatchDeleteWordGroupsRequest struct {
 type BatchDeleteWordGroupsResponse struct {
 	GroupIDs    []string `json:"group_ids"`
 	DeletedRows int64    `json:"deleted_rows"`
+}
+
+// MergeWordGroupsRequest is the JSON body for POST /word_group:merge.
+type MergeWordGroupsRequest struct {
+	GroupIDs []string `json:"group_ids"`
 }
 
 // CreateWordGroupResponse is returned in APIResponse.Data after create.
@@ -584,34 +590,157 @@ func SearchWordGroups(w http.ResponseWriter, r *http.Request) {
 	replyWordGroupListPage(w, db, userID, terms, total, offset, pageSize, "search word group failed")
 }
 
-// GetWordGroup returns one active word group for path group_id (same payload shape as create response).
-func GetWordGroup(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+// MergeWordGroups merges multiple groups into the first group_id: keeps that group's term row and moves other
+// groups' term and alias rows into it as alias rows (dedupe by word text; duplicates are soft-deleted).
+func MergeWordGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
 		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	groupID := strings.TrimSpace(common.PathVar(r, "group_id"))
-	if groupID == "" {
-		common.ReplyErr(w, "missing group_id", http.StatusBadRequest)
+	var body MergeWordGroupsRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
+
+	groupIDs := dedupeGroupIDsPreserveOrder(body.GroupIDs)
+	if len(groupIDs) < 2 {
+		common.ReplyErr(w, "at least 2 group_ids required", http.StatusBadRequest)
+		return
+	}
+
 	userID := store.UserID(r)
 	if userID == "" {
 		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
 
-	var rows []orm.Word
-	if err := store.DB().Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, userID).
-		Order("word_kind DESC, id ASC"). // term before alias; stable alias order
-		Find(&rows).Error; err != nil {
-		log.Logger.Error().Err(err).Str("group_id", groupID).Msg("get word_group query failed")
-		common.ReplyErr(w, "get word group failed", http.StatusInternalServerError)
-		return
-	}
-	if len(rows) == 0 {
+	masterGID := groupIDs[0]
+	slaveGIDs := groupIDs[1:]
+
+	db := store.DB()
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var masterTerm orm.Word
+		if err := tx.Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL",
+			masterGID, userID, orm.WordKindTerm).
+			First(&masterTerm).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errWordGroupNotFound
+			}
+			return err
+		}
+
+		for _, gid := range slaveGIDs {
+			var n int64
+			if err := tx.Model(&orm.Word{}).
+				Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL", gid, userID, orm.WordKindTerm).
+				Count(&n).Error; err != nil {
+				return err
+			}
+			if n == 0 {
+				return errWordGroupNotFound
+			}
+		}
+
+		existingWords := make(map[string]struct{})
+		var masterRows []orm.Word
+		if err := tx.Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", masterGID, userID).
+			Find(&masterRows).Error; err != nil {
+			return err
+		}
+		for i := range masterRows {
+			existingWords[strings.TrimSpace(masterRows[i].Word)] = struct{}{}
+		}
+
+		now := time.Now().UTC()
+		for _, slaveGID := range slaveGIDs {
+			var rows []orm.Word
+			if err := tx.Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", slaveGID, userID).
+				Find(&rows).Error; err != nil {
+				return err
+			}
+			sort.Slice(rows, func(i, j int) bool {
+				ti := rows[i].WordKind == orm.WordKindTerm
+				tj := rows[j].WordKind == orm.WordKindTerm
+				if ti != tj {
+					return ti
+				}
+				return rows[i].ID < rows[j].ID
+			})
+			for i := range rows {
+				row := &rows[i]
+				w := strings.TrimSpace(row.Word)
+				if w == "" {
+					if err := tx.Model(&orm.Word{}).Where("id = ?", row.ID).Updates(map[string]interface{}{
+						"deleted_at": now,
+						"updated_at": now,
+					}).Error; err != nil {
+						return err
+					}
+					continue
+				}
+				if _, dup := existingWords[w]; dup {
+					if err := tx.Model(&orm.Word{}).Where("id = ?", row.ID).Updates(map[string]interface{}{
+						"deleted_at": now,
+						"updated_at": now,
+					}).Error; err != nil {
+						return err
+					}
+					continue
+				}
+				up := map[string]interface{}{
+					"group_id":       masterGID,
+					"updated_at":     now,
+					"description":    masterTerm.Description,
+					"source":         masterTerm.Source,
+					"reference_info": masterTerm.ReferenceInfo,
+					"locked":         masterTerm.Locked,
+				}
+				if row.WordKind == orm.WordKindTerm {
+					up["word_kind"] = orm.WordKindAlias
+				}
+				if err := tx.Model(&orm.Word{}).Where("id = ?", row.ID).Updates(up).Error; err != nil {
+					return err
+				}
+				existingWords[w] = struct{}{}
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, errWordGroupNotFound) {
 		common.ReplyErr(w, "word group not found", http.StatusNotFound)
 		return
+	}
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("merge word_group failed")
+		common.ReplyErr(w, "merge word group failed", http.StatusInternalServerError)
+		return
+	}
+
+	out, ok, err := buildCreateWordGroupResponse(db, userID, masterGID)
+	if err != nil {
+		log.Logger.Error().Err(err).Str("group_id", masterGID).Msg("merge word_group reload failed")
+		common.ReplyErr(w, "merge word group failed", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		common.ReplyErr(w, "merge word group failed", http.StatusInternalServerError)
+		return
+	}
+	common.ReplyOK(w, out)
+}
+
+// buildCreateWordGroupResponse loads one active word group by group_id for the user.
+// ok is false when the group or term row is missing (not an error). err is set on DB failure.
+func buildCreateWordGroupResponse(db *gorm.DB, userID, groupID string) (resp CreateWordGroupResponse, ok bool, err error) {
+	var rows []orm.Word
+	if err := db.Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, userID).
+		Order("word_kind DESC, id ASC").
+		Find(&rows).Error; err != nil {
+		return CreateWordGroupResponse{}, false, err
+	}
+	if len(rows) == 0 {
+		return CreateWordGroupResponse{}, false, nil
 	}
 
 	var termRow *orm.Word
@@ -629,11 +758,10 @@ func GetWordGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if termRow == nil {
-		common.ReplyErr(w, "word group not found", http.StatusNotFound)
-		return
+		return CreateWordGroupResponse{}, false, nil
 	}
 
-	common.ReplyOK(w, CreateWordGroupResponse{
+	return CreateWordGroupResponse{
 		TermID:      termRow.ID,
 		Term:        termRow.Word,
 		GroupID:     groupID,
@@ -642,7 +770,37 @@ func GetWordGroup(w http.ResponseWriter, r *http.Request) {
 		Source:      termRow.Source,
 		Reference:   termRow.ReferenceInfo,
 		Lock:        termRow.Locked,
-	})
+	}, true, nil
+}
+
+// GetWordGroup returns one active word group for path group_id (same payload shape as create response).
+func GetWordGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	groupID := strings.TrimSpace(common.PathVar(r, "group_id"))
+	if groupID == "" {
+		common.ReplyErr(w, "missing group_id", http.StatusBadRequest)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	out, ok, err := buildCreateWordGroupResponse(store.DB(), userID, groupID)
+	if err != nil {
+		log.Logger.Error().Err(err).Str("group_id", groupID).Msg("get word_group query failed")
+		common.ReplyErr(w, "get word group failed", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		common.ReplyErr(w, "word group not found", http.StatusNotFound)
+		return
+	}
+	common.ReplyOK(w, out)
 }
 
 // deleteWordGroupsForUser soft-deletes active word rows for the given group_ids owned by userID.
@@ -768,6 +926,23 @@ func uniqueWordCandidates(term string, aliases []string) []string {
 		}
 		out = append(out, a)
 		seen[a] = struct{}{}
+	}
+	return out
+}
+
+func dedupeGroupIDsPreserveOrder(raw []string) []string {
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, id := range raw {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
 	}
 	return out
 }
