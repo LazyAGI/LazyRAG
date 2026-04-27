@@ -3,6 +3,7 @@ package wordgroup
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -25,6 +26,15 @@ type CreateWordGroupRequest struct {
 	Aliases     []string `json:"aliases"`
 	Description string   `json:"description"`
 	Lock        bool     `json:"lock"` // 保护态
+}
+
+// UpdateWordGroupRequest is the JSON body for POST /word_group:update.
+type UpdateWordGroupRequest struct {
+	GroupID     string   `json:"group_id"`
+	Term        string   `json:"term"`
+	Aliases     []string `json:"aliases"`
+	Description string   `json:"description"`
+	Lock        bool     `json:"lock"`
 }
 
 // CreatedAlias is one persisted alias row under a term.
@@ -174,6 +184,124 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 		Lock:        body.Lock,
 	})
 }
+
+// UpdateWordGroup updates an existing word group owned by the request user (term + replaces all alias rows).
+func UpdateWordGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body UpdateWordGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	groupID := strings.TrimSpace(body.GroupID)
+	termText := strings.TrimSpace(body.Term)
+	desc := strings.TrimSpace(body.Description)
+	aliases := normalizeAliases(body.Aliases)
+
+	if groupID == "" {
+		common.ReplyErr(w, "group_id is required", http.StatusBadRequest)
+		return
+	}
+	if termText == "" {
+		common.ReplyErr(w, "term is required", http.StatusBadRequest)
+		return
+	}
+
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	var out CreateWordGroupResponse
+	err := store.DB().Transaction(func(tx *gorm.DB) error {
+		var termRow orm.Word
+		if err := tx.Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL",
+			groupID, userID, orm.WordKindTerm).
+			First(&termRow).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errWordGroupNotFound
+			}
+			return err
+		}
+
+		now := time.Now().UTC()
+		if err := tx.Model(&orm.Word{}).
+			Where("id = ? AND create_user_id = ?", termRow.ID, userID).
+			Updates(map[string]interface{}{
+				"word":        termText,
+				"description": desc,
+				"locked":      body.Lock,
+				"updated_at":  now,
+			}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&orm.Word{}).
+			Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL",
+				groupID, userID, orm.WordKindAlias).
+			Updates(map[string]interface{}{
+				"deleted_at": now,
+				"updated_at": now,
+			}).Error; err != nil {
+			return err
+		}
+
+		createdAliases := make([]CreatedAlias, 0, len(aliases))
+		base := orm.WordBase{
+			CreateUserID:   termRow.CreateUserID,
+			CreateUserName: termRow.CreateUserName,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+		for _, a := range aliases {
+			aid := GenerateID()
+			ar := orm.Word{
+				ID:            aid,
+				Word:          a,
+				WordKind:      orm.WordKindAlias,
+				GroupID:       groupID,
+				Description:   desc,
+				Source:        termRow.Source,
+				ReferenceInfo: termRow.ReferenceInfo,
+				Locked:        body.Lock,
+				WordBase:      base,
+			}
+			if err := tx.Create(&ar).Error; err != nil {
+				return err
+			}
+			createdAliases = append(createdAliases, CreatedAlias{ID: aid, Word: a})
+		}
+
+		out = CreateWordGroupResponse{
+			TermID:      termRow.ID,
+			Term:        termText,
+			GroupID:     groupID,
+			Aliases:     createdAliases,
+			Description: desc,
+			Source:      termRow.Source,
+			Reference:   termRow.ReferenceInfo,
+			Lock:        body.Lock,
+		}
+		return nil
+	})
+	if errors.Is(err, errWordGroupNotFound) {
+		common.ReplyErr(w, "word group not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Logger.Error().Err(err).Str("group_id", groupID).Msg("update word_group failed")
+		common.ReplyErr(w, "update word group failed", http.StatusInternalServerError)
+		return
+	}
+	common.ReplyOK(w, out)
+}
+
+// errWordGroupNotFound is returned from UpdateWordGroup transaction when the term row is missing.
+var errWordGroupNotFound = errors.New("word group not found")
 
 // CheckWordsExist returns words among term + aliases that already exist in the words table for the request user.
 func CheckWordsExist(w http.ResponseWriter, r *http.Request) {

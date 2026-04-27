@@ -744,6 +744,14 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: resp("Existing words among term and aliases", wordgroup.CheckWordsExistResponse{})},
 		},
 		{
+			Method:      "POST",
+			Path:        "/word_group:update",
+			Summary:     "Update word group (term, description, lock, replace aliases)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.UpdateWordGroupRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Updated word group", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
 			Method:      "GET",
 			Path:        "/word_group",
 			Summary:     "List word groups (term row updated_at DESC)",
