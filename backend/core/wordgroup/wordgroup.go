@@ -212,6 +212,67 @@ func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
 	common.ReplyOK(w, CheckWordsExistResponse{Existing: existing})
 }
 
+// GetWordGroup returns one active word group for path group_id (same payload shape as create response).
+func GetWordGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	groupID := strings.TrimSpace(common.PathVar(r, "group_id"))
+	if groupID == "" {
+		common.ReplyErr(w, "missing group_id", http.StatusBadRequest)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	var rows []orm.Word
+	if err := store.DB().Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, userID).
+		Order("word_kind DESC, id ASC"). // term before alias; stable alias order
+		Find(&rows).Error; err != nil {
+		log.Logger.Error().Err(err).Str("group_id", groupID).Msg("get word_group query failed")
+		common.ReplyErr(w, "get word group failed", http.StatusInternalServerError)
+		return
+	}
+	if len(rows) == 0 {
+		common.ReplyErr(w, "word group not found", http.StatusNotFound)
+		return
+	}
+
+	var termRow *orm.Word
+	aliases := make([]CreatedAlias, 0)
+	for i := range rows {
+		row := &rows[i]
+		if row.WordKind == orm.WordKindTerm {
+			if termRow == nil {
+				termRow = row
+			}
+			continue
+		}
+		if row.WordKind == orm.WordKindAlias {
+			aliases = append(aliases, CreatedAlias{ID: row.ID, Word: row.Word})
+		}
+	}
+	if termRow == nil {
+		common.ReplyErr(w, "word group not found", http.StatusNotFound)
+		return
+	}
+
+	common.ReplyOK(w, CreateWordGroupResponse{
+		TermID:      termRow.ID,
+		Term:        termRow.Word,
+		GroupID:     groupID,
+		Aliases:     aliases,
+		Description: termRow.Description,
+		Source:      termRow.Source,
+		Reference:   termRow.ReferenceInfo,
+		Lock:        termRow.Locked,
+	})
+}
+
 // deleteWordGroupsForUser soft-deletes active word rows for the given group_ids owned by userID.
 // It returns distinct group_ids that had at least one active row, and total rows updated.
 func deleteWordGroupsForUser(db *gorm.DB, userID string, groupIDs []string) ([]string, int64, error) {

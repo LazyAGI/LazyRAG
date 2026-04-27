@@ -739,6 +739,16 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: resp("Existing words among term and aliases", wordgroup.CheckWordsExistResponse{})},
 		},
 		{
+			Method:  "GET",
+			Path:    "/word_group/{group_id}",
+			Summary: "Get word group detail by group_id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				GroupID string `path:"group_id"`
+			}{},
+			Responses: map[int]openAPIResponse{200: resp("Word group detail", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
 			Method:  "DELETE",
 			Path:    "/word_group/{group_id}",
 			Summary: "Delete word group by group_id",
