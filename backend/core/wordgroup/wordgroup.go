@@ -90,6 +90,14 @@ type ListWordGroupsResponse struct {
 	NextPageToken string                    `json:"next_page_token"`
 }
 
+// SearchWordGroupsRequest is the JSON body for POST /word_group:search.
+type SearchWordGroupsRequest struct {
+	Keyword   string `json:"keyword"`
+	Source    string `json:"source"`
+	PageToken string `json:"page_token"`
+	PageSize  int    `json:"page_size"`
+}
+
 // CreateWordGroup persists one term row and zero or more alias rows (same group / metadata).
 func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -303,6 +311,113 @@ func UpdateWordGroup(w http.ResponseWriter, r *http.Request) {
 // errWordGroupNotFound is returned from UpdateWordGroup transaction when the term row is missing.
 var errWordGroupNotFound = errors.New("word group not found")
 
+// errInvalidWordGroupSource indicates an unsupported source filter value.
+var errInvalidWordGroupSource = errors.New("invalid source")
+
+// wordGroupMatchQuery scopes to active word rows for userID (term and alias rows; no word_kind filter).
+// Keyword matches word as substring (LIKE); uses original input without lowercasing; source filters by the row's source column.
+func wordGroupMatchQuery(db *gorm.DB, userID, keyword, sourceRaw string) (*gorm.DB, error) {
+	q := db.Model(&orm.Word{}).
+		Where("create_user_id = ? AND deleted_at IS NULL", userID)
+	if strings.TrimSpace(sourceRaw) != "" {
+		src := normalizeSource(sourceRaw)
+		if src == "" {
+			return nil, errInvalidWordGroupSource
+		}
+		q = q.Where("source = ?", src)
+	}
+	if kw := strings.TrimSpace(keyword); kw != "" {
+		like := "%" + kw + "%"
+		q = q.Where("word LIKE ?", like)
+	}
+	return q, nil
+}
+
+// countMatchedWordGroups returns DISTINCT group_id count for the same match as list/search.
+func countMatchedWordGroups(mq *gorm.DB) (int64, error) {
+	var total int64
+	// COUNT(DISTINCT group_id)
+	if err := mq.Session(&gorm.Session{}).Distinct("group_id").Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// findTermRowsForMatchedGroups returns term rows for groups matching mq, ordered by term updated_at DESC.
+func findTermRowsForMatchedGroups(db *gorm.DB, mq *gorm.DB, userID string, offset, pageSize int) ([]orm.Word, error) {
+	gidSub := mq.Session(&gorm.Session{}).Distinct("group_id").Select("group_id")
+	var terms []orm.Word
+	err := db.Model(&orm.Word{}).
+		Where("create_user_id = ? AND deleted_at IS NULL AND word_kind = ?", userID, orm.WordKindTerm).
+		Where("group_id IN (?)", gidSub).
+		Order("updated_at DESC, id ASC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&terms).Error
+	return terms, err
+}
+
+// loadCreateWordGroupResponses loads alias rows for the given term rows and builds list payload.
+func loadCreateWordGroupResponses(db *gorm.DB, userID string, terms []orm.Word) ([]CreateWordGroupResponse, error) {
+	if len(terms) == 0 {
+		return []CreateWordGroupResponse{}, nil
+	}
+	groupIDs := make([]string, 0, len(terms))
+	for i := range terms {
+		groupIDs = append(groupIDs, terms[i].GroupID)
+	}
+	var aliasRows []orm.Word
+	if err := db.Where("group_id IN ? AND create_user_id = ? AND deleted_at IS NULL AND word_kind = ?",
+		groupIDs, userID, orm.WordKindAlias).
+		Order("group_id ASC, id ASC").
+		Find(&aliasRows).Error; err != nil {
+		return nil, err
+	}
+	aliasByGroup := make(map[string][]CreatedAlias, len(groupIDs))
+	for i := range aliasRows {
+		a := &aliasRows[i]
+		aliasByGroup[a.GroupID] = append(aliasByGroup[a.GroupID], CreatedAlias{ID: a.ID, Word: a.Word})
+	}
+	items := make([]CreateWordGroupResponse, 0, len(terms))
+	for i := range terms {
+		t := &terms[i]
+		aliases := aliasByGroup[t.GroupID]
+		if aliases == nil {
+			aliases = []CreatedAlias{}
+		}
+		items = append(items, CreateWordGroupResponse{
+			TermID:      t.ID,
+			Term:        t.Word,
+			GroupID:     t.GroupID,
+			Aliases:     aliases,
+			Description: t.Description,
+			Source:      t.Source,
+			Reference:   t.ReferenceInfo,
+			Lock:        t.Locked,
+		})
+	}
+	return items, nil
+}
+
+func replyWordGroupListPage(w http.ResponseWriter, db *gorm.DB, userID string, terms []orm.Word, total int64, offset, pageSize int, errMsg string) {
+	items, err := loadCreateWordGroupResponses(db, userID, terms)
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("word_group list items failed")
+		common.ReplyErr(w, errMsg, http.StatusInternalServerError)
+		return
+	}
+	end := offset + len(items)
+	nextToken := ""
+	if end < int(total) {
+		nextToken = encodeListPageToken(end, pageSize, int(total))
+	}
+	common.ReplyOK(w, ListWordGroupsResponse{
+		Items:         items,
+		TotalSize:     int32(total),
+		NextPageToken: nextToken,
+	})
+}
+
 // CheckWordsExist returns words among term + aliases that already exist in the words table for the request user.
 func CheckWordsExist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -383,77 +498,90 @@ func ListWordGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db := store.DB()
-	termScope := db.Model(&orm.Word{}).
-		Where("create_user_id = ? AND deleted_at IS NULL AND word_kind = ?", userID, orm.WordKindTerm)
+	matchQ, err := wordGroupMatchQuery(db, userID, "", "")
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("list word_group scope failed")
+		common.ReplyErr(w, "list word group failed", http.StatusInternalServerError)
+		return
+	}
 
-	var total int64
-	if err := termScope.Count(&total).Error; err != nil {
+	total, err := countMatchedWordGroups(matchQ)
+	if err != nil {
 		log.Logger.Error().Err(err).Msg("list word_group count failed")
 		common.ReplyErr(w, "list word group failed", http.StatusInternalServerError)
 		return
 	}
 
-	var terms []orm.Word
-	if err := db.Where("create_user_id = ? AND deleted_at IS NULL AND word_kind = ?", userID, orm.WordKindTerm).
-		Order("updated_at DESC, id ASC").
-		Offset(offset).
-		Limit(pageSize).
-		Find(&terms).Error; err != nil {
+	terms, err := findTermRowsForMatchedGroups(db, matchQ, userID, offset, pageSize)
+	if err != nil {
 		log.Logger.Error().Err(err).Msg("list word_group query failed")
 		common.ReplyErr(w, "list word group failed", http.StatusInternalServerError)
 		return
 	}
 
-	aliasByGroup := make(map[string][]CreatedAlias, len(terms))
-	if len(terms) > 0 {
-		groupIDs := make([]string, 0, len(terms))
-		for i := range terms {
-			groupIDs = append(groupIDs, terms[i].GroupID)
+	replyWordGroupListPage(w, db, userID, terms, total, offset, pageSize, "list word group failed")
+}
+
+// SearchWordGroups searches word rows (term or alias) by keyword substring; total is distinct group_id; results ordered by term updated_at DESC.
+func SearchWordGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body SearchWordGroupsRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+
+	pageSize := body.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	offset := 0
+	if tok := strings.TrimSpace(body.PageToken); tok != "" {
+		if v, err := parseListPageToken(tok); err == nil && v >= 0 {
+			offset = v
 		}
-		var aliasRows []orm.Word
-		if err := db.Where("group_id IN ? AND create_user_id = ? AND deleted_at IS NULL AND word_kind = ?",
-			groupIDs, userID, orm.WordKindAlias).
-			Order("group_id ASC, id ASC").
-			Find(&aliasRows).Error; err != nil {
-			log.Logger.Error().Err(err).Msg("list word_group aliases query failed")
-			common.ReplyErr(w, "list word group failed", http.StatusInternalServerError)
+	}
+
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	db := store.DB()
+	matchQ, err := wordGroupMatchQuery(db, userID, body.Keyword, body.Source)
+	if err != nil {
+		if errors.Is(err, errInvalidWordGroupSource) {
+			common.ReplyErr(w, "invalid source", http.StatusBadRequest)
 			return
 		}
-		for i := range aliasRows {
-			a := &aliasRows[i]
-			aliasByGroup[a.GroupID] = append(aliasByGroup[a.GroupID], CreatedAlias{ID: a.ID, Word: a.Word})
-		}
+		log.Logger.Error().Err(err).Msg("search word_group scope failed")
+		common.ReplyErr(w, "search word group failed", http.StatusInternalServerError)
+		return
 	}
 
-	items := make([]CreateWordGroupResponse, 0, len(terms))
-	for i := range terms {
-		t := &terms[i]
-		aliases := aliasByGroup[t.GroupID]
-		if aliases == nil {
-			aliases = []CreatedAlias{}
-		}
-		items = append(items, CreateWordGroupResponse{
-			TermID:      t.ID,
-			Term:        t.Word,
-			GroupID:     t.GroupID,
-			Aliases:     aliases,
-			Description: t.Description,
-			Source:      t.Source,
-			Reference:   t.ReferenceInfo,
-			Lock:        t.Locked,
-		})
+	total, err := countMatchedWordGroups(matchQ)
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("search word_group count failed")
+		common.ReplyErr(w, "search word group failed", http.StatusInternalServerError)
+		return
 	}
 
-	end := offset + len(items)
-	nextToken := ""
-	if end < int(total) {
-		nextToken = encodeListPageToken(end, pageSize, int(total))
+	terms, err := findTermRowsForMatchedGroups(db, matchQ, userID, offset, pageSize)
+	if err != nil {
+		log.Logger.Error().Err(err).Msg("search word_group query failed")
+		common.ReplyErr(w, "search word group failed", http.StatusInternalServerError)
+		return
 	}
-	common.ReplyOK(w, ListWordGroupsResponse{
-		Items:         items,
-		TotalSize:     int32(total),
-		NextPageToken: nextToken,
-	})
+
+	replyWordGroupListPage(w, db, userID, terms, total, offset, pageSize, "search word group failed")
 }
 
 // GetWordGroup returns one active word group for path group_id (same payload shape as create response).

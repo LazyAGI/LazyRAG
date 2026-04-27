@@ -752,6 +752,16 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: resp("Updated word group", wordgroup.CreateWordGroupResponse{})},
 		},
 		{
+			Method:      "POST",
+			Path:        "/word_group:search",
+			Summary:     "Search word groups by keyword and optional source (paginated list)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.SearchWordGroupsRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group search results", wordgroup.ListWordGroupsResponse{}),
+			},
+		},
+		{
 			Method:      "GET",
 			Path:        "/word_group",
 			Summary:     "List word groups (term row updated_at DESC)",
