@@ -2,17 +2,33 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_generate_table
 from evo.datagen.validate import is_qa_json_valid
 from evo.datagen.kb_client import KBClient
 
-_log = logging.getLogger('evo.datagen.table_qa')
+_log = logging.getLogger('evo.datagen.table')
+
+def is_table_content(content: str) -> bool:
+    if not content:
+        return False
+
+    if "|" in content and "---" in content:
+        return True
+
+    lower = content.lower()
+    if "表格" in lower and ("|" in content or "\t" in content or "  " in content):
+        return True
+
+    lines = content.strip().splitlines()
+    if len(lines) >= 2:
+        cnt = sum(1 for line in lines if "|" in line.strip())
+        if cnt >= 2:
+            return True
+    return False
 
 
 def generate_table_qa(
@@ -37,37 +53,41 @@ def generate_table_qa(
                     no_doc_flag = True
                 _log.error('no docs in kb, abort')
                 return None
+
             selected_doc = random.choice(doc_list)['doc']
             doc_id = selected_doc['doc_id']
             filename = selected_doc.get('filename', 'unknown.pdf')
             chunk_list = ds.get_chunks(kb_id, doc_id, algo_id)
-=
+
             table_chunks = []
             for chunk in chunk_list:
                 content = chunk.get('content', '')
-                if ('|' in content and '---' in content) or '表格' in content:
+                if is_table_content(content):
                     table_chunks.append(chunk)
 
             valid_chunks = [c for c in table_chunks if len(c.get('content', '')) > 50]
-
             if not valid_chunks:
                 return None
 
             selected_chunk = random.choice(valid_chunks)
             chunk_id = selected_chunk.get('chunk_id', '')
 
-            prompt = prompt_generate_table(selected_chunk['content'], filename, doc_id, chunk_id)
+            prompt = prompt_generate_table(
+                selected_chunk['content'], filename, doc_id, chunk_id
+            )
 
             try:
                 qa_json = chat(prompt, llm_factory=llm_factory)
             except Exception as exc:
                 _log.info('llm chat failed: %s', exc)
                 qa_json = {}
+
             if is_qa_json_valid(qa_json):
                 qa_json['reference_doc_ids'] = [doc_id]
                 qa_json['reference_chunk_ids'] = [chunk_id]
                 return {'qa': qa_json}
             return None
+
         except Exception as exc:
             _log.error('generate table qa error: %s', exc)
             return None
@@ -98,5 +118,6 @@ def generate_table_qa(
             with lock:
                 if no_doc_flag:
                     break
+
     _log.info('table-qa done: %s items', len(result_list))
     return result_list

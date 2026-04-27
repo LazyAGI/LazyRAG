@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_generate_formula
 from evo.datagen.validate import is_qa_json_valid
 from evo.datagen.kb_client import KBClient
 
-_log = logging.getLogger('evo.datagen.formula_qa')
+_log = logging.getLogger('evo.datagen.formula')
 
 
 def generate_formula_qa(
@@ -37,19 +35,23 @@ def generate_formula_qa(
                     no_doc_flag = True
                 _log.error('no docs in kb, abort')
                 return None
+
             selected_doc = random.choice(doc_list)['doc']
             doc_id = selected_doc['doc_id']
             filename = selected_doc.get('filename', 'unknown.pdf')
             chunk_list = ds.get_chunks(kb_id, doc_id, algo_id)
 
             formula_chunks = []
+            formula_keys = {
+                '=', '$', '\\', '+', '-', '*', '/', '×', '÷', '^', '_',
+                '公式', '函数', '方程', '系数', '变量', '定理', '计算', '表达式'
+            }
             for chunk in chunk_list:
                 content = chunk.get('content', '')
-                if any(key in content for key in ['=', '$', '\\', '+', '-', '×', '÷', '公式', '函数', '系数', '方程']):
+                if any(key in content for key in formula_keys):
                     formula_chunks.append(chunk)
 
             valid_chunks = [c for c in formula_chunks if len(c.get('content', '')) > 50]
-
             if not valid_chunks:
                 return None
 
@@ -63,11 +65,13 @@ def generate_formula_qa(
             except Exception as exc:
                 _log.info('llm chat failed: %s', exc)
                 qa_json = {}
+
             if is_qa_json_valid(qa_json):
                 qa_json['reference_doc_ids'] = [doc_id]
                 qa_json['reference_chunk_ids'] = [chunk_id]
                 return {'qa': qa_json}
             return None
+
         except Exception as exc:
             _log.error('generate formula qa error: %s', exc)
             return None
@@ -98,5 +102,6 @@ def generate_formula_qa(
             with lock:
                 if no_doc_flag:
                     break
+
     _log.info('formula-qa done: %s items', len(result_list))
     return result_list
