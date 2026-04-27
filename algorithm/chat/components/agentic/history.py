@@ -57,7 +57,6 @@ def _parse_history_assistant_content(content: str) -> tuple[str, list[dict[str, 
         if tag == _TOOL_CALL_TAG:
             tool_calls.append({
                 'id': str(payload.get('id') or ''),
-                'type': 'function',
                 'function': {
                     'name': str(payload.get('name') or ''),
                     'arguments': json.dumps(payload.get('arguments', {}), ensure_ascii=False),

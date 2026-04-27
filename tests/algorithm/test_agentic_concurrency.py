@@ -1,4 +1,4 @@
-"""Concurrency tests for ``chat.pipelines.agentic_v2``.
+"""Concurrency tests for ``chat.pipelines.agentic``.
 
 Verify that when multiple requests run in parallel — either via OS threads
 (sync path) or asyncio tasks driving the streaming generator — each request's
@@ -21,8 +21,8 @@ from typing import Any, Dict, List
 import pytest
 import lazyllm
 
-from chat.pipelines import agentic_v2
-from chat.components.agentic import review as agentic_v2_review
+from chat.pipelines import agentic
+from chat.components.agentic import review as agentic_review
 from chat.components.agentic.config import BUILTIN_FILE_TOOLS, _merge_builtin_file_tools
 
 _BUILTIN_FILE_TOOLS = tuple(BUILTIN_FILE_TOOLS)
@@ -74,15 +74,15 @@ class _FakeAgent:
 
 @pytest.fixture
 def fake_pipeline(monkeypatch):
-    """Patch agentic_v2's heavy external deps so it can run offline."""
+    """Patch agentic's heavy external deps so it can run offline."""
     _FakeAgent.observations = []
 
-    monkeypatch.setattr(agentic_v2, 'get_automodel', lambda *_a, **_kw: object())
-    monkeypatch.setattr(agentic_v2, 'create_sandbox', lambda **_kw: object())
-    monkeypatch.setattr(agentic_v2, '_ensure_tools_registered', lambda: None)
-    monkeypatch.setattr(agentic_v2, '_spawn_background_review', lambda **_kw: None)
-    monkeypatch.setattr(agentic_v2, '_get_runtime_agent_defaults', lambda: {})
-    monkeypatch.setattr(agentic_v2, '_StreamingReactAgent', _FakeAgent)
+    monkeypatch.setattr(agentic, 'get_automodel', lambda *_a, **_kw: object())
+    monkeypatch.setattr(agentic, 'create_sandbox', lambda **_kw: object())
+    monkeypatch.setattr(agentic, '_ensure_tools_registered', lambda: None)
+    monkeypatch.setattr(agentic, '_spawn_background_review', lambda **_kw: None)
+    monkeypatch.setattr(agentic, '_get_runtime_agent_defaults', lambda: {})
+    monkeypatch.setattr(agentic, '_StreamingReactAgent', _FakeAgent)
     monkeypatch.setattr(lazyllm.tools.agent, 'ReactAgent', _FakeAgent)
 
     yield _FakeAgent
@@ -114,7 +114,7 @@ def test_thread_parallel_requests_see_isolated_config(fake_pipeline):
         lazyllm.globals._init_sid(sid=f'sync-session-{i}')
         lazyllm.locals._init_sid(sid=f'sync-session-{i}')
         barrier.wait()
-        results[i] = agentic_v2.agentic_rag_v2(configs[i], stream=False)
+        results[i] = agentic.agentic_rag(configs[i], stream=False)
 
     threads = [threading.Thread(target=_run, args=(i,)) for i in range(n)]
     for t in threads:
@@ -166,7 +166,7 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
                 'available_skills': [f's_skill_{i}'],
                 'skill_fs_url': f'file:///tmp/stream-skills/{i}',
             }
-            stream = agentic_v2.agentic_rag_v2(params, stream=True)
+            stream = agentic.agentic_rag(params, stream=True)
             events = []
             async for event in stream:
                 events.append(event)
@@ -204,7 +204,7 @@ def test_kb_tools_disabled_without_kb_id_or_files(fake_pipeline):
     lazyllm.globals._init_sid(sid='no-kb-session')
     lazyllm.locals._init_sid(sid='no-kb-session')
 
-    agentic_v2.agentic_rag_v2({
+    agentic.agentic_rag({
         'query': 'hello',
         'available_tools': ['all'],
         'filters': {},
@@ -223,7 +223,7 @@ def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
     lazyllm.globals._init_sid(sid='file-session')
     lazyllm.locals._init_sid(sid='file-session')
 
-    agentic_v2.agentic_rag_v2({
+    agentic.agentic_rag({
         'query': 'summarize this file',
         'available_tools': ['all'],
         'filters': {},
@@ -242,7 +242,7 @@ def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
 
 
 def test_tool_stream_frame_serializes_tool_call_into_text_tags():
-    frame = agentic_v2._format_tool_stream_frame({
+    frame = agentic._format_tool_stream_frame({
         'round': 3,
         'content': (
             '<think>参考文件不存在。让我检查一下skill目录中实际有哪些文件。\n'
@@ -269,7 +269,7 @@ def test_tool_stream_frame_serializes_tool_call_into_text_tags():
 
 
 def test_tool_stream_frame_uses_representative_kb_arguments():
-    frame = agentic_v2._format_tool_stream_frame({
+    frame = agentic._format_tool_stream_frame({
         'round': 1,
         'content': '',
         'tool_calls': [
@@ -306,7 +306,7 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
 
 
 def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
-    frame = agentic_v2._format_tool_stream_frame({
+    frame = agentic._format_tool_stream_frame({
         'round': 2,
         'content': '',
         'tool_results': [{
@@ -331,7 +331,7 @@ def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
 
 
 def test_builtin_file_tool_uses_natural_preview_templates():
-    frame = agentic_v2._format_tool_stream_frame({
+    frame = agentic._format_tool_stream_frame({
         'round': 4,
         'content': '',
         'tool_calls': [{
@@ -389,7 +389,7 @@ def test_merge_builtin_file_tools_skips_duplicates():
 def test_tool_result_preview_is_truncated_to_fifty_chars():
     long_result = 'a' * 60
 
-    frame = agentic_v2._format_tool_stream_frame({
+    frame = agentic._format_tool_stream_frame({
         'round': 5,
         'content': '',
         'tool_results': [{
@@ -415,7 +415,7 @@ def test_tool_result_preview_is_truncated_to_fifty_chars():
 
 
 def test_tool_result_failure_uses_failure_preview_template():
-    frame = agentic_v2._format_tool_stream_frame({
+    frame = agentic._format_tool_stream_frame({
         'round': 6,
         'content': '',
         'tool_results': [{
@@ -439,7 +439,7 @@ def test_tool_result_failure_uses_failure_preview_template():
 
 
 def test_tool_result_needs_approval_uses_approval_preview_template():
-    frame = agentic_v2._format_tool_stream_frame({
+    frame = agentic._format_tool_stream_frame({
         'round': 7,
         'content': '',
         'tool_results': [{
@@ -469,7 +469,7 @@ def test_normalize_history_keeps_plain_chat_messages_unchanged():
         {'role': 'assistant', 'content': 'world'},
     ]
 
-    assert agentic_v2._normalize_history_for_agent(history) == history
+    assert agentic._normalize_history_for_agent(history) == history
 
 
 def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
@@ -484,7 +484,7 @@ def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
         ),
     }]
 
-    assert agentic_v2._normalize_history_for_agent(history) == [
+    assert agentic._normalize_history_for_agent(history) == [
         {
             'role': 'assistant',
             'content': '先看文件。',
@@ -508,7 +508,7 @@ def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
 def test_review_debug_forces_combined(monkeypatch):
     monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
 
-    assert agentic_v2._decide_review_mode(
+    assert agentic._decide_review_mode(
         available_tools=[],
         tool_turns=0,
         user_turns=0,
@@ -520,7 +520,7 @@ def test_review_debug_forces_combined(monkeypatch):
 def test_review_mode_uses_intervals_without_debug(monkeypatch):
     monkeypatch.delenv('LAZYRAG_SKILL_REVIEW_DEBUG', raising=False)
 
-    assert agentic_v2._decide_review_mode(
+    assert agentic._decide_review_mode(
         available_tools=['memory', 'skill_manage'],
         tool_turns=0,
         user_turns=2,
@@ -530,7 +530,7 @@ def test_review_mode_uses_intervals_without_debug(monkeypatch):
 
 
 def test_count_tool_turns_only_counts_assistant_messages_with_tool_calls():
-    history = agentic_v2._normalize_history_for_agent([
+    history = agentic._normalize_history_for_agent([
         {'role': 'assistant', 'content': 'plain text'},
         {
             'role': 'assistant',
@@ -549,7 +549,7 @@ def test_count_tool_turns_only_counts_assistant_messages_with_tool_calls():
         },
     ])
 
-    assert agentic_v2._count_tool_turns(history) == 2
+    assert agentic._count_tool_turns(history) == 2
 
 
 def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch):
@@ -564,7 +564,7 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
             return 'ok'
 
     monkeypatch.setattr(
-        agentic_v2_review,
+        agentic_review,
         'list_all_skills_with_category',
         lambda _path: {
             'skill_a': '',
@@ -575,7 +575,7 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
     monkeypatch.setattr(lazyllm.tools.agent, 'ReactAgent', _ReviewAgent)
     monkeypatch.setenv('LAZYRAG_REVIEW_DEBUG', '1')
 
-    agentic_v2._spawn_background_review(
+    agentic._spawn_background_review(
         config={
             'available_skills': ['skill_a'],
             'skill_fs_url': 'file:///tmp/skills',
@@ -599,7 +599,7 @@ def test_max_retries_and_force_summary_use_lazyrag_env(fake_pipeline, monkeypatc
     lazyllm.globals._init_sid(sid='max-retries-session')
     lazyllm.locals._init_sid(sid='max-retries-session')
 
-    agentic_v2.agentic_rag_v2({
+    agentic.agentic_rag({
         'query': 'hello',
         'available_tools': [],
     })

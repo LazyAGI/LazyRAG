@@ -1,451 +1,395 @@
-# flake8: noqa: E402
+from __future__ import annotations
+
+# ruff: noqa: E402
+
 import asyncio
-import copy
-import functools
-import itertools
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
-from lazyllm import LOG, bind, loop, pipeline, switch
-from tenacity import retry, stop_after_attempt, wait_fixed
 import sys
+import threading
+from functools import lru_cache
 from pathlib import Path
+from queue import Empty, Queue
+from typing import Any, Dict, Optional
+
+import lazyllm
+from lazyllm import loop, once_wrapper
+from lazyllm.tools.agent.functionCall import FunctionCall
+from lazyllm.tools.fs.client import FS
+from lazyllm.tools.sandbox.sandbox_base import create_sandbox
 
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
+from chat.components.agentic.config import (
+    _build_runtime_system_prompt,
+    _env_int,
+    _filter_tools_for_request,
+    _get_runtime_agent_defaults,
+    _normalize_available_skills,
+    _normalize_available_tools,
+    _sync_request_context,
+    _with_agentic_defaults,
+)
+from chat.components.agentic.history import (
+    _count_tool_turns,
+    _count_user_turns,
+    _format_non_stream_result,
+    _normalize_history_for_agent,
+    _reset_citation_state,
+)
+from chat.components.agentic.review import _decide_review_mode, _spawn_background_review
+from chat.components.agentic.tool_stream import (
+    _STREAM_CHUNK_SIZE,
+    _format_tool_stream_frame,
+    _iter_text_chunks,
+    _normalize_tool_call,
+    _stream_frame,
+    _tool_call_id,
+)
 from chat.pipelines.builders.get_models import get_automodel
-from chat.prompts.agentic import (
-    EVALUATOR_PROMPT,
-    EXTRACTOR_PROMPT,
-    GENERATE_PROMPT,
-    PLANREFINE_PROMPT,
-    PLANNER_PROMPT,
-    TOOLCALL_PROMPT,
-)
-from chat.components.tmp.tool_registry import (
-    get_all_tool_schemas,
-    get_tool_instance,
-    get_tool_schema,
-)
-from chat.components.generate.output_parser import CustomOutputParser
-from chat.utils.schema import PlanStep, TaskContext
-from chat.utils.helpers import tool_schema_to_string
+
+class _StreamingFunctionCall(FunctionCall):
+    def __init__(self, *args: Any, stream_event_callback=None, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._stream_event_callback = stream_event_callback
+        self._round_index = 0
+
+    def _post_action(self, llm_output: Dict[str, Any]):
+        self._round_index += 1
+        if (
+            isinstance(llm_output, dict)
+            and not llm_output.get('tool_calls')
+            and isinstance(llm_output.get('content'), str)
+        ):
+            match = re.search(
+                r'Action:\s*Call\s+(\w+)\s+with\s+parameters\s+(\{.*?\})',
+                llm_output['content'],
+            )
+            if match:
+                try:
+                    llm_output['tool_calls'] = [{
+                        'type': 'function',
+                        'function': {
+                            'name': match.group(1),
+                            'arguments': json.loads(match.group(2)),
+                        },
+                    }]
+                except json.JSONDecodeError:
+                    pass
+        tool_calls = []
+        if isinstance(llm_output, dict):
+            for idx, tc in enumerate((llm_output.get('tool_calls') or []), start=1):
+                if not isinstance(tc, dict):
+                    continue
+                normalized_tool_call = _normalize_tool_call(tc)
+                normalized_tool_call['id'] = _tool_call_id(
+                    normalized_tool_call, self._round_index, idx
+                )
+                tool_calls.append(normalized_tool_call)
+            if tool_calls:
+                llm_output['tool_calls'] = [
+                    {
+                        'id': tool_call['id'],
+                        'type': 'function',
+                        'function': {
+                            'name': tool_call.get('name', ''),
+                            'arguments': json.dumps(
+                                tool_call.get('arguments', {}),
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                    for tool_call in tool_calls
+                ]
+
+        if self._stream_event_callback and isinstance(llm_output, dict) and tool_calls:
+            self._stream_event_callback({
+                'round': self._round_index,
+                'content': llm_output.get('content', ''),
+                'tool_calls': tool_calls,
+                'tool_results': [],
+            })
+
+        result = super()._post_action(llm_output)
+
+        if self._stream_event_callback and isinstance(llm_output, dict) and tool_calls:
+            tool_call_trace = (
+                lazyllm.locals.get('_lazyllm_agent', {})
+                .get('workspace', {})
+                .get('tool_call_trace', [])
+            )
+            self._stream_event_callback({
+                'round': self._round_index,
+                'content': '',
+                'tool_calls': [],
+                'tool_results': [
+                    {
+                        'id': tool_call.get('id', ''),
+                        'tool_name': tool_call.get('name', ''),
+                        'result': tool_trace.get('tool_call_result'),
+                    }
+                    for tool_call, tool_trace in zip(tool_calls, tool_call_trace)
+                    if isinstance(tool_trace, dict)
+                ],
+            })
+        return result
 
 
-# global params and func
-TEMPERATURE = 1.0
+class _StreamingReactAgent(lazyllm.tools.agent.ReactAgent):
+    def __init__(self, *args: Any, stream_event_callback=None, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._stream_event_callback = stream_event_callback
+
+    @once_wrapper(reset_on_pickle=True)
+    def build_agent(self):
+        agent = loop(
+            _StreamingFunctionCall(
+                llm=self._llm,
+                _prompt=self._prompt,
+                return_trace=self._return_trace,
+                stream=self._stream,
+                _tool_manager=self._tools_manager,
+                skill_manager=self._skill_manager,
+                workspace=self.workspace,
+                keep_full_turns=self._keep_full_turns,
+                stream_event_callback=self._stream_event_callback,
+            ),
+            stop_condition=lambda x: isinstance(x, str),
+            count=20,
+        )
+        self._agent = agent
 
 
-def add_reasoning_process_stream(state: TaskContext, value: str, mode: str = 'info'):
-    LOG.debug(value)
-    if mode != 'debug':
-        state.reasoning_process_stream.append(value)
-        if isinstance(value, list):
-            raise ValueError(f'value: {value}')
+def agentic_forward(
+    query: str,
+    history: list[dict[str, Any]],
+    stream_event_callback=None,
+) -> Any:
+    config = lazyllm.globals.get('agentic_config') or {}
+    if not isinstance(config, dict):
+        config = {}
+    config = _with_agentic_defaults(config)
 
-
-@functools.lru_cache(maxsize=1)
-def get_agentic_llms():
     llm = get_automodel('llm')
-    llm._prompt._set_model_configs(system='You are an intelligent assistant, \
-                                   strictly following user instructions to execute tasks.')
-    llm_instruct = get_automodel('llm_instruct')
-    llm_instruct._prompt._set_model_configs(system='You are a task assistant, \
-        and you must strictly follow the given requirements to complete the tasks.\
-        The output language should be the same as the input language.')
-    llm_gen = get_automodel('llm_instruct', wrap_simple_llm=True)
-    return llm, llm_instruct, llm_gen
+    available_tools = _filter_tools_for_request(
+        _normalize_available_tools(config.get('available_tools')),
+        config,
+    )
+    available_skills = _normalize_available_skills(config.get('available_skills'))
+    skills_dir = config.get('skill_fs_url') or ''
+    config['available_tools'] = available_tools
+    config['available_skills'] = available_skills
+
+    keep_full_turns = config.get('keep_full_turns', 3)
+    runtime_prompt = _build_runtime_system_prompt(config, available_tools)
+    agent_cls = _StreamingReactAgent if stream_event_callback else lazyllm.tools.agent.ReactAgent
+    agent_kwargs = {
+        'llm': llm,
+        'tools': available_tools,
+        'max_retries': _env_int('LAZYRAG_MAX_RETRIES', 20),
+        'return_trace': config.get('return_trace', False),
+        'stream': bool(stream_event_callback),
+        'prompt': runtime_prompt,
+        'skills': available_skills,
+        'workspace': config.get('workspace', './workspace'),
+        'keep_full_turns': keep_full_turns,
+        'fs': FS,
+        'skills_dir': skills_dir,
+        'enable_builtin_tools': False,
+        'force_summarize': True,
+        'force_summarize_context': query,
+    }
+    if stream_event_callback:
+        agent_kwargs['stream_event_callback'] = stream_event_callback
+
+    react_agent = agent_cls(
+        **agent_kwargs,
+    )
+
+    request_global_sid = lazyllm.globals._sid
+    lazyllm.globals['agentic_config'] = config
+    agent_output = react_agent(query, llm_chat_history=history)
+    agent_history = lazyllm.locals.get('_lazyllm_agent', {}).get('history', [])
+    history_snapshot = agent_history
+    if runtime_prompt and (not history_snapshot or history_snapshot[0].get('role') != 'system'):
+        history_snapshot = [{'role': 'system', 'content': runtime_prompt}] + history_snapshot + [{'role': 'assistant', 'content': agent_output}]
+    tool_turns = _count_tool_turns(agent_history)
+    user_turns = _count_user_turns(history, query)
+    review_mode = _decide_review_mode(
+        available_tools=available_tools,
+        tool_turns=tool_turns,
+        user_turns=user_turns,
+        memory_review_interval=_env_int('LAZYRAG_MEMORY_REVIEW_INTERVAL', 1),
+        skill_review_interval=_env_int('LAZYRAG_SKILL_REVIEW_INTERVAL', 5),
+    )
+    if review_mode is not None:
+        _spawn_background_review(
+            config=config,
+            llm=llm,
+            keep_full_turns=keep_full_turns,
+            history_snapshot=history_snapshot,
+            review_mode=review_mode,
+            request_global_sid=request_global_sid,
+        )
+
+    return agent_output
 
 
-# utils
-def _parse_llm_res(res: str):
-    match = re.search(r'</think\s*>(.*)', res, re.DOTALL)
-    if match:
-        res = match.group(1).strip()
-    match = re.search(r'```json\s*(\{.*?\})\s*```', res, re.DOTALL)
-    if match:
-        res = match.group(1).strip()
-    res = json.loads(res)
-    return res
+async def _agentic_forward_stream(
+    query: str,
+    history: list[dict[str, Any]],
+    runtime_params: dict[str, Any],
+    global_sid: str,
+    local_sid: str,
+):
+    event_queue: Queue = Queue()
+    sentinel = object()
+    closed = threading.Event()
+    streamed_text = False
 
-def _show_search_process(state: TaskContext, action: str = 'init'):
-    LOG.debug('=' * 100 + '\n')
-    LOG.debug(f'🔍 【SHOW SEARCH PROCESS】 Task ID: {state.query}, Action: {action}')
-    steps = state.executed_steps
-    for step in steps:
-        LOG.debug(step.step_id)
-        LOG.debug(step.status)
-        LOG.debug(step.goal)
-        LOG.debug(step.tool)
-        LOG.debug(step.inference)
-        LOG.debug('=' * 100 + '\n')
-    steps = state.pending_steps
-    for step in steps:
-        LOG.debug(step.step_id)
-        LOG.debug(step.status)
-        LOG.debug(step.goal)
-        LOG.debug(step.tool)
-        LOG.debug(step.inference)
-        LOG.debug('*' * 100 + '\n')
+    lazyllm.globals._init_sid(global_sid)
+    lazyllm.locals._init_sid(local_sid)
+    lazyllm.FileSystemQueue().clear()
+    lazyllm.FileSystemQueue.get_instance('think').clear()
 
+    def _emit_event(event: dict[str, Any]) -> None:
+        if not closed.is_set():
+            event_queue.put({'type': 'tool_event', 'event': event})
 
-# agents
-def do_search(state: TaskContext):
-    _, llm_instruct, _ = get_agentic_llms()
-    params = state.global_params
-    original_query = params.get('query', '')
-    current_step = state.pending_steps[0]
-    previous_step_result = '\n'.join(state.inferences)
-    tool_name = current_step.tool
-    tool_schema = get_tool_schema(tool_name)
+    def _drain_stream_frames() -> list[dict[str, Any]]:
+        nonlocal streamed_text
+        frames: list[dict[str, Any]] = []
 
-    prompt = TOOLCALL_PROMPT.substitute(original_query=original_query,
-                                        current_goal=current_step.goal,
-                                        previous_step_result=previous_step_result,
-                                        tool_description=tool_schema_to_string(tool_schema, include_params=True))
-    res = llm_instruct(prompt, temperature=TEMPERATURE)
-    res = _parse_llm_res(res)
-    tool_name = res['tool']
-    params = res['params']
-    tool_instance = get_tool_instance(tool_name)
-    if not tool_instance:
-        raise ValueError(f'Unknown tool: {tool_name}')
+        lazyllm.FileSystemQueue.get_instance('think').dequeue()
 
-    add_reasoning_process_stream(state, f'🔍 【RETRIEVER】 Original Query: {original_query}')
-    add_reasoning_process_stream(state, f'🔍 【RETRIEVER】 Params: {params}\n')
-    static_params = state.tool_params[tool_name]
-    if len(state.executed_steps) == 0:
-        params['querys'].append(original_query)
-    raw_results, formatted_results = tool_instance(**params, static_params=static_params)
-    add_reasoning_process_stream(state, f'🔍 【RETRIEVER】 Retrieved {len(formatted_results)} nodes\n')
+        text_values = lazyllm.FileSystemQueue().dequeue()
+        if text_values:
+            text = ''.join(text_values)
+            if text:
+                streamed_text = True
+                frames.append(_stream_frame(text=text))
 
-    state.pending_steps[0].formatted_results = formatted_results
-    state.pending_steps[0].raw_results = raw_results
-    extract_info(state)
-    _show_search_process(state, 'search')
-    return state
+        return frames
 
+    def _worker() -> None:
+        lazyllm.globals._init_sid(global_sid)
+        lazyllm.locals._init_sid(local_sid)
+        lazyllm.globals['agentic_config'] = runtime_params
+        try:
+            result = agentic_forward(
+                query=query,
+                history=history,
+                stream_event_callback=_emit_event,
+            )
+            if not closed.is_set():
+                event_queue.put({'type': 'final', 'result': result})
+        except Exception as exc:
+            if not closed.is_set():
+                event_queue.put(exc)
+        finally:
+            if not closed.is_set():
+                event_queue.put(sentinel)
 
-def generate_answer(state: TaskContext):
-    _, _, llm_gen = get_agentic_llms()
-    query = state.query
-    add_reasoning_process_stream(state, f'✅ 【GENERATOR】 开始生成答案....| Query: {query}')
+    worker = threading.Thread(target=_worker, daemon=True)
+    worker.start()
+    final_result = None
+    try:
+        while True:
+            for frame in _drain_stream_frames():
+                yield frame
 
-    nodes = state.middle_results.raw_results
-    inference = '\n'.join(state.inferences)
-    agg_nodes = []
-    for _, grp in itertools.groupby(nodes, key=lambda x: x.global_metadata['docid']):
-        grouped_nodes = list(grp)
-        # group = sorted(group, key=lambda n: n.metadata['index'])
-        file_contents = []
-        for node in grouped_nodes:
-            text = node._content
-            title = node.metadata.get('title', '')
-            if title:
-                text = f'{title.strip()}\n{text.lstrip()}'
-            file_contents.append(text)
-        file_contents = '\n\n---\n\n'.join(file_contents)
-        agg_nodes.append(grouped_nodes[0])
-        agg_nodes[-1]._content = file_contents
+            try:
+                event = await asyncio.to_thread(event_queue.get, True, 0.05)
+            except Empty:
+                continue
 
-    for index, node in enumerate(agg_nodes):
-        state.middle_results.agg_results[index + 1] = node
+            if event is sentinel:
+                break
+            if isinstance(event, Exception):
+                raise event
+            if isinstance(event, dict) and event.get('type') == 'final':
+                final_result = event.get('result')
+            elif isinstance(event, dict) and event.get('type') == 'tool_event':
+                for frame in _drain_stream_frames():
+                    yield frame
+                tool_event = event.get('event') or {}
+                frame = _format_tool_stream_frame(tool_event)
+                if frame is None:
+                    continue
+                yield frame
 
-    chunks = []
-    for index, node in enumerate(agg_nodes):
-        file_name = node.metadata.get('file_name', '')
-        node_str = f'node[[{index + 1}]]:\nfile_name：{file_name}\n{node.text}\n'
-        chunks.append(node_str)
-    chunks = '\n'.join(chunks)
+        for frame in _drain_stream_frames():
+            yield frame
 
-    prompt = GENERATE_PROMPT.format(query=query, chunks=chunks, inference=inference)
-    stream = state.global_params.get('stream', False)
-    if stream:
-        result = llm_gen(prompt, stream=True, temperature=TEMPERATURE)
-        asyncio.run(get_llm_res(state, result))
-        add_reasoning_process_stream(state, '<END>')
-        # LOG.info(f"state.reasoning_process_stream: {state.reasoning_process_stream}")
-        return state
-    else:
-        result = llm_gen(prompt, stream=False, temperature=TEMPERATURE)
-        think = ''
-        answer = result
-        think_match = re.search(r'(.*?)</think>', result, re.DOTALL)
-        if think_match:
-            think = think_match.group(1).strip()
-            answer_match = re.search(r'</think>(.*)', result, re.DOTALL)
-            if answer_match:
-                answer = answer_match.group(1).strip()
-            else:
-                answer = ''
-        else:
-            answer = result
-        state.answer = answer
-        LOG.info(f'✅【GENERATOR】 生成答案: {answer}')
-        add_reasoning_process_stream(state, f'{think}</think>\n')
-        add_reasoning_process_stream(state, answer)
-        return state
+        output = _format_non_stream_result(final_result, runtime_params)
+        chunk_size = int(runtime_params.get('stream_chunk_size') or _STREAM_CHUNK_SIZE)
+        if not streamed_text:
+            for chunk in _iter_text_chunks(str(output.get('text') or ''), chunk_size):
+                yield _stream_frame(
+                    text=chunk,
+                )
+
+        sources = output.get('sources') or []
+        if sources:
+            yield _stream_frame(
+                text='',
+                sources=sources,
+            )
+    finally:
+        closed.set()
+        worker.join(timeout=0)
 
 
-async def get_llm_res(state: TaskContext, iter):
-    check_think = False
-    buffer = ''
-    async for chunk in iter:
-        if not check_think:
-            if len(buffer) < 10:
-                buffer += chunk
-            else:
-                if '<think>' in buffer:
-                    buffer = buffer.replace('<think>', '')
-                else:
-                    buffer += '</think>'
-                LOG.info(f'buffer: {buffer}')
-                add_reasoning_process_stream(state, buffer)
-                check_think = True
-        else:
-            add_reasoning_process_stream(state, chunk)
+def _ensure_tools_registered() -> None:
+    # Trigger @fc_register side effects once so ReactAgent can resolve tool names.
+    from chat.tools import kb, memory, skill_manager, web_search  # noqa: F401
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
-def plan_step(state: TaskContext):
-    llm, _, _ = get_agentic_llms()
-    query = state.query
-    tool_schemas = get_all_tool_schemas()
-    tool_description = [tool_schema_to_string(ts, include_params=False) for ts in tool_schemas.values()]
-    tool_description = '\n\n'.join(tool_description)
-    tool_num = len(tool_schemas)
-
-    prompt = PLANNER_PROMPT.substitute(original_query=query, tool_description=tool_description, tool_num=tool_num)
-    res = llm(prompt, temperature=TEMPERATURE)
-    res = _parse_llm_res(res)
-    reason = res['reason']
-    plan = res['steps']
-
-    steps = []
-    for ind, step in enumerate(plan):
-        steps.append(PlanStep(step_id=ind+1, goal=step['goal'], tool=step['tool']))
-    state.pending_steps = steps
-
-    add_reasoning_process_stream(state, '<think>\n')
-    add_reasoning_process_stream(state, f'💡 【PLANNER】{reason}')
-    plan_str = '\n'.join([f'step{ind+1}: {p["goal"]}' for ind, p in enumerate(plan)])
-    add_reasoning_process_stream(state, f'💡 【PLANNER】Generated Plan:\n{plan_str}\n\n')
-    _show_search_process(state)
-    return state
-
-
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
-def evaluate(state: TaskContext):
-    _, llm_instruct, _ = get_agentic_llms()
-    query = state.query
-    last_step = state.executed_steps[-1]
-    if not last_step.formatted_results:
-        state.middle_results.evaluation_result['next_step'] = 'PlanRefine'
-        state.middle_results.evaluation_result['refine_reason'] = {}
-        state.middle_results.evaluation_result['refine_reason']['category'] = 'inefficient_strategy'
-        state.middle_results.evaluation_result['refine_reason']['subtype'] = 'The last search failed \
-            to get any useful new information.'
-        return state
-    add_reasoning_process_stream(state, f'🎯 【EVALUATOR】 Evaluating... | Query: {query}')
-    completed_plans = [f'step{step.step_id}: {step.goal} \nstatus: {step.status} \ninference: {step.inference}'
-                       for step in state.executed_steps]
-    pending_plans = [f'step{step.step_id}: {step.goal} \nstatus: {step.status}' for step in state.pending_steps]
-
-    prompt = EVALUATOR_PROMPT.substitute(original_query=query,
-                                         plans='\n\n'.join(completed_plans+pending_plans))
-    res = llm_instruct(prompt, temperature=TEMPERATURE)
-    res = _parse_llm_res(res)
-
-    next_step = res['next_step']
-    if next_step == 'GenerateAnswer':
-        eval_res = {'next_step': 'GenerateAnswer'}
-    elif next_step == 'PlanRefine':
-        eval_res = {'next_step': 'PlanRefine', 'refine_reason': res['refine_reason']}
-    else:
-        eval_res = {'next_step': 'FurtherSearch'}
-
-    add_reasoning_process_stream(state, f'🎯 【EVALUATOR】: {res["reason"]}')
-    add_reasoning_process_stream(state, f'🎯 【EVALUATOR】 next step: 【{eval_res["next_step"]}】\n')
-    state.middle_results.evaluation_result = eval_res
-    return state
-
-
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
-def plan_refine(state: TaskContext):
-    _, llm_instruct, _ = get_agentic_llms()
-    query = state.query
-    # refine_reason = state.middle_results.evaluation_result['refine_reason']['subtype']
-    add_reasoning_process_stream(state, f'🎯 【PLANNERREFINER】 query: {query}\n')
-
-    executed_plan_and_inferences = [f'plan: {step.goal} \ninference: {step.inference}' for step in state.executed_steps]
-    remaining_plans = [step.goal for step in state.pending_steps]
-
-    tool_schemas = get_all_tool_schemas()
-    tool_description = [tool_schema_to_string(ts, include_params=False) for ts in tool_schemas.values()]
-    tool_description = '\n\n'.join(tool_description)
-    prompt = PLANREFINE_PROMPT.substitute(original_query=query,
-                                          executed_plan_and_inferences='\n\n'.join(executed_plan_and_inferences),
-                                          remaining_plan='\n'.join(remaining_plans),
-                                          #   refine_reason=refine_reason,
-                                          tool_description=tool_description)
-    res = llm_instruct(prompt, temperature=TEMPERATURE)
-    res = _parse_llm_res(res)
-    add_reasoning_process_stream(state, f'🎯 【REVIEWER】{res["reason"]}\n')
-
-    if not res['steps']:
-        add_reasoning_process_stream(state, '🎯 【REVIEWER】 Next step: 【GenerateAnswer】\n\n')
-        add_reasoning_process_stream(state, f'🎯 【REVIEWER】 Reason: {res["reason"]}\n\n')
-        state.middle_results.evaluation_result['next_step'] = 'GenerateAnswer'
-        return state
-
-    current_step = len(state.executed_steps)
-    new_plan_str = []
-    state.pending_steps = []
-    for ind, step in enumerate(res['steps']):
-        state.pending_steps.append(PlanStep(step_id=current_step+ind+1, goal=step['goal'], tool=step['tool']))
-        new_plan_str.append(step['goal'])
-    new_plan_str = '\n'.join([f'step{idx+1}: {step}' for idx, step in enumerate(new_plan_str)])
-
-    add_reasoning_process_stream(state, '🎯 【PLANNERREFINER】 next step：【FurtherSearch】\n')
-    add_reasoning_process_stream(state, f'🎯 【PLANNERREFINER】 new plan：{new_plan_str}\n\n')
-    _show_search_process(state, 'refine')
-    return state
-
-
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
-def extract_info(state: TaskContext):
-    _, llm_instruct, _ = get_agentic_llms()
-    query = state.query
-    add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 extract information... | Query: {query}')
-
-    inference = '\n'.join(state.inferences)
-    new_nodes = state.pending_steps[0].formatted_results
-    raw_nodes = state.pending_steps[0].raw_results
-    if not new_nodes:
-        state.pending_steps[0].status = 'completed'
-        state.executed_steps.append(state.pending_steps.pop(0))
-        add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 本轮没有发现新信息... | Query: {query}\n')
-        return None
-    new_nodes_str = [f'NODE[[{ind}]]:\n{node}' for ind, node in enumerate(new_nodes)]
-    new_nodes_str = '\n\n'.join(new_nodes_str)
-    prompt = EXTRACTOR_PROMPT.substitute(original_query=query,
-                                         current_step=state.pending_steps[0].goal,
-                                         inference=inference,
-                                         new_nodes=new_nodes_str)
-    res = llm_instruct(prompt, temperature=TEMPERATURE)
-    res = _parse_llm_res(res)
-    new_inference = res['inference']
-    if any(int(ind) >= len(new_nodes) for ind in res['relevant_nodes']):
-        raise ValueError(f'🛠️ 【EXTRACTOR】 节点编号超出范围: {res["relevant_nodes"]}')
-    relevant_nodes = [new_nodes[int(ind)] for ind in res['relevant_nodes']]
-    raw_nodes = [raw_nodes[int(ind)] for ind in res['relevant_nodes']]
-
-    add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 Reasoning process: {res["reason"]}')
-    add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 New inference: {new_inference}\n')
-    add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 Node indices: {res["relevant_nodes"]}', mode='debug')
-    LOG.info(f'🛠️ 【EXTRACTOR】 Relevant nodes: {relevant_nodes}\n')
-    # add_reasoning_process_stream(state, f'🛠️ 【EXTRACTOR】 Relevant nodes: {relevant_nodes}\n', mode='debug')
-
-    state.inferences.append(new_inference)
-    state.pending_steps[0].extracted_results = relevant_nodes  # list of str
-    state.pending_steps[0].raw_results = raw_nodes
-    state.pending_steps[0].inference = new_inference
-    state.pending_steps[0].status = 'completed'
-    state.executed_steps.append(state.pending_steps.pop(0))
-    state.middle_results.formatted_results.extend(relevant_nodes)
-    state.middle_results.raw_results.extend(raw_nodes)
-    return state
+@lru_cache(maxsize=1)
+def _get_cwd() -> str:
+    return str(Path.cwd())
 
 
 def get_ppl_agentic():
-
-    with pipeline() as search_eval_ppl:
-        search_eval_ppl.search = do_search
-        search_eval_ppl.eval = evaluate
-        search_eval_ppl.divert = switch((lambda x: x.middle_results.evaluation_result['next_step'] == 'PlanRefine'),
-                                        plan_refine,
-                                        'default', (lambda x: x))
-
-    with pipeline() as ppl:
-        ppl.planner = plan_step
-        ppl.loop = loop(
-            search_eval_ppl,
-            stop_condition=lambda x: x.middle_results.evaluation_result['next_step'] == 'GenerateAnswer',
-            count=4,
-        )
-        ppl.gen = bind(generate_answer, ppl.input)
-
-    return ppl
+    return agentic_rag
 
 
-async def astream_iterator(agent, state):
-    CHUNK_SIZE = 15
-    CHUNK_DELAY = 0.1
-    end = False
-    seen_think = False
-    with ThreadPoolExecutor(1) as executor:
-        future = executor.submit(agent, state)
-        while True:
-            value = state.reasoning_process_stream[:]
-            state.reasoning_process_stream = []
-            if value:
-                text = ''.join(value)
-                if '<END>' in text:
-                    text = text.replace('<END>', '')
-                    end = True
-                if '<think>' in text:
-                    if not seen_think:
-                        seen_think = True
-                    else:
-                        text = text.replace('<think>', '')
-                for i in range(0, len(text), CHUNK_SIZE):
-                    chunk = text[i:i + CHUNK_SIZE]
-                    LOG.info(f'yielding chunk: {chunk}')
-                    yield chunk
-                    if i + CHUNK_SIZE < len(text):
-                        await asyncio.sleep(CHUNK_DELAY)
-            elif end and future.done():
-                break
-            else:
-                await asyncio.sleep(0.1)
+def agentic_rag(
+    global_params: Dict[str, Any],
+    tool_params: Optional[Dict[str, Any]] = None,
+    stream: bool = False,
+    **kwargs: Any,
+) -> Any:
+    _ensure_tools_registered()
 
-
-@functools.lru_cache(maxsize=1)
-def _get_agent():
-    return get_ppl_agentic()
-
-
-def agentic_rag(global_params, tool_params, stream=False, **kwargs):
-    state = TaskContext()
-    query = global_params.get('query', '')
-    if not query:
+    query = (global_params or {}).get('query', '')
+    if not isinstance(query, str) or not query.strip():
         raise ValueError('query is required')
-    global_params['stream'] = stream
-    for key, value in kwargs.items():
-        global_params[key] = value
 
-    state.query = query
-    state.global_params = global_params
-    state.tool_params = tool_params
-    state.middle_results.agg_results = {}
-    agent = _get_agent()
-    if stream:
-        as_iter = astream_iterator(agent, state)
-        agg_nodes = state.middle_results.agg_results
-        return CustomOutputParser().forward(as_iter, aggregate=agg_nodes, stream=True)
-    else:
-        try:
-            state = agent(state)
-        except Exception as e:
-            LOG.error(f'Error: {e}')
-            return {'think': '', 'text': '', 'recall': []}
-        # answer = state.answer
-        relevant_nodes = copy.deepcopy(state.middle_results.formatted_results)
-        agg_nodes = copy.deepcopy(state.middle_results.agg_results)
-        answer = '\n'.join(state.reasoning_process_stream)
-        # round_num = len(state.executed_steps)
-        LOG.info(f'agg_nodes: {agg_nodes}')
-        res = CustomOutputParser().forward(answer, aggregate=agg_nodes, stream=False)
-        res['recall'] = relevant_nodes
-        return res  # , relevant_nodes, round_num
+    history = (global_params or {}).get('history') or []
+    if not isinstance(history, list):
+        history = []
+    history = _normalize_history_for_agent(history)
+
+    runtime_params = _get_runtime_agent_defaults()
+    runtime_params.update(global_params or {})
+    runtime_params.update(kwargs)
+    runtime_params['stream'] = stream
+    runtime_params = _with_agentic_defaults(runtime_params)
+    _sync_request_context(runtime_params)
+    _reset_citation_state(runtime_params)
+
+    lazyllm.globals['agentic_config'] = runtime_params
+
+    if not stream:
+        result = agentic_forward(query=query.strip(), history=history)
+        return _format_non_stream_result(result, runtime_params)
+
+    return _agentic_forward_stream(
+        query=query.strip(),
+        history=history,
+        runtime_params=runtime_params,
+        global_sid=lazyllm.globals._sid,
+        local_sid=lazyllm.locals._sid,
+    )

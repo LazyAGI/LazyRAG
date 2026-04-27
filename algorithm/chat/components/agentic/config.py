@@ -4,7 +4,7 @@ import os
 from functools import lru_cache
 from typing import Any, Dict, Tuple
 
-from chat.prompts.agentic_v2 import (
+from chat.prompts.agentic import (
     CITATION_GUIDANCE,
     DEFAULT_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
@@ -207,5 +207,5 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
 @lru_cache(maxsize=1)
 def _get_runtime_agent_defaults() -> Dict[str, Any]:
     config = load_model_config()
-    defaults = config.get('agentic_v2', {})
+    defaults = config.get('agentic', {})
     return dict(defaults) if isinstance(defaults, dict) else {}

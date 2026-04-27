@@ -9,7 +9,7 @@ import lazyllm
 from lazyllm.tools.fs.client import FS
 
 from chat.components.agentic.config import REVIEW_PROMPTS, REVIEW_TOOLS, _env_int
-from chat.prompts.agentic_v2 import _COMBINED_REVIEW_PROMPT, _MEMORY_FLUSH_MESSAGES
+from chat.prompts.agentic import _COMBINED_REVIEW_PROMPT, _MEMORY_FLUSH_MESSAGES
 from chat.tools.skill_manager import list_all_skills_with_category
 
 
@@ -82,7 +82,7 @@ def _spawn_background_review(
                 sandbox=sandbox,
                 fs=FS,
                 skills_dir=skills_dir,
-                enable_builtin_tools=True,
+                enable_builtin_tools=False,
                 force_summarize=True,
                 force_summarize_context=review_prompt,
             )

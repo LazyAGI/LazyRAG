@@ -1,5 +1,5 @@
-"""Agentic v2 support components.
+"""Agentic support components.
 
-Keep pipeline orchestration in ``chat.pipelines.agentic_v2`` and place
+Keep pipeline orchestration in ``chat.pipelines.agentic`` and place
 protocol/config/review helpers here.
 """
