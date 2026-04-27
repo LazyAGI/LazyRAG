@@ -54,29 +54,6 @@ def prompt_generate_table(context: str, file_name: str, doc_id: str, chunk_id: s
 """
 
 
-def prompt_generate_formula(context: list) -> str:
-    context_text = "\n\n".join(context)
-    return f"""请从下方多个文档片段中识别、提取所有数学公式、符号、表达式内容。
-基于公式数据生成**1道公式直接代入计算题（单跳即可，无需多跳推理）**。
-
-要求：
-1. 直接提取原文公式，进行简单数值代入计算即可，**不需要两步及以上多跳推理**；
-2. 题型为公式代入求值、简单换算类题目；
-3. ground_truth必须包含原始公式+代入计算过程+最终结果；
-4. reference_context粘贴用到的原文公式片段；
-5. 问题必须独立完整，禁止出现「根据本段、根据本文、根据内容」这类指代词汇；
-6. 严格输出纯JSON，无任何解释、备注、多余文字。
-
-固定输出格式：
-{{
-    "query": "公式代入计算问题",
-    "ground_truth": "原始公式+代入计算过程+最终答案",
-    "reference_context": "用到的原文公式片段"
-}}
-
-文档片段列表：
-{context_text}"""
-
 def prompt_generate_formula(context: str, file_name: str, doc_id: str, chunk_id: str) -> str:
     return f"""请从提供的文本中识别、提取所有数学公式、符号、表达式内容，基于公式数据生成**1道公式直接代入计算题（单跳即可，无需多跳推理）**。
 要求：
