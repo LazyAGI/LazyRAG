@@ -28,6 +28,7 @@ class AbtestInputs:
     baseline_eval_id: str
     dataset_id: str
     apply_worktree: Path
+    candidate_chat_id: str | None = None
     eval_options: dict = field(default_factory=dict)
     policy: VerdictPolicy = field(default_factory=VerdictPolicy)
     judge_label: str = 'ab'
@@ -56,7 +57,7 @@ def execute_abtest(*,
     state_path = workspace.abtest_dir(inputs.abtest_id) / 'phase.json'
     state = _load_state(state_path)
     state.setdefault('completed', [])
-    state.setdefault('candidate_chat_id', None)
+    state.setdefault('candidate_chat_id', inputs.candidate_chat_id)
     state.setdefault('new_eval_id', None)
 
     candidate: ChatInstance | None = None

@@ -158,6 +158,78 @@ POST /v1/evo/abtests/<id>/stop
 POST /v1/evo/abtests/<id>/continue
 ```
 
+## Checkpoint (User Interaction)
+
+Checkpoint is a general-purpose user-confirmation tool that can be inserted
+at any pipeline step.  The `_CHECKPOINTABLE_STEPS` dict in
+`service/executors/run.py` maps step names to checkpoint kinds.  Currently
+configured steps:
+
+| Step     | Kind                | Description |
+|----------|---------------------|-------------|
+| `indexer` | `pre_indexer_review` | Pause before LLM hypothesis generation |
+
+To add a checkpoint at another step (e.g. `conduct`, `synthesize`), add an
+entry to `_CHECKPOINTABLE_STEPS` and a payload builder in
+`_build_checkpoint_payload()`.
+
+In **interactive** mode, the pipeline pauses at each checkpoitable step and
+emits a `checkpoint.required` SSE event.  The user may:
+
+- `approve` — continue with the current step and subsequent steps.
+- `revise` — provide feedback, which is written to the run directory and
+  the step and all subsequent steps are re-executed (upstream expensive
+  results like load/features/cluster are preserved).  The step's cache key
+  is modified to incorporate the feedback hash, ensuring fresh LLM results.
+- `cancel` — the run is cancelled.
+
+In **auto** mode, checkpoints are skipped entirely — the pipeline runs
+without any pauses for user confirmation.
+
+### REST endpoints
+
+```bash
+# List pending checkpoints on a thread.
+curl -s "$BASE/v1/evo/threads/$THREAD_ID/checkpoints" | jq .
+
+# Respond to a checkpoint (from UI or agent).
+curl -sX POST "$BASE/v1/evo/threads/$THREAD_ID/checkpoints/$CP_ID:respond" \
+  -H "$JSON" \
+  -d '{"choice":"approve"}' | jq .
+
+curl -sX POST "$BASE/v1/evo/threads/$THREAD_ID/checkpoints/$CP_ID:respond" \
+  -H "$JSON" \
+  -d '{"choice":"revise","feedback":"请重点关注 retrieval 阶段的候选数量不足问题"}' | jq .
+```
+
+### Capability equivalents (for agents/Planner)
+
+- `checkpoint.list_pending` — list pending checkpoints by thread_id.
+- `checkpoint.respond` — respond to a checkpoint; if the associated task is
+  `paused` and the choice is `approve`/`revise`, it automatically triggers
+  `run.continue`.
+
+### Semantics
+
+- `checkpoint.respond` is a safe op but may trigger paused run continue.
+- `revise` deletes `indexer` and subsequent step caches (`.pickle`) and
+  re-runs indexer with user feedback injected; `load`/`features`/`cluster`/`flow`
+  are NOT re-executed.
+- User feedback affects only the current run's indexer; it does not pollute
+  other runs or the global memory.
+- `run.continue` is a real resume from step caches, not a full restart.
+- `abtest.continue` is a real resume from `phase.json` checkpoints; it does
+  not rebuild the candidate chat or re-run completed eval phases.
+- `apply.continue` resumes strictly from `checkpoint.json.base_commit` and
+  reuses the existing worktree.
+- `deploy.continue` validates that the checkout matches `merge_commit` before
+  re-using the source directory.
+
+### Thread detail
+
+`GET /v1/evo/threads/{thread_id}` now includes `pending_checkpoints` alongside
+`pending_intents`.
+
 ### Runs
 
 Create payload:
@@ -458,6 +530,15 @@ INTENT_ID=$(curl -sX POST "$BASE/v1/evo/threads/$THREAD_ID/messages" \
 # Inspect pending intents and events.
 curl -s "$BASE/v1/evo/threads/$THREAD_ID/intents" | jq .
 curl -N "$BASE/v1/evo/threads/$THREAD_ID/events?since=0"
+
+# List / respond to checkpoints.
+curl -s "$BASE/v1/evo/threads/$THREAD_ID/checkpoints" | jq .
+curl -sX POST "$BASE/v1/evo/threads/$THREAD_ID/checkpoints/$CP_ID:respond" \
+  -H "$JSON" \
+  -d '{"choice":"approve"}' | jq .
+curl -sX POST "$BASE/v1/evo/threads/$THREAD_ID/checkpoints/$CP_ID:respond" \
+  -H "$JSON" \
+  -d '{"choice":"revise","feedback":"补充业务背景"}' | jq .
 
 # Confirm intent.
 curl -sX POST "$BASE/v1/evo/threads/$THREAD_ID/intents/$INTENT_ID:confirm" \

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from evo.agents.action_verifier import verify_actions
 from evo.agents.indexer import run_indexer
@@ -13,6 +14,16 @@ from evo.harness import analysis as analysis_steps
 from evo.harness import data_loader, report as report_mod
 from evo.harness.plan import Plan, Step, StepContext, StepOutcome
 from evo.runtime.session import AnalysisSession
+
+
+def _load_revise_feedback(session: AnalysisSession) -> str | None:
+    path = session.config.storage.runs_dir / session.run_id / 'revise_feedback.json'
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding='utf-8')).get('feedback') or None
+    except (json.JSONDecodeError, KeyError):
+        return None
 
 
 @dataclass
@@ -35,7 +46,9 @@ class PipelineResult:
 def build_standard_plan(opts: PipelineOptions, *,
                          logger: logging.Logger | None = None,
                          judge_path: Path | None = None,
-                         trace_path: Path | None = None) -> Plan:
+                         trace_path: Path | None = None,
+                         before_step: Callable[[str, StepContext], None] | None = None,
+                         ) -> Plan:
     """Declaratively describe the standard full-analysis flow."""
 
     def _load(ctx: StepContext) -> Any:
@@ -60,7 +73,8 @@ def build_standard_plan(opts: PipelineOptions, *,
         return analysis_steps.analyze_flow(ctx.session)
 
     def _indexer(ctx: StepContext) -> Any:
-        return run_indexer(ctx.session)
+        feedback = _load_revise_feedback(ctx.session)
+        return run_indexer(ctx.session, user_feedback=feedback)
 
     def _conduct(ctx: StepContext) -> Any:
         if ctx.session.world_store is None:
@@ -104,4 +118,5 @@ def build_standard_plan(opts: PipelineOptions, *,
                  always_run=True),
         ],
         logger=logger,
+        before_step=before_step,
     )

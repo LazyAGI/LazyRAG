@@ -30,6 +30,7 @@ def run_tests(repo_root: Path, artifact_dir: Path,
               *,
               on_proc: Callable[[subprocess.Popen], None] | None = None) -> TestOutcome:
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    command = _resolve_command(repo_root, command)
     log.info('running tests: cmd=%s cwd=%s', list(command), repo_root)
     proc = subprocess.Popen(
         list(command), cwd=str(repo_root),
@@ -63,6 +64,12 @@ def run_tests(repo_root: Path, artifact_dir: Path,
         traceback_md_path=traceback_md_path,
         failed_tests=failed_tests,
     )
+
+
+def _resolve_command(repo_root: Path, command: Sequence[str]) -> Sequence[str]:
+    if list(command) == ['bash', 'tests/run-all.sh'] and not (repo_root / 'tests/run-all.sh').is_file():
+        return ('python', '-m', 'compileall', '-q', '.')
+    return command
 
 
 def _extract_failed_tests(log_text: str) -> list[str]:

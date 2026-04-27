@@ -1,11 +1,16 @@
 from __future__ import annotations
 import asyncio
+import base64
 import json
+import os
+import uuid
 import time
 from typing import Any, Dict, List, Optional, Union
 import lazyllm
+import requests
 from lazyllm import LOG
 from lazyllm.tracing import current_trace, enable_trace
+from lazyllm.tracing.collect import runtime as tracing_runtime
 from fastapi.responses import StreamingResponse
 from chat.config import (URL_MAP, RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT)
@@ -18,9 +23,10 @@ rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
     if not trace_enabled:
-        return ppl(*ppl_args), None
+        return ppl(*ppl_args), None, None
 
     captured: Dict[str, Any] = {}
+    started_at = time.time()
 
     def naive_rag(*args, **kwargs):
         out = ppl(*args, **kwargs)
@@ -34,7 +40,98 @@ def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_e
         session_id=session_id,
         request_tags=[f'dataset:{dataset}', f'mode:{mode_tag}'],
     )
-    return captured.get('result'), captured.get('trace_id')
+    _flush_trace_exporter()
+    result = captured.get('result')
+    trace_id = captured.get('trace_id') or uuid.uuid4().hex
+    _ingest_langfuse_trace(trace_id, ppl_args, result,
+                           session_id=session_id, dataset=dataset,
+                           mode_tag=mode_tag)
+    local_trace = None if captured.get('trace_id') else {
+        'trace_id': trace_id,
+        'name': 'chat.pipelines.naive',
+        'query': ppl_args[0].get('query', '') if ppl_args and isinstance(ppl_args[0], dict) else '',
+        'modules': {
+            'naive.py': {
+                'input': ppl_args[0] if ppl_args else None,
+                'output': result,
+            }
+        },
+        'metadata': {'dataset': dataset, 'mode': mode_tag, 'session_id': session_id},
+        'steps': [{
+            'name': 'naive.py',
+            'start_time': started_at,
+            'end_time': time.time(),
+            'metadata': {'fallback': True},
+            'inputs': {'args': [str(a)[:4000] for a in ppl_args]},
+            'outputs': {'result': str(result)[:4000]},
+        }],
+    }
+    return result, trace_id, local_trace
+
+
+def _flush_trace_exporter() -> None:
+    provider = getattr(tracing_runtime._runtime, '_provider', None)
+    if provider is None:
+        return
+    try:
+        timeout_ms = int(os.getenv('LANGFUSE_FORCE_FLUSH_TIMEOUT_MS', '5000'))
+        provider.force_flush(timeout_millis=timeout_ms)
+    except Exception as exc:
+        LOG.warning(f'[ChatServer] [TRACE_FLUSH_FAILED] {exc}')
+
+
+def _ingest_langfuse_trace(trace_id: str, ppl_args: tuple, result: Any, *,
+                           session_id: str, dataset: str, mode_tag: str) -> None:
+    host = (os.getenv('LANGFUSE_HOST') or os.getenv('LANGFUSE_BASE_URL') or '').rstrip('/')
+    public_key = os.getenv('LANGFUSE_PUBLIC_KEY')
+    secret_key = os.getenv('LANGFUSE_SECRET_KEY')
+    if not host or not public_key or not secret_key:
+        return
+    query_payload = ppl_args[0] if ppl_args else None
+    now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    auth = base64.b64encode(f'{public_key}:{secret_key}'.encode()).decode('ascii')
+    headers = {'Authorization': f'Basic {auth}', 'Content-Type': 'application/json'}
+    batch = [
+        {
+            'id': uuid.uuid4().hex,
+            'type': 'trace-create',
+            'timestamp': now,
+            'body': {
+                'id': trace_id,
+                'name': 'chat.pipelines.naive',
+                'sessionId': session_id,
+                'input': query_payload,
+                'output': result,
+                'metadata': {'dataset': dataset, 'mode': mode_tag},
+            },
+        },
+        {
+            'id': uuid.uuid4().hex,
+            'type': 'span-create',
+            'timestamp': now,
+            'body': {
+                'id': uuid.uuid4().hex[:16],
+                'traceId': trace_id,
+                'name': 'naive.py',
+                'startTime': now,
+                'endTime': now,
+                'input': query_payload,
+                'output': result,
+                'metadata': {'dataset': dataset, 'mode': mode_tag},
+            },
+        },
+    ]
+    for attempt in range(3):
+        try:
+            resp = requests.post(f'{host}/api/public/ingestion',
+                                 headers=headers, json={'batch': batch},
+                                 timeout=45)
+            if resp.status_code == 207 and not (resp.json().get('errors') or []):
+                return
+            LOG.warning(f'[ChatServer] [TRACE_INGEST_FAILED] status={resp.status_code} body={resp.text[:500]}')
+        except Exception as exc:
+            LOG.warning(f'[ChatServer] [TRACE_INGEST_FAILED] attempt={attempt + 1} error={exc}')
+        time.sleep(2)
 
 
 def _sse_line(payload: Dict[str, Any]) -> str:
@@ -139,7 +236,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             async with rag_sem:
                 lazyllm.globals._init_sid(sid=session_id)
                 lazyllm.locals._init_sid(sid=session_id)
-                result, trace_id = await _run_sync_ppl(
+                result, trace_id, local_trace = await _run_sync_ppl(
                     bool(reasoning), dataset, query_params, query, filters, priority,
                     session_id=session_id, trace_enabled=trace,
                 )
@@ -150,6 +247,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                     data = {**result, 'trace_id': trace_id}
                 else:
                     data = {'data': result, 'trace_id': trace_id}
+                if local_trace is not None and isinstance(data, dict):
+                    data['trace'] = local_trace
                 return _resp(200, 'success', data, cost)
         except Exception as exc:
             LOG.exception(exc)
@@ -196,14 +295,17 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                 async with rag_sem:
                     lazyllm.globals._init_sid(sid=session_id)
                     lazyllm.locals._init_sid(sid=session_id)
-                    async_result, trace_id = await asyncio.to_thread(
+                    async_result, trace_id, local_trace = await asyncio.to_thread(
                         _run_ppl_with_trace, ppl, args,
                         session_id=session_id, dataset=dataset,
                         mode_tag='stream_reasoning' if reasoning else 'stream',
                         trace_enabled=trace,
                     )
                     if trace_id is not None:
-                        yield _sse_line(_resp(200, 'success', {'trace_id': trace_id}, 0.0))
+                        payload = {'trace_id': trace_id}
+                        if local_trace is not None:
+                            payload['trace'] = local_trace
+                        yield _sse_line(_resp(200, 'success', payload, 0.0))
                     async for chunk in async_result:
                         now = time.time()
                         if not first_frame_logged:
@@ -247,7 +349,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
 async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, Any],
                         query: str, filters: Optional[Dict[str, Any]], priority: Any,
-                        *, session_id: str, trace_enabled: bool) -> tuple[Any, Optional[str]]:
+                        *, session_id: str, trace_enabled: bool) -> tuple[Any, Optional[str], Optional[dict]]:
     if reasoning:
         ppl = chat_server.query_ppl_reasoning
         ppl_args = (

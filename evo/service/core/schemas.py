@@ -63,5 +63,6 @@ class AbtestCreate(BaseModel):
     dataset_id: str
     apply_worktree: str | None = None
     target_chat_url: str | None = None
+    candidate_chat_id: str | None = None
     eval_options: dict[str, Any] = Field(default_factory=dict)
     policy: VerdictPolicyModel = Field(default_factory=VerdictPolicyModel)

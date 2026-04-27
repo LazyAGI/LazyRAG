@@ -43,6 +43,8 @@ RUN pip install -r /tmp/evo-requirements.txt && pip install --no-cache-dir pytho
 WORKDIR /app
 COPY evo/ /app/evo/
 COPY algorithm/chat /app/chat
+COPY algorithm/processor /app/processor
+RUN chmod +x /app/evo/service/entrypoint.sh
 
 EXPOSE 8047
 ENTRYPOINT ["/app/evo/service/entrypoint.sh"]

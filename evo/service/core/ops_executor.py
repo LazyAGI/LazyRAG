@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -47,9 +49,10 @@ class OpsExecutor:
                                          error={'code': 'VALIDATION_ERROR',
                                                 'message': str(exc)}))
                 continue
-            args = _validate_args(op.op, dict(op.args))
+            args = dict(op.args)
             if thread_id:
                 args['thread_id'] = thread_id
+            args = _validate_args(op.op, args)
             handler = OP_HANDLERS.get(op.op)
             if handler is None:
                 results.append(OpResult(op=op.op, status='unknown',
@@ -93,6 +96,24 @@ def _h_run_continue(jm: JobManager, args: dict) -> OpResult:
 def _h_run_cancel(jm: JobManager, args: dict) -> OpResult:
     tid = args['task_id']
     return _task_op_result('run.cancel', tid, 'cancelled', jm.cancel(tid))
+
+
+def _h_task_stop_active(jm: JobManager, args: dict) -> OpResult:
+    tid = _resolve_active_task(jm, args, require_running=True)
+    row = jm.stop(tid)
+    return _task_op_result('task.stop_active', tid, 'stopped', row)
+
+
+def _h_task_cancel_active(jm: JobManager, args: dict) -> OpResult:
+    tid = _resolve_active_task(jm, args)
+    row = jm.cancel(tid)
+    return _task_op_result('task.cancel_active', tid, 'cancelled', row)
+
+
+def _h_task_continue_latest(jm: JobManager, args: dict) -> OpResult:
+    tid = args.get('task_id') or _resolve_latest_resumable_task(jm, args)
+    row = jm.cont(tid)
+    return _task_op_result('task.continue_latest', tid, 'continued', row)
 
 
 def _h_apply_start(jm: JobManager, args: dict) -> OpResult:
@@ -197,19 +218,60 @@ def _h_deploy_cancel(jm: JobManager, args: dict) -> OpResult:
     return _task_op_result('deploy.cancel', tid, 'cancelled', jm.cancel(tid))
 
 
+def _h_checkpoint_list_pending(jm: JobManager, args: dict) -> OpResult:
+    thread_id = args.get('thread_id')
+    if not thread_id:
+        raise StateError('CHECKPOINT_NO_THREAD', 'thread_id is required')
+    from evo.service.threads.workspace import CheckpointStore, EventLog, ThreadWorkspace
+    ws = ThreadWorkspace(jm.config.storage.base_dir, thread_id)
+    elog = EventLog(ws.events_path)
+    cps = CheckpointStore(ws, elog)
+    pending = cps.list_pending()
+    return OpResult(op='checkpoint.list_pending', status='ok',
+                     data={'checkpoints': pending, 'count': len(pending)})
+
+
+def _h_checkpoint_respond(jm: JobManager, args: dict) -> OpResult:
+    cp_id = args.get('cp_id')
+    choice = args.get('choice', 'approve')
+    feedback = args.get('feedback')
+    if not cp_id:
+        raise StateError('CHECKPOINT_NO_CP_ID', 'cp_id is required')
+    if choice not in ('approve', 'revise', 'cancel'):
+        raise StateError('CHECKPOINT_BAD_CHOICE',
+                         f'choice must be approve/revise/cancel, got {choice!r}')
+    thread_id = args.get('thread_id')
+    if not thread_id:
+        raise StateError('CHECKPOINT_NO_THREAD', 'thread_id is required')
+    from evo.service.threads.workspace import CheckpointStore, EventLog, ThreadWorkspace
+    ws = ThreadWorkspace(jm.config.storage.base_dir, thread_id)
+    elog = EventLog(ws.events_path)
+    cps = CheckpointStore(ws, elog)
+    rec = cps.respond(cp_id, choice=choice, feedback=feedback)
+    task_id = rec.get('task_id')
+    if task_id and choice in ('approve', 'revise'):
+        task_row = store.get(jm.store, task_id)
+        if task_row and task_row.get('status') == 'paused':
+            jm.cont(task_id)
+    return OpResult(op='checkpoint.respond', task_id=task_id,
+                     status='responded', data=rec)
+
+
 OP_HANDLERS: dict[str, OpHandler] = {}
 
 for _h in [
     _h_run_start, _h_run_stop, _h_run_continue, _h_run_cancel,
+    _h_task_stop_active, _h_task_cancel_active, _h_task_continue_latest,
     _h_apply_start, _h_apply_stop, _h_apply_continue, _h_apply_cancel,
     _h_apply_accept, _h_apply_reject,
     _h_eval_run, _h_eval_fetch, _h_eval_cancel,
     _h_abtest_create, _h_abtest_stop, _h_abtest_continue, _h_abtest_cancel,
     _h_merge_start, _h_merge_cancel,
     _h_deploy_start, _h_deploy_continue, _h_deploy_cancel,
+    _h_checkpoint_list_pending, _h_checkpoint_respond,
 ]:
-    op = _h.__name__.replace('_h_', '', 1).replace('_', '.', 1)
-    OP_HANDLERS[op] = _h
+    name = _h.__name__.replace('_h_', '', 1).replace('_', '.', 1)
+    OP_HANDLERS[name] = _h
 
 OP_HANDLERS['dataset_gen.start'] = _h_dataset_gen_start
 OP_HANDLERS['dataset_gen.cancel'] = _h_dataset_gen_cancel
@@ -230,3 +292,72 @@ def _validate_args(op: str, args: dict[str, Any]) -> dict[str, Any]:
     if model is None:
         return args
     return model(**args).model_dump(exclude_none=True)
+
+
+_FLOW_PRIORITY = ('run', 'apply', 'eval', 'dataset_gen', 'abtest', 'deploy', 'merge')
+
+
+def _resolve_active_task(jm: JobManager, args: dict[str, Any], *,
+                         require_running: bool = False) -> str:
+    thread_id = args.get('thread_id')
+    flow = args.get('flow')
+    flows = (flow,) if flow else _FLOW_PRIORITY
+    for fl in flows:
+        rows = store.list_active(jm.store, fl, scope='thread' if thread_id else 'global',
+                                 thread_id=thread_id)
+        candidates = [
+            r for r in rows
+            if (r.get('status') == 'running' if require_running else True)
+        ]
+        if candidates:
+            order = {'running': 0, 'queued': 1, 'stopping': 2,
+                     'paused': 3, 'failed_transient': 4}
+            candidates.sort(key=lambda r: (
+                order.get(r.get('status'), 99), -float(r.get('created_at', 0) or 0),
+            ))
+            return candidates[0]['id']
+    raise StateError('NO_ACTIVE_TASK', f'no active task found for flow={flow!r}')
+
+
+def _resolve_latest_resumable_task(jm: JobManager, args: dict[str, Any]) -> str:
+    thread_id = args.get('thread_id')
+    flow = args.get('flow')
+    flows = (flow,) if flow else _FLOW_PRIORITY
+    best: dict | None = None
+    for fl in flows:
+        rows = (store.list_flow_tasks_by_thread(jm.store, fl, thread_id)
+                if thread_id else store.list_recent(jm.store, fl, 100))
+        for row in rows:
+            if row.get('status') not in ('paused', 'failed_transient'):
+                continue
+            if best is None or row.get('updated_at', 0) > best.get('updated_at', 0):
+                best = row
+    if best:
+        return best['id']
+    stopping = _latest_stopping_task(jm, args)
+    if stopping:
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            row = store.get(jm.store, stopping['id'])
+            if row and row.get('status') in ('paused', 'failed_transient'):
+                return row['id']
+            if row and row.get('status') not in ('stopping', 'running'):
+                break
+            time.sleep(0.25)
+    raise StateError('NO_RESUMABLE_TASK', f'no paused or transient failed task found for flow={flow!r}')
+
+
+def _latest_stopping_task(jm: JobManager, args: dict[str, Any]) -> dict | None:
+    thread_id = args.get('thread_id')
+    flow = args.get('flow')
+    flows = (flow,) if flow else _FLOW_PRIORITY
+    best: dict | None = None
+    for fl in flows:
+        rows = (store.list_flow_tasks_by_thread(jm.store, fl, thread_id)
+                if thread_id else store.list_recent(jm.store, fl, 100))
+        for row in rows:
+            if row.get('status') != 'stopping':
+                continue
+            if best is None or row.get('updated_at', 0) > best.get('updated_at', 0):
+                best = row
+    return best

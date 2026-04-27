@@ -239,6 +239,15 @@ def parse_trace_file(raw: dict[str, Any]) -> tuple[TraceMeta, dict[str, TraceRec
                 rec, w = _parse_legacy_trace(val)
                 traces[key] = rec
                 warnings.extend(f"[trace:{key}] {x}" for x in w)
+                pipeline = list(rec.modules)
+                skeleton = [
+                    {"type": "module", "key": step_key, "name": step_key}
+                    for step_key in pipeline
+                ]
+                if ref_pipeline is None:
+                    ref_pipeline, ref_skeleton = pipeline, skeleton
+                elif pipeline != ref_pipeline:
+                    warnings.append(f"[trace:{key}] pipeline differs from first case")
             except ValueError as e:
                 warnings.append(f"[trace:{key}] {e}")
             continue
@@ -274,7 +283,7 @@ _EVAL_KNOWN_FIELDS = {
     "case_id", "report_id", "eval_set_id", "kb_id", "trace_id", "query",
     "rag_answer", "ground_truth", "rag_response", "retrieve_contexts",
     "reference_contexts", "retrieve_doc", "refernce_doc", "reference_doc",
-    "reference_chunk_ids", "reference_docids",
+    "reference_chunk_ids", "reference_docids", "reference_doc_ids",
     "answer_correctness", "faithfulness", "context_recall", "doc_recall",
     "is_valid", "is_deleted", "key_points", "judge_reason",
     "is_manual_modify", "modify_user", "modify_time", "modify_reason",
@@ -328,7 +337,7 @@ def parse_eval_case(case: dict[str, Any]) -> tuple[str, JudgeRecord]:
         faithfulness=float(case.get("faithfulness", 0)),
         human_verified=bool(case.get("is_valid", True)),
         gt_chunk_id=list(case.get("reference_chunk_ids", []) or []),
-        gt_docid=list(case.get("reference_docids", []) or []),
+        gt_docid=list(case.get("reference_docids", case.get("reference_doc_ids", [])) or []),
         extra=extra,
     )
     return dataset_id, judge

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 from typing import Any, Dict, Optional
 from fastapi import FastAPI
 from lazyllm import LOG, once_wrapper
@@ -45,7 +46,9 @@ class ChatServer:
             else:
                 LOG.warning('[ChatServer] [SENSITIVE_FILTER] Failed to load, filter disabled')
 
-            if DEFAULT_CHAT_DATASET in URL_MAP:
+            if os.getenv('LAZYRAG_SKIP_STARTUP_PIPELINE', '').lower() in {'1', 'true', 'yes'}:
+                self.startup_validated = True
+            elif DEFAULT_CHAT_DATASET in URL_MAP:
                 self.get_query_pipeline(DEFAULT_CHAT_DATASET)
                 self.get_query_pipeline(DEFAULT_CHAT_DATASET, stream=True)
                 self.startup_validated = True

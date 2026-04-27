@@ -371,7 +371,15 @@ def _build_context(
         parts.append('run_telemetry ' + str(rid) + ':' + json.dumps(o, ensure_ascii=False)[: 4000])
     arts = ws.load_artifacts()
     parts.append('artifacts:' + json.dumps(arts, ensure_ascii=False))
-    parts.append('pending_checkpoints:' + str(len(cps.list_pending())))
+    pending = cps.list_pending()
+    parts.append('pending_checkpoints:' + str(len(pending)))
+    if pending:
+        cps_summary = [
+            {'id': cp.get('id'), 'kind': cp.get('kind'), 'title': cp.get('title'),
+             'task_id': cp.get('task_id')}
+            for cp in pending[:5]
+        ]
+        parts.append('checkpoint_details:' + json.dumps(cps_summary, ensure_ascii=False)[: 2000])
     for fl in 'eval', 'run', 'apply', 'abtest', 'dataset_gen', 'merge', 'deploy':
         key = f'{fl}_ids' if fl != 'eval' else 'eval_ids'
         for tid in reversed(arts.get(key) or []):

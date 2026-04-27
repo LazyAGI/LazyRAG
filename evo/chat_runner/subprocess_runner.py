@@ -35,6 +35,7 @@ class SubprocessChatRunner:
     def launch(self, *, source_dir: Path, label: str,
                env: dict | None = None,
                owner_thread_id: str | None = None) -> ChatInstance:
+        _ensure_chat_import_alias(Path(source_dir))
         port = _free_port()
         chat_id = f'chat-{label}-{uuid.uuid4().hex[:6]}'
         log_path = self.log_dir / f'{chat_id}.log'
@@ -82,3 +83,13 @@ class SubprocessChatRunner:
                 pass
             time.sleep(0.2)
         return False
+
+
+def _ensure_chat_import_alias(source_dir: Path) -> None:
+    alias = source_dir / 'chat'
+    if alias.exists() or not (source_dir / 'app' / 'chat.py').is_file():
+        return
+    try:
+        alias.symlink_to('.', target_is_directory=True)
+    except FileExistsError:
+        pass

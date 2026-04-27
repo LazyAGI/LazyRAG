@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -43,6 +44,10 @@ def execute(ctx: ExecCtx, tid: str) -> None:
 
         thread_id = cur.get('thread_id')
         role = payload.get('role') or 'production'
+        keep_old = payload.get('keep_old', True)
+        if not keep_old:
+            raise _store.StateError('DEPLOY_KEEP_OLD_UNSUPPORTED',
+                                    'keep_old=False is not yet supported')
         runner = ctx.chat_runner_factory()
         instance = runner.launch(source_dir=source_dir, label='deploy',
                                   owner_thread_id=thread_id)
@@ -83,8 +88,19 @@ def _checkout_merge_commit(git_dir: Path, merge_commit: str, target: Path) -> No
     if not bare.exists():
         raise _store.StateError('DEPLOY_NO_BARE_REPO', f'bare repo not found at {bare}')
     target.mkdir(parents=True, exist_ok=True)
-    if any(target.iterdir()):
-        return
+    git_dir_flag = target / '.git'
+    if git_dir_flag.exists():
+        try:
+            head = subprocess.run(
+                ['git', '-C', str(target), 'rev-parse', 'HEAD'],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            if head == merge_commit:
+                return
+        except subprocess.CalledProcessError:
+            pass
+        shutil.rmtree(target, ignore_errors=True)
+        target.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ['git', 'clone', '--no-checkout', str(bare), str(target)],
         capture_output=True, text=True, check=True,
@@ -93,3 +109,10 @@ def _checkout_merge_commit(git_dir: Path, merge_commit: str, target: Path) -> No
         ['git', '-C', str(target), 'checkout', merge_commit],
         capture_output=True, text=True, check=True,
     )
+    head = subprocess.run(
+        ['git', '-C', str(target), 'rev-parse', 'HEAD'],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    if head != merge_commit:
+        raise _store.StateError('DEPLOY_CHECKOUT_MISMATCH',
+                                f'checked out {head[:12]}, expected {merge_commit[:12]}')

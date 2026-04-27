@@ -51,6 +51,7 @@ def get_eval_queue(eval_name: str, *, case_id: str = '', dataset_name: str = '',
             'retrieve_chunk_ids': rag_result['chunk_ids'],
             'retrieve_doc_ids': rag_result['doc_ids'],
             'trace_id': rag_result['trace_id'],
+            'rag_trace': rag_result.get('trace'),
             'context_recall': metrics['context_recall'],
             'doc_recall': metrics['doc_recall'],
         })

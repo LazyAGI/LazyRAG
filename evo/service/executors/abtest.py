@@ -35,6 +35,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         baseline_eval_id=payload['baseline_eval_id'],
         dataset_id=payload['dataset_id'],
         apply_worktree=Path(payload['apply_worktree']),
+        candidate_chat_id=payload.get('candidate_chat_id'),
         eval_options=payload.get('eval_options') or {},
         policy=ctx.abtest_policy.get(tid) or VerdictPolicy(**policy_data),
     )
@@ -50,6 +51,15 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                             {'verdict': result.verdict,
                              'candidate_chat_id': result.candidate_chat_id,
                              'new_eval_id': result.new_eval_id})
+        from evo.runtime.fs import atomic_write_json
+        abtest_checkpoint = {
+            'abtest_id': tid,
+            'status': result.status,
+            'verdict': result.verdict,
+            'candidate_chat_id': result.candidate_chat_id,
+            'new_eval_id': result.new_eval_id,
+        }
+        atomic_write_json(ws.abtest_dir(tid) / 'checkpoint.json', abtest_checkpoint)
         if result.status == 'succeeded':
             ctx.on_success(tid)
         elif result.status == 'cancelled':

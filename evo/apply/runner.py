@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shlex
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -50,9 +51,15 @@ class ApplyResult:
 @dataclass
 class ApplyOptions:
     max_rounds: int = 3
-    test_command: tuple[str, ...] = ('bash', 'tests/run-all.sh')
+    test_command: tuple[str, ...] = field(default_factory=lambda: tuple(
+        shlex.split(os.getenv('EVO_APPLY_TEST_CMD', 'bash tests/run-all.sh'))))
     instruction: str = '根据 report 完成代码修改'
-    opencode_options: oc.OpencodeOptions = field(default_factory=oc.OpencodeOptions)
+    opencode_options: oc.OpencodeOptions = field(default_factory=lambda: oc.OpencodeOptions(
+        model=os.getenv('EVO_OPENCODE_MODEL') or None,
+        agent=os.getenv('EVO_OPENCODE_AGENT') or None,
+        variant=os.getenv('EVO_OPENCODE_VARIANT') or None,
+        timeout_s=int(os.getenv('EVO_OPENCODE_TIMEOUT_S', '180')),
+    ))
 
 
 def _check(token: Any | None, at: str | None = None) -> None:
@@ -104,7 +111,11 @@ def _rel_under_chat(key: str, base: Path) -> str:
         try:
             return p.resolve().relative_to(base).as_posix()
         except ValueError:
-            return p.as_posix()
+            marker = '/algorithm/chat/'
+            raw = p.as_posix()
+            if marker in raw:
+                return raw.split(marker, 1)[1]
+            return raw.lstrip('/')
     return p.as_posix().replace(os.sep, '/')
 
 
@@ -148,7 +159,7 @@ def _build_modification_plan(actions: list[dict]) -> list[dict]:
         'rationale': str(a.get('rationale', '')),
         'suggested_changes': str(a.get('suggested_changes', '')),
         'priority': str(a.get('priority', '')),
-        'files': [Path(str(a.get('code_map_target', ''))).as_posix()],
+        'files': [_rel_under_chat(str(a.get('code_map_target', '')), Path.cwd())],
     } for a in actions]
 
 
@@ -232,22 +243,26 @@ def execute_apply(
     if resume:
         cp = _load_checkpoint(cp_path)
         if cp is not None and cp.get('preview_ready'):
+            preview_dir = cp.get('preview_dir', '')
+            round_data = [RoundResult(**r) for r in cp.get('rounds', [])]
             return ApplyResult(
                 apply_id=apply_id, base_commit=cp.get('base_commit', ''),
                 branch_name=cp.get('branch_name', ''),
                 status='SUCCEEDED',
-                rounds=[RoundResult(**r) for r in cp.get('rounds', [])],
+                rounds=round_data,
                 final_commit=cp.get('final_commit'),
-                diff_index_path=Path(cp.get('preview_dir', '')) / 'index.json'
-                if cp.get('preview_dir') else None,
+                diff_index_path=Path(preview_dir) / 'index.json'
+                if preview_dir else None,
             )
         start_round = cp.get('next_round', 1) if cp else 1
         prior_failure = cp.get('prior_failure', '') if cp else ''
         existing_rounds = [RoundResult(**r) for r in (cp.get('rounds') or [])] if cp else []
+        base_commit = cp.get('base_commit') if cp else None
     else:
         start_round = 1
         prior_failure = ''
         existing_rounds = []
+        base_commit = None
 
     actions = _filter_actions(report)
     if not actions:
@@ -260,13 +275,17 @@ def execute_apply(
     binary = oc.preflight(options.opencode_options.binary,
                            auth_dir=config.storage.opencode_dir)
     workspace.ensure_bare()
-    worktree, base_commit = workspace.get_or_create_worktree(apply_id)
+    worktree, wt_head = workspace.get_or_create_worktree(apply_id)
+    if base_commit is None:
+        base_commit = wt_head
     branch = GitWorkspace.branch_name(apply_id)
 
     (apply_dir / 'input').mkdir(parents=True, exist_ok=True)
     plan = _build_modification_plan(actions)
-    (apply_dir / 'input' / 'modification_plan.json').write_text(
-        json.dumps(plan, ensure_ascii=False, indent=2), encoding='utf-8')
+    plan_path = apply_dir / 'input' / 'modification_plan.json'
+    if not plan_path.exists():
+        plan_path.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2), encoding='utf-8')
 
     cp = _build_initial_checkpoint(apply_id, base_commit, branch, str(worktree))
     cp['next_round'] = start_round

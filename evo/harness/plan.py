@@ -95,9 +95,11 @@ def _ckpt_path(steps_dir: Path, name: str) -> Path:
 
 class Plan:
     def __init__(self, steps: list[Step], *,
-                 logger: logging.Logger | None = None) -> None:
+                 logger: logging.Logger | None = None,
+                 before_step: Callable[[str, StepContext], None] | None = None) -> None:
         self.steps = steps
         self._log = logger or logging.getLogger('evo.harness.plan')
+        self._before_step = before_step
 
     def run(self, session: AnalysisSession, *,
             cancel_token: CancelTokenProto | None = None) -> PlanResult:
@@ -114,6 +116,9 @@ class Plan:
 
         for step in self.steps:
             _abort_check(step.name)
+            if self._before_step is not None:
+                self._before_step(step.name, ctx)
+                _abort_check(step.name)
             ckpt = _ckpt_path(steps_dir, step.name)
             if ckpt.exists():
                 value = pickle.loads(ckpt.read_bytes())

@@ -20,6 +20,24 @@ llm_instruct:
   url: http://10.119.21.177:8000/v1/
   skip_auth: true
 
+evo_llm:
+  source: openai
+  type: llm
+  model: ${MAAS_MODEL_NAME:-minimax-m27}
+  url: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
+  api_key: ${LAZYRAG_MAAS_API_KEY}
+
+evo_embed:
+    source: qwen
+    type: embed
+    model: text-embedding-v3
+    api_key: ${LAZYLLM_QWEN_API_KEY}
+    index_kwargs:
+      index_type: IVF_FLAT
+      metric_type: COSINE
+      params:
+        nlist: 128
+
 # Reranker.
 # Previously aligned with: qwen3_reranker_custom
 reranker:
@@ -27,6 +45,7 @@ reranker:
   type: rerank
   model: Qwen3-Reranker-8B
   url: http://10.119.24.104:8331/v1/rerank
+  api_key: ${LAZYLLM_QWEN_API_KEY}
   skip_auth: true
 
 embeddings:

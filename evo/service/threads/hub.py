@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,7 @@ class ThreadHub:
         self.planner = planner
         self.intents = intent_store
         self.ops = ops
+        self._auto_threads: dict[str, threading.Event] = {}
 
     def list_threads(self) -> list[dict]:
         base = self.intents._base_dir.parent / 'threads'
@@ -52,14 +54,35 @@ class ThreadHub:
         return meta
 
     def get_thread(self, thread_id: str) -> dict:
-        from evo.service.threads.workspace import ThreadWorkspace
+        from evo.service.threads.workspace import ThreadWorkspace, CheckpointStore, EventLog
         ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id)
         if not ws.thread_meta_path.exists():
             raise HTTPException(404, f'thread {thread_id} not found')
         meta = __import__('json').loads(ws.thread_meta_path.read_text(encoding='utf-8'))
         meta['artifacts'] = ws.load_artifacts()
         meta['pending_intents'] = self.intents.list_pending(thread_id)
+        cps = CheckpointStore(ws, EventLog(ws.events_path))
+        meta['pending_checkpoints'] = cps.list_pending()
         return meta
+
+    def list_checkpoints(self, thread_id: str) -> list[dict]:
+        from evo.service.threads.workspace import ThreadWorkspace, CheckpointStore, EventLog
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id)
+        cps = CheckpointStore(ws, EventLog(ws.events_path))
+        return cps.list_pending()
+
+    def respond_checkpoint(self, thread_id: str, cp_id: str,
+                           choice: str, feedback: str | None = None) -> dict:
+        from evo.service.threads.workspace import ThreadWorkspace, CheckpointStore, EventLog
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id)
+        cps = CheckpointStore(ws, EventLog(ws.events_path))
+        rec = cps.respond(cp_id, choice=choice, feedback=feedback)
+        task_id = rec.get('task_id')
+        if task_id and choice in ('approve', 'revise'):
+            task_row = _store.get(self.jm.store, task_id)
+            if task_row and task_row.get('status') == 'paused':
+                self.jm.cont(task_id)
+        return rec
 
     def post_message(self, thread_id: str, content: str) -> dict:
         from evo.service.threads.workspace import ThreadWorkspace, EventLog
@@ -167,6 +190,50 @@ class ThreadHub:
             ],
         }
 
+    def auto_step(self, thread_id: str) -> dict:
+        from evo.service.threads.workspace import ThreadWorkspace, EventLog
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id)
+        if not ws.thread_meta_path.exists():
+            raise HTTPException(404, f'thread {thread_id} not found')
+        meta = __import__('json').loads(ws.thread_meta_path.read_text(encoding='utf-8'))
+        if meta.get('mode') != 'auto':
+            raise HTTPException(400, 'auto_step requires thread mode auto')
+        message = _auto_message(self.jm, thread_id, ws)
+        if not message:
+            return {'status': 'waiting', 'message': None}
+        EventLog(ws.events_path).append('auto_operator', 'auto.message',
+                                        {'content': message})
+        draft = self.post_message(thread_id, message)
+        result = None
+        if draft.get('requires_confirm') or draft.get('preview'):
+            result = self.confirm_intent(thread_id, draft['intent_id'])
+        return {'status': 'sent', 'message': message, 'draft': draft,
+                'confirm': result}
+
+    def auto_start(self, thread_id: str, interval_s: float = 5.0) -> dict:
+        if thread_id in self._auto_threads and not self._auto_threads[thread_id].is_set():
+            return {'status': 'running'}
+        stop = threading.Event()
+        self._auto_threads[thread_id] = stop
+
+        def _loop() -> None:
+            while not stop.is_set():
+                try:
+                    self.auto_step(thread_id)
+                except Exception:
+                    pass
+                stop.wait(interval_s)
+
+        threading.Thread(target=_loop, name=f'evo-auto-{thread_id}',
+                         daemon=True).start()
+        return {'status': 'started'}
+
+    def auto_stop(self, thread_id: str) -> dict:
+        ev = self._auto_threads.get(thread_id)
+        if ev:
+            ev.set()
+        return {'status': 'stopped'}
+
     def cancel_intent(self, thread_id: str, intent_id: str) -> dict:
         intent_data = self.intents.get(intent_id)
         if intent_data and intent_data.get('thread_id') != thread_id:
@@ -179,45 +246,91 @@ class ThreadHub:
         return row
 
     def _plan_context(self, thread_id: str, ws) -> PlanContext:
+        snapshot = _thread_state_snapshot(self.jm, thread_id, ws.load_artifacts())
         return PlanContext(
             thread_id=thread_id,
             recent_history=_read_recent_messages(ws.messages_path, limit=20),
-            thread_state_summary=_thread_state_summary(self.jm, thread_id,
-                                                       ws.load_artifacts()),
+            thread_state_summary=_thread_state_summary(snapshot),
             capabilities_with_safety=[
                 {'op': op, 'safety': caps.get(op).safety, 'flow': caps.get(op).flow}
                 for op in caps.all_ops()
             ],
+            thread_state=snapshot,
         )
 
 
 def _format_artifacts(artifacts: dict) -> str:
     parts: list[str] = []
     for kind in ('dataset_ids', 'eval_ids', 'run_ids', 'apply_ids',
-                 'merge_ids', 'deploy_ids', 'abtest_ids', 'chat_ids'):
+                 'apply_commit_ids', 'merge_ids', 'deploy_ids',
+                 'abtest_ids', 'chat_ids'):
         vals = artifacts.get(kind) or []
         if vals:
             parts.append(f'{kind}: {", ".join(vals[-3:])}')
     return '\n'.join(parts) if parts else ''
 
 
-def _thread_state_summary(jm, thread_id: str, artifacts: dict) -> str:
-    parts = [_format_artifacts(artifacts)]
-    active = []
-    for flow in _store.FLOWS:
-        active.extend(_store.list_active(jm.conn, flow, scope='thread',
-                                         thread_id=thread_id))
+def _thread_state_summary(snapshot: dict) -> str:
+    parts = [_format_artifacts(snapshot.get('artifacts') or {})]
+    latest = snapshot.get('latest_tasks') or {}
+    if latest:
+        parts.append('latest_tasks: ' + json.dumps({
+            k: {'id': v.get('id'), 'status': v.get('status'), 'payload': v.get('payload')}
+            for k, v in latest.items()
+        }, ensure_ascii=False)[:4000])
+    active = snapshot.get('active_tasks') or []
     if active:
         parts.append('active_tasks: ' + ', '.join(
             f"{r['flow']}:{r['id']}:{r['status']}" for r in active[-10:]))
     reports = []
-    for rid in (artifacts.get('run_ids') or [])[-3:]:
-        row = _store.get(jm.conn, rid)
+    for rid in ((snapshot.get('artifacts') or {}).get('run_ids') or [])[-3:]:
+        row = latest.get('run') if (latest.get('run') or {}).get('id') == rid else None
         if row and (row.get('payload') or {}).get('report_id'):
             reports.append((row.get('payload') or {}).get('report_id'))
     if reports:
         parts.append('latest_reports: ' + ', '.join(reports))
     return '\n'.join(p for p in parts if p)
+
+
+def _thread_state_snapshot(jm, thread_id: str, artifacts: dict) -> dict:
+    latest: dict[str, dict] = {}
+    active = []
+    rows_by_flow: dict[str, list[dict]] = {flow: [] for flow in _store.FLOWS}
+    for path in jm.conn._all_task_files():
+        try:
+            rec = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        flow = rec.get('flow')
+        if flow not in rows_by_flow or rec.get('thread_id') != thread_id:
+            continue
+        rows_by_flow[flow].append(rec)
+        if rec.get('status') not in _store.terminal_for(flow):
+            active.append(rec)
+    for flow, rows in rows_by_flow.items():
+        if rows:
+            rows.sort(key=lambda r: r.get('created_at', 0.0))
+            latest[flow] = rows[-1]
+    from evo.service.threads.workspace import CheckpointStore, EventLog, ThreadWorkspace
+    ws = ThreadWorkspace(jm.config.storage.base_dir, thread_id)
+    pending = CheckpointStore(ws, EventLog(ws.events_path)).list_pending()
+    return {'artifacts': artifacts, 'active_tasks': active,
+            'latest_tasks': latest, 'pending_checkpoints': pending}
+
+
+def _auto_message(jm, thread_id: str, ws) -> str | None:
+    snap = _thread_state_snapshot(jm, thread_id, ws.load_artifacts())
+    if snap.get('pending_checkpoints'):
+        return '自动检查发现有待处理 checkpoint，请批准当前 checkpoint 并继续。'
+    for row in snap.get('active_tasks') or []:
+        if row.get('status') == 'running':
+            return None
+    latest = snap.get('latest_tasks') or {}
+    for flow in ('run', 'eval', 'dataset_gen', 'apply', 'abtest', 'deploy'):
+        row = latest.get(flow) or {}
+        if row.get('status') in ('failed_transient', 'paused'):
+            return f'自动检查发现 {flow} 任务 {row.get("id")} 状态为 {row.get("status")}，请重试/续跑。'
+    return None
 
 
 def _append_message(path, role: str, content: str) -> None:
@@ -259,17 +372,31 @@ def build_router(hub: ThreadHub) -> APIRouter:
     async def post_message(thread_id: str, body: dict = Body(...)) -> dict:
         return hub.post_message(thread_id, body.get('content', ''))
 
+    @router.post('/threads/{thread_id}/auto/step')
+    async def auto_step(thread_id: str) -> dict:
+        return hub.auto_step(thread_id)
+
+    @router.post('/threads/{thread_id}/auto/start')
+    async def auto_start(thread_id: str, body: dict | None = Body(default=None)) -> dict:
+        return hub.auto_start(thread_id, interval_s=float((body or {}).get('interval_s', 5.0)))
+
+    @router.post('/threads/{thread_id}/auto/stop')
+    async def auto_stop(thread_id: str) -> dict:
+        return hub.auto_stop(thread_id)
+
     @router.get('/threads/{thread_id}/intents')
     async def list_intents(thread_id: str) -> list[dict]:
         return hub.intents.list_pending(thread_id)
 
     @router.post('/threads/{thread_id}/intents/{intent_id}:confirm')
+    @router.post('/threads/{thread_id}/intents/{intent_id}/confirm')
     async def confirm_intent(thread_id: str, intent_id: str,
                              body: dict | None = Body(default=None)) -> dict:
         return hub.confirm_intent(thread_id, intent_id,
                                   user_edit=(body or {}).get('user_edit'))
 
     @router.post('/threads/{thread_id}/intents/{intent_id}:cancel')
+    @router.post('/threads/{thread_id}/intents/{intent_id}/cancel')
     async def cancel_intent(thread_id: str, intent_id: str) -> dict:
         return hub.cancel_intent(thread_id, intent_id)
 
@@ -296,6 +423,18 @@ def build_router(hub: ThreadHub) -> APIRouter:
                                    'id': str(offset)}
                 await asyncio.sleep(0.5)
         return EventSourceResponse(gen())
+
+    @router.get('/threads/{thread_id}/checkpoints')
+    def list_checkpoints(thread_id: str) -> list[dict]:
+        return hub.list_checkpoints(thread_id)
+
+    @router.post('/threads/{thread_id}/checkpoints/{cp_id}:respond')
+    @router.post('/threads/{thread_id}/checkpoints/{cp_id}/respond')
+    async def respond_checkpoint(thread_id: str, cp_id: str,
+                                  body: dict = Body(...)) -> dict:
+        choice = body.get('choice', 'approve')
+        feedback = body.get('feedback')
+        return hub.respond_checkpoint(thread_id, cp_id, choice, feedback)
 
     @router.get('/threads/{thread_id}/apply-commits')
     def apply_commits(thread_id: str) -> list[dict]:

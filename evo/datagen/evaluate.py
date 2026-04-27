@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -24,8 +25,10 @@ def evaluate_answer(
         if isinstance(res, list):
             res = res[-1]
         if isinstance(res, str):
-            return json.loads(res)
-        return res
+            res = _parse_json_object(res)
+        if isinstance(res, dict):
+            return res
+        raise ValueError(f'invalid eval response: {type(res).__name__}')
     except Exception as exc:
         _log.info('eval parse error: %s', exc)
         return {
@@ -34,6 +37,17 @@ def evaluate_answer(
             'reason': 'parse failed',
             'faithfulness': 0,
         }
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    text = text.replace('```json', '').replace('```', '').strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if not match:
+            raise
+        return json.loads(match.group())
 
 
 def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_workers: int = 10) -> list[dict]:
