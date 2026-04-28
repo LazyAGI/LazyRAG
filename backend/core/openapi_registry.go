@@ -679,6 +679,37 @@ type skillShareCreateOpenAPIResponse struct {
 	Items       []skillShareCreateItemOpenAPIResponse `json:"items"`
 }
 
+type skillShareTargetStatusSummaryOpenAPIResponse struct {
+	PendingAccept int64 `json:"pending_accept"`
+	Completed     int64 `json:"completed"`
+	Rejected      int64 `json:"rejected"`
+	Failed        int64 `json:"failed"`
+}
+
+type skillShareTargetItemOpenAPIResponse struct {
+	TargetUserID      string  `json:"target_user_id"`
+	TargetUserName    string  `json:"target_user_name"`
+	Status            string  `json:"status"`
+	ShareItemID       string  `json:"share_item_id"`
+	ShareTaskID       string  `json:"share_task_id"`
+	Message           string  `json:"message"`
+	AcceptedAt        *string `json:"accepted_at,omitempty"`
+	RejectedAt        *string `json:"rejected_at,omitempty"`
+	TargetRootSkillID string  `json:"target_root_skill_id,omitempty"`
+	ErrorMessage      string  `json:"error_message,omitempty"`
+	SharedAt          string  `json:"shared_at"`
+	UpdatedAt         string  `json:"updated_at"`
+}
+
+type skillShareTargetsOpenAPIResponse struct {
+	SkillID       string                                       `json:"skill_id"`
+	StatusSummary skillShareTargetStatusSummaryOpenAPIResponse `json:"status_summary"`
+	Items         []skillShareTargetItemOpenAPIResponse        `json:"items"`
+	Page          int32                                        `json:"page"`
+	PageSize      int32                                        `json:"page_size"`
+	Total         int64                                        `json:"total"`
+}
+
 type skillShareListItemOpenAPIResponse struct {
 	ShareItemID           string  `json:"share_item_id"`
 	ShareTaskID           string  `json:"share_task_id"`
@@ -1211,6 +1242,15 @@ func registeredCoreOperations() []openAPIOperation {
 			PathParams:  skillPathParams{},
 			RequestBody: jsonBodyOf(shareSkillOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Created share task", skillShareCreateOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/skills/{skill_id}:shares",
+			Summary:     "List latest skill share status by target user",
+			Tags:        []string{"skill-shares"},
+			PathParams:  skillPathParams{},
+			QueryParams: shareListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Skill share targets", skillShareTargetsOpenAPIResponse{})},
 		},
 		{
 			Method:      "GET",

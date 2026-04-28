@@ -24,6 +24,18 @@ const (
 	shareStatusFailed        = "failed"
 )
 
+type shareTargetStatusSummary struct {
+	PendingAccept int `json:"pending_accept"`
+	Completed     int `json:"completed"`
+	Rejected      int `json:"rejected"`
+	Failed        int `json:"failed"`
+}
+
+type latestShareTargetRecord struct {
+	item orm.SkillShareItem
+	task orm.SkillShareTask
+}
+
 func Share(w http.ResponseWriter, r *http.Request) {
 	db := store.DB()
 	if db == nil {
@@ -88,12 +100,14 @@ func Share(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:             now,
 	}
 	items := make([]orm.SkillShareItem, 0, len(filtered))
+	targetUserNames := resolveShareTargetUserNames(r, db, filtered)
 	for _, target := range filtered {
+		targetUserName := firstNonEmpty(targetUserNames[target], target)
 		items = append(items, orm.SkillShareItem{
 			ID:             evolution.BuildSuggestionRecord("", "", "", "", "", "").ID,
 			ShareTaskID:    task.ID,
 			TargetUserID:   target,
-			TargetUserName: target,
+			TargetUserName: targetUserName,
 			Status:         shareStatusPendingAccept,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -117,6 +131,149 @@ func IncomingShares(w http.ResponseWriter, r *http.Request) {
 
 func OutgoingShares(w http.ResponseWriter, r *http.Request) {
 	listShares(w, r, false)
+}
+
+func ListSkillShareTargets(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+	skillID := common.PathVar(r, "skill_id")
+	if skillID == "" {
+		common.ReplyErr(w, "missing skill_id", http.StatusBadRequest)
+		return
+	}
+	var parent orm.SkillResource
+	if err := db.WithContext(r.Context()).Where("id = ? AND owner_user_id = ?", skillID, userID).Take(&parent).Error; err != nil {
+		common.ReplyErr(w, "skill not found", http.StatusNotFound)
+		return
+	}
+	if parent.NodeType != evolution.SkillNodeTypeParent {
+		common.ReplyErr(w, "only parent skill supports share status query", http.StatusBadRequest)
+		return
+	}
+
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	page := parsePositiveInt(r.URL.Query().Get("page"), 1)
+	pageSize := parsePositiveInt(r.URL.Query().Get("page_size"), 20)
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	var tasks []orm.SkillShareTask
+	if err := db.WithContext(r.Context()).
+		Where("source_user_id = ? AND source_skill_id = ?", userID, skillID).
+		Find(&tasks).Error; err != nil {
+		common.ReplyErr(w, "query share tasks failed", http.StatusInternalServerError)
+		return
+	}
+	summary := shareTargetStatusSummary{}
+	if len(tasks) == 0 {
+		common.ReplyOK(w, map[string]any{
+			"skill_id":       skillID,
+			"status_summary": summary,
+			"items":          []any{},
+			"page":           page,
+			"page_size":      pageSize,
+			"total":          0,
+		})
+		return
+	}
+
+	taskIDs := make([]string, 0, len(tasks))
+	taskMap := make(map[string]orm.SkillShareTask, len(tasks))
+	for _, task := range tasks {
+		taskIDs = append(taskIDs, task.ID)
+		taskMap[task.ID] = task
+	}
+
+	var items []orm.SkillShareItem
+	if err := db.WithContext(r.Context()).
+		Where("share_task_id IN ?", taskIDs).
+		Order("created_at DESC").
+		Order("updated_at DESC").
+		Find(&items).Error; err != nil {
+		common.ReplyErr(w, "query share items failed", http.StatusInternalServerError)
+		return
+	}
+
+	latestByUser := make(map[string]latestShareTargetRecord, len(items))
+	for _, item := range items {
+		existing, ok := latestByUser[item.TargetUserID]
+		if ok && !shareItemIsNewer(item, existing.item) {
+			continue
+		}
+		latestByUser[item.TargetUserID] = latestShareTargetRecord{
+			item: item,
+			task: taskMap[item.ShareTaskID],
+		}
+	}
+
+	records := make([]latestShareTargetRecord, 0, len(latestByUser))
+	for _, record := range latestByUser {
+		switch record.item.Status {
+		case shareStatusPendingAccept:
+			summary.PendingAccept++
+		case shareStatusCompleted:
+			summary.Completed++
+		case shareStatusRejected:
+			summary.Rejected++
+		case shareStatusFailed:
+			summary.Failed++
+		}
+		if status != "" && record.item.Status != status {
+			continue
+		}
+		records = append(records, record)
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return shareItemIsNewer(records[i].item, records[j].item)
+	})
+
+	total := len(records)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	respItems := make([]map[string]any, 0, end-start)
+	resolvedTargetUserNames := resolveShareTargetUserNames(r, db, collectLatestShareTargetUserIDs(records[start:end]))
+	for _, record := range records[start:end] {
+		respItems = append(respItems, map[string]any{
+			"target_user_id":       record.item.TargetUserID,
+			"target_user_name":     shareTargetDisplayName(record.item.TargetUserID, record.item.TargetUserName, resolvedTargetUserNames),
+			"status":               record.item.Status,
+			"share_item_id":        record.item.ID,
+			"share_task_id":        record.item.ShareTaskID,
+			"message":              record.task.Message,
+			"accepted_at":          record.item.AcceptedAt,
+			"rejected_at":          record.item.RejectedAt,
+			"target_root_skill_id": record.item.TargetRootSkillID,
+			"error_message":        record.item.ErrorMessage,
+			"shared_at":            record.item.CreatedAt,
+			"updated_at":           record.item.UpdatedAt,
+		})
+	}
+
+	common.ReplyOK(w, map[string]any{
+		"skill_id":       skillID,
+		"status_summary": summary,
+		"items":          respItems,
+		"page":           page,
+		"page_size":      pageSize,
+		"total":          total,
+	})
 }
 
 func GetShareItem(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +527,7 @@ func listShares(w http.ResponseWriter, r *http.Request, incoming bool) {
 	for _, task := range tasks {
 		taskMap[task.ID] = task
 	}
+	resolvedTargetUserNames := resolveShareTargetUserNames(r, db, collectShareTargetUserIDs(items))
 	resp := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		task := taskMap[item.ShareTaskID]
@@ -380,7 +538,7 @@ func listShares(w http.ResponseWriter, r *http.Request, incoming bool) {
 			"source_user_id":           task.SourceUserID,
 			"source_user_name":         task.SourceUserName,
 			"target_user_id":           item.TargetUserID,
-			"target_user_name":         item.TargetUserName,
+			"target_user_name":         shareTargetDisplayName(item.TargetUserID, item.TargetUserName, resolvedTargetUserNames),
 			"source_skill_id":          task.SourceSkillID,
 			"source_category":          task.SourceCategory,
 			"source_parent_skill_name": task.SourceParentSkillName,
@@ -413,6 +571,22 @@ func loadShareItem(ctx context.Context, db *gorm.DB, shareItemID string) (*orm.S
 	return &item, &task, nil
 }
 
+func shareItemIsNewer(candidate, current orm.SkillShareItem) bool {
+	if candidate.CreatedAt.After(current.CreatedAt) {
+		return true
+	}
+	if candidate.CreatedAt.Before(current.CreatedAt) {
+		return false
+	}
+	if candidate.UpdatedAt.After(current.UpdatedAt) {
+		return true
+	}
+	if candidate.UpdatedAt.Before(current.UpdatedAt) {
+		return false
+	}
+	return strings.Compare(strings.TrimSpace(candidate.ID), strings.TrimSpace(current.ID)) > 0
+}
+
 func expandTargetUsers(ctx context.Context, db *gorm.DB, userIDs, groupIDs []string) ([]string, error) {
 	seen := make(map[string]struct{}, len(userIDs))
 	out := make([]string, 0, len(userIDs))
@@ -439,4 +613,91 @@ func expandTargetUsers(ctx context.Context, db *gorm.DB, userIDs, groupIDs []str
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+func collectLatestShareTargetUserIDs(records []latestShareTargetRecord) []string {
+	userIDs := make([]string, 0, len(records))
+	for _, record := range records {
+		userIDs = append(userIDs, record.item.TargetUserID)
+	}
+	return userIDs
+}
+
+func collectShareTargetUserIDs(items []orm.SkillShareItem) []string {
+	userIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		userIDs = append(userIDs, item.TargetUserID)
+	}
+	return userIDs
+}
+
+func shareTargetDisplayName(userID, storedName string, resolved map[string]string) string {
+	if resolvedName := strings.TrimSpace(resolved[userID]); resolvedName != "" {
+		return resolvedName
+	}
+	return firstNonEmpty(storedName, userID)
+}
+
+func resolveShareTargetUserNames(r *http.Request, db *gorm.DB, userIDs []string) map[string]string {
+	userIDs = compactStrings(userIDs)
+	if len(userIDs) == 0 {
+		return map[string]string{}
+	}
+
+	out := common.FetchUserNamesFromAuthService(r, userIDs)
+	unresolved := make([]string, 0, len(userIDs))
+	for _, userID := range userIDs {
+		if strings.TrimSpace(out[userID]) == "" {
+			unresolved = append(unresolved, userID)
+		}
+	}
+	if len(unresolved) == 0 {
+		return out
+	}
+
+	ctx := context.Background()
+	if r != nil {
+		ctx = r.Context()
+	}
+	for userID, userName := range loadShareTargetUserNamesFromSkillResources(ctx, db, unresolved) {
+		if strings.TrimSpace(userName) != "" {
+			out[userID] = userName
+		}
+	}
+	return out
+}
+
+func loadShareTargetUserNamesFromSkillResources(ctx context.Context, db *gorm.DB, userIDs []string) map[string]string {
+	out := make(map[string]string, len(userIDs))
+	if db == nil || len(userIDs) == 0 {
+		return out
+	}
+
+	type skillOwnerRow struct {
+		UserID        string    `gorm:"column:owner_user_id"`
+		OwnerUserName string    `gorm:"column:owner_user_name"`
+		UpdatedAt     time.Time `gorm:"column:updated_at"`
+	}
+	var rows []skillOwnerRow
+	if err := db.WithContext(ctx).
+		Model(&orm.SkillResource{}).
+		Select("owner_user_id", "owner_user_name", "updated_at").
+		Where("owner_user_id IN ? AND owner_user_name <> ''", userIDs).
+		Order("updated_at DESC").
+		Find(&rows).Error; err != nil {
+		return out
+	}
+	for _, row := range rows {
+		userID := strings.TrimSpace(row.UserID)
+		if userID == "" {
+			continue
+		}
+		if _, exists := out[userID]; exists {
+			continue
+		}
+		if userName := strings.TrimSpace(row.OwnerUserName); userName != "" {
+			out[userID] = userName
+		}
+	}
+	return out
 }

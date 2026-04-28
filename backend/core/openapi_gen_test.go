@@ -49,6 +49,7 @@ func TestOpenAPISpecCoversEvolutionSkillMemoryPreferenceOperations(t *testing.T)
 		{"post", "/api/core/skills/{skill_id}:confirm", false, true, true},
 		{"post", "/api/core/skills/{skill_id}:discard", false, true, true},
 		{"post", "/api/core/skills/{skill_id}:share", true, true, true},
+		{"get", "/api/core/skills/{skill_id}:shares", false, true, true},
 		{"get", "/api/core/skill-shares/incoming", false, true, true},
 		{"get", "/api/core/skill-shares/outgoing", false, true, true},
 		{"get", "/api/core/skill-shares/{share_item_id}", false, true, true},
