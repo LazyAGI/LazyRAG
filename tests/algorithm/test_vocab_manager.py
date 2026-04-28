@@ -254,27 +254,60 @@ class TestVocabReloadRoute:
         # Patch get_vocab_manager inside the routes module
         mock_mgr = MagicMock()
         mock_mgr.reload.return_value = 3
+        mock_extract = MagicMock(return_value=[{
+            'reason': '用户明确要求记住苹果就是 apple',
+            'words': ['苹果', 'apple'],
+            'description': '水果语境',
+            'group_ids': '[]',
+            'create_user_id': 'user_001',
+            'message_ids': '["m1"]',
+            'action': 'create_new_group',
+        }])
 
-        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr):
+        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr), \
+             patch('vocab.run_vocab_evolution', mock_extract):
             spec.loader.exec_module(vocab_routes_mod)
             test_app.include_router(vocab_routes_mod.router)
 
-        yield TestClient(test_app), mock_mgr
+        yield TestClient(test_app), mock_mgr, mock_extract
 
     def test_reload_returns_ok_with_user_id(self, client):
-        tc, mock_mgr = client
-        resp = tc.post('/api/vocab/reload', json={'user_id': 'user_001'})
+        tc, mock_mgr, _ = client
+        resp = tc.post('/api/vocab/reload', json={'create_user_id': 'user_001'})
         assert resp.status_code == 200
         body = resp.json()
         assert body['status'] == 'ok'
-        assert body['user_id'] == 'user_001'
+        assert body['create_user_id'] == 'user_001'
         assert isinstance(body['vocab_size'], int)
 
     def test_reload_default_empty_user_id(self, client):
-        tc, _ = client
+        tc, _, _ = client
         resp = tc.post('/api/vocab/reload')
         assert resp.status_code == 200
-        assert resp.json()['user_id'] == ''
+        assert resp.json()['create_user_id'] == ''
+
+    def test_extract_returns_flat_actions_with_create_user_id(self, client):
+        tc, _, mock_extract = client
+        resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
+
+        assert resp.status_code == 200
+        assert resp.json() == [{
+            'reason': '用户明确要求记住苹果就是 apple',
+            'words': ['苹果', 'apple'],
+            'description': '水果语境',
+            'group_ids': '[]',
+            'create_user_id': 'user_001',
+            'message_ids': '["m1"]',
+            'action': 'create_new_group',
+        }]
+        mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
+
+    def test_extract_without_user_id_runs_for_all_users(self, client):
+        tc, _, mock_extract = client
+        resp = tc.post('/api/vocab/extract')
+
+        assert resp.status_code == 200
+        mock_extract.assert_called_once_with(None)
 
     def test_reload_different_users_call_respective_manager(self, tmp_path):
         """Each user_id triggers reload on its own VocabManager instance."""
@@ -301,8 +334,8 @@ class TestVocabReloadRoute:
             spec.loader.exec_module(vocab_routes_mod)
             test_app.include_router(vocab_routes_mod.router)
             tc = TestClient(test_app)
-            tc.post('/api/vocab/reload', json={'user_id': 'alice'})
-            tc.post('/api/vocab/reload', json={'user_id': 'bob'})
+            tc.post('/api/vocab/reload', json={'create_user_id': 'alice'})
+            tc.post('/api/vocab/reload', json={'create_user_id': 'bob'})
 
         assert 'alice' in called_users
         assert 'bob' in called_users
