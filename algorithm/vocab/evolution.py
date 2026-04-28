@@ -6,11 +6,12 @@ This module keeps only the algorithm-side extraction flow:
 2. Slice histories into LLM-friendly chunks.
 3. Extract high-confidence synonym pairs with evidence message IDs.
 4. Compare them against the existing vocab groups.
-5. Return flat backend action dicts.
+5. Serialize backend action dicts and submit them back to core.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from collections import defaultdict
@@ -19,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import lazyllm
+import httpx
 from lazyllm import LOG, pipeline
 from lazyllm.components import ChatPrompter
 from lazyllm.components.formatter import JsonFormatter
@@ -115,6 +117,10 @@ _CONFLICT_PROMPT = """你是“词族冲突判定器”。
 
 
 _SENTENCE_BOUNDARY_RE = re.compile(r'.*?(?:[。！？!?；;]+|[\n]+|$)', re.S)
+_WORD_GROUP_APPLY_PATH = '/api/core/inner/word_group:apply'
+_WORD_GROUP_APPLY_URL_ENV = 'LAZYRAG_WORD_GROUP_APPLY_URL'
+_CORE_SERVICE_URL_ENV = 'LAZYRAG_CORE_SERVICE_URL'
+_BACKEND_APPLY_TIMEOUT = 10.0
 
 
 def _now_utc() -> datetime:
@@ -210,6 +216,49 @@ def _serialize_backend_action(action: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(action)
     payload['group_ids'] = _json_dump_list(payload.get('group_ids') or [])
     payload['message_ids'] = _json_dump_list(payload.get('message_ids') or [])
+    return payload
+
+
+def _wrap_backend_action_payload(actions: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    return {'action_list': list(actions)}
+
+
+def _resolve_word_group_apply_url(apply_url: Optional[str] = None) -> str:
+    resolved_url = _norm_text(apply_url) or _norm_text(os.getenv(_WORD_GROUP_APPLY_URL_ENV))
+    if resolved_url:
+        return resolved_url
+
+    core_service_url = _norm_text(os.getenv(_CORE_SERVICE_URL_ENV))
+    if core_service_url:
+        if core_service_url.endswith(_WORD_GROUP_APPLY_PATH):
+            return core_service_url
+        return core_service_url.rstrip('/') + _WORD_GROUP_APPLY_PATH
+
+    raise RuntimeError(
+        'word group apply url is not configured; '
+        f'set {_WORD_GROUP_APPLY_URL_ENV} or {_CORE_SERVICE_URL_ENV}'
+    )
+
+
+def apply_vocab_evolution_actions(
+    actions: Sequence[Dict[str, Any]],
+    *,
+    apply_url: Optional[str] = None,
+    post_fn: Optional[Callable[..., Any]] = None,
+) -> Dict[str, Any]:
+    payload = _wrap_backend_action_payload(actions)
+    target_url = _resolve_word_group_apply_url(apply_url)
+    sender = post_fn or httpx.post
+    try:
+        response = sender(target_url, json=payload, timeout=_BACKEND_APPLY_TIMEOUT)
+        raise_for_status = getattr(response, 'raise_for_status', None)
+        if callable(raise_for_status):
+            raise_for_status()
+    except Exception as exc:
+        LOG.error('[VocabEvolution] failed to apply %d actions to %s: %s', len(actions), target_url, exc)
+        raise
+
+    LOG.info('[VocabEvolution] applied %d actions to %s.', len(actions), target_url)
     return payload
 
 
@@ -805,13 +854,18 @@ def run_vocab_evolution(
     request: VocabEvolutionRequest | Dict[str, Any] | None = None,
     *,
     service: Optional[VocabEvolutionService] = None,
+    apply_url: Optional[str] = None,
+    post_fn: Optional[Callable[..., Any]] = None,
 ) -> List[Dict[str, Any]]:
     svc = service or get_vocab_evolution_service()
-    return svc.run(request)
+    actions = svc.run(request)
+    apply_vocab_evolution_actions(actions, apply_url=apply_url, post_fn=post_fn)
+    return actions
 
 
 __all__ = [
     'ActionPlanningModule',
+    'apply_vocab_evolution_actions',
     'ChatHistoryRecord',
     'HistoryChunker',
     'HistoryCollector',

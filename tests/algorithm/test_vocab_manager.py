@@ -286,27 +286,20 @@ class TestVocabReloadRoute:
         assert resp.status_code == 200
         assert resp.json()['create_user_id'] == ''
 
-    def test_extract_returns_flat_actions_with_create_user_id(self, client):
+    def test_extract_returns_no_content_with_create_user_id(self, client):
         tc, _, mock_extract = client
         resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
 
-        assert resp.status_code == 200
-        assert resp.json() == [{
-            'reason': '用户明确要求记住苹果就是 apple',
-            'words': ['苹果', 'apple'],
-            'description': '水果语境',
-            'group_ids': '[]',
-            'create_user_id': 'user_001',
-            'message_ids': '["m1"]',
-            'action': 'create_new_group',
-        }]
+        assert resp.status_code == 204
+        assert resp.content == b''
         mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
 
     def test_extract_without_user_id_runs_for_all_users(self, client):
         tc, _, mock_extract = client
         resp = tc.post('/api/vocab/extract')
 
-        assert resp.status_code == 200
+        assert resp.status_code == 204
+        assert resp.content == b''
         mock_extract.assert_called_once_with(None)
 
     def test_reload_different_users_call_respective_manager(self, tmp_path):

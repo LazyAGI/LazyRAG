@@ -9,11 +9,11 @@ POST /api/vocab/reload
 
 POST /api/vocab/extract
     Body: {"create_user_id": "user_001"}
-    Response: [{...backend action dict...}]
+    Response: 204 No Content
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 from pydantic import BaseModel
 
 from vocab import run_vocab_evolution
@@ -41,11 +41,12 @@ async def reload_vocab(body: VocabReloadRequest = VocabReloadRequest()):  # noqa
     return {'status': 'ok', 'vocab_size': count, 'create_user_id': body.create_user_id}
 
 
-@router.post('/api/vocab/extract', summary='触发词表自动进化抽取')
+@router.post('/api/vocab/extract', summary='触发词表自动进化抽取', status_code=status.HTTP_204_NO_CONTENT)
 async def extract_vocab(body: VocabExtractRequest = VocabExtractRequest()):  # noqa: B008
-    """按后端约定返回词表进化 action 列表。
+    """按后端约定触发词表进化，并主动把 action_list 回推给 core。
 
     - **create_user_id**: 可选；为空时会扫描时间范围内全部有聊天记录的用户。
     """
     request = {'create_user_id': body.create_user_id} if body.create_user_id else None
-    return run_vocab_evolution(request)
+    run_vocab_evolution(request)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -18,6 +18,7 @@ from vocab.evolution import (  # noqa: E402
     SynonymExtractionModule,
     VocabEvolutionRequest,
     VocabEvolutionService,
+    run_vocab_evolution,
 )
 
 
@@ -299,3 +300,54 @@ def test_vocab_evolution_service_returns_flat_actions():
     assert next(item for item in actions if item['create_user_id'] == 'u2')['words'] == ['民法', '民事法律']
     assert next(item for item in actions if item['create_user_id'] == 'u1')['group_ids'] == '[]'
     assert next(item for item in actions if item['create_user_id'] == 'u1')['message_ids'] == '["m1"]'
+
+
+def test_run_vocab_evolution_and_apply_posts_nested_action_list():
+    class DummyService:
+        def run(self, request):
+            assert request == {'create_user_id': 'u1'}
+            return [{
+                'reason': '用户明确要求记住苹果就是 apple',
+                'words': ['苹果', 'apple'],
+                'description': '水果语境',
+                'group_ids': '[]',
+                'create_user_id': 'u1',
+                'message_ids': '["m1"]',
+                'action': 'create_new_group',
+            }]
+
+    posted = {}
+
+    class DummyResponse:
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, *, json, timeout):
+        posted['url'] = url
+        posted['json'] = json
+        posted['timeout'] = timeout
+        return DummyResponse()
+
+    actions = run_vocab_evolution(
+        {'create_user_id': 'u1'},
+        service=DummyService(),
+        apply_url='http://backend.local/api/core/inner/word_group:apply',
+        post_fn=fake_post,
+    )
+
+    assert actions == posted['json']['action_list']
+    assert posted == {
+        'url': 'http://backend.local/api/core/inner/word_group:apply',
+        'json': {
+            'action_list': [{
+                'reason': '用户明确要求记住苹果就是 apple',
+                'words': ['苹果', 'apple'],
+                'description': '水果语境',
+                'group_ids': '[]',
+                'create_user_id': 'u1',
+                'message_ids': '["m1"]',
+                'action': 'create_new_group',
+            }],
+        },
+        'timeout': 10.0,
+    }
