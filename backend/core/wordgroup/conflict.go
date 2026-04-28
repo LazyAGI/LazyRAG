@@ -12,6 +12,12 @@ import (
 	"lazyrag/core/store"
 )
 
+// DeleteWordGroupConflictResponse mirrors DeleteWordGroupResponse for symmetry.
+type DeleteWordGroupConflictResponse struct {
+	ID          string `json:"id"`
+	DeletedRows int64  `json:"deleted_rows"`
+}
+
 // WordGroupConflictResponse is one item returned by GET /word_group_conflict.
 // group_ids is parsed back from the stored JSON-serialized string.
 type WordGroupConflictResponse struct {
@@ -113,4 +119,41 @@ func ListWordGroupConflicts(w http.ResponseWriter, r *http.Request) {
 		TotalSize:     int32(total),
 		NextPageToken: nextToken,
 	})
+}
+
+// DeleteWordGroupConflict soft-deletes a single conflict row owned by the request user.
+// Hits the row by primary key (id) scoped to create_user_id; returns 404 if not found.
+func DeleteWordGroupConflict(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimSpace(common.PathVar(r, "id"))
+	if id == "" {
+		common.ReplyErr(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().UTC()
+	res := store.DB().Model(&orm.WordGroupConflict{}).
+		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", id, userID).
+		Updates(map[string]any{
+			"deleted_at": now,
+			"updated_at": now,
+		})
+	if err := res.Error; err != nil {
+		log.Logger.Error().Err(err).Str("id", id).Msg("delete word_group_conflict failed")
+		common.ReplyErr(w, "delete word group conflict failed", http.StatusInternalServerError)
+		return
+	}
+	if res.RowsAffected == 0 {
+		common.ReplyErr(w, "word group conflict not found", http.StatusNotFound)
+		return
+	}
+	common.ReplyOK(w, DeleteWordGroupConflictResponse{ID: id, DeletedRows: res.RowsAffected})
 }

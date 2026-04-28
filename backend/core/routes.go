@@ -119,6 +119,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/word_group:merge", []string{}, wordgroup.MergeWordGroups)
 	handleAPI(r, "POST", "/word_group", []string{}, wordgroup.CreateWordGroup)
 	handleAPI(r, "GET", "/word_group_conflict", []string{}, wordgroup.ListWordGroupConflicts)
+	handleAPI(r, "DELETE", "/word_group_conflict/{id}", []string{}, wordgroup.DeleteWordGroupConflict)
 	// Internal endpoint for algorithm service. Uses create_user_id in payload, no request auth headers.
 	handleAPI(r, "POST", "/inner/word_group:apply", []string{}, wordgroup.ApplyWordGroupAction)
 

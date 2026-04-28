@@ -826,6 +826,18 @@ func registeredCoreOperations() []openAPIOperation {
 			},
 		},
 		{
+			Method:  "DELETE",
+			Path:    "/word_group_conflict/{id}",
+			Summary: "Soft-delete a word group conflict by id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				ID string `path:"id"`
+			}{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Deleted word group conflict", wordgroup.DeleteWordGroupConflictResponse{}),
+			},
+		},
+		{
 			Method:      "POST",
 			Path:        "/inner/word_group:apply",
 			Summary:     "Internal: apply word-group actions in batch (algorithm → core)",
