@@ -19,6 +19,9 @@ x-upload-paths: &upload-paths
 x-db-conn: &db-conn
   LAZYRAG_DATABASE_URL: ${LAZYRAG_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
 
+x-core-db-conn: &core-db-conn
+  LAZYRAG_CORE_DATABASE_URL: ${LAZYRAG_CORE_DATABASE_URL:-postgresql+psycopg://root:123456@db:5432/core}
+
 services:
 
   kong:
@@ -481,7 +484,7 @@ services:
       LAZYRAG_LLM_PRIORITY: "0"
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
       LAZYRAG_VOCAB_FILE_PATH: ${LAZYRAG_VOCAB_FILE_PATH:-/var/lib/lazyrag/uploads/vocab.json}
-      <<: [*llm-api-keys, *upload-paths]
+      <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
       lazyllm-algo:
