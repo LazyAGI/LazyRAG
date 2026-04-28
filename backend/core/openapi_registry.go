@@ -815,5 +815,25 @@ func registeredCoreOperations() []openAPIOperation {
 			RequestBody: jsonBodyOf(wordgroup.CreateWordGroupRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Created word group", wordgroup.CreateWordGroupResponse{})},
 		},
+		{
+			Method:      "GET",
+			Path:        "/word_group_conflict",
+			Summary:     "List pending word group conflicts (updated_at DESC)",
+			Tags:        []string{"word_group"},
+			QueryParams: listWordGroupsQueryParams{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group conflict list", wordgroup.ListWordGroupConflictsResponse{}),
+			},
+		},
+		{
+			Method:      "POST",
+			Path:        "/inner/word_group:apply",
+			Summary:     "Internal: apply word-group actions in batch (algorithm → core)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.ApplyWordGroupActionRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Per-item apply results", wordgroup.ApplyWordGroupActionBatchResponse{}),
+			},
+		},
 	}
 }
