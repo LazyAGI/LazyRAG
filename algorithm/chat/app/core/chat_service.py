@@ -52,7 +52,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        filters: Optional[Dict[str, Any]], other_files: List[str],
                        databases: Optional[List[Dict[str, Any]]], debug: bool,
                        image_files: List[str], priority: Optional[int],
-                       user_id: Optional[str] = None) -> Dict[str, Any]:
+                       create_user_id: Optional[str] = None) -> Dict[str, Any]:
     hist = [
         {
             'role': str(h.get('role', 'assistant')),
@@ -65,7 +65,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         'query': query, 'history': hist, 'filters': filters if RAG_MODE and filters else {},
         'files': other_files, 'image_files': image_files if MULTIMODAL_MODE and image_files else [],
         'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority,
-        'user_id': user_id or '',
+        'create_user_id': create_user_id or '',
     }
 
 
@@ -87,7 +87,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       files: Optional[List[str]], debug: Optional[bool], reasoning: Optional[bool],
                       databases: Optional[List[Dict[str, Any]]], dataset: Optional[str],
                       priority: Optional[int], is_stream: bool,
-                      user_id: Optional[str] = None) -> Union[Dict[str, Any], StreamingResponse]:
+                      create_user_id: Optional[str] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
 
@@ -113,7 +113,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             debug or False,
             image_files,
             priority,
-            user_id,
+            create_user_id,
         )
 
         try:
@@ -156,7 +156,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             False,
             image_files,
             priority,
-            user_id,
+            create_user_id,
         )
 
         stream_call = (

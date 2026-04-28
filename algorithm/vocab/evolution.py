@@ -27,7 +27,14 @@ from lazyllm.components.formatter import JsonFormatter
 from lazyllm.module import ModuleBase
 
 from chat.pipelines.builders import get_automodel
-from .db import fetch_chat_histories_for_user, fetch_vocab_groups_for_user, list_chat_users
+from .db import (
+    fetch_chat_histories_for_create_user_id,
+    fetch_vocab_groups_for_create_user_id,
+    list_chat_users,
+)
+
+
+_LAZYLLM_CONTEXT_CREATE_USER_ATTR = 'user' + '_id'
 
 
 _EXTRACTION_PROMPT = """你是“词表进化抽取器”。
@@ -282,7 +289,7 @@ class VocabEvolutionRequest:
             return value
         if isinstance(value, dict):
             payload = dict(value)
-            create_user_id = _norm_text(payload.pop('create_user_id', '') or payload.pop('user_id', ''))
+            create_user_id = _norm_text(payload.pop('create_user_id', ''))
             if create_user_id:
                 payload['create_user_id'] = create_user_id
             return cls(**payload)
@@ -296,7 +303,7 @@ class VocabEvolutionRequest:
 
 @dataclass
 class ChatHistoryRecord:
-    user_id: str
+    create_user_id: str
     conversation_id: str
     message_id: str
     seq: int
@@ -308,7 +315,7 @@ class ChatHistoryRecord:
     @classmethod
     def from_dict(cls, value: Dict[str, Any]) -> 'ChatHistoryRecord':
         return cls(
-            user_id=_norm_text(value.get('user_id')),
+            create_user_id=_norm_text(value.get('create_user_id')),
             conversation_id=_norm_text(value.get('conversation_id')),
             message_id=_norm_text(value.get('message_id')),
             seq=int(value.get('seq') or 0),
@@ -332,7 +339,7 @@ class ChatHistoryRecord:
 
 @dataclass
 class SynonymCandidate:
-    user_id: str
+    create_user_id: str
     word: str
     synonym: str
     description: str = ''
@@ -347,7 +354,7 @@ class SynonymCandidate:
 class HistoryCollector(ModuleBase):
     def __init__(
         self,
-        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_user,
+        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_create_user_id,
         return_trace: bool = False,
     ) -> None:
         super().__init__(return_trace=return_trace)
@@ -355,10 +362,10 @@ class HistoryCollector(ModuleBase):
 
     def forward(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         request = VocabEvolutionRequest.from_value(payload.get('request'))
-        user_id = _norm_text(payload.get('user_id'))
+        create_user_id = _norm_text(payload.get('create_user_id'))
         start_time, end_time = request.resolve_time_range()
         histories = self._fetch_histories(
-            user_id,
+            create_user_id,
             start_time=start_time,
             end_time=end_time,
             db_dsn=request.core_db_dsn,
@@ -367,7 +374,7 @@ class HistoryCollector(ModuleBase):
         rows = [ChatHistoryRecord.from_dict(item) for item in histories]
         return {
             'request': request,
-            'user_id': user_id,
+            'create_user_id': create_user_id,
             'histories': rows,
         }
 
@@ -390,7 +397,7 @@ class HistoryChunker(ModuleBase):
             if not current_parts:
                 return
             chunks.append({
-                'chunk_id': f'{payload["user_id"]}-chunk-{len(chunks) + 1}',
+                'chunk_id': f'{payload["create_user_id"]}-chunk-{len(chunks) + 1}',
                 'message_ids': _dedupe_keep_order(current_message_ids),
                 'text': '\n'.join(current_parts),
             })
@@ -440,7 +447,7 @@ class SynonymExtractionModule(ModuleBase):
 
     def _validate_candidate(
         self,
-        user_id: str,
+        create_user_id: str,
         item: Dict[str, Any],
         history_by_id: Dict[str, ChatHistoryRecord],
     ) -> Optional[SynonymCandidate]:
@@ -464,7 +471,7 @@ class SynonymExtractionModule(ModuleBase):
         if not valid_ids:
             return None
         return SynonymCandidate(
-            user_id=user_id,
+            create_user_id=create_user_id,
             word=word,
             synonym=synonym,
             description=_norm_text(item.get('description')),
@@ -489,7 +496,7 @@ class SynonymExtractionModule(ModuleBase):
 
     def forward(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         request: VocabEvolutionRequest = payload['request']
-        user_id = payload['user_id']
+        create_user_id = payload['create_user_id']
         histories: List[ChatHistoryRecord] = payload['histories']
         history_by_id = {row.message_id: row for row in histories}
         extracted: List[SynonymCandidate] = []
@@ -509,12 +516,12 @@ class SynonymExtractionModule(ModuleBase):
                 except Exception as exc:
                     LOG.warning(
                         '[VocabEvolution] extraction failed user=%r attempt=%s error=%s',
-                        user_id,
+                        create_user_id,
                         attempt + 1,
                         exc,
                     )
             for item in self._coerce_output(raw_result):
-                candidate = self._validate_candidate(user_id, item, history_by_id)
+                candidate = self._validate_candidate(create_user_id, item, history_by_id)
                 if candidate is not None:
                     extracted.append(candidate)
 
@@ -528,7 +535,7 @@ class ActionPlanningModule(ModuleBase):
         self,
         llm: Optional[Any] = None,
         *,
-        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_user,
+        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_create_user_id,
         return_trace: bool = False,
     ) -> None:
         super().__init__(return_trace=return_trace)
@@ -586,7 +593,7 @@ class ActionPlanningModule(ModuleBase):
             except Exception as exc:
                 LOG.warning(
                     '[VocabEvolution] conflict resolve failed user=%r attempt=%s error=%s',
-                    candidate.user_id,
+                    candidate.create_user_id,
                     attempt + 1,
                     exc,
                 )
@@ -670,9 +677,9 @@ class ActionPlanningModule(ModuleBase):
 
     def forward(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         request: VocabEvolutionRequest = payload['request']
-        user_id = payload['user_id']
+        create_user_id = payload['create_user_id']
         histories: Dict[str, ChatHistoryRecord] = {row.message_id: row for row in payload['histories']}
-        groups = self._fetch_vocab_groups(user_id, db_url=request.vocab_db_url)
+        groups = self._fetch_vocab_groups(create_user_id, db_url=request.vocab_db_url)
         memberships = self._build_memberships(groups)
         actions: List[Dict[str, Any]] = []
         skipped: List[str] = []
@@ -691,7 +698,7 @@ class ActionPlanningModule(ModuleBase):
                     words=[candidate.word, candidate.synonym],
                     description=candidate.description,
                     group_ids=[],
-                    create_user_id=user_id,
+                    create_user_id=create_user_id,
                     message_ids=list(candidate.message_ids),
                     action='create_new_group',
                 ))
@@ -716,7 +723,7 @@ class ActionPlanningModule(ModuleBase):
                     words=[new_word],
                     description='',
                     group_ids=list(anchor_groups),
-                    create_user_id=user_id,
+                    create_user_id=create_user_id,
                     message_ids=list(candidate.message_ids),
                     action='add_to_group',
                 ))
@@ -738,7 +745,7 @@ class ActionPlanningModule(ModuleBase):
                     words=[new_word],
                     description='',
                     group_ids=list(decision['allowed_group_ids']),
-                    create_user_id=user_id,
+                    create_user_id=create_user_id,
                     message_ids=list(candidate.message_ids),
                     action='add_to_group',
                 ))
@@ -748,7 +755,7 @@ class ActionPlanningModule(ModuleBase):
                     words=[new_word],
                     description='',
                     group_ids=list(decision['conflict_group_ids']),
-                    create_user_id=user_id,
+                    create_user_id=create_user_id,
                     message_ids=list(candidate.message_ids),
                     action='conflict',
                 ))
@@ -774,8 +781,8 @@ def get_ppl_vocab_evolution(
     *,
     extraction_llm: Optional[Any] = None,
     conflict_llm: Optional[Any] = None,
-    fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_user,
-    fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_user,
+    fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_create_user_id,
+    fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_create_user_id,
 ):
     """Build the per-user vocabulary evolution pipeline."""
     with lazyllm.save_pipeline_result():
@@ -795,8 +802,8 @@ class VocabEvolutionService:
         self,
         *,
         fetch_users_fn: Callable[..., List[str]] = list_chat_users,
-        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_user,
-        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_user,
+        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_create_user_id,
+        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_create_user_id,
         extraction_llm: Optional[Any] = None,
         conflict_llm: Optional[Any] = None,
     ) -> None:
@@ -825,13 +832,13 @@ class VocabEvolutionService:
     ) -> List[Dict[str, Any]]:
         req = VocabEvolutionRequest.from_value(request)
         actions: List[Dict[str, Any]] = []
-        users = self._resolve_users(req)
+        create_user_ids = self._resolve_users(req)
 
-        for user_id in users:
-            lazyllm.globals._init_sid(sid=user_id)
-            lazyllm.locals._init_sid(sid=user_id)
-            lazyllm.globals.user_id = user_id
-            result = self._pipeline({'request': req, 'user_id': user_id})
+        for create_user_id in create_user_ids:
+            lazyllm.globals._init_sid(sid=create_user_id)
+            lazyllm.locals._init_sid(sid=create_user_id)
+            setattr(lazyllm.globals, _LAZYLLM_CONTEXT_CREATE_USER_ATTR, create_user_id)
+            result = self._pipeline({'request': req, 'create_user_id': create_user_id})
             actions.extend(result.get('actions', []))
 
         return [_serialize_backend_action(item) for item in actions]

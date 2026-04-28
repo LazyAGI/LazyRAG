@@ -36,9 +36,10 @@ async def reload_vocab(body: VocabReloadRequest = VocabReloadRequest()):  # noqa
 
     - **create_user_id**: 用户ID，对应 lazyrag_vocab.create_user_id。
     """
-    manager = get_vocab_manager(body.create_user_id)
+    resolved_create_user_id = body.create_user_id.strip()
+    manager = get_vocab_manager(resolved_create_user_id)
     count = manager.reload()
-    return {'status': 'ok', 'vocab_size': count, 'create_user_id': body.create_user_id}
+    return {'status': 'ok', 'vocab_size': count, 'create_user_id': resolved_create_user_id}
 
 
 @router.post('/api/vocab/extract', summary='触发词表自动进化抽取', status_code=status.HTTP_204_NO_CONTENT)
@@ -47,6 +48,7 @@ async def extract_vocab(body: VocabExtractRequest = VocabExtractRequest()):  # n
 
     - **create_user_id**: 可选；为空时会扫描时间范围内全部有聊天记录的用户。
     """
-    request = {'create_user_id': body.create_user_id} if body.create_user_id else None
+    resolved_create_user_id = body.create_user_id.strip()
+    request = {'create_user_id': resolved_create_user_id} if resolved_create_user_id else None
     run_vocab_evolution(request)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
