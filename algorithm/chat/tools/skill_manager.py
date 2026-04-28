@@ -14,6 +14,7 @@ if __package__ in (None, ''):
         sys.path.insert(0, _algorithm_root)
 
 from lazyllm.tools.fs.client import FS
+from common.remote_fs import RemoteFileSystem  # noqa: F401
 from chat.tools.memory import (
     MAX_SUGGESTIONS_PER_CALL,
     Suggestion,

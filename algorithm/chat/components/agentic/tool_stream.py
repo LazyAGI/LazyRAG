@@ -41,44 +41,43 @@ _REPRESENTATIVE_TOOL_RESULTS: dict[str, str] = {
 
 _TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
     'kb_search': '正在知识库中查找{value}相关资料',
-    'kb_get_parent_node': '正在补充上下文信息：{value}',
-    'kb_get_window_nodes': '正在展开相关片段：{value}',
-    'kb_keyword_search': '正在按关键词在目标文档中查找资料：{value}',
-    'memory': '正在记录这条信息：{value}',
-    'skill_manage': '正在整理可复用经验：{value}',
-    'get_skill': '正在查看处理方案：{value}',
-    'read_reference': '正在查看参考资料：{value}',
-    'run_script': '正在运行现成的辅助脚本：{value}',
-    'read_file': '正在查看文件内容：{value}',
-    'list_dir': '正在查看文件夹内容：{value}',
-    'search_in_files': '正在查找相关内容：{value}',
-    'make_dir': '正在准备文件夹：{value}',
-    'write_file': '正在写入文件：{value}',
-    'delete_file': '正在删除文件：{value}',
-    'move_file': '正在整理文件位置：{value}',
-    'download_file': '正在下载所需文件：{value}',
+    'kb_get_parent_node': '正在补充上下文信息',
+    'kb_get_window_nodes': '正在展开相关片段',
+    'kb_keyword_search': '正在按关键词在目标文档中查找资料',
+    'memory': '正在记录这条记忆',
+    'skill_manage': '正在整理可复用的技能',
+    'get_skill': '正在查看技能的详细内容',
+    'read_reference': '正在查看技能参考资料',
+    'run_script': '正在运行技能的辅助脚本',
+    'read_file': '正在查看文件内容',
+    'list_dir': '正在查看文件夹内容',
+    'search_in_files': '正在查找相关内容',
+    'make_dir': '正在准备文件夹',
+    'write_file': '正在写入文件',
+    'delete_file': '正在删除文件',
+    'move_file': '正在整理文件位置',
+    'download_file': '正在下载所需文件',
 }
 _TOOL_CALL_FALLBACK_TEMPLATE = '正在处理请求'
-_TOOL_CALL_FALLBACK_VALUE_TEMPLATE = '正在处理请求：{value}'
 
 _TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
     'kb_search': '已找到{value}个相关资料',
-    'kb_get_parent_node': '已补充上文信息：{value}',
-    'kb_get_window_nodes': '已展开相关片段：{value}',
-    'kb_keyword_search': '已找到关键词相关资料：{value}',
-    'memory': '已记录这条信息：{value}',
-    'skill_manage': '已整理可复用经验：{value}',
-    'get_skill': '已获取处理方案：{value}',
-    'read_reference': '已获取参考资料：{value}',
-    'run_script': '辅助脚本已运行完成：{value}',
-    'read_file': '已读取文件内容：{value}',
-    'list_dir': '已获取文件夹内容：{value}',
-    'search_in_files': '已完成内容查找：{value}',
-    'make_dir': '文件夹已准备好：{value}',
-    'write_file': '文件已写入：{value}',
-    'delete_file': '文件已删除：{value}',
-    'move_file': '文件位置已更新：{value}',
-    'download_file': '所需文件已下载：{value}',
+    'kb_get_parent_node': '已补充上文信息',
+    'kb_get_window_nodes': '已展开相关片段',
+    'kb_keyword_search': '已找到关键词相关资料',
+    'memory': '已记录这条记忆',
+    'skill_manage': '已整理可复用技能',
+    'get_skill': '已读取技能的详细内容',
+    'read_reference': '已读取技能参考资料',
+    'run_script': '技能辅助脚本已运行完成',
+    'read_file': '已读取文件内容',
+    'list_dir': '已获取文件夹内容',
+    'search_in_files': '已完成内容查找',
+    'make_dir': '已准备文件夹',
+    'write_file': '已写入文件',
+    'delete_file': '已删除文件',
+    'move_file': '已更新文件位置',
+    'download_file': '已下载所需文件',
 }
 
 _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
@@ -109,11 +108,8 @@ _TOOL_RESULT_APPROVAL_TEMPLATES: dict[str, str] = {
 }
 
 _TOOL_RESULT_FALLBACK_TEMPLATE = '已获得处理结果'
-_TOOL_RESULT_FALLBACK_VALUE_TEMPLATE = '已获得处理结果：{value}'
 _TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE = '暂时没能完成这一步'
-_TOOL_RESULT_FAILURE_FALLBACK_VALUE_TEMPLATE = '暂时没能完成这一步：{value}'
 _TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE = '这一步还需要进一步确认'
-_TOOL_RESULT_APPROVAL_FALLBACK_VALUE_TEMPLATE = '这一步还需要进一步确认：{value}'
 
 _FALLBACK_REPRESENTATIVE_RESULT_KEYS = (
     'result',
@@ -238,15 +234,14 @@ def _render_preview_template(
     value: str,
     template_map: dict[str, str],
     fallback_template: str,
-    fallback_value_template: str,
 ) -> str:
     template = template_map.get(tool_name)
-    if template and value:
-        return template.format(value=value)
     if template:
-        return template.split('：{value}')[0]
-    if value:
-        return fallback_value_template.format(value=value)
+        if '{value}' not in template:
+            return template
+        if value:
+            return template.format(value=value)
+        return template.replace('：{value}', '').replace('{value}', '')
     return fallback_template
 
 
@@ -258,7 +253,6 @@ def _tool_call_preview(tool_name: str, arguments: Any) -> str:
         preview,
         _TOOL_CALL_PREVIEW_TEMPLATES,
         _TOOL_CALL_FALLBACK_TEMPLATE,
-        _TOOL_CALL_FALLBACK_VALUE_TEMPLATE,
     )
 
 
@@ -270,7 +264,6 @@ def _tool_result_preview(tool_name: str, result: Any) -> str:
             _tool_result_failure_detail(result),
             _TOOL_RESULT_APPROVAL_TEMPLATES,
             _TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE,
-            _TOOL_RESULT_APPROVAL_FALLBACK_VALUE_TEMPLATE,
         )
     if status == 'failed':
         return _render_preview_template(
@@ -278,14 +271,12 @@ def _tool_result_preview(tool_name: str, result: Any) -> str:
             _tool_result_failure_detail(result),
             _TOOL_RESULT_FAILURE_TEMPLATES,
             _TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE,
-            _TOOL_RESULT_FAILURE_FALLBACK_VALUE_TEMPLATE,
         )
     return _render_preview_template(
         tool_name,
         _truncate_tool_result_preview(_representative_tool_result(tool_name, result)),
         _TOOL_RESULT_PREVIEW_TEMPLATES,
         _TOOL_RESULT_FALLBACK_TEMPLATE,
-        _TOOL_RESULT_FALLBACK_VALUE_TEMPLATE,
     )
 
 

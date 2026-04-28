@@ -261,7 +261,7 @@ def test_tool_stream_frame_serializes_tool_call_into_text_tags():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-3-1">正在运行现成的辅助脚本：scripts/list_files.sh</tp>'
+            '<tp id="toolcall-3-1">正在运行技能的辅助脚本</tp>'
             '<tool_call>{"id":"toolcall-3-1","name":"run_script","arguments":{"name":"railway-foundation-bearing-capacity-review","rel_path":"scripts/list_files.sh"}}</tool_call>'
         ),
         'sources': [],
@@ -298,7 +298,7 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
         'text': (
             '<tp id="toolcall-1-1">正在知识库中查找全风化 软岩 风化岩分组 地基承载力 σ0 表相关资料</tp>'
             '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"全风化 软岩 风化岩分组 地基承载力 σ0 表","topk":15}}</tool_call>'
-            '<tp id="toolcall-1-2">正在展开相关片段：36</tp>'
+            '<tp id="toolcall-1-2">正在展开相关片段</tp>'
             '<tool_call>{"id":"toolcall-1-2","name":"kb_get_window_nodes","arguments":{"docid":"doc_7e052315556b40323f5007c5b9f549ab","number":"36","group":"block"}}</tool_call>'
         ),
         'sources': [],
@@ -323,7 +323,7 @@ def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-2-1">已记录这条信息：memory saved</trp>'
+            '<trp id="toolcall-2-1">已记录这条记忆</trp>'
             '<tool_result>{"id":"toolcall-2-1","name":"memory","result":{"status":"success","message":"memory saved","path":"/tmp/memory.json"}}</tool_result>'
         ),
         'sources': [],
@@ -357,9 +357,9 @@ def test_builtin_file_tool_uses_natural_preview_templates():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-4-1">正在查看文件内容：/tmp/demo.txt</tp>'
+            '<tp id="toolcall-4-1">正在查看文件内容</tp>'
             '<tool_call>{"id":"toolcall-4-1","name":"read_file","arguments":{"path":"/tmp/demo.txt","start_line":1,"end_line":20}}</tool_call>'
-            '<trp id="toolcall-4-1">已读取文件内容：hello world</trp>'
+            '<trp id="toolcall-4-1">已读取文件内容</trp>'
             '<tool_result>{"id":"toolcall-4-1","name":"read_file","result":{"status":"ok","path":"/tmp/demo.txt","content":"hello world"}}</tool_result>'
         ),
         'sources': [],
@@ -406,8 +406,7 @@ def test_tool_result_preview_is_truncated_to_fifty_chars():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-5-1">已读取文件内容：'
-            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...</trp>'
+            '<trp id="toolcall-5-1">已读取文件内容</trp>'
             '<tool_result>{"id":"toolcall-5-1","name":"read_file","result":{"status":"ok","path":"/tmp/long.txt","content":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}</tool_result>'
         ),
         'sources': [],
@@ -463,6 +462,49 @@ def test_tool_result_needs_approval_uses_approval_preview_template():
     }
 
 
+def test_unknown_tool_fallback_preview_omits_value():
+    frame = agentic._format_tool_stream_frame({
+        'round': 8,
+        'content': '',
+        'tool_calls': [{
+            'id': 'toolcall-8-1',
+            'name': 'unknown_tool',
+            'arguments': {'path': '/tmp/demo.txt'},
+        }],
+        'tool_results': [
+            {
+                'id': 'toolcall-8-1',
+                'tool_name': 'unknown_tool',
+                'result': {
+                    'status': 'ok',
+                    'content': 'done',
+                },
+            },
+            {
+                'id': 'toolcall-8-2',
+                'tool_name': 'unknown_tool',
+                'result': {
+                    'status': 'failed',
+                    'reason': 'boom',
+                },
+            },
+        ],
+    })
+
+    assert frame == {
+        'think': None,
+        'text': (
+            '<tp id="toolcall-8-1">正在处理请求</tp>'
+            '<tool_call>{"id":"toolcall-8-1","name":"unknown_tool","arguments":{"path":"/tmp/demo.txt"}}</tool_call>'
+            '<trp id="toolcall-8-1">已获得处理结果</trp>'
+            '<tool_result>{"id":"toolcall-8-1","name":"unknown_tool","result":{"status":"ok","content":"done"}}</tool_result>'
+            '<trp id="toolcall-8-2">暂时没能完成这一步</trp>'
+            '<tool_result>{"id":"toolcall-8-2","name":"unknown_tool","result":{"status":"failed","reason":"boom"}}</tool_result>'
+        ),
+        'sources': [],
+    }
+
+
 def test_normalize_history_keeps_plain_chat_messages_unchanged():
     history = [
         {'role': 'user', 'content': 'hello'},
@@ -477,9 +519,9 @@ def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
         'role': 'assistant',
         'content': (
             '先看文件。'
-            '<tp id="toolcall-1-1">正在查看文件内容：/tmp/demo.txt</tp>'
+            '<tp id="toolcall-1-1">正在查看文件内容</tp>'
             '<tool_call>{"id":"toolcall-1-1","name":"read_file","arguments":{"path":"/tmp/demo.txt"}}</tool_call>'
-            '<trp id="toolcall-1-1">已读取文件内容：hello world</trp>'
+            '<trp id="toolcall-1-1">已读取文件内容</trp>'
             '<tool_result>{"id":"toolcall-1-1","name":"read_file","result":{"status":"ok","content":"hello world"}}</tool_result>'
         ),
     }]
