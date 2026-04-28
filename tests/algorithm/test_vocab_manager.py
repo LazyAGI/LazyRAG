@@ -395,7 +395,3 @@ class TestVocabDBIntegration:
         assert '民法'    in mgr2._proc.word_to_cluster
         assert '民法'    not in mgr1._proc.word_to_cluster
         _reset_registry()
-
-
-
-
