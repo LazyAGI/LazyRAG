@@ -76,13 +76,24 @@ def _dsn_to_sqlalchemy_url(dsn: str) -> str:
             continue
         key, value = token.split('=', 1)
         parts[key.strip()] = value.strip()
+    if not parts:
+        raise ValueError('invalid database dsn')
+    if not (parts.get('host') or '').strip():
+        raise ValueError('database host is required')
+    database = (parts.get('dbname') or parts.get('database') or '').strip()
+    if not database:
+        raise ValueError('database name is required')
+    try:
+        port = int(parts['port']) if parts.get('port') else 5432
+    except ValueError as exc:
+        raise ValueError('invalid database port') from exc
     return str(URL.create(
         'postgresql',
         username=parts.get('user') or None,
         password=parts.get('password') or None,
-        host=parts.get('host') or 'localhost',
-        port=int(parts['port']) if parts.get('port') else 5432,
-        database=parts.get('dbname') or parts.get('database') or 'app',
+        host=parts['host'],
+        port=port,
+        database=database,
     ))
 
 

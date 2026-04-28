@@ -483,7 +483,6 @@ services:
       LAZYRAG_MAX_CONCURRENCY: "10"
       LAZYRAG_LLM_PRIORITY: "0"
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
-      LAZYRAG_VOCAB_FILE_PATH: ${LAZYRAG_VOCAB_FILE_PATH:-/var/lib/lazyrag/uploads/vocab.json}
       <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:

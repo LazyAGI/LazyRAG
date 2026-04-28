@@ -302,6 +302,14 @@ class TestVocabReloadRoute:
         assert resp.content == b''
         mock_extract.assert_called_once_with(None)
 
+    def test_extract_uses_background_task_and_does_not_change_response(self, client):
+        tc, _, mock_extract = client
+        resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
+
+        assert resp.status_code == 204
+        assert resp.content == b''
+        mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
+
     def test_reload_different_create_user_ids_call_respective_manager(self, tmp_path):
         """Each create_user_id triggers reload on its own VocabManager instance."""
         from fastapi import FastAPI
@@ -395,3 +403,24 @@ class TestVocabDBIntegration:
         assert '民法'    in mgr2._proc.word_to_cluster
         assert '民法'    not in mgr1._proc.word_to_cluster
         _reset_registry()
+
+
+class TestVocabDbDsnParsing:
+
+    def test_dsn_to_sqlalchemy_url_requires_host(self):
+        from vocab.db import _dsn_to_sqlalchemy_url
+
+        with pytest.raises(ValueError, match='database host is required'):
+            _dsn_to_sqlalchemy_url('user=app password=app dbname=core port=5432')
+
+    def test_dsn_to_sqlalchemy_url_requires_database_name(self):
+        from vocab.db import _dsn_to_sqlalchemy_url
+
+        with pytest.raises(ValueError, match='database name is required'):
+            _dsn_to_sqlalchemy_url('host=db user=app password=app port=5432')
+
+    def test_dsn_to_sqlalchemy_url_rejects_invalid_port(self):
+        from vocab.db import _dsn_to_sqlalchemy_url
+
+        with pytest.raises(ValueError, match='invalid database port'):
+            _dsn_to_sqlalchemy_url('host=db user=app password=app dbname=core port=abc')
