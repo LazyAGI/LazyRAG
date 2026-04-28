@@ -44,7 +44,6 @@ def _decide_review_mode(
 def _spawn_background_review(
     config: dict,
     llm: Any,
-    sandbox: Any,
     keep_full_turns: int,
     history_snapshot: list,
     review_mode: str,
@@ -79,7 +78,6 @@ def _spawn_background_review(
                 prompt=review_prompt,
                 skills=review_skills,
                 keep_full_turns=keep_full_turns,
-                sandbox=sandbox,
                 fs=FS,
                 skills_dir=skills_dir,
                 enable_builtin_tools=False,

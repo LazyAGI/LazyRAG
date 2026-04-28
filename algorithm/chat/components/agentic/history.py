@@ -55,11 +55,19 @@ def _parse_history_assistant_content(content: str) -> tuple[str, list[dict[str, 
         if not isinstance(payload, dict):
             continue
         if tag == _TOOL_CALL_TAG:
+            tool_call_id = str(payload.get('id') or '')
+            tool_name = str(payload.get('name') or '')
+            if not tool_call_id or not tool_name:
+                continue
+            arguments = payload.get('arguments', {})
+            if not isinstance(arguments, dict):
+                arguments = {}
             tool_calls.append({
-                'id': str(payload.get('id') or ''),
+                'id': tool_call_id,
+                'type': 'function',
                 'function': {
-                    'name': str(payload.get('name') or ''),
-                    'arguments': json.dumps(payload.get('arguments', {}), ensure_ascii=False),
+                    'name': tool_name,
+                    'arguments': json.dumps(arguments, ensure_ascii=False),
                 },
             })
         elif tag == _TOOL_RESULT_TAG:
