@@ -32,3 +32,19 @@ type Word struct {
 }
 
 func (Word) TableName() string { return "words" }
+
+// WordGroupConflict stores ambiguous synonym assignment cases for later manual resolution.
+type WordGroupConflict struct {
+	ID           string     `gorm:"column:id;type:varchar(64);primaryKey"`
+	Reason       string     `gorm:"column:reason;type:text;not null;default:''"`
+	Word         string     `gorm:"column:word;type:text;not null;default:''"`
+	Description  string     `gorm:"column:description;type:text;not null;default:''"`
+	GroupIDs     string     `gorm:"column:group_ids;type:text;not null;default:'[]'"` // JSON-serialized []string
+	CreateUserID string     `gorm:"column:create_user_id;type:varchar(255);not null;index:idx_word_group_conflict_user_updated,priority:1"`
+	MessageIDs   string     `gorm:"column:message_ids;type:text;not null;default:'[]'"` // JSON-serialized []string
+	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt    time.Time  `gorm:"column:updated_at;not null;index:idx_word_group_conflict_user_updated,priority:2,sort:desc"`
+	DeletedAt    *time.Time `gorm:"column:deleted_at"`
+}
+
+func (WordGroupConflict) TableName() string { return "word_group_conflicts" }

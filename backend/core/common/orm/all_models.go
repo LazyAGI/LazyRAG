@@ -24,6 +24,7 @@ func AllModelsForDDL() []interface{} {
 		&UploadSession{},
 		&UploadedFile{},
 		&Word{},
+		&WordGroupConflict{},
 	}
 }
 
@@ -47,5 +48,6 @@ func TableNamesForDDL() []string {
 		"upload_sessions",
 		"uploaded_files",
 		"words",
+		"word_group_conflicts",
 	}
 }
