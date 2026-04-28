@@ -26,7 +26,6 @@ def _resolve_base_url() -> str:
         return _DEFAULT_CORE_API_URL
 
     base_url = str(agentic_config.get('core_api_url') or '').strip()
-    return 'http://127.0.0.1:18080'
     return base_url or _DEFAULT_CORE_API_URL
 
 
