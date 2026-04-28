@@ -1,6 +1,8 @@
 package wordgroup
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +12,8 @@ import (
 	"lazyrag/core/common/orm"
 	"lazyrag/core/log"
 	"lazyrag/core/store"
+
+	"gorm.io/gorm"
 )
 
 // DeleteWordGroupConflictResponse mirrors DeleteWordGroupResponse for symmetry.
@@ -35,6 +39,20 @@ type ListWordGroupConflictsResponse struct {
 	Items         []WordGroupConflictResponse `json:"items"`
 	TotalSize     int32                       `json:"total_size"`
 	NextPageToken string                      `json:"next_page_token"`
+}
+
+// AddWordGroupConflictToGroupsRequest adds a conflict word into one or more selected groups.
+type AddWordGroupConflictToGroupsRequest struct {
+	Word     string   `json:"word"`
+	GroupIDs []string `json:"group_ids"`
+}
+
+// AddWordGroupConflictToGroupsResponse reports per-group insertion status.
+type AddWordGroupConflictToGroupsResponse struct {
+	Word          string   `json:"word"`
+	GroupIDs      []string `json:"group_ids"`
+	AddedGroups   []string `json:"added_groups"`
+	SkippedGroups []string `json:"skipped_groups"`
 }
 
 // ListWordGroupConflicts returns the requesting user's pending conflicts ordered by updated_at DESC.
@@ -156,4 +174,99 @@ func DeleteWordGroupConflict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	common.ReplyOK(w, DeleteWordGroupConflictResponse{ID: id, DeletedRows: res.RowsAffected})
+}
+
+// AddWordGroupConflictToGroups inserts the conflict word as alias into selected groups.
+// Existing words in a target group are skipped and reported in skipped_groups.
+func AddWordGroupConflictToGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := store.UserID(r)
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	var body AddWordGroupConflictToGroupsRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	words := normalizeAliases([]string{body.Word})
+	if len(words) == 0 {
+		common.ReplyErr(w, "word is required", http.StatusBadRequest)
+		return
+	}
+	word := words[0]
+	groupIDs := dedupeGroupIDsPreserveOrder(body.GroupIDs)
+	if len(groupIDs) == 0 {
+		common.ReplyErr(w, "group_ids is required", http.StatusBadRequest)
+		return
+	}
+
+	addedGroups := make([]string, 0, len(groupIDs))
+	skippedGroups := make([]string, 0)
+	now := time.Now().UTC()
+
+	err := store.DB().Transaction(func(tx *gorm.DB) error {
+		for _, groupID := range groupIDs {
+			var termRow orm.Word
+			if err := tx.Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL",
+				groupID, userID, orm.WordKindTerm).First(&termRow).Error; err != nil {
+				return err
+			}
+
+			var count int64
+			if err := tx.Model(&orm.Word{}).
+				Where("group_id = ? AND create_user_id = ? AND word = ? AND deleted_at IS NULL", groupID, userID, word).
+				Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				skippedGroups = append(skippedGroups, groupID)
+				continue
+			}
+
+			row := orm.Word{
+				ID:            GenerateID(),
+				Word:          word,
+				WordKind:      orm.WordKindAlias,
+				GroupID:       groupID,
+				Description:   termRow.Description,
+				Source:        termRow.Source,
+				ReferenceInfo: termRow.ReferenceInfo,
+				Locked:        termRow.Locked,
+				WordBase: orm.WordBase{
+					CreateUserID:   userID,
+					CreateUserName: termRow.CreateUserName,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				},
+			}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+			addedGroups = append(addedGroups, groupID)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "target group not found", http.StatusNotFound)
+			return
+		}
+		log.Logger.Error().Err(err).Str("word", word).Str("create_user_id", userID).Msg("add conflict word to groups failed")
+		common.ReplyErr(w, "add conflict word to groups failed", http.StatusInternalServerError)
+		return
+	}
+
+	common.ReplyOK(w, AddWordGroupConflictToGroupsResponse{
+		Word:          word,
+		GroupIDs:      groupIDs,
+		AddedGroups:   addedGroups,
+		SkippedGroups: skippedGroups,
+	})
 }

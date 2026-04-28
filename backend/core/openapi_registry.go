@@ -826,6 +826,16 @@ func registeredCoreOperations() []openAPIOperation {
 			},
 		},
 		{
+			Method:      "POST",
+			Path:        "/word_group_conflict:addToGroup",
+			Summary:     "Add conflict word to selected groups",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.AddWordGroupConflictToGroupsRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Conflict word add-to-group result", wordgroup.AddWordGroupConflictToGroupsResponse{}),
+			},
+		},
+		{
 			Method:  "DELETE",
 			Path:    "/word_group_conflict/{id}",
 			Summary: "Soft-delete a word group conflict by id",
