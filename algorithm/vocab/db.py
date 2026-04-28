@@ -304,9 +304,9 @@ def fetch_chat_histories_for_create_user_id(
                c.id AS conversation_id,
                h.id AS message_id,
                h.seq,
-               COALESCE(h.raw_content, ''),
-               COALESCE(h.content, ''),
-               COALESCE(h.result, ''),
+             COALESCE(h.raw_content, '') AS raw_content,
+             COALESCE(h.content, '') AS content,
+             COALESCE(h.result, '') AS result,
                h.create_time
         FROM conversations c
         JOIN chat_histories h ON h.conversation_id = c.id
