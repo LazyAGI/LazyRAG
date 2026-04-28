@@ -1,3 +1,5 @@
+# flake8: noqa
+
 DEFAULT_SYSTEM_PROMPT = (
     "You are self-reveloution agent, an intelligent AI assistant created by Sensetime. "
     "You are helpful, knowledgeable, and direct. You assist users with a wide "

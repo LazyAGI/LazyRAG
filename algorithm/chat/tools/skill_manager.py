@@ -56,7 +56,7 @@ def _validate_skill_name(name: str) -> Optional[str]:
         return "'name' must be a non-empty skill name."
     if name in {'.', '..'} or not _PATH_SEGMENT_RE.match(name):
         return (
-            f"Skill name {name!r} is invalid; only ASCII letters, digits, "
+            f'Skill name {name!r} is invalid; only ASCII letters, digits, '
             "'-', '_' and '.' are allowed (no spaces, no Chinese, no slashes)."
         )
     return None
@@ -215,7 +215,7 @@ def skill_manage(
     normalized_category = _normalize_category(category)
     if normalized_category is None:
         return _fail(
-            f"Category {category!r} is invalid; it must be a single "
+            f'Category {category!r} is invalid; it must be a single '
             "ASCII-safe path segment (only letters, digits, '-', '_' "
             "and '.'; no spaces, no Chinese, no '/')."
         )
@@ -231,7 +231,7 @@ def skill_manage(
             return _fail("action='create' must not include 'suggestions'.")
         if skill_id in existing_skills:
             return _fail(
-                f"Skill {name!r} already exists in category {normalized_category!r}; "
+                f'Skill {name!r} already exists in category {normalized_category!r}; '
                 "use action='modify' to edit it or action='remove' to delete it first."
             )
 
@@ -265,7 +265,7 @@ def skill_manage(
             )
         if skill_id not in existing_skills:
             return _fail(
-                f"Skill {name!r} does not exist in category {normalized_category!r}; "
+                f'Skill {name!r} does not exist in category {normalized_category!r}; '
                 "use action='create' to add a new skill."
             )
 
@@ -292,8 +292,8 @@ def skill_manage(
             return _fail("action='remove' must not include 'content' or 'suggestions'.")
         if skill_id not in existing_skills:
             return _fail(
-                f"Skill {name!r} does not exist in category {normalized_category!r}; "
-                "nothing to remove."
+                f'Skill {name!r} does not exist in category {normalized_category!r}; '
+                'nothing to remove.'
             )
 
         result = {

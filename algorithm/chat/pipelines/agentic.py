@@ -16,12 +16,12 @@ import lazyllm
 from lazyllm import loop, once_wrapper
 from lazyllm.tools.agent.functionCall import FunctionCall
 from lazyllm.tools.fs.client import FS
-from lazyllm.tools.sandbox.sandbox_base import create_sandbox
+from lazyllm.tools.sandbox.sandbox_base import create_sandbox  # noqa: F401
 
 base_dir = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(base_dir))
 
-from chat.components.agentic.config import (
+from chat.components.agentic.config import (  # noqa: E402
     _build_runtime_system_prompt,
     _env_int,
     _filter_tools_for_request,
@@ -29,17 +29,16 @@ from chat.components.agentic.config import (
     _normalize_available_skills,
     _normalize_available_tools,
     _sync_request_context,
-    _with_agentic_defaults,
 )
-from chat.components.agentic.history import (
+from chat.components.agentic.history import (  # noqa: E402
     _count_tool_turns,
     _count_user_turns,
     _format_non_stream_result,
     _normalize_history_for_agent,
     _reset_citation_state,
 )
-from chat.components.agentic.review import _decide_review_mode, _spawn_background_review
-from chat.components.agentic.tool_stream import (
+from chat.components.agentic.review import _decide_review_mode, _spawn_background_review  # noqa: E402
+from chat.components.agentic.tool_stream import (  # noqa: E402
     _STREAM_CHUNK_SIZE,
     _format_tool_stream_frame,
     _iter_text_chunks,
@@ -47,7 +46,8 @@ from chat.components.agentic.tool_stream import (
     _stream_frame,
     _tool_call_id,
 )
-from chat.pipelines.builders.get_models import get_automodel
+from chat.pipelines.builders.get_models import get_automodel  # noqa: E402
+
 
 class _StreamingFunctionCall(FunctionCall):
     def __init__(self, *args: Any, stream_event_callback=None, **kwargs: Any):
@@ -169,7 +169,6 @@ def agentic_forward(
     config = lazyllm.globals.get('agentic_config') or {}
     if not isinstance(config, dict):
         config = {}
-    config = _with_agentic_defaults(config)
 
     llm = get_automodel('llm')
     available_tools = _filter_tools_for_request(
@@ -213,7 +212,11 @@ def agentic_forward(
     agent_history = lazyllm.locals.get('_lazyllm_agent', {}).get('history', [])
     history_snapshot = agent_history
     if runtime_prompt and (not history_snapshot or history_snapshot[0].get('role') != 'system'):
-        history_snapshot = [{'role': 'system', 'content': runtime_prompt}] + history_snapshot + [{'role': 'assistant', 'content': agent_output}]
+        history_snapshot = (
+            [{'role': 'system', 'content': runtime_prompt}]
+            + history_snapshot
+            + [{'role': 'assistant', 'content': agent_output}]
+        )
     tool_turns = _count_tool_turns(agent_history)
     user_turns = _count_user_turns(history, query)
     review_mode = _decide_review_mode(
@@ -376,7 +379,6 @@ def agentic_rag(
     runtime_params.update(global_params or {})
     runtime_params.update(kwargs)
     runtime_params['stream'] = stream
-    runtime_params = _with_agentic_defaults(runtime_params)
     _sync_request_context(runtime_params)
     _reset_citation_state(runtime_params)
 

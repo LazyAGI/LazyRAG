@@ -81,30 +81,30 @@ _TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
 }
 
 _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
-    'kb_search': '暂时没能找到相关资料：{value}',
-    'kb_get_parent_node': '暂时没能补充上文信息：{value}',
-    'kb_get_window_nodes': '暂时没能展开相关片段：{value}',
-    'kb_keyword_search': '暂时没能按关键词找到资料：{value}',
-    'memory': '暂时没能记录这条信息：{value}',
-    'skill_manage': '暂时没能整理可复用经验：{value}',
-    'get_skill': '暂时没能获取处理方案：{value}',
-    'read_reference': '暂时没能读取参考资料：{value}',
-    'run_script': '辅助脚本暂时没能运行完成：{value}',
-    'read_file': '暂时没能读取文件内容：{value}',
-    'list_dir': '暂时没能获取文件夹内容：{value}',
-    'search_in_files': '暂时没能完成内容查找：{value}',
-    'make_dir': '暂时没能准备好文件夹：{value}',
-    'write_file': '暂时没能写入文件：{value}',
-    'delete_file': '暂时没能删除文件：{value}',
-    'move_file': '暂时没能整理文件位置：{value}',
-    'download_file': '暂时没能下载所需文件：{value}',
+    'kb_search': '没能找到相关资料',
+    'kb_get_parent_node': '没能补充上文信息',
+    'kb_get_window_nodes': '没能展开相关片段',
+    'kb_keyword_search': '没能按关键词找到资料',
+    'memory': '没能记录这条记忆',
+    'skill_manage': '没能整理可复用技能',
+    'get_skill': '获取技能详细信息失败',
+    'read_reference': '没能读取参考资料',
+    'run_script': '辅助脚本没能运行完成',
+    'read_file': '没能读取文件内容',
+    'list_dir': '没能获取文件夹内容',
+    'search_in_files': '没能完成内容查找',
+    'make_dir': '没能准备好文件夹',
+    'write_file': '没能写入文件',
+    'delete_file': '没能删除文件',
+    'move_file': '没能整理文件位置',
+    'download_file': '没能下载所需文件',
 }
 
 _TOOL_RESULT_APPROVAL_TEMPLATES: dict[str, str] = {
-    'delete_file': '删除文件前还需要进一步确认：{value}',
-    'move_file': '调整文件位置前还需要进一步确认：{value}',
-    'write_file': '写入文件前还需要进一步确认：{value}',
-    'download_file': '下载文件前还需要进一步确认：{value}',
+    'delete_file': '删除文件前还需要进一步确认',
+    'move_file': '调整文件位置前还需要进一步确认',
+    'write_file': '写入文件前还需要进一步确认',
+    'download_file': '下载文件前还需要进一步确认',
 }
 
 _TOOL_RESULT_FALLBACK_TEMPLATE = '已获得处理结果'

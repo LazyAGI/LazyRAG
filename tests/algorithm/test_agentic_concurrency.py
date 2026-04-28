@@ -23,9 +23,16 @@ import lazyllm
 
 from chat.pipelines import agentic
 from chat.components.agentic import review as agentic_review
-from chat.components.agentic.config import BUILTIN_FILE_TOOLS, _merge_builtin_file_tools
+from chat.components.agentic.config import (
+    DEFAULT_TOOLS,
+    _filter_tools_for_request,
+    _merge_builtin_file_tools,
+)
 
-_BUILTIN_FILE_TOOLS = tuple(BUILTIN_FILE_TOOLS)
+
+def _expected_tools_for_request(config: Dict[str, Any]) -> tuple[str, ...]:
+    request_config = dict(config)
+    return tuple(_filter_tools_for_request(list(DEFAULT_TOOLS), request_config))
 
 
 class _FakeAgent:
@@ -134,7 +141,7 @@ def test_thread_parallel_requests_see_isolated_config(fake_pipeline):
         assert obs['config']['kb_name'] == f't_kb_{i}'
         assert obs['config']['kb_id'] == f't_id_{i}'
         assert obs['config']['kb_url'] == f'http://t_host/{i}'
-        assert obs['agent_kwargs_tools'] == (f'tool_t_{i}',) + _BUILTIN_FILE_TOOLS
+        assert obs['agent_kwargs_tools'] == (f'tool_t_{i}',)
         assert obs['config']['available_skills'] == [f'skill_t_{i}']
         assert results[i]['observed_kb_name'] == f't_kb_{i}'
 
@@ -188,7 +195,7 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
         assert obs['config']['kb_name'] == f's_kb_{i}'
         assert obs['config']['kb_id'] == f's_id_{i}'
         assert obs['config']['kb_url'] == f'http://s_host/{i}'
-        assert obs['agent_kwargs_tools'] == (f's_tool_{i}',) + _BUILTIN_FILE_TOOLS
+        assert obs['agent_kwargs_tools'] == (f's_tool_{i}',)
         assert obs['config']['available_skills'] == [f's_skill_{i}']
 
     for i, (events, outer, session_id) in enumerate(results):
@@ -211,12 +218,10 @@ def test_kb_tools_disabled_without_kb_id_or_files(fake_pipeline):
         'files': [],
     })
 
-    assert fake_pipeline.observations[-1]['agent_kwargs_tools'] == (
-        'web_search',
-        'arxiv_search',
-        'memory',
-        'skill_manage',
-    ) + _BUILTIN_FILE_TOOLS
+    assert fake_pipeline.observations[-1]['agent_kwargs_tools'] == _expected_tools_for_request({
+        'files': [],
+        'temp_files': [],
+    })
 
 
 def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
@@ -232,13 +237,28 @@ def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
 
     obs = fake_pipeline.observations[-1]
     assert obs['config']['temp_files'] == ['/var/lib/lazyrag/uploads/a.pdf']
-    assert obs['agent_kwargs_tools'] == (
-        'kb_search',
-        'web_search',
-        'arxiv_search',
-        'memory',
-        'skill_manage',
-    ) + _BUILTIN_FILE_TOOLS
+    assert obs['agent_kwargs_tools'] == _expected_tools_for_request({
+        'files': ['/var/lib/lazyrag/uploads/a.pdf'],
+        'temp_files': ['/var/lib/lazyrag/uploads/a.pdf'],
+    })
+
+
+def test_request_does_not_override_runtime_agent_defaults(fake_pipeline, monkeypatch):
+    monkeypatch.setattr(agentic, '_get_runtime_agent_defaults', lambda: {
+        'available_tools': ['memory'],
+        'skill_fs_url': 'remote://skills',
+    })
+
+    lazyllm.globals._init_sid(sid='runtime-default-session')
+    lazyllm.locals._init_sid(sid='runtime-default-session')
+
+    agentic.agentic_rag({
+        'query': 'hello',
+    })
+
+    obs = fake_pipeline.observations[-1]
+    assert obs['config']['skill_fs_url'] == 'remote://skills'
+    assert obs['agent_kwargs_tools'] == ('memory',)
 
 
 def test_tool_stream_frame_serializes_tool_call_into_text_tags():

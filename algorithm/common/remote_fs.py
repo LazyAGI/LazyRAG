@@ -26,6 +26,7 @@ def _resolve_base_url() -> str:
         return _DEFAULT_CORE_API_URL
 
     base_url = str(agentic_config.get('core_api_url') or '').strip()
+    return 'http://127.0.0.1:18080'
     return base_url or _DEFAULT_CORE_API_URL
 
 
@@ -99,13 +100,15 @@ class RemoteFS(LazyLLMFSBase):
         return bool(data.get('exists'))
 
     def makedirs(self, path: str, exist_ok: bool = True) -> None:
-        raise PermissionError(f"{self.__class__.__name__} is read-only. Cannot create directories.")
+        raise PermissionError(f'{self.__class__.__name__} is read-only. Cannot create directories.')
 
     def mkdir(self, path: str, create_parents: bool = True, **kwargs) -> None:
-        raise PermissionError(f"{self.__class__.__name__} is read-only. Cannot create directories.")
+        raise PermissionError(f'{self.__class__.__name__} is read-only. Cannot create directories.')
 
     def rm(self, path: str, recursive: bool = False, maxdepth: Optional[int] = None) -> None:
-        raise PermissionError(f"{self.__class__.__name__} is read-only. Cannot remove files/directories.")
+        raise PermissionError(
+            f'{self.__class__.__name__} is read-only. Cannot remove files/directories.'
+        )
 
     def _open(
         self,
@@ -116,7 +119,9 @@ class RemoteFS(LazyLLMFSBase):
     ):
         is_write = any(flag in mode for flag in ('w', 'a', 'x', '+'))
         if is_write:
-            raise PermissionError(f"{self.__class__.__name__} is read-only. Cannot open file {path} for writing.")
+            raise PermissionError(
+                f'{self.__class__.__name__} is read-only. Cannot open file {path} for writing.'
+            )
 
         params = {'path': self._normalize_path(path)}
         session_id = _resolve_session_id()
