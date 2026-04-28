@@ -28,27 +28,27 @@ def prompt_generate_single_hop(context: str, file_name: str, doc_id: str, chunk_
 
 
 def prompt_generate_table(context: str, file_name: str, doc_id: str, chunk_id: str) -> str:
-    return f"""根据提供的文本内容生成**1道多跳表格推理计算题**，严格输出JSON格式，不要输出任何多余内容。
+    return f"""根据提供的文本内容生成**1道多跳表格推理计算题**，严格输出JSON格式，不要输出任何多余内容
 要求：
-1. 必须经过两步及以上推理计算，禁止直接从表格摘抄答案；
-2. 题型为求和、差值、平均值、占比、对比、排序等数学计算题；
-3. 问题必须独立完整，禁止出现「根据本段、本文、内容、上文」等指代词汇；
-4. ground_truth 推理出的最终答案必须是一个具体数值
-5. reference_context 填写本次用到的原始表格片段原文；
-6. reference_doc 填写参考文章
-7. key_points 是答题关键点，最多五个，需要根据question和ground_truth提取最核心的关键实体信息，只抽取答案中最核心实体，忽略次要信息，也是一个列表格式
-8. reference_context，reference_doc，key_points一定要是列表格式
+1. 必须经过两步及以上推理计算，禁止直接从表格摘抄答案；必须依赖提供的文本（表格）上下文信息，禁止生成无需原文、可直接通过公式计算的简单应用题（例如：已知单个数量和总数，直接相乘/相加求总和、差值等无需依赖原文表格的题目）。
+2. 题型为求和、差值、平均值、占比、对比、排序等数学计算题，且计算过程必须关联原文表格中的具体数据，脱离原文无法计算。
+3. 问题必须独立完整，禁止出现「根据本段、本文、内容、上文」等指代词汇，需明确题干中涉及的表格相关主体/数据范围。
+4. ground_truth 推理出的最终答案必须是一个具体数值。
+5. reference_context 填写本次用到的原始表格片段原文。
+6. reference_doc 填写参考文章。
+7. key_points 是答题关键点，最多五个，需要根据question和ground_truth提取最核心的关键实体信息，只抽取答案中最核心实体，忽略次要信息，也是一个列表格式。
+8. reference_context，reference_doc，key_points一定要是列表格式。
 9. 严格输出纯JSON，不要任何解释、备注、多余字符。
 {{
-    "question": "生成的问题",
-    "ground_truth": "标准答案",
-    "reference_context": ["{context}"],
-    "reference_doc": ["{file_name}"],
-    "reference_doc_ids": ["{doc_id}"],
-    "reference_chunk_ids": ["{chunk_id}"],
-    "key_points": ["标准答案答题关键点列表"],
-    "generate_reason": "生成逻辑",
-    "question_type":4
+"question": "生成的问题",
+"ground_truth": "标准答案",
+"reference_context": ["{context}"],
+"reference_doc": ["{file_name}"],
+"reference_doc_ids": ["{doc_id}"],
+"reference_chunk_ids": ["{chunk_id}"],
+"key_points": ["标准答案答题关键点列表"],
+"generate_reason": "生成逻辑",
+"question_type":4
 }}
 文本：{context}
 """
@@ -57,25 +57,25 @@ def prompt_generate_table(context: str, file_name: str, doc_id: str, chunk_id: s
 def prompt_generate_formula(context: str, file_name: str, doc_id: str, chunk_id: str) -> str:
     return f"""请从提供的文本中识别、提取所有数学公式、符号、表达式内容，基于公式数据生成**1道公式直接代入计算题（单跳即可，无需多跳推理）**。
 要求：
-1. 直接提取原文公式，进行简单数值代入计算即可，**不需要两步及以上多跳推理**；
-2. 题型为公式代入求值、简单换算类题目；
-3. ground_truth 必须是由原始公式和计算过程共同推理得到的最终结果，答案尽量简短
-3. generate_reason 必须写明完整生成逻辑；
-4. reference_context 填写用到的原始片段原文，需保留这个片段的所有内容；
-5. reference_doc 填写参考文章
-6. key_points 是答题关键点，最多五个，需要根据question和ground_truth提取最核心的关键实体信息，只抽取答案中最核心实体，忽略次要信息，也是一个列表格式
-7. reference_context，reference_doc，key_points一定要是列表格式
-8. 严格输出纯JSON，不要任何解释、备注、多余字符。
+1. 直接提取原文公式，进行简单数值代入计算即可，**不需要两步及以上多跳推理**；必须依赖提供的文本中提取的原始公式，禁止生成无需原文公式、可直接通过基础公式计算的简单应用题（例如：无需原文公式，仅通过“路程=速度×时间”等通用公式直接计算的题目）。
+2. 题型为公式代入求值、简单换算类题目，且计算过程必须使用原文中提取的具体公式，脱离原文公式无法完成计算。
+3. ground_truth 必须是由原始公式和计算过程共同推理得到的最终结果，答案尽量简短。
+4. generate_reason 必须写明完整生成逻辑（需包含：提取的原文公式、代入的具体数值、完整计算步骤、最终结果推导过程）。
+5. reference_context 填写用到的原始片段原文，需保留这个片段的所有内容（重点保留提取公式所在的完整片段）。
+6. reference_doc 填写参考文章。
+7. key_points 是答题关键点，最多五个，需要根据question和ground_truth提取最核心的关键实体信息（重点包含原文公式、代入数值、最终结果），只抽取答案中最核心实体，忽略次要信息，也是一个列表格式。
+8. reference_context，reference_doc，key_points一定要是列表格式。
+9. 严格输出纯JSON，不要任何解释、备注、多余字符。
 {{
-    "question": "生成的问题",
-    "ground_truth": "标准答案",
-    "reference_context": ["{context}"],
-    "reference_doc": ["{file_name}"],
-    "reference_doc_ids": ["{doc_id}"],
-    "reference_chunk_ids": ["{chunk_id}"],
-    "key_points": ["标准答案答题关键点列表"],
-    "generate_reason": "生成逻辑",
-    "question_type":5
+"question": "生成的问题",
+"ground_truth": "标准答案",
+"reference_context": ["{context}"],
+"reference_doc": ["{file_name}"],
+"reference_doc_ids": ["{doc_id}"],
+"reference_chunk_ids": ["{chunk_id}"],
+"key_points": ["标准答案答题关键点列表"],
+"generate_reason": "生成逻辑",
+"question_type":5
 }}
 文本：{context}
 """
