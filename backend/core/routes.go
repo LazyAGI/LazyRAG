@@ -2,6 +2,7 @@ package main
 
 import (
 	"lazyrag/core/acl"
+	"lazyrag/core/agent"
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
 	"lazyrag/core/evolution"
@@ -91,6 +92,27 @@ func registerAllRoutes(r *mux.Router) {
 
 	// ----- text -----
 	handleAPI(r, "POST", "/chat", []string{"qa.read"}, chat.Chat)
+
+	// ----- Agent thread stream -----
+	handleAPI(r, "POST", "/agent/threads", []string{"qa.read"}, agent.CreateThread)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}:events", []string{"qa.read"}, agent.StreamThreadEvents)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}", []string{"qa.read"}, agent.GetThread)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/history", []string{"qa.read"}, agent.GetThreadHistory)
+	handleAPI(r, "DELETE", "/agent/threads/{thread_id}:history", []string{"qa.read"}, agent.DeleteThreadHistory)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/rounds", []string{"qa.read"}, agent.ListThreadRounds)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/records", []string{"qa.read"}, agent.ListThreadRecords)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/datasets", []string{"qa.read"}, agent.GetThreadResultDatasets)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/eval-reports", []string{"qa.read"}, agent.GetThreadResultEvalReports)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/analysis-reports", []string{"qa.read"}, agent.GetThreadResultAnalysisReports)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/diffs", []string{"qa.read"}, agent.GetThreadResultDiffs)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/abtests", []string{"qa.read"}, agent.GetThreadResultAbtests)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:messages", []string{"qa.read"}, agent.StreamThreadMessages)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:start", []string{"qa.read"}, agent.StartThread)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:pause", []string{"qa.read"}, agent.PauseThread)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:cancel", []string{"qa.read"}, agent.CancelThread)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:retry", []string{"qa.read"}, agent.RetryThread)
+	handleAPI(r, "GET", "/agent/reports/{report_id}:content", []string{"qa.read"}, agent.GetReportContent)
+	handleAPI(r, "GET", "/agent/diffs/{apply_id}/{filename:.*}", []string{"qa.read"}, agent.GetDiffContent)
 
 	// ----- Conversationtext -----
 	handleAPI(r, "POST", "/conversations:chat", []string{"qa.read"}, chat.ChatConversations)

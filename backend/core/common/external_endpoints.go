@@ -25,6 +25,14 @@ func AuthServiceBaseURL() string {
 	return "http://auth-service:8000/api/authservice"
 }
 
+// EvoServiceEndpoint returns the base URL for the dedicated evo service.
+func EvoServiceEndpoint() string {
+	if u := strings.TrimSpace(os.Getenv("LAZYRAG_EVO_SERVICE_URL")); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return "http://host.docker.internal:8048"
+}
+
 // AlgoServiceEndpoint text base URL（text path）。
 // text LAZYRAG_ALGO_SERVICE_URL text；textSettextDefaulttext，text。
 func AlgoServiceEndpoint() string {
