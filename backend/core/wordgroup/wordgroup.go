@@ -27,6 +27,8 @@ type CreateWordGroupRequest struct {
 	Aliases     []string `json:"aliases"`
 	Description string   `json:"description"`
 	Lock        bool     `json:"lock"` // 保护态
+	Conflict    bool     `json:"conflict"`
+	ID          string   `json:"id"`
 }
 
 // UpdateWordGroupRequest is the JSON body for POST /word_group:update.
@@ -79,6 +81,7 @@ type MergeWordGroupsRequest struct {
 
 // MergeAndAddWordRequest merges groups then adds one word into the merged master group.
 type MergeAndAddWordRequest struct {
+	ID       string   `json:"id"`
 	GroupIDs []string `json:"group_ids"`
 	Word     string   `json:"word"`
 }
@@ -127,9 +130,14 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 	ref := ""
 	src := normalizeSource("")
 	aliases := normalizeAliases(body.Aliases)
+	conflictID := strings.TrimSpace(body.ID)
 
 	if term == "" {
 		common.ReplyErr(w, "term is required", http.StatusBadRequest)
+		return
+	}
+	if body.Conflict && conflictID == "" {
+		common.ReplyErr(w, "id is required when conflict is true", http.StatusBadRequest)
 		return
 	}
 
@@ -185,8 +193,26 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 			}
 			createdAliases = append(createdAliases, CreatedAlias{ID: aid, Word: a})
 		}
+		if body.Conflict {
+			res := tx.Model(&orm.WordGroupConflict{}).
+				Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", conflictID, userID).
+				Updates(map[string]any{
+					"deleted_at": now,
+					"updated_at": now,
+				})
+			if err := res.Error; err != nil {
+				return err
+			}
+			if res.RowsAffected == 0 {
+				return errWordGroupConflictNotFound
+			}
+		}
 		return nil
 	})
+	if errors.Is(err, errWordGroupConflictNotFound) {
+		common.ReplyErr(w, "word group conflict not found", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		log.Logger.Error().Err(err).Str("term_id", termID).Msg("create word_group rows failed")
 		common.ReplyErr(w, "create word group failed", http.StatusInternalServerError)
@@ -322,6 +348,9 @@ func UpdateWordGroup(w http.ResponseWriter, r *http.Request) {
 
 // errWordGroupNotFound is returned from UpdateWordGroup transaction when the term row is missing.
 var errWordGroupNotFound = errors.New("word group not found")
+
+// errWordGroupConflictNotFound is returned when expected conflict row is missing on conflict-create flow.
+var errWordGroupConflictNotFound = errors.New("word group conflict not found")
 
 // errInvalidWordGroupSource indicates an unsupported source filter value.
 var errInvalidWordGroupSource = errors.New("invalid source")
@@ -760,6 +789,11 @@ func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	word := words[0]
+	conflictID := strings.TrimSpace(body.ID)
+	if conflictID == "" {
+		common.ReplyErr(w, "id is required", http.StatusBadRequest)
+		return
+	}
 
 	userID := store.UserID(r)
 	if userID == "" {
@@ -878,6 +912,16 @@ func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 			if err := tx.Create(&aliasRow).Error; err != nil {
 				return err
 			}
+		}
+
+		// Resolve this conflict row after successful merge+add handling.
+		if err := tx.Model(&orm.WordGroupConflict{}).
+			Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", conflictID, userID).
+			Updates(map[string]interface{}{
+				"deleted_at": now,
+				"updated_at": now,
+			}).Error; err != nil {
+			return err
 		}
 		return nil
 	})

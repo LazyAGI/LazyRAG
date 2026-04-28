@@ -43,16 +43,18 @@ type ListWordGroupConflictsResponse struct {
 
 // AddWordGroupConflictToGroupsRequest adds a conflict word into one or more selected groups.
 type AddWordGroupConflictToGroupsRequest struct {
+	ID       string   `json:"id"`
 	Word     string   `json:"word"`
 	GroupIDs []string `json:"group_ids"`
 }
 
 // AddWordGroupConflictToGroupsResponse reports per-group insertion status.
 type AddWordGroupConflictToGroupsResponse struct {
-	Word          string   `json:"word"`
-	GroupIDs      []string `json:"group_ids"`
-	AddedGroups   []string `json:"added_groups"`
-	SkippedGroups []string `json:"skipped_groups"`
+	Word                string   `json:"word"`
+	GroupIDs            []string `json:"group_ids"`
+	AddedGroups         []string `json:"added_groups"`
+	SkippedGroups       []string `json:"skipped_groups"`
+	DeletedConflictRows int64    `json:"deleted_conflict_rows"`
 }
 
 // ListWordGroupConflicts returns the requesting user's pending conflicts ordered by updated_at DESC.
@@ -201,6 +203,11 @@ func AddWordGroupConflictToGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	word := words[0]
+	conflictID := strings.TrimSpace(body.ID)
+	if conflictID == "" {
+		common.ReplyErr(w, "id is required", http.StatusBadRequest)
+		return
+	}
 	groupIDs := dedupeGroupIDsPreserveOrder(body.GroupIDs)
 	if len(groupIDs) == 0 {
 		common.ReplyErr(w, "group_ids is required", http.StatusBadRequest)
@@ -210,6 +217,7 @@ func AddWordGroupConflictToGroups(w http.ResponseWriter, r *http.Request) {
 	addedGroups := make([]string, 0, len(groupIDs))
 	skippedGroups := make([]string, 0)
 	now := time.Now().UTC()
+	var deletedConflictRows int64
 
 	err := store.DB().Transaction(func(tx *gorm.DB) error {
 		for _, groupID := range groupIDs {
@@ -251,6 +259,19 @@ func AddWordGroupConflictToGroups(w http.ResponseWriter, r *http.Request) {
 			}
 			addedGroups = append(addedGroups, groupID)
 		}
+
+		// After the word has been processed for selected groups, resolve (soft-delete)
+		// the target conflict row for this user by id.
+		res := tx.Model(&orm.WordGroupConflict{}).
+			Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", conflictID, userID).
+			Updates(map[string]any{
+				"deleted_at": now,
+				"updated_at": now,
+			})
+		if err := res.Error; err != nil {
+			return err
+		}
+		deletedConflictRows = res.RowsAffected
 		return nil
 	})
 	if err != nil {
@@ -264,9 +285,10 @@ func AddWordGroupConflictToGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	common.ReplyOK(w, AddWordGroupConflictToGroupsResponse{
-		Word:          word,
-		GroupIDs:      groupIDs,
-		AddedGroups:   addedGroups,
-		SkippedGroups: skippedGroups,
+		Word:                word,
+		GroupIDs:            groupIDs,
+		AddedGroups:         addedGroups,
+		SkippedGroups:       skippedGroups,
+		DeletedConflictRows: deletedConflictRows,
 	})
 }
