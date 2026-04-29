@@ -93,8 +93,7 @@ def _normalize_history_for_agent(history: list[dict[str, Any]]) -> list[dict[str
             content = _history_message_content(message)
             body_text, reasoning_content, tool_calls, tool_results = _parse_history_assistant_content(content)
             assistant_message = {'role': 'assistant', 'content': body_text}
-            if reasoning_content:
-                assistant_message['reasoning_content'] = reasoning_content
+            assistant_message['reasoning_content'] = reasoning_content or ''
             if tool_calls:
                 assistant_message['tool_calls'] = tool_calls
             normalized.append(assistant_message)
