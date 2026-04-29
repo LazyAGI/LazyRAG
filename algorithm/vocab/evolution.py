@@ -125,6 +125,7 @@ _CONFLICT_PROMPT = """你是“词族冲突判定器”。
 
 _SENTENCE_BOUNDARY_RE = re.compile(r'.*?(?:[。！？!?；;]+|[\n]+|$)', re.S)
 _WORD_GROUP_APPLY_PATH = '/api/core/inner/word_group:apply'
+_WORD_GROUP_APPLY_INTERNAL_PATH = '/inner/word_group:apply'
 _WORD_GROUP_APPLY_URL_ENV = 'LAZYRAG_WORD_GROUP_APPLY_URL'
 _CORE_SERVICE_URL_ENV = 'LAZYRAG_CORE_SERVICE_URL'
 _BACKEND_APPLY_TIMEOUT = 10.0
@@ -231,19 +232,23 @@ def _wrap_backend_action_payload(actions: Sequence[Dict[str, Any]]) -> Dict[str,
 
 
 def _resolve_word_group_apply_url(apply_url: Optional[str] = None) -> str:
-    resolved_url = _norm_text(apply_url) or _norm_text(os.getenv(_WORD_GROUP_APPLY_URL_ENV))
+    resolved_url = (_norm_text(apply_url) or _norm_text(os.getenv(_WORD_GROUP_APPLY_URL_ENV))).rstrip('/')
     if resolved_url:
         return resolved_url
 
-    core_service_url = _norm_text(os.getenv(_CORE_SERVICE_URL_ENV))
+    core_service_url = _norm_text(os.getenv(_CORE_SERVICE_URL_ENV)).rstrip('/')
     if core_service_url:
-        if core_service_url.endswith(_WORD_GROUP_APPLY_PATH):
+        if (
+            core_service_url.endswith(_WORD_GROUP_APPLY_PATH)
+            or core_service_url.endswith(_WORD_GROUP_APPLY_INTERNAL_PATH)
+        ):
             return core_service_url
-        return core_service_url.rstrip('/') + _WORD_GROUP_APPLY_PATH
+        return core_service_url + _WORD_GROUP_APPLY_INTERNAL_PATH
 
     raise RuntimeError(
         'word group apply url is not configured; '
-        f'set {_WORD_GROUP_APPLY_URL_ENV} or {_CORE_SERVICE_URL_ENV}'
+        f'set {_WORD_GROUP_APPLY_URL_ENV} or {_CORE_SERVICE_URL_ENV} '
+        '(for example: http://core:8000 or http://kong:8000/api/core)'
     )
 
 

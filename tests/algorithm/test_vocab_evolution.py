@@ -18,6 +18,7 @@ from vocab.evolution import (  # noqa: E402
     SynonymExtractionModule,
     VocabEvolutionRequest,
     VocabEvolutionService,
+    _resolve_word_group_apply_url,
     run_vocab_evolution,
 )
 
@@ -351,3 +352,24 @@ def test_run_vocab_evolution_and_apply_posts_nested_action_list():
         },
         'timeout': 10.0,
     }
+
+
+def test_resolve_word_group_apply_url_prefers_exact_apply_url_env(monkeypatch):
+    monkeypatch.setenv('LAZYRAG_WORD_GROUP_APPLY_URL', 'http://backend.local/api/core/inner/word_group:apply')
+    monkeypatch.setenv('LAZYRAG_CORE_SERVICE_URL', 'http://core:8000')
+
+    assert _resolve_word_group_apply_url() == 'http://backend.local/api/core/inner/word_group:apply'
+
+
+def test_resolve_word_group_apply_url_supports_direct_core_service_base(monkeypatch):
+    monkeypatch.delenv('LAZYRAG_WORD_GROUP_APPLY_URL', raising=False)
+    monkeypatch.setenv('LAZYRAG_CORE_SERVICE_URL', 'http://core:8000')
+
+    assert _resolve_word_group_apply_url() == 'http://core:8000/inner/word_group:apply'
+
+
+def test_resolve_word_group_apply_url_supports_public_core_base(monkeypatch):
+    monkeypatch.delenv('LAZYRAG_WORD_GROUP_APPLY_URL', raising=False)
+    monkeypatch.setenv('LAZYRAG_CORE_SERVICE_URL', 'http://gateway.local/api/core')
+
+    assert _resolve_word_group_apply_url() == 'http://gateway.local/api/core/inner/word_group:apply'
