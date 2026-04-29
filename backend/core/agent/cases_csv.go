@@ -49,11 +49,11 @@ type caseCSVFile struct {
 	ContentType     string `json:"content_type"`
 	RowCount        int    `json:"row_count"`
 	FileSize        int64  `json:"file_size"`
-	FileURL         string `json:"file_url"`
-	ContentURL      string `json:"content_url"`
-	PreviewURL      string `json:"preview_url"`
-	DownloadURL     string `json:"download_url"`
-	DownloadFileURL string `json:"download_file_url"`
+	FileURL         string `json:"-"`
+	ContentURL      string `json:"-"`
+	PreviewURL      string `json:"-"`
+	DownloadURL     string `json:"-"`
+	DownloadFileURL string `json:"-"`
 	StoredPath      string `json:"-"`
 }
 
@@ -290,12 +290,7 @@ func attachCSVFileToContainer(container map[string]any, attachmentKey string, fi
 	if container == nil || file == nil {
 		return
 	}
-	container[attachmentKey] = file
 	container["file_url"] = file.FileURL
-	container["content_url"] = file.ContentURL
-	container["preview_url"] = file.PreviewURL
-	container["download_url"] = file.DownloadURL
-	container["download_file_url"] = file.DownloadFileURL
 }
 
 func caseCSVCellString(value any) string {
