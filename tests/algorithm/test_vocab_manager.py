@@ -7,7 +7,8 @@ Test categories
 - TestVocabRegistry            : get_vocab_manager() per-user isolation
 - TestVocabManagerThreadSafety : concurrent reload + call
 - TestVocabReloadRoute         : FastAPI POST /api/vocab/reload
-- TestVocabDBIntegration       : real PostgreSQL queries (requires LAZYRAG_DATABASE_URL)
+- TestVocabDBQueryLayer        : SQL generation for backend-managed words table
+- TestVocabDBIntegration       : real PostgreSQL queries (requires core DB env)
 
 Run (from repo root, with lazyllm env activated):
     source activate lazyllm
@@ -15,7 +16,7 @@ Run (from repo root, with lazyllm env activated):
     python -m pytest tests/algorithm/test_vocab_manager.py -v
 
 Integration tests only:
-    LAZYRAG_DATABASE_URL=postgresql://root:123456@10.119.24.129:5432/app \
+    LAZYRAG_CORE_DATABASE_URL=postgresql://root:123456@10.119.24.129:5432/core \
         python -m pytest tests/algorithm/test_vocab_manager.py -v -m integration
 """
 from __future__ import annotations
@@ -27,6 +28,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import text
 
 # ---------------------------------------------------------------------------
 # Ensure algorithm/ is on sys.path
@@ -62,6 +64,47 @@ def _reset_registry():
     """Clear the global registry between tests."""
     from vocab.vocab_manager import clear_registry
     clear_registry()
+
+
+class _FakeMappingsResult:
+    def __init__(self, *, rows=None, scalar_value=None):
+        self._rows = list(rows or [])
+        self._scalar_value = scalar_value
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return list(self._rows)
+
+    def scalar(self):
+        return self._scalar_value
+
+
+class _FakeConnection:
+    def __init__(self, *results):
+        self._results = list(results)
+        self.executed: list[tuple[str, dict | None]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, statement, params=None):
+        self.executed.append((str(statement), params))
+        if not self._results:
+            raise AssertionError('unexpected execute call in fake DB connection')
+        return self._results.pop(0)
+
+
+class _FakeEngine:
+    def __init__(self, connection: _FakeConnection):
+        self._connection = connection
+
+    def connect(self):
+        return self._connection
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +275,69 @@ class TestVocabManagerThreadSafety:
         assert errors == [], f'Thread errors: {errors}'
 
 
+class TestVocabDBQueryLayer:
+
+    def test_get_vocab_conn_prefers_core_db_url(self):
+        import vocab.db as vocab_db
+
+        fake_engine = object()
+        with patch.dict(_os.environ, {
+            'LAZYRAG_DATABASE_URL': 'postgresql://legacy-app-db',
+            'LAZYRAG_CORE_DATABASE_URL': 'postgresql://core-db',
+            'ACL_DB_DSN': '',
+        }, clear=False), patch('vocab.db._get_engine', return_value=fake_engine) as mock_get_engine:
+            assert vocab_db._get_vocab_conn() is fake_engine
+
+        assert mock_get_engine.call_args.kwargs == {'url': 'postgresql://core-db', 'dsn': None}
+
+    def test_fetch_vocab_for_create_user_id_queries_public_words_and_filters_deleted(self):
+        from vocab.db import fetch_vocab_for_create_user_id
+
+        conn = _FakeConnection(
+            _FakeMappingsResult(rows=[{'word': '苹果', 'group_id': 'g1'}]),
+        )
+        engine = _FakeEngine(conn)
+        with patch('vocab.db._ensure_table_once', return_value=None), \
+             patch('vocab.db._has_vocab_conn_target', return_value=True), \
+             patch('vocab.db._get_vocab_conn', return_value=engine):
+            rows = fetch_vocab_for_create_user_id('user-x')
+
+        assert rows == [{'word': '苹果', 'cluster_id': 'g1'}]
+        sql, params = conn.executed[0]
+        assert 'FROM public.words' in sql
+        assert 'deleted_at IS NULL' in sql
+        assert params == {'create_user_id': 'user-x'}
+
+    def test_fetch_vocab_groups_queries_reference_info_and_filters_deleted(self):
+        from vocab.db import fetch_vocab_groups_for_create_user_id
+
+        conn = _FakeConnection(
+            _FakeMappingsResult(rows=[
+                {'group_id': 'g1', 'word': '苹果', 'description': '水果', 'reference': 'r1'},
+                {'group_id': 'g1', 'word': 'apple', 'description': '', 'reference': 'r2'},
+            ]),
+        )
+        engine = _FakeEngine(conn)
+        with patch('vocab.db._ensure_table_once', return_value=None), \
+             patch('vocab.db._has_vocab_conn_target', return_value=True), \
+             patch('vocab.db._get_vocab_conn', return_value=engine):
+            groups = fetch_vocab_groups_for_create_user_id('user-y')
+
+        assert groups == {
+            'g1': {
+                'group_id': 'g1',
+                'description': '水果',
+                'words': ['苹果', 'apple'],
+                'references': ['r1', 'r2'],
+            }
+        }
+        sql, params = conn.executed[0]
+        assert 'COALESCE(reference_info, \'\') AS reference' in sql
+        assert 'FROM public.words' in sql
+        assert 'deleted_at IS NULL' in sql
+        assert params == {'create_user_id': 'user-y'}
+
+
 # ---------------------------------------------------------------------------
 # TestVocabReloadRoute
 # ---------------------------------------------------------------------------
@@ -393,28 +499,77 @@ class TestVocabReloadRoute:
 # TestVocabDBIntegration  (requires real DB — skipped when env var absent)
 # ---------------------------------------------------------------------------
 
-_DB_URL = _os.getenv('LAZYRAG_DATABASE_URL', '')
+_REAL_VOCAB_DB_URL = _os.getenv('LAZYRAG_CORE_DATABASE_URL', '') or _os.getenv('LAZYRAG_DATABASE_URL', '')
+
+
+def _real_vocab_users(limit: int = 2) -> list[str]:
+    from vocab.db import _get_vocab_conn
+
+    engine = _get_vocab_conn()
+    with engine.connect() as conn:
+        return [
+            row for row in conn.execute(
+                text(
+                    """SELECT create_user_id
+                           FROM public.words
+                          WHERE deleted_at IS NULL
+                            AND COALESCE(create_user_id, '') <> ''
+                          GROUP BY create_user_id
+                          ORDER BY COUNT(*) DESC, create_user_id
+                          LIMIT :limit"""
+                ),
+                {'limit': limit},
+            ).scalars().all()
+            if row
+        ]
+
+
+def _real_deleted_vocab_entry() -> dict | None:
+    from vocab.db import _get_vocab_conn
+
+    engine = _get_vocab_conn()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """SELECT create_user_id, word, group_id
+                       FROM public.words
+                      WHERE deleted_at IS NOT NULL
+                        AND COALESCE(create_user_id, '') <> ''
+                      ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+                      LIMIT 1"""
+            )
+        ).mappings().all()
+    return dict(rows[0]) if rows else None
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(not _DB_URL, reason='LAZYRAG_DATABASE_URL not set')
+@pytest.mark.skipif(not _REAL_VOCAB_DB_URL, reason='LAZYRAG_CORE_DATABASE_URL / LAZYRAG_DATABASE_URL not set')
 class TestVocabDBIntegration:
-    """Integration tests that hit the real lazyrag_vocab table."""
+    """Integration tests that hit the real core.public.words table."""
 
-    def test_fetch_vocab_for_create_user_id_user001(self):
+    def test_fetch_vocab_for_active_user(self):
         from vocab.db import fetch_vocab_for_create_user_id
-        rows = fetch_vocab_for_create_user_id('user_001')
-        assert len(rows) >= 4, f'expected ≥4 rows for user_001, got {rows}'
-        words = {r['word'] for r in rows}
-        assert '苹果' in words
-        assert 'apple' in words
+        users = _real_vocab_users(limit=1)
+        if not users:
+            pytest.skip('no active vocab users in real core.words table')
 
-    def test_fetch_vocab_for_create_user_id_user002(self):
+        rows = fetch_vocab_for_create_user_id(users[0])
+        assert rows, f'expected active vocab rows for {users[0]!r}'
+        assert all(row['word'] for row in rows)
+        assert all(row['cluster_id'] for row in rows)
+
+    def test_deleted_vocab_rows_are_excluded(self):
         from vocab.db import fetch_vocab_for_create_user_id
-        rows = fetch_vocab_for_create_user_id('user_002')
-        words = {r['word'] for r in rows}
-        assert '民法' in words
-        assert '民事法律' in words
+
+        deleted = _real_deleted_vocab_entry()
+        if not deleted:
+            pytest.skip('no deleted vocab rows available in real core.words table')
+
+        rows = fetch_vocab_for_create_user_id(deleted['create_user_id'])
+        assert {
+            'word': deleted['word'],
+            'cluster_id': deleted['group_id'],
+        } not in rows
 
     def test_fetch_vocab_unknown_user_returns_empty(self):
         from vocab.db import fetch_vocab_for_create_user_id
@@ -424,29 +579,40 @@ class TestVocabDBIntegration:
     def test_vocab_manager_loads_from_db(self):
         _reset_registry()
         from vocab.vocab_manager import get_vocab_manager
-        mgr = get_vocab_manager('user_001')
-        assert mgr.vocab_size >= 2   # at least 苹果, apple (deduped by word)
+        users = _real_vocab_users(limit=1)
+        if not users:
+            pytest.skip('no active vocab users in real core.words table')
+
+        mgr = get_vocab_manager(users[0])
+        assert mgr.vocab_size >= 1
         _reset_registry()
 
     def test_reload_reads_db(self):
         _reset_registry()
         from vocab.vocab_manager import get_vocab_manager
-        mgr = get_vocab_manager('user_002')
+        users = _real_vocab_users(limit=1)
+        if not users:
+            pytest.skip('no active vocab users in real core.words table')
+
+        mgr = get_vocab_manager(users[0])
         count = mgr.reload()
-        assert count >= 2
+        assert count >= 1
         _reset_registry()
 
     def test_user_isolation_in_full_stack(self):
-        """user_001 and user_002 managers are completely independent."""
+        """Two active users should load independent vocab snapshots."""
         _reset_registry()
         from vocab.vocab_manager import get_vocab_manager
-        mgr1 = get_vocab_manager('user_001')
-        mgr2 = get_vocab_manager('user_002')
+        users = _real_vocab_users(limit=2)
+        if len(users) < 2:
+            pytest.skip('need at least two active vocab users for isolation test')
 
-        assert '苹果'    in mgr1._proc.word_to_cluster
-        assert '苹果'    not in mgr2._proc.word_to_cluster
-        assert '民法'    in mgr2._proc.word_to_cluster
-        assert '民法'    not in mgr1._proc.word_to_cluster
+        mgr1 = get_vocab_manager(users[0])
+        mgr2 = get_vocab_manager(users[1])
+
+        assert mgr1.create_user_id != mgr2.create_user_id
+        assert mgr1 is not mgr2
+        assert mgr1._proc.word_to_cluster != mgr2._proc.word_to_cluster
         _reset_registry()
 
 
