@@ -8,11 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from evo.conductor.prompts import load as load_prompt
-from evo.conductor.spawner import execute_batch
 from evo.conductor.synthesis import (
     DIRECTION_VALUES, PRIORITY_ORDER, SynthesisResult, VerifiedAction,
 )
-from evo.conductor.world_model import Hypothesis
 from evo.harness.react import LLMInvoker
 from evo.harness.schemas import SCHEMAS
 from evo.harness.structured import invoke_structured
@@ -21,7 +19,6 @@ from evo.runtime.session import AnalysisSession
 from evo.utils import coerce_confidence
 
 SYNTHESIZER_NAME = "synthesizer"
-_MAX_GAP_HYPOTHESES = 4
 
 
 def run_synthesizer(session: AnalysisSession, *, llm: Any | None = None) -> SynthesisResult:
@@ -29,10 +26,8 @@ def run_synthesizer(session: AnalysisSession, *, llm: Any | None = None) -> Synt
     parsed = _synthesize_once(session, iteration=0, llm=llm)
     iterations = 1
     if parsed.get("gap_hypotheses"):
-        new_hids = _append_gaps_and_research(session, parsed["gap_hypotheses"])
-        if new_hids:
-            parsed = _synthesize_once(session, iteration=1, llm=llm)
-            iterations = 2
+        parsed = _synthesize_once(session, iteration=1, llm=llm)
+        iterations = 2
     actions = [_to_action(a, session) for a in parsed.get("actions", []) or []]
     actions = [a for a in actions if a is not None]
     _annotate_with_code_map(actions, session)
@@ -91,51 +86,6 @@ def _world_summary(session: AnalysisSession, iteration: int) -> dict[str, Any]:
         "findings": findings,
         "open_questions": list(w.open_questions),
     }
-
-
-def _append_gaps_and_research(session: AnalysisSession,
-                              gap_hypotheses: list[Any]) -> list[str]:
-    new_hids: list[str] = []
-
-    def _append(world):
-        for raw in (gap_hypotheses or [])[:_MAX_GAP_HYPOTHESES]:
-            if isinstance(raw, dict):
-                gh = raw
-            elif isinstance(raw, str) and raw.strip():
-                gh = {"claim": raw.strip()}
-            else:
-                continue
-            existing = {h.id for h in world.hypotheses}
-            base = gh.get("id") or f"GH{len(world.hypotheses) + 1:03d}"
-            hid = base
-            n = 1
-            while hid in existing:
-                n += 1
-                hid = f"{base}_{n}"
-            paths = gh.get("investigation_paths") or []
-            if not isinstance(paths, list):
-                paths = [paths]
-            world.hypotheses.append(Hypothesis(
-                id=hid, claim=str(gh.get("claim", "")),
-                category=str(gh.get("category", "")), status="proposed",
-                investigation_paths=[str(p) for p in paths],
-                source=SYNTHESIZER_NAME,
-            ))
-            new_hids.append(hid)
-
-    session.world_store.update(_append)
-    if not new_hids:
-        return new_hids
-    execute_batch(session,
-                  [{"kind": "research", "hypothesis_id": h} for h in new_hids],
-                  max_workers=4)
-    pending = [f.id for f in session.world_store.world.findings
-               if f.hypothesis_id in new_hids and f.critic_status == "pending"]
-    if pending:
-        execute_batch(session,
-                      [{"kind": "critic", "finding_id": fid} for fid in pending],
-                      max_workers=4)
-    return new_hids
 
 
 def _format_gap(g: Any) -> str:

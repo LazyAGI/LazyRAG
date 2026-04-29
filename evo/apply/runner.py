@@ -152,14 +152,20 @@ def _allowlist_violation_context(paths: list[str]) -> str:
     ).strip()
 
 
-def _build_modification_plan(actions: list[dict]) -> list[dict]:
+def _sanitize_path_text(text: str, chat_source: Path) -> str:
+    base = str(chat_source.resolve()).rstrip('/')
+    return text.replace(base + '/', '').replace('/var/lib/lazyrag/chat-source/', '')
+
+
+def _build_modification_plan(actions: list[dict], chat_source: Path) -> list[dict]:
     return [{
         'id': str(a.get('id', '')),
         'title': str(a.get('title', '')),
         'rationale': str(a.get('rationale', '')),
-        'suggested_changes': str(a.get('suggested_changes', '')),
+        'suggested_changes': _sanitize_path_text(str(a.get('suggested_changes', '')),
+                                                 chat_source),
         'priority': str(a.get('priority', '')),
-        'files': [_rel_under_chat(str(a.get('code_map_target', '')), Path.cwd())],
+        'files': [_rel_under_chat(str(a.get('code_map_target', '')), chat_source)],
     } for a in actions]
 
 
@@ -168,6 +174,9 @@ def _build_prompt(instruction: str, plan: list[dict],
     parts: list[str] = [instruction.strip(), '']
     parts.append('允许修改的范围（严格遵守，禁止改动其它路径）：')
     parts.extend(f'- {f}' for f in allow_lines)
+    parts.append('')
+    parts.append('所有文件读写都必须使用上述相对路径；不要访问或修改 worktree 外的绝对路径，'
+                 '也不要修改未列出的依赖实现文件。')
     parts.append('')
     parts.append('修改计划（JSON）：')
     parts.append(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -281,7 +290,7 @@ def execute_apply(
     branch = GitWorkspace.branch_name(apply_id)
 
     (apply_dir / 'input').mkdir(parents=True, exist_ok=True)
-    plan = _build_modification_plan(actions)
+    plan = _build_modification_plan(actions, config.chat_source)
     plan_path = apply_dir / 'input' / 'modification_plan.json'
     if not plan_path.exists():
         plan_path.write_text(

@@ -23,7 +23,8 @@ def write_artifact(relpath: str, content: str) -> ToolResult[dict[str, Any]]:
         return ToolResult.failure('write_artifact', ErrorCode.DATA_NOT_LOADED,
                                   'No active session.')
     try:
-        path = safe_under(session.config.storage.base_dir, relpath)
+        base = session.artifact_base_dir or session.config.storage.base_dir
+        path = safe_under(base, relpath)
     except ValueError as exc:
         return ToolResult.failure('write_artifact', ErrorCode.INVALID_ARGUMENT, str(exc))
     path.parent.mkdir(parents=True, exist_ok=True)

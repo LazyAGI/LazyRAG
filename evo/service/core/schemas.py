@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class VerdictPolicyModel(BaseModel):
@@ -30,6 +30,7 @@ class DatasetGenCreate(BaseModel):
     kb_id: str
     algo_id: str = 'general_algo'
     eval_name: str | None = None
+    num_cases: int | None = Field(default=None, ge=1, le=200)
 
 
 class EvalCreate(BaseModel):
@@ -39,21 +40,11 @@ class EvalCreate(BaseModel):
     target_chat_url: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
 
-
-class MergeCreate(BaseModel):
-    thread_id: str | None = None
-    apply_id: str
-    strategy: Literal['merge-commit', 'squash', 'fast-forward'] = 'merge-commit'
-    auto_deploy: bool = False
-
-
-class DeployCreate(BaseModel):
-    thread_id: str | None = None
-    merge_id: str
-    adapter: str = 'local'
-    version: str = 'latest'
-    role: str = 'production'
-    keep_old: bool = True
+    @model_validator(mode='after')
+    def _exactly_one_target(self) -> 'EvalCreate':
+        if bool(self.dataset_id) == bool(self.eval_id):
+            raise ValueError('provide exactly one of dataset_id or eval_id')
+        return self
 
 
 class AbtestCreate(BaseModel):
@@ -66,3 +57,12 @@ class AbtestCreate(BaseModel):
     candidate_chat_id: str | None = None
     eval_options: dict[str, Any] = Field(default_factory=dict)
     policy: VerdictPolicyModel = Field(default_factory=VerdictPolicyModel)
+
+
+class ThreadFlowStatus(BaseModel):
+    thread_id: str
+    status: Literal['not_found', 'running', 'ended']
+    active_task_ids: list[str] = Field(default_factory=list)
+    latest_abtest_id: str | None = None
+    latest_abtest_status: str | None = None
+    report_ready: bool = False

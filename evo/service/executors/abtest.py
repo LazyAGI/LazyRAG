@@ -36,8 +36,10 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         dataset_id=payload['dataset_id'],
         apply_worktree=Path(payload['apply_worktree']),
         candidate_chat_id=payload.get('candidate_chat_id'),
+        target_chat_url=payload.get('target_chat_url'),
         eval_options=payload.get('eval_options') or {},
         policy=ctx.abtest_policy.get(tid) or VerdictPolicy(**policy_data),
+        candidate_env=_candidate_env(Path(payload['apply_worktree'])),
     )
     try:
         result = execute_abtest(
@@ -71,3 +73,8 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     finally:
         ctx.pop_thread(tid)
         ctx.abtest_policy.pop(tid, None)
+
+
+def _candidate_env(worktree: Path) -> dict[str, str]:
+    from . import apply as apply_exec
+    return apply_exec.candidate_launch_env(worktree)

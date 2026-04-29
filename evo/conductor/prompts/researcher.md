@@ -33,7 +33,7 @@
 ## 代码类调查路径（category=code_issue 时优先采用）
 1. `list_subject_index` → 拿到 subject_entry + step_to_source + symbol_hints
 2. 根据怀疑步骤名查 step_to_source[step].file/line/symbol/init_args
-3. `read_source_file(file=<step.file>, start_line=<step.line - 5>, end_line=<step.line + 30>)`
+3. `read_source_file(file_path=<step.file>, start_line=<step.line - 5>, end_line=<step.line + 30>)`
    读取该步骤定义所在的源码窗口
 4. 若需要看符号实现：`resolve_import(symbol="<step.symbol>")` →
    返回的 file/line + readable=true 时，再 `read_source_file(...)` 或

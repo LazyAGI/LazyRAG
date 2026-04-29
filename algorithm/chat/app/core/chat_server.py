@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI
 from lazyllm import LOG, once_wrapper
 
-from chat.config import URL_MAP, SENSITIVE_WORDS_PATH, DEFAULT_CHAT_DATASET
+from chat.config import SENSITIVE_WORDS_PATH, DEFAULT_CHAT_DATASET, resolve_dataset_url
 from chat.pipelines.agentic import agentic_rag
 from chat.pipelines.naive import get_ppl_naive
 from chat.components.process.sensitive_filter import SensitiveFilter
@@ -48,7 +48,7 @@ class ChatServer:
 
             if os.getenv('LAZYRAG_SKIP_STARTUP_PIPELINE', '').lower() in {'1', 'true', 'yes'}:
                 self.startup_validated = True
-            elif DEFAULT_CHAT_DATASET in URL_MAP:
+            elif resolve_dataset_url(DEFAULT_CHAT_DATASET):
                 self.get_query_pipeline(DEFAULT_CHAT_DATASET)
                 self.get_query_pipeline(DEFAULT_CHAT_DATASET, stream=True)
                 self.startup_validated = True
@@ -66,14 +66,15 @@ class ChatServer:
             raise exc
 
     def has_dataset(self, dataset: str) -> bool:
-        return dataset in URL_MAP
+        return resolve_dataset_url(dataset) is not None
 
     def get_query_pipeline(self, dataset: str, *, stream: bool = False) -> Any:
-        if dataset not in URL_MAP:
+        url = resolve_dataset_url(dataset)
+        if url is None:
             raise KeyError(f'dataset `{dataset}` not found in URL_MAP')
         pipeline_map = self.query_ppl_stream if stream else self.query_ppl
         if dataset not in pipeline_map:
-            pipeline_map[dataset] = get_ppl_naive(url=URL_MAP[dataset], stream=stream)
+            pipeline_map[dataset] = get_ppl_naive(url=url, stream=stream)
         return pipeline_map[dataset]
 
 

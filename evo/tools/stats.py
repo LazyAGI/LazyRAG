@@ -31,8 +31,7 @@ def summarize_metrics(case_ids: list[str] | None = None) -> ToolResult[dict[str,
             return ToolResult.failure('summarize_metrics', ErrorCode.INVALID_ARGUMENT,
                                       'case_ids must be a list or None.')
         if len(case_ids) == 0:
-            return ToolResult.failure('summarize_metrics', ErrorCode.INVALID_ARGUMENT,
-                                      'case_ids cannot be empty (use None for all cases).')
+            case_ids = None
 
     target_ids = case_ids if case_ids is not None else session.list_dataset_ids()
 

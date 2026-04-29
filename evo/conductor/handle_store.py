@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from evo.utils import jsonable
 
@@ -23,15 +23,18 @@ class Handle:
 class HandleStore:
     """Append-only log of tool calls keyed by ``h_NNNN``."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path | None,
+                 event_writer: Callable[[str, dict[str, Any]], None] | None = None) -> None:
         self._path = path
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if self._path is not None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._event_writer = event_writer
         self._lock = threading.Lock()
         self._counter = itertools.count(1)
         self._cache: dict[str, Handle] = {}
 
     @property
-    def path(self) -> Path:
+    def path(self) -> Path | None:
         return self._path
 
     def append(self, tool: str, args: dict[str, Any], result: Any) -> str:
@@ -43,8 +46,11 @@ class HandleStore:
                 "h": h_id, "ts": h.ts, "tool": tool,
                 "args": jsonable(args), "result": jsonable(result),
             }
-            with self._path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            if self._path is not None:
+                with self._path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            if self._event_writer is not None:
+                self._event_writer("handle.created", payload)
             return h_id
 
     def get(self, h_id: str) -> Handle | None:

@@ -34,6 +34,13 @@ def is_readable(file_path: str | Path, scope: ReadScope) -> tuple[bool, str]:
 
 
 def resolve_in_scope(file_path: str | Path, scope: ReadScope) -> Path:
+    raw = Path(file_path).expanduser()
+    if not raw.is_absolute():
+        for root in (*scope.project_roots, *scope.extra_roots):
+            candidate = Path(root) / raw
+            ok, _why = is_readable(candidate, scope)
+            if ok:
+                return candidate.resolve()
     ok, why = is_readable(file_path, scope)
     if not ok:
         raise PermissionError(f'{file_path}: {why}')

@@ -10,6 +10,8 @@ from typing import Any
 
 import logging
 
+from evo.datagen.validate import normalize_qa_json
+
 _log = logging.getLogger('evo.datagen.writer')
 
 
@@ -125,7 +127,9 @@ def build_full_eval_set(
     cases: list[dict] = []
     for item in qa_result:
         try:
-            qa = extract_json(item.get('qa', {}))
+            qa = normalize_qa_json(extract_json(item.get('qa', {})))
+            if not qa:
+                continue
             case = {
                 'case_id': str(uuid.uuid4()),
                 'reference_doc': qa.get('reference_doc', []),

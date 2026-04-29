@@ -27,7 +27,7 @@ def evaluate_answer(
         if isinstance(res, str):
             res = _parse_json_object(res)
         if isinstance(res, dict):
-            return res
+            return _normalize_eval_result(res)
         raise ValueError(f'invalid eval response: {type(res).__name__}')
     except Exception as exc:
         _log.info('eval parse error: %s', exc)
@@ -48,6 +48,24 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         if not match:
             raise
         return json.loads(match.group())
+
+
+def _normalize_eval_result(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'answer_correctness': _score01(data.get('answer_correctness')),
+        'is_correct': bool(data.get('is_correct')),
+        'reason': str(data.get('reason') or '')[:300],
+        'faithfulness': _score01(data.get('faithfulness')),
+    }
+
+
+def _score01(value: Any) -> float:
+    score = float(value)
+    if score > 1.0 and score <= 5.0:
+        score = score / 5.0
+    if score < 0.0 or score > 1.0:
+        raise ValueError(f'score out of range: {value}')
+    return round(score, 4)
 
 
 def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_workers: int = 10) -> list[dict]:

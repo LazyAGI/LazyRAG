@@ -1,7 +1,10 @@
 #!/bin/sh
 set -e
 
-OC_DATA_DIR="${OPENCODE_DATA_DIR:-/var/lib/lazyrag/evo/opencode}"
+if [ "${OPENCODE_DATA_DIR:-}" = "/var/lib/lazyrag/evo/opencode" ]; then
+  OPENCODE_DATA_DIR="/var/lib/lazyrag/evo/work/opencode"
+fi
+OC_DATA_DIR="${OPENCODE_DATA_DIR:-/var/lib/lazyrag/evo/work/opencode}"
 mkdir -p "$OC_DATA_DIR"
 chmod 700 "$OC_DATA_DIR"
 

@@ -44,10 +44,21 @@ class Conductor:
 
     def run(self) -> ConductorRunResult:
         total = 0
+        self.session.telemetry.emit(
+            "conductor.started",
+            max_iterations=self.cfg.max_iterations,
+            max_concurrent=self.cfg.max_concurrent,
+        )
         for it in range(self.cfg.max_iterations):
             self._tick(it)
             decision = self._plan(it)
             actions = self._filter(decision.get("actions") or [])
+            self.session.telemetry.emit(
+                "conductor.decision",
+                iteration=it + 1,
+                input=self._snapshot(it),
+                output={"decision": decision, "actions": actions},
+            )
             self._log.info(
                 "Conductor iter=%d done=%s actions_planned=%d actions_run=%d",
                 it + 1, decision.get("done"), len(decision.get("actions") or []), len(actions),
@@ -61,6 +72,11 @@ class Conductor:
                 self._emit(it + 1, True, total)
                 return ConductorRunResult(it + 1, True, total)
             execute_batch(self.session, actions, self.cfg.max_concurrent)
+            self.session.telemetry.emit(
+                "conductor.stage_advanced",
+                iteration=it + 1,
+                actions_run=len(actions),
+            )
             total += len(actions)
         self._mark_converged()
         self._emit(self.cfg.max_iterations, False, total)
@@ -69,6 +85,11 @@ class Conductor:
     def _plan(self, iteration: int) -> dict[str, Any]:
         snapshot = self._snapshot(iteration)
         user = json.dumps(snapshot, ensure_ascii=False, indent=2)
+        self.session.telemetry.emit(
+            "conductor.plan_created",
+            iteration=iteration + 1,
+            snapshot=snapshot,
+        )
         return invoke_structured(
             self.session, self._invoker, user,
             agent=CONDUCTOR_NAME, schema=SCHEMAS["conductor"],

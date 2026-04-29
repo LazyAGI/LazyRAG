@@ -1,5 +1,5 @@
 from .context import ExecCtx
-from . import run, apply, eval_, abtest, dataset_gen, merge, deploy
+from . import run, apply, eval_, abtest, dataset_gen
 
 EXECUTORS = {
     'run': run.execute,
@@ -7,9 +7,7 @@ EXECUTORS = {
     'eval': eval_.execute,
     'abtest': abtest.execute,
     'dataset_gen': dataset_gen.execute,
-    'merge': merge.execute,
-    'deploy': deploy.execute,
 }
 
 __all__ = ['ExecCtx', 'EXECUTORS', 'run', 'apply', 'eval_', 'abtest',
-           'dataset_gen', 'merge', 'deploy']
+           'dataset_gen']

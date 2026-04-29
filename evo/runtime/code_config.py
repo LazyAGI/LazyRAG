@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -59,7 +60,23 @@ def code_context_dict(ca: 'CodeAccessConfig') -> dict[str, Any]:
 
 def _resolve(p: str | Path, base: Path) -> Path:
     raw = Path(p).expanduser()
-    return raw.resolve() if raw.is_absolute() else (base / raw).resolve()
+    resolved = raw.resolve() if raw.is_absolute() else (base / raw).resolve()
+    return _container_path(resolved)
+
+
+def _container_path(path: Path) -> Path:
+    if path.exists():
+        return path
+    chat_source = os.getenv('EVO_CHAT_SOURCE')
+    if not chat_source:
+        return path
+    parts = path.parts
+    marker = ('algorithm', 'chat')
+    for i in range(len(parts) - 1):
+        if parts[i:i + 2] == marker:
+            mapped = Path(chat_source).joinpath(*parts[i + 2:])
+            return mapped.resolve()
+    return Path(chat_source).resolve() if path.is_absolute() else path
 
 
 def load_code_access(path: Path | None) -> CodeAccessConfig:
@@ -70,7 +87,8 @@ def load_code_access(path: Path | None) -> CodeAccessConfig:
         raise ValueError(f'code_map.json root must be an object, got {type(raw).__name__}')
     base = Path(path).resolve().parent
 
-    cm = {str(k): str(v) for k, v in (raw.get('code_map') or {}).items()}
+    cm = {str(_container_path(Path(k).expanduser())): str(v)
+          for k, v in (raw.get('code_map') or {}).items()}
 
     rs_raw = raw.get('read_scope') or {}
     project_roots = tuple(_resolve(p, base) for p in rs_raw.get('project_roots') or [base])

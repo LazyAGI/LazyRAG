@@ -36,10 +36,11 @@ reranker:
   type: rerank
   model: Qwen3-Reranker-8B
   url: http://10.119.24.104:8331/v1/rerank
+  api_key: ${LAZYLLM_QWEN_API_KEY}
   skip_auth: true
 
 embeddings:
-  embed_1
+  embed_1:
     source: qwen
     type: embed
     model: text-embedding-v3

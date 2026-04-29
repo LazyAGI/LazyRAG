@@ -1,12 +1,13 @@
 FROM python:3.11-slim
 
-ARG OPENCODE_VERSION=1.4.3
+ARG OPENCODE_VERSION=1.14.28
 ARG TARGETARCH
 ARG LAZYLLM_GIT_URL=https://github.com/Mustafa974/LazyLLM.git
 ARG LAZYLLM_GIT_BRANCH=tracing_v3
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    OPENCODE_BIN=/usr/local/bin/opencode \
     OPENCODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
     EVO_BASE_DIR=/var/lib/lazyrag/evo \
     PYTHONPATH=/app

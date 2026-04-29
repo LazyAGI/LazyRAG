@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import os
+import threading
 import uuid
 import time
 from typing import Any, Dict, List, Optional, Union
@@ -12,8 +13,9 @@ from lazyllm import LOG
 from lazyllm.tracing import current_trace, enable_trace
 from lazyllm.tracing.collect import runtime as tracing_runtime
 from fastapi.responses import StreamingResponse
-from chat.config import (URL_MAP, RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
-                         LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT)
+from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
+                         LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT,
+                         resolve_dataset_url)
 from chat.utils.helpers import validate_and_resolve_files
 from chat.app.core.chat_server import chat_server
 
@@ -40,12 +42,11 @@ def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_e
         session_id=session_id,
         request_tags=[f'dataset:{dataset}', f'mode:{mode_tag}'],
     )
-    _flush_trace_exporter()
     result = captured.get('result')
     trace_id = captured.get('trace_id') or uuid.uuid4().hex
-    _ingest_langfuse_trace(trace_id, ppl_args, result,
-                           session_id=session_id, dataset=dataset,
-                           mode_tag=mode_tag)
+    _export_trace_async(trace_id, ppl_args, result,
+                        session_id=session_id, dataset=dataset,
+                        mode_tag=mode_tag)
     local_trace = None if captured.get('trace_id') else {
         'trace_id': trace_id,
         'name': 'chat.pipelines.naive',
@@ -69,6 +70,18 @@ def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_e
     return result, trace_id, local_trace
 
 
+def _export_trace_async(trace_id: str, ppl_args: tuple, result: Any, *,
+                        session_id: str, dataset: str, mode_tag: str) -> None:
+    def run() -> None:
+        _flush_trace_exporter()
+        _ingest_langfuse_trace(trace_id, ppl_args, result,
+                               session_id=session_id, dataset=dataset,
+                               mode_tag=mode_tag)
+
+    threading.Thread(target=run, daemon=True,
+                     name=f'chat-trace-export-{trace_id[:8]}').start()
+
+
 def _flush_trace_exporter() -> None:
     provider = getattr(tracing_runtime._runtime, '_provider', None)
     if provider is None:
@@ -82,9 +95,9 @@ def _flush_trace_exporter() -> None:
 
 def _ingest_langfuse_trace(trace_id: str, ppl_args: tuple, result: Any, *,
                            session_id: str, dataset: str, mode_tag: str) -> None:
-    host = (os.getenv('LANGFUSE_HOST') or os.getenv('LANGFUSE_BASE_URL') or '').rstrip('/')
-    public_key = os.getenv('LANGFUSE_PUBLIC_KEY')
-    secret_key = os.getenv('LANGFUSE_SECRET_KEY')
+    host = _clean_env(os.getenv('LANGFUSE_HOST') or os.getenv('LANGFUSE_BASE_URL')).rstrip('/')
+    public_key = _clean_env(os.getenv('LANGFUSE_PUBLIC_KEY'))
+    secret_key = _clean_env(os.getenv('LANGFUSE_SECRET_KEY'))
     if not host or not public_key or not secret_key:
         return
     query_payload = ppl_args[0] if ppl_args else None
@@ -132,6 +145,10 @@ def _ingest_langfuse_trace(trace_id: str, ppl_args: tuple, result: Any, *,
         except Exception as exc:
             LOG.warning(f'[ChatServer] [TRACE_INGEST_FAILED] attempt={attempt + 1} error={exc}')
         time.sleep(2)
+
+
+def _clean_env(value: str | None) -> str:
+    return (value or '').strip().strip('"').strip("'")
 
 
 def _sse_line(payload: Dict[str, Any]) -> str:
@@ -351,6 +368,9 @@ async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, A
                         query: str, filters: Optional[Dict[str, Any]], priority: Any,
                         *, session_id: str, trace_enabled: bool) -> tuple[Any, Optional[str], Optional[dict]]:
     if reasoning:
+        dataset_url = resolve_dataset_url(dataset)
+        if dataset_url is None:
+            raise KeyError(f'dataset `{dataset}` not found in URL_MAP')
         ppl = chat_server.query_ppl_reasoning
         ppl_args = (
             {'query': query},
@@ -360,7 +380,7 @@ async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, A
                     'files': [],
                     'stream': False,
                     'priority': priority,
-                    'document_url': URL_MAP[dataset],
+                    'document_url': dataset_url,
                 }
             },
             False,

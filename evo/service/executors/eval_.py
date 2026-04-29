@@ -34,8 +34,10 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     token = CancelToken(ctx, tid)
     try:
         if dataset_id:
-            elog.append(f'task:{tid}', 'eval.run.start',
-                         {'dataset_id': dataset_id, 'target': target_chat_url})
+            elog.append_event('eval.start', task_id=tid, payload={
+                'dataset_id': dataset_id,
+                'target_chat_url': target_chat_url,
+            })
             report = run_eval(
                 dataset_id=dataset_id,
                 target_chat_url=target_chat_url or '',
@@ -43,38 +45,47 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 llm_factory=lambda: get_automodel(ctx.cfg.model_config.llm_role),
                 max_workers=(payload.get('eval_options') or {}).get('max_workers', 10),
                 dataset_name=(payload.get('eval_options') or {}).get('dataset_name', ''),
+                filters=(payload.get('eval_options') or {}).get('filters') or {},
+                persist_report=False,
+                on_progress=lambda current, total: elog.append_event(
+                    'eval.progress', task_id=tid,
+                    payload={'current': current, 'total': total,
+                             'dataset_id': dataset_id}),
             )
             upstream_id = report.get('report_id')
             eval_id = upstream_id or eval_id or tid
             if not upstream_id:
                 log.warning('eval %s upstream report_id missing, using %s',
                              tid, eval_id)
-                elog.append(f'task:{tid}', 'eval.id.fallback',
-                             {'used': eval_id,
-                              'reason': 'upstream report_id missing'})
             report['report_id'] = eval_id
         else:
             if not eval_id:
                 raise _store.StateError('EVAL_NO_TARGET',
                                         'need eval_id or dataset_id')
-            elog.append(f'task:{tid}', 'eval.fetch.start', {'eval_id': eval_id})
+            elog.append_event('eval.start', task_id=tid, payload={'eval_id': eval_id})
             report = load_report(eval_id, ctx.cfg.storage.base_dir)
         atomic_write_json(ws.eval_path(eval_id), report)
         ctx.update_payload(tid, {'eval_id': eval_id})
         ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id) \
             .attach_artifact('eval_ids', eval_id)
-        elog.append(f'task:{tid}', 'eval.ready',
-                     {'eval_id': eval_id, 'cases': report.get('total_cases')})
         traces = _fetch_traces(tid, elog, report, token)
         if token.requested():
+            elog.append_event('eval.cancel', task_id=tid, payload={'eval_id': eval_id})
             ctx.on_stop(tid, 'fetch_traces')
             return
         atomic_write_json(ws.trace_bundle_path(eval_id), traces)
-        elog.append(f'task:{tid}', 'eval.complete',
-                     {'eval_id': eval_id, 'traces': len(traces)})
+        elog.append_event('eval.finish', task_id=tid, payload={
+            'eval_id': eval_id,
+            'cases': report.get('total_cases'),
+            'traces': len(traces),
+        })
         ctx.on_success(tid)
     except Exception as exc:
-        elog.append(f'task:{tid}', 'eval.failed', {'error': str(exc)})
+        if token.requested():
+            elog.append_event('eval.cancel', task_id=tid, payload={
+                'eval_id': eval_id,
+                'dataset_id': dataset_id,
+            })
         ctx.on_failure(tid, exc)
     finally:
         ctx.pop_thread(tid)
@@ -84,9 +95,4 @@ def _fetch_traces(tid: str, elog: EventLog, report: dict, token: CancelToken) ->
     if token.requested():
         return {}
     out = fetch_traces_for_report(report, max_workers=8)
-    for trace_id, trace in out.items():
-        if isinstance(trace, dict) and trace.get('error'):
-            elog.append(f'task:{tid}', 'trace.fetch_failed',
-                        {'trace_id': trace_id, 'error': trace['error']})
-    elog.append(f'task:{tid}', 'trace.bundle.ready', {'count': len(out)})
     return out

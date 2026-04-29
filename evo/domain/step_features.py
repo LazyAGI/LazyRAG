@@ -133,12 +133,12 @@ def _collect_ids_docids(
             continue
         if not cid:
             continue
-        if did is None or page is None or text is None or file_name is None:
+        if did is None or text is None or file_name is None:
             info = resolver(str(cid)) or {}
             did = did if did is not None else info.get("docid")
-            page = page if page is not None else info.get("page")
             text = text if text is not None else info.get("text")
             file_name = file_name if file_name is not None else info.get("file_name")
+            page = page if page is not None else info.get("page")
         chunks.append(str(cid))
         docs.append(str(did) if did else None)
         files.append(str(file_name) if file_name else None)

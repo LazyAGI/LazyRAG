@@ -26,11 +26,16 @@ class FileDiff:
 
 def _git(args: list[str], cwd: Path) -> str:
     try:
-        r = subprocess.run(['git', *args], cwd=str(cwd),
-                           capture_output=True, text=True, check=False)
+        r = subprocess.run(['git', '-c', 'safe.directory=*', *args], cwd=str(cwd),
+                           capture_output=True, text=True, check=False,
+                           timeout=120)
     except FileNotFoundError as exc:
         raise ApplyError('GIT_DIFF_FAILED', 'git not found',
                          {'args': args}) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ApplyError('GIT_DIFF_FAILED',
+                         f'git {" ".join(args)} timed out',
+                         {'args': args, 'timeout_s': 120}) from exc
     if r.returncode not in (0,):
         raise ApplyError('GIT_DIFF_FAILED',
                          f'git {" ".join(args)} failed',
@@ -152,12 +157,13 @@ class GitWorkspace:
     def ensure_bare(self) -> None:
         if (self._bare / 'HEAD').exists():
             return
-        self._bare.mkdir(parents=True, exist_ok=True)
-        _git(['init', '--bare', '--initial-branch=main', str(self._bare)],
-             self._bare.parent)
+        self._bare.parent.mkdir(parents=True, exist_ok=True)
+        if self._bare.exists():
+            shutil.rmtree(self._bare, ignore_errors=True)
         with tempfile.TemporaryDirectory() as tmp:
             tmp_repo = Path(tmp) / 'init'
-            _git(['clone', str(self._bare), str(tmp_repo)], Path(tmp))
+            tmp_repo.mkdir()
+            _git(['init', '--initial-branch=main'], tmp_repo)
             _ignore = shutil.ignore_patterns(*_IGNORE)
             for item in self._chat_source.iterdir():
                 if item.name in _IGNORE:
@@ -169,7 +175,7 @@ class GitWorkspace:
                     shutil.copy2(item, dest)
             _git(['add', '-A'], tmp_repo)
             _git(_GIT_USER + ['commit', '-m', 'initial chat snapshot'], tmp_repo)
-            _git(['push', 'origin', 'main'], tmp_repo)
+            _git(['clone', '--bare', str(tmp_repo), str(self._bare)], Path(tmp))
 
     def create_worktree(self, apply_id: str,
                         base_ref: str = 'main') -> tuple[Path, str]:

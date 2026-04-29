@@ -40,26 +40,3 @@ def make_evo_llm(cfg: EvoConfig, *, chunk_size: int = 64) -> LLMFactory:
 
     return factory
 
-
-def make_auto_user_llm(cfg: EvoConfig, *, chunk_size: int = 64) -> LLMFactory:
-    role = cfg.model_config.auto_user_role
-    gateway: ModelGateway[str] = ModelGateway(
-        cfg.llm, name='evo-auto-user-llm',
-        logger=logging.getLogger('evo.orchestrator.auto_user'),
-    )
-
-    def factory() -> Callable[[str], AsyncIterator[str]]:
-        client = get_automodel(role)
-
-        async def call(prompt: str) -> AsyncIterator[str]:
-            text = await asyncio.to_thread(
-                gateway.call, lambda: client(
-                    '你是产研用户,根据下文只输出一句用户侧中文指令(不要角色扮演解释)\n\n'
-                    + prompt),
-                cache_key=prompt, agent='auto_user')
-            for chunk in _chunked(text or '', chunk_size):
-                await asyncio.sleep(0)
-                yield chunk
-        return call
-
-    return factory

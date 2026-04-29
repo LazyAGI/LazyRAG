@@ -48,6 +48,7 @@ class AnalysisConfig:
     badcase_score_field: str = 'answer_correctness'
     cluster_method: str = 'hdbscan'
     cluster_min_size: int | None = None
+    enable_embed_features: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,40 +63,39 @@ class StorageConfig:
     base_dir: Path
 
     @property
+    def work_dir(self) -> Path:
+        return self.base_dir / 'work'
+
+    @property
     def runs_dir(self) -> Path:
-        return self.base_dir / 'runs'
+        return self.work_dir / 'runs'
 
     @property
     def applies_dir(self) -> Path:
-        return self.base_dir / 'applies'
+        return self.work_dir / 'applies'
 
     @property
     def reports_dir(self) -> Path:
-        return self.base_dir / 'reports'
+        return self.work_dir / 'reports'
 
     @property
     def diffs_dir(self) -> Path:
-        return self.base_dir / 'diffs'
+        return self.work_dir / 'diffs'
 
     @property
     def opencode_dir(self) -> Path:
-        return self.base_dir / 'opencode'
+        return self.work_dir / 'opencode'
 
     @property
     def git_dir(self) -> Path:
-        return self.base_dir / 'git'
+        return self.work_dir / 'git'
 
     @property
     def state_db_path(self) -> Path:
         return self.base_dir / 'state'
 
     def ensure(self) -> None:
-        for p in (self.runs_dir, self.applies_dir, self.reports_dir,
-                  self.diffs_dir, self.opencode_dir, self.git_dir,
-                  self.base_dir / 'datasets', self.base_dir / 'deploys'):
-            p.mkdir(parents=True, exist_ok=True)
-        for flow in ('dataset_gen', 'eval', 'run', 'apply', 'abtest', 'merge', 'deploy'):
-            (self.base_dir / flow).mkdir(parents=True, exist_ok=True)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass(frozen=True)
@@ -104,19 +104,11 @@ class DatasetGenConfig:
     chunk_base_url: str = 'http://localhost:8055'
     max_workers: int = 5
     task_settings: dict = field(default_factory=lambda: {
-        'single_hop': {'num': 1},
-        'multi_hop': {'num': 20},
-        'multi_file': {'num': 20},
-        'formula': {'num': 5},
-        'table': {'num': 5},
+        'single_hop': {'num': 10},
+        'multi_hop': {'num': 10},
+        'table': {'num': 10},
+        'list': {'num': 10},
     })
-
-
-@dataclass(frozen=True)
-class DeployConfig:
-    adapter: str = 'none'
-    adapter_base_url: str = ''
-    health_path: str = '/healthz'
 
 
 @dataclass(frozen=True)
@@ -140,7 +132,6 @@ class EvoConfig:
     embed: ModelGovernanceConfig = field(default_factory=_default_embed_governance)
     model_config: EvoModelConfig = field(default_factory=EvoModelConfig)
     dataset_gen: DatasetGenConfig = field(default_factory=DatasetGenConfig)
-    deploy: DeployConfig = field(default_factory=DeployConfig)
     eval_run: EvalRunConfig = field(default_factory=EvalRunConfig)
     profile: str = 'dev'
 
@@ -155,6 +146,10 @@ class EvoConfig:
     @property
     def cluster_min_size(self) -> int | None:
         return self.analysis.cluster_min_size
+
+    @property
+    def enable_embed_features(self) -> bool:
+        return self.analysis.enable_embed_features
 
 
 def load_config(
@@ -188,6 +183,13 @@ def load_config(
     storage = StorageConfig(base_dir=base_dir)
     storage.ensure()
 
+    analysis = AnalysisConfig(
+        badcase_score_field=score_field,
+        enable_embed_features=os.getenv(
+            'EVO_ANALYSIS_ENABLE_EMBED_FEATURES', ''
+        ).lower() in {'1', 'true', 'yes', 'on'},
+    )
+
     chat_source = Path(os.getenv('EVO_CHAT_SOURCE',
                                   str(project_root / 'algorithm' / 'chat')))
 
@@ -195,12 +197,6 @@ def load_config(
         kb_base_url=os.getenv('EVO_KB_BASE_URL', 'http://localhost:8055'),
         chunk_base_url=os.getenv('EVO_CHUNK_BASE_URL', 'http://localhost:8055'),
         max_workers=int(os.getenv('EVO_DATASETGEN_MAX_WORKERS', '5')),
-    )
-
-    deploy = DeployConfig(
-        adapter=os.getenv('EVO_DEPLOY_ADAPTER', 'none'),
-        adapter_base_url=os.getenv('EVO_DEPLOY_ADAPTER_BASE_URL', ''),
-        health_path=os.getenv('EVO_DEPLOY_HEALTH_PATH', '/healthz'),
     )
 
     eval_run = EvalRunConfig(
@@ -219,10 +215,9 @@ def load_config(
         default_trace_path=data_dir / 'trace_mock.json',
         chat_source=chat_source,
         code_access=code_access,
-        analysis=AnalysisConfig(badcase_score_field=score_field),
+        analysis=analysis,
         model_config=model_config,
         dataset_gen=dataset_gen,
-        deploy=deploy,
         eval_run=eval_run,
         profile=profile,
     )
@@ -233,8 +228,6 @@ def load_config(
             missing.append('EVO_EVAL_PROVIDER')
         if not os.getenv('EVO_TRACE_PROVIDER'):
             missing.append('EVO_TRACE_PROVIDER')
-        if not os.getenv('EVO_DEPLOY_ADAPTER'):
-            missing.append('EVO_DEPLOY_ADAPTER')
         if not os.getenv('EVO_CHAT_SOURCE'):
             missing.append('EVO_CHAT_SOURCE')
         if missing:

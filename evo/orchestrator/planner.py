@@ -31,6 +31,9 @@ class Planner:
             for c in ctx.capabilities_with_safety[:20]
         )
         artifact_hint = ''
+        prompt = ''
+        raw_answer: Any = None
+        source = 'heuristic'
         if ctx.thread_state_summary:
             artifact_hint = (
                 f"\n\nCurrent thread artifacts:\n{ctx.thread_state_summary}\n\n"
@@ -38,6 +41,7 @@ class Planner:
             )
         parsed = _heuristic_plan(message, ctx)
         if parsed is None:
+            source = 'llm'
             prompt = (
             f"User message: {message}{artifact_hint}\n\n"
             f"Available operations:\n{cap_summary}\n\n"
@@ -49,21 +53,19 @@ class Planner:
             f"- '评测/跑评测/生成报告' -> eval.run with dataset_id, target_chat_url; "
             f"if user mentions dataset_name/数据集名/alias, put it in args.options.dataset_name\n"
             f"- '分析/诊断' -> run.start with eval_id\n"
-            f"- '修改代码/apply' -> apply.start with report_id\n"
-            f"- 'ABTest/对比' -> abtest.create with apply_id, baseline_eval_id, dataset_id\n"
+            f"- '修改代码/apply' -> apply.start with report_id. apply already loops code edits and unit tests; do not emit multiple apply.start for one report.\n"
+            f"- 'ABTest/对比' -> abtest.create with apply_id, baseline_eval_id, dataset_id only after the apply is succeeded/accepted and its final unit-test round passed.\n"
             f"- Extract specific IDs from artifacts when user refers to them\n"
-            f"- '接受修改并合并' -> apply.accept with task_id and auto_next='merge'\n"
-            f"- '接受修改、合并并部署' -> apply.accept with task_id and auto_next='merge_deploy'\n"
-            f"- '合并' -> merge.start with apply_id\n"
-            f"- '部署' -> deploy.start with merge_id\n"
             f"Reply in strict JSON only: "
             f"{{\"ops\":[{{\"op\":\"...\",\"reason\":\"...\",\"args\":{{...}}}}],\"reply\":\"...\"}}"
             )
             try:
-                raw = self.llm(prompt)
-                parsed = _parse_json_object(raw)
+                raw_answer = self.llm(prompt)
+                parsed = _parse_json_object(raw_answer)
             except Exception:
                 parsed = {'ops': [], 'reply': f'收到：{message}。暂无可自动执行的操作。'}
+        else:
+            raw_answer = parsed
 
         selected_ops = parsed.get('ops', [])
         previews: list[IntentPreview] = []
@@ -81,12 +83,10 @@ class Planner:
                 params_summary=sel.get('args', {}),
             ))
 
-        requires_confirm = any(p.safety in {'destructive', 'long_running'} for p in previews)
+        requires_confirm = False
         reply = parsed.get('reply', f'收到：{message}。')
-        if requires_confirm:
-            reply += ' 其中包含需要确认的操作，请确认后执行。'
-        elif previews:
-            reply += ' 所有操作均为安全操作，可直接执行。'
+        if previews:
+            reply += ' 我会在后台执行，并把过程写入事件流。'
 
         return Intent(
             intent_id=f'intent_{ctx.thread_id}_{uuid.uuid4().hex[:8]}',
@@ -96,6 +96,13 @@ class Planner:
             suggested_ops_preview=previews,
             requires_confirm=requires_confirm,
             thinking=parsed.get('thinking', ''),
+            trace={
+                'source': source,
+                'prompt': prompt,
+                'raw_answer': raw_answer,
+                'parsed': parsed,
+                'warnings': warnings,
+            },
         )
 
     def materialize(self, intent: Intent, ctx: PlanContext,
@@ -108,6 +115,7 @@ class Planner:
                 {'op': preview.op, 'args': preview.params_summary}
                 for preview in intent.suggested_ops_preview
             ]
+        validation_details: list[dict[str, Any]] = []
         for op_data in raw_ops:
             try:
                 op_name = op_data['op']
@@ -115,12 +123,21 @@ class Planner:
                 caps.validate(op_name, args)
                 _validate_schema(op_name, args, ctx)
                 ops.append({'op': op_name, 'args': args})
+                validation_details.append({
+                    'op': op_name, 'args': args, 'status': 'accepted',
+                })
             except (KeyError, TypeError, ValueError) as exc:
                 warnings.append(f"validation failed: {exc}")
+                validation_details.append({
+                    'op': op_data.get('op') if isinstance(op_data, dict) else None,
+                    'args': op_data.get('args') if isinstance(op_data, dict) else None,
+                    'status': 'rejected', 'error': str(exc),
+                })
         return PlanResult(
             intent_id=intent.intent_id,
             ops=ops,
             warnings=warnings,
+            trace={'raw_ops': raw_ops, 'validation': validation_details},
         )
 
     def _materialize_with_llm(self, intent: Intent,
@@ -154,8 +171,6 @@ def _validate_schema(op: str, args: dict[str, Any], ctx: PlanContext) -> None:
         'dataset_gen.start': schemas.DatasetGenCreate,
         'eval.run': schemas.EvalCreate,
         'eval.fetch': schemas.EvalCreate,
-        'merge.start': schemas.MergeCreate,
-        'deploy.start': schemas.DeployCreate,
         'abtest.create': schemas.AbtestCreate,
     }
     model = model_by_op.get(op)
@@ -165,6 +180,8 @@ def _validate_schema(op: str, args: dict[str, Any], ctx: PlanContext) -> None:
     if 'thread_id' not in payload:
         payload['thread_id'] = ctx.thread_id
     model(**payload)
+    if op == 'abtest.create':
+        _validate_abtest_boundary(payload, ctx)
 
 
 def _parse_json_object(raw: Any) -> dict[str, Any]:
@@ -197,39 +214,40 @@ def _parse_json_object(raw: Any) -> dict[str, Any]:
         return json.loads(repair_json(text))
 
 
+def _validate_abtest_boundary(payload: dict[str, Any], ctx: PlanContext) -> None:
+    apply_id = payload.get('apply_id')
+    state = ctx.thread_state or {}
+    latest = state.get('latest_tasks') or {}
+    apply_row = latest.get('apply') or {}
+    if apply_row.get('id') == apply_id and not _apply_row_ready(apply_row):
+        raise ValueError('abtest.create requires a succeeded apply with final tests passed')
+    for row in state.get('active_tasks') or []:
+        if row.get('flow') != 'abtest':
+            continue
+        rp = row.get('payload') or {}
+        if (
+            rp.get('apply_id') == apply_id
+            and rp.get('baseline_eval_id') == payload.get('baseline_eval_id')
+            and rp.get('dataset_id') == payload.get('dataset_id')
+        ):
+            raise ValueError('matching abtest is already running')
+
+
+def _apply_row_ready(row: dict[str, Any]) -> bool:
+    result = (row.get('payload') or {}).get('result') or {}
+    if row.get('status') not in {'succeeded', 'accepted'}:
+        return False
+    return result.get('status') == 'SUCCEEDED' and bool(
+        row.get('final_commit') or result.get('final_commit'))
+
+
 def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
     text = message.lower()
     state = ctx.thread_state or {}
     latest = state.get('latest_tasks') or {}
     active = state.get('active_tasks') or []
-    checkpoints = state.get('pending_checkpoints') or []
 
     flow = _flow_from_text(message)
-    if checkpoints and any(k in message for k in ('拒绝检查点', '取消检查点', '终止检查点', 'checkpoint cancel', 'checkpoint reject')):
-        cp_id = checkpoints[0].get('id')
-        return {
-            'ops': [{'op': 'checkpoint.respond',
-                     'reason': '取消当前 checkpoint，暂停后续分析',
-                     'args': {'cp_id': cp_id, 'choice': 'cancel'}}],
-            'reply': '我会拒绝当前检查点并暂停后续分析。',
-        }
-    if checkpoints and any(k in message for k in ('修改检查点', '调整检查点', 'revise checkpoint', '重新规划检查点')):
-        cp_id = checkpoints[0].get('id')
-        return {
-            'ops': [{'op': 'checkpoint.respond',
-                     'reason': '提交 checkpoint 修改意见并继续',
-                     'args': {'cp_id': cp_id, 'choice': 'revise', 'feedback': message}}],
-            'reply': '我会把你的修改意见写入检查点并继续执行。',
-        }
-    if checkpoints and ('checkpoint' in text or '检查点' in text or '批准' in text):
-        cp_id = checkpoints[0].get('id')
-        return {
-            'ops': [{'op': 'checkpoint.respond',
-                     'reason': '批准当前待处理 checkpoint 并继续任务',
-                     'args': {'cp_id': cp_id, 'choice': 'approve'}}],
-            'reply': '我会批准当前检查点并继续执行。',
-        }
-
     if any(k in message for k in ('拒绝修改', '拒绝代码', '不接受修改', 'reject apply', 'reject code')):
         task_id = _latest_task_id(latest, 'apply')
         if task_id:
@@ -242,50 +260,11 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
     if any(k in message for k in ('接受修改', '接受代码', '确认修改', '同意修改', 'accept apply', 'accept code')):
         task_id = _latest_task_id(latest, 'apply')
         if task_id:
-            auto_next = 'merge' if any(k in message for k in ('合并', 'merge')) else 'none'
             return {
                 'ops': [{'op': 'apply.accept',
                          'reason': '接受最近一次代码修改结果',
-                         'args': {'task_id': task_id, 'auto_next': auto_next}}],
-                'reply': '我会接受最近一次代码修改结果。' + ('随后启动合并。' if auto_next == 'merge' else ''),
-            }
-
-    if any(k in message for k in ('拒绝合并', '取消合并', '不要合并', 'reject merge')):
-        task_id = _latest_task_id(latest, 'merge')
-        if task_id:
-            return {
-                'ops': [{'op': 'merge.cancel',
-                         'reason': '取消最近一次合并任务',
                          'args': {'task_id': task_id}}],
-                'reply': '我会取消最近一次合并任务。',
-            }
-    if any(k in message for k in ('接受合并', '确认合并', '同意合并', '开始合并', 'accept merge')):
-        apply_id = _latest_task_id(latest, 'apply')
-        if apply_id:
-            return {
-                'ops': [{'op': 'merge.start',
-                         'reason': '基于最近一次已接受的代码修改启动合并',
-                         'args': {'apply_id': apply_id}}],
-                'reply': '我会基于最近一次代码修改启动合并。',
-            }
-
-    if any(k in message for k in ('拒绝部署', '取消部署', '不要部署', 'reject deploy')):
-        task_id = _latest_task_id(latest, 'deploy')
-        if task_id:
-            return {
-                'ops': [{'op': 'deploy.cancel',
-                         'reason': '取消最近一次部署任务',
-                         'args': {'task_id': task_id}}],
-                'reply': '我会取消最近一次部署任务。',
-            }
-    if any(k in message for k in ('接受部署', '确认部署', '同意部署', '开始部署', 'accept deploy')):
-        merge_id = _latest_task_id(latest, 'merge')
-        if merge_id:
-            return {
-                'ops': [{'op': 'deploy.start',
-                         'reason': '基于最近一次合并结果启动部署',
-                         'args': {'merge_id': merge_id}}],
-                'reply': '我会基于最近一次合并结果启动部署。',
+                'reply': '我会接受最近一次代码修改结果。',
             }
 
     if _wants_cancel_restart(message):
@@ -307,6 +286,16 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
                          'args': ({'flow': flow} if flow else {})}],
                 'reply': '我会暂停当前活跃任务。'}
 
+    if flow == 'eval':
+        dataset_id = _extract_id_after(message, ('数据集', '评测集', 'dataset'))
+        if dataset_id:
+            return {
+                'ops': [{'op': 'eval.run',
+                         'reason': f'用户请求对数据集 {dataset_id} 发起评测',
+                         'args': {'dataset_id': dataset_id}}],
+                'reply': f'已对数据集 {dataset_id} 发起评测任务。',
+            }
+
     if ('数据集' in message or '评测集' in message) and any(k in message for k in ('重新生成', '重生成', '再生成', '生成有问题', '有问题')):
         ds = latest.get('dataset_gen') or {}
         payload = ds.get('payload') or {}
@@ -315,6 +304,8 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
             'algo_id': payload.get('algo_id') or 'general_algo',
             'eval_name': _regen_name(payload.get('eval_name') or _latest_artifact(state, 'dataset_ids') or 'regen_eval'),
         }
+        if payload.get('num_cases'):
+            args['num_cases'] = payload['num_cases']
         if not args['kb_id']:
             return None
         ops: list[dict[str, Any]] = []
@@ -333,18 +324,15 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
 def _flow_from_text(message: str) -> str | None:
     if any(k in message for k in ('分析', '诊断', 'run')):
         return 'run'
+    if (('评测' in message and '评测集' not in message)
+            or any(k in message for k in ('跑评测', '发起评测', 'eval'))):
+        return 'eval'
     if any(k in message for k in ('评测集', '数据集', 'dataset')):
         return 'dataset_gen'
-    if any(k in message for k in ('评测', 'eval')):
-        return 'eval'
     if any(k in message for k in ('修改', 'apply')):
         return 'apply'
     if any(k in message for k in ('abtest', 'ab test', '对比')):
         return 'abtest'
-    if any(k in message for k in ('合并', 'merge')):
-        return 'merge'
-    if any(k in message for k in ('部署', 'deploy')):
-        return 'deploy'
     return None
 
 
@@ -366,12 +354,20 @@ def _wants_cancel_restart(message: str) -> bool:
     return any(k in message for k in ('取消后重新', '取消后重启', '取消并重新', '取消再重新', 'cancel and restart', '重新开始'))
 
 
+def _extract_id_after(message: str, markers: tuple[str, ...]) -> str | None:
+    for marker in markers:
+        m = re.search(re.escape(marker) + r'\s*([A-Za-z0-9_.:-]+)', message, re.I)
+        if m:
+            return m.group(1).strip('，。,. ')
+    return None
+
+
 def _cancel_restart_ops(flow: str | None, latest: dict[str, Any],
                         active: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not flow:
         return []
     ops: list[dict[str, Any]] = []
-    if _has_active_flow(active, flow) or _latest_task_id(latest, flow):
+    if _has_active_flow(active, flow):
         ops.append({'op': 'task.cancel_active',
                     'reason': f'取消当前 {flow} 任务',
                     'args': {'flow': flow}})
@@ -389,6 +385,8 @@ def _restart_op(flow: str, row: dict[str, Any]) -> dict[str, Any] | None:
             'algo_id': payload.get('algo_id') or 'general_algo',
             'eval_name': _regen_name(payload.get('eval_name') or 'regen_eval'),
         }
+        if payload.get('num_cases'):
+            args['num_cases'] = payload['num_cases']
         return {'op': 'dataset_gen.start', 'reason': '重新生成评测集', 'args': args} if args['kb_id'] else None
     if flow == 'eval':
         args = {
@@ -409,10 +407,6 @@ def _restart_op(flow: str, row: dict[str, Any]) -> dict[str, Any] | None:
         return {'op': 'apply.start', 'reason': '重新启动代码修改', 'args': args} if args['report_id'] else None
     if flow == 'abtest':
         return {'op': 'abtest.create', 'reason': '重新启动 ABTest', 'args': payload} if payload else None
-    if flow == 'merge':
-        return {'op': 'merge.start', 'reason': '重新启动合并任务', 'args': payload} if payload.get('apply_id') else None
-    if flow == 'deploy':
-        return {'op': 'deploy.start', 'reason': '重新启动部署任务', 'args': payload} if payload.get('merge_id') else None
     return None
 
 

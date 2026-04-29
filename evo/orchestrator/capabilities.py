@@ -49,7 +49,7 @@ _add(Capability('apply.start', 'apply', '基于报告启动代码修改',
                 blocking=True, safety='long_running'))
 _add(Capability('apply.stop', 'apply', '暂停 apply',
                 params_schema=_required('task_id'), idempotent=True, safety='destructive'))
-_add(Capability('apply.continue', 'apply', '从 checkpoint 恢复 apply',
+_add(Capability('apply.continue', 'apply', '继续上次暂停的 apply',
                 params_schema=_required('task_id'), blocking=True, safety='long_running'))
 _add(Capability('apply.cancel', 'apply', '取消 apply',
                 params_schema=_required('task_id'), idempotent=True, safety='destructive'))
@@ -82,42 +82,10 @@ _add(Capability('abtest.cancel', 'abtest', '取消 abtest',
                 params_schema=_required('task_id'), idempotent=True, safety='destructive'))
 
 _add(Capability('dataset_gen.start', 'dataset_gen', '从知识库生成评测集',
-                params_schema={'optional': ['kb_id', 'algo_id', 'eval_name']},
+                params_schema={'optional': ['kb_id', 'algo_id', 'eval_name', 'num_cases']},
                 blocking=True, safety='long_running'))
 _add(Capability('dataset_gen.cancel', 'dataset_gen', '取消生成任务',
                 params_schema=_required('task_id'), idempotent=True, safety='destructive'))
-
-_add(Capability('merge.start', 'merge', '合并已接受的 apply',
-                params_schema={'required': ['apply_id'],
-                               'optional': ['strategy', 'auto_deploy']},
-                blocking=True, safety='destructive'))
-_add(Capability('merge.cancel', 'merge', '取消合并任务',
-                params_schema=_required('task_id'), idempotent=True, safety='destructive'))
-
-_add(Capability('deploy.start', 'deploy', '部署已合并的结果为 production chat',
-                params_schema={'required': ['merge_id'],
-                               'optional': ['adapter', 'version', 'role', 'keep_old']},
-                blocking=True, safety='destructive'))
-_add(Capability('deploy.continue', 'deploy', '重试部署（从失败状态恢复）',
-                params_schema=_required('task_id'), blocking=True, safety='destructive'))
-_add(Capability('deploy.cancel', 'deploy', '取消部署任务',
-                params_schema=_required('task_id'), idempotent=True, safety='destructive'))
-
-_add(Capability('chat.list', 'chat', '列出已注册的 chat 实例', safety='safe'))
-_add(Capability('chat.stop', 'chat', '停止指定 chat 进程',
-                params_schema=_required('chat_id'), idempotent=True, safety='destructive'))
-_add(Capability('chat.promote', 'chat', '将 chat 升级为生产',
-                params_schema=_required('chat_id'), idempotent=True, safety='destructive'))
-_add(Capability('chat.demote', 'chat', '将 chat 降级为候选',
-                params_schema=_required('chat_id'), idempotent=True, safety='destructive'))
-_add(Capability('chat.retire', 'chat', '回收 chat 实例',
-                params_schema=_required('chat_id'), idempotent=True, safety='destructive'))
-
-_add(Capability('checkpoint.respond', 'checkpoint',
-                '响应 indexer 等步骤的检查点',
-                params_schema=_required('cp_id', 'choice'), idempotent=True, safety='safe'))
-_add(Capability('checkpoint.list_pending', 'checkpoint',
-                '列出当前 thread 的待响应 checkpoint', safety='safe'))
 
 _add(Capability('query.list_threads', 'query', '列出 thread', safety='safe'))
 _add(Capability('query.get_report', 'query', '查看分析报告',

@@ -9,7 +9,7 @@ from typing import Any
 
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_generate_single_hop
-from evo.datagen.validate import is_qa_json_valid
+from evo.datagen.validate import normalize_qa_json
 from evo.datagen.kb_client import KBClient
 
 _log = logging.getLogger('evo.datagen.single_hop')
@@ -52,7 +52,11 @@ def generate_single_hop(
             except Exception as exc:
                 _log.info('llm chat failed: %s', exc)
                 qa_json = {}
-            if is_qa_json_valid(qa_json):
+            qa_json = normalize_qa_json(qa_json)
+            if qa_json:
+                qa_json['question_type'] = 1
+                qa_json['reference_doc'] = [filename]
+                qa_json['reference_context'] = [selected_chunk['content']]
                 qa_json['reference_doc_ids'] = [doc_id]
                 qa_json['reference_chunk_ids'] = [chunk_id]
                 return {'qa': qa_json}
@@ -88,4 +92,53 @@ def generate_single_hop(
                 if no_doc_flag:
                     break
     _log.info('single-hop done: %s items', len(result_list))
+    return result_list
+
+
+def generate_single_hop_from_chunks(
+    chunks: list[dict],
+    *,
+    count: int,
+    max_workers: int,
+    llm_factory=None,
+) -> list[dict]:
+    rows = list(chunks)
+    random.shuffle(rows)
+    result_list: list[dict] = []
+    lock = threading.Lock()
+
+    def run_one(chunk: dict) -> dict | None:
+        prompt = prompt_generate_single_hop(
+            chunk['content'],
+            chunk.get('filename', 'unknown'),
+            chunk.get('doc_id', ''),
+            chunk.get('chunk_id', ''),
+        )
+        try:
+            qa_json = chat(prompt, llm_factory=llm_factory)
+        except Exception as exc:
+            _log.info('llm chat failed: %s', exc)
+            return None
+        qa_json = normalize_qa_json(qa_json)
+        if not qa_json:
+            return None
+        qa_json['question_type'] = 1
+        qa_json['reference_doc'] = [chunk.get('filename', 'unknown')]
+        qa_json['reference_context'] = [chunk['content']]
+        qa_json['reference_doc_ids'] = [chunk.get('doc_id', '')]
+        qa_json['reference_chunk_ids'] = [chunk.get('chunk_id', '')]
+        return {'qa': qa_json}
+
+    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
+        futures = [executor.submit(run_one, c) for c in rows[:max(count * 3, count)]]
+        for f in futures:
+            item = f.result()
+            if not item:
+                continue
+            with lock:
+                if len(result_list) < count:
+                    result_list.append(item)
+            if len(result_list) >= count:
+                break
+    _log.info('single-hop from chunks done: %s/%s', len(result_list), count)
     return result_list

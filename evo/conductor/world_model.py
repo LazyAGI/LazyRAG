@@ -4,7 +4,7 @@ import json
 import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
 WORLD_MODEL_VERSION = 1
 
@@ -55,17 +55,20 @@ class WorldModel:
 class WorldModelStore:
     """Persistent JSON state for one diagnostic run; atomic writes + lock."""
 
-    def __init__(self, path: Path, run_id: str) -> None:
+    def __init__(self, path: Path | None, run_id: str,
+                 event_writer: Callable[[str, dict[str, Any]], None] | None = None) -> None:
         self._path = path
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if self._path is not None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._event_writer = event_writer
         self._lock = threading.Lock()
-        self._world = self._load() if self._path.exists() else WorldModel(run_id=run_id)
+        self._world = self._load() if self._path is not None and self._path.exists() else WorldModel(run_id=run_id)
         if self._world.run_id != run_id:
             self._world = WorldModel(run_id=run_id)
         self._save()
 
     @property
-    def path(self) -> Path:
+    def path(self) -> Path | None:
         return self._path
 
     @property
@@ -90,9 +93,13 @@ class WorldModelStore:
         )
 
     def _save(self) -> None:
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_text(
-            json.dumps(asdict(self._world), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        tmp.replace(self._path)
+        data = asdict(self._world)
+        if self._path is not None:
+            tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+            tmp.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            tmp.replace(self._path)
+        if self._event_writer is not None:
+            self._event_writer("world_model.updated", data)

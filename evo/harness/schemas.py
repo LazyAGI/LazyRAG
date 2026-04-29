@@ -15,10 +15,10 @@ RESEARCHER: dict = {
     "required": ["verdict", "refined_claim"],
     "properties": {
         "hypothesis_id": {"type": "string"},
-        "verdict": {"type": "string", "minLength": 1},
+        "verdict": {"type": "string", "enum": ["confirmed", "refuted", "inconclusive"]},
         "confidence": {"type": "number"},
         "refined_claim": {"type": "string", "minLength": 1},
-        "evidence_handles": {"type": "array"},
+        "evidence_handles": {"type": "array", "items": {"type": "string"}},
         "suggested_action": {"type": "string"},
         "reasoning": {"type": "string"},
     },

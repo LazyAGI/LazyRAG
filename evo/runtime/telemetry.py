@@ -24,6 +24,7 @@ Handler = Callable[[Event], None]
 @dataclass
 class TelemetrySink:
     path: Path | None = None
+    event_writer: Callable[[str, dict[str, Any]], None] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _subs: dict[str, list[Handler]] = field(default_factory=dict, repr=False)
     _history: list[Event] = field(default_factory=list, repr=False)
@@ -49,7 +50,13 @@ class TelemetrySink:
                 line = json.dumps(rec, ensure_ascii=False, default=str)
                 with open(self.path, 'a', encoding='utf-8') as fh:
                     fh.write(line + '\n')
+            writer = self.event_writer
             handlers = list(self._subs.get(event_type, ())) + list(self._subs.get('*', ()))
+        if writer is not None:
+            try:
+                writer(event_type, dict(payload))
+            except Exception:
+                pass
         for fn in handlers:
             try:
                 fn(ev)

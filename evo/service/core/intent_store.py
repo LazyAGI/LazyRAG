@@ -28,6 +28,7 @@ class Intent:
     suggested_ops_preview: list[IntentPreview] = field(default_factory=list)
     requires_confirm: bool = False
     thinking: str = ''
+    trace: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
 
 
@@ -36,6 +37,7 @@ class PlanResult:
     intent_id: str
     ops: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    trace: dict[str, Any] = field(default_factory=dict)
 
 
 class IntentStore:
@@ -63,6 +65,7 @@ class IntentStore:
             ],
             'requires_confirm': intent.requires_confirm,
             'thinking': intent.thinking,
+            'trace': intent.trace,
             'created_at': intent.created_at,
             'status': 'pending_confirm',
         }

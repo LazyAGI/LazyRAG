@@ -490,8 +490,8 @@ services:
       https_proxy: ${https_proxy:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      no_proxy: ${no_proxy:-${NO_PROXY:-}}
-      NO_PROXY: ${NO_PROXY:-}
+      no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       <<: [*llm-api-keys, *upload-paths]
     command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
@@ -503,7 +503,7 @@ services:
       context: .
       dockerfile: evo/Dockerfile
       args:
-        OPENCODE_VERSION: 1.4.3
+        OPENCODE_VERSION: 1.14.28
     expose:
       - "8047"
     ports:
@@ -511,7 +511,9 @@ services:
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
-      EVO_OPENCODE_MODEL: ${EVO_OPENCODE_MODEL:-deepseek-chat}
+      OPENCODE_BIN: /usr/local/bin/opencode
+      EVO_OPENCODE_PROVIDER: ${EVO_OPENCODE_PROVIDER:-maas}
+      EVO_OPENCODE_MODEL: ${EVO_OPENCODE_MODEL:-minimax-m27}
       EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-180}
       EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
       EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
@@ -532,8 +534,8 @@ services:
       https_proxy: ${https_proxy:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      no_proxy: ${no_proxy:-${NO_PROXY:-}}
-      NO_PROXY: ${NO_PROXY:-}
+      no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       <<: *llm-api-keys
     volumes:
       - ./data/evo:/var/lib/lazyrag/evo

@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -16,9 +17,19 @@ log = logging.getLogger('evo.apply.opencode')
 
 def _default_model() -> str | None:
     model = os.getenv('EVO_OPENCODE_MODEL') or os.getenv('OPENCODE_MODEL')
+    if not model and os.getenv('LAZYRAG_MAAS_API_KEY') and os.getenv('MAAS_MODEL_NAME'):
+        return f"maas/{os.getenv('MAAS_MODEL_NAME')}"
+    return normalize_model(model)
+
+
+def normalize_model(model: str | None) -> str | None:
     provider = os.getenv('EVO_OPENCODE_PROVIDER') or os.getenv('OPENCODE_PROVIDER')
     if model and provider and '/' not in model:
         return f'{provider}/{model}'
+    if model and '/' not in model and model.startswith('deepseek'):
+        return f'deepseek/{model}'
+    if model and '/' not in model and os.getenv('LAZYRAG_MAAS_API_KEY'):
+        return f'maas/{model}'
     return model
 
 
@@ -57,11 +68,6 @@ def default_auth_dir() -> Path:
 
 def preflight(binary: str | None, *, auth_dir: Path | None = None) -> str:
     resolved = resolve_binary(binary)
-    auth = (auth_dir or default_auth_dir()) / 'auth.json'
-    if not auth.is_file() or auth.stat().st_size == 0:
-        raise ApplyError('OPENCODE_AUTH_MISSING',
-                         'opencode auth.json missing or empty',
-                         {'path': str(auth)})
     try:
         r = subprocess.run([resolved, '--version'], capture_output=True,
                            text=True, timeout=15, check=False)
@@ -74,7 +80,26 @@ def preflight(binary: str | None, *, auth_dir: Path | None = None) -> str:
     if r.returncode != 0:
         raise ApplyError('OPENCODE_BIN_MISSING', 'opencode --version failed',
                          {'stderr': r.stderr[-500:]})
+    state_dir = auth_dir or default_auth_dir()
+    model = normalize_model(_default_model())
+    has_provider_key = (
+        (model or '').startswith('maas/') and bool(os.getenv('LAZYRAG_MAAS_API_KEY'))
+    )
+    if not has_provider_key and not _has_auth_state(state_dir):
+        raise ApplyError(
+            'OPENCODE_AUTH_MISSING',
+            'opencode auth state missing or empty',
+            {'path': str(state_dir)},
+        )
     return resolved
+
+
+def _has_auth_state(state_dir: Path) -> bool:
+    auth_json = state_dir / 'auth.json'
+    if auth_json.is_file() and auth_json.stat().st_size > 0:
+        return True
+    db = state_dir / 'opencode.db'
+    return db.is_file() and db.stat().st_size > 0
 
 
 ProcSink = Callable[[subprocess.Popen], None]
@@ -92,20 +117,25 @@ def run_opencode(
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     cmd: list[str] = [binary, 'run', '--format', 'json']
-    for flag, value in (('--model', options.model), ('--agent', options.agent),
+    model = normalize_model(options.model)
+    for flag, value in (('--model', model), ('--agent', options.agent),
                         ('--variant', options.variant)):
         if value:
             cmd.extend([flag, value])
     cmd.append(prompt)
 
-    temp_config = _ensure_project_provider_config(cwd, options.model)
+    temp_config = _ensure_project_provider_config(cwd, model)
+    temp_home = _prepare_opencode_home(default_auth_dir())
     env = dict(os.environ)
+    env['HOME'] = str(temp_home)
     api_key = _auth_api_key('deepseek')
-    if api_key and (options.model or '').startswith('deepseek/'):
+    if api_key and (model or '').startswith('deepseek/'):
         env.setdefault('DEEPSEEK_API_KEY', api_key)
+    if (model or '').startswith('maas/'):
+        _disable_proxy(env)
 
     log.info('opencode run: cwd=%s timeout_s=%d model=%s agent=%s variant=%s',
-             cwd, options.timeout_s, options.model, options.agent, options.variant)
+             cwd, options.timeout_s, model, options.agent, options.variant)
     proc = subprocess.Popen(cmd, cwd=str(cwd),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, env=env)
@@ -116,10 +146,12 @@ def run_opencode(
     except subprocess.TimeoutExpired:
         _terminate(proc)
         _cleanup_temp_config(temp_config)
+        _cleanup_temp_home(temp_home)
         raise ApplyError('OPENCODE_TIMEOUT', 'opencode run timed out',
                          {'timeout_s': options.timeout_s, 'cwd': str(cwd)})
     finally:
         _cleanup_temp_config(temp_config)
+        _cleanup_temp_home(temp_home)
 
     stdout_path = artifact_dir / 'stdout.log'
     stderr_path = artifact_dir / 'stderr.log'
@@ -147,6 +179,29 @@ def run_opencode(
     )
 
 
+def _prepare_opencode_home(auth_dir: Path) -> Path:
+    home = Path(tempfile.mkdtemp(prefix='evo-opencode-home-'))
+    state_dir = home / '.local' / 'share' / 'opencode'
+    state_dir.parent.mkdir(parents=True, exist_ok=True)
+    if auth_dir.exists():
+        shutil.copytree(auth_dir, state_dir, dirs_exist_ok=True)
+    return home
+
+
+def _cleanup_temp_home(path: Path | None) -> None:
+    if path is None:
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _disable_proxy(env: dict[str, str]) -> None:
+    for key in (
+        'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+        'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+    ):
+        env[key] = ''
+
+
 def _auth_api_key(provider: str) -> str | None:
     path = default_auth_dir() / 'auth.json'
     try:
@@ -160,11 +215,34 @@ def _auth_api_key(provider: str) -> str | None:
 
 
 def _ensure_project_provider_config(cwd: Path, model: str | None) -> Path | None:
-    if not (model or '').startswith('deepseek/'):
+    model = model or ''
+    if not (model.startswith('deepseek/') or model.startswith('maas/')):
         return None
     path = cwd / 'opencode.json'
     if path.exists():
         return None
+    if model.startswith('maas/'):
+        model_name = model.split('/', 1)[1]
+        base_url = os.getenv('MAAS_BASE_URL') or 'http://106.75.235.251:9000/v1/'
+        config = {
+            '$schema': 'https://opencode.ai/config.json',
+            'provider': {
+                'maas': {
+                    'npm': '@ai-sdk/openai-compatible',
+                    'name': 'MAAS',
+                    'options': {
+                        'baseURL': base_url.rstrip('/'),
+                        'apiKey': '{env:LAZYRAG_MAAS_API_KEY}',
+                    },
+                    'models': {
+                        model_name: {'name': model_name},
+                    },
+                },
+            },
+        }
+        path.write_text(json.dumps(config, ensure_ascii=False, indent=2),
+                        encoding='utf-8')
+        return path
     config = {
         '$schema': 'https://opencode.ai/config.json',
         'provider': {

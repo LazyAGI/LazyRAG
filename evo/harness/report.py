@@ -28,7 +28,7 @@ def build_report(session: AnalysisSession,
         metadata={
             "created_at": timestamp.isoformat(),
             "run_id": session.run_id,
-            "total_cases": len(session.case_step_features),
+            "total_cases": len(session.case_step_features) or len(session.parsed_judge),
             "pipeline": list(session.trace_meta.pipeline),
             "eval_report_meta": session.eval_report_meta,
         },

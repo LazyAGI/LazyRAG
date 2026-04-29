@@ -192,71 +192,6 @@ def _h_dataset_gen_cancel(jm: JobManager, args: dict) -> OpResult:
     tid = args['task_id']
     return _task_op_result('dataset_gen.cancel', tid, 'cancelled', jm.cancel(tid))
 
-
-def _h_merge_start(jm: JobManager, args: dict) -> OpResult:
-    tid = jm.submit_merge(**args)
-    return _start_result('merge.start', tid)
-
-
-def _h_merge_cancel(jm: JobManager, args: dict) -> OpResult:
-    tid = args['task_id']
-    return _task_op_result('merge.cancel', tid, 'cancelled', jm.cancel(tid))
-
-
-def _h_deploy_start(jm: JobManager, args: dict) -> OpResult:
-    tid = jm.submit_deploy(**args)
-    return _start_result('deploy.start', tid)
-
-
-def _h_deploy_continue(jm: JobManager, args: dict) -> OpResult:
-    tid = args['task_id']
-    return _task_op_result('deploy.continue', tid, 'continued', jm.cont(tid))
-
-
-def _h_deploy_cancel(jm: JobManager, args: dict) -> OpResult:
-    tid = args['task_id']
-    return _task_op_result('deploy.cancel', tid, 'cancelled', jm.cancel(tid))
-
-
-def _h_checkpoint_list_pending(jm: JobManager, args: dict) -> OpResult:
-    thread_id = args.get('thread_id')
-    if not thread_id:
-        raise StateError('CHECKPOINT_NO_THREAD', 'thread_id is required')
-    from evo.service.threads.workspace import CheckpointStore, EventLog, ThreadWorkspace
-    ws = ThreadWorkspace(jm.config.storage.base_dir, thread_id)
-    elog = EventLog(ws.events_path)
-    cps = CheckpointStore(ws, elog)
-    pending = cps.list_pending()
-    return OpResult(op='checkpoint.list_pending', status='ok',
-                     data={'checkpoints': pending, 'count': len(pending)})
-
-
-def _h_checkpoint_respond(jm: JobManager, args: dict) -> OpResult:
-    cp_id = args.get('cp_id')
-    choice = args.get('choice', 'approve')
-    feedback = args.get('feedback')
-    if not cp_id:
-        raise StateError('CHECKPOINT_NO_CP_ID', 'cp_id is required')
-    if choice not in ('approve', 'revise', 'cancel'):
-        raise StateError('CHECKPOINT_BAD_CHOICE',
-                         f'choice must be approve/revise/cancel, got {choice!r}')
-    thread_id = args.get('thread_id')
-    if not thread_id:
-        raise StateError('CHECKPOINT_NO_THREAD', 'thread_id is required')
-    from evo.service.threads.workspace import CheckpointStore, EventLog, ThreadWorkspace
-    ws = ThreadWorkspace(jm.config.storage.base_dir, thread_id)
-    elog = EventLog(ws.events_path)
-    cps = CheckpointStore(ws, elog)
-    rec = cps.respond(cp_id, choice=choice, feedback=feedback)
-    task_id = rec.get('task_id')
-    if task_id and choice in ('approve', 'revise'):
-        task_row = store.get(jm.store, task_id)
-        if task_row and task_row.get('status') == 'paused':
-            jm.cont(task_id)
-    return OpResult(op='checkpoint.respond', task_id=task_id,
-                     status='responded', data=rec)
-
-
 OP_HANDLERS: dict[str, OpHandler] = {}
 
 for _h in [
@@ -266,9 +201,6 @@ for _h in [
     _h_apply_accept, _h_apply_reject,
     _h_eval_run, _h_eval_fetch, _h_eval_cancel,
     _h_abtest_create, _h_abtest_stop, _h_abtest_continue, _h_abtest_cancel,
-    _h_merge_start, _h_merge_cancel,
-    _h_deploy_start, _h_deploy_continue, _h_deploy_cancel,
-    _h_checkpoint_list_pending, _h_checkpoint_respond,
 ]:
     name = _h.__name__.replace('_h_', '', 1).replace('_', '.', 1)
     OP_HANDLERS[name] = _h
@@ -284,8 +216,6 @@ def _validate_args(op: str, args: dict[str, Any]) -> dict[str, Any]:
         'dataset_gen.start': schemas.DatasetGenCreate,
         'eval.run': schemas.EvalCreate,
         'eval.fetch': schemas.EvalCreate,
-        'merge.start': schemas.MergeCreate,
-        'deploy.start': schemas.DeployCreate,
         'abtest.create': schemas.AbtestCreate,
     }
     model = model_by_op.get(op)
@@ -294,7 +224,7 @@ def _validate_args(op: str, args: dict[str, Any]) -> dict[str, Any]:
     return model(**args).model_dump(exclude_none=True)
 
 
-_FLOW_PRIORITY = ('run', 'apply', 'eval', 'dataset_gen', 'abtest', 'deploy', 'merge')
+_FLOW_PRIORITY = ('run', 'apply', 'eval', 'dataset_gen', 'abtest')
 
 
 def _resolve_active_task(jm: JobManager, args: dict[str, Any], *,

@@ -66,6 +66,7 @@ class AnalysisSession:
     llm_provider: LLMProvider | None = None
     embed_provider: EmbedProvider | None = None
     node_resolver: NodeResolver = field(default=http_get_node)
+    artifact_base_dir: Path | None = None
     schema_failure_count: int = 0
     _node_cache: dict[str, NodeInfo | None] = field(default_factory=dict, repr=False)
 
@@ -259,6 +260,7 @@ def create_session(
     config: EvoConfig | None = None,
     *,
     run_id: str | None = None,
+    thread_id: str | None = None,
     llm_provider: LLMProvider | None = None,
     embed_provider: EmbedProvider | None = None,
     node_resolver: NodeResolver = http_get_node,
@@ -271,20 +273,69 @@ def create_session(
 
     run_dir = config.storage.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    telemetry_path = run_dir / 'telemetry.jsonl'
-    handle_store = HandleStore(run_dir / 'handles.jsonl')
-    world_store = WorldModelStore(run_dir / 'world_model.json', run_id=run_id)
+    event_sink = None
+    artifact_base_dir = config.storage.base_dir
+    if thread_id:
+        from evo.service.threads.workspace import EventSink, ThreadWorkspace
+        ws = ThreadWorkspace(config.storage.base_dir, thread_id)
+        event_sink = EventSink(ws)
+        artifact_base_dir = ws.outputs_dir
+
+    def write_event(kind: str, payload: dict[str, Any]) -> None:
+        if event_sink is None:
+            return
+        actor = 'conductor' if kind.startswith('world_model.') else 'telemetry'
+        if kind.startswith('handle.'):
+            actor = 'researcher'
+        if kind.startswith('researcher.'):
+            actor = payload.pop('actor', 'researcher')
+        if kind.startswith('llm.'):
+            actor = payload.pop('actor', 'llm')
+        if kind.startswith('conductor.'):
+            actor = payload.pop('actor', 'conductor')
+        if kind.startswith('schema.'):
+            actor = payload.get('agent', 'schema')
+        passthrough = ('handle.', 'world_model.', 'researcher.', 'llm.',
+                       'conductor.', 'artifact.', 'task.', 'op.', 'schema.')
+        event_kind = kind if kind.startswith(passthrough) else f'telemetry.{kind}'
+        event_input = payload.pop('input', None)
+        event_output = payload.pop('output', None)
+        metadata = payload or None
+        if event_output is None and metadata is not None:
+            event_output = metadata
+            metadata = None
+        event_sink.emit(
+            event_kind,
+            actor=actor,
+            task_id=run_id,
+            input=event_input,
+            output=event_output,
+            metadata=metadata,
+        )
+
+    telemetry_path = None if event_sink is not None else run_dir / 'telemetry.jsonl'
+    handle_store = HandleStore(
+        None if event_sink is not None else run_dir / 'handles.jsonl',
+        event_writer=write_event if event_sink is not None else None,
+    )
+    world_store = WorldModelStore(
+        None if event_sink is not None else run_dir / 'world_model.json',
+        run_id=run_id,
+        event_writer=write_event if event_sink is not None else None,
+    )
 
     session = AnalysisSession(
         run_id=run_id,
         created_at=datetime.now(),
         config=config,
-        telemetry=TelemetrySink(path=telemetry_path),
+        telemetry=TelemetrySink(path=telemetry_path,
+                                event_writer=write_event if event_sink is not None else None),
         handle_store=handle_store,
         world_store=world_store,
         llm_provider=llm_provider,
         embed_provider=embed_provider,
         node_resolver=node_resolver,
+        artifact_base_dir=artifact_base_dir,
     )
     on_event = session.telemetry.as_callback()
     session.llm = ModelGateway(config.llm, name='llm',

@@ -180,6 +180,9 @@ class JobManager:
                      thread_id: str | None = None) -> str:
         rid, parent_run_id, _ = apply_exec.resolve_report(
             self._make_ctx(), report_id, thread_id=thread_id)
+        existing = _matching_apply(self._store, thread_id, rid)
+        if existing:
+            return existing['id']
         tid = store.create_task(self._store, 'apply',
                                 parent_run_id=parent_run_id,
                                 report_id=rid, thread_id=thread_id)
@@ -219,6 +222,11 @@ class JobManager:
                       eval_options: dict | None = None,
                       policy: VerdictPolicy | dict | None = None) -> str:
         apply_row = store.must_get(self._store, apply_id)
+        _require_apply_ready_for_abtest(self._store, apply_row)
+        existing = _matching_abtest(self._store, thread_id, apply_id,
+                                    baseline_eval_id, dataset_id)
+        if existing:
+            return existing['id']
         worktree = apply_worktree or apply_exec.resolve_worktree(
             self._make_ctx(), apply_id)
         apply_result = (apply_row.get('payload') or {}).get('result') or {}
@@ -246,69 +254,20 @@ class JobManager:
 
     def submit_dataset_gen(self, *, thread_id: str | None = None,
                            kb_id: str, algo_id: str | None = None,
-                           eval_name: str | None = None) -> str:
+                           eval_name: str | None = None,
+                           num_cases: int | None = None) -> str:
         payload: dict[str, Any] = {'kb_id': kb_id}
         if algo_id:
             payload['algo_id'] = algo_id
         if eval_name:
             payload['eval_name'] = eval_name
+        if num_cases is not None:
+            payload['num_cases'] = num_cases
         tid = store.create_task(self._store, 'dataset_gen',
                                 thread_id=thread_id, payload=payload)
         if eval_name:
             self._binder.attach(thread_id, 'dataset_ids', eval_name)
         self._spawn(tid, 'dataset_gen')
-        return tid
-
-    def submit_merge(self, *, apply_id: str, strategy: str = 'merge-commit',
-                     thread_id: str | None = None,
-                     auto_deploy: bool = False) -> str:
-        apply_row = store.must_get(self._store, apply_id)
-        if apply_row.get('flow') != 'apply':
-            raise store.StateError('MERGE_BAD_APPLY',
-                                   f'{apply_id} is not an apply task')
-        if apply_row.get('status') != 'accepted':
-            raise store.StateError('MERGE_APPLY_NOT_ACCEPTED',
-                                   f'apply {apply_id} is not accepted',
-                                   {'status': apply_row.get('status')})
-        thread_id = thread_id or apply_row.get('thread_id')
-        tid = store.create_task(
-            self._store, 'merge', thread_id=thread_id,
-            payload={
-                'apply_id': apply_id,
-                'strategy': strategy,
-                'auto_deploy': bool(auto_deploy),
-            },
-        )
-        self._binder.attach(thread_id, 'merge_ids', tid)
-        self._spawn(tid, 'merge')
-        return tid
-
-    def submit_deploy(self, *, merge_id: str, adapter: str = 'local',
-                       version: str = 'latest',
-                       thread_id: str | None = None,
-                       role: str = 'production',
-                       keep_old: bool = True) -> str:
-        merge_row = store.must_get(self._store, merge_id)
-        if merge_row.get('flow') != 'merge':
-            raise store.StateError('DEPLOY_BAD_MERGE',
-                                   f'{merge_id} is not a merge task')
-        if merge_row.get('status') != 'merged':
-            raise store.StateError('DEPLOY_MERGE_NOT_READY',
-                                   f'merge {merge_id} is not merged',
-                                   {'status': merge_row.get('status')})
-        thread_id = thread_id or merge_row.get('thread_id')
-        tid = store.create_task(
-            self._store, 'deploy', thread_id=thread_id,
-            payload={
-                'merge_id': merge_id,
-                'adapter': adapter,
-                'version': version,
-                'role': role,
-                'keep_old': keep_old,
-            },
-        )
-        self._binder.attach(thread_id, 'deploy_ids', tid)
-        self._spawn(tid, 'deploy')
         return tid
 
     def stop(self, tid: str) -> dict:
@@ -330,7 +289,7 @@ class JobManager:
         if row is None:
             raise store.StateError('TASK_NOT_FOUND', f'task {tid} not found')
         flow = row['flow']
-        if flow not in ('dataset_gen', 'eval', 'run', 'apply', 'abtest', 'deploy'):
+        if flow not in ('dataset_gen', 'eval', 'run', 'apply', 'abtest'):
             raise store.StateError('UNSUPPORTED_CONTINUE',
                                     f'flow {flow} does not support continue')
         row = store.transition(self._store, tid, 'continue')
@@ -355,15 +314,6 @@ class JobManager:
                 if elog:
                     elog.append(f'task:{tid}', 'apply.accepted',
                                 {'apply_id': tid, 'commit': final_commit})
-        mode = _normalize_auto_next(auto_next)
-        if mode in ('merge', 'merge_deploy'):
-            merge_id = self.submit_merge(
-                apply_id=tid,
-                thread_id=row.get('thread_id'),
-                auto_deploy=(mode == 'merge_deploy'),
-            )
-            row = dict(row)
-            row['next_task_id'] = merge_id
         return row
 
     def reject(self, tid: str) -> dict:
@@ -458,8 +408,6 @@ class JobManager:
         cur = store.get(self._store, tid)
         if cur is None or cur['status'] not in ('running', 'stopping'):
             return
-        if cur.get('flow') == 'merge':
-            kind = 'permanent'
         action = 'fail_permanent' if kind == 'permanent' else 'fail_transient'
         store.transition(self._store, tid, action,
                           error_code=code, error_kind=kind)
@@ -471,10 +419,6 @@ class JobManager:
         status = cur['status']
         if status in ('running', 'stopping'):
             row = store.transition(self._store, tid, final_action)
-            if (row.get('flow') == 'merge'
-                    and (row.get('payload') or {}).get('auto_deploy')):
-                self.submit_deploy(merge_id=tid, thread_id=row.get('thread_id'))
-
 
 def build_manager(config: EvoConfig) -> JobManager:
     st = store.open_db(config.storage.state_db_path)
@@ -489,17 +433,6 @@ def _default_chat_runner(cfg: EvoConfig) -> ChatRunner:
     )
 
 
-def _normalize_auto_next(auto_next: str | bool | None) -> str:
-    if auto_next is True:
-        return 'merge'
-    if auto_next in (False, None, '', 'none'):
-        return 'none'
-    if auto_next in ('merge', 'merge_deploy'):
-        return str(auto_next)
-    raise store.StateError('BAD_AUTO_NEXT',
-                           "auto_next must be one of none, merge, merge_deploy")
-
-
 def _coerce_policy(policy: VerdictPolicy | dict | None) -> VerdictPolicy:
     if policy is None:
         return VerdictPolicy()
@@ -509,3 +442,59 @@ def _coerce_policy(policy: VerdictPolicy | dict | None) -> VerdictPolicy:
     if 'guard_metrics' in data and isinstance(data['guard_metrics'], list):
         data['guard_metrics'] = tuple(data['guard_metrics'])
     return VerdictPolicy(**data)
+
+
+def _matching_apply(st: store.FsStateStore, thread_id: str | None,
+                    report_id: str) -> dict | None:
+    rows = (store.list_flow_tasks_by_thread(st, 'apply', thread_id)
+            if thread_id else store.list_recent(st, 'apply', 100))
+    reusable = {'queued', 'running', 'stopping', 'paused',
+                'failed_transient', 'succeeded', 'accepted'}
+    for row in reversed(rows):
+        if row.get('report_id') == report_id and row.get('status') in reusable:
+            return row
+    return None
+
+
+def _matching_abtest(st: store.FsStateStore, thread_id: str, apply_id: str,
+                     baseline_eval_id: str, dataset_id: str) -> dict | None:
+    rows = store.list_flow_tasks_by_thread(st, 'abtest', thread_id)
+    reusable = {'queued', 'running', 'stopping', 'paused',
+                'failed_transient', 'succeeded'}
+    for row in reversed(rows):
+        payload = row.get('payload') or {}
+        if (
+            row.get('status') in reusable
+            and payload.get('apply_id') == apply_id
+            and payload.get('baseline_eval_id') == baseline_eval_id
+            and payload.get('dataset_id') == dataset_id
+        ):
+            return row
+    return None
+
+
+def _require_apply_ready_for_abtest(st: store.FsStateStore,
+                                    apply_row: dict) -> None:
+    payload = apply_row.get('payload') or {}
+    result = payload.get('result') or {}
+    status = apply_row.get('status')
+    if status not in {'succeeded', 'accepted'}:
+        raise store.StateError(
+            'APPLY_NOT_READY_FOR_ABTEST',
+            f'apply {apply_row.get("id")} must finish before abtest',
+            {'status': status},
+        )
+    final_commit = apply_row.get('final_commit') or result.get('final_commit')
+    if result.get('status') != 'SUCCEEDED' or not final_commit:
+        raise store.StateError(
+            'APPLY_NOT_READY_FOR_ABTEST',
+            f'apply {apply_row.get("id")} has no successful final commit',
+            {'result_status': result.get('status'), 'final_commit': final_commit},
+        )
+    rounds = store.list_rounds(st, apply_row['id'])
+    if not rounds or rounds[-1].get('test_passed') != 1:
+        raise store.StateError(
+            'APPLY_TESTS_NOT_PASSED',
+            f'apply {apply_row.get("id")} final round did not pass tests',
+            {'round_count': len(rounds)},
+        )

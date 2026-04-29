@@ -30,16 +30,6 @@ _APPLY_LIFECYCLE = {
     'rejected':  {},
 }
 
-_MERGE_LIFECYCLE = {
-    'running': {'complete_merge': 'merged'},
-    'merged': {},
-}
-
-_DEPLOY_LIFECYCLE = {
-    'running': {'complete_deploy': 'deployed'},
-    'deployed': {},
-}
-
 def _merge_lifecycle(*parts: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
     merged = {k: dict(v) for k, v in _LIFECYCLE.items()}
     for part in parts:
@@ -54,27 +44,23 @@ _LEGAL: dict[str, dict[str, dict[str, str]]] = {
     'eval':        _merge_lifecycle(),
     'abtest':      _merge_lifecycle(),
     'dataset_gen': _merge_lifecycle(),
-    'merge':       _merge_lifecycle(_MERGE_LIFECYCLE),
-    'deploy':      _merge_lifecycle(_DEPLOY_LIFECYCLE),
 }
 
 TERMINAL: dict[str, set[str]] = {
     'dataset_gen': {'succeeded', 'failed_permanent', 'cancelled'},
     'eval': {'succeeded', 'failed_permanent', 'cancelled'},
     'run': {'succeeded', 'failed_permanent', 'cancelled'},
-    'apply': {'accepted', 'rejected', 'failed_permanent', 'cancelled'},
-    'merge': {'merged', 'failed_permanent', 'cancelled'},
-    'deploy': {'deployed', 'failed_permanent', 'cancelled'},
+    'apply': {'succeeded', 'accepted', 'rejected', 'failed_permanent', 'cancelled'},
     'abtest': {'succeeded', 'failed_permanent', 'cancelled'},
 }
 
-FLOWS: tuple[str, ...] = ('dataset_gen', 'eval', 'run', 'apply', 'abtest', 'merge', 'deploy')
+FLOWS: tuple[str, ...] = ('dataset_gen', 'eval', 'run', 'apply', 'abtest')
 
 _PATCH_FIELDS = frozenset({
     'parent_run_id', 'report_id', 'base_commit', 'branch_name', 'final_commit',
     'current_step', 'current_round', 'error_code', 'error_kind',
     'thread_id', 'payload',
-    'dataset_id', 'source_eval_id', 'deploy_adapter', 'deploy_version',
+    'dataset_id', 'source_eval_id',
 })
 
 _ROUND_PATCH_FIELDS = frozenset({
@@ -121,7 +107,6 @@ class FsStateStore:
         self.rounds_dir = self.base_dir / 'apply_rounds'
         self._create_lock = self.base_dir / '_create.lock'
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
-        self.rounds_dir.mkdir(parents=True, exist_ok=True)
 
     def close(self) -> None:
         return None
@@ -223,8 +208,7 @@ def create_task(store: FsStateStore, flow: str, *,
             'payload': dict(payload or {}),
             'created_at': now, 'updated_at': now, 'terminal_at': None,
         }
-        _atomic_write(store.task_path(tid),
-                      json.dumps(rec, ensure_ascii=False, indent=2))
+        _write_task(store, rec)
         return tid
 
 
@@ -262,7 +246,7 @@ def transition(store: FsStateStore, task_id: str, action: str,
             if k not in _PATCH_FIELDS:
                 raise ValueError(f'unsupported field {k}')
             rec[k] = v
-        _atomic_write(path, json.dumps(rec, ensure_ascii=False, indent=2))
+        _write_task(store, rec)
         return rec
 
 
@@ -279,7 +263,7 @@ def patch(store: FsStateStore, task_id: str, **fields: Any) -> None:
             if k not in _PATCH_FIELDS:
                 raise ValueError(f'unsupported field {k}')
             rec[k] = v
-        _atomic_write(path, json.dumps(rec, ensure_ascii=False, indent=2))
+        _write_task(store, rec)
 
 
 def signals(store: FsStateStore, task_id: str) -> dict:
@@ -368,3 +352,11 @@ def _read_task(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _write_task(store: FsStateStore, rec: dict) -> None:
+    text = json.dumps(rec, ensure_ascii=False, indent=2)
+    _atomic_write(store.task_path(rec['id']), text)
+    if rec.get('thread_id'):
+        _atomic_write(store.base_dir / 'threads' / rec['thread_id']
+                      / 'tasks' / f"{rec['id']}.json", text)

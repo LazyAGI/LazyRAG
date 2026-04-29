@@ -22,7 +22,8 @@ _REPAIR_SYSTEM_PROMPT = (
     'required JSON schema) and emit ONE JSON object that satisfies the schema. '
     'You MUST NOT invoke tools, MUST NOT use any tool-call syntax '
     '([TOOL_CALL]/<invoke>/<tool_call>/Action:), MUST NOT include <think> tags, '
-    'markdown fences, prose, or commentary. Output ONLY the JSON object.'
+    'markdown fences, prose, or commentary. Use [] for empty arrays, never null. '
+    'Enum fields must use exactly one listed value. Output ONLY the JSON object.'
 )
 
 _TYPE_PLACEHOLDER: dict[str, Any] = {
@@ -136,7 +137,7 @@ def _call_llm(session: AnalysisSession, *, producer: Callable[[], str],
 
 def invoke_structured(session: AnalysisSession, invoker: LLMInvoker, user_text: str,
                       *, agent: str, schema: dict, cache_key: str | None = None,
-                      max_repair: int = 1, producer: Callable[[str], str] | None = None,
+                      max_repair: int = 2, producer: Callable[[str], str] | None = None,
                       ) -> dict:
     wrapped_user = _format_with_skeleton(user_text, schema)
     parsed: dict = {}
@@ -159,6 +160,13 @@ def invoke_structured(session: AnalysisSession, invoker: LLMInvoker, user_text: 
             )
         raw_last = (raw or '').strip()
         _dump_raw(session, agent_tag, raw_last)
+        session.telemetry.emit(
+            'llm.answer',
+            actor=agent_tag,
+            agent=agent_tag,
+            answer=raw_last,
+            attempt=attempt,
+        )
 
         if not raw_last:
             errors = ['<root>: empty response (model returned only reasoning/whitespace)']
@@ -166,9 +174,19 @@ def invoke_structured(session: AnalysisSession, invoker: LLMInvoker, user_text: 
         else:
             parsed, errors, repaired = parse_and_validate(raw_last, schema)
             if not errors:
+                session.telemetry.emit(
+                    'schema.validated', agent=agent_tag,
+                    attempt=attempt, repaired=repaired,
+                    output=parsed,
+                )
                 if repaired:
                     session.telemetry.emit('schema_repaired', agent=agent_tag)
                 return parsed
+            session.telemetry.emit(
+                'schema.validation_failed', agent=agent_tag,
+                attempt=attempt, errors=errors[:10],
+                raw=raw_last,
+            )
 
         if attempt >= max_repair:
             break

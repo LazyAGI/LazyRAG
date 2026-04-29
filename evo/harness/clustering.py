@@ -144,8 +144,18 @@ def cluster_badcases(
             ids.append(cid)
             frows.append(flat)
     if not frows:
-        return ToolResult.failure('cluster_badcases', ErrorCode.INTERNAL_ERROR,
-                                  'No features; run step-feature computation first.')
+        for did, judge in session.iter_judge():
+            ids.append(did)
+            key_count = max(1, len(judge.key))
+            frows.append({
+                'judge:answer_correctness': judge.answer_correctness,
+                'judge:context_recall': judge.context_recall,
+                'judge:doc_recall': judge.doc_recall,
+                'judge:faithfulness': judge.faithfulness,
+                'judge:key_hit_rate': len(judge.hit_key) / key_count,
+                'judge:retrieved_contexts': float(len(judge.retrieved_text)),
+                'judge:retrieved_docs': float(len(judge.retrieved_file)),
+            })
     all_keys = sorted({k for r in frows for k in r})
     mat = np.array([[r.get(k, 0.0) for k in all_keys] for r in frows], dtype=np.float64)
     np.nan_to_num(mat, copy=False)

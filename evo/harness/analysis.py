@@ -12,6 +12,8 @@ _log = logging.getLogger("evo.harness.analysis")
 
 
 def _make_session_embed_fn(session: AnalysisSession):
+    if not session.config.enable_embed_features:
+        return None
     if session.embed is None or session.embed_provider is None:
         return None
 

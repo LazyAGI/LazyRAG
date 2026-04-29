@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from itertools import combinations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -17,7 +18,7 @@ _log = logging.getLogger('evo.datagen.graph')
 
 
 class ParallelKGBuilder:
-    def __init__(self, *, llm_factory=None, max_workers: int = 10, max_process_chunk_per_doc: int = 200):
+    def __init__(self, *, llm_factory=None, max_workers: int = 10, max_process_chunk_per_doc: int = 80):
         self.graph = nx.DiGraph()
         self.triple_raw_list: list[dict] = []
         self._llm_factory = llm_factory
@@ -45,7 +46,8 @@ class ParallelKGBuilder:
     def build_global_graph_from_all_docs(self, get_all_chunks_fn) -> None:
         _log.info('build global graph from all docs')
         all_chunks = get_all_chunks_fn()
-        all_chunks = all_chunks[:self._max_process_chunk_per_doc * 1000]
+        random.shuffle(all_chunks)
+        all_chunks = all_chunks[:self._max_process_chunk_per_doc]
         _log.info('total chunks: %s', len(all_chunks))
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
             future_to_chunk = {executor.submit(self.extract_single_chunk_triples, c): c for c in all_chunks}
@@ -204,6 +206,8 @@ class ParallelKGBuilder:
             except Exception:
                 continue
         _log.info('candidate paths: %s', len(candidates))
+        random.shuffle(candidates)
+        candidates = candidates[:max(max_questions * 8, max_questions)]
         results: list[dict] = []
         generated: set[tuple] = set()
         with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
