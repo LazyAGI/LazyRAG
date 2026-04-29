@@ -62,7 +62,12 @@ def get_config_path() -> Path:
     custom = os.getenv('LAZYRAG_MODEL_CONFIG_PATH')
     if custom:
         return Path(custom)
-    use_inner = os.getenv('LAZYRAG_USE_INNER_MODEL', '').lower() in ('1', 'true', 'yes')
+    use_inner_raw = os.getenv('LAZYRAG_USE_INNER_MODEL')
+    # Default to inner runtime config unless explicitly disabled.
+    if use_inner_raw is None:
+        use_inner = True
+    else:
+        use_inner = use_inner_raw.lower() in ('1', 'true', 'yes')
     return _INNER_CONFIG_PATH if use_inner else _EXTERNAL_CONFIG_PATH
 
 
@@ -71,7 +76,7 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     if not resolved.exists():
         raise FileNotFoundError(
             f'Model config `{resolved}` not found. '
-            'Set LAZYRAG_MODEL_CONFIG_PATH or LAZYRAG_USE_INNER_MODEL=true for internal models.'
+            'Set LAZYRAG_MODEL_CONFIG_PATH, or set LAZYRAG_USE_INNER_MODEL=false to use runtime_models.yaml.'
         )
     with resolved.open('r', encoding='utf-8') as f:
         raw = yaml.safe_load(f) or {}

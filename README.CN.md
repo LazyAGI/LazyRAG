@@ -242,7 +242,7 @@ LazyRAG/
 | processor-*     | `DOC_TASK_DATABASE_URL`       | 文档任务用同一数据库                 |
 | parsing         | `LAZYRAG_OCR_SERVER_TYPE`     | `none` \| `mineru` \| `paddleocr`    |
 | parsing         | `LAZYRAG_MILVUS_URI`、`LAZYRAG_OPENSEARCH_URI`、`LAZYRAG_OPENSEARCH_USER`、`LAZYRAG_OPENSEARCH_PASSWORD` | 向量与分段存储（必选） |
-| chat            | `DOCUMENT_SERVER_URL`、`MAX_CONCURRENCY` | 文档服务地址与并发数        |
+| chat            | `LAZYRAG_DOCUMENT_SERVER_URL`、`LAZYRAG_MAX_CONCURRENCY` | 文档服务地址与并发数        |
 
 使用外部 Milvus/OpenSearch 时需覆盖上述存储变量；只有当 URI 保持为 `http://milvus:19530` 与 `https://opensearch:9200` 时，才会部署内置服务。
 
