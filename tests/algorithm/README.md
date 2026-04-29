@@ -1,6 +1,11 @@
 # Algorithm Unit Tests
 
-Tests for algorithm modules: common, chat, (parsing/processor require external services).
+Tests are organized to mirror `LazyRAG/algorithm`:
+
+- `chat/`
+- `lazyllm/`
+- `parsing/`
+- `processor/`
 
 ## Setup
 
@@ -19,6 +24,6 @@ python -m pytest tests/algorithm/ -v
 
 ## Strategy
 
-- **processor/db**: Pure functions, no mocks.
-- **chat**: Tests History/ChatResponse models; full endpoint test requires Document/LLM (or mocks).
-- **parsing/processor**: Require Milvus, OpenSearch, DB - use integration tests or docker-compose.
+- `processor/db`: Pure functions, no mocks.
+- `chat`: Component and pipeline regression tests.
+- `parsing` / `processor`: Service-heavy parts should prefer integration tests or docker-compose.
