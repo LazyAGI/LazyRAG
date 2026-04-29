@@ -25,7 +25,6 @@ def _pid_alive(pid: int | None) -> bool:
 class ChatRegistry:
     def __init__(self, base_dir: Path | str) -> None:
         self.dir = Path(base_dir) / 'state' / 'chats'
-        self.dir.mkdir(parents=True, exist_ok=True)
         self._guard = threading.RLock()
 
     def _path(self, chat_id: str) -> Path:
@@ -33,6 +32,7 @@ class ChatRegistry:
 
     def register(self, instance: ChatInstance) -> ChatInstance:
         with self._guard:
+            self.dir.mkdir(parents=True, exist_ok=True)
             payload = dataclasses.asdict(instance)
             payload['source_dir'] = str(instance.source_dir)
             _atomic_write(self._path(instance.chat_id),
@@ -47,6 +47,8 @@ class ChatRegistry:
         return _validate(_from_dict(json.loads(path.read_text(encoding='utf-8'))))
 
     def list(self, role: ChatRole | None = None) -> list[ChatInstance]:
+        if not self.dir.exists():
+            return []
         out = []
         for path in sorted(self.dir.glob('*.json')):
             inst = _validate(_from_dict(json.loads(path.read_text(encoding='utf-8'))))

@@ -47,12 +47,12 @@ class IntentStore:
 
     def __init__(self, base_dir: Path) -> None:
         self._base_dir = base_dir
-        self._base_dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, intent_id: str) -> Path:
         return self._base_dir / f'{intent_id}.json'
 
     def save(self, intent: Intent) -> None:
+        self._base_dir.mkdir(parents=True, exist_ok=True)
         data = {
             'intent_id': intent.intent_id,
             'thread_id': intent.thread_id,
@@ -116,6 +116,8 @@ class IntentStore:
         return rec
 
     def list_pending(self, thread_id: str) -> list[dict]:
+        if not self._base_dir.exists():
+            return []
         out: list[dict] = []
         for p in self._base_dir.glob('*.json'):
             rec = json.loads(p.read_text(encoding='utf-8'))
