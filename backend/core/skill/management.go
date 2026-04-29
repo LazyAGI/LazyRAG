@@ -371,8 +371,6 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	generated, err := algo.GenerateSkill(r.Context(), algo.SkillGenerateRequest{
-		Category:     row.Category,
-		SkillName:    row.SkillName,
 		Content:      content,
 		Suggestions:  toAlgoSuggestions(suggestions),
 		UserInstruct: req.UserInstruct,

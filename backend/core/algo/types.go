@@ -7,8 +7,6 @@ type Suggestion struct {
 }
 
 type SkillGenerateRequest struct {
-	Category     string       `json:"category"`
-	SkillName    string       `json:"skill_name"`
 	Content      string       `json:"content"`
 	Suggestions  []Suggestion `json:"suggestions"`
 	UserInstruct string       `json:"user_instruct"`

@@ -466,6 +466,12 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	if algoBody["user_instruct"] != "只按用户意见生成" {
 		t.Fatalf("unexpected user_instruct sent to algorithm: %#v", algoBody["user_instruct"])
 	}
+	if _, ok := algoBody["category"]; ok {
+		t.Fatalf("category should not be sent to algorithm: %#v", algoBody["category"])
+	}
+	if _, ok := algoBody["skill_name"]; ok {
+		t.Fatalf("skill_name should not be sent to algorithm: %#v", algoBody["skill_name"])
+	}
 	suggestions, ok := algoBody["suggestions"].([]any)
 	if !ok || len(suggestions) != 0 {
 		t.Fatalf("expected empty suggestions array, got %#v", algoBody["suggestions"])
