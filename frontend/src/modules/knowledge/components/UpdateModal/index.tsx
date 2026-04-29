@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 import { Modal, Form, Input, Select } from "antd";
 import { useTranslation } from "react-i18next";
 import { Dataset, Algo } from "@/api/generated/knowledge-client";
@@ -29,17 +29,6 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
     useImperativeHandle(ref, () => ({
       onOpen,
     }));
-
-    useEffect(() => {
-      // If there is only one parse algorithm, auto-select it and hide the selector.
-      if (!visible || algorithm.length !== 1) {
-        return;
-      }
-      const currentAlgoId = form.getFieldValue("algo_id");
-      if (!currentAlgoId) {
-        form.setFieldsValue({ algo_id: algorithm[0].algo_id });
-      }
-    }, [algorithm, visible, form]);
 
     function getAlgorithm() {
       KnowledgeBaseServiceApi()
@@ -80,12 +69,7 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
     function onOk() {
       form.validateFields().then(async (values) => {
         const params = { ...values };
-        const selectedAlgoId =
-          params.algo_id || (algorithm.length === 1 ? algorithm[0]?.algo_id : undefined);
-        params.algo = algorithm.find((item) => item.algo_id === selectedAlgoId);
-        if (selectedAlgoId) {
-          params.algo_id = selectedAlgoId;
-        }
+        params.algo = algorithm.find((item) => item.algo_id === params.algo_id);
         delete params.algo_id;
         if (loading) {
           return;
@@ -140,6 +124,8 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
           <Form.Item
             name="desc"
             label={t("knowledge.knowledgeDesc")}
+            required
+            rules={[{ required: true, message: t("knowledge.inputKnowledgeDesc") }]}
           >
             <TextArea
               placeholder={t("knowledge.maxLength300Chars")}
@@ -148,23 +134,21 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
               autoSize={{ minRows: 2, maxRows: 6 }}
             />
           </Form.Item>
-          {algorithm.length !== 1 && (
-            <Form.Item
-              name="algo_id"
-              label={t("knowledge.parseAlgorithm")}
-              initialValue={null}
-              rules={[{ required: true, message: t("knowledge.selectParseAlgorithm") }]}
-            >
-              <Select
-                options={algorithm.map((item) => ({
-                  label: item.display_name,
-                  value: item.algo_id,
-                }))}
-                disabled={!!data?.dataset_id}
-                placeholder={t("knowledge.selectParseAlgorithm")}
-              />
-            </Form.Item>
-          )}
+          <Form.Item
+            name="algo_id"
+            label={t("knowledge.parseAlgorithm")}
+            initialValue={null}
+            rules={[{ required: true, message: t("knowledge.selectParseAlgorithm") }]}
+          >
+            <Select
+              options={algorithm.map((item) => ({
+                label: item.display_name,
+                value: item.algo_id,
+              }))}
+              disabled={!!data?.dataset_id}
+              placeholder={t("knowledge.selectParseAlgorithm")}
+            />
+          </Form.Item>
           <Form.Item
             name="tags"
             label={t("knowledge.knowledgeTags")}

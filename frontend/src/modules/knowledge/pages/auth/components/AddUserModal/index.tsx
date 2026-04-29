@@ -143,7 +143,7 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
             }) => {
               return {
                 value: item.user_id,
-                label: item.display_name || item.username || "",
+                label: item.display_name || item.username || item.user_id,
                 disabled: item.status?.toLowerCase() === "inactive",
               };
             },
@@ -204,7 +204,15 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
             filterOption={false}
             options={userList.map((item) => ({
               value: item.value,
-              label: item.label,
+              label: isGroup ? (
+                item.label
+              ) : (
+                <div style={{ display: "flex" }}>
+                  {item.label}
+                  <span style={{ margin: "0 4px", flex: 1 }}></span>
+                  {item.value}
+                </div>
+              ),
               tag: item.label,
               disabled: item.disabled,
             }))}

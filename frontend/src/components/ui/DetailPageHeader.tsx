@@ -1,4 +1,4 @@
-import { Breadcrumb, type BreadcrumbProps, Button, Tooltip } from "antd";
+import { Breadcrumb, type BreadcrumbProps, Button, Typography } from "antd";
 import { LeftOutlined } from "@ant-design/icons";
 import { useStyles } from "./useStyles";
 
@@ -13,33 +13,9 @@ const headerCss = `
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 0;
 }
-.detail-title {
-  font-size: 20px;
-  font-weight: 600;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.detail-title-text,
-.detail-page-description-text,
-.detail-breadcrumb-text {
-  display: inline-block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-}
-.detail-title-text {
-  max-width: 100%;
-}
-.detail-breadcrumb-text {
-  max-width: min(60vw, 960px);
-}
+.detail-title { font-size: 20px; font-weight: 600; }
 .title-extra, .detail-page-description { font-size: 14px; color: #666; }
-.detail-page-description-text {
-  max-width: 100%;
-}
 .settings-menu { display: flex; align-items: center; gap: 4px; }
 .extra-content { display: flex; flex-wrap: wrap; gap: 8px 24px; }
 .extra-content-item { display: flex; align-items: center; gap: 8px; }
@@ -79,43 +55,11 @@ export default function DetailPageHeader({
   onBack,
 }: DetailPageHeaderProps) {
   useStyles("detail-page-header-styles", headerCss);
-  const normalizedBreadcrumbs = breadcrumbs?.map((item) => {
-    if (!item || typeof item.title !== "string" || !item.title.trim()) {
-      return item;
-    }
-    const text = item.title;
-    return {
-      ...item,
-      title: (
-        <Tooltip title={text} placement="topLeft">
-          <span className="detail-breadcrumb-text">{text}</span>
-        </Tooltip>
-      ),
-    };
-  });
-
-  const resolvedTitle =
-    typeof title === "string" ? (
-      <Tooltip title={title} placement="topLeft">
-        <span className="detail-title-text">{title}</span>
-      </Tooltip>
-    ) : (
-      title
-    );
-
-  const resolvedDescription =
-    typeof description === "string" ? (
-      <Tooltip title={description} placement="topLeft">
-        <span className="detail-page-description-text">{description}</span>
-      </Tooltip>
-    ) : (
-      description
-    );
 
   return (
     <div className={`common-detail-page-header ${className}`}>
-      {normalizedBreadcrumbs && normalizedBreadcrumbs.length > 0 && (
-        <Breadcrumb items={normalizedBreadcrumbs} />
+      {breadcrumbs && breadcrumbs.length > 0 && (
+        <Breadcrumb items={breadcrumbs} />
       )}
       <div className="detail-page-title">
         {showBackButton && (
@@ -126,7 +70,7 @@ export default function DetailPageHeader({
             onClick={() => (onBack ? onBack() : window.history.back())}
           />
         )}
-        <span className="detail-title">{resolvedTitle}</span>
+        <span className="detail-title">{title}</span>
         {settingsMenu && <div className="settings-menu">{settingsMenu}</div>}
         {titleExtra && <div className="title-extra">{titleExtra}</div>}
       </div>
@@ -145,7 +89,16 @@ export default function DetailPageHeader({
             ))}
         </div>
       )}
-      {description && <div className="detail-page-description">{resolvedDescription}</div>}
+      {description && (
+        <div className="detail-page-description">
+          <Typography.Paragraph
+            ellipsis={{ rows: 1, expandable: false }}
+            style={{ marginBottom: 0 }}
+          >
+            {description}
+          </Typography.Paragraph>
+        </div>
+      )}
     </div>
   );
 }

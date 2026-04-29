@@ -127,7 +127,6 @@ db
 环境变量配置与完整启动示例见：
 
 - [`docs/quick_start.md`](docs/quick_start.md)
-- CLI 使用示例见：[`docs/cli.md`](docs/cli.md)
 
 **完整栈（默认部署 Milvus + OpenSearch）：**
 ```bash
