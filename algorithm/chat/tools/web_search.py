@@ -521,7 +521,6 @@ def url_fetch(
     }
 
     with requests.sessions.Session() as session:
-        session.trust_env = False
         response = session.get(
             normalized_url,
             timeout=timeout,

@@ -115,7 +115,19 @@ def _parse_dataset_url(dataset_url: str) -> Tuple[str, str]:
 
 def _sync_request_context(config: dict) -> None:
     filters = config.get('filters') if isinstance(config.get('filters'), dict) else {}
-    kb_id = str(filters.get('kb_id') or config.get('kb_id') or '').strip()
+    raw_kb_id = filters.get('kb_id')
+    if not raw_kb_id:
+        raw_kb_id = config.get('kb_id')
+
+    kb_id = ''
+    if isinstance(raw_kb_id, str):
+        kb_id = raw_kb_id.strip()
+    elif isinstance(raw_kb_id, list):
+        for item in raw_kb_id:
+            if isinstance(item, str) and item.strip():
+                kb_id = item.strip()
+                break
+
     if kb_id:
         config['kb_id'] = kb_id
     else:

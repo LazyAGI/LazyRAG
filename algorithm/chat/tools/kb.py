@@ -146,7 +146,18 @@ def _resolve_kb_name(config: Dict[str, Any]) -> str:
 
 
 def _resolve_kb_id(config: Dict[str, Any]) -> Optional[str]:
-    return config.get('kb_id')
+    kb_id = config.get('kb_id')
+    if isinstance(kb_id, str):
+        normalized = kb_id.strip()
+        return normalized or None
+    if isinstance(kb_id, list):
+        for item in kb_id:
+            if not isinstance(item, str):
+                continue
+            normalized = item.strip()
+            if normalized:
+                return normalized
+    return None
 
 
 def _resolve_index(config: Dict[str, Any], group: str) -> str:
@@ -440,7 +451,9 @@ def kb_search(
         'filters': filters or {},
         'files': files,
     }
-    payload['filters']['kb_id'] = agentic_config.get('kb_id')
+    resolved_kb_id = _resolve_kb_id(agentic_config)
+    if resolved_kb_id:
+        payload['filters']['kb_id'] = resolved_kb_id
     search_ppl = get_ppl_search(
         url=f'{kb_url},{kb_name}',
         retriever_configs=retriever_configs,

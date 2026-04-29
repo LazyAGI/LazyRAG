@@ -23,16 +23,30 @@ RUN pip install --no-cache-dir 'lazyllm[rag]==0.7.6a0'
 # Submodule lazyllm is copied via COPY . . and its parent dir is prepended to PYTHONPATH so
 # "import lazyllm" resolves to /app/lazyllm/lazyllm/ (submodule) instead of pip-installed lazyllm.
 FROM base AS default
+ARG LAZYRAG_GIT_SHA=unknown
+ARG LAZYLLM_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
+LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+RUN chmod +x /app/docker-entrypoint.sh
 ENV PYTHONPATH=/app/lazyllm:/app
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
 # Stage: mineru - base + requirements.txt + configurable mineru extra + code.
 # Submodule lazyllm is copied via COPY . . and its parent dir is prepended to PYTHONPATH so
 # "import lazyllm" resolves to /app/lazyllm/lazyllm/ (submodule) instead of pip-installed lazyllm.
 FROM base AS mineru
+ARG LAZYRAG_GIT_SHA=unknown
+ARG LAZYLLM_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="LazyRAG algorithm/mineru"
+LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 ARG MINERU_VERSION=2.7.1
 ARG MINERU_PACKAGE_VARIANT=pipeline
 ARG MINERU_PREINSTALL_CPU_TORCH=1
