@@ -4,6 +4,7 @@ from __future__ import annotations
 PERMANENT_CODES = frozenset({
     'OPENCODE_BIN_MISSING',
     'OPENCODE_AUTH_MISSING',
+    'OPENCODE_NO_CHANGES',
     'REPO_NOT_FOUND',
     'CHAT_DIR_NOT_FOUND',
     'CODE_MAP_EMPTY',

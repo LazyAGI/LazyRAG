@@ -11,6 +11,7 @@ from evo.apply.errors import classify
 from evo.apply.runner import ApplyOptions, RoundResult, execute_apply
 from evo.harness.plan import StopRequested
 from evo.runtime.fs import load_json
+from evo.service import opencode_admin
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 
@@ -49,7 +50,7 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken,
     report_id = cur['report_id']
     report = load_json(_report_path(ctx, report_id, cur.get('thread_id')))
     workspace = GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source)
-    opts = ctx.apply_opts or ApplyOptions()
+    opts = _apply_options(ctx)
     thread_id = cur.get('thread_id')
     elog = (EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path)
             if thread_id else None)
@@ -72,7 +73,8 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken,
         resume=resume,
     )
     preview_dir = ctx.cfg.storage.applies_dir / tid / 'preview'
-    diff_index = str(preview_dir / 'index.json') if (preview_dir / 'index.json').is_file() else None
+    diff_index_path = preview_dir / tid / 'index.json'
+    diff_index = str(diff_index_path) if diff_index_path.is_file() else None
     _store.patch(
         ctx.store, tid,
         base_commit=result.base_commit,
@@ -125,8 +127,20 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken,
         code = err.get('code', 'UNKNOWN')
         kind = err.get('kind') or classify(code)
         action = 'fail_permanent' if kind == 'permanent' else 'fail_transient'
-        _store.transition(ctx.store, tid, action,
-                          error_code=code, error_kind=kind)
+        row = _store.transition(ctx.store, tid, action,
+                                error_code=code, error_kind=kind)
+        if elog:
+            elog.append_event('apply.finish', task_id=tid, payload={
+                'apply_id': tid,
+                'status': result.status,
+                'terminal_status': row.get('status'),
+                'error_code': code,
+                'error_kind': kind,
+                'message': err.get('message'),
+                'round_count': len(result.rounds),
+                'preview_dir': str(preview_dir),
+                'diff_index': diff_index,
+            })
 
 
 def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
@@ -149,7 +163,7 @@ def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
             'round': rr.index,
             'files_changed': rr.files_changed,
             'diff_summary': _diff_summary(rr),
-            'diff_artifact': str(ctx.cfg.storage.applies_dir / tid / 'preview' / 'index.json'),
+            'diff_artifact': str(ctx.cfg.storage.applies_dir / tid / 'preview' / tid / 'index.json'),
             'commit_sha': rr.commit_sha,
         })
 
@@ -202,6 +216,14 @@ def _chat_env() -> dict[str, str]:
         'no_proxy', 'NO_PROXY',
     )
     env = {k: v for k in keys if (v := os.getenv(k))}
+    env.update(_candidate_env_overrides())
+    if not env.get('LAZYRAG_ALGO_SERVICE_URL'):
+        algo_url = (
+            os.getenv('EVO_CANDIDATE_ALGO_SERVICE_URL')
+            or os.getenv('EVO_ALGO_SERVICE_URL')
+        )
+        if algo_url:
+            env['LAZYRAG_ALGO_SERVICE_URL'] = algo_url.rstrip('/')
     env.update({k: v for k, v in os.environ.items()
                 if k.startswith('LAZYLLM_') and v})
     internal = (
@@ -214,6 +236,26 @@ def _chat_env() -> dict[str, str]:
     env['NO_PROXY'] = merged
     env['LAZYRAG_SKIP_STARTUP_PIPELINE'] = '1'
     return env
+
+
+def _candidate_env_overrides() -> dict[str, str]:
+    from pathlib import Path
+    path = Path(os.getenv(
+        'EVO_CANDIDATE_ENV_PATH',
+        os.getenv('EVO_BASE_DIR', '/var/lib/lazyrag/evo')
+    ))
+    if path.is_dir() or path.suffix != '.json':
+        path = path / 'state' / 'candidate_env.json'
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except Exception as exc:
+        log.warning('failed to read candidate env overrides %s: %s', path, exc)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if v is not None}
 
 
 def _merge_csv(existing: str, extra: tuple[str, ...]) -> str:
@@ -327,3 +369,14 @@ def _report_for_run(ctx: ExecCtx, thread_id: str, run_id: str):
 def resolve_worktree(ctx: ExecCtx, apply_id: str):
     return GitWorkspace(ctx.cfg.storage.git_dir,
                          ctx.cfg.chat_source).worktree_path(apply_id)
+
+
+def _apply_options(ctx: ExecCtx) -> ApplyOptions:
+    base = ctx.apply_opts or ApplyOptions()
+    return ApplyOptions(
+        max_rounds=base.max_rounds,
+        test_command=base.test_command,
+        instruction=base.instruction,
+        opencode_options=opencode_admin.apply_options(
+            ctx.cfg, base.opencode_options),
+    )

@@ -84,6 +84,8 @@ def _generate_structured(
     llm_factory=None,
     label: str,
 ) -> list[dict]:
+    if count <= 0:
+        return []
     if not chunks:
         _log.info('%s generation skipped: no candidate chunks', label)
         return []

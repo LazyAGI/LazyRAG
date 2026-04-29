@@ -15,6 +15,15 @@ from evo.apply.errors import ApplyError
 log = logging.getLogger('evo.apply.opencode')
 
 
+@dataclass(frozen=True)
+class OpencodeProviderConfig:
+    provider: str
+    model: str
+    api_key: str
+    base_url: str
+    label: str = ''
+
+
 def _default_model() -> str | None:
     model = os.getenv('EVO_OPENCODE_MODEL') or os.getenv('OPENCODE_MODEL')
     if not model and os.getenv('LAZYRAG_MAAS_API_KEY') and os.getenv('MAAS_MODEL_NAME'):
@@ -40,6 +49,7 @@ class OpencodeOptions:
     agent: str | None = None
     variant: str | None = None
     timeout_s: int = 600
+    provider_config: OpencodeProviderConfig | None = None
 
 
 @dataclass
@@ -66,7 +76,8 @@ def default_auth_dir() -> Path:
     return Path.home() / '.local' / 'share' / 'opencode'
 
 
-def preflight(binary: str | None, *, auth_dir: Path | None = None) -> str:
+def preflight(binary: str | None, *, auth_dir: Path | None = None,
+              options: OpencodeOptions | None = None) -> str:
     resolved = resolve_binary(binary)
     try:
         r = subprocess.run([resolved, '--version'], capture_output=True,
@@ -81,8 +92,13 @@ def preflight(binary: str | None, *, auth_dir: Path | None = None) -> str:
         raise ApplyError('OPENCODE_BIN_MISSING', 'opencode --version failed',
                          {'stderr': r.stderr[-500:]})
     state_dir = auth_dir or default_auth_dir()
-    model = normalize_model(_default_model())
+    opts = options or OpencodeOptions()
+    cfg = opts.provider_config
+    model = _option_model(opts)
     has_provider_key = (
+        bool(cfg and cfg.api_key)
+        or ((model or '').startswith('deepseek/') and bool(os.getenv('DEEPSEEK_API_KEY')))
+        or
         (model or '').startswith('maas/') and bool(os.getenv('LAZYRAG_MAAS_API_KEY'))
     )
     if not has_provider_key and not _has_auth_state(state_dir):
@@ -117,20 +133,24 @@ def run_opencode(
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     cmd: list[str] = [binary, 'run', '--format', 'json']
-    model = normalize_model(options.model)
+    model = _option_model(options)
     for flag, value in (('--model', model), ('--agent', options.agent),
                         ('--variant', options.variant)):
         if value:
             cmd.extend([flag, value])
     cmd.append(prompt)
 
-    temp_config = _ensure_project_provider_config(cwd, model)
+    temp_config = _ensure_project_provider_config(cwd, model,
+                                                  options.provider_config)
     temp_home = _prepare_opencode_home(default_auth_dir())
     env = dict(os.environ)
     env['HOME'] = str(temp_home)
-    api_key = _auth_api_key('deepseek')
-    if api_key and (model or '').startswith('deepseek/'):
-        env.setdefault('DEEPSEEK_API_KEY', api_key)
+    if options.provider_config:
+        env[_api_key_env(options.provider_config.provider)] = options.provider_config.api_key
+    else:
+        api_key = _auth_api_key('deepseek')
+        if api_key and (model or '').startswith('deepseek/'):
+            env.setdefault('DEEPSEEK_API_KEY', api_key)
     if (model or '').startswith('maas/'):
         _disable_proxy(env)
 
@@ -179,6 +199,12 @@ def run_opencode(
     )
 
 
+def _option_model(options: OpencodeOptions) -> str | None:
+    if options.provider_config:
+        return f'{options.provider_config.provider}/{options.provider_config.model}'
+    return normalize_model(options.model)
+
+
 def _prepare_opencode_home(auth_dir: Path) -> Path:
     home = Path(tempfile.mkdtemp(prefix='evo-opencode-home-'))
     state_dir = home / '.local' / 'share' / 'opencode'
@@ -214,8 +240,38 @@ def _auth_api_key(provider: str) -> str | None:
     return None
 
 
-def _ensure_project_provider_config(cwd: Path, model: str | None) -> Path | None:
+def _api_key_env(provider: str) -> str:
+    safe = ''.join(ch if ch.isalnum() else '_' for ch in provider.upper())
+    return f'OPENCODE_{safe}_API_KEY'
+
+
+def _ensure_project_provider_config(cwd: Path, model: str | None,
+                                    provider_config: OpencodeProviderConfig | None = None) -> Path | None:
     model = model or ''
+    if provider_config is not None:
+        provider = provider_config.provider
+        path = cwd / 'opencode.json'
+        if path.exists():
+            return None
+        config = {
+            '$schema': 'https://opencode.ai/config.json',
+            'provider': {
+                provider: {
+                    'npm': '@ai-sdk/openai-compatible',
+                    'name': provider_config.label or provider,
+                    'options': {
+                        'baseURL': provider_config.base_url.rstrip('/'),
+                        'apiKey': f'{{env:{_api_key_env(provider)}}}',
+                    },
+                    'models': {
+                        provider_config.model: {'name': provider_config.model},
+                    },
+                },
+            },
+        }
+        path.write_text(json.dumps(config, ensure_ascii=False, indent=2),
+                        encoding='utf-8')
+        return path
     if not (model.startswith('deepseek/') or model.startswith('maas/')):
         return None
     path = cwd / 'opencode.json'

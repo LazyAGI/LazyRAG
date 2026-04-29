@@ -62,6 +62,8 @@ class Planner:
             try:
                 raw_answer = self.llm(prompt)
                 parsed = _parse_json_object(raw_answer)
+                if not isinstance(parsed, dict):
+                    raise ValueError('planner response must be an object')
             except Exception:
                 parsed = {'ops': [], 'reply': f'收到：{message}。暂无可自动执行的操作。'}
         else:
@@ -229,6 +231,7 @@ def _validate_abtest_boundary(payload: dict[str, Any], ctx: PlanContext) -> None
             rp.get('apply_id') == apply_id
             and rp.get('baseline_eval_id') == payload.get('baseline_eval_id')
             and rp.get('dataset_id') == payload.get('dataset_id')
+            and (rp.get('eval_options') or {}) == (payload.get('eval_options') or {})
         ):
             raise ValueError('matching abtest is already running')
 
@@ -296,6 +299,32 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
                 'reply': f'已对数据集 {dataset_id} 发起评测任务。',
             }
 
+    if flow == 'abtest':
+        args = {
+            'apply_id': _extract_named_id(message, 'apply_id') or _extract_id_after(message, ('apply',)),
+            'baseline_eval_id': _extract_named_id(message, 'baseline_eval_id'),
+            'dataset_id': _extract_named_id(message, 'dataset_id'),
+        }
+        eval_options: dict[str, Any] = {}
+        dataset_name = _extract_named_id(message, 'dataset_name')
+        kb_id = _extract_named_id(message, 'kb_id')
+        max_workers = _extract_named_id(message, 'max_workers')
+        if dataset_name:
+            eval_options['dataset_name'] = dataset_name
+        if kb_id:
+            eval_options['filters'] = {'kb_id': kb_id}
+        if max_workers and max_workers.isdigit():
+            eval_options['max_workers'] = int(max_workers)
+        if eval_options:
+            args['eval_options'] = eval_options
+        if args['apply_id'] and args['baseline_eval_id'] and args['dataset_id']:
+            return {
+                'ops': [{'op': 'abtest.create',
+                         'reason': '按显式参数创建 ABTest',
+                         'args': args}],
+                'reply': '我会按给定参数创建 ABTest。',
+            }
+
     if ('数据集' in message or '评测集' in message) and any(k in message for k in ('重新生成', '重生成', '再生成', '生成有问题', '有问题')):
         ds = latest.get('dataset_gen') or {}
         payload = ds.get('payload') or {}
@@ -322,6 +351,8 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
 
 
 def _flow_from_text(message: str) -> str | None:
+    if any(k in message for k in ('abtest', 'ab test', '对比')):
+        return 'abtest'
     if any(k in message for k in ('分析', '诊断', 'run')):
         return 'run'
     if (('评测' in message and '评测集' not in message)
@@ -331,8 +362,6 @@ def _flow_from_text(message: str) -> str | None:
         return 'dataset_gen'
     if any(k in message for k in ('修改', 'apply')):
         return 'apply'
-    if any(k in message for k in ('abtest', 'ab test', '对比')):
-        return 'abtest'
     return None
 
 
@@ -360,6 +389,12 @@ def _extract_id_after(message: str, markers: tuple[str, ...]) -> str | None:
         if m:
             return m.group(1).strip('，。,. ')
     return None
+
+
+def _extract_named_id(message: str, name: str) -> str | None:
+    pattern = rf'{re.escape(name)}\s*[:=：]?\s*([A-Za-z0-9_.:/-]+)'
+    m = re.search(pattern, message, re.I)
+    return m.group(1).strip('，。,. ') if m else None
 
 
 def _cancel_restart_ops(flow: str | None, latest: dict[str, Any],

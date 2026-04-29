@@ -79,6 +79,7 @@ class ThreadHub:
         rows = _thread_task_rows(self.jm, thread_id, ws.load_artifacts())
         active_tasks = [r for r in rows if _task_is_executing(r)]
         latest_abtest = _latest_flow(rows, 'abtest')
+        latest_apply = _latest_flow(rows, 'apply')
         report_ready = _abtest_report_ready(ws, latest_abtest)
         last_user_ts = _latest_user_message_ts(ws.messages_path)
 
@@ -87,6 +88,9 @@ class ThreadHub:
             and latest_abtest.get('status') == 'succeeded'
             and report_ready
             and (latest_abtest.get('terminal_at') or 0.0) >= last_user_ts
+            and not active_tasks
+        ) or (
+            _task_ends_thread(latest_apply)
             and not active_tasks
         )
         return {
@@ -364,6 +368,16 @@ def _task_is_executing(row: dict) -> bool:
     }
 
 
+def _task_ends_thread(row: dict | None) -> bool:
+    if not row:
+        return False
+    return (
+        row.get('flow') == 'apply'
+        and row.get('status') == 'failed_permanent'
+        and row.get('error_code') == 'OPENCODE_NO_CHANGES'
+    )
+
+
 def _abtest_report_ready(ws, row: dict | None) -> bool:
     if not row:
         return False
@@ -472,7 +486,8 @@ def build_router(hub: ThreadHub) -> APIRouter:
                            since: int = Query(0, ge=0)) -> EventSourceResponse:
         import asyncio
         from evo.service.threads.workspace import ThreadWorkspace
-        path = ThreadWorkspace(hub.jm.config.storage.base_dir, thread_id).events_path
+        path = ThreadWorkspace(hub.jm.config.storage.base_dir, thread_id,
+                               create=False).events_path
 
         async def gen():
             offset = since

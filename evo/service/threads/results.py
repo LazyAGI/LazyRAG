@@ -52,18 +52,19 @@ def build_results_router(*, base_dir: Path, store: _store.FsStateStore) -> APIRo
     @router.get('/analysis-reports')
     def analysis_reports(thread_id: str) -> list[dict]:
         ws = _ws(base_dir, thread_id)
+        reports_dir = ws.dir / 'outputs' / 'reports'
         out = []
         for row in _store.list_flow_tasks_by_thread(store, 'run', thread_id):
             report_id = (row.get('payload') or {}).get('report_id')
             if not report_id:
                 continue
             json_path = _first_existing(
-                ws.outputs_dir / 'reports' / f'{report_id}.json',
+                reports_dir / f'{report_id}.json',
                 Path(base_dir) / 'work' / 'reports' / f'{report_id}.json',
                 Path(base_dir) / 'reports' / f'{report_id}.json',
             )
             md_path = _first_existing(
-                ws.outputs_dir / 'reports' / f'{report_id}.md',
+                reports_dir / f'{report_id}.md',
                 Path(base_dir) / 'work' / 'reports' / f'{report_id}.md',
                 Path(base_dir) / 'reports' / f'{report_id}.md',
             )
@@ -83,24 +84,14 @@ def build_results_router(*, base_dir: Path, store: _store.FsStateStore) -> APIRo
         out = []
         for row in _store.list_flow_tasks_by_thread(store, 'apply', thread_id):
             apply_id = row['id']
-            diff_dir = _first_existing_dir(
-                ws.outputs_dir / 'diffs' / apply_id,
-                Path(base_dir) / 'work' / 'diffs' / apply_id,
-                Path(base_dir) / 'diffs' / apply_id,
-            )
-            preview = _first_existing(
-                ws.outputs_dir / 'applies' / apply_id / 'preview' / 'index.json',
-                Path(base_dir) / 'work' / 'applies' / apply_id / 'preview' / 'index.json',
-                Path(base_dir) / 'applies' / apply_id / 'preview' / 'index.json',
-            )
+            preview = _preview_index_path(base_dir, ws, apply_id)
+            preview_data = _read_json(preview) or {}
             out.append({
                 'apply_id': apply_id,
                 'status': row.get('status'),
-                'preview': _read_json(preview),
-                'files': [
-                    {'filename': p.name, 'path': str(p), 'content': _read_text(p)}
-                    for p in sorted(diff_dir.glob('*.diff'))
-                ] if diff_dir.is_dir() else [],
+                'preview_path': str(preview) if preview.is_file() else None,
+                'preview': preview_data or None,
+                'files': _diff_files(preview_data),
             })
         return out
 
@@ -122,7 +113,7 @@ def build_results_router(*, base_dir: Path, store: _store.FsStateStore) -> APIRo
 
 
 def _ws(base_dir: Path, thread_id: str) -> ThreadWorkspace:
-    ws = ThreadWorkspace(base_dir, thread_id)
+    ws = ThreadWorkspace(base_dir, thread_id, create=False)
     if not ws.thread_meta_path.exists():
         raise HTTPException(404, f'thread {thread_id} not found')
     return ws
@@ -149,8 +140,31 @@ def _first_existing(*paths: Path) -> Path:
     return paths[0]
 
 
-def _first_existing_dir(*paths: Path) -> Path:
-    for path in paths:
-        if path.is_dir():
-            return path
-    return paths[0]
+def _preview_index_path(base_dir: Path, ws: ThreadWorkspace,
+                        apply_id: str) -> Path:
+    preview_rel = Path('applies') / apply_id / 'preview' / apply_id / 'index.json'
+    legacy_rel = Path('applies') / apply_id / 'preview' / 'index.json'
+    return _first_existing(
+        ws.dir / 'outputs' / preview_rel,
+        Path(base_dir) / 'work' / preview_rel,
+        ws.dir / 'outputs' / legacy_rel,
+        Path(base_dir) / 'work' / legacy_rel,
+    )
+
+
+def _diff_files(preview: dict) -> list[dict]:
+    out: list[dict] = []
+    for item in preview.get('files') or []:
+        if not isinstance(item, dict):
+            continue
+        path = Path(str(item.get('diff_path') or ''))
+        out.append({
+            'path': item.get('path'),
+            'change_kind': item.get('change_kind'),
+            'additions': item.get('additions'),
+            'deletions': item.get('deletions'),
+            'diff_path': str(path) if str(path) else None,
+            'filename': path.name if path.name else None,
+            'content': _read_text(path) if path.is_file() else None,
+        })
+    return out

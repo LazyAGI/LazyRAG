@@ -33,7 +33,8 @@ def call_rag_chat(
 ) -> dict[str, Any]:
     if not target_chat_url:
         raise RAGTargetRequiredError('target_chat_url is required for RAG evaluation')
-    payload = {'query': question, 'trace': True, 'session_id': f'evo-eval-{uuid.uuid4().hex}'}
+    session_id = f'evo-eval-{uuid.uuid4().hex}'
+    payload = {'query': question, 'trace': True, 'session_id': session_id}
     if dataset_name:
         payload['dataset'] = dataset_name
     if filters:
@@ -61,7 +62,8 @@ def call_rag_chat(
     sources = result.get('sources') or data_obj.get('sources') or data_obj.get('recall') or []
     trace_id = result.get('trace_id') or data_obj.get('trace_id') or ''
     if not trace_id:
-        raise RAGTraceMissing('RAG_TRACE_MISSING: target chat did not return trace_id')
+        trace_id = session_id
+        _log.info('target chat omitted trace_id; using session_id %s', trace_id)
     answer = (
         result.get('answer') or data_obj.get('answer') or data_obj.get('text')
         or data_obj.get('data') or ''

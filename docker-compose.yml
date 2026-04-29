@@ -500,21 +500,36 @@ services:
 
   evo-api:
     build:
+      network: host
       context: .
       dockerfile: evo/Dockerfile
       args:
         OPENCODE_VERSION: 1.14.28
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
+        PIP_RETRIES: ${PIP_RETRIES:-10}
+        http_proxy: ${http_proxy:-}
+        https_proxy: ${https_proxy:-}
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        no_proxy: ${no_proxy:-}
+        NO_PROXY: ${NO_PROXY:-}
+      secrets:
+        - apt_http_proxy
+        - apt_https_proxy
     expose:
       - "8047"
     ports:
-      - "8047:8047"
+      - "8048:8047"
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
       OPENCODE_BIN: /usr/local/bin/opencode
       EVO_OPENCODE_PROVIDER: ${EVO_OPENCODE_PROVIDER:-maas}
       EVO_OPENCODE_MODEL: ${EVO_OPENCODE_MODEL:-minimax-m27}
-      EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-180}
+      EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-600}
       EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
       EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
       EVO_EMBED_ROLE: ${EVO_EMBED_ROLE:-evo_embed}
@@ -538,7 +553,9 @@ services:
       NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       <<: *llm-api-keys
     volumes:
-      - ./data/evo:/var/lib/lazyrag/evo
+      - ./evo:/app/evo:ro
+      - /tmp/evo:/var/lib/lazyrag/evo
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}:ro
       - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8047/healthz || exit 1"]
@@ -662,6 +679,12 @@ services:
     depends_on:
       opensearch:
         condition: service_healthy
+
+secrets:
+  apt_http_proxy:
+    environment: http_proxy
+  apt_https_proxy:
+    environment: https_proxy
 
 volumes:
   pgdata:

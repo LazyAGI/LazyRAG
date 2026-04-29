@@ -224,7 +224,8 @@ class JobManager:
         apply_row = store.must_get(self._store, apply_id)
         _require_apply_ready_for_abtest(self._store, apply_row)
         existing = _matching_abtest(self._store, thread_id, apply_id,
-                                    baseline_eval_id, dataset_id)
+                                    baseline_eval_id, dataset_id,
+                                    eval_options or {})
         if existing:
             return existing['id']
         worktree = apply_worktree or apply_exec.resolve_worktree(
@@ -245,6 +246,15 @@ class JobManager:
         url = target_chat_url or apply_result.get('candidate_chat_url')
         if url:
             payload['target_chat_url'] = url
+        stale = _matching_resumable_abtest(
+            self._store, thread_id, apply_id, baseline_eval_id, dataset_id)
+        if stale:
+            tid = stale['id']
+            store.patch(self._store, tid, payload=payload)
+            self._registry.set_abtest_policy(tid, verdict_policy)
+            store.transition(self._store, tid, 'continue')
+            self._spawn(tid, 'abtest')
+            return tid
         tid = store.create_task(self._store, 'abtest',
                                 thread_id=thread_id, payload=payload)
         self._binder.attach(thread_id, 'abtest_ids', tid)
@@ -457,7 +467,8 @@ def _matching_apply(st: store.FsStateStore, thread_id: str | None,
 
 
 def _matching_abtest(st: store.FsStateStore, thread_id: str, apply_id: str,
-                     baseline_eval_id: str, dataset_id: str) -> dict | None:
+                     baseline_eval_id: str, dataset_id: str,
+                     eval_options: dict | None = None) -> dict | None:
     rows = store.list_flow_tasks_by_thread(st, 'abtest', thread_id)
     reusable = {'queued', 'running', 'stopping', 'paused',
                 'failed_transient', 'succeeded'}
@@ -468,7 +479,18 @@ def _matching_abtest(st: store.FsStateStore, thread_id: str, apply_id: str,
             and payload.get('apply_id') == apply_id
             and payload.get('baseline_eval_id') == baseline_eval_id
             and payload.get('dataset_id') == dataset_id
+            and (payload.get('eval_options') or {}) == (eval_options or {})
         ):
+            return row
+    return None
+
+
+def _matching_resumable_abtest(st: store.FsStateStore, thread_id: str,
+                               apply_id: str, baseline_eval_id: str,
+                               dataset_id: str) -> dict | None:
+    rows = store.list_flow_tasks_by_thread(st, 'abtest', thread_id)
+    for row in reversed(rows):
+        if row.get('status') in {'failed_transient', 'paused'}:
             return row
     return None
 

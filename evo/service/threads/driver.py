@@ -148,6 +148,8 @@ class ThreadDriver:
             task = self._wait_task(result.task_id, elog, ws)
             if task and task.get('status') in OK:
                 return task
+            if _task_ends_thread(task):
+                return task
             if task and task.get('status') == 'paused':
                 self._write_runtime(ws, {'status': 'paused',
                                          'active_task_id': result.task_id})
@@ -194,7 +196,10 @@ class ThreadDriver:
         while True:
             op = _next_default_op(current, self.jm.store, ws)
             if not op:
-                if current.get('flow') == 'abtest' and current.get('status') == 'succeeded':
+                if (
+                    current.get('flow') == 'abtest'
+                    and current.get('status') == 'succeeded'
+                ) or _task_ends_thread(current):
                     self._write_runtime(ws, {'status': 'ended', 'active_task_id': None})
                 else:
                     self._write_runtime(ws, {'status': 'idle', 'active_task_id': None})
@@ -254,6 +259,16 @@ def _thread_task_rows(base_dir: Path, thread_id: str) -> list[dict]:
     return rows
 
 
+def _task_ends_thread(row: dict | None) -> bool:
+    if not row:
+        return False
+    return (
+        row.get('flow') == 'apply'
+        and row.get('status') == 'failed_permanent'
+        and row.get('error_code') == 'OPENCODE_NO_CHANGES'
+    )
+
+
 def _emit_flow_control(ws: ThreadWorkspace, row: dict | None, event: str) -> None:
     flow = (row or {}).get('flow')
     if flow in {'dataset_gen', 'eval', 'run', 'apply'}:
@@ -300,25 +315,27 @@ def _next_default_op(task: dict, store: _store.FsStateStore,
         report_id = payload.get('report_id')
         return {'op': 'apply.start', 'args': {'report_id': report_id}} if report_id else None
     if flow == 'apply':
-        eval_id, dataset_id = _latest_eval(store, ws.thread_id)
+        eval_id, dataset_id, eval_options = _latest_eval(store, ws.thread_id)
         result = payload.get('result') or {}
         if eval_id and dataset_id and _apply_ready_for_abtest(task, store):
             args = {'apply_id': task['id'], 'baseline_eval_id': eval_id,
                     'dataset_id': dataset_id}
+            if eval_options:
+                args['eval_options'] = eval_options
             if result.get('candidate_chat_id'):
                 args['candidate_chat_id'] = result['candidate_chat_id']
             return {'op': 'abtest.create', 'args': args}
     return None
 
 
-def _latest_eval(store: _store.FsStateStore, thread_id: str) -> tuple[str | None, str | None]:
+def _latest_eval(store: _store.FsStateStore, thread_id: str) -> tuple[str | None, str | None, dict]:
     rows = _store.list_flow_tasks_by_thread(store, 'eval', thread_id)
     for row in reversed(rows):
         payload = row.get('payload') or {}
         dataset_id = payload.get('dataset_id')
         if row.get('status') == 'succeeded' and dataset_id:
-            return dataset_id, dataset_id
-    return None, None
+            return dataset_id, dataset_id, dict(payload.get('eval_options') or {})
+    return None, None, {}
 
 
 def _apply_ready_for_abtest(task: dict, store: _store.FsStateStore) -> bool:

@@ -19,6 +19,8 @@ def generate_single_hop(
     ds: KBClient, kb_id: str, algo_id: str,
     *, count: int, max_workers: int, llm_factory=None,
 ) -> list[dict]:
+    if count <= 0:
+        return []
     result_list: list[dict] = []
     lock = threading.Lock()
     max_retries = 100
@@ -102,6 +104,8 @@ def generate_single_hop_from_chunks(
     max_workers: int,
     llm_factory=None,
 ) -> list[dict]:
+    if count <= 0:
+        return []
     rows = list(chunks)
     random.shuffle(rows)
     result_list: list[dict] = []

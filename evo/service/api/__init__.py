@@ -22,6 +22,8 @@ def create_app(config: EvoConfig | None = None,
     register_handlers(app)
 
     app.include_router(health.build_health_router())
+    from evo.service.api.opencode import build_opencode_router
+    app.include_router(build_opencode_router(cfg))
 
     from evo.service.threads import ThreadHub, mount as mount_hub
     from evo.service.core.intent_store import IntentStore

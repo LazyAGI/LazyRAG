@@ -133,16 +133,24 @@ def _doc_path(doc: dict) -> Path | None:
     for key in ('path', 'file_path'):
         if doc.get(key):
             return Path(str(doc[key]))
-    meta = doc.get('metadata') or {}
-    if isinstance(meta, str):
-        try:
-            meta = json.loads(meta)
-        except Exception:
-            meta = {}
+    meta = _doc_meta(doc)
     for key in ('core_parse_stored_path', 'core_stored_path', 'external_file_path'):
-        if isinstance(meta, dict) and meta.get(key):
+        if meta.get(key):
             return Path(str(meta[key]))
     return None
+
+
+def _doc_meta(doc: dict) -> dict:
+    raw = doc.get('metadata') or doc.get('meta') or {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
+    return {}
 
 
 def _extract_text(path: Path | None) -> str:

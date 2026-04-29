@@ -58,7 +58,7 @@ class ApplyOptions:
         model=os.getenv('EVO_OPENCODE_MODEL') or None,
         agent=os.getenv('EVO_OPENCODE_AGENT') or None,
         variant=os.getenv('EVO_OPENCODE_VARIANT') or None,
-        timeout_s=int(os.getenv('EVO_OPENCODE_TIMEOUT_S', '180')),
+        timeout_s=int(os.getenv('EVO_OPENCODE_TIMEOUT_S', '600')),
     ))
 
 
@@ -211,7 +211,7 @@ def _exhausted_error(rounds: list[RoundResult], max_rounds: int) -> dict:
     if code == 'OPENCODE_NO_CHANGES':
         return {
             'code': 'OPENCODE_NO_CHANGES',
-            'kind': 'transient',
+            'kind': 'permanent',
             'message': f'opencode 在 {max_rounds} 轮内均未产生文件变更',
             'details': {'rounds': max_rounds},
         }
@@ -228,6 +228,20 @@ def _exhausted_error(rounds: list[RoundResult], max_rounds: int) -> dict:
         'kind': 'transient',
         'message': f'tests still failing after {max_rounds} round(s)',
         'details': {},
+    }
+
+
+def _opencode_api_error(last_error: dict) -> dict:
+    err = last_error.get('error') if isinstance(last_error, dict) else None
+    details = err if isinstance(err, dict) else {'raw': last_error}
+    data = details.get('data') if isinstance(details, dict) else None
+    status = data.get('statusCode') if isinstance(data, dict) else None
+    message = data.get('message') if isinstance(data, dict) else None
+    return {
+        'code': 'OPENCODE_API_ERROR',
+        'kind': 'permanent' if status in {401, 403} else 'transient',
+        'message': str(message or details.get('name') or 'opencode API error'),
+        'details': details,
     }
 
 
@@ -282,7 +296,8 @@ def execute_apply(
     allow_lines = _prompt_allow_lines(allow_files, new_roots)
 
     binary = oc.preflight(options.opencode_options.binary,
-                           auth_dir=config.storage.opencode_dir)
+                          auth_dir=config.storage.opencode_dir,
+                          options=options.opencode_options)
     workspace.ensure_bare()
     worktree, wt_head = workspace.get_or_create_worktree(apply_id)
     if base_commit is None:
@@ -356,6 +371,17 @@ def execute_apply(
             final_error = rr.error
             break
 
+        if outcome.last_error:
+            rr.error = _opencode_api_error(outcome.last_error)
+            rr.finished_at = time.time()
+            rounds.append(rr)
+            _append_checkpoint_round(cp, rr)
+            _write_checkpoint(cp_path, cp)
+            if on_round:
+                on_round(rr)
+            final_error = rr.error
+            break
+
         _check(cancel_token, at=f'round_{i:03d}.opencode_done')
         sha, oob = workspace.commit_allowlisted(
             worktree, _commit_subj(apply_id, thread_id, i),
@@ -384,7 +410,7 @@ def execute_apply(
             rr.test_passed = False
             rr.error = {
                 'code': 'OPENCODE_NO_CHANGES',
-                'kind': 'transient',
+                'kind': 'permanent',
                 'message': 'opencode 本轮未修改任何允许文件',
                 'details': {},
             }

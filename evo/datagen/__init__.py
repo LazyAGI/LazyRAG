@@ -42,6 +42,11 @@ class KBDocsEmptyError(RuntimeError):
     kind = 'permanent'
 
 
+class KBChunksEmptyError(RuntimeError):
+    code = 'KB_CHUNKS_EMPTY'
+    kind = 'permanent'
+
+
 class EvalDatasetEmptyError(RuntimeError):
     code = 'EVAL_DATASET_EMPTY'
     kind = 'permanent'
@@ -118,21 +123,29 @@ def run_generate_pipeline(
         max_workers=workers,
     )
     _check_cancel(cancel)
-    add('single_hop', generate_single_hop_from_chunks(
-        corpus.chunks, count=plan['single_hop'],
-        max_workers=workers, llm_factory=llm_factory))
+    if not corpus.chunks:
+        raise KBChunksEmptyError(
+            f'no chunks found for kb_id={kb_id} algo_id={algo_id}; '
+            'ensure document chunk API is populated or mount LAZYRAG_UPLOAD_HOST_DIR')
+    if plan['single_hop'] > 0:
+        add('single_hop', generate_single_hop_from_chunks(
+            corpus.chunks, count=plan['single_hop'],
+            max_workers=workers, llm_factory=llm_factory))
     _check_cancel(cancel)
-    add('multi_hop', generate_multi_hop_from_chunks(
-        corpus.chunks, count=plan['multi_hop'],
-        max_workers=workers, llm_factory=llm_factory))
+    if plan['multi_hop'] > 0:
+        add('multi_hop', generate_multi_hop_from_chunks(
+            corpus.chunks, count=plan['multi_hop'],
+            max_workers=workers, llm_factory=llm_factory))
     _check_cancel(cancel)
-    add('table', generate_table_questions(
-        corpus.chunks, count=plan['table'],
-        max_workers=workers, llm_factory=llm_factory))
+    if plan['table'] > 0:
+        add('table', generate_table_questions(
+            corpus.chunks, count=plan['table'],
+            max_workers=workers, llm_factory=llm_factory))
     _check_cancel(cancel)
-    add('list', generate_list_questions(
-        corpus.chunks, count=plan['list'],
-        max_workers=workers, llm_factory=llm_factory))
+    if plan['list'] > 0:
+        add('list', generate_list_questions(
+            corpus.chunks, count=plan['list'],
+            max_workers=workers, llm_factory=llm_factory))
 
     missing = target_count - len(result)
     if missing > 0:
