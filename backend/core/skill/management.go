@@ -339,7 +339,7 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := readTextFile(row.StoragePath)
+	content, err := storedSkillContent(row)
 	if err != nil {
 		common.ReplyErr(w, "read skill content failed", http.StatusInternalServerError)
 		return
@@ -384,15 +384,10 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	draftFile := draftPath(userID, row.ID, row.Version, row.RelativePath)
-	if err := writeFileAtomic(draftFile, generated); err != nil {
-		common.ReplyErr(w, "write skill draft failed", http.StatusInternalServerError)
-		return
-	}
-
 	now := time.Now()
 	update := map[string]any{
 		"draft_source_version": row.Version,
+		"draft_content":        generated,
 		"draft_status":         "pending_confirm",
 		"draft_updated_at":     now,
 		"update_status":        "pending_confirm",
@@ -400,7 +395,6 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		"ext":                  evolution.WithDraftSuggestionIDs(row.Ext, suggestionIDs(suggestions)),
 	}
 	if err := db.WithContext(r.Context()).Model(&orm.SkillResource{}).Where("id = ?", row.ID).Updates(update).Error; err != nil {
-		removePath(draftRoot(userID, row.ID))
 		common.ReplyErr(w, "update skill draft failed", http.StatusInternalServerError)
 		return
 	}
@@ -410,7 +404,7 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 	common.ReplyOK(w, generateSkillResponse{
 		DraftStatus:        "pending_confirm",
 		DraftSourceVersion: row.Version,
-		DraftPath:          filepath.ToSlash(draftFile),
+		DraftPath:          "",
 		Outdated:           outdated,
 	})
 }
@@ -482,14 +476,9 @@ func Confirm(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "skill draft version conflict", http.StatusConflict)
 		return
 	}
-	draftFile := draftPath(userID, row.ID, row.DraftSourceVersion, row.RelativePath)
-	content, err := readTextFile(draftFile)
-	if err != nil {
+	content := row.DraftContent
+	if strings.TrimSpace(content) == "" {
 		common.ReplyErr(w, "read skill draft failed", http.StatusInternalServerError)
-		return
-	}
-	if err := writeFileAtomic(row.StoragePath, content); err != nil {
-		common.ReplyErr(w, "write skill content failed", http.StatusInternalServerError)
 		return
 	}
 	hash := evolution.HashContent(content)
@@ -497,7 +486,11 @@ func Confirm(w http.ResponseWriter, r *http.Request) {
 	ids := evolution.DraftSuggestionIDs(row.Ext)
 	update := map[string]any{
 		"content_hash":         hash,
+		"content":              content,
+		"content_size":         skillContentSize(content),
+		"mime_type":            mimeTypeForExt(row.FileExt),
 		"version":              row.Version + 1,
+		"draft_content":        "",
 		"draft_source_version": 0,
 		"draft_status":         "",
 		"draft_updated_at":     nil,
@@ -512,7 +505,6 @@ func Confirm(w http.ResponseWriter, r *http.Request) {
 	_ = db.WithContext(r.Context()).Model(&orm.SkillResource{}).
 		Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).
 		Updates(map[string]any{"update_status": evolution.UpdateStatusUpToDate, "updated_at": now}).Error
-	removePath(draftRoot(userID, row.ID))
 	if err := evolution.UpdateSuggestionStatus(r.Context(), db, ids, evolution.SuggestionStatusApplied); err != nil {
 		common.ReplyErr(w, "update suggestion status failed", http.StatusInternalServerError)
 		return
@@ -558,6 +550,7 @@ func Discard(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	update := map[string]any{
 		"draft_source_version": 0,
+		"draft_content":        "",
 		"draft_status":         "",
 		"draft_updated_at":     nil,
 		"update_status":        evolution.UpdateStatusUpToDate,
@@ -571,7 +564,6 @@ func Discard(w http.ResponseWriter, r *http.Request) {
 	_ = db.WithContext(r.Context()).Model(&orm.SkillResource{}).
 		Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).
 		Updates(map[string]any{"update_status": evolution.UpdateStatusUpToDate, "updated_at": now}).Error
-	removePath(draftRoot(userID, row.ID))
 	if err := evolution.UpdateSuggestionStatus(r.Context(), db, ids, evolution.SuggestionStatusDiscarded); err != nil {
 		common.ReplyErr(w, "update suggestion status failed", http.StatusInternalServerError)
 		return
@@ -589,7 +581,7 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 		return nil, err
 	}
 	suggestionStatus := evolution.CanonicalSuggestionStatus(suggestionStatusesByKey[skillSuggestionResourceKey(row)])
-	content, err := readTextFile(row.StoragePath)
+	content, err := storedSkillContent(row)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -619,7 +611,7 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 		}
 		childItems := make([]map[string]any, 0, len(children))
 		for _, child := range children {
-			childContent, _ := readTextFile(child.StoragePath)
+			childContent, _ := storedSkillContent(child)
 			childItems = append(childItems, map[string]any{
 				"skill_id":                       child.ID,
 				"name":                           child.SkillName,
@@ -654,14 +646,13 @@ func buildDraftPreviewResponse(ctx context.Context, db *gorm.DB, userID, skillID
 		return draftPreviewResponse{}, errDraftPreviewNotFound
 	}
 
-	currentContent, err := readTextFile(row.StoragePath)
+	currentContent, err := storedSkillContent(row)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return draftPreviewResponse{}, err
 	}
 
-	draftFile := draftPath(userID, row.ID, row.DraftSourceVersion, row.RelativePath)
-	draftContent, err := readTextFile(draftFile)
-	if err != nil {
+	draftContent := row.DraftContent
+	if strings.TrimSpace(draftContent) == "" {
 		return draftPreviewResponse{}, errors.New("read skill draft failed")
 	}
 
@@ -719,10 +710,6 @@ func createParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 }
 
 func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, userName string, req createSkillRequest, fullContent, description string) error {
-	rootDir := skillRootDir(userID, req.Category, req.Name)
-	if exists(rootDir) {
-		return gorm.ErrDuplicatedKey
-	}
 	relPath := parentRelativePath(req.Category, req.Name)
 	var count int64
 	if err := db.WithContext(ctx).Model(&orm.SkillResource{}).Where("owner_user_id = ? AND relative_path = ?", userID, relPath).Count(&count).Error; err != nil {
@@ -735,11 +722,6 @@ func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, user
 		if err := validatePathSegment(child.Name); err != nil {
 			return err
 		}
-	}
-
-	parentPath := absoluteSkillPath(userID, relPath)
-	if err := writeFileAtomic(parentPath, fullContent); err != nil {
-		return err
 	}
 
 	now := time.Now()
@@ -759,7 +741,9 @@ func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, user
 		Tags:            tagsJSON(req.Tags),
 		FileExt:         "md",
 		RelativePath:    relPath,
-		StoragePath:     parentPath,
+		Content:         fullContent,
+		ContentSize:     skillContentSize(fullContent),
+		MimeType:        mimeTypeForExt("md"),
 		ContentHash:     evolution.HashContent(fullContent),
 		Version:         1,
 		IsLocked:        req.IsLocked,
@@ -774,15 +758,6 @@ func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, user
 	for _, child := range req.Children {
 		ext := normalizeExt(child.FileExt)
 		rel := childRelativePath(req.Category, req.Name, child.Name, ext)
-		path := absoluteSkillPath(userID, rel)
-		if exists(path) {
-			removePath(rootDir)
-			return gorm.ErrDuplicatedKey
-		}
-		if err := writeFileAtomic(path, child.Content); err != nil {
-			removePath(rootDir)
-			return err
-		}
 		children = append(children, orm.SkillResource{
 			ID:              evolution.BuildSuggestionRecord("", "", "", "", "", "").ID,
 			OwnerUserID:     userID,
@@ -794,7 +769,9 @@ func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, user
 			Description:     "",
 			FileExt:         ext,
 			RelativePath:    rel,
-			StoragePath:     path,
+			Content:         child.Content,
+			ContentSize:     skillContentSize(child.Content),
+			MimeType:        mimeTypeForExt(ext),
 			ContentHash:     evolution.HashContent(child.Content),
 			Version:         1,
 			IsLocked:        child.IsLocked,
@@ -817,7 +794,6 @@ func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, user
 		}
 		return nil
 	}); err != nil {
-		removePath(rootDir)
 		return err
 	}
 	return nil
@@ -832,19 +808,12 @@ func createChildSkill(ctx context.Context, db *gorm.DB, userID, userName string,
 	}
 	ext := normalizeExt(req.FileExt)
 	relPath := childRelativePath(req.Category, req.ParentSkillName, req.Name, ext)
-	path := absoluteSkillPath(userID, relPath)
-	if exists(path) {
-		return gorm.ErrDuplicatedKey
-	}
 	var count int64
 	if err := db.WithContext(ctx).Model(&orm.SkillResource{}).Where("owner_user_id = ? AND relative_path = ?", userID, relPath).Count(&count).Error; err != nil {
 		return err
 	}
 	if count > 0 {
 		return gorm.ErrDuplicatedKey
-	}
-	if err := writeFileAtomic(path, req.Content); err != nil {
-		return err
 	}
 	now := time.Now()
 	row := orm.SkillResource{
@@ -858,7 +827,9 @@ func createChildSkill(ctx context.Context, db *gorm.DB, userID, userName string,
 		Description:     "",
 		FileExt:         ext,
 		RelativePath:    relPath,
-		StoragePath:     path,
+		Content:         req.Content,
+		ContentSize:     skillContentSize(req.Content),
+		MimeType:        mimeTypeForExt(ext),
 		ContentHash:     evolution.HashContent(req.Content),
 		Version:         1,
 		IsLocked:        req.IsLocked,
@@ -870,7 +841,6 @@ func createChildSkill(ctx context.Context, db *gorm.DB, userID, userName string,
 		UpdatedAt:       now,
 	}
 	if err := db.WithContext(ctx).Create(&row).Error; err != nil {
-		removePath(path)
 		return err
 	}
 	return nil
@@ -899,36 +869,6 @@ func deleteSkill(ctx context.Context, db *gorm.DB, userID, skillID string) error
 }
 
 func deleteParentSkill(ctx context.Context, db *gorm.DB, userID string, row *orm.SkillResource) error {
-	var children []orm.SkillResource
-	if err := db.WithContext(ctx).
-		Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).
-		Find(&children).Error; err != nil {
-		return err
-	}
-
-	rootPath := filepath.Dir(row.StoragePath)
-	movedRoot, err := movePathAside(rootPath)
-	if err != nil {
-		return err
-	}
-	draftPath := draftRoot(userID, row.ID)
-	movedDraft, err := movePathAside(draftPath)
-	if err != nil {
-		if restoreErr := restoreMovedPath(movedRoot, rootPath); restoreErr != nil {
-			return fmt.Errorf("move draft aside failed: %w (restore root failed: %v)", err, restoreErr)
-		}
-		return err
-	}
-
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		_ = restoreMovedPath(movedDraft, draftPath)
-		_ = restoreMovedPath(movedRoot, rootPath)
-	}()
-
 	if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).Delete(&orm.SkillResource{}).Error; err != nil {
 			return err
@@ -937,52 +877,11 @@ func deleteParentSkill(ctx context.Context, db *gorm.DB, userID string, row *orm
 	}); err != nil {
 		return err
 	}
-	committed = true
-
-	if err := removePathChecked(movedRoot); err != nil {
-		return err
-	}
-	if err := removePathChecked(movedDraft); err != nil {
-		return err
-	}
-	for _, child := range children {
-		if _, err := os.Stat(child.StoragePath); !os.IsNotExist(err) {
-			if err == nil {
-				return fmt.Errorf("child skill file still exists after delete: %s", child.StoragePath)
-			}
-			return err
-		}
-	}
 	return nil
 }
 
 func deleteChildSkill(ctx context.Context, db *gorm.DB, row *orm.SkillResource) error {
-	originalPath := row.StoragePath
-	movedPath, err := movePathAside(originalPath)
-	if err != nil {
-		return err
-	}
-
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		_ = restoreMovedPath(movedPath, originalPath)
-	}()
-
 	if err := db.WithContext(ctx).Where("id = ? AND owner_user_id = ?", row.ID, row.OwnerUserID).Delete(&orm.SkillResource{}).Error; err != nil {
-		return err
-	}
-	committed = true
-
-	if err := removePathChecked(movedPath); err != nil {
-		return err
-	}
-	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
-		if err == nil {
-			return fmt.Errorf("child skill file still exists after delete: %s", originalPath)
-		}
 		return err
 	}
 	return nil
@@ -992,7 +891,7 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 	if strings.TrimSpace(row.DraftStatus) == "pending_confirm" {
 		return errors.New("parent skill has pending_confirm draft")
 	}
-	currentContent, err := readTextFile(row.StoragePath)
+	currentContent, err := storedSkillContent(*row)
 	if err != nil {
 		return err
 	}
@@ -1029,12 +928,7 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 		return err
 	}
 	newDescription = resolvedDescription
-	oldRoot := filepath.Dir(row.StoragePath)
-	newRoot := skillRootDir(userID, newCategory, newName)
-	if oldRoot != newRoot {
-		if exists(newRoot) {
-			return gorm.ErrDuplicatedKey
-		}
+	if oldCategory != newCategory || oldName != newName {
 		var count int64
 		newRelativePath := parentRelativePath(newCategory, newName)
 		if err := db.WithContext(ctx).
@@ -1046,18 +940,8 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 		if count > 0 {
 			return gorm.ErrDuplicatedKey
 		}
-		if err := os.MkdirAll(filepath.Dir(newRoot), 0o755); err != nil {
-			return err
-		}
-		if err := os.Rename(oldRoot, newRoot); err != nil {
-			return err
-		}
 	}
-	row.StoragePath = filepath.Join(newRoot, "SKILL.md")
 	row.RelativePath = parentRelativePath(newCategory, newName)
-	if err := writeFileAtomic(row.StoragePath, newContent); err != nil {
-		return err
-	}
 
 	now := time.Now()
 	update := map[string]any{
@@ -1065,8 +949,10 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 		"description":   newDescription,
 		"category":      newCategory,
 		"tags":          row.Tags,
-		"storage_path":  row.StoragePath,
 		"relative_path": row.RelativePath,
+		"content":       newContent,
+		"content_size":  skillContentSize(newContent),
+		"mime_type":     mimeTypeForExt("md"),
 		"content_hash":  evolution.HashContent(newContent),
 		"updated_at":    now,
 	}
@@ -1091,12 +977,10 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 	}
 	for _, child := range children {
 		childRelative := childRelativePath(newCategory, newName, child.SkillName, child.FileExt)
-		childStorage := absoluteSkillPath(userID, childRelative)
 		updateChild := map[string]any{
 			"category":          newCategory,
 			"parent_skill_name": newName,
 			"relative_path":     childRelative,
-			"storage_path":      childStorage,
 			"updated_at":        now,
 		}
 		if req.IsEnabled != nil {
@@ -1116,7 +1000,7 @@ func updateChildSkill(ctx context.Context, db *gorm.DB, userID string, row *orm.
 	if req.Category != nil || req.Tags != nil || req.IsEnabled != nil || req.Description != nil {
 		return errors.New("child skill only supports content/file_ext/is_locked updates")
 	}
-	currentContent, err := readTextFile(row.StoragePath)
+	currentContent, err := storedSkillContent(*row)
 	if err != nil {
 		return err
 	}
@@ -1125,29 +1009,19 @@ func updateChildSkill(ctx context.Context, db *gorm.DB, userID string, row *orm.
 		newContent = *req.Content
 	}
 	newExt := row.FileExt
-	oldPath := row.StoragePath
 	if req.FileExt != nil {
 		newExt = normalizeExt(*req.FileExt)
 	}
 	newRelative := row.RelativePath
-	newStorage := row.StoragePath
 	if newExt != row.FileExt {
 		newRelative = childRelativePath(row.Category, row.ParentSkillName, row.SkillName, newExt)
-		newStorage = absoluteSkillPath(userID, newRelative)
-		if oldPath != newStorage && exists(newStorage) {
-			return gorm.ErrDuplicatedKey
-		}
-	}
-	if err := writeFileAtomic(newStorage, newContent); err != nil {
-		return err
-	}
-	if newStorage != oldPath {
-		_ = os.Remove(oldPath)
 	}
 	update := map[string]any{
 		"file_ext":      newExt,
 		"relative_path": newRelative,
-		"storage_path":  newStorage,
+		"content":       newContent,
+		"content_size":  skillContentSize(newContent),
+		"mime_type":     mimeTypeForExt(newExt),
 		"content_hash":  evolution.HashContent(newContent),
 		"updated_at":    time.Now(),
 	}

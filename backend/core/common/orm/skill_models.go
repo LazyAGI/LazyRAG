@@ -18,8 +18,12 @@ type SkillResource struct {
 	FileExt            string          `gorm:"column:file_ext;type:varchar(32);not null;default:'md'"`
 	RelativePath       string          `gorm:"column:relative_path;type:varchar(1024);not null;uniqueIndex:uk_skill_resources_owner_relative_path,priority:2"`
 	StoragePath        string          `gorm:"column:storage_path;type:text;not null;default:''"`
+	Content            string          `gorm:"column:content;type:text;not null;default:''"`
+	ContentSize        int64           `gorm:"column:content_size;not null;default:0"`
+	MimeType           string          `gorm:"column:mime_type;type:varchar(128);not null;default:'text/plain; charset=utf-8'"`
 	ContentHash        string          `gorm:"column:content_hash;type:varchar(64);not null;default:''"`
 	Version            int64           `gorm:"column:version;not null;default:1"`
+	DraftContent       string          `gorm:"column:draft_content;type:text;not null;default:''"`
 	DraftSourceVersion int64           `gorm:"column:draft_source_version;not null;default:0"`
 	DraftStatus        string          `gorm:"column:draft_status;type:varchar(32);not null;default:''"`
 	DraftUpdatedAt     *time.Time      `gorm:"column:draft_updated_at"`

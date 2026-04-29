@@ -23,6 +23,7 @@ type SkillState struct {
 	Resource     *orm.SkillResource
 	RelativePath string
 	StoragePath  string
+	Content      string
 	ContentHash  string
 }
 
@@ -448,14 +449,23 @@ func skillStateFromResource(skill *orm.SkillResource, skillFSURL string) (*Skill
 	if storagePath == "" {
 		storagePath = filepath.Join(skillFSURL, filepath.FromSlash(relativePath))
 	}
-	contentHash, err := fileHashWithFallback(storagePath, strings.TrimSpace(skill.ContentHash))
-	if err != nil {
-		return nil, err
+	content := skill.Content
+	contentHash := strings.TrimSpace(skill.ContentHash)
+	if contentHash == "" {
+		contentHash = HashContent(content)
+	}
+	if content == "" {
+		var err error
+		contentHash, err = fileHashWithFallback(storagePath, contentHash)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &SkillState{
 		Resource:     skill,
 		RelativePath: relativePath,
 		StoragePath:  filepath.ToSlash(storagePath),
+		Content:      content,
 		ContentHash:  contentHash,
 	}, nil
 }

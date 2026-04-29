@@ -94,7 +94,6 @@ func Share(w http.ResponseWriter, r *http.Request) {
 		SourceCategory:        parent.Category,
 		SourceParentSkillName: parent.SkillName,
 		SourceRelativeRoot:    filepath.ToSlash(filepath.Join(parent.Category, parent.SkillName)),
-		SourceStorageRoot:     filepath.ToSlash(filepath.Dir(parent.StoragePath)),
 		Message:               strings.TrimSpace(req.Message),
 		CreatedAt:             now,
 		UpdatedAt:             now,
@@ -350,22 +349,10 @@ func AcceptShare(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "source skill not found", http.StatusNotFound)
 		return
 	}
-	targetRoot := skillRootDir(userID, sourceParent.Category, sourceParent.SkillName)
-	if exists(targetRoot) {
-		common.ReplyErr(w, "target skill path already exists", http.StatusConflict)
-		return
-	}
-	if err := copyDir(filepath.Dir(sourceParent.StoragePath), targetRoot); err != nil {
-		_ = db.WithContext(r.Context()).Model(&orm.SkillShareItem{}).Where("id = ?", item.ID).Updates(map[string]any{"status": shareStatusFailed, "error_message": err.Error(), "updated_at": time.Now()}).Error
-		common.ReplyErr(w, "copy shared skill failed", http.StatusInternalServerError)
-		return
-	}
-
 	var sourceChildren []orm.SkillResource
 	if err := db.WithContext(r.Context()).
 		Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", task.SourceUserID, evolution.SkillNodeTypeChild, sourceParent.Category, sourceParent.SkillName).
 		Find(&sourceChildren).Error; err != nil {
-		removePath(targetRoot)
 		common.ReplyErr(w, "query source children failed", http.StatusInternalServerError)
 		return
 	}
@@ -378,8 +365,9 @@ func AcceptShare(w http.ResponseWriter, r *http.Request) {
 	targetParent.OwnerUserName = userName
 	targetParent.CreateUserID = userID
 	targetParent.CreateUserName = userName
-	targetParent.StoragePath = absoluteSkillPath(userID, sourceParent.RelativePath)
+	targetParent.StoragePath = ""
 	targetParent.DraftSourceVersion = 0
+	targetParent.DraftContent = ""
 	targetParent.DraftStatus = ""
 	targetParent.DraftUpdatedAt = nil
 	targetParent.UpdateStatus = evolution.UpdateStatusUpToDate
@@ -395,7 +383,7 @@ func AcceptShare(w http.ResponseWriter, r *http.Request) {
 		child.OwnerUserName = userName
 		child.CreateUserID = userID
 		child.CreateUserName = userName
-		child.StoragePath = absoluteSkillPath(userID, sourceChild.RelativePath)
+		child.StoragePath = ""
 		child.UpdateStatus = evolution.UpdateStatusUpToDate
 		child.CreatedAt = now
 		child.UpdatedAt = now
@@ -416,12 +404,11 @@ func AcceptShare(w http.ResponseWriter, r *http.Request) {
 			"accepted_at":          now,
 			"updated_at":           now,
 			"target_relative_root": task.SourceRelativeRoot,
-			"target_storage_path":  filepath.ToSlash(targetRoot),
+			"target_storage_path":  "",
 			"target_root_skill_id": targetParentID,
 			"error_message":        "",
 		}).Error
 	}); err != nil {
-		removePath(targetRoot)
 		common.ReplyErr(w, "accept share failed", http.StatusInternalServerError)
 		return
 	}

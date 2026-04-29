@@ -167,13 +167,11 @@ func TestInternalCreateCreatesSkillDirectly(t *testing.T) {
 		t.Fatalf("expected description %q, got %q", "Release checklist", row.Description)
 	}
 
-	savedPath := filepath.Join(tmpDir, "skills", "u1", filepath.FromSlash(relativePath))
-	savedContent, err := os.ReadFile(savedPath)
-	if err != nil {
-		t.Fatalf("read created file: %v", err)
+	if row.Content != content {
+		t.Fatalf("expected DB content %q, got %q", content, row.Content)
 	}
-	if string(savedContent) != content {
-		t.Fatalf("expected created content %q, got %q", content, string(savedContent))
+	if row.ContentSize != int64(len([]byte(content))) {
+		t.Fatalf("expected content_size %d, got %d", len([]byte(content)), row.ContentSize)
 	}
 }
 
@@ -227,7 +225,6 @@ func TestInternalRemoveDeletesSkillDirectly(t *testing.T) {
 		FileExt:         "md",
 		RelativePath:    relativePath,
 		SnapshotHash:    row.ContentHash,
-		StoragePath:     row.StoragePath,
 		CreatedAt:       now,
 	}
 	if err := db.Create(&snapshot).Error; err != nil {
@@ -282,9 +279,6 @@ func TestInternalRemoveDeletesSkillDirectly(t *testing.T) {
 		t.Fatalf("expected no resource suggestions, got %d", suggestionCount)
 	}
 
-	if _, err := os.Stat(row.StoragePath); !os.IsNotExist(err) {
-		t.Fatalf("expected skill file removed, stat err=%v", err)
-	}
 }
 
 func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing.T) {
@@ -321,21 +315,7 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
 
 	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
-	storagePath := filepath.Join(tmpDir, "skills", "u1", filepath.FromSlash(relativePath))
-	if err := os.MkdirAll(filepath.Dir(storagePath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
 	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
-	if err := os.WriteFile(storagePath, []byte(currentContent), 0o644); err != nil {
-		t.Fatalf("write skill file: %v", err)
-	}
-	existingDraft := draftPath("u1", "skill-1", 1, relativePath)
-	if err := os.MkdirAll(filepath.Dir(existingDraft), 0o755); err != nil {
-		t.Fatalf("mkdir draft dir: %v", err)
-	}
-	if err := os.WriteFile(existingDraft, []byte("old draft body"), 0o644); err != nil {
-		t.Fatalf("write old draft file: %v", err)
-	}
 
 	now := time.Now()
 	skillRow := orm.SkillResource{
@@ -348,9 +328,12 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 		NodeType:        evolution.SkillNodeTypeParent,
 		FileExt:         "md",
 		RelativePath:    relativePath,
-		StoragePath:     storagePath,
+		Content:         currentContent,
+		ContentSize:     int64(len([]byte(currentContent))),
+		MimeType:        "text/markdown; charset=utf-8",
 		ContentHash:     evolution.HashContent(currentContent),
 		Version:         1,
+		DraftContent:    "old draft body",
 		DraftStatus:     "pending_confirm",
 		IsEnabled:       true,
 		UpdateStatus:    evolution.UpdateStatusUpToDate,
@@ -411,15 +394,12 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 	if !resp.Data.Outdated {
 		t.Fatalf("expected outdated=true")
 	}
-	if _, err := os.Stat(resp.Data.DraftPath); err != nil {
-		t.Fatalf("expected draft file to exist at %q: %v", resp.Data.DraftPath, err)
+	var updatedSkill orm.SkillResource
+	if err := db.Where("id = ?", "skill-1").Take(&updatedSkill).Error; err != nil {
+		t.Fatalf("query updated skill: %v", err)
 	}
-	draftBytes, err := os.ReadFile(resp.Data.DraftPath)
-	if err != nil {
-		t.Fatalf("read generated draft: %v", err)
-	}
-	if !strings.Contains(string(draftBytes), "updated body") {
-		t.Fatalf("expected draft file to be overwritten, got %q", string(draftBytes))
+	if !strings.Contains(updatedSkill.DraftContent, "updated body") {
+		t.Fatalf("expected draft_content to be overwritten, got %q", updatedSkill.DraftContent)
 	}
 }
 
@@ -428,18 +408,9 @@ func TestDraftPreviewReturnsCurrentDraftAndDiff(t *testing.T) {
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
 
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
-
 	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
-	storagePath := filepath.Join(tmpDir, "skills", "u1", filepath.FromSlash(relativePath))
-	if err := os.MkdirAll(filepath.Dir(storagePath), 0o755); err != nil {
-		t.Fatalf("mkdir current skill dir: %v", err)
-	}
 	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body\n"
-	if err := os.WriteFile(storagePath, []byte(currentContent), 0o644); err != nil {
-		t.Fatalf("write current skill file: %v", err)
-	}
+	draftContent := "---\nname: git-workflow\ndescription: git workflow\n---\nupdated body\n"
 
 	now := time.Now()
 	skillRow := orm.SkillResource{
@@ -452,9 +423,12 @@ func TestDraftPreviewReturnsCurrentDraftAndDiff(t *testing.T) {
 		NodeType:           evolution.SkillNodeTypeParent,
 		FileExt:            "md",
 		RelativePath:       relativePath,
-		StoragePath:        storagePath,
+		Content:            currentContent,
+		ContentSize:        int64(len([]byte(currentContent))),
+		MimeType:           "text/markdown; charset=utf-8",
 		ContentHash:        evolution.HashContent(currentContent),
 		Version:            2,
+		DraftContent:       draftContent,
 		DraftSourceVersion: 2,
 		DraftStatus:        "pending_confirm",
 		IsEnabled:          true,
@@ -491,15 +465,6 @@ func TestDraftPreviewReturnsCurrentDraftAndDiff(t *testing.T) {
 	}
 	if err := db.Create(&suggestion).Error; err != nil {
 		t.Fatalf("create suggestion: %v", err)
-	}
-
-	draftFilePath := draftPath("u1", skillRow.ID, skillRow.DraftSourceVersion, skillRow.RelativePath)
-	draftContent := "---\nname: git-workflow\ndescription: git workflow\n---\nupdated body\n"
-	if err := os.MkdirAll(filepath.Dir(draftFilePath), 0o755); err != nil {
-		t.Fatalf("mkdir draft dir: %v", err)
-	}
-	if err := os.WriteFile(draftFilePath, []byte(draftContent), 0o644); err != nil {
-		t.Fatalf("write draft file: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/core/skills/skill-1:draft-preview", nil)
@@ -1011,12 +976,8 @@ func TestCreateParentSkillBuildsFrontmatterFromBodyOnlyContent(t *testing.T) {
 		t.Fatalf("expected content hash to use rebuilt content")
 	}
 
-	content, err := os.ReadFile(row.StoragePath)
-	if err != nil {
-		t.Fatalf("read parent skill file: %v", err)
-	}
-	if string(content) != expectedContent {
-		t.Fatalf("unexpected file content: %q", string(content))
+	if row.Content != expectedContent {
+		t.Fatalf("unexpected DB content: %q", row.Content)
 	}
 }
 
@@ -1061,12 +1022,8 @@ func TestUpdateParentSkillRebuildsContentFromBodyOnlyPayload(t *testing.T) {
 	if updated.Description != "Updated git workflow" {
 		t.Fatalf("expected updated description, got %q", updated.Description)
 	}
-	content, err := os.ReadFile(updated.StoragePath)
-	if err != nil {
-		t.Fatalf("read updated parent skill file: %v", err)
-	}
-	if string(content) != expectedContent {
-		t.Fatalf("unexpected updated file content: %q", string(content))
+	if updated.Content != expectedContent {
+		t.Fatalf("unexpected updated DB content: %q", updated.Content)
 	}
 }
 
@@ -1102,8 +1059,6 @@ func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T
 	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeChild).Take(&child).Error; err != nil {
 		t.Fatalf("query child skill: %v", err)
 	}
-	oldRoot := filepath.Dir(parent.StoragePath)
-
 	updateReq := updateSkillRequest{
 		Name:        stringPtr("git-workflow-renamed"),
 		Description: stringPtr("Renamed git workflow"),
@@ -1122,12 +1077,8 @@ func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T
 	}
 
 	expectedParentContent := "---\nname: git-workflow-renamed\ndescription: Renamed git workflow\n---\n# Git Workflow\n\nKeep commit history clean and easy to review."
-	parentContent, err := os.ReadFile(updatedParent.StoragePath)
-	if err != nil {
-		t.Fatalf("read renamed parent skill file: %v", err)
-	}
-	if string(parentContent) != expectedParentContent {
-		t.Fatalf("unexpected renamed parent content: %q", string(parentContent))
+	if updatedParent.Content != expectedParentContent {
+		t.Fatalf("unexpected renamed parent content: %q", updatedParent.Content)
 	}
 	if updatedParent.SkillName != "git-workflow-renamed" {
 		t.Fatalf("expected parent skill to be renamed, got %q", updatedParent.SkillName)
@@ -1142,12 +1093,6 @@ func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T
 	}
 	if updatedChild.RelativePath != expectedChildRelativePath {
 		t.Fatalf("unexpected child relative path: %q", updatedChild.RelativePath)
-	}
-	if _, err := os.Stat(updatedChild.StoragePath); err != nil {
-		t.Fatalf("expected renamed child file to exist: %v", err)
-	}
-	if _, err := os.Stat(oldRoot); !os.IsNotExist(err) {
-		t.Fatalf("expected old parent root to be removed, stat err=%v", err)
 	}
 }
 
@@ -1193,12 +1138,6 @@ func TestDeleteChildSkillRemovesRecordAndFileOnly(t *testing.T) {
 	if err := db.Where("id = ?", parent.ID).Take(&orm.SkillResource{}).Error; err != nil {
 		t.Fatalf("expected parent record to remain, got err=%v", err)
 	}
-	if _, err := os.Stat(child.StoragePath); !os.IsNotExist(err) {
-		t.Fatalf("expected child file to be deleted, stat err=%v", err)
-	}
-	if _, err := os.Stat(parent.StoragePath); err != nil {
-		t.Fatalf("expected parent file to remain, stat err=%v", err)
-	}
 }
 
 func TestDeleteParentSkillRemovesChildrenRecordsAndFiles(t *testing.T) {
@@ -1237,15 +1176,6 @@ func TestDeleteParentSkillRemovesChildrenRecordsAndFiles(t *testing.T) {
 	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeChild).Find(&children).Error; err != nil {
 		t.Fatalf("query child skills: %v", err)
 	}
-	parentRoot := filepath.Dir(parent.StoragePath)
-	draftFilePath := draftPath("u1", parent.ID, parent.Version, parent.RelativePath)
-	if err := os.MkdirAll(filepath.Dir(draftFilePath), 0o755); err != nil {
-		t.Fatalf("mkdir parent draft dir: %v", err)
-	}
-	if err := os.WriteFile(draftFilePath, []byte("draft content"), 0o644); err != nil {
-		t.Fatalf("write parent draft file: %v", err)
-	}
-
 	if err := deleteSkill(context.Background(), db.DB, "u1", parent.ID); err != nil {
 		t.Fatalf("delete parent skill: %v", err)
 	}
@@ -1257,18 +1187,6 @@ func TestDeleteParentSkillRemovesChildrenRecordsAndFiles(t *testing.T) {
 		if err := db.Where("id = ?", child.ID).Take(&orm.SkillResource{}).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
 			t.Fatalf("expected child record %s to be deleted, got err=%v", child.ID, err)
 		}
-		if _, err := os.Stat(child.StoragePath); !os.IsNotExist(err) {
-			t.Fatalf("expected child file %s to be deleted, stat err=%v", child.StoragePath, err)
-		}
-	}
-	if _, err := os.Stat(parent.StoragePath); !os.IsNotExist(err) {
-		t.Fatalf("expected parent file to be deleted, stat err=%v", err)
-	}
-	if _, err := os.Stat(parentRoot); !os.IsNotExist(err) {
-		t.Fatalf("expected parent root to be deleted, stat err=%v", err)
-	}
-	if _, err := os.Stat(draftRoot("u1", parent.ID)); !os.IsNotExist(err) {
-		t.Fatalf("expected parent draft root to be deleted, stat err=%v", err)
 	}
 }
 
