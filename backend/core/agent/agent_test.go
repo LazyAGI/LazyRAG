@@ -2,7 +2,12 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
+	"context"
+	"encoding/csv"
 	"fmt"
+	"math"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +104,196 @@ func TestReadSSEFrameParsesMultilineData(t *testing.T) {
 	}
 	if frame.Data != "{\"delta\":\"hello\"}\n{\"delta\":\"world\"}" {
 		t.Fatalf("unexpected frame data: %q", frame.Data)
+	}
+}
+
+func TestBuildCaseCSVBytesJoinsListValues(t *testing.T) {
+	csvBytes, rowCount, err := buildCaseCSVBytes([]any{
+		map[string]any{
+			"question":      "q1",
+			"reference_doc": []any{"a.pdf", "b.pdf"},
+			"score":         1.5,
+			"meta":          map[string]any{"source": "doc"},
+		},
+		map[string]any{
+			"question":      "q2",
+			"reference_doc": []any{"c.pdf"},
+			"score":         2,
+			"extra":         true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildCaseCSVBytes returned error: %v", err)
+	}
+	if rowCount != 2 {
+		t.Fatalf("expected row count 2, got %d", rowCount)
+	}
+
+	reader := csv.NewReader(bytes.NewReader(csvBytes))
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("expected header plus 2 rows, got %d", len(records))
+	}
+	expectedHeader := []string{"extra", "meta", "question", "reference_doc", "score"}
+	if strings.Join(records[0], ",") != strings.Join(expectedHeader, ",") {
+		t.Fatalf("unexpected header: %#v", records[0])
+	}
+	if records[1][3] != "a.pdf\nb.pdf" {
+		t.Fatalf("expected list cell to be joined with newlines, got %q", records[1][3])
+	}
+	if records[1][1] != `{"source":"doc"}` {
+		t.Fatalf("expected object cell to be json encoded, got %q", records[1][1])
+	}
+}
+
+func TestAttachCaseCSVFileURLAddsDownloadableAttachment(t *testing.T) {
+	t.Setenv("LAZYRAG_UPLOAD_ROOT", t.TempDir())
+	payload := map[string]any{
+		"data": map[string]any{
+			"cases": []any{
+				map[string]any{
+					"question":      "q1",
+					"reference_doc": []any{"a.pdf", "b.pdf"},
+				},
+			},
+		},
+	}
+
+	file, found, err := attachCaseCSVFileURL(context.Background(), payload, caseCSVOptions{
+		ThreadID:   "thr/1",
+		ResultKind: "datasets",
+	})
+	if err != nil {
+		t.Fatalf("attachCaseCSVFileURL returned error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected cases field to be found")
+	}
+	if file == nil || file.RowCount != 1 {
+		t.Fatalf("unexpected attachment: %#v", file)
+	}
+	if _, err := os.Stat(file.StoredPath); err != nil {
+		t.Fatalf("expected csv file to exist: %v", err)
+	}
+	if !strings.Contains(file.FileURL, "/static-files/agent-results/thr_1/datasets/") || !strings.Contains(file.FileURL, "sig=") {
+		t.Fatalf("unexpected file url: %q", file.FileURL)
+	}
+	if !strings.Contains(file.DownloadURL, "download=1") || file.DownloadURL == file.FileURL {
+		t.Fatalf("unexpected download url: %q", file.DownloadURL)
+	}
+	data := payload["data"].(map[string]any)
+	if data[defaultCaseCSVField] != file {
+		t.Fatalf("expected attachment to be added to data payload")
+	}
+}
+
+func TestBuildCaseDetailsCSVBytesUsesChineseHeadersAndQuestionTypeNames(t *testing.T) {
+	csvBytes, rowCount, err := buildCaseDetailsCSVBytes([]any{
+		map[string]any{
+			"case_id":            "case-1",
+			"question":           "q1",
+			"question_type":      1,
+			"key_points":         []any{"要点一", "要点二"},
+			"context_recall":     1.0,
+			"answer_correctness": 0.5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildCaseDetailsCSVBytes returned error: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("expected row count 1, got %d", rowCount)
+	}
+	reader := csv.NewReader(bytes.NewReader(csvBytes))
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v", err)
+	}
+	expectedHeader := []string{"案例ID", "问题", "问题类型", "关键点", "上下文召回率", "答案正确性"}
+	if strings.Join(records[0], ",") != strings.Join(expectedHeader, ",") {
+		t.Fatalf("unexpected case details header: %#v", records[0])
+	}
+	if records[1][2] != "单跳" {
+		t.Fatalf("expected question_type to be mapped to 单跳, got %q", records[1][2])
+	}
+	if records[1][3] != "要点一\n要点二" {
+		t.Fatalf("expected list value to be joined with newlines, got %q", records[1][3])
+	}
+}
+
+func TestAttachCaseDetailsReportResultAddsSummaryAndCSVFile(t *testing.T) {
+	t.Setenv("LAZYRAG_UPLOAD_ROOT", t.TempDir())
+	payload := map[string]any{
+		"data": map[string]any{
+			"case_details": []any{
+				map[string]any{
+					"question_type":      1,
+					"context_recall":     1.0,
+					"doc_recall":         1.0,
+					"answer_correctness": 0.5,
+					"faithfulness":       1.0,
+				},
+				map[string]any{
+					"question_type":      1,
+					"context_recall":     0.5,
+					"doc_recall":         1.0,
+					"answer_correctness": 1.0,
+					"faithfulness":       0.5,
+				},
+				map[string]any{
+					"question_type":      2,
+					"context_recall":     0.25,
+					"doc_recall":         0.5,
+					"answer_correctness": 1.0,
+					"faithfulness":       1.0,
+				},
+			},
+		},
+	}
+
+	summary, found, err := attachCaseDetailsReportResult(context.Background(), payload, caseDetailsReportOptions{
+		ThreadID:   "thr/1",
+		ResultKind: "eval-reports",
+	})
+	if err != nil {
+		t.Fatalf("attachCaseDetailsReportResult returned error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected case_details field to be found")
+	}
+	if summary == nil || summary.TotalCount != 3 || summary.CSVFile == nil {
+		t.Fatalf("unexpected summary: %#v", summary)
+	}
+	if _, err := os.Stat(summary.CSVFile.StoredPath); err != nil {
+		t.Fatalf("expected csv file to exist: %v", err)
+	}
+	if !strings.Contains(summary.CSVFile.FileURL, "/static-files/agent-results/thr_1/eval-reports/") {
+		t.Fatalf("unexpected file url: %q", summary.CSVFile.FileURL)
+	}
+	if len(summary.QuestionTypes) != 2 {
+		t.Fatalf("expected 2 question type stats, got %#v", summary.QuestionTypes)
+	}
+	first := summary.QuestionTypes[0]
+	if first.QuestionType != 1 || first.QuestionTypeKey != "single_hop" || first.QuestionTypeName != "单跳" || first.Count != 2 {
+		t.Fatalf("unexpected first question type stat: %#v", first)
+	}
+	if first.Averages.ContextRecall == nil || math.Abs(*first.Averages.ContextRecall-0.75) > 0.000001 {
+		t.Fatalf("unexpected context_recall average: %#v", first.Averages.ContextRecall)
+	}
+	if first.Averages.AnswerCorrectness == nil || math.Abs(*first.Averages.AnswerCorrectness-0.75) > 0.000001 {
+		t.Fatalf("unexpected answer_correctness average: %#v", first.Averages.AnswerCorrectness)
+	}
+	data := payload["data"].(map[string]any)
+	if data[caseDetailsCSVFileField] != summary.CSVFile {
+		t.Fatalf("expected csv file to be attached to payload")
+	}
+	if data[caseDetailsSummaryField] != summary {
+		t.Fatalf("expected summary to be attached to payload")
 	}
 }
 
