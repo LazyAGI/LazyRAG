@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -97,9 +96,6 @@ func TestInternalCreateCreatesSkillDirectly(t *testing.T) {
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
 
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
-
 	now := time.Now()
 	conversation := orm.Conversation{
 		ID:        "conv-create",
@@ -179,9 +175,6 @@ func TestInternalRemoveDeletesSkillDirectly(t *testing.T) {
 	db := newSkillTestDB(t)
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
-
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
 
 	now := time.Now()
 	conversation := orm.Conversation{
@@ -285,9 +278,6 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 	db := newSkillTestDB(t)
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
-
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/chat/skill/generate" {
@@ -400,6 +390,85 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 	}
 	if !strings.Contains(updatedSkill.DraftContent, "updated body") {
 		t.Fatalf("expected draft_content to be overwritten, got %q", updatedSkill.DraftContent)
+	}
+}
+
+func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	var algoBody map[string]any
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat/skill/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&algoBody); err != nil {
+			t.Fatalf("decode algorithm request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"content": "---\nname: git-workflow\ndescription: git workflow\n---\nupdated body",
+			},
+		})
+	})
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("listener unavailable in current test environment: %v", err)
+	}
+	algoServer := &http.Server{Handler: handler}
+	go func() { _ = algoServer.Serve(listener) }()
+	defer func() { _ = algoServer.Shutdown(context.Background()) }()
+	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+
+	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
+	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	now := time.Now()
+	skillRow := orm.SkillResource{
+		ID:             "skill-1",
+		OwnerUserID:    "u1",
+		OwnerUserName:  "User 1",
+		Category:       "coding",
+		SkillName:      "git-workflow",
+		NodeType:       evolution.SkillNodeTypeParent,
+		Description:    "git workflow",
+		FileExt:        "md",
+		RelativePath:   relativePath,
+		Content:        currentContent,
+		ContentSize:    int64(len([]byte(currentContent))),
+		MimeType:       "text/markdown; charset=utf-8",
+		ContentHash:    evolution.HashContent(currentContent),
+		Version:        1,
+		IsEnabled:      true,
+		UpdateStatus:   evolution.UpdateStatusUpToDate,
+		CreateUserID:   "u1",
+		CreateUserName: "User 1",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := db.Create(&skillRow).Error; err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/skills/skill-1:generate", strings.NewReader(`{"suggestion_ids":[],"user_instruct":"只按用户意见生成"}`))
+	req = mux.SetURLVars(req, map[string]string{"skill_id": "skill-1"})
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+
+	Generate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if algoBody["user_instruct"] != "只按用户意见生成" {
+		t.Fatalf("unexpected user_instruct sent to algorithm: %#v", algoBody["user_instruct"])
+	}
+	suggestions, ok := algoBody["suggestions"].([]any)
+	if !ok || len(suggestions) != 0 {
+		t.Fatalf("expected empty suggestions array, got %#v", algoBody["suggestions"])
 	}
 }
 
@@ -819,25 +888,10 @@ func TestGetChildDetailInheritsPendingReviewSuggestionsFromParent(t *testing.T) 
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
 
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
-
 	parentRelativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
-	parentStoragePath := filepath.Join(tmpDir, "skills", "u1", filepath.FromSlash(parentRelativePath))
 	childRelativePath := "coding/git-workflow/rules.md"
-	childStoragePath := filepath.Join(tmpDir, "skills", "u1", filepath.FromSlash(childRelativePath))
-	if err := os.MkdirAll(filepath.Dir(parentStoragePath), 0o755); err != nil {
-		t.Fatalf("mkdir parent dir: %v", err)
-	}
-	if err := os.WriteFile(parentStoragePath, []byte("---\nname: git-workflow\ndescription: git workflow\n---\nparent body"), 0o644); err != nil {
-		t.Fatalf("write parent file: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(childStoragePath), 0o755); err != nil {
-		t.Fatalf("mkdir child dir: %v", err)
-	}
-	if err := os.WriteFile(childStoragePath, []byte("child body"), 0o644); err != nil {
-		t.Fatalf("write child file: %v", err)
-	}
+	parentContent := "---\nname: git-workflow\ndescription: git workflow\n---\nparent body"
+	childContent := "child body"
 
 	now := time.Now()
 	parent := orm.SkillResource{
@@ -850,8 +904,10 @@ func TestGetChildDetailInheritsPendingReviewSuggestionsFromParent(t *testing.T) 
 		NodeType:        evolution.SkillNodeTypeParent,
 		FileExt:         "md",
 		RelativePath:    parentRelativePath,
-		StoragePath:     parentStoragePath,
-		ContentHash:     evolution.HashContent("parent body"),
+		Content:         parentContent,
+		ContentSize:     int64(len([]byte(parentContent))),
+		MimeType:        "text/markdown; charset=utf-8",
+		ContentHash:     evolution.HashContent(parentContent),
 		Version:         1,
 		IsEnabled:       true,
 		UpdateStatus:    evolution.UpdateStatusUpToDate,
@@ -870,8 +926,10 @@ func TestGetChildDetailInheritsPendingReviewSuggestionsFromParent(t *testing.T) 
 		NodeType:        evolution.SkillNodeTypeChild,
 		FileExt:         "md",
 		RelativePath:    childRelativePath,
-		StoragePath:     childStoragePath,
-		ContentHash:     evolution.HashContent("child body"),
+		Content:         childContent,
+		ContentSize:     int64(len([]byte(childContent))),
+		MimeType:        "text/markdown; charset=utf-8",
+		ContentHash:     evolution.HashContent(childContent),
 		Version:         1,
 		IsEnabled:       true,
 		UpdateStatus:    evolution.UpdateStatusUpToDate,
@@ -943,9 +1001,6 @@ func TestGetChildDetailInheritsPendingReviewSuggestionsFromParent(t *testing.T) 
 func TestCreateParentSkillBuildsFrontmatterFromBodyOnlyContent(t *testing.T) {
 	db := newSkillTestDB(t)
 
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
-
 	req := createSkillRequest{
 		Name:        "git-workflow",
 		Description: "Git workflow for postman test",
@@ -983,9 +1038,6 @@ func TestCreateParentSkillBuildsFrontmatterFromBodyOnlyContent(t *testing.T) {
 
 func TestUpdateParentSkillRebuildsContentFromBodyOnlyPayload(t *testing.T) {
 	db := newSkillTestDB(t)
-
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
 
 	createReq := createSkillRequest{
 		Name:        "git-workflow",
@@ -1029,9 +1081,6 @@ func TestUpdateParentSkillRebuildsContentFromBodyOnlyPayload(t *testing.T) {
 
 func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T) {
 	db := newSkillTestDB(t)
-
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
 
 	createReq := createSkillRequest{
 		Name:        "git-workflow",
@@ -1096,11 +1145,8 @@ func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T
 	}
 }
 
-func TestDeleteChildSkillRemovesRecordAndFileOnly(t *testing.T) {
+func TestDeleteChildSkillRemovesRecordOnly(t *testing.T) {
 	db := newSkillTestDB(t)
-
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
 
 	createReq := createSkillRequest{
 		Name:        "git-workflow",
@@ -1140,11 +1186,8 @@ func TestDeleteChildSkillRemovesRecordAndFileOnly(t *testing.T) {
 	}
 }
 
-func TestDeleteParentSkillRemovesChildrenRecordsAndFiles(t *testing.T) {
+func TestDeleteParentSkillRemovesChildrenRecords(t *testing.T) {
 	db := newSkillTestDB(t)
-
-	tmpDir := t.TempDir()
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir)
 
 	createReq := createSkillRequest{
 		Name:        "git-workflow",

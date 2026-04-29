@@ -10,7 +10,6 @@ type SkillShareTask struct {
 	SourceCategory        string    `gorm:"column:source_category;type:varchar(128);not null;default:''"`
 	SourceParentSkillName string    `gorm:"column:source_parent_skill_name;type:varchar(255);not null;default:''"`
 	SourceRelativeRoot    string    `gorm:"column:source_relative_root;type:varchar(1024);not null;default:''"`
-	SourceStorageRoot     string    `gorm:"column:source_storage_root;type:text;not null;default:''"`
 	Message               string    `gorm:"column:message;type:text"`
 	CreatedAt             time.Time `gorm:"column:created_at;not null"`
 	UpdatedAt             time.Time `gorm:"column:updated_at;not null"`
@@ -25,7 +24,6 @@ type SkillShareItem struct {
 	TargetUserName     string     `gorm:"column:target_user_name;type:varchar(255);not null;default:''"`
 	Status             string     `gorm:"column:status;type:varchar(32);not null;index:idx_skill_share_items_target_user,priority:3"`
 	TargetRelativeRoot string     `gorm:"column:target_relative_root;type:varchar(1024);not null;default:''"`
-	TargetStoragePath  string     `gorm:"column:target_storage_path;type:text;not null;default:''"`
 	AcceptedAt         *time.Time `gorm:"column:accepted_at"`
 	RejectedAt         *time.Time `gorm:"column:rejected_at"`
 	TargetRootSkillID  string     `gorm:"column:target_root_skill_id;type:varchar(36);not null;default:''"`

@@ -17,7 +17,6 @@ type ResourceSessionSnapshot struct {
 	FileExt         string    `gorm:"column:file_ext;type:varchar(32);not null;default:''"`
 	RelativePath    string    `gorm:"column:relative_path;type:varchar(1024);not null;default:''"`
 	SnapshotHash    string    `gorm:"column:snapshot_hash;type:varchar(64);not null;default:''"`
-	StoragePath     string    `gorm:"column:storage_path;type:text;not null;default:''"`
 	CreatedAt       time.Time `gorm:"column:created_at;not null"`
 }
 

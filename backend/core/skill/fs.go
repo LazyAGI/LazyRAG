@@ -4,13 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"mime"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -44,10 +41,6 @@ func validatePathSegment(segment string) error {
 	return nil
 }
 
-func skillRootDir(userID, category, skillName string) string {
-	return filepath.Join(evolution.SkillFSURL(userID), filepath.FromSlash(filepath.Join(strings.TrimSpace(category), strings.TrimSpace(skillName))))
-}
-
 func parentRelativePath(category, skillName string) string {
 	return evolution.ParentSkillRelativePath(category, skillName)
 }
@@ -56,23 +49,8 @@ func childRelativePath(category, parentSkillName, childName, ext string) string 
 	return filepath.ToSlash(filepath.Join(strings.TrimSpace(category), strings.TrimSpace(parentSkillName), fmt.Sprintf("%s.%s", strings.TrimSpace(childName), normalizeExt(ext))))
 }
 
-func absoluteSkillPath(userID, relativePath string) string {
-	return filepath.Join(evolution.SkillFSURL(userID), filepath.FromSlash(relativePath))
-}
-
-func draftPath(userID, skillID string, version int64, relativePath string) string {
-	return filepath.Join(evolution.SkillVolumeRoot(), "skills", ".drafts", strings.TrimSpace(userID), strings.TrimSpace(skillID), fmt.Sprintf("%d", version), filepath.FromSlash(relativePath))
-}
-
-func draftRoot(userID, skillID string) string {
-	return filepath.Join(evolution.SkillVolumeRoot(), "skills", ".drafts", strings.TrimSpace(userID), strings.TrimSpace(skillID))
-}
-
 func storedSkillContent(row orm.SkillResource) (string, error) {
-	if row.Content != "" || strings.TrimSpace(row.StoragePath) == "" {
-		return row.Content, nil
-	}
-	return readTextFile(row.StoragePath)
+	return row.Content, nil
 }
 
 func skillContentSize(content string) int64 {
@@ -101,148 +79,6 @@ func mimeTypeForExt(ext string) string {
 	default:
 		return "application/octet-stream"
 	}
-}
-
-func readTextFile(path string) (string, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
-}
-
-func writeFileAtomic(path, content string) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return errors.New("path required")
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-	if _, err := tmp.WriteString(content); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
-}
-
-func copyDir(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := copyFile(srcPath, dstPath); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
-}
-
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func removePath(path string) {
-	_ = os.RemoveAll(path)
-}
-
-func removePathChecked(path string) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil
-	}
-	if err := os.RemoveAll(path); err != nil {
-		return err
-	}
-	_, err := os.Stat(path)
-	switch {
-	case err == nil:
-		return fmt.Errorf("path still exists after delete: %s", path)
-	case os.IsNotExist(err):
-		return nil
-	default:
-		return err
-	}
-}
-
-func movePathAside(path string) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", nil
-	}
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	for i := 0; i < 16; i++ {
-		candidate := filepath.Join(dir, fmt.Sprintf(".trash-%s-%d-%d", base, time.Now().UnixNano(), i))
-		if _, err := os.Stat(candidate); err == nil {
-			continue
-		} else if !os.IsNotExist(err) {
-			return "", err
-		}
-		if err := os.Rename(path, candidate); err != nil {
-			return "", err
-		}
-		return candidate, nil
-	}
-	return "", errors.New("unable to allocate trash path")
-}
-
-func restoreMovedPath(currentPath, originalPath string) error {
-	currentPath = strings.TrimSpace(currentPath)
-	originalPath = strings.TrimSpace(originalPath)
-	if currentPath == "" || originalPath == "" {
-		return nil
-	}
-	return os.Rename(currentPath, originalPath)
 }
 
 func parseTags(raw json.RawMessage) []string {

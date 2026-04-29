@@ -365,7 +365,6 @@ func AcceptShare(w http.ResponseWriter, r *http.Request) {
 	targetParent.OwnerUserName = userName
 	targetParent.CreateUserID = userID
 	targetParent.CreateUserName = userName
-	targetParent.StoragePath = ""
 	targetParent.DraftSourceVersion = 0
 	targetParent.DraftContent = ""
 	targetParent.DraftStatus = ""
@@ -383,7 +382,6 @@ func AcceptShare(w http.ResponseWriter, r *http.Request) {
 		child.OwnerUserName = userName
 		child.CreateUserID = userID
 		child.CreateUserName = userName
-		child.StoragePath = ""
 		child.UpdateStatus = evolution.UpdateStatusUpToDate
 		child.CreatedAt = now
 		child.UpdatedAt = now
@@ -404,7 +402,6 @@ func AcceptShare(w http.ResponseWriter, r *http.Request) {
 			"accepted_at":          now,
 			"updated_at":           now,
 			"target_relative_root": task.SourceRelativeRoot,
-			"target_storage_path":  "",
 			"target_root_skill_id": targetParentID,
 			"error_message":        "",
 		}).Error
