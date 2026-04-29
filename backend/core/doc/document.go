@@ -135,6 +135,16 @@ func staticFileURLFromFullPath(fullPath string) string {
 	return fmt.Sprintf("/static-files/%s?expires=%d&sig=%s", encodeStaticFilePath(rel), expires, sig)
 }
 
+// UploadRoot returns the configured local root used by the signed static file service.
+func UploadRoot() string {
+	return uploadRoot()
+}
+
+// StaticFileURLFromFullPath returns a signed, time-limited URL for a file below UploadRoot.
+func StaticFileURLFromFullPath(fullPath string) string {
+	return staticFileURLFromFullPath(fullPath)
+}
+
 func encodeStaticFilePath(rel string) string {
 	parts := strings.Split(rel, "/")
 	for i, part := range parts {
@@ -244,7 +254,9 @@ func GetSignedStaticFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fullPath := filepath.Join(uploadRoot(), filepath.FromSlash(relPath))
-	streamLocalFile(w, fullPath, filepath.Base(fullPath), "", true)
+	inline := !strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("download")), "1") &&
+		!strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("download")), "true")
+	streamLocalFile(w, fullPath, filepath.Base(fullPath), "", inline)
 }
 
 func detectDocumentContentType(name, storedPath, fallback string) string {

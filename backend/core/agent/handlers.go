@@ -357,6 +357,25 @@ func getThreadResults(w http.ResponseWriter, r *http.Request, resultKind string)
 		common.ReplyErrWithData(w, "fetch thread results failed", map[string]any{"detail": err.Error()}, statusCode)
 		return
 	}
+	if proxy != nil && strings.Contains(proxy.ContentType, "application/json") {
+		switch resultKind {
+		case "datasets":
+			if _, found, csvErr := attachCaseCSVFileURL(r.Context(), proxy.Body, caseCSVOptions{
+				ThreadID:   threadID,
+				ResultKind: resultKind,
+				FieldNames: []string{"case", "cases"},
+			}); csvErr != nil {
+				log.Logger.Warn().Err(csvErr).Str("thread_id", threadID).Str("result_kind", resultKind).Bool("case_field_found", found).Msg("attach case csv file url failed")
+			}
+		case "eval-reports", "abtests":
+			if _, found, reportErr := attachCaseDetailsReportResult(r.Context(), proxy.Body, caseDetailsReportOptions{
+				ThreadID:   threadID,
+				ResultKind: resultKind,
+			}); reportErr != nil {
+				log.Logger.Warn().Err(reportErr).Str("thread_id", threadID).Str("result_kind", resultKind).Bool("case_details_found", found).Msg("attach case details report result failed")
+			}
+		}
+	}
 	writeProxyResponse(w, proxy)
 }
 
