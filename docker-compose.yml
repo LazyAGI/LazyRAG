@@ -19,6 +19,9 @@ x-upload-paths: &upload-paths
 x-db-conn: &db-conn
   LAZYRAG_DATABASE_URL: ${LAZYRAG_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
 
+x-core-db-conn: &core-db-conn
+  LAZYRAG_CORE_DATABASE_URL: ${LAZYRAG_CORE_DATABASE_URL:-postgresql+psycopg://root:123456@db:5432/core}
+
 services:
 
   kong:
@@ -492,7 +495,9 @@ services:
       https_proxy: ${https_proxy:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      <<: [*llm-api-keys, *upload-paths]
+      LAZYRAG_CORE_SERVICE_URL: ${LAZYRAG_CORE_SERVICE_URL:-http://core:8000}
+      LAZYRAG_WORD_GROUP_APPLY_URL: ${LAZYRAG_WORD_GROUP_APPLY_URL:-}
+      <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "chat/chat.py", "--port", "8046"]
     depends_on:
       lazyllm-algo:

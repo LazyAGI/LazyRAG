@@ -31,6 +31,7 @@ async def chat(
     memory: Annotated[Optional[str], Body(description='memory 内容')] = None,
     user_preference: Annotated[Optional[str], Body(description='user_preference 内容')] = None,
     use_memory: Annotated[Optional[bool], Body(description='是否使用 memory')] = True,
+    create_user_id: Optional[str] = Body(None, description='用户ID，用于加载该用户的专有词表'),
     *,
     request: Request,
 ):
@@ -53,4 +54,5 @@ async def chat(
         user_preference=user_preference,
         use_memory=use_memory,
         is_stream=is_stream,
+        create_user_id=(create_user_id or '').strip(),
     )

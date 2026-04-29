@@ -58,7 +58,8 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        available_skills: Optional[List[str]],
                        memory: Optional[str],
                        user_preference: Optional[str],
-                       use_memory: Optional[bool]) -> Dict[str, Any]:
+                       use_memory: Optional[bool],
+                       create_user_id: Optional[str] = None) -> Dict[str, Any]:
     hist = [
         {
             'role': str(h.get('role', 'assistant')),
@@ -79,6 +80,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         'memory': memory,
         'user_preference': user_preference,
         'use_memory': use_memory,
+        'create_user_id': create_user_id or '',
     }
 
 
@@ -102,7 +104,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       priority: Optional[int], available_tools: Optional[List[str]],
                       available_skills: Optional[List[str]], memory: Optional[str],
                       user_preference: Optional[str], use_memory: Optional[bool],
-                      is_stream: bool) -> Union[Dict[str, Any], StreamingResponse]:
+                      is_stream: bool,
+                      create_user_id: Optional[str] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
 
@@ -135,6 +138,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             memory,
             user_preference,
             use_memory,
+            create_user_id,
         )
 
         try:
@@ -184,6 +188,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             memory,
             user_preference,
             use_memory,
+            create_user_id,
         )
 
         stream_call = (
