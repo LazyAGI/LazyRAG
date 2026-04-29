@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"lazyrag/core/common/orm"
 	"lazyrag/core/evolution"
 )
 
@@ -64,6 +66,41 @@ func draftPath(userID, skillID string, version int64, relativePath string) strin
 
 func draftRoot(userID, skillID string) string {
 	return filepath.Join(evolution.SkillVolumeRoot(), "skills", ".drafts", strings.TrimSpace(userID), strings.TrimSpace(skillID))
+}
+
+func storedSkillContent(row orm.SkillResource) (string, error) {
+	if row.Content != "" || strings.TrimSpace(row.StoragePath) == "" {
+		return row.Content, nil
+	}
+	return readTextFile(row.StoragePath)
+}
+
+func skillContentSize(content string) int64 {
+	return int64(len([]byte(content)))
+}
+
+func mimeTypeForExt(ext string) string {
+	ext = strings.TrimSpace(ext)
+	if ext == "" {
+		return "text/plain; charset=utf-8"
+	}
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	if mt := mime.TypeByExtension(strings.ToLower(ext)); mt != "" {
+		if strings.HasPrefix(mt, "text/") && !strings.Contains(strings.ToLower(mt), "charset=") {
+			return mt + "; charset=utf-8"
+		}
+		return mt
+	}
+	switch strings.ToLower(ext) {
+	case ".md", ".markdown":
+		return "text/markdown; charset=utf-8"
+	case ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml", ".txt":
+		return "text/plain; charset=utf-8"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 func readTextFile(path string) (string, error) {

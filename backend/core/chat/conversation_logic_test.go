@@ -99,7 +99,6 @@ func TestBuildChatRequestBodyAddsEvolutionContext(t *testing.T) {
 	ctx := &evolution.ChatResourceContext{
 		AvailableTools:     []string{"all"},
 		AvailableSkills:    []string{"coding/git-workflow"},
-		SkillFSURL:         "/data/skill-volume/skills/u1",
 		Memory:             "memory-content",
 		UserPreference:     "preference-content",
 		UsePersonalization: true,
@@ -115,8 +114,8 @@ func TestBuildChatRequestBodyAddsEvolutionContext(t *testing.T) {
 	if got, ok := body["available_skills"].([]string); !ok || len(got) != 1 || got[0] != "coding/git-workflow" {
 		t.Fatalf("unexpected available_skills: %#v", body["available_skills"])
 	}
-	if got := body["skill_fs_url"]; got != "/data/skill-volume/skills/u1" {
-		t.Fatalf("unexpected skill_fs_url: %#v", got)
+	if _, ok := body["skill_fs_url"]; ok {
+		t.Fatalf("expected skill_fs_url to be omitted")
 	}
 	if got := body["memory"]; got != "memory-content" {
 		t.Fatalf("unexpected memory: %#v", got)
@@ -136,7 +135,6 @@ func TestBuildChatRequestBodySkipsMemoryAndPreferenceWhenPersonalizationDisabled
 	ctx := &evolution.ChatResourceContext{
 		AvailableTools:     []string{"all"},
 		AvailableSkills:    []string{"coding/git-workflow"},
-		SkillFSURL:         "/data/skill-volume/skills/u1",
 		Memory:             "memory-content",
 		UserPreference:     "preference-content",
 		UsePersonalization: false,
@@ -185,7 +183,6 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 		"available_skills": []any{
 			"coding/git-workflow",
 		},
-		"skill_fs_url":    "/data/skill-volume/skills/u1",
 		"memory":          "memory-content",
 		"user_preference": "preference-content",
 		"use_memory":      true,
@@ -223,9 +220,6 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	}
 	if len(req.AvailableSkills) != 1 || req.AvailableSkills[0] != "coding/git-workflow" {
 		t.Fatalf("unexpected available_skills: %#v", req.AvailableSkills)
-	}
-	if req.SkillFSURL != "/data/skill-volume/skills/u1" {
-		t.Fatalf("unexpected skill_fs_url: %q", req.SkillFSURL)
 	}
 	if req.Memory != "memory-content" || req.UserPreference != "preference-content" {
 		t.Fatalf("unexpected memory context: %+v", req)
