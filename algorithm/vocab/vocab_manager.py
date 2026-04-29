@@ -1,7 +1,7 @@
 """VocabManager: 多用户词表管理器，封装 QueryEnhACProcessor，支持热更新。
 
 每个用户（create_user_id）维护独立的 QueryEnhACProcessor 实例，词表数据从
-PostgreSQL lazyrag_vocab 表中按 create_user_id 查询。
+后端维护的 PostgreSQL core.public.words 表中按 create_user_id 查询。
 
 用法：
     # 后端通知算法服务热更新某用户词表
@@ -11,7 +11,8 @@ PostgreSQL lazyrag_vocab 表中按 create_user_id 查询。
     enhanced = get_vocab_manager('user_001')('用户的 query 文本')
 
 环境变量：
-    LAZYRAG_DATABASE_URL  PostgreSQL 连接 URL
+    LAZYRAG_CORE_DATABASE_URL / ACL_DB_DSN  core 库连接
+    LAZYRAG_DATABASE_URL                     兼容回退连接
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ class VocabManager:
     """单用户词表管理器：绑定一个 create_user_id，从 DB 加载词表，支持热更新。
 
     Args:
-        create_user_id: 用户标识（对应 lazyrag_vocab.create_user_id）。
+        create_user_id: 用户标识（对应 core.public.words.create_user_id）。
         data_source: 可选，自定义数据源（callable 或 list）；
                      主要用于测试，省略时从数据库加载。
     """
@@ -48,7 +49,7 @@ class VocabManager:
     # ------------------------------------------------------------------
 
     def _load_from_db(self) -> List[dict]:
-        """从 lazyrag_vocab 加载当前用户的词表行，字段格式与 QueryEnhACProcessor 匹配。"""
+        """从 core.public.words 加载当前用户的词表行，字段格式与 QueryEnhACProcessor 匹配。"""
         return fetch_vocab_for_create_user_id(self._create_user_id)
 
     # ------------------------------------------------------------------
@@ -95,7 +96,7 @@ def get_vocab_manager(create_user_id: str = '') -> VocabManager:
     """返回 create_user_id 对应的 VocabManager（惰性初始化，每个 create_user_id 一个实例）。
 
     Args:
-        create_user_id: 用户标识，对应 lazyrag_vocab.create_user_id。
+        create_user_id: 用户标识，对应 core.public.words.create_user_id。
                  传空字符串时返回"无用户"的默认管理器（词表通常为空）。
     """
     if create_user_id not in _registry:

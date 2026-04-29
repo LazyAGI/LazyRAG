@@ -1,21 +1,15 @@
-"""vocab/db.py: PostgreSQL helpers for lazyrag_vocab table.
+"""vocab/db.py: PostgreSQL helpers for backend-managed vocabulary and chat tables.
 
-Table schema (auto-created on first use):
+Vocabulary rows are now read from ``core.public.words`` and filtered by
+``deleted_at IS NULL`` so soft-deleted words are excluded from both vocab
+manager reloads and vocabulary evolution planning.
 
-    CREATE TABLE lazyrag_vocab (
-        id             SERIAL      PRIMARY KEY,
-        word           TEXT        NOT NULL,
-        group_id       TEXT        NOT NULL,   -- maps to cluster_id in AC processor
-        description    TEXT,
-        source         TEXT        DEFAULT '用户',
-        reference      TEXT,
-        create_user_id TEXT        NOT NULL DEFAULT '',
-        create_time    TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        update_time    TIMESTAMP
-    );
+Connection priority for vocab reads:
 
-Environment variable:
-    LAZYRAG_DATABASE_URL  PostgreSQL URL, e.g. postgresql://user:pass@host:5432/db
+1. explicit ``db_url`` argument
+2. ``LAZYRAG_CORE_DATABASE_URL``
+3. ``ACL_DB_DSN``
+4. ``LAZYRAG_DATABASE_URL``
 """
 from __future__ import annotations
 
@@ -29,28 +23,14 @@ from lazyllm import LOG
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Engine
 
-VOCAB_TABLE = 'lazyrag_vocab'
+VOCAB_SCHEMA = 'public'
+VOCAB_TABLE = 'words'
+VOCAB_TABLE_QUALIFIED = f'{VOCAB_SCHEMA}.{VOCAB_TABLE}'
+VOCAB_REFERENCE_COLUMN = 'reference_info'
 _DB_URL_ENV = 'LAZYRAG_DATABASE_URL'
 _CORE_DB_DSN_ENV = 'ACL_DB_DSN'
 _CORE_DB_URL_ENV = 'LAZYRAG_CORE_DATABASE_URL'
-
-_DDL_TABLE = f"""
-CREATE TABLE IF NOT EXISTS {VOCAB_TABLE} (
-    id             SERIAL      PRIMARY KEY,
-    word           TEXT        NOT NULL,
-    group_id       TEXT        NOT NULL,
-    description    TEXT,
-    source         TEXT        DEFAULT '用户',
-    reference      TEXT,
-    create_user_id TEXT        NOT NULL DEFAULT '',
-    create_time    TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time    TIMESTAMP
-)
-"""
-_DDL_INDEX = f"""
-CREATE INDEX IF NOT EXISTS idx_{VOCAB_TABLE}_user_id
-    ON {VOCAB_TABLE}(create_user_id)
-"""
+_VOCAB_DB_ENV_HINT = f'{_CORE_DB_URL_ENV}, {_CORE_DB_DSN_ENV}, or {_DB_URL_ENV}'
 
 _table_ensured = False
 _table_ensure_lock = threading.Lock()
@@ -128,18 +108,33 @@ def _get_core_db_url() -> Optional[str]:
     return value if value and value.strip() else None
 
 
-def _get_conn() -> Engine:
-    """Return a SQLAlchemy engine using LAZYRAG_DATABASE_URL."""
-    url = _get_db_url()
-    if not url:
-        raise RuntimeError(
-            f'[VocabDB] {_DB_URL_ENV} is not set; cannot connect to database.'
-        )
-    return _get_engine(url=url)
+def _resolve_vocab_conn_target(db_url: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    if db_url and db_url.strip():
+        return db_url.strip(), None
+    core_db_url = _get_core_db_url()
+    if core_db_url:
+        return core_db_url, None
+    core_db_dsn = _get_core_db_dsn()
+    if core_db_dsn:
+        return None, core_db_dsn
+    vocab_db_url = _get_db_url()
+    if vocab_db_url:
+        return vocab_db_url, None
+    return None, None
+
+
+def _has_vocab_conn_target(db_url: Optional[str] = None) -> bool:
+    url, dsn = _resolve_vocab_conn_target(db_url=db_url)
+    return bool(url or dsn)
 
 
 def _get_vocab_conn(db_url: Optional[str] = None) -> Engine:
-    return _get_engine(url=db_url or _get_db_url())
+    url, dsn = _resolve_vocab_conn_target(db_url=db_url)
+    if not (url or dsn):
+        raise RuntimeError(
+            f'[VocabDB] {_VOCAB_DB_ENV_HINT} is not set; cannot connect to vocab database.'
+        )
+    return _get_engine(url=url, dsn=dsn)
 
 
 def _get_core_conn(*, db_dsn: Optional[str] = None, db_url: Optional[str] = None) -> Engine:
@@ -154,23 +149,33 @@ def _get_core_conn(*, db_dsn: Optional[str] = None, db_url: Optional[str] = None
 # ---------------------------------------------------------------------------
 
 def ensure_vocab_table(db_url: Optional[str] = None) -> None:
-    """Create lazyrag_vocab + index if they do not exist (idempotent)."""
-    url = db_url or _get_db_url()
-    if not url:
-        LOG.warning(f'[VocabDB] {_DB_URL_ENV} not set; skipping table init.')
+    """Verify backend-managed vocab table is reachable in the configured database."""
+    if not _has_vocab_conn_target(db_url=db_url):
+        LOG.warning(f'[VocabDB] {_VOCAB_DB_ENV_HINT} not set; skipping vocab table check.')
         return
     try:
-        engine = _get_vocab_conn(db_url=url)
-        with engine.begin() as conn:
-            conn.execute(text(_DDL_TABLE))
-            conn.execute(text(_DDL_INDEX))
-        LOG.info(f'[VocabDB] table {VOCAB_TABLE} ensured.')
+        engine = _get_vocab_conn(db_url=db_url)
+        with engine.connect() as conn:
+            exists = conn.execute(
+                text(
+                    """SELECT 1
+                           FROM information_schema.tables
+                          WHERE table_schema = :table_schema
+                            AND table_name = :table_name
+                          LIMIT 1"""
+                ),
+                {'table_schema': VOCAB_SCHEMA, 'table_name': VOCAB_TABLE},
+            ).scalar()
+        if exists:
+            LOG.info(f'[VocabDB] verified table {VOCAB_TABLE_QUALIFIED} is available.')
+            return
+        LOG.warning(f'[VocabDB] table {VOCAB_TABLE_QUALIFIED} not found in configured vocab database.')
     except Exception as exc:
         LOG.error(f'[VocabDB] ensure_vocab_table failed: {exc}')
 
 
 def _ensure_table_once(db_url: Optional[str] = None) -> None:
-    """Call ensure_vocab_table exactly once per process."""
+    """Verify the vocab table exactly once per process."""
     global _table_ensured
     if not _table_ensured:
         with _table_ensure_lock:
@@ -191,17 +196,21 @@ def fetch_vocab_for_create_user_id(create_user_id: str) -> List[Dict[str, Any]]:
     :class:`lazyllm.tools.rag.QueryEnhACProcessor`.
     """
     _ensure_table_once()
-    url = _get_db_url()
-    if not url:
+    if not _has_vocab_conn_target():
         LOG.warning(
-            f'[VocabDB] {_DB_URL_ENV} not set; returning empty vocab for create_user_id={create_user_id!r}.'
+            f'[VocabDB] {_VOCAB_DB_ENV_HINT} not set; returning empty vocab for create_user_id={create_user_id!r}.'
         )
         return []
     try:
         engine = _get_vocab_conn()
         with engine.connect() as conn:
             rows = conn.execute(
-                text(f'SELECT word, group_id FROM {VOCAB_TABLE} WHERE create_user_id = :create_user_id'),
+                text(
+                    f"""SELECT word, group_id
+                          FROM {VOCAB_TABLE_QUALIFIED}
+                         WHERE create_user_id = :create_user_id
+                           AND deleted_at IS NULL"""
+                ),
                 {'create_user_id': create_user_id},
             ).mappings().all()
         result = [{'word': row['word'], 'cluster_id': row['group_id']} for row in rows]
@@ -215,26 +224,26 @@ def fetch_vocab_for_create_user_id(create_user_id: str) -> List[Dict[str, Any]]:
 def fetch_vocab_groups_for_create_user_id(
         create_user_id: str, *, db_url: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """Return existing vocab groups for a user keyed by ``group_id``."""
-    url = db_url or _get_db_url()
-    _ensure_table_once(db_url=url)
-    if not url:
+    _ensure_table_once(db_url=db_url)
+    if not _has_vocab_conn_target(db_url=db_url):
         LOG.warning(
-            f'[VocabDB] {_DB_URL_ENV} not set; returning empty vocab groups '
+            f'[VocabDB] {_VOCAB_DB_ENV_HINT} not set; returning empty vocab groups '
             f'for create_user_id={create_user_id!r}.'
         )
         return {}
     try:
-        engine = _get_vocab_conn(db_url=url)
+        engine = _get_vocab_conn(db_url=db_url)
         with engine.connect() as conn:
             rows = conn.execute(
                 text(
                     f"""SELECT group_id,
                                word,
                                COALESCE(description, '') AS description,
-                               COALESCE(reference, '') AS reference
-                        FROM {VOCAB_TABLE}
-                        WHERE create_user_id = :create_user_id
-                        ORDER BY group_id, id"""
+                               COALESCE({VOCAB_REFERENCE_COLUMN}, '') AS reference
+                          FROM {VOCAB_TABLE_QUALIFIED}
+                         WHERE create_user_id = :create_user_id
+                           AND deleted_at IS NULL
+                         ORDER BY group_id, id"""
                 ),
                 {'create_user_id': create_user_id},
             ).mappings().all()

@@ -31,7 +31,7 @@ async def chat(
     memory: Annotated[Optional[str], Body(description='memory 内容')] = None,
     user_preference: Annotated[Optional[str], Body(description='user_preference 内容')] = None,
     use_memory: Annotated[Optional[bool], Body(description='是否使用 memory')] = True,
-    create_user_id: Optional[str] = Body(None, description='用户ID，用于加载该用户的专有词表'),
+    create_user_id: Annotated[Optional[str], Body(description='用户ID，用于加载该用户的专有词表')] = None,
     *,
     request: Request,
 ):
