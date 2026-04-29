@@ -284,6 +284,7 @@ func AddWordGroupConflictToGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	notifyVocabReload(r.Context(), userID)
 	common.ReplyOK(w, AddWordGroupConflictToGroupsResponse{
 		Word:                word,
 		GroupIDs:            groupIDs,
