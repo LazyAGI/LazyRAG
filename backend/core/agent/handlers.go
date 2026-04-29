@@ -249,8 +249,7 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			seenRaw[eventKey] = struct{}{}
 
-			recordID := eventKey
-			record, _, saveErr := saveThreadRecord(
+			_, _, saveErr := saveThreadRecord(
 				db,
 				threadID,
 				"",
@@ -262,8 +261,6 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 			)
 			if saveErr != nil {
 				log.Logger.Warn().Err(saveErr).Str("thread_id", threadID).Msg("save thread event record failed")
-			} else if record != nil && record.ID != "" {
-				recordID = record.ID
 			}
 
 			if event.TaskID != "" {
@@ -275,7 +272,7 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 					}).Error
 			}
 
-			_, _ = io.WriteString(w, "id: "+recordID+"\ndata: "+event.RawFrame+"\n\n")
+			_, _ = io.WriteString(w, buildThreadEventFrame(event.RawFrame))
 			flusher.Flush()
 			sentAny = true
 		}
@@ -346,6 +343,25 @@ func GetDiffContent(w http.ResponseWriter, r *http.Request) {
 	writeProxyResponse(w, proxy)
 }
 
+func GetAgentFileContent(w http.ResponseWriter, r *http.Request) {
+	body, _, err := decodeRequestBody(r)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
+		return
+	}
+	path := strings.TrimSpace(caseCSVScalarString(body["path"]))
+	if path == "" {
+		common.ReplyErr(w, "path required", http.StatusBadRequest)
+		return
+	}
+	result, err := buildAgentFileContentResult(path)
+	if err != nil {
+		common.ReplyErrWithData(w, "read agent file content failed", map[string]any{"detail": err.Error()}, http.StatusInternalServerError)
+		return
+	}
+	common.ReplyJSON(w, result)
+}
+
 func getThreadResults(w http.ResponseWriter, r *http.Request, resultKind string) {
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
 	if threadID == "" {
@@ -357,22 +373,46 @@ func getThreadResults(w http.ResponseWriter, r *http.Request, resultKind string)
 		common.ReplyErrWithData(w, "fetch thread results failed", map[string]any{"detail": err.Error()}, statusCode)
 		return
 	}
-	if proxy != nil && strings.Contains(proxy.ContentType, "application/json") {
+	if proxy != nil {
 		switch resultKind {
 		case "datasets":
-			if _, found, csvErr := attachCaseCSVFileURL(r.Context(), proxy.Body, caseCSVOptions{
-				ThreadID:   threadID,
-				ResultKind: resultKind,
-				FieldNames: []string{"case", "cases"},
-			}); csvErr != nil {
-				log.Logger.Warn().Err(csvErr).Str("thread_id", threadID).Str("result_kind", resultKind).Bool("case_field_found", found).Msg("attach case csv file url failed")
+			if strings.Contains(proxy.ContentType, "application/json") {
+				if _, found, csvErr := attachCaseCSVFileURL(r.Context(), proxy.Body, caseCSVOptions{
+					ThreadID:   threadID,
+					ResultKind: resultKind,
+					FieldNames: []string{"case", "cases"},
+				}); csvErr != nil {
+					log.Logger.Warn().Err(csvErr).Str("thread_id", threadID).Str("result_kind", resultKind).Bool("case_field_found", found).Msg("attach case csv file url failed")
+				}
 			}
 		case "eval-reports", "abtests":
-			if _, found, reportErr := attachCaseDetailsReportResult(r.Context(), proxy.Body, caseDetailsReportOptions{
-				ThreadID:   threadID,
-				ResultKind: resultKind,
-			}); reportErr != nil {
-				log.Logger.Warn().Err(reportErr).Str("thread_id", threadID).Str("result_kind", resultKind).Bool("case_details_found", found).Msg("attach case details report result failed")
+			if strings.Contains(proxy.ContentType, "application/json") {
+				if _, found, reportErr := attachCaseDetailsReportResult(r.Context(), proxy.Body, caseDetailsReportOptions{
+					ThreadID:   threadID,
+					ResultKind: resultKind,
+				}); reportErr != nil {
+					log.Logger.Warn().Err(reportErr).Str("thread_id", threadID).Str("result_kind", resultKind).Bool("case_details_found", found).Msg("attach case details report result failed")
+				}
+			}
+		case "analysis-reports":
+			body, found, resultErr := buildAnalysisMarkdownResult(proxy.Body)
+			if resultErr != nil {
+				common.ReplyErrWithData(w, "read analysis report content failed", map[string]any{"detail": resultErr.Error()}, http.StatusInternalServerError)
+				return
+			}
+			if found {
+				proxy.Body = body
+				proxy.ContentType = "application/json"
+			}
+		case "diffs":
+			body, found, resultErr := buildDiffJSONResult(proxy.Body)
+			if resultErr != nil {
+				common.ReplyErrWithData(w, "read diff result content failed", map[string]any{"detail": resultErr.Error()}, http.StatusInternalServerError)
+				return
+			}
+			if found {
+				proxy.Body = body
+				proxy.ContentType = "application/json"
 			}
 		}
 	}

@@ -113,6 +113,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/agent/threads/{thread_id}:retry", []string{"qa.read"}, agent.RetryThread)
 	handleAPI(r, "GET", "/agent/reports/{report_id}:content", []string{"qa.read"}, agent.GetReportContent)
 	handleAPI(r, "GET", "/agent/diffs/{apply_id}/{filename:.*}", []string{"qa.read"}, agent.GetDiffContent)
+	handleAPI(r, "POST", "/agent/files:content", []string{"qa.read"}, agent.GetAgentFileContent)
 
 	// ----- Conversationtext -----
 	handleAPI(r, "POST", "/conversations:chat", []string{"qa.read"}, chat.ChatConversations)

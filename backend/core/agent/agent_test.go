@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -357,6 +358,83 @@ func TestBuildReplayFrameForThreadEventUsesJSONLineData(t *testing.T) {
 	expected := "id: 0001\ndata: {\"seq\":1,\"kind\":\"user.message\"}\n\n"
 	if frame != expected {
 		t.Fatalf("unexpected task event replay frame:\nwant: %q\ngot:  %q", expected, frame)
+	}
+}
+
+func TestBuildThreadEventFrameOmitsSSEID(t *testing.T) {
+	frame := buildThreadEventFrame(`{"seq":1,"kind":"dataset_gen.start"}`)
+	expected := "data: {\"seq\":1,\"kind\":\"dataset_gen.start\"}\n\n"
+	if frame != expected {
+		t.Fatalf("unexpected thread event frame:\nwant: %q\ngot:  %q", expected, frame)
+	}
+	if strings.Contains(frame, "\nid:") || strings.HasPrefix(frame, "id:") {
+		t.Fatalf("thread event frame must not include SSE id: %q", frame)
+	}
+}
+
+func TestBuildAnalysisMarkdownResultReadsMarkdownPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdPath := filepath.Join(tmpDir, "analysis.md")
+	if err := os.WriteFile(mdPath, []byte("# 分析报告\n\nhello"), 0o644); err != nil {
+		t.Fatalf("write markdown: %v", err)
+	}
+	payload := map[string]any{"data": map[string]any{"analysis_report_path": mdPath}}
+
+	body, found, err := buildAnalysisMarkdownResult(payload)
+	if err != nil {
+		t.Fatalf("buildAnalysisMarkdownResult returned error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected markdown path to be found")
+	}
+	result := body.(map[string]any)
+	if result["markdown"] != "# 分析报告\n\nhello" {
+		t.Fatalf("unexpected markdown content: %#v", result["markdown"])
+	}
+	if result["markdown_path"] != mdPath {
+		t.Fatalf("unexpected markdown path: %#v", result["markdown_path"])
+	}
+}
+
+func TestBuildDiffJSONResultReadsJSONPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonPath := filepath.Join(tmpDir, "diffs.json")
+	if err := os.WriteFile(jsonPath, []byte(`{"files":[{"path":"pipelines/naive.py","status":"modified"}]}`), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+	payload := map[string]any{"diff_json_path": jsonPath}
+
+	body, found, err := buildDiffJSONResult(payload)
+	if err != nil {
+		t.Fatalf("buildDiffJSONResult returned error: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected json path to be found")
+	}
+	result := body.(map[string]any)
+	files, ok := result["files"].([]any)
+	if !ok || len(files) != 1 {
+		t.Fatalf("unexpected decoded json result: %#v", result)
+	}
+	if result["json_path"] != jsonPath {
+		t.Fatalf("unexpected json path: %#v", result["json_path"])
+	}
+}
+
+func TestBuildAgentFileContentResultReturnsDiffContentDict(t *testing.T) {
+	tmpDir := t.TempDir()
+	diffPath := filepath.Join(tmpDir, "naive.py.diff")
+	diffContent := "diff --git a/pipelines/naive.py b/pipelines/naive.py\n+hello\n"
+	if err := os.WriteFile(diffPath, []byte(diffContent), 0o644); err != nil {
+		t.Fatalf("write diff: %v", err)
+	}
+
+	result, err := buildAgentFileContentResult(diffPath)
+	if err != nil {
+		t.Fatalf("buildAgentFileContentResult returned error: %v", err)
+	}
+	if result.Path != diffPath || result.Filename != "naive.py.diff" || result.Content != diffContent {
+		t.Fatalf("unexpected file content result: %#v", result)
 	}
 }
 
