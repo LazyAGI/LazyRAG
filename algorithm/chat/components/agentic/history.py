@@ -35,7 +35,10 @@ def _tool_result_message_content(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, separators=(',', ':'))
 
 
-def _parse_history_assistant_content(content: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+def _parse_history_assistant_content(
+    content: str,
+) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
+    reasoning_content, content = _split_think_and_body(content or '')
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     tool_results: list[dict[str, Any]] = []
@@ -77,7 +80,7 @@ def _parse_history_assistant_content(content: str) -> tuple[str, list[dict[str, 
                 'result': payload.get('result'),
             })
     text_parts.append(content[cursor:])
-    return ''.join(text_parts).strip(), tool_calls, tool_results
+    return ''.join(text_parts).strip(), reasoning_content, tool_calls, tool_results
 
 
 def _normalize_history_for_agent(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -88,8 +91,10 @@ def _normalize_history_for_agent(history: list[dict[str, Any]]) -> list[dict[str
         role = str(message.get('role') or '').strip()
         if role == 'assistant':
             content = _history_message_content(message)
-            body_text, tool_calls, tool_results = _parse_history_assistant_content(content)
+            body_text, reasoning_content, tool_calls, tool_results = _parse_history_assistant_content(content)
             assistant_message = {'role': 'assistant', 'content': body_text}
+            if reasoning_content:
+                assistant_message['reasoning_content'] = reasoning_content
             if tool_calls:
                 assistant_message['tool_calls'] = tool_calls
             normalized.append(assistant_message)
