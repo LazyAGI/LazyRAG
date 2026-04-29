@@ -1529,11 +1529,61 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
+			Path:        "/word_group:mergeAndAddWord",
+			Summary:     "Merge word groups then add one word into merged group as alias",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.MergeAndAddWordRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Merged word group with added word", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
 			Path:        "/word_group",
 			Summary:     "Create word group",
 			Tags:        []string{"word_group"},
 			RequestBody: jsonBodyOf(wordgroup.CreateWordGroupRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Created word group", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/word_group_conflict",
+			Summary:     "List pending word group conflicts (updated_at DESC)",
+			Tags:        []string{"word_group"},
+			QueryParams: listWordGroupsQueryParams{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group conflict list", wordgroup.ListWordGroupConflictsResponse{}),
+			},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group_conflict:addToGroup",
+			Summary:     "Add conflict word to selected groups",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.AddWordGroupConflictToGroupsRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Conflict word add-to-group result", wordgroup.AddWordGroupConflictToGroupsResponse{}),
+			},
+		},
+		{
+			Method:  "DELETE",
+			Path:    "/word_group_conflict/{id}",
+			Summary: "Soft-delete a word group conflict by id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				ID string `path:"id"`
+			}{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Deleted word group conflict", wordgroup.DeleteWordGroupConflictResponse{}),
+			},
+		},
+		{
+			Method:      "POST",
+			Path:        "/inner/word_group:apply",
+			Summary:     "Internal: apply word-group actions in batch (algorithm → core)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.ApplyWordGroupActionRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Per-item apply results", wordgroup.ApplyWordGroupActionBatchResponse{}),
+			},
 		},
 	}
 }
