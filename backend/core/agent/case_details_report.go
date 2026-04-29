@@ -166,7 +166,7 @@ func attachCaseDetailsReportResult(ctx context.Context, payload any, opts caseDe
 	}
 	summary.CSVFile = file
 	attachCSVFileToContainer(container, caseDetailsCSVFileField, file)
-	container[caseDetailsSummaryField] = summary
+	attachCaseDetailsSummaryToContainer(container, summary)
 	return summary, true, nil
 }
 
@@ -211,7 +211,7 @@ func attachCaseDetailsReportResultFromJSONPaths(ctx context.Context, payload any
 		}
 		summary.CSVFile = file
 		attachCSVFileToContainer(container, caseDetailsCSVFileField, file)
-		container[caseDetailsSummaryField] = summary
+		attachCaseDetailsSummaryToContainer(container, summary)
 		if first == nil {
 			first = summary
 		}
@@ -230,6 +230,15 @@ func caseDetailsFromPayload(payload any) ([]any, bool) {
 	}
 	_, cases, ok := findCaseDetailsContainer(payload)
 	return cases, ok
+}
+
+func attachCaseDetailsSummaryToContainer(container map[string]any, summary *caseDetailsSummary) {
+	if container == nil || summary == nil {
+		return
+	}
+	responseSummary := *summary
+	responseSummary.CSVFile = nil
+	container[caseDetailsSummaryField] = &responseSummary
 }
 
 func findCaseDetailsContainer(root any) (map[string]any, []any, bool) {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/url"
@@ -58,6 +59,28 @@ func assertSignedStaticFileExists(t *testing.T, uploadRoot string, file *caseCSV
 	}
 	if stat.Size() != file.FileSize {
 		t.Fatalf("unexpected csv file size: metadata=%d actual=%d", file.FileSize, stat.Size())
+	}
+}
+
+func assertOnlyTopLevelFileURL(t *testing.T, payload any) {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	body := string(raw)
+	if count := strings.Count(body, `"file_url"`); count != 1 {
+		t.Fatalf("expected exactly one file_url in response payload, got %d: %s", count, body)
+	}
+	for _, key := range []string{`"content_url"`, `"preview_url"`, `"download_url"`, `"download_file_url"`} {
+		if strings.Contains(body, key) {
+			t.Fatalf("unexpected extra url field %s in response payload: %s", key, body)
+		}
+	}
+	for _, key := range []string{`"case_csv_file"`, `"case_details_csv_file"`, `"csv_file"`} {
+		if strings.Contains(body, key) {
+			t.Fatalf("unexpected generated metadata field %s in response payload: %s", key, body)
+		}
 	}
 }
 
@@ -253,9 +276,10 @@ func TestAttachCaseCSVFileURLAddsDownloadableAttachment(t *testing.T) {
 		t.Fatalf("unexpected download url: %q", file.DownloadURL)
 	}
 	data := payload["data"].(map[string]any)
-	if data[defaultCaseCSVField] != file {
-		t.Fatalf("expected attachment to be added to data payload")
+	if _, ok := data[defaultCaseCSVField]; ok {
+		t.Fatalf("expected only file_url to be attached to data payload")
 	}
+	assertOnlyTopLevelFileURL(t, data)
 }
 
 func TestAttachCaseCSVFileURLReadsCasesFromJSONPath(t *testing.T) {
@@ -287,13 +311,14 @@ func TestAttachCaseCSVFileURLReadsCasesFromJSONPath(t *testing.T) {
 	if item["file_url"] != file.FileURL {
 		t.Fatalf("expected top-level file_url to point at csv file, got %#v", item["file_url"])
 	}
-	if item[defaultCaseCSVField] != file {
-		t.Fatalf("expected csv metadata to be attached to result item")
+	if _, ok := item[defaultCaseCSVField]; ok {
+		t.Fatalf("expected only file_url to be attached to result item")
 	}
 	assertSignedStaticFileExists(t, uploadRoot, file)
 	if !strings.Contains(file.FileURL, "/static-files/agent-results/thr-1/datasets/") || !strings.Contains(file.FileURL, "sig=") {
 		t.Fatalf("unexpected file url: %q", file.FileURL)
 	}
+	assertOnlyTopLevelFileURL(t, item)
 }
 
 func TestBuildCaseDetailsCSVBytesUsesChineseHeadersAndQuestionTypeNames(t *testing.T) {
@@ -396,12 +421,20 @@ func TestAttachCaseDetailsReportResultAddsSummaryAndCSVFile(t *testing.T) {
 		t.Fatalf("unexpected answer_correctness average: %#v", first.Averages.AnswerCorrectness)
 	}
 	data := payload["data"].(map[string]any)
-	if data[caseDetailsCSVFileField] != summary.CSVFile {
-		t.Fatalf("expected csv file to be attached to payload")
+	if _, ok := data[caseDetailsCSVFileField]; ok {
+		t.Fatalf("expected only file_url to be attached to payload")
 	}
-	if data[caseDetailsSummaryField] != summary {
-		t.Fatalf("expected summary to be attached to payload")
+	responseSummary, ok := data[caseDetailsSummaryField].(*caseDetailsSummary)
+	if !ok || responseSummary == nil {
+		t.Fatalf("expected summary with averages to remain in response payload")
 	}
+	if responseSummary.CSVFile != nil {
+		t.Fatalf("expected summary to omit csv file metadata")
+	}
+	if responseSummary.TotalCount != summary.TotalCount || len(responseSummary.QuestionTypes) != len(summary.QuestionTypes) {
+		t.Fatalf("unexpected response summary: %#v", responseSummary)
+	}
+	assertOnlyTopLevelFileURL(t, data)
 }
 
 func TestAttachCaseDetailsReportResultReadsCaseDetailsFromJSONPath(t *testing.T) {
@@ -431,16 +464,24 @@ func TestAttachCaseDetailsReportResultReadsCaseDetailsFromJSONPath(t *testing.T)
 	if item["file_url"] != summary.CSVFile.FileURL {
 		t.Fatalf("expected top-level file_url to point at csv file, got %#v", item["file_url"])
 	}
-	if item[caseDetailsCSVFileField] != summary.CSVFile {
-		t.Fatalf("expected csv metadata to be attached to result item")
+	if _, ok := item[caseDetailsCSVFileField]; ok {
+		t.Fatalf("expected only file_url to be attached to result item")
 	}
-	if item[caseDetailsSummaryField] != summary {
-		t.Fatalf("expected summary to be attached to result item")
+	responseSummary, ok := item[caseDetailsSummaryField].(*caseDetailsSummary)
+	if !ok || responseSummary == nil {
+		t.Fatalf("expected summary with averages to remain in response item")
+	}
+	if responseSummary.CSVFile != nil {
+		t.Fatalf("expected summary to omit csv file metadata")
+	}
+	if responseSummary.TotalCount != summary.TotalCount || len(responseSummary.QuestionTypes) != len(summary.QuestionTypes) {
+		t.Fatalf("unexpected response summary: %#v", responseSummary)
 	}
 	assertSignedStaticFileExists(t, uploadRoot, summary.CSVFile)
 	if !strings.Contains(summary.CSVFile.FileURL, "/static-files/agent-results/thr-1/eval-reports/") || !strings.Contains(summary.CSVFile.FileURL, "sig=") {
 		t.Fatalf("unexpected file url: %q", summary.CSVFile.FileURL)
 	}
+	assertOnlyTopLevelFileURL(t, item)
 }
 
 func TestSaveThreadRecordDeduplicatesSameRawFrame(t *testing.T) {
