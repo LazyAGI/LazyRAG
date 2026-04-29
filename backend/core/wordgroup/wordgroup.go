@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,13 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+func wordGroupServiceURL() string {
+	if u := os.Getenv("LAZYRAG_CHAT_SERVICE_URL"); u != "" {
+		return u
+	}
+	return "http://chat:8046"
+}
 
 // CreateWordGroupRequest is the JSON body for POST /word_group.
 // 一次提交一个术语及可选的多个别名（aliases）。
@@ -217,6 +225,12 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 		log.Logger.Error().Err(err).Str("term_id", termID).Msg("create word_group rows failed")
 		common.ReplyErr(w, "create word group failed", http.StatusInternalServerError)
 		return
+	}
+
+	const vocabReloadPath = "/api/vocab/reload"
+	reloadURL := common.JoinURL(wordGroupServiceURL(), vocabReloadPath)
+	if err := common.ApiPost(r.Context(), reloadURL, map[string]string{"create_user_id": userID}, nil, nil, 15*time.Second); err != nil {
+		log.Logger.Warn().Err(err).Str("url", reloadURL).Str("create_user_id", userID).Msg("vocab reload notify failed")
 	}
 
 	common.ReplyOK(w, CreateWordGroupResponse{
