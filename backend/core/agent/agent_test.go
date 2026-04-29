@@ -93,6 +93,39 @@ func TestFetchedThreadEventFromSSEFrameUsesFrameData(t *testing.T) {
 	}
 }
 
+func TestFetchedThreadEventFromSSEFrameSkipsHeartbeatAndEmptyData(t *testing.T) {
+	cases := []*sseFrame{
+		{Event: "heartbeat", Data: `{}`, Raw: "event: heartbeat\ndata: {}"},
+		{Event: "message", Data: `{}`, Raw: "data: {}"},
+		{Event: "message", Data: `{"event":"heartbeat","ts":"2026-04-29T09:32:55Z"}`, Raw: `data: {"event":"heartbeat"}`},
+	}
+
+	for _, frame := range cases {
+		if event, ok := fetchedThreadEventFromSSEFrame(frame); ok {
+			t.Fatalf("expected heartbeat/empty frame to be skipped, got %#v", event)
+		}
+	}
+}
+
+func TestBuildFetchedThreadEventsSkipsHeartbeatAndEmptyItems(t *testing.T) {
+	events := []map[string]any{
+		{},
+		{"event": "heartbeat"},
+		{"kind": "dataset_gen.start", "task_id": "task_1"},
+	}
+
+	result, err := buildFetchedThreadEvents(events)
+	if err != nil {
+		t.Fatalf("buildFetchedThreadEvents returned error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected only one valid event, got %#v", result)
+	}
+	if result[0].EventName != "dataset_gen.start" || result[0].TaskID != "task_1" {
+		t.Fatalf("unexpected valid event: %#v", result[0])
+	}
+}
+
 func TestReadSSEFrameParsesMultilineData(t *testing.T) {
 	reader := bufio.NewReader(strings.NewReader("event: answer\ndata: {\"delta\":\"hello\"}\ndata: {\"delta\":\"world\"}\n\n"))
 
