@@ -228,7 +228,6 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	seenRaw := make(map[string]struct{})
-	lastHeartbeat := time.Now()
 	for {
 		if r.Context().Err() != nil {
 			return
@@ -241,8 +240,10 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		sentAny := false
 		for _, event := range events {
+			if shouldSkipThreadEvent(event.EventName, parseJSONValue(event.RawFrame), event.RawFrame) {
+				continue
+			}
 			eventKey := sha256Hex(event.RawFrame)
 			if _, ok := seenRaw[eventKey]; ok {
 				continue
@@ -274,14 +275,6 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 
 			_, _ = io.WriteString(w, buildThreadEventFrame(event.RawFrame))
 			flusher.Flush()
-			sentAny = true
-		}
-
-		if sentAny {
-			lastHeartbeat = time.Now()
-		} else if time.Since(lastHeartbeat) >= 15*time.Second {
-			writeHeartbeat(w, flusher)
-			lastHeartbeat = time.Now()
 		}
 
 		flowStatus, flowErr := fetchThreadFlowStatus(r.Context(), r, threadID)
@@ -513,6 +506,9 @@ func fetchedThreadEventFromSSEFrame(frame *sseFrame) (fetchedThreadEvent, bool) 
 			eventName = name
 		}
 	}
+	if shouldSkipThreadEvent(eventName, payload, rawData) {
+		return fetchedThreadEvent{}, false
+	}
 	return fetchedThreadEvent{
 		TaskID:    taskID,
 		EventName: eventName,
@@ -530,13 +526,35 @@ func buildFetchedThreadEvents(events []map[string]any) ([]fetchedThreadEvent, er
 		if err != nil {
 			return nil, err
 		}
+		eventName := extractStringByExactKeys(item, "kind", "event", "type")
+		if shouldSkipThreadEvent(eventName, item, string(rawJSON)) {
+			continue
+		}
 		result = append(result, fetchedThreadEvent{
 			TaskID:    extractStringByExactKeys(item, "task_id", "current_task_id"),
-			EventName: extractStringByExactKeys(item, "kind", "event", "type"),
+			EventName: eventName,
 			RawFrame:  string(rawJSON),
 		})
 	}
 	return result, nil
+}
+
+func shouldSkipThreadEvent(eventName string, payload any, rawData string) bool {
+	rawData = strings.TrimSpace(rawData)
+	if rawData == "" || rawData == "[DONE]" || rawData == "null" {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(eventName), "heartbeat") {
+		return true
+	}
+	switch value := payload.(type) {
+	case map[string]any:
+		return len(value) == 0
+	case []any:
+		return len(value) == 0
+	default:
+		return false
+	}
 }
 
 func fetchThreadFlowStatus(ctx context.Context, r *http.Request, threadID string) (*threadFlowStatusResponse, error) {
