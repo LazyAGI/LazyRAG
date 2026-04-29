@@ -157,16 +157,16 @@ def ensure_vocab_table(db_url: Optional[str] = None) -> None:
     """Create lazyrag_vocab + index if they do not exist (idempotent)."""
     url = db_url or _get_db_url()
     if not url:
-        LOG.warning('[VocabDB] %s not set; skipping table init.', _DB_URL_ENV)
+        LOG.warning(f'[VocabDB] {_DB_URL_ENV} not set; skipping table init.')
         return
     try:
         engine = _get_vocab_conn(db_url=url)
         with engine.begin() as conn:
             conn.execute(text(_DDL_TABLE))
             conn.execute(text(_DDL_INDEX))
-        LOG.info('[VocabDB] table %s ensured.', VOCAB_TABLE)
+        LOG.info(f'[VocabDB] table {VOCAB_TABLE} ensured.')
     except Exception as exc:
-        LOG.error('[VocabDB] ensure_vocab_table failed: %s', exc)
+        LOG.error(f'[VocabDB] ensure_vocab_table failed: {exc}')
 
 
 def _ensure_table_once(db_url: Optional[str] = None) -> None:
@@ -193,7 +193,9 @@ def fetch_vocab_for_create_user_id(create_user_id: str) -> List[Dict[str, Any]]:
     _ensure_table_once()
     url = _get_db_url()
     if not url:
-        LOG.warning('[VocabDB] %s not set; returning empty vocab for create_user_id=%r.', _DB_URL_ENV, create_user_id)
+        LOG.warning(
+            f'[VocabDB] {_DB_URL_ENV} not set; returning empty vocab for create_user_id={create_user_id!r}.'
+        )
         return []
     try:
         engine = _get_vocab_conn()
@@ -203,10 +205,10 @@ def fetch_vocab_for_create_user_id(create_user_id: str) -> List[Dict[str, Any]]:
                 {'create_user_id': create_user_id},
             ).mappings().all()
         result = [{'word': row['word'], 'cluster_id': row['group_id']} for row in rows]
-        LOG.info('[VocabDB] fetched %d vocab entries for create_user_id=%r.', len(result), create_user_id)
+        LOG.info(f'[VocabDB] fetched {len(result)} vocab entries for create_user_id={create_user_id!r}.')
         return result
     except Exception as exc:
-        LOG.error('[VocabDB] fetch_vocab_for_create_user_id(%r) failed: %s', create_user_id, exc)
+        LOG.error(f'[VocabDB] fetch_vocab_for_create_user_id({create_user_id!r}) failed: {exc}')
         return []
 
 
@@ -217,8 +219,9 @@ def fetch_vocab_groups_for_create_user_id(
     _ensure_table_once(db_url=url)
     if not url:
         LOG.warning(
-            '[VocabDB] %s not set; returning empty vocab groups for create_user_id=%r.',
-            _DB_URL_ENV, create_user_id)
+            f'[VocabDB] {_DB_URL_ENV} not set; returning empty vocab groups '
+            f'for create_user_id={create_user_id!r}.'
+        )
         return {}
     try:
         engine = _get_vocab_conn(db_url=url)
@@ -236,7 +239,7 @@ def fetch_vocab_groups_for_create_user_id(
                 {'create_user_id': create_user_id},
             ).mappings().all()
     except Exception as exc:
-        LOG.error('[VocabDB] fetch_vocab_groups_for_create_user_id(%r) failed: %s', create_user_id, exc)
+        LOG.error(f'[VocabDB] fetch_vocab_groups_for_create_user_id({create_user_id!r}) failed: {exc}')
         return {}
 
     groups: Dict[str, Dict[str, Any]] = {}
@@ -289,7 +292,7 @@ def list_chat_users(
             rows = [row for row in conn.execute(text(sql), params).scalars().all() if row]
         return rows
     except Exception as exc:
-        LOG.error('[VocabDB] list_chat_users failed: %s', exc)
+        LOG.error(f'[VocabDB] list_chat_users failed: {exc}')
         return []
 
 
@@ -329,7 +332,7 @@ def fetch_chat_histories_for_create_user_id(
         with engine.connect() as conn:
             rows = conn.execute(text(sql), params).mappings().all()
     except Exception as exc:
-        LOG.error('[VocabDB] fetch_chat_histories_for_create_user_id(%r) failed: %s', create_user_id, exc)
+        LOG.error(f'[VocabDB] fetch_chat_histories_for_create_user_id({create_user_id!r}) failed: {exc}')
         return []
 
     return [

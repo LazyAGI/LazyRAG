@@ -354,6 +354,44 @@ def test_run_vocab_evolution_and_apply_posts_nested_action_list():
     }
 
 
+def test_vocab_evolution_service_continues_when_one_user_fails():
+    service = VocabEvolutionService(
+        fetch_users_fn=lambda **kwargs: ['u1', 'u2'],
+        fetch_histories_fn=lambda create_user_id, **kwargs: [],
+        fetch_vocab_groups_fn=lambda create_user_id, **kwargs: {},
+        extraction_llm=FakeLLM([]),
+        conflict_llm=FakeLLM([]),
+    )
+
+    def fake_pipeline(payload):
+        if payload['create_user_id'] == 'u1':
+            raise RuntimeError('boom')
+        return {
+            'actions': [{
+                'reason': '明确同义',
+                'words': ['民法', '民事法律'],
+                'description': '法律术语',
+                'group_ids': [],
+                'create_user_id': 'u2',
+                'message_ids': ['m2'],
+                'action': 'create_new_group',
+            }],
+            'skipped_reasons': [],
+        }
+
+    service._pipeline = fake_pipeline
+
+    assert service.run({'lookback_days': 7}) == [{
+        'reason': '明确同义',
+        'words': ['民法', '民事法律'],
+        'description': '法律术语',
+        'group_ids': '[]',
+        'create_user_id': 'u2',
+        'message_ids': '["m2"]',
+        'action': 'create_new_group',
+    }]
+
+
 def test_resolve_word_group_apply_url_prefers_exact_apply_url_env(monkeypatch):
     monkeypatch.setenv('LAZYRAG_WORD_GROUP_APPLY_URL', 'http://backend.local/api/core/inner/word_group:apply')
     monkeypatch.setenv('LAZYRAG_CORE_SERVICE_URL', 'http://core:8000')

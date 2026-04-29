@@ -267,10 +267,10 @@ def apply_vocab_evolution_actions(
         if callable(raise_for_status):
             raise_for_status()
     except Exception as exc:
-        LOG.error('[VocabEvolution] failed to apply %d actions to %s: %s', len(actions), target_url, exc)
+        LOG.error(f'[VocabEvolution] failed to apply {len(actions)} actions to {target_url}: {exc}')
         raise
 
-    LOG.info('[VocabEvolution] applied %d actions to %s.', len(actions), target_url)
+    LOG.info(f'[VocabEvolution] applied {len(actions)} actions to {target_url}.')
     return payload
 
 
@@ -520,10 +520,8 @@ class SynonymExtractionModule(ModuleBase):
                         break
                 except Exception as exc:
                     LOG.warning(
-                        '[VocabEvolution] extraction failed user=%r attempt=%s error=%s',
-                        create_user_id,
-                        attempt + 1,
-                        exc,
+                        f'[VocabEvolution] extraction failed user={create_user_id!r} '
+                        f'attempt={attempt + 1} error={exc}'
                     )
             for item in self._coerce_output(raw_result):
                 candidate = self._validate_candidate(create_user_id, item, history_by_id)
@@ -597,10 +595,8 @@ class ActionPlanningModule(ModuleBase):
                     break
             except Exception as exc:
                 LOG.warning(
-                    '[VocabEvolution] conflict resolve failed user=%r attempt=%s error=%s',
-                    candidate.create_user_id,
-                    attempt + 1,
-                    exc,
+                    f'[VocabEvolution] conflict resolve failed user={candidate.create_user_id!r} '
+                    f'attempt={attempt + 1} error={exc}'
                 )
         allowed = _dedupe_keep_order(response.get('group_ids_can_join') or response.get('allowed_group_ids') or [])
         excluded = _dedupe_keep_order(
@@ -838,15 +834,35 @@ class VocabEvolutionService:
         req = VocabEvolutionRequest.from_value(request)
         actions: List[Dict[str, Any]] = []
         create_user_ids = self._resolve_users(req)
+        target_label = req.create_user_id or '<all-users>'
+        LOG.info(
+            f'[VocabEvolution] start requested_create_user_id={target_label!r} '
+            f'resolved_user_count={len(create_user_ids)}'
+        )
 
         for create_user_id in create_user_ids:
-            lazyllm.globals._init_sid(sid=create_user_id)
-            lazyllm.locals._init_sid(sid=create_user_id)
-            setattr(lazyllm.globals, _LAZYLLM_CONTEXT_CREATE_USER_ATTR, create_user_id)
-            result = self._pipeline({'request': req, 'create_user_id': create_user_id})
-            actions.extend(result.get('actions', []))
+            LOG.info(f'[VocabEvolution] processing create_user_id={create_user_id!r}')
+            try:
+                lazyllm.globals._init_sid(sid=create_user_id)
+                lazyllm.locals._init_sid(sid=create_user_id)
+                setattr(lazyllm.globals, _LAZYLLM_CONTEXT_CREATE_USER_ATTR, create_user_id)
+                result = self._pipeline({'request': req, 'create_user_id': create_user_id})
+            except Exception as exc:
+                LOG.error(f'[VocabEvolution] processing failed create_user_id={create_user_id!r} error={exc}')
+                continue
+            user_actions = result.get('actions', [])
+            actions.extend(user_actions)
+            LOG.info(
+                f'[VocabEvolution] processed create_user_id={create_user_id!r} '
+                f'action_count={len(user_actions)} skipped_count={len(result.get("skipped_reasons", []))}'
+            )
 
-        return [_serialize_backend_action(item) for item in actions]
+        serialized_actions = [_serialize_backend_action(item) for item in actions]
+        LOG.info(
+            f'[VocabEvolution] finished requested_create_user_id={target_label!r} '
+            f'action_count={len(serialized_actions)}'
+        )
+        return serialized_actions
 
 
 _service_lock = threading.Lock()

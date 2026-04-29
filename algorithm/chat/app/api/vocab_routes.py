@@ -13,7 +13,8 @@ POST /api/vocab/extract
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from lazyllm import LOG
 from pydantic import BaseModel
 
 from vocab import run_vocab_evolution
@@ -26,6 +27,23 @@ class VocabUserRequest(BaseModel):
     create_user_id: str = ''
 
 
+def _target_label(request: dict | None) -> str:
+    if not request:
+        return '<all-users>'
+    return (request.get('create_user_id') or '').strip() or '<all-users>'
+
+
+def _run_vocab_evolution_task(request: dict | None) -> None:
+    target_label = _target_label(request)
+    LOG.info(f'[VocabRoutes] extract started create_user_id={target_label!r}')
+    try:
+        actions = run_vocab_evolution(request)
+    except Exception as exc:
+        LOG.error(f'[VocabRoutes] extract failed create_user_id={target_label!r} error={exc}')
+        return
+    LOG.info(f'[VocabRoutes] extract finished create_user_id={target_label!r} action_count={len(actions)}')
+
+
 @router.post('/api/vocab/reload', summary='热更新指定用户的词表')
 async def reload_vocab(body: VocabUserRequest | None = None):
     """从 lazyrag_vocab 表重新加载指定用户的词汇并重建 AC 自动机。
@@ -34,8 +52,13 @@ async def reload_vocab(body: VocabUserRequest | None = None):
     """
     body = body or VocabUserRequest()
     resolved_create_user_id = body.create_user_id.strip()
-    manager = get_vocab_manager(resolved_create_user_id)
-    count = manager.reload()
+    LOG.info(f'[VocabRoutes] reload requested create_user_id={resolved_create_user_id!r}')
+    try:
+        manager = get_vocab_manager(resolved_create_user_id)
+        count = manager.reload()
+    except Exception as exc:
+        LOG.error(f'[VocabRoutes] reload failed create_user_id={resolved_create_user_id!r} error={exc}')
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='vocab reload failed') from exc
     return {'status': 'ok', 'vocab_size': count, 'create_user_id': resolved_create_user_id}
 
 
@@ -51,5 +74,6 @@ async def extract_vocab(
     body = body or VocabUserRequest()
     resolved_create_user_id = body.create_user_id.strip()
     request = {'create_user_id': resolved_create_user_id} if resolved_create_user_id else None
-    background_tasks.add_task(run_vocab_evolution, request)
+    LOG.info(f'[VocabRoutes] extract queued create_user_id={_target_label(request)!r}')
+    background_tasks.add_task(_run_vocab_evolution_task, request)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

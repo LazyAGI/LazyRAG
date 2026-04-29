@@ -310,6 +310,51 @@ class TestVocabReloadRoute:
         assert resp.content == b''
         mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
 
+    def test_extract_failure_does_not_break_response(self, tmp_path):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        test_app = FastAPI()
+        _routes_file = _os.path.join(_ALGO, 'chat', 'app', 'api', 'vocab_routes.py')
+        spec = importlib.util.spec_from_file_location('_vocab_routes_extract_fail', _routes_file)
+        vocab_routes_mod = importlib.util.module_from_spec(spec)
+
+        mock_mgr = MagicMock()
+        mock_extract = MagicMock(side_effect=RuntimeError('boom'))
+
+        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr), \
+             patch('vocab.run_vocab_evolution', mock_extract):
+            spec.loader.exec_module(vocab_routes_mod)
+            test_app.include_router(vocab_routes_mod.router)
+            tc = TestClient(test_app)
+            resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
+
+        assert resp.status_code == 204
+        assert resp.content == b''
+        mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
+
+    def test_reload_failure_returns_503(self, tmp_path):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        test_app = FastAPI()
+        _routes_file = _os.path.join(_ALGO, 'chat', 'app', 'api', 'vocab_routes.py')
+        spec = importlib.util.spec_from_file_location('_vocab_routes_reload_fail', _routes_file)
+        vocab_routes_mod = importlib.util.module_from_spec(spec)
+
+        mock_mgr = MagicMock()
+        mock_mgr.reload.side_effect = RuntimeError('db down')
+
+        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr), \
+             patch('vocab.run_vocab_evolution', MagicMock()):
+            spec.loader.exec_module(vocab_routes_mod)
+            test_app.include_router(vocab_routes_mod.router)
+            tc = TestClient(test_app)
+            resp = tc.post('/api/vocab/reload', json={'create_user_id': 'user_001'})
+
+        assert resp.status_code == 503
+        assert resp.json() == {'detail': 'vocab reload failed'}
+
     def test_reload_different_create_user_ids_call_respective_manager(self, tmp_path):
         """Each create_user_id triggers reload on its own VocabManager instance."""
         from fastapi import FastAPI
