@@ -741,6 +741,173 @@ func TestBatchReviewSuggestionsIgnoresOriginalStatus(t *testing.T) {
 	}
 }
 
+func TestReviewSuggestionsIgnoreOriginalStatusForAllResourceTypes(t *testing.T) {
+	db := newTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	resourceKey := func(resourceType string) string {
+		switch resourceType {
+		case ResourceTypeSkill:
+			return ParentSkillRelativePath("coding", "git-workflow")
+		case ResourceTypeMemory:
+			return SystemResourceKey(ResourceTypeMemory)
+		case ResourceTypeUserPreference:
+			return SystemResourceKey(ResourceTypeUserPreference)
+		default:
+			return resourceType
+		}
+	}
+	suffix := func(resourceType string) string {
+		return strings.ReplaceAll(resourceType, "_", "-")
+	}
+
+	now := time.Now()
+	resourceTypes := []string{ResourceTypeSkill, ResourceTypeMemory, ResourceTypeUserPreference}
+	rows := make([]orm.ResourceSuggestion, 0, len(resourceTypes)*2)
+	batchIDs := make([]string, 0, len(resourceTypes))
+	for idx, resourceType := range resourceTypes {
+		singleID := "single-" + suffix(resourceType)
+		batchID := "batch-" + suffix(resourceType)
+		rows = append(rows,
+			orm.ResourceSuggestion{
+				ID:           singleID,
+				UserID:       "u1",
+				ResourceType: resourceType,
+				ResourceKey:  resourceKey(resourceType),
+				Action:       SuggestionActionModify,
+				SessionID:    "session-" + singleID,
+				Title:        "single " + resourceType,
+				Content:      "single change",
+				Status:       SuggestionStatusRejected,
+				CreatedAt:    now.Add(time.Duration(idx) * time.Second),
+				UpdatedAt:    now.Add(time.Duration(idx) * time.Second),
+			},
+			orm.ResourceSuggestion{
+				ID:           batchID,
+				UserID:       "u1",
+				ResourceType: resourceType,
+				ResourceKey:  resourceKey(resourceType),
+				Action:       SuggestionActionModify,
+				SessionID:    "session-" + batchID,
+				Title:        "batch " + resourceType,
+				Content:      "batch change",
+				Status:       SuggestionStatusApplied,
+				CreatedAt:    now.Add(time.Duration(idx+10) * time.Second),
+				UpdatedAt:    now.Add(time.Duration(idx+10) * time.Second),
+			},
+		)
+		batchIDs = append(batchIDs, batchID)
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("create suggestions: %v", err)
+	}
+
+	for _, resourceType := range resourceTypes {
+		id := "single-" + suffix(resourceType)
+
+		approveReq := mux.SetURLVars(httptest.NewRequest(http.MethodPost, "/api/core/evolution/suggestions/"+id+":approve", nil), map[string]string{"id": id})
+		approveReq.Header.Set("X-User-Id", "reviewer-approve")
+		approveReq.Header.Set("X-User-Name", "Reviewer Approve")
+		approveRec := httptest.NewRecorder()
+
+		ApproveSuggestion(approveRec, approveReq)
+
+		if approveRec.Code != http.StatusOK {
+			t.Fatalf("expected approve status 200 for %s, got %d body=%s", resourceType, approveRec.Code, approveRec.Body.String())
+		}
+		var approveResp suggestionAPITestResponse
+		if err := json.Unmarshal(approveRec.Body.Bytes(), &approveResp); err != nil {
+			t.Fatalf("decode approve response: %v", err)
+		}
+		if approveResp.Data.Status != SuggestionStatusAccepted {
+			t.Fatalf("expected %s approve to overwrite status to accepted, got %q", resourceType, approveResp.Data.Status)
+		}
+		if approveResp.Data.ReviewerID != "reviewer-approve" || approveResp.Data.ReviewerName != "Reviewer Approve" {
+			t.Fatalf("unexpected approve reviewer for %s: %#v", resourceType, approveResp.Data)
+		}
+
+		rejectReq := mux.SetURLVars(httptest.NewRequest(http.MethodPost, "/api/core/evolution/suggestions/"+id+":reject", nil), map[string]string{"id": id})
+		rejectReq.Header.Set("X-User-Id", "reviewer-reject")
+		rejectReq.Header.Set("X-User-Name", "Reviewer Reject")
+		rejectRec := httptest.NewRecorder()
+
+		RejectSuggestion(rejectRec, rejectReq)
+
+		if rejectRec.Code != http.StatusOK {
+			t.Fatalf("expected reject status 200 for %s, got %d body=%s", resourceType, rejectRec.Code, rejectRec.Body.String())
+		}
+		var rejectResp suggestionAPITestResponse
+		if err := json.Unmarshal(rejectRec.Body.Bytes(), &rejectResp); err != nil {
+			t.Fatalf("decode reject response: %v", err)
+		}
+		if rejectResp.Data.Status != SuggestionStatusRejected {
+			t.Fatalf("expected %s reject to overwrite status to rejected, got %q", resourceType, rejectResp.Data.Status)
+		}
+		if rejectResp.Data.ReviewerID != "reviewer-reject" || rejectResp.Data.ReviewerName != "Reviewer Reject" {
+			t.Fatalf("unexpected reject reviewer for %s: %#v", resourceType, rejectResp.Data)
+		}
+	}
+
+	batchBody, err := json.Marshal(map[string]any{"ids": batchIDs})
+	if err != nil {
+		t.Fatalf("marshal batch body: %v", err)
+	}
+	batchApproveReq := httptest.NewRequest(http.MethodPost, "/api/core/evolution/suggestions:batchApprove", strings.NewReader(string(batchBody)))
+	batchApproveReq.Header.Set("Content-Type", "application/json")
+	batchApproveReq.Header.Set("X-User-Id", "batch-approver")
+	batchApproveReq.Header.Set("X-User-Name", "Batch Approver")
+	batchApproveRec := httptest.NewRecorder()
+
+	BatchApproveSuggestions(batchApproveRec, batchApproveReq)
+
+	if batchApproveRec.Code != http.StatusOK {
+		t.Fatalf("expected batch approve status 200, got %d body=%s", batchApproveRec.Code, batchApproveRec.Body.String())
+	}
+	var batchApproveResp batchSuggestionAPITestResponse
+	if err := json.Unmarshal(batchApproveRec.Body.Bytes(), &batchApproveResp); err != nil {
+		t.Fatalf("decode batch approve response: %v", err)
+	}
+	if len(batchApproveResp.Data.Items) != len(resourceTypes) {
+		t.Fatalf("expected %d batch approve items, got %d", len(resourceTypes), len(batchApproveResp.Data.Items))
+	}
+	for _, item := range batchApproveResp.Data.Items {
+		if item.Status != SuggestionStatusAccepted {
+			t.Fatalf("expected batch approve to overwrite status to accepted, got %q", item.Status)
+		}
+		if item.ReviewerID != "batch-approver" || item.ReviewerName != "Batch Approver" {
+			t.Fatalf("unexpected batch approve reviewer: %#v", item)
+		}
+	}
+
+	batchRejectReq := httptest.NewRequest(http.MethodPost, "/api/core/evolution/suggestions:batchReject", strings.NewReader(string(batchBody)))
+	batchRejectReq.Header.Set("Content-Type", "application/json")
+	batchRejectReq.Header.Set("X-User-Id", "batch-rejecter")
+	batchRejectReq.Header.Set("X-User-Name", "Batch Rejecter")
+	batchRejectRec := httptest.NewRecorder()
+
+	BatchRejectSuggestions(batchRejectRec, batchRejectReq)
+
+	if batchRejectRec.Code != http.StatusOK {
+		t.Fatalf("expected batch reject status 200, got %d body=%s", batchRejectRec.Code, batchRejectRec.Body.String())
+	}
+	var batchRejectResp batchSuggestionAPITestResponse
+	if err := json.Unmarshal(batchRejectRec.Body.Bytes(), &batchRejectResp); err != nil {
+		t.Fatalf("decode batch reject response: %v", err)
+	}
+	if len(batchRejectResp.Data.Items) != len(resourceTypes) {
+		t.Fatalf("expected %d batch reject items, got %d", len(resourceTypes), len(batchRejectResp.Data.Items))
+	}
+	for _, item := range batchRejectResp.Data.Items {
+		if item.Status != SuggestionStatusRejected {
+			t.Fatalf("expected batch reject to overwrite status to rejected, got %q", item.Status)
+		}
+		if item.ReviewerID != "batch-rejecter" || item.ReviewerName != "Batch Rejecter" {
+			t.Fatalf("unexpected batch reject reviewer: %#v", item)
+		}
+	}
+}
+
 func TestListSuggestionsIgnoresStatusQueryAndOnlyReturnsVisibleStatuses(t *testing.T) {
 	db := newTestDB(t)
 	store.Init(db.DB, nil, nil)
