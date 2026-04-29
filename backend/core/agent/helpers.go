@@ -433,6 +433,10 @@ func buildReplayFrame(record orm.AgentThreadRecord) string {
 	return "id: " + record.ID + "\ndata: " + record.RawFrame + "\n\n"
 }
 
+func buildThreadEventFrame(rawFrame string) string {
+	return "data: " + rawFrame + "\n\n"
+}
+
 func rawFrameHasID(raw string) bool {
 	for _, line := range strings.Split(raw, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "id:") {

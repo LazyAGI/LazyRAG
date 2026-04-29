@@ -400,6 +400,17 @@ type exportConversationFilePathParams struct {
 	FileID string `path:"file_id"`
 }
 
+type agentFileContentOpenAPIRequest struct {
+	Path string `json:"path"`
+}
+
+type agentFileContentOpenAPIResponse struct {
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+	FileSize int64  `json:"file_size"`
+}
+
 type skillPathParams struct {
 	SkillID string `path:"skill_id"`
 }
@@ -1443,6 +1454,15 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:       []string{"conversations"},
 			PathParams: exportConversationFilePathParams{},
 			Responses:  map[int]openAPIResponse{200: {Description: "Exported conversation file", ContentType: "application/octet-stream", Schema: schemaSource{Inline: map[string]any{"type": "string", "format": "binary"}}}},
+		},
+		{
+			Method:      "POST",
+			Path:        "/agent/files:content",
+			Summary:     "Read agent result file content",
+			Description: "Read a local agent result file by path and return its text content. Use JSON body to avoid URL path escaping issues.",
+			Tags:        []string{"agent"},
+			RequestBody: jsonBodyOf(agentFileContentOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Agent result file content", agentFileContentOpenAPIResponse{})},
 		},
 		{
 			Method:  "POST",
