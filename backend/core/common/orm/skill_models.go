@@ -17,7 +17,6 @@ type SkillResource struct {
 	Tags               json.RawMessage `gorm:"column:tags;type:json"`
 	FileExt            string          `gorm:"column:file_ext;type:varchar(32);not null;default:'md'"`
 	RelativePath       string          `gorm:"column:relative_path;type:varchar(1024);not null;uniqueIndex:uk_skill_resources_owner_relative_path,priority:2"`
-	StoragePath        string          `gorm:"column:storage_path;type:text;not null;default:''"`
 	Content            string          `gorm:"column:content;type:text;not null;default:''"`
 	ContentSize        int64           `gorm:"column:content_size;not null;default:0"`
 	MimeType           string          `gorm:"column:mime_type;type:varchar(128);not null;default:'text/plain; charset=utf-8'"`

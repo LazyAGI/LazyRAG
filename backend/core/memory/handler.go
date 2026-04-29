@@ -286,8 +286,8 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	req.SuggestionIDs = compactIDs(req.SuggestionIDs)
 	req.UserInstruct = strings.TrimSpace(req.UserInstruct)
-	if req.UserInstruct == "" {
-		common.ReplyErr(w, "user_instruct required", http.StatusBadRequest)
+	if len(req.SuggestionIDs) == 0 && req.UserInstruct == "" {
+		common.ReplyErr(w, "suggestion_ids or user_instruct required", http.StatusBadRequest)
 		return
 	}
 
@@ -297,14 +297,17 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	suggestions, err := evolution.LoadApprovedSuggestions(r.Context(), db, userID, evolution.ResourceTypeMemory, evolution.SystemResourceKey(evolution.ResourceTypeMemory), req.SuggestionIDs)
-	if err != nil {
-		common.ReplyErr(w, "query suggestions failed", http.StatusInternalServerError)
-		return
-	}
-	if len(suggestions) == 0 {
-		common.ReplyErr(w, "no accepted suggestions found", http.StatusBadRequest)
-		return
+	var suggestions []orm.ResourceSuggestion
+	if len(req.SuggestionIDs) > 0 {
+		suggestions, err = evolution.LoadApprovedSuggestions(r.Context(), db, userID, evolution.ResourceTypeMemory, evolution.SystemResourceKey(evolution.ResourceTypeMemory), req.SuggestionIDs)
+		if err != nil {
+			common.ReplyErr(w, "query suggestions failed", http.StatusInternalServerError)
+			return
+		}
+		if len(suggestions) == 0 {
+			common.ReplyErr(w, "no accepted suggestions found", http.StatusBadRequest)
+			return
+		}
 	}
 
 	generated, err := algo.GenerateMemory(r.Context(), algo.MemoryGenerateRequest{

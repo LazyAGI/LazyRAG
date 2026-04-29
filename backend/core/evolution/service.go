@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,7 +21,6 @@ import (
 type SkillState struct {
 	Resource     *orm.SkillResource
 	RelativePath string
-	StoragePath  string
 	Content      string
 	ContentHash  string
 }
@@ -52,24 +50,6 @@ func NewID() string {
 func HashContent(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:])
-}
-
-func SkillVolumeRoot() string {
-	if root := strings.TrimSpace(os.Getenv("LAZYRAG_SKILL_VOLUME_ROOT")); root != "" {
-		return filepath.Clean(root)
-	}
-	if uploadRoot := strings.TrimSpace(os.Getenv("LAZYRAG_UPLOAD_ROOT")); uploadRoot != "" {
-		return filepath.Join(filepath.Clean(uploadRoot), "skill-volume")
-	}
-	return defaultSkillVolumeRoot
-}
-
-func SkillFSURL(userID string) string {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		userID = "0"
-	}
-	return filepath.ToSlash(filepath.Join(SkillVolumeRoot(), "skills", userID))
 }
 
 func ParentSkillRelativePath(category, skillName string) string {
@@ -230,7 +210,6 @@ func BuildChatResourceContext(ctx context.Context, db *gorm.DB, userID, userName
 		return nil, err
 	}
 
-	skillFSURL := SkillFSURL(userID)
 	now := time.Now()
 	availableSkills := make([]string, 0, len(skills))
 	snapshots := make([]orm.ResourceSessionSnapshot, 0, len(skills)+2)
@@ -257,7 +236,7 @@ func BuildChatResourceContext(ctx context.Context, db *gorm.DB, userID, userName
 	)
 
 	for _, skill := range skills {
-		state, err := skillStateFromResource(&skill, skillFSURL)
+		state, err := skillStateFromResource(&skill)
 		if err != nil {
 			return nil, err
 		}
@@ -275,7 +254,6 @@ func BuildChatResourceContext(ctx context.Context, db *gorm.DB, userID, userName
 			FileExt:         firstNonEmpty(strings.TrimSpace(skill.FileExt), "md"),
 			RelativePath:    state.RelativePath,
 			SnapshotHash:    state.ContentHash,
-			StoragePath:     state.StoragePath,
 			CreatedAt:       now,
 		})
 	}
@@ -290,7 +268,6 @@ func BuildChatResourceContext(ctx context.Context, db *gorm.DB, userID, userName
 	context := &ChatResourceContext{
 		AvailableTools:     []string{"all"},
 		AvailableSkills:    availableSkills,
-		SkillFSURL:         skillFSURL,
 		Memory:             mem.Content,
 		UserPreference:     pref.Content,
 		UsePersonalization: usePersonalization,
@@ -394,7 +371,7 @@ func LoadSkillStateByResourceKey(ctx context.Context, db *gorm.DB, userID, resou
 	if err != nil {
 		return nil, err
 	}
-	return skillStateFromResource(&skill, SkillFSURL(userID))
+	return skillStateFromResource(&skill)
 }
 
 func LoadParentSkillState(ctx context.Context, db *gorm.DB, userID, category, skillName string) (*SkillState, error) {
@@ -411,7 +388,7 @@ func LoadParentSkillState(ctx context.Context, db *gorm.DB, userID, category, sk
 	if err != nil {
 		return nil, err
 	}
-	return skillStateFromResource(&skill, SkillFSURL(userID))
+	return skillStateFromResource(&skill)
 }
 
 func BuildSuggestionRecord(
@@ -436,7 +413,7 @@ func BuildSuggestionRecord(
 	}
 }
 
-func skillStateFromResource(skill *orm.SkillResource, skillFSURL string) (*SkillState, error) {
+func skillStateFromResource(skill *orm.SkillResource) (*SkillState, error) {
 	if skill == nil {
 		return nil, gorm.ErrRecordNotFound
 	}
@@ -445,46 +422,17 @@ func skillStateFromResource(skill *orm.SkillResource, skillFSURL string) (*Skill
 		relativePath = ParentSkillRelativePath(skill.Category, firstNonEmpty(skill.ParentSkillName, skill.SkillName))
 	}
 	relativePath = filepath.ToSlash(relativePath)
-	storagePath := strings.TrimSpace(skill.StoragePath)
-	if storagePath == "" {
-		storagePath = filepath.Join(skillFSURL, filepath.FromSlash(relativePath))
-	}
 	content := skill.Content
 	contentHash := strings.TrimSpace(skill.ContentHash)
 	if contentHash == "" {
 		contentHash = HashContent(content)
 	}
-	if content == "" {
-		var err error
-		contentHash, err = fileHashWithFallback(storagePath, contentHash)
-		if err != nil {
-			return nil, err
-		}
-	}
 	return &SkillState{
 		Resource:     skill,
 		RelativePath: relativePath,
-		StoragePath:  filepath.ToSlash(storagePath),
 		Content:      content,
 		ContentHash:  contentHash,
 	}, nil
-}
-
-func fileHashWithFallback(storagePath, fallback string) (string, error) {
-	storagePath = strings.TrimSpace(storagePath)
-	if storagePath != "" {
-		body, err := os.ReadFile(storagePath)
-		if err == nil {
-			return HashContent(string(body)), nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", err
-		}
-	}
-	if strings.TrimSpace(fallback) != "" {
-		return strings.TrimSpace(fallback), nil
-	}
-	return HashContent(""), nil
 }
 
 func conversationIDFromSessionID(sessionID string) string {

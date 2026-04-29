@@ -287,3 +287,83 @@ func TestGenerateOverwritesExistingPendingDraft(t *testing.T) {
 		t.Fatalf("expected draft suggestion ids to be replaced, got %#v", gotIDs)
 	}
 }
+
+func TestGenerateAllowsSuggestionsWithoutUserInstruct(t *testing.T) {
+	db := newPreferenceTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	var algoBody map[string]any
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat/user_preference/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&algoBody); err != nil {
+			t.Fatalf("decode algorithm request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"content": "draft from suggestion"},
+		})
+	})
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("listener unavailable in current test environment: %v", err)
+	}
+	server := &http.Server{Handler: handler}
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Shutdown(context.Background()) }()
+	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+
+	now := time.Now()
+	row := orm.SystemUserPreference{
+		ID:            "preference-1",
+		UserID:        "u1",
+		Content:       "current preference",
+		ContentHash:   evolution.HashContent("current preference"),
+		Version:       4,
+		UpdatedBy:     "u1",
+		UpdatedByName: "User 1",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create preference: %v", err)
+	}
+	suggestion := orm.ResourceSuggestion{
+		ID:           "suggestion-1",
+		UserID:       "u1",
+		ResourceType: evolution.ResourceTypeUserPreference,
+		ResourceKey:  evolution.SystemResourceKey(evolution.ResourceTypeUserPreference),
+		Action:       evolution.SuggestionActionModify,
+		SessionID:    "session-1",
+		Title:        "preference suggestion",
+		Content:      "update preference",
+		Status:       evolution.SuggestionStatusAccepted,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := db.Create(&suggestion).Error; err != nil {
+		t.Fatalf("create suggestion: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/user-preference:generate", strings.NewReader(`{"suggestion_ids":["suggestion-1"],"user_instruct":""}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	Generate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if algoBody["user_instruct"] != "" {
+		t.Fatalf("expected empty user_instruct sent to algorithm, got %#v", algoBody["user_instruct"])
+	}
+	suggestions, ok := algoBody["suggestions"].([]any)
+	if !ok || len(suggestions) != 1 {
+		t.Fatalf("expected one suggestion sent to algorithm, got %#v", algoBody["suggestions"])
+	}
+}

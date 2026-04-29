@@ -21,14 +21,11 @@ const (
 	SuggestionStatusNone          = "none"
 
 	UpdateStatusUpToDate = "up_to_date"
-
-	defaultSkillVolumeRoot = "/data/skill-volume"
 )
 
 type ChatResourceContext struct {
 	AvailableTools     []string
 	AvailableSkills    []string
-	SkillFSURL         string
 	Memory             string
 	UserPreference     string
 	UsePersonalization bool

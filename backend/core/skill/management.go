@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -324,8 +323,8 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	req.SuggestionIDs = compactStrings(req.SuggestionIDs)
 	req.UserInstruct = strings.TrimSpace(req.UserInstruct)
-	if req.UserInstruct == "" {
-		common.ReplyErr(w, "user_instruct required", http.StatusBadRequest)
+	if len(req.SuggestionIDs) == 0 && req.UserInstruct == "" {
+		common.ReplyErr(w, "suggestion_ids or user_instruct required", http.StatusBadRequest)
 		return
 	}
 
@@ -344,14 +343,17 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "read skill content failed", http.StatusInternalServerError)
 		return
 	}
-	suggestions, err := evolution.LoadApprovedSuggestions(r.Context(), db, userID, evolution.ResourceTypeSkill, row.RelativePath, req.SuggestionIDs)
-	if err != nil {
-		common.ReplyErr(w, "query suggestions failed", http.StatusInternalServerError)
-		return
-	}
-	if len(suggestions) == 0 {
-		common.ReplyErr(w, "no accepted suggestions found", http.StatusBadRequest)
-		return
+	var suggestions []orm.ResourceSuggestion
+	if len(req.SuggestionIDs) > 0 {
+		suggestions, err = evolution.LoadApprovedSuggestions(r.Context(), db, userID, evolution.ResourceTypeSkill, row.RelativePath, req.SuggestionIDs)
+		if err != nil {
+			common.ReplyErr(w, "query suggestions failed", http.StatusInternalServerError)
+			return
+		}
+		if len(suggestions) == 0 {
+			common.ReplyErr(w, "no accepted suggestions found", http.StatusBadRequest)
+			return
+		}
 	}
 
 	outdated := false
@@ -582,7 +584,7 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 	}
 	suggestionStatus := evolution.CanonicalSuggestionStatus(suggestionStatusesByKey[skillSuggestionResourceKey(row)])
 	content, err := storedSkillContent(row)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil {
 		return nil, err
 	}
 	item := map[string]any{
@@ -647,7 +649,7 @@ func buildDraftPreviewResponse(ctx context.Context, db *gorm.DB, userID, skillID
 	}
 
 	currentContent, err := storedSkillContent(row)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil {
 		return draftPreviewResponse{}, err
 	}
 

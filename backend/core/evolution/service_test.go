@@ -2,7 +2,6 @@ package evolution
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -27,21 +26,8 @@ func newTestDB(t *testing.T) *orm.DB {
 func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.T) {
 	db := newTestDB(t)
 
-	tmpDir := t.TempDir()
-	if err := os.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", tmpDir); err != nil {
-		t.Fatalf("set env: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Unsetenv("LAZYRAG_SKILL_VOLUME_ROOT") })
-
 	relativePath := ParentSkillRelativePath("coding", "git-workflow")
-	storagePath := filepath.Join(tmpDir, "skills", "u1", filepath.FromSlash(relativePath))
-	if err := os.MkdirAll(filepath.Dir(storagePath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
 	content := "---\nname: git-workflow\ndescription: git workflow\n---\nbody"
-	if err := os.WriteFile(storagePath, []byte(content), 0o644); err != nil {
-		t.Fatalf("write skill file: %v", err)
-	}
 
 	now := time.Now()
 	skill := orm.SkillResource{
@@ -54,7 +40,9 @@ func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.
 		NodeType:        SkillNodeTypeParent,
 		FileExt:         "md",
 		RelativePath:    relativePath,
-		StoragePath:     storagePath,
+		Content:         content,
+		ContentSize:     int64(len([]byte(content))),
+		MimeType:        "text/markdown; charset=utf-8",
 		ContentHash:     HashContent(content),
 		IsEnabled:       true,
 		UpdateStatus:    UpdateStatusUpToDate,
@@ -76,10 +64,6 @@ func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.
 	}
 	if len(ctx.AvailableSkills) != 1 || ctx.AvailableSkills[0] != "coding/git-workflow" {
 		t.Fatalf("unexpected available_skills: %#v", ctx.AvailableSkills)
-	}
-	expectedSkillFSURL := filepath.ToSlash(filepath.Join(tmpDir, "skills", "u1"))
-	if ctx.SkillFSURL != expectedSkillFSURL {
-		t.Fatalf("unexpected skill_fs_url: %q", ctx.SkillFSURL)
 	}
 	if ctx.Memory != "" || ctx.UserPreference != "" {
 		t.Fatalf("expected empty user-scoped content, got memory=%q preference=%q", ctx.Memory, ctx.UserPreference)
@@ -137,23 +121,6 @@ func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.
 	}
 	if len(prefs) != 2 || prefs[0].UserID != "u1" || prefs[1].UserID != "u2" {
 		t.Fatalf("expected per-user preference rows for u1/u2, got %#v", prefs)
-	}
-}
-
-func TestSkillVolumeRootFallsBackToUploadRoot(t *testing.T) {
-	t.Setenv("LAZYRAG_SKILL_VOLUME_ROOT", "")
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", "/var/lib/lazyrag/uploads")
-
-	got := filepath.ToSlash(SkillVolumeRoot())
-	want := "/var/lib/lazyrag/uploads/skill-volume"
-	if got != want {
-		t.Fatalf("unexpected skill volume root: got %q want %q", got, want)
-	}
-
-	gotFSURL := filepath.ToSlash(SkillFSURL("u1001"))
-	wantFSURL := "/var/lib/lazyrag/uploads/skill-volume/skills/u1001"
-	if gotFSURL != wantFSURL {
-		t.Fatalf("unexpected skill fs url: got %q want %q", gotFSURL, wantFSURL)
 	}
 }
 

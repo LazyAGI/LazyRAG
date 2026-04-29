@@ -665,7 +665,6 @@ type skillShareCreateItemOpenAPIResponse struct {
 	TargetUserName     string  `json:"target_user_name"`
 	Status             string  `json:"status"`
 	TargetRelativeRoot string  `json:"target_relative_root,omitempty"`
-	TargetStoragePath  string  `json:"target_storage_path,omitempty"`
 	AcceptedAt         *string `json:"accepted_at,omitempty"`
 	RejectedAt         *string `json:"rejected_at,omitempty"`
 	TargetRootSkillID  string  `json:"target_root_skill_id,omitempty"`

@@ -290,3 +290,67 @@ func TestGenerateOverwritesExistingPendingDraft(t *testing.T) {
 		t.Fatalf("expected draft suggestion ids to be replaced, got %#v", gotIDs)
 	}
 }
+
+func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
+	db := newMemoryTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	var algoBody map[string]any
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat/memory/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&algoBody); err != nil {
+			t.Fatalf("decode algorithm request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"content": "draft from user instruction"},
+		})
+	})
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("listener unavailable in current test environment: %v", err)
+	}
+	server := &http.Server{Handler: handler}
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Shutdown(context.Background()) }()
+	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+
+	now := time.Now()
+	row := orm.SystemMemory{
+		ID:            "memory-1",
+		UserID:        "u1",
+		Content:       "current memory",
+		ContentHash:   evolution.HashContent("current memory"),
+		Version:       3,
+		UpdatedBy:     "u1",
+		UpdatedByName: "User 1",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create memory: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/memory:generate", strings.NewReader(`{"suggestion_ids":[],"user_instruct":"只按用户意见生成"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	Generate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if algoBody["user_instruct"] != "只按用户意见生成" {
+		t.Fatalf("unexpected user_instruct sent to algorithm: %#v", algoBody["user_instruct"])
+	}
+	suggestions, ok := algoBody["suggestions"].([]any)
+	if !ok || len(suggestions) != 0 {
+		t.Fatalf("expected empty suggestions array, got %#v", algoBody["suggestions"])
+	}
+}
