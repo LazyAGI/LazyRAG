@@ -150,11 +150,6 @@ func reviewSuggestion(w http.ResponseWriter, r *http.Request, targetStatus strin
 		common.ReplyErr(w, "suggestion not found", http.StatusNotFound)
 		return
 	}
-	if row.Status != SuggestionStatusPendingReview {
-		common.ReplyErr(w, "suggestion is not pending_review", http.StatusConflict)
-		return
-	}
-
 	now := time.Now()
 	reviewerID := store.UserID(r)
 	reviewerName := store.UserName(r)
