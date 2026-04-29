@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -136,6 +137,20 @@ func readAgentResultTextFile(path string) (string, os.FileInfo, error) {
 		return "", nil, err
 	}
 	return string(raw), stat, nil
+}
+
+func readAgentResultJSONFile(path string) (any, error) {
+	raw, _, err := readAgentResultFile(path)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var payload any
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode json file failed: %w", err)
+	}
+	return payload, nil
 }
 
 func readAgentResultFile(path string) ([]byte, os.FileInfo, error) {
@@ -284,6 +299,47 @@ func localFilePathFromValue(value any, allowedExts []string) string {
 		}
 	}
 	return ""
+}
+
+func visitJSONPathContainers(root any, preferredKeys []string, visit func(container map[string]any, path string) bool) {
+	if visit == nil {
+		return
+	}
+	seen := map[any]struct{}{}
+	visitJSONPathContainersWalk(root, normalizePreferredPathKeys(preferredKeys), seen, visit)
+}
+
+func visitJSONPathContainersWalk(root any, preferredKeys []string, seen map[any]struct{}, visit func(container map[string]any, path string) bool) bool {
+	switch value := root.(type) {
+	case map[string]any:
+		ptr := reflectMapPointer(value)
+		if _, ok := seen[ptr]; ok {
+			return true
+		}
+		seen[ptr] = struct{}{}
+		for _, key := range preferredKeys {
+			if child, ok := value[key]; ok {
+				if path := localFilePathFromValue(child, []string{".json"}); path != "" {
+					if !visit(value, path) {
+						return false
+					}
+					break
+				}
+			}
+		}
+		for _, key := range sortedMapKeys(value) {
+			if !visitJSONPathContainersWalk(value[key], preferredKeys, seen, visit) {
+				return false
+			}
+		}
+	case []any:
+		for _, child := range value {
+			if !visitJSONPathContainersWalk(child, preferredKeys, seen, visit) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func sortedMapKeys(value map[string]any) []string {

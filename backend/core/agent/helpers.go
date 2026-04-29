@@ -425,10 +425,7 @@ func saveThreadRecord(
 
 func buildReplayFrame(record orm.AgentThreadRecord) string {
 	if record.StreamKind == streamKindMessage {
-		if rawFrameHasID(record.RawFrame) {
-			return record.RawFrame + "\n\n"
-		}
-		return "id: " + record.ID + "\n" + record.RawFrame + "\n\n"
+		return buildDataSSEFrame(recordDataPayload(record))
 	}
 	return "id: " + record.ID + "\ndata: " + record.RawFrame + "\n\n"
 }
@@ -437,24 +434,31 @@ func buildThreadEventFrame(rawFrame string) string {
 	return "data: " + rawFrame + "\n\n"
 }
 
-func rawFrameHasID(raw string) bool {
-	for _, line := range strings.Split(raw, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "id:") {
-			return true
-		}
+func buildDataSSEFrame(rawData string) string {
+	rawData = strings.TrimRight(strings.ReplaceAll(rawData, "\r\n", "\n"), "\n")
+	var builder strings.Builder
+	for _, line := range strings.Split(rawData, "\n") {
+		builder.WriteString("data: ")
+		builder.WriteString(line)
+		builder.WriteString("\n")
 	}
-	return false
+	builder.WriteString("\n")
+	return builder.String()
+}
+
+func recordDataPayload(record orm.AgentThreadRecord) string {
+	if strings.TrimSpace(record.PayloadText) != "" {
+		return record.PayloadText
+	}
+	frame := parseSSEFrame(strings.Split(strings.ReplaceAll(record.RawFrame, "\r\n", "\n"), "\n"))
+	if frame != nil {
+		return frame.Data
+	}
+	return ""
 }
 
 func writeReplayFrame(w http.ResponseWriter, flusher http.Flusher, record orm.AgentThreadRecord) {
 	_, _ = io.WriteString(w, buildReplayFrame(record))
-	if flusher != nil {
-		flusher.Flush()
-	}
-}
-
-func writeHeartbeat(w http.ResponseWriter, flusher http.Flusher) {
-	_, _ = io.WriteString(w, "event: heartbeat\ndata: {}\n\n")
 	if flusher != nil {
 		flusher.Flush()
 	}

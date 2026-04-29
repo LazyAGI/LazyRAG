@@ -150,7 +150,7 @@ func attachCaseDetailsReportResult(ctx context.Context, payload any, opts caseDe
 	}
 	container, cases, ok := findCaseDetailsContainer(payload)
 	if !ok {
-		return nil, false, nil
+		return attachCaseDetailsReportResultFromJSONPaths(ctx, payload, opts)
 	}
 	csvBytes, rowCount, err := buildCaseDetailsCSVBytes(cases)
 	if err != nil {
@@ -165,9 +165,71 @@ func attachCaseDetailsReportResult(ctx context.Context, payload any, opts caseDe
 		return nil, true, err
 	}
 	summary.CSVFile = file
-	container[caseDetailsCSVFileField] = file
+	attachCSVFileToContainer(container, caseDetailsCSVFileField, file)
 	container[caseDetailsSummaryField] = summary
 	return summary, true, nil
+}
+
+func attachCaseDetailsReportResultFromJSONPaths(ctx context.Context, payload any, opts caseDetailsReportOptions) (*caseDetailsSummary, bool, error) {
+	var first *caseDetailsSummary
+	found := false
+	var firstErr error
+
+	visitJSONPathContainers(payload, defaultCaseJSONPathKeys, func(container map[string]any, path string) bool {
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				firstErr = ctx.Err()
+				return false
+			default:
+			}
+		}
+
+		filePayload, err := readAgentResultJSONFile(path)
+		if err != nil {
+			firstErr = err
+			return false
+		}
+		cases, ok := caseDetailsFromPayload(filePayload)
+		if !ok {
+			return true
+		}
+		csvBytes, rowCount, err := buildCaseDetailsCSVBytes(cases)
+		if err != nil {
+			firstErr = err
+			return false
+		}
+		file, err := writeCaseCSVFile(csvBytes, rowCount, caseDetailsField, opts.ThreadID, opts.ResultKind)
+		if err != nil {
+			firstErr = err
+			return false
+		}
+		summary, err := buildCaseDetailsSummary(cases)
+		if err != nil {
+			firstErr = err
+			return false
+		}
+		summary.CSVFile = file
+		attachCSVFileToContainer(container, caseDetailsCSVFileField, file)
+		container[caseDetailsSummaryField] = summary
+		if first == nil {
+			first = summary
+		}
+		found = true
+		return true
+	})
+	if firstErr != nil {
+		return first, found, firstErr
+	}
+	return first, found, nil
+}
+
+func caseDetailsFromPayload(payload any) ([]any, bool) {
+	if cases, ok := payload.([]any); ok && looksLikeCaseRows(cases) {
+		return cases, true
+	}
+	_, cases, ok := findCaseDetailsContainer(payload)
+	return cases, ok
 }
 
 func findCaseDetailsContainer(root any) (map[string]any, []any, bool) {
