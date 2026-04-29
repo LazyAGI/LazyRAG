@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,36 @@ func newAgentTestDB(t *testing.T) *orm.DB {
 		t.Fatalf("auto migrate: %v", err)
 	}
 	return db
+}
+
+func assertSignedStaticFileExists(t *testing.T, uploadRoot string, file *caseCSVFile) {
+	t.Helper()
+	if file == nil {
+		t.Fatalf("expected csv file metadata")
+	}
+	parsed, err := url.Parse(file.FileURL)
+	if err != nil {
+		t.Fatalf("parse file url: %v", err)
+	}
+	rel, ok := strings.CutPrefix(parsed.Path, "/static-files/")
+	if !ok {
+		t.Fatalf("expected static file url, got %q", file.FileURL)
+	}
+	rel, err = url.PathUnescape(rel)
+	if err != nil {
+		t.Fatalf("unescape static file path: %v", err)
+	}
+	expectedPath := filepath.Clean(filepath.Join(uploadRoot, filepath.FromSlash(rel)))
+	if filepath.Clean(file.StoredPath) != expectedPath {
+		t.Fatalf("file url points to %q, but csv was stored at %q", expectedPath, file.StoredPath)
+	}
+	stat, err := os.Stat(expectedPath)
+	if err != nil {
+		t.Fatalf("expected csv file behind file_url to exist: %v", err)
+	}
+	if stat.Size() != file.FileSize {
+		t.Fatalf("unexpected csv file size: metadata=%d actual=%d", file.FileSize, stat.Size())
+	}
 }
 
 func TestDecodeJSONArrayObjectsSupportsNestedEnvelope(t *testing.T) {
@@ -185,7 +216,8 @@ func TestBuildCaseCSVBytesJoinsListValues(t *testing.T) {
 }
 
 func TestAttachCaseCSVFileURLAddsDownloadableAttachment(t *testing.T) {
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", t.TempDir())
+	uploadRoot := t.TempDir()
+	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
 	payload := map[string]any{
 		"data": map[string]any{
 			"cases": []any{
@@ -213,6 +245,7 @@ func TestAttachCaseCSVFileURLAddsDownloadableAttachment(t *testing.T) {
 	if _, err := os.Stat(file.StoredPath); err != nil {
 		t.Fatalf("expected csv file to exist: %v", err)
 	}
+	assertSignedStaticFileExists(t, uploadRoot, file)
 	if !strings.Contains(file.FileURL, "/static-files/agent-results/thr_1/datasets/") || !strings.Contains(file.FileURL, "sig=") {
 		t.Fatalf("unexpected file url: %q", file.FileURL)
 	}
@@ -222,6 +255,44 @@ func TestAttachCaseCSVFileURLAddsDownloadableAttachment(t *testing.T) {
 	data := payload["data"].(map[string]any)
 	if data[defaultCaseCSVField] != file {
 		t.Fatalf("expected attachment to be added to data payload")
+	}
+}
+
+func TestAttachCaseCSVFileURLReadsCasesFromJSONPath(t *testing.T) {
+	uploadRoot := t.TempDir()
+	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	tmpDir := t.TempDir()
+	jsonPath := filepath.Join(tmpDir, "eval_data.json")
+	if err := os.WriteFile(jsonPath, []byte(`{"data":[{"question":"q1","answer":"a1"}]}`), 0o644); err != nil {
+		t.Fatalf("write eval data json: %v", err)
+	}
+	item := map[string]any{
+		"case_count": float64(1),
+		"dataset_id": "eval_1",
+		"path":       jsonPath,
+	}
+	payload := []any{item}
+
+	file, found, err := attachCaseCSVFileURL(context.Background(), payload, caseCSVOptions{
+		ThreadID:   "thr-1",
+		ResultKind: "datasets",
+		FieldNames: []string{"case", "cases", "eval_data", "data", "items", "records"},
+	})
+	if err != nil {
+		t.Fatalf("attachCaseCSVFileURL returned error: %v", err)
+	}
+	if !found || file == nil || file.RowCount != 1 {
+		t.Fatalf("expected csv attachment from json path, got file=%#v found=%v", file, found)
+	}
+	if item["file_url"] != file.FileURL {
+		t.Fatalf("expected top-level file_url to point at csv file, got %#v", item["file_url"])
+	}
+	if item[defaultCaseCSVField] != file {
+		t.Fatalf("expected csv metadata to be attached to result item")
+	}
+	assertSignedStaticFileExists(t, uploadRoot, file)
+	if !strings.Contains(file.FileURL, "/static-files/agent-results/thr-1/datasets/") || !strings.Contains(file.FileURL, "sig=") {
+		t.Fatalf("unexpected file url: %q", file.FileURL)
 	}
 }
 
@@ -261,7 +332,8 @@ func TestBuildCaseDetailsCSVBytesUsesChineseHeadersAndQuestionTypeNames(t *testi
 }
 
 func TestAttachCaseDetailsReportResultAddsSummaryAndCSVFile(t *testing.T) {
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", t.TempDir())
+	uploadRoot := t.TempDir()
+	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
 	payload := map[string]any{
 		"data": map[string]any{
 			"case_details": []any{
@@ -306,6 +378,7 @@ func TestAttachCaseDetailsReportResultAddsSummaryAndCSVFile(t *testing.T) {
 	if _, err := os.Stat(summary.CSVFile.StoredPath); err != nil {
 		t.Fatalf("expected csv file to exist: %v", err)
 	}
+	assertSignedStaticFileExists(t, uploadRoot, summary.CSVFile)
 	if !strings.Contains(summary.CSVFile.FileURL, "/static-files/agent-results/thr_1/eval-reports/") {
 		t.Fatalf("unexpected file url: %q", summary.CSVFile.FileURL)
 	}
@@ -328,6 +401,45 @@ func TestAttachCaseDetailsReportResultAddsSummaryAndCSVFile(t *testing.T) {
 	}
 	if data[caseDetailsSummaryField] != summary {
 		t.Fatalf("expected summary to be attached to payload")
+	}
+}
+
+func TestAttachCaseDetailsReportResultReadsCaseDetailsFromJSONPath(t *testing.T) {
+	uploadRoot := t.TempDir()
+	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	tmpDir := t.TempDir()
+	jsonPath := filepath.Join(tmpDir, "eval_report.json")
+	if err := os.WriteFile(jsonPath, []byte(`{"case_details":[{"question":"q1","question_type":1,"context_recall":1}]}`), 0o644); err != nil {
+		t.Fatalf("write eval report json: %v", err)
+	}
+	item := map[string]any{
+		"report_id": "report_1",
+		"path":      jsonPath,
+	}
+	payload := []any{item}
+
+	summary, found, err := attachCaseDetailsReportResult(context.Background(), payload, caseDetailsReportOptions{
+		ThreadID:   "thr-1",
+		ResultKind: "eval-reports",
+	})
+	if err != nil {
+		t.Fatalf("attachCaseDetailsReportResult returned error: %v", err)
+	}
+	if !found || summary == nil || summary.TotalCount != 1 || summary.CSVFile == nil {
+		t.Fatalf("expected case details summary from json path, got summary=%#v found=%v", summary, found)
+	}
+	if item["file_url"] != summary.CSVFile.FileURL {
+		t.Fatalf("expected top-level file_url to point at csv file, got %#v", item["file_url"])
+	}
+	if item[caseDetailsCSVFileField] != summary.CSVFile {
+		t.Fatalf("expected csv metadata to be attached to result item")
+	}
+	if item[caseDetailsSummaryField] != summary {
+		t.Fatalf("expected summary to be attached to result item")
+	}
+	assertSignedStaticFileExists(t, uploadRoot, summary.CSVFile)
+	if !strings.Contains(summary.CSVFile.FileURL, "/static-files/agent-results/thr-1/eval-reports/") || !strings.Contains(summary.CSVFile.FileURL, "sig=") {
+		t.Fatalf("unexpected file url: %q", summary.CSVFile.FileURL)
 	}
 }
 
@@ -374,6 +486,53 @@ func TestSaveThreadRecordKeepsDuplicateMessageFrames(t *testing.T) {
 	}
 	if first.ID == second.ID {
 		t.Fatalf("expected duplicate message frame to get a new record id")
+	}
+}
+
+func TestBuildReplayFrameForMessageOmitsSSEIDAndUsesDataOnly(t *testing.T) {
+	record := orm.AgentThreadRecord{
+		ID:          "0001",
+		ThreadID:    "thr_1",
+		RoundID:     "round_1",
+		StreamKind:  streamKindMessage,
+		EventName:   "message",
+		PayloadText: `{"delta":"hi"}`,
+		RawFrame:    "id: upstream-1\nevent: message\ndata: {\"delta\":\"hi\"}",
+		CreatedAt:   time.Now().UTC(),
+	}
+
+	frame := buildReplayFrame(record)
+	expected := "data: {\"delta\":\"hi\"}\n\n"
+	if frame != expected {
+		t.Fatalf("unexpected message replay frame:\nwant: %q\ngot:  %q", expected, frame)
+	}
+	if strings.Contains(frame, "\nid:") || strings.HasPrefix(frame, "id:") || strings.Contains(frame, "\nevent:") || strings.HasPrefix(frame, "event:") {
+		t.Fatalf("message replay frame must only include data: %q", frame)
+	}
+}
+
+func TestShouldSkipStreamRecordSkipsMessageHeartbeatAndEmptyData(t *testing.T) {
+	cases := []orm.AgentThreadRecord{
+		{StreamKind: streamKindMessage, EventName: "heartbeat", PayloadText: `{}`, RawFrame: "event: heartbeat\ndata: {}"},
+		{StreamKind: streamKindMessage, EventName: "message", PayloadText: `{}`, RawFrame: "data: {}"},
+		{StreamKind: streamKindMessage, EventName: "message", PayloadText: `[]`, RawFrame: "data: []"},
+		{StreamKind: streamKindMessage, EventName: "message", PayloadText: `[DONE]`, RawFrame: "data: [DONE]"},
+	}
+
+	for _, record := range cases {
+		if !shouldSkipStreamRecord(record) {
+			t.Fatalf("expected message stream record to be skipped: %#v", record)
+		}
+	}
+
+	valid := orm.AgentThreadRecord{
+		StreamKind:  streamKindMessage,
+		EventName:   "message",
+		PayloadText: `{"delta":"hi"}`,
+		RawFrame:    `data: {"delta":"hi"}`,
+	}
+	if shouldSkipStreamRecord(valid) {
+		t.Fatalf("expected valid message stream record to be returned")
 	}
 }
 

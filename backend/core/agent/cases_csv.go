@@ -21,6 +21,21 @@ import (
 
 const defaultCaseCSVField = "case_csv_file"
 
+var defaultCaseJSONPathKeys = []string{
+	"path",
+	"json_path",
+	"file_path",
+	"result_path",
+	"dataset_path",
+	"eval_data_path",
+	"report_path",
+	"report_json_path",
+	"eval_report_path",
+	"case_details_path",
+	"abtest_path",
+	"abtest_json_path",
+}
+
 type caseCSVOptions struct {
 	ThreadID      string
 	ResultKind    string
@@ -61,7 +76,7 @@ func attachCaseCSVFileURL(ctx context.Context, payload any, opts caseCSVOptions)
 
 	container, fieldName, cases, ok := findCaseFieldContainer(payload, fieldNames)
 	if !ok {
-		return nil, false, nil
+		return attachCaseCSVFileURLFromJSONPaths(ctx, payload, opts, fieldNames, attachmentKey)
 	}
 	csvBytes, rowCount, err := buildCaseCSVBytes(cases)
 	if err != nil {
@@ -71,8 +86,66 @@ func attachCaseCSVFileURL(ctx context.Context, payload any, opts caseCSVOptions)
 	if err != nil {
 		return nil, true, err
 	}
-	container[attachmentKey] = file
+	attachCSVFileToContainer(container, attachmentKey, file)
 	return file, true, nil
+}
+
+func attachCaseCSVFileURLFromJSONPaths(ctx context.Context, payload any, opts caseCSVOptions, fieldNames []string, attachmentKey string) (*caseCSVFile, bool, error) {
+	var first *caseCSVFile
+	found := false
+	var firstErr error
+
+	visitJSONPathContainers(payload, defaultCaseJSONPathKeys, func(container map[string]any, path string) bool {
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				firstErr = ctx.Err()
+				return false
+			default:
+			}
+		}
+
+		filePayload, err := readAgentResultJSONFile(path)
+		if err != nil {
+			firstErr = err
+			return false
+		}
+		fieldName, cases, ok := caseFieldFromPayload(filePayload, fieldNames)
+		if !ok {
+			return true
+		}
+		csvBytes, rowCount, err := buildCaseCSVBytes(cases)
+		if err != nil {
+			firstErr = err
+			return false
+		}
+		file, err := writeCaseCSVFile(csvBytes, rowCount, fieldName, opts.ThreadID, opts.ResultKind)
+		if err != nil {
+			firstErr = err
+			return false
+		}
+		attachCSVFileToContainer(container, attachmentKey, file)
+		if first == nil {
+			first = file
+		}
+		found = true
+		return true
+	})
+	if firstErr != nil {
+		return first, found, firstErr
+	}
+	return first, found, nil
+}
+
+func caseFieldFromPayload(payload any, fieldNames []string) (string, []any, bool) {
+	if cases, ok := payload.([]any); ok && looksLikeCaseRows(cases) {
+		return "items", cases, true
+	}
+	_, fieldName, cases, ok := findCaseFieldContainer(payload, fieldNames)
+	if ok {
+		return fieldName, cases, true
+	}
+	return "", nil, false
 }
 
 func findCaseFieldContainer(root any, fieldNames []string) (map[string]any, string, []any, bool) {
@@ -110,6 +183,12 @@ func findCaseFieldContainerWalk(root any, fieldNames []string, seen map[any]stru
 				if cases, ok := child.([]any); ok {
 					return value, fieldName, cases, true
 				}
+				if isCaseFieldWrapper(fieldName) {
+					if container, nestedFieldName, cases, ok := findCaseFieldContainerWalk(child, fieldNames, seen); ok {
+						return container, nestedFieldName, cases, true
+					}
+					continue
+				}
 				return value, fieldName, nil, true
 			}
 		}
@@ -141,6 +220,27 @@ func findCaseFieldContainerWalk(root any, fieldNames []string, seen map[any]stru
 		}
 	}
 	return nil, "", nil, false
+}
+
+func isCaseFieldWrapper(fieldName string) bool {
+	switch strings.TrimSpace(fieldName) {
+	case "data", "result", "payload":
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeCaseRows(items []any) bool {
+	if len(items) == 0 {
+		return true
+	}
+	for _, item := range items {
+		if _, ok := item.(map[string]any); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func buildCaseCSVBytes(cases []any) ([]byte, int, error) {
@@ -184,6 +284,18 @@ func buildCaseCSVBytes(cases []any) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	return buf.Bytes(), len(rows), nil
+}
+
+func attachCSVFileToContainer(container map[string]any, attachmentKey string, file *caseCSVFile) {
+	if container == nil || file == nil {
+		return
+	}
+	container[attachmentKey] = file
+	container["file_url"] = file.FileURL
+	container["content_url"] = file.ContentURL
+	container["preview_url"] = file.PreviewURL
+	container["download_url"] = file.DownloadURL
+	container["download_file_url"] = file.DownloadFileURL
 }
 
 func caseCSVCellString(value any) string {

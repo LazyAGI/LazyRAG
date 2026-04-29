@@ -194,8 +194,17 @@ func consumeMessageStream(db *gorm.DB, session *activeMessageStream, threadID st
 			break
 		}
 
+		rawData := strings.TrimSpace(frame.Data)
+		payload := parseJSONValue(rawData)
+		if shouldSkipStreamData(frame.Event, payload, rawData) {
+			if rawData == "[DONE]" {
+				break
+			}
+			continue
+		}
+
 		taskID := ""
-		if payload := parseJSONValue(frame.Data); payload != nil {
+		if payload != nil {
 			taskID = extractStringByKeys(payload, "task_id", "current_task_id")
 		}
 		if delta := extractAssistantTextFromFrameData(frame.Data); delta != "" {
@@ -227,9 +236,6 @@ func consumeMessageStream(db *gorm.DB, session *activeMessageStream, threadID st
 		}
 		_ = db.Model(&orm.AgentThreadRound{}).Where("round_id = ?", session.roundID).Updates(roundUpdates).Error
 
-		if strings.TrimSpace(frame.Data) == "[DONE]" {
-			break
-		}
 	}
 
 	updates := map[string]any{

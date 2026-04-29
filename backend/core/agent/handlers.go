@@ -241,7 +241,7 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, event := range events {
-			if shouldSkipThreadEvent(event.EventName, parseJSONValue(event.RawFrame), event.RawFrame) {
+			if shouldSkipStreamData(event.EventName, parseJSONValue(event.RawFrame), event.RawFrame) {
 				continue
 			}
 			eventKey := sha256Hex(event.RawFrame)
@@ -373,7 +373,7 @@ func getThreadResults(w http.ResponseWriter, r *http.Request, resultKind string)
 				if _, found, csvErr := attachCaseCSVFileURL(r.Context(), proxy.Body, caseCSVOptions{
 					ThreadID:   threadID,
 					ResultKind: resultKind,
-					FieldNames: []string{"case", "cases"},
+					FieldNames: []string{"case", "cases", "eval_data", "data", "items", "records"},
 				}); csvErr != nil {
 					log.Logger.Warn().Err(csvErr).Str("thread_id", threadID).Str("result_kind", resultKind).Bool("case_field_found", found).Msg("attach case csv file url failed")
 				}
@@ -506,7 +506,7 @@ func fetchedThreadEventFromSSEFrame(frame *sseFrame) (fetchedThreadEvent, bool) 
 			eventName = name
 		}
 	}
-	if shouldSkipThreadEvent(eventName, payload, rawData) {
+	if shouldSkipStreamData(eventName, payload, rawData) {
 		return fetchedThreadEvent{}, false
 	}
 	return fetchedThreadEvent{
@@ -527,7 +527,7 @@ func buildFetchedThreadEvents(events []map[string]any) ([]fetchedThreadEvent, er
 			return nil, err
 		}
 		eventName := extractStringByExactKeys(item, "kind", "event", "type")
-		if shouldSkipThreadEvent(eventName, item, string(rawJSON)) {
+		if shouldSkipStreamData(eventName, item, string(rawJSON)) {
 			continue
 		}
 		result = append(result, fetchedThreadEvent{
@@ -539,7 +539,7 @@ func buildFetchedThreadEvents(events []map[string]any) ([]fetchedThreadEvent, er
 	return result, nil
 }
 
-func shouldSkipThreadEvent(eventName string, payload any, rawData string) bool {
+func shouldSkipStreamData(eventName string, payload any, rawData string) bool {
 	rawData = strings.TrimSpace(rawData)
 	if rawData == "" || rawData == "[DONE]" || rawData == "null" {
 		return true
@@ -674,7 +674,6 @@ func streamStoredRecords(
 	session *activeMessageStream,
 ) {
 	lastSent := afterID
-	lastHeartbeat := time.Now()
 
 	for {
 		if r.Context().Err() != nil {
@@ -689,10 +688,12 @@ func streamStoredRecords(
 		}
 		if len(records) > 0 {
 			for _, record := range records {
-				writeReplayFrame(w, flusher, record)
 				lastSent = record.ID
+				if shouldSkipStreamRecord(record) {
+					continue
+				}
+				writeReplayFrame(w, flusher, record)
 			}
-			lastHeartbeat = time.Now()
 			continue
 		}
 
@@ -706,20 +707,27 @@ func streamStoredRecords(
 			}
 			if trailing, err := listRecords(db, threadID, streamKind, roundID, lastSent, 200); err == nil {
 				for _, record := range trailing {
-					writeReplayFrame(w, flusher, record)
 					lastSent = record.ID
+					if shouldSkipStreamRecord(record) {
+						continue
+					}
+					writeReplayFrame(w, flusher, record)
 				}
 			}
 			return
 		default:
 		}
 
-		if time.Since(lastHeartbeat) >= 15*time.Second {
-			writeHeartbeat(w, flusher)
-			lastHeartbeat = time.Now()
-		}
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+func shouldSkipStreamRecord(record orm.AgentThreadRecord) bool {
+	rawData := record.RawFrame
+	if record.StreamKind == streamKindMessage {
+		rawData = recordDataPayload(record)
+	}
+	return shouldSkipStreamData(record.EventName, parseJSONValue(rawData), rawData)
 }
 
 func decodeRequestBody(r *http.Request) (map[string]any, []byte, error) {
