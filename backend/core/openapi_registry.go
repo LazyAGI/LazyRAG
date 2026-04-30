@@ -445,6 +445,17 @@ type modelProviderGroupPathParams struct {
 	ModelProviderID string `path:"model_provider_id"`
 }
 
+type modelProviderGroupByIDPathParams struct {
+	ModelProviderID string `path:"model_provider_id"`
+	GroupID         string `path:"group_id"`
+}
+
+type updateModelProviderGroupOpenAPIRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
 type createModelProviderGroupOpenAPIRequest struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`
@@ -1385,6 +1396,16 @@ func registeredCoreOperations() []openAPIOperation {
 			PathParams:  modelProviderGroupPathParams{},
 			RequestBody: jsonBodyOf(createModelProviderGroupOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Created group", createModelProviderGroupOpenAPIResponse{})},
+		},
+		{
+			Method:      "PATCH",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}",
+			Summary:     "Update model provider connection group",
+			Description: "Updates name, base_url, and optionally api_key for a group. The group is selected by path group_id. Omit api_key or send an empty string to keep the existing API key (e.g. when the UI shows a mask). The api_key is not returned in the response body.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupByIDPathParams{},
+			RequestBody: jsonBodyOf(updateModelProviderGroupOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Updated group", createModelProviderGroupOpenAPIResponse{})},
 		},
 		{
 			Method:    "GET",

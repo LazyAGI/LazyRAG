@@ -29,6 +29,12 @@ type createGroupResponse struct {
 	BaseURL             string `json:"base_url"`
 }
 
+type updateGroupRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
 // CreateGroup creates a connection group under the user's model provider (path model_provider_id = user_model_providers.id).
 func CreateGroup(w http.ResponseWriter, r *http.Request) {
 	db := store.DB()
@@ -99,6 +105,93 @@ func CreateGroup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		common.ReplyErr(w, "create group failed", http.StatusInternalServerError)
 		return
+	}
+
+	common.ReplyOK(w, createGroupResponse{
+		ID:                  row.ID,
+		UserModelProviderID: row.UserModelProviderID,
+		Name:                row.Name,
+		BaseURL:             row.BaseURL,
+	})
+}
+
+// UpdateGroup updates a connection group (name, base_url, optional api_key). The target group is path group_id.
+// Empty api_key in the body leaves the stored key unchanged.
+func UpdateGroup(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	parentID := strings.TrimSpace(mux.Vars(r)["model_provider_id"])
+	groupID := strings.TrimSpace(mux.Vars(r)["group_id"])
+	if parentID == "" || groupID == "" {
+		common.ReplyErr(w, "missing model_provider_id or group_id", http.StatusBadRequest)
+		return
+	}
+
+	var req updateGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	baseURL := strings.TrimSpace(req.BaseURL)
+	apiKey := strings.TrimSpace(req.APIKey)
+	if name == "" || baseURL == "" {
+		common.ReplyErr(w, "name and base_url are required", http.StatusBadRequest)
+		return
+	}
+
+	var parent orm.UserModelProvider
+	err := db.WithContext(r.Context()).
+		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", parentID, userID).
+		Take(&parent).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "model provider not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query model provider failed", http.StatusInternalServerError)
+		return
+	}
+
+	var row orm.UserModelProviderGroup
+	err = db.WithContext(r.Context()).
+		Where("id = ? AND user_model_provider_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, parent.ID, userID).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "group not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query group failed", http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"name":       name,
+		"base_url":   baseURL,
+		"updated_at": now,
+	}
+	if apiKey != "" {
+		updates["api_key"] = apiKey
+	}
+	if err := db.WithContext(r.Context()).Model(&row).Updates(updates).Error; err != nil {
+		common.ReplyErr(w, "update group failed", http.StatusInternalServerError)
+		return
+	}
+	row.Name = name
+	row.BaseURL = baseURL
+	if apiKey != "" {
+		row.APIKey = apiKey
 	}
 
 	common.ReplyOK(w, createGroupResponse{
