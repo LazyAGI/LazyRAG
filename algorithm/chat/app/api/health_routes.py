@@ -6,8 +6,8 @@ from fastapi import APIRouter
 router = APIRouter()
 
 
-@router.get('/health', summary='Health check')
-@router.get('/api/health', summary='Health check (API path)')
+@router.get('/health', summary='健康检查')
+@router.get('/api/health', summary='健康检查（API 路径）')
 async def health():
     doc_url = os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000')
     check_url = doc_url.rstrip('/') + '/'

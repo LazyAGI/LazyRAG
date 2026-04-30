@@ -19,7 +19,7 @@ _TARGET_FILENAMES: Dict[str, str] = {
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
     return {
         'success': False,
-        'reason': f'{tool_name} failed: {exc}',
+        'reason': f'{tool_name} 执行失败：{exc}',
         'error': str(exc),
         'error_type': type(exc).__name__,
     }
@@ -37,13 +37,12 @@ def _handle_tool_errors(func):
 
 
 class Suggestion(TypedDict, total=False):
-    """Natural-language edit suggestion shared by skill / memory / user_preference.
+    """供 skill / memory / user_preference 共用的自然语言修改建议。
 
-    Fields:
-        title (str, required): short label summarising the proposed change.
-        content (str, required): natural-language description of the
-            modification; the downstream reviewer applies it.
-        reason (str, optional): why the change is worth making.
+    字段：
+        title (str, 必填): 对修改建议的简短标题。
+        content (str, 必填): 对修改内容的自然语言说明；下游审查/合并流程会据此应用修改。
+        reason (str, 可选): 说明为什么该修改值得保存。
     """
 
     title: str
@@ -91,11 +90,11 @@ def _post_core_api(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(body, dict)
             else response.text
         )
-        raise RuntimeError(f'POST {url} failed with HTTP {response.status_code}: {msg}')
+        raise RuntimeError(f'POST {url} 请求失败，HTTP 状态码 {response.status_code}：{msg}')
 
     if isinstance(body, dict) and body.get('code') not in (None, 0):
         msg = body.get('msg') or body.get('message') or body
-        raise RuntimeError(f'POST {url} failed: {msg}')
+        raise RuntimeError(f'POST {url} 请求失败：{msg}')
 
     return {
         'persisted': 'core_api',
@@ -110,38 +109,28 @@ def memory(
     target: Literal['memory', 'user'],
     suggestions: List[Suggestion],
 ) -> Dict[str, Any]:
-    """Record natural-language edit suggestions for the user's long-term
-    memory (``target='memory'``) or user profile / preference
-    (``target='user'``).
+    """为用户长期记忆（``target='memory'``）或用户画像/偏好（``target='user'``）记录自然语言修改建议。
 
-    Call this tool when, while handling the current query, you learn
-    something that should persist **across future sessions** — e.g. stable
-    facts about the user, their preferences, or durable working-memory
-    items the agent should remember next time. Each call accepts a batch
-    of at most 5 suggestions; every suggestion describes ONE change in
-    natural language and will be reviewed before being merged.
+    当你在处理当前问题时学到某些应当**跨未来会话持久保留**的信息时，调用该工具。
+    例如：关于用户的稳定事实、用户偏好，或智能体下次应记住的长期工作记忆条目。
+    每次调用最多提交 5 条建议；每条建议只描述一个修改点，并会在合并前经过审查。
 
-    Do **not** use this tool for one-off conversational notes, for
-    answering the current query, or to echo the final response back to
-    the user.
+    不要用该工具保存一次性对话笔记、回答当前问题的内容，或把最终回复原样回写给用户。
 
-    Args:
-        target: Which buffer the suggestions belong to. ``'memory'`` is the
-            agent's own long-term working memory; ``'user'`` is the user
-            profile / preference text.
-        suggestions: Ordered list of suggestions (max 5 per call). Each
-            item is a dict with the following fields:
+    参数：
+        target: 建议所属的缓冲区。``'memory'`` 表示智能体自己的长期工作记忆；
+            ``'user'`` 表示用户画像/偏好文本。
+        suggestions: 有序建议列表（每次最多 5 条）。每个元素是包含以下字段的字典：
 
-            - ``title`` (str, required): short label summarising the change.
-            - ``content`` (str, required): natural-language description of
-              the modification.
-            - ``reason`` (str, optional): rationale for the change.
+            - ``title`` (str, 必填): 对修改建议的简短标题。
+            - ``content`` (str, 必填): 对修改内容的自然语言说明。
+            - ``reason`` (str, 可选): 说明为什么需要该修改。
 
-    Returns:
-        A structured result with success status.
+    返回：
+        带有成功状态的结构化结果。
 
-        - success: ``{'success': True, 'result': {...}}``
-        - failure: ``{'success': False, 'reason': '...'}``
+        - 成功: ``{'success': True, 'result': {...}}``
+        - 失败: ``{'success': False, 'reason': '...'}``
     """
     def _ok(result: Dict[str, Any]) -> Dict[str, Any]:
         return {'success': True, 'result': result}
@@ -151,20 +140,20 @@ def memory(
 
     if target not in _TARGET_FILENAMES:
         return _fail(
-            f"Unknown target {target!r}; expected one of 'memory', 'user'."
+            f"未知 target：{target!r}；应为 'memory' 或 'user'。"
         )
     if not suggestions:
-        return _fail("'suggestions' must be a non-empty list.")
+        return _fail("'suggestions' 必须是非空列表。")
     if len(suggestions) > MAX_SUGGESTIONS_PER_CALL:
         return _fail(
-            f'At most {MAX_SUGGESTIONS_PER_CALL} suggestions are allowed per '
-            f'call; got {len(suggestions)}.'
+            f'每次最多允许提交 {MAX_SUGGESTIONS_PER_CALL} 条 suggestions；'
+            f'当前收到 {len(suggestions)} 条。'
         )
 
     agentic_config = _agentic_config()
     session_id = _session_id(agentic_config)
     if not session_id:
-        return _fail("'session_id' is required in agentic_config.")
+        return _fail("agentic_config 中缺少必需的 'session_id'。")
 
     endpoint = (
         '/memory/suggestion'
@@ -183,7 +172,7 @@ def memory(
     try:
         result.update(_post_core_api(endpoint, payload))
     except (requests.RequestException, RuntimeError) as exc:
-        lazyllm.LOG.error(f'Failed to submit memory suggestions: {exc}')
-        return _fail(f'Failed to submit memory suggestions: {exc}')
+        lazyllm.LOG.error(f'提交 memory 建议失败：{exc}')
+        return _fail(f'提交 memory 建议失败：{exc}')
 
     return _ok(result)
