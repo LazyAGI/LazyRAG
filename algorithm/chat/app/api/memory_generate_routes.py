@@ -41,7 +41,7 @@ class GeneratePayload(BaseModel):
         has_suggestions = bool(self.suggestions)
         has_user_instruct = bool(self.user_instruct and self.user_instruct.strip())
         if not has_suggestions and not has_user_instruct:
-            raise ValueError("必须至少提供 suggestions 或 user_instruct 其中之一。")
+            raise ValueError('必须至少提供 suggestions 或 user_instruct 其中之一。')
         return self
 
 
