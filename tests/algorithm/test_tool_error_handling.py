@@ -37,11 +37,12 @@ def test_skill_manage_returns_error_result_for_skill_index_exception(monkeypatch
         '_agentic_config',
         lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
     )
-    monkeypatch.setattr(skill_manager_mod, 'list_all_skills_with_category', raise_unexpected)
+    monkeypatch.setattr(skill_manager_mod, 'list_all_skill_entries', raise_unexpected)
 
     result = skill_manager_mod.skill_manage(
         'existing',
         'modify',
+        '',
         suggestions=[{'title': 'Update instructions', 'content': 'Tighten the wording.'}],
     )
 

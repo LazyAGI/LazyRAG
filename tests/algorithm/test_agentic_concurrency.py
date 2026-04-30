@@ -207,6 +207,29 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
         )
 
 
+def test_stream_clears_orphaned_lazyllm_queue_lock(fake_pipeline, monkeypatch, tmp_path):
+    fake_home = tmp_path / 'lazy-home'
+    fake_home.mkdir()
+    lock_path = fake_home / '.lazyllm_filesystem_queue.db.lock'
+    lock_path.write_text('')
+
+    monkeypatch.setattr(agentic, '_stream_frame', lambda **kwargs: kwargs)
+    monkeypatch.setattr(agentic, '_lazyllm_queue_db_path', lambda: fake_home / '.lazyllm_filesystem_queue.db')
+
+    lazyllm.globals._init_sid(sid='stream-stale-lock-session')
+    lazyllm.locals._init_sid(sid='stream-stale-lock-session')
+
+    async def _consume():
+        stream = agentic.agentic_rag({'query': 'hello'}, stream=True)
+        return [event async for event in stream]
+
+    events = asyncio.run(_consume())
+
+    assert isinstance(events, list)
+    assert fake_pipeline.observations
+    assert not lock_path.exists()
+
+
 def test_kb_tools_disabled_without_kb_id_or_files(fake_pipeline):
     lazyllm.globals._init_sid(sid='no-kb-session')
     lazyllm.locals._init_sid(sid='no-kb-session')
@@ -643,7 +666,6 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
             'skill_fs_url': 'file:///tmp/skills',
         },
         llm=object(),
-        sandbox=object(),
         keep_full_turns=3,
         history_snapshot=[],
         review_mode='skill',

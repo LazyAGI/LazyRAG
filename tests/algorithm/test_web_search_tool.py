@@ -1,16 +1,18 @@
 from httpx import ConnectError
+from lazyllm.module import ModuleBase
 
 from chat.tools import web_search as web_search_mod
 
 
-class _FakeProvider:
+class _FakeProvider(ModuleBase):
     def __init__(self, *, items=None, error=None, content=''):
+        super().__init__()
         self._items = list(items or [])
         self._error = error
         self._content = content
         self.calls = []
 
-    def search(self, query: str, **kwargs):
+    def forward(self, query: str, **kwargs):
         self.calls.append((query, kwargs))
         if self._error is not None:
             raise self._error
@@ -106,3 +108,37 @@ def test_web_search_explicit_source_keeps_no_results_without_fallback(monkeypatc
         'items': [],
     }
     assert provider.calls == [('test query', {'date_restrict': '', 'raise_on_error': True})]
+
+
+def test_arxiv_search_dispatches_through_module_call(monkeypatch):
+    provider = _FakeProvider(items=[{
+        'title': 'Arxiv',
+        'url': 'https://arxiv.org/abs/1234.5678',
+        'snippet': 'paper snippet',
+        'source': 'arxiv',
+    }])
+
+    monkeypatch.setattr(web_search_mod, '_agentic_config', lambda: {})
+    monkeypatch.setattr(web_search_mod, 'ArxivSearch', lambda **_kwargs: provider)
+
+    result = web_search_mod.arxiv_search('paper query', max_results=3, sort_by='submittedDate')
+
+    assert result == {
+        'success': True,
+        'status': 'ok',
+        'query': 'paper query',
+        'source': 'arxiv',
+        'sort_by': 'submittedDate',
+        'total': 1,
+        'items': [{
+            'title': 'Arxiv',
+            'url': 'https://arxiv.org/abs/1234.5678',
+            'snippet': 'paper snippet',
+            'source': 'arxiv',
+        }],
+    }
+    assert provider.calls == [('paper query', {
+        'max_results': 3,
+        'sort_by': 'submittedDate',
+        'raise_on_error': True,
+    })]

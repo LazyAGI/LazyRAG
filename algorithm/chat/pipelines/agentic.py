@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import sys
 import threading
@@ -239,6 +240,20 @@ def agentic_forward(
     return agent_output
 
 
+def _lazyllm_queue_db_path() -> Path:
+    from lazyllm.configs import config
+
+    home = Path(os.path.expanduser(config['home']))
+    return home / '.lazyllm_filesystem_queue.db'
+
+
+def _clear_orphaned_lazyllm_queue_lock() -> None:
+    db_path = _lazyllm_queue_db_path()
+    lock_path = Path(f'{db_path}.lock')
+    if lock_path.exists() and not db_path.exists():
+        lock_path.unlink(missing_ok=True)
+
+
 async def _agentic_forward_stream(
     query: str,
     history: list[dict[str, Any]],
@@ -253,6 +268,7 @@ async def _agentic_forward_stream(
 
     lazyllm.globals._init_sid(global_sid)
     lazyllm.locals._init_sid(local_sid)
+    _clear_orphaned_lazyllm_queue_lock()
     lazyllm.FileSystemQueue().clear()
     lazyllm.FileSystemQueue.get_instance('think').clear()
 

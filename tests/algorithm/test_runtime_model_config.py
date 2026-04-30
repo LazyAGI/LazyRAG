@@ -198,7 +198,10 @@ def test_inner_model_config_defaults_skill_fs_url_to_remote_skills(monkeypatch):
 
     config = load_model_config()
 
-    assert config['agentic']['skill_fs_url'] == 'remote://skills'
+    assert (
+        config['agentic']['skill_fs_url']
+        == 'remote://skills,/home/mnt/dengyuang/workspace/tyy/LazyRAG/algorithm/.agentic_rag/skills'
+    )
 
 
 def test_build_auto_model_uses_local_bgem3_embed():

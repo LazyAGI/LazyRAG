@@ -235,13 +235,13 @@ def _build_provider(config: Dict[str, Any], source: str, lang: str):
 
 def _search_provider(provider: Any, source: str, query: str, topk: int) -> List[Dict[str, Any]]:
     if source == 'wikipedia':
-        return provider.search(query, limit=topk, raise_on_error=True)[:topk]
+        return provider(query, limit=topk, raise_on_error=True)[:topk]
     if source == 'google':
-        return provider.search(query, date_restrict='', raise_on_error=True)[:topk]
+        return provider(query, date_restrict='', raise_on_error=True)[:topk]
     if source == 'bing':
-        return provider.search(query, count=topk, raise_on_error=True)[:topk]
+        return provider(query, count=topk, raise_on_error=True)[:topk]
     if source == 'bocha':
-        return provider.search(query, count=topk, summary=False, raise_on_error=True)[:topk]
+        return provider(query, count=topk, summary=False, raise_on_error=True)[:topk]
     raise ValueError(f'unsupported web_search source: {source}')
 
 
@@ -455,7 +455,7 @@ def arxiv_search(
     limit = max(1, min(int(max_results), 10))
     provider = ArxivSearch(timeout=timeout, source_name='arxiv')
     try:
-        items = provider.search(
+        items = provider(
             normalized_query,
             max_results=limit,
             sort_by=sort_by,

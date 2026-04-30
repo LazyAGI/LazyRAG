@@ -90,7 +90,7 @@ _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
     'get_skill': '获取技能详细信息失败',
     'read_reference': '没能读取参考资料',
     'run_script': '辅助脚本没能运行完成',
-    'read_file': '没能读取文件内容',
+    'read_file': '暂时没能读取文件内容',
     'list_dir': '没能获取文件夹内容',
     'search_in_files': '没能完成内容查找',
     'make_dir': '没能准备好文件夹',
