@@ -8,6 +8,7 @@ import (
 
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
+	"lazyrag/core/modelprovider"
 	"lazyrag/core/wordgroup"
 )
 
@@ -439,6 +440,12 @@ type listWordGroupsQueryParams struct {
 
 type listUserModelProvidersQueryParams struct {
 	Keyword string `query:"keyword"`
+}
+
+type checkModelProviderOpenAPIRequest struct {
+	ProviderName string `json:"provider_name"`
+	BaseURL      string `json:"base_url"`
+	APIKey       string `json:"api_key"`
 }
 
 type modelProviderGroupPathParams struct {
@@ -1451,6 +1458,15 @@ func registeredCoreOperations() []openAPIOperation {
 			Description: "Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.",
 			Tags:        []string{"model_providers"},
 			Responses:   map[int]openAPIResponse{200: resp("User model providers with groups", listUserModelProvidersOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/model_providers:check",
+			Summary:     "Check model provider connectivity",
+			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.",
+			Tags:        []string{"model_providers"},
+			RequestBody: jsonBodyOf(checkModelProviderOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("data contains only success (bool), mapped from algorithm /api/model/check", modelprovider.CheckModelProviderData{})},
 		},
 		{
 			Method:      "GET",
