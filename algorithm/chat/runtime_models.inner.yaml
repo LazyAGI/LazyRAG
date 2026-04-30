@@ -28,10 +28,11 @@ evo_llm:
   api_key: ${LAZYRAG_MAAS_API_KEY}
 
 evo_embed:
-    source: qwen
+    source: bgem3embed
     type: embed
-    model: text-embedding-v3
-    api_key: ${LAZYLLM_QWEN_API_KEY}
+    model: bgem3_emb_dense_custom
+    url: http://10.119.27.151:2269/embed
+    skip_auth: true
     index_kwargs:
       index_type: IVF_FLAT
       metric_type: COSINE
@@ -45,7 +46,6 @@ reranker:
   type: rerank
   model: Qwen3-Reranker-8B
   url: http://10.119.24.104:8331/v1/rerank
-  api_key: ${LAZYLLM_QWEN_API_KEY}
   skip_auth: true
 
 embeddings:

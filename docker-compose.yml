@@ -10,6 +10,7 @@ x-llm-api-keys: &llm-api-keys
   LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
   LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
   LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
+  LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
 
 
 x-upload-paths: &upload-paths
@@ -498,7 +499,8 @@ services:
       lazyllm-algo:
         condition: service_healthy
 
-  evo-api:
+  evo-api-host8049:
+    container_name: lazyrag-evo-api-host8049
     build:
       network: host
       context: .
@@ -522,7 +524,7 @@ services:
     expose:
       - "8047"
     ports:
-      - "8048:8047"
+      - "8049:8047"
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
@@ -533,10 +535,10 @@ services:
       EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
       EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
       EVO_EMBED_ROLE: ${EVO_EMBED_ROLE:-evo_embed}
-      EVO_KB_BASE_URL: http://doc-server:8000
-      EVO_CHUNK_BASE_URL: http://doc-server:8000
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-}
+      EVO_KB_BASE_URL: http://172.17.0.1:8055
+      EVO_CHUNK_BASE_URL: http://172.17.0.1:8055
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
+      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
       LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
       MAAS_BASE_URL: ${MAAS_BASE_URL:-}
       MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-}
@@ -553,7 +555,6 @@ services:
       NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       <<: *llm-api-keys
     volumes:
-      - ./evo:/app/evo:ro
       - /tmp/evo:/var/lib/lazyrag/evo
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}:ro
       - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro

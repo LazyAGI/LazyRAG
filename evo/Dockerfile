@@ -1,11 +1,15 @@
 FROM python:3.11-slim
 
 ARG OPENCODE_VERSION=1.14.28
+ARG OPENCODE_DOWNLOAD_PREFIX=https://gh-proxy.com/
 ARG TARGETARCH
-ARG LAZYLLM_GIT_URL=https://github.com/Mustafa974/LazyLLM.git
-ARG LAZYLLM_GIT_BRANCH=tracing_v3
+ARG LAZYLLM_GITHUB_REF=main
+ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+ARG PIP_DEFAULT_TIMEOUT=300
+ARG PIP_RETRIES=10
 ARG http_proxy
 ARG https_proxy
 ARG HTTP_PROXY
@@ -18,6 +22,9 @@ ENV PYTHONUNBUFFERED=1 \
     OPENCODE_BIN=/usr/local/bin/opencode \
     OPENCODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
     EVO_BASE_DIR=/var/lib/lazyrag/evo \
+    EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
+    LAZYRAG_USE_INNER_MODEL=true \
+    LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
     PYTHONPATH=/app
 
 RUN --mount=type=secret,id=apt_http_proxy,required=false \
@@ -49,9 +56,7 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     rm -f /etc/apt/apt.conf.d/99proxy; \
     rm -rf /var/lib/apt/lists/*
 
-# Editable install keeps repo-root pyproject.toml on disk; lazyllm.thirdparty resolves it via
-# parents[2] from lazyllm/thirdparty/__init__.py. Plain pip-from-git leaves site-packages without it.
-# Pip does not expose Poetry's [rag] extra; use upstream helper to install that group.
+# Keep LazyLLM on the official main branch while avoiding the C++ editable build path.
 RUN --mount=type=secret,id=apt_http_proxy,required=false \
     --mount=type=secret,id=apt_https_proxy,required=false \
     set -eu; \
@@ -59,12 +64,27 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     proxy_https="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
     export http_proxy="$proxy_http" https_proxy="$proxy_https"; \
     export HTTP_PROXY="$proxy_http" HTTPS_PROXY="$proxy_https"; \
-    git clone --branch "${LAZYLLM_GIT_BRANCH}" --depth 1 "${LAZYLLM_GIT_URL}" /opt/lazyllm; \
-    pip install --no-cache-dir -e /opt/lazyllm
-
-ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=300
-ARG PIP_RETRIES=10
+    export PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT}" PIP_RETRIES="${PIP_RETRIES}"; \
+    export PIP_DISABLE_PIP_VERSION_CHECK=1; \
+    curl -fL --http1.1 --no-progress-meter \
+      --retry 8 --retry-all-errors --retry-delay 3 \
+      --connect-timeout 30 --speed-limit 1024 --speed-time 60 --max-time 900 \
+      "${LAZYLLM_ARCHIVE_BASE}/${LAZYLLM_GITHUB_REF}" -o /tmp/lazyllm.tar.gz; \
+    mkdir -p /opt/lazyllm; \
+    tar -xzf /tmp/lazyllm.tar.gz -C /opt/lazyllm --strip-components=1; \
+    rm /tmp/lazyllm.tar.gz; \
+    pip install --no-cache-dir \
+      toml tqdm filelock pyyaml packaging \
+      "fastapi>=0.111.0" "loguru>=0.7.2" "pydantic>=2.11.7,<3.0.0" \
+      "requests>=2.32.2" "uvicorn>=0.23.2" "cloudpickle>=3.0.0" \
+      "docstring-parser>=0.16,<0.17" "json5>=0.9.25,<0.10.0" \
+      "pyjwt>=2.8.0" "psutil>=6.0.0,<7.0.0" "deepdiff>=8.6.1"; \
+    site_packages="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"; \
+    printf '/opt/lazyllm\n' > "${site_packages}/lazyllm-main.pth"; \
+    printf '%s\n' '#!/usr/bin/env sh' \
+      'PYTHONPATH="/opt/lazyllm:${PYTHONPATH:-}" exec python -m lazyllm.cli.main "$@"' \
+      > /usr/local/bin/lazyllm; \
+    chmod 0755 /usr/local/bin/lazyllm
 
 RUN --mount=type=secret,id=apt_http_proxy,required=false \
     --mount=type=secret,id=apt_https_proxy,required=false \
@@ -90,8 +110,11 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
       arm64) ARCH=arm64 ;; \
       *) echo "unsupported arch ${TARGETARCH}" && exit 1 ;; \
     esac; \
-    URL="https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz"; \
-    curl -fSL "$URL" -o /tmp/opencode.tar.gz; \
+    URL="${OPENCODE_DOWNLOAD_PREFIX}https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz"; \
+    curl -fL --http1.1 --no-progress-meter \
+      --retry 8 --retry-all-errors --retry-delay 3 \
+      --connect-timeout 30 --speed-limit 1024 --speed-time 60 --max-time 900 \
+      "$URL" -o /tmp/opencode.tar.gz; \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
     chmod 0755 /usr/local/bin/opencode; \
     rm /tmp/opencode.tar.gz; \
