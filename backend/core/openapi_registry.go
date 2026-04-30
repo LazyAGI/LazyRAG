@@ -1405,6 +1405,14 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "GET",
+			Path:        "/model_providers:with_groups",
+			Summary:     "List user model providers that have groups",
+			Description: "Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.",
+			Tags:        []string{"model_providers"},
+			Responses:   map[int]openAPIResponse{200: resp("User model providers with groups", listUserModelProvidersOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
 			Path:        "/model_providers/{model_provider_id}/groups",
 			Summary:     "List model provider connection groups",
 			Description: "Lists non-deleted groups for the user model provider. model_provider_id is the id from GET /model_providers. Each item includes api_key.",

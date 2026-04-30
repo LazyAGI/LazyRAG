@@ -73,6 +73,56 @@ func ListUserProviders(w http.ResponseWriter, r *http.Request) {
 	common.ReplyOK(w, listResponse{Providers: out})
 }
 
+// ListUserProvidersWithGroups returns user_model_providers rows that have at least one non-deleted
+// user_model_provider_groups row for the current user (distinct parent ids from groups, then load providers).
+func ListUserProvidersWithGroups(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	var providerIDs []string
+	if err := db.WithContext(r.Context()).Model(&orm.UserModelProviderGroup{}).
+		Where("create_user_id = ? AND deleted_at IS NULL", userID).
+		Distinct("user_model_provider_id").
+		Pluck("user_model_provider_id", &providerIDs).Error; err != nil {
+		common.ReplyErr(w, "list group parent ids failed", http.StatusInternalServerError)
+		return
+	}
+	if len(providerIDs) == 0 {
+		common.ReplyOK(w, listResponse{Providers: []listItem{}})
+		return
+	}
+
+	var rows []orm.UserModelProvider
+	if err := db.WithContext(r.Context()).
+		Where("id IN ? AND create_user_id = ? AND deleted_at IS NULL", providerIDs, userID).
+		Order("name ASC").
+		Find(&rows).Error; err != nil {
+		common.ReplyErr(w, "list model providers failed", http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]listItem, 0, len(rows))
+	for i := range rows {
+		row := rows[i]
+		out = append(out, listItem{
+			ID:                     row.ID,
+			DefaultModelProviderID: row.DefaultModelProviderID,
+			Name:                   row.Name,
+			Description:            row.Description,
+			BaseURL:                row.BaseURL,
+		})
+	}
+	common.ReplyOK(w, listResponse{Providers: out})
+}
+
 func seedUserProvidersIfEmpty(ctx context.Context, db *gorm.DB, userID, userName string) error {
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var n int64
