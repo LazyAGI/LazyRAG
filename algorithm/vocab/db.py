@@ -18,6 +18,7 @@ import shlex
 import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from lazyllm import LOG
 from sqlalchemy import create_engine, text
@@ -47,9 +48,18 @@ def _get_db_url() -> Optional[str]:
     return value if value and value.strip() else None
 
 
+def _ensure_postgres_driver(url: str) -> str:
+    normalized = url.strip()
+    parts = urlsplit(normalized)
+    scheme = (parts.scheme or '').lower()
+    if scheme in {'postgresql', 'postgres'}:
+        return urlunsplit((f'{scheme}+psycopg2', parts.netloc, parts.path, parts.query, parts.fragment))
+    return normalized
+
+
 def _dsn_to_sqlalchemy_url(dsn: str) -> str:
     if '://' in dsn:
-        return dsn.strip()
+        return _ensure_postgres_driver(dsn)
     parts: Dict[str, str] = {}
     for token in shlex.split(dsn):
         if '=' not in token:
@@ -68,7 +78,7 @@ def _dsn_to_sqlalchemy_url(dsn: str) -> str:
     except ValueError as exc:
         raise ValueError('invalid database port') from exc
     return str(URL.create(
-        'postgresql',
+        'postgresql+psycopg2',
         username=parts.get('user') or None,
         password=parts.get('password') or None,
         host=parts['host'],
@@ -81,7 +91,7 @@ def _normalize_pg_url(url: Optional[str] = None, dsn: Optional[str] = None) -> s
     if dsn and dsn.strip():
         return _dsn_to_sqlalchemy_url(dsn)
     if url and url.strip():
-        return url.strip()
+        return _ensure_postgres_driver(url)
     raise RuntimeError('postgres connection config is required')
 
 
