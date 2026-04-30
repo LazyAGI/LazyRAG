@@ -190,6 +190,7 @@ func registerAllRoutes(r *mux.Router) {
 
 	// ----- Model provider -----
 	handleAPI(r, "GET", "/model_providers", []string{}, modelprovider.ListUserProviders)
+	handleAPI(r, "POST", "/model_providers/{model_provider_id}/groups", []string{}, modelprovider.CreateGroup)
 
 	// ----- Prompttext -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)

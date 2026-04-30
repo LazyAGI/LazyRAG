@@ -441,6 +441,23 @@ type listUserModelProvidersQueryParams struct {
 	Keyword string `query:"keyword"`
 }
 
+type modelProviderGroupPathParams struct {
+	ModelProviderID string `path:"model_provider_id"`
+}
+
+type createModelProviderGroupOpenAPIRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
+type createModelProviderGroupOpenAPIResponse struct {
+	ID                  string `json:"id"`
+	UserModelProviderID string `json:"user_model_provider_id"`
+	Name                string `json:"name"`
+	BaseURL             string `json:"base_url"`
+}
+
 type userModelProviderOpenAPIItem struct {
 	ID                     string `json:"id"`
 	DefaultModelProviderID string `json:"default_model_provider_id"`
@@ -1358,6 +1375,16 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"model_providers"},
 			QueryParams: listUserModelProvidersQueryParams{},
 			Responses:   map[int]openAPIResponse{200: resp("User model provider list", listUserModelProvidersOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/model_providers/{model_provider_id}/groups",
+			Summary:     "Create model provider connection group",
+			Description: "Creates a group (name, base_url, optional api_key) under the given user model provider. model_provider_id is the id from GET /model_providers. The api_key is not returned in the response body.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupPathParams{},
+			RequestBody: jsonBodyOf(createModelProviderGroupOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created group", createModelProviderGroupOpenAPIResponse{})},
 		},
 		{
 			Method:    "GET",
