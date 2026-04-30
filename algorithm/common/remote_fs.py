@@ -12,22 +12,11 @@ from chat.utils.load_config import load_model_config
 from lazyllm.tools.fs import LazyLLMFSBase
 
 
-_DEFAULT_CORE_API_URL = 'http://core:8000'
-
-
 def _resolve_base_url() -> str:
-    try:
-        config = load_model_config()
-    except Exception:
-        return _DEFAULT_CORE_API_URL
-
+    config = load_model_config()
     agentic_config = config.get('agentic')
-    if not isinstance(agentic_config, dict):
-        return _DEFAULT_CORE_API_URL
-
     base_url = str(agentic_config.get('core_api_url') or '').strip()
-    return base_url or _DEFAULT_CORE_API_URL
-
+    return base_url
 
 def _resolve_session_id() -> str:
     config = lazyllm.globals.get('agentic_config') or {}

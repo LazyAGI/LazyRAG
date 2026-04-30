@@ -19,8 +19,6 @@ from lazyllm.tools.agent.functionCall import FunctionCall
 from lazyllm.tools.fs.client import FS
 from lazyllm.tools.sandbox.sandbox_base import create_sandbox  # noqa: F401
 
-base_dir = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(base_dir))
 
 from chat.components.agentic.config import (  # noqa: E402
     _build_runtime_system_prompt,

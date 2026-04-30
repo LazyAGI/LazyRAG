@@ -10,7 +10,7 @@ from chat.tools.skill_manager import _validate_skill_content
 MemoryType = Literal['skill', 'memory', 'user_preference']
 
 _MAX_GENERATE_ATTEMPTS = 3
-_JSON_BLOCK_RE = re.compile(r'```json\s*(\{.*\})\s*```', re.DOTALL)
+_JSON_BLOCK_RE = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
 _THINK_BLOCK_RE = re.compile(r'<think>.*?</think\s*>', re.DOTALL | re.IGNORECASE)
 
 

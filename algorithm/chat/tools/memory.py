@@ -8,7 +8,6 @@ from typing_extensions import TypedDict
 
 
 MAX_SUGGESTIONS_PER_CALL = 5
-DEFAULT_CORE_API_URL = 'http://10.119.24.129:9090'
 DEFAULT_CORE_API_TIMEOUT = 30
 
 _TARGET_FILENAMES: Dict[str, str] = {
@@ -59,7 +58,7 @@ def _agentic_config() -> Dict[str, Any]:
 
 def _core_api_base_url(agentic_config: Optional[Dict[str, Any]] = None) -> str:
     config = agentic_config if isinstance(agentic_config, dict) else _agentic_config()
-    return str(config.get('core_api_url') or DEFAULT_CORE_API_URL).rstrip('/')
+    return str(config.get('core_api_url'))
 
 
 def _core_api_endpoint(path: str, agentic_config: Optional[Dict[str, Any]] = None) -> str:
