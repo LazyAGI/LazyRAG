@@ -249,6 +249,7 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			seenRaw[eventKey] = struct{}{}
+			logUpstreamSSEData(":events", threadID, "", event.TaskID, event.EventName, event.RawFrame)
 
 			_, _, saveErr := saveThreadRecord(
 				db,

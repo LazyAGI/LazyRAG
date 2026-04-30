@@ -19,6 +19,7 @@ import (
 
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
+	"lazyrag/core/log"
 )
 
 const (
@@ -329,6 +330,31 @@ func extractAssistantTextFromFrameData(rawData string) string {
 		return ""
 	}
 	return extractPreferredText(payload, "delta", "reply", "message", "content", "text")
+}
+
+func logUpstreamSSEData(endpoint, threadID, roundID, taskID, eventName, rawData string) {
+	rawData = strings.TrimSpace(rawData)
+	event := log.Logger.Info().
+		Str("sse_endpoint", endpoint).
+		Str("thread_id", threadID).
+		Str("event_name", strings.TrimSpace(eventName)).
+		Int("data_bytes", len(rawData)).
+		Str("data", trimStreamLogData(rawData))
+	if roundID != "" {
+		event = event.Str("round_id", roundID)
+	}
+	if taskID != "" {
+		event = event.Str("task_id", taskID)
+	}
+	event.Msg("agent upstream sse data received")
+}
+
+func trimStreamLogData(rawData string) string {
+	const maxLogDataBytes = 512
+	if len(rawData) <= maxLogDataBytes {
+		return rawData
+	}
+	return rawData[:maxLogDataBytes] + "..."
 }
 
 func recordPayloadValue(record orm.AgentThreadRecord) any {
