@@ -117,11 +117,11 @@ func TestDecodeJSONArrayObjectsAllowsEmptyBody(t *testing.T) {
 	}
 }
 
-func TestThreadEventsURLUsesSinceZeroStreamFlag(t *testing.T) {
+func TestThreadEventsURLDoesNotForceSince(t *testing.T) {
 	t.Setenv("LAZYRAG_EVO_SERVICE_URL", "http://evo-service:8048/")
 
 	got := threadEventsURL("thr/1")
-	want := "http://evo-service:8048/v1/evo/threads/thr%2F1/events?since=0"
+	want := "http://evo-service:8048/v1/evo/threads/thr%2F1/events"
 	if got != want {
 		t.Fatalf("unexpected thread events URL:\nwant: %q\ngot:  %q", want, got)
 	}

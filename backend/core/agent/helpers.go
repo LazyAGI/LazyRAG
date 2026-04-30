@@ -71,7 +71,7 @@ func threadFlowStatusURL(threadID string) string {
 }
 
 func threadEventsURL(threadID string) string {
-	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/"+url.PathEscape(threadID)+"/events") + "?since=0"
+	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/"+url.PathEscape(threadID)+"/events")
 }
 
 func threadResultsURL(threadID, resultKind string) string {
