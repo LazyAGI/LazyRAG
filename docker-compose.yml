@@ -436,6 +436,8 @@ services:
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
       LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
+      LAZYRAG_OCR_PATCH_APPLIED: ${LAZYRAG_OCR_PATCH_APPLIED:-false}
+      LAZYRAG_OCR_SERVICE_VARIANT: ${LAZYRAG_OCR_SERVICE_VARIANT:-online}
       LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-}
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
