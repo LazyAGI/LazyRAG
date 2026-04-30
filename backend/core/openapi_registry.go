@@ -473,6 +473,21 @@ type deleteModelProviderGroupOpenAPIResponse struct {
 	ID string `json:"id"`
 }
 
+type addModelProviderGroupModelOpenAPIRequest struct {
+	Name      string `json:"name"`
+	ModelType string `json:"model_type"`
+}
+
+type addModelProviderGroupModelOpenAPIResponse struct {
+	ID                       string `json:"id"`
+	UserModelProviderID      string `json:"user_model_provider_id"`
+	UserModelProviderGroupID string `json:"user_model_provider_group_id"`
+	Name                     string `json:"name"`
+	ModelType                string `json:"model_type"`
+	ProviderName             string `json:"provider_name"`
+	BaseURL                  string `json:"base_url"`
+}
+
 type userModelProviderOpenAPIItem struct {
 	ID                     string `json:"id"`
 	DefaultModelProviderID string `json:"default_model_provider_id"`
@@ -1448,6 +1463,16 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"model_providers"},
 			PathParams:  modelProviderGroupByIDPathParams{},
 			Responses:   map[int]openAPIResponse{200: resp("Deleted group", deleteModelProviderGroupOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models",
+			Summary:     "Add custom model under a connection group",
+			Description: "Creates a user_model_provider_group_models row (custom model name and model_type). Name must be unique within the group among active rows. provider_name and base_url are taken from the user provider and group.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupByIDPathParams{},
+			RequestBody: jsonBodyOf(addModelProviderGroupModelOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created group model", addModelProviderGroupModelOpenAPIResponse{})},
 		},
 		{
 			Method:    "GET",
