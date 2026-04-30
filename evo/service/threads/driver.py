@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 import threading
 import time
 import uuid
@@ -261,9 +262,10 @@ def _thread_inputs(ws: ThreadWorkspace) -> dict:
 def _with_thread_inputs(args: dict, op_name: str, ws: ThreadWorkspace) -> dict:
     out = dict(args)
     inputs = _thread_inputs(ws)
-    if op_name == 'eval.run' and inputs.get('target_chat_url'):
-        out.setdefault('target_chat_url', inputs['target_chat_url'])
     if op_name == 'eval.run':
+        target_chat_url = inputs.get('target_chat_url') or os.getenv('EVO_TARGET_CHAT_URL', '')
+        if target_chat_url:
+            out.setdefault('target_chat_url', target_chat_url)
         dataset_name = inputs.get('dataset_name') or inputs.get('algo_id')
         if not dataset_name or str(dataset_name).startswith('ds_'):
             dataset_name = inputs.get('algo_id') or 'general_algo'

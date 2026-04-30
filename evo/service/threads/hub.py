@@ -268,7 +268,7 @@ def _latest_flow(rows: list[dict], flow: str) -> dict | None:
             return row
     return None
 def _task_is_executing(row: dict) -> bool:
-    return row.get('status') in {'queued', 'running', 'stopping', 'paused', 'failed_transient'}
+    return row.get('status') in {'queued', 'running', 'stopping', 'paused'}
 def _thread_runtime(ws) -> dict:
     try:
         return json.loads((ws.dir / 'runtime.json').read_text(encoding='utf-8'))
@@ -290,7 +290,7 @@ def _flow_status(runtime: dict, rows: list[dict], active_tasks: list[dict], chec
 def _latest_terminal_status(rows: list[dict]) -> str | None:
     for row in reversed(rows):
         status = row.get('status')
-        if status in {'failed_permanent', 'rejected'}:
+        if status in {'failed_permanent', 'failed_transient', 'rejected'}:
             return 'failed'
         if status == 'cancelled':
             return 'cancelled'
