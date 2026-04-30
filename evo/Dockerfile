@@ -10,12 +10,6 @@ ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 ARG PIP_DEFAULT_TIMEOUT=300
 ARG PIP_RETRIES=10
-ARG http_proxy
-ARG https_proxy
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \

@@ -499,8 +499,7 @@ services:
       lazyllm-algo:
         condition: service_healthy
 
-  evo-api-host8049:
-    container_name: lazyrag-evo-api-host8049
+  evo-api:
     build:
       network: host
       context: .
@@ -512,19 +511,13 @@ services:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
         PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
         PIP_RETRIES: ${PIP_RETRIES:-10}
-        http_proxy: ${http_proxy:-}
-        https_proxy: ${https_proxy:-}
-        HTTP_PROXY: ${HTTP_PROXY:-}
-        HTTPS_PROXY: ${HTTPS_PROXY:-}
-        no_proxy: ${no_proxy:-}
-        NO_PROXY: ${NO_PROXY:-}
       secrets:
         - apt_http_proxy
         - apt_https_proxy
     expose:
       - "8047"
     ports:
-      - "8049:8047"
+      - "8048:8047"
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
@@ -539,7 +532,6 @@ services:
       EVO_CHUNK_BASE_URL: http://172.17.0.1:8055
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
       LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
-      LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
       MAAS_BASE_URL: ${MAAS_BASE_URL:-}
       MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
