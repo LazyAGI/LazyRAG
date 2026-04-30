@@ -15,23 +15,23 @@ _THINK_BLOCK_RE = re.compile(r'<think>.*?</think\s*>', re.DOTALL | re.IGNORECASE
 
 
 class BadRequestError(ValueError):
-    """Raised when request body fields are missing or malformed."""
+    """当请求体字段缺失或格式错误时抛出。"""
 
 
 class UnprocessableContentError(ValueError):
-    """Raised when generated content is repeatedly invalid."""
+    """当模型多次生成无效内容时抛出。"""
 
 
 def _normalize_suggestions(raw_suggestions: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     if raw_suggestions is None:
         return []
     if not isinstance(raw_suggestions, list):
-        raise BadRequestError("'suggestions' must be an array when provided.")
+        raise BadRequestError("提供 'suggestions' 时，它必须是数组。")
 
     normalized: List[Dict[str, Any]] = []
     for idx, item in enumerate(raw_suggestions):
         if not isinstance(item, dict):
-            raise BadRequestError(f"'suggestions[{idx}]' must be an object.")
+            raise BadRequestError(f"'suggestions[{idx}]' 必须是对象。")
 
         title = item.get('title')
         content = item.get('content')
@@ -40,16 +40,16 @@ def _normalize_suggestions(raw_suggestions: Optional[List[Dict[str, Any]]]) -> L
 
         if not isinstance(title, str) or not title.strip():
             raise BadRequestError(
-                f"'suggestions[{idx}].title' must be a non-empty string."
+                f"'suggestions[{idx}].title' 必须是非空字符串。"
             )
         if not isinstance(content, str) or not content.strip():
             raise BadRequestError(
-                f"'suggestions[{idx}].content' must be a non-empty string."
+                f"'suggestions[{idx}].content' 必须是非空字符串。"
             )
         if reason is not None and not isinstance(reason, str):
-            raise BadRequestError(f"'suggestions[{idx}].reason' must be a string.")
+            raise BadRequestError(f"'suggestions[{idx}].reason' 必须是字符串。")
         if outdated is not None and not isinstance(outdated, bool):
-            raise BadRequestError(f"'suggestions[{idx}].outdated' must be a boolean.")
+            raise BadRequestError(f"'suggestions[{idx}].outdated' 必须是布尔值。")
 
         normalized_item: Dict[str, Any] = {
             'title': title.strip(),
@@ -77,28 +77,28 @@ def _extract_json_object(raw: Any) -> Dict[str, Any]:
         left = text.find('{')
         right = text.rfind('}')
         if left < 0 or right <= left:
-            raise UnprocessableContentError('Model output is not valid JSON.')
+            raise UnprocessableContentError('模型输出不是合法 JSON。')
         try:
             parsed = json.loads(text[left: right + 1])
         except json.JSONDecodeError as exc:
             raise UnprocessableContentError(
-                f'Model output is not valid JSON: {exc}'
+                f'模型输出不是合法 JSON：{exc}'
             ) from exc
 
     if not isinstance(parsed, dict):
-        raise UnprocessableContentError('Model output must be a JSON object.')
+        raise UnprocessableContentError('模型输出必须是 JSON 对象。')
     return parsed
 
 
 def _validate_generated_content(memory_type: MemoryType, content: Any) -> str:
     if not isinstance(content, str):
-        raise UnprocessableContentError("Generated field 'content' must be a string.")
+        raise UnprocessableContentError("生成字段 'content' 必须是字符串。")
 
     if memory_type == 'skill':
         validation_error = _validate_skill_content(content)
         if validation_error:
             raise UnprocessableContentError(
-                f'Generated SKILL.md is invalid: {validation_error}'
+                f'生成的 SKILL.md 无效：{validation_error}'
             )
     return content
 
@@ -118,14 +118,14 @@ def _format_inputs_block(
 ) -> str:
     sections = [
         '输入信息如下：\n'
-        '1) 当前 content（完整旧文本）：\n'
+        '1) 当前 content 字段（完整旧文本）：\n'
         f'{content}\n\n'
     ]
 
     next_index = 2
     if suggestions:
         sections.append(
-            f'{next_index}) suggestions（JSON 数组；每条可能包含 outdated 字段）：\n'
+            f'{next_index}) suggestions 字段（JSON 数组；每条可能包含 outdated 字段）：\n'
             '- outdated 为 TRUE 表示该建议已经过期，仅供参考；若对当前修改无意义，可以忽略。\n'
             '- outdated 为 FALSE 或缺失表示该建议仍有效，需要根据建议修改 content。\n'
             f'{json.dumps(suggestions, ensure_ascii=False)}\n\n'
@@ -134,7 +134,7 @@ def _format_inputs_block(
 
     if user_instruct:
         sections.append(
-            f'{next_index}) user_instruct（用户直接指令）：\n{user_instruct}\n\n'
+            f'{next_index}) user_instruct 字段（用户直接指令）：\n{user_instruct}\n\n'
         )
 
     return ''.join(sections)
@@ -144,7 +144,7 @@ def _normalize_user_instruct(raw_user_instruct: Any) -> Optional[str]:
     if raw_user_instruct is None:
         return None
     if not isinstance(raw_user_instruct, str):
-        raise BadRequestError("'user_instruct' must be a string when provided.")
+        raise BadRequestError("提供 'user_instruct' 时，它必须是字符串。")
 
     normalized = raw_user_instruct.strip()
     return normalized or None
@@ -271,7 +271,7 @@ def _build_generate_prompt(
     try:
         builder = _PROMPT_BUILDERS[memory_type]
     except KeyError as exc:
-        raise BadRequestError(f'Unsupported memory type: {memory_type!r}') from exc
+        raise BadRequestError(f'不支持的 memory_type：{memory_type!r}') from exc
     return builder(
         content=content,
         suggestions=suggestions,
@@ -292,13 +292,13 @@ class MemoryGeneratePipeline:
         user_instruct: Any,
     ) -> str:
         if not isinstance(content, str):
-            raise BadRequestError("'content' is required and must be a string.")
+            raise BadRequestError("'content' 是必填字段，且必须是字符串。")
 
         normalized_suggestions = _normalize_suggestions(suggestions)
         normalized_user_instruct = _normalize_user_instruct(user_instruct)
         if not normalized_suggestions and normalized_user_instruct is None:
             raise BadRequestError(
-                "At least one of 'suggestions' or 'user_instruct' must be provided."
+                "'suggestions' 和 'user_instruct' 至少需要提供一个。"
             )
 
         error: Optional[str] = None
@@ -318,7 +318,7 @@ class MemoryGeneratePipeline:
                 error = str(exc)
 
         raise UnprocessableContentError(
-            f'Failed to generate valid content after {_MAX_GENERATE_ATTEMPTS} attempts: {error}'
+            f'连续 {_MAX_GENERATE_ATTEMPTS} 次尝试后仍未生成合法内容：{error}'
         )
 
 

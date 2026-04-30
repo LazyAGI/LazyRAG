@@ -12,8 +12,8 @@ from chat.components.process.sensitive_filter import SensitiveFilter
 def create_app() -> FastAPI:
     """FastAPI 应用初始化与路由挂载；pipeline 在模块导入时由 ChatServer 注册。"""
     app = FastAPI(
-        title='LazyLLM Chat API',
-        description='基于知识库的对话 API 服务',
+        title='LazyLLM 对话 API',
+        description='基于知识库的对话服务 API',
         version='1.0.0',
     )
     from chat.app.api import chat_routes, health_routes, memory_generate_routes, vocab_routes
