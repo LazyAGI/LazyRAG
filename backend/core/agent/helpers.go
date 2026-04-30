@@ -71,7 +71,7 @@ func threadFlowStatusURL(threadID string) string {
 }
 
 func threadEventsURL(threadID string) string {
-	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/"+url.PathEscape(threadID)+"/events")
+	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/"+url.PathEscape(threadID)+"/events") + "?since=0"
 }
 
 func threadResultsURL(threadID, resultKind string) string {
@@ -414,7 +414,7 @@ func saveThreadRecord(
 ) (*orm.AgentThreadRecord, bool, error) {
 	now := time.Now().UTC()
 	recordKey := sha256Hex(rawFrame)
-	if streamKind == streamKindMessage {
+	if streamKind == streamKindMessage || streamKind == streamKindThreadEvent {
 		recordKey = newStreamRecordID()
 	}
 	record := orm.AgentThreadRecord{
@@ -453,11 +453,11 @@ func buildReplayFrame(record orm.AgentThreadRecord) string {
 	if record.StreamKind == streamKindMessage {
 		return buildDataSSEFrame(recordDataPayload(record))
 	}
-	return "id: " + record.ID + "\ndata: " + record.RawFrame + "\n\n"
+	return buildDataSSEFrame(record.RawFrame)
 }
 
 func buildThreadEventFrame(rawFrame string) string {
-	return "data: " + rawFrame + "\n\n"
+	return buildDataSSEFrame(rawFrame)
 }
 
 func buildDataSSEFrame(rawData string) string {
