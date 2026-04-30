@@ -213,12 +213,21 @@ func streamLocalFile(w http.ResponseWriter, fullPath, filename, fallbackContentT
 	w.Header().Del("ETag")
 	w.Header().Del("Last-Modified")
 	if inline {
-		w.Header().Set("Content-Disposition", `inline; filename="preview.pdf"`)
+		w.Header().Set("Content-Disposition", contentDispositionHeader("inline", name))
 	} else {
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+		w.Header().Set("Content-Disposition", contentDispositionHeader("attachment", name))
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, f)
+}
+
+func contentDispositionHeader(disposition, filename string) string {
+	name := strings.TrimSpace(filename)
+	if name == "" {
+		name = "download"
+	}
+	fallback := strings.NewReplacer("\\", "\\\\", `"`, `\"`, "\r", "", "\n", "").Replace(name)
+	return fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`, disposition, fallback, url.PathEscape(name))
 }
 
 func GetSignedStaticFile(w http.ResponseWriter, r *http.Request) {
@@ -264,16 +273,33 @@ func detectDocumentContentType(name, storedPath, fallback string) string {
 		return v
 	}
 	if ext := strings.TrimSpace(filepath.Ext(name)); ext != "" {
+		if ct := knownDocumentContentType(ext); ct != "" {
+			return ct
+		}
 		if ct := mime.TypeByExtension(strings.ToLower(ext)); ct != "" {
 			return ct
 		}
 	}
 	if ext := strings.TrimSpace(filepath.Ext(storedPath)); ext != "" {
+		if ct := knownDocumentContentType(ext); ct != "" {
+			return ct
+		}
 		if ct := mime.TypeByExtension(strings.ToLower(ext)); ct != "" {
 			return ct
 		}
 	}
 	return "application/octet-stream"
+}
+
+func knownDocumentContentType(ext string) string {
+	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case ".csv":
+		return "text/csv; charset=utf-8"
+	case ".tsv":
+		return "text/tab-separated-values; charset=utf-8"
+	default:
+		return ""
+	}
 }
 
 func loadDocumentFileMeta(ctx context.Context, datasetID, docID string) (orm.Document, documentExt, error) {

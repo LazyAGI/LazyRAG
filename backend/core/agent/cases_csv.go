@@ -364,6 +364,7 @@ func writeCaseCSVFile(csvBytes []byte, rowCount int, fieldName, threadID, result
 	if len(csvBytes) == 0 {
 		return nil, fmt.Errorf("csv content is empty")
 	}
+	csvBytes = ensureCSVUTF8BOM(csvBytes)
 	sum := sha256.Sum256(csvBytes)
 	digest := hex.EncodeToString(sum[:])
 	filename := fmt.Sprintf("%s_%s.csv", safeAgentResultPathPart(fieldName), digest[:12])
@@ -399,6 +400,17 @@ func writeCaseCSVFile(csvBytes []byte, rowCount int, fieldName, threadID, result
 		DownloadFileURL: downloadURL,
 		StoredPath:      fullPath,
 	}, nil
+}
+
+func ensureCSVUTF8BOM(csvBytes []byte) []byte {
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if bytes.HasPrefix(csvBytes, bom) {
+		return csvBytes
+	}
+	withBOM := make([]byte, 0, len(bom)+len(csvBytes))
+	withBOM = append(withBOM, bom...)
+	withBOM = append(withBOM, csvBytes...)
+	return withBOM
 }
 
 func signedFileDownloadURL(fileURL string) string {
