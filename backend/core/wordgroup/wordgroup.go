@@ -2,7 +2,6 @@ package wordgroup
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 	"lazyrag/core/log"
 	"lazyrag/core/store"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -143,7 +141,7 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	term := strings.TrimSpace(body.Term)
-	groupID := GenerateID()
+	groupID := common.GenerateID()
 	desc := strings.TrimSpace(body.Description)
 	ref := ""
 	src := normalizeSource("")
@@ -178,7 +176,7 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 	var createdAliases []CreatedAlias
 
 	err := store.DB().Transaction(func(tx *gorm.DB) error {
-		termID = GenerateID()
+		termID = common.GenerateID()
 		termRow := orm.Word{
 			ID:            termID,
 			Word:          term,
@@ -194,7 +192,7 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		for _, a := range aliases {
-			aid := GenerateID()
+			aid := common.GenerateID()
 			ar := orm.Word{
 				ID:            aid,
 				Word:          a,
@@ -324,7 +322,7 @@ func UpdateWordGroup(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt:      now,
 		}
 		for _, a := range aliases {
-			aid := GenerateID()
+			aid := common.GenerateID()
 			ar := orm.Word{
 				ID:            aid,
 				Word:          a,
@@ -916,7 +914,7 @@ func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 
 		if _, dup := existingWords[word]; !dup {
 			aliasRow := orm.Word{
-				ID:            GenerateID(),
+				ID:            common.GenerateID(),
 				Word:          word,
 				WordKind:      orm.WordKindAlias,
 				GroupID:       masterGID,
@@ -1212,10 +1210,4 @@ func normalizeSource(s string) string {
 	default:
 		return ""
 	}
-}
-
-// GenerateID returns a random 32-char hex id (UUID v4, no dashes). Each call is independent.
-func GenerateID() string {
-	u := uuid.New()
-	return hex.EncodeToString(u[:])
 }

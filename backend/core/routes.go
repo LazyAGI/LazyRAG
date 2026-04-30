@@ -8,6 +8,7 @@ import (
 	"lazyrag/core/evolution"
 	"lazyrag/core/file"
 	"lazyrag/core/memory"
+	"lazyrag/core/modelprovider"
 	"lazyrag/core/preference"
 	"lazyrag/core/skill"
 	"lazyrag/core/wordgroup"
@@ -186,6 +187,9 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "DELETE", "/word_group_conflict/{id}", []string{}, wordgroup.DeleteWordGroupConflict)
 	// Internal endpoint for algorithm service. Uses create_user_id in payload, no request auth headers.
 	handleAPI(r, "POST", "/inner/word_group:apply", []string{}, wordgroup.ApplyWordGroupAction)
+
+	// ----- Model provider -----
+	handleAPI(r, "GET", "/model_providers", []string{}, modelprovider.ListUserProviders)
 
 	// ----- Prompttext -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)

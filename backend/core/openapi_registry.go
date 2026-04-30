@@ -437,6 +437,22 @@ type listWordGroupsQueryParams struct {
 	PageSize  int32  `query:"page_size"`
 }
 
+type listUserModelProvidersQueryParams struct {
+	Keyword string `query:"keyword"`
+}
+
+type userModelProviderOpenAPIItem struct {
+	ID                     string `json:"id"`
+	DefaultModelProviderID string `json:"default_model_provider_id"`
+	Name                   string `json:"name"`
+	Description            string `json:"description"`
+	BaseURL                string `json:"base_url"`
+}
+
+type listUserModelProvidersOpenAPIResponse struct {
+	Providers []userModelProviderOpenAPIItem `json:"providers"`
+}
+
 type listTasksQueryParams struct {
 	PageToken   string `query:"page_token"`
 	PageSize    int32  `query:"page_size"`
@@ -1333,6 +1349,15 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"memory"},
 			RequestBody: jsonBodyOf(systemSuggestionOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Created memory suggestions", recordedSuggestionListOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers",
+			Summary:     "List user model providers",
+			Description: "Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).",
+			Tags:        []string{"model_providers"},
+			QueryParams: listUserModelProvidersQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("User model provider list", listUserModelProvidersOpenAPIResponse{})},
 		},
 		{
 			Method:    "GET",
