@@ -16,7 +16,7 @@ def create_app() -> FastAPI:
         description='Knowledge-base chat API service',
         version='1.0.0',
     )
-    from chat.app.api import chat_routes, health_routes, memory_generate_routes, vocab_routes
+    from chat.app.api import chat_routes, health_routes, memory_generate_routes
 
     app.include_router(health_routes.router)
     app.include_router(chat_routes.router)
