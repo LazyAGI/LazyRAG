@@ -60,6 +60,13 @@ func assertSignedStaticFileExists(t *testing.T, uploadRoot string, file *caseCSV
 	if stat.Size() != file.FileSize {
 		t.Fatalf("unexpected csv file size: metadata=%d actual=%d", file.FileSize, stat.Size())
 	}
+	raw, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("read csv file behind file_url: %v", err)
+	}
+	if !bytes.HasPrefix(raw, []byte{0xEF, 0xBB, 0xBF}) {
+		t.Fatalf("expected csv file to start with UTF-8 BOM for Excel compatibility")
+	}
 }
 
 func assertOnlyTopLevelFileURL(t *testing.T, payload any) {
@@ -480,6 +487,50 @@ func TestAttachCaseDetailsReportResultReadsCaseDetailsFromJSONPath(t *testing.T)
 	assertSignedStaticFileExists(t, uploadRoot, summary.CSVFile)
 	if !strings.Contains(summary.CSVFile.FileURL, "/static-files/agent-results/thr-1/eval-reports/") || !strings.Contains(summary.CSVFile.FileURL, "sig=") {
 		t.Fatalf("unexpected file url: %q", summary.CSVFile.FileURL)
+	}
+	assertOnlyTopLevelFileURL(t, item)
+}
+
+func TestAttachCaseDetailsReportResultReadsABTestCaseDetailsFromJSONPath(t *testing.T) {
+	uploadRoot := t.TempDir()
+	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	tmpDir := t.TempDir()
+	jsonPath := filepath.Join(tmpDir, "abtest_report.json")
+	if err := os.WriteFile(jsonPath, []byte(`{"case_details":[{"question":"q1","question_type":2,"doc_recall":0.5,"answer_correctness":1}]}`), 0o644); err != nil {
+		t.Fatalf("write abtest report json: %v", err)
+	}
+	item := map[string]any{
+		"abtest_id": "abtest_1",
+		"path":      jsonPath,
+	}
+	payload := []any{item}
+
+	summary, found, err := attachCaseDetailsReportResult(context.Background(), payload, caseDetailsReportOptions{
+		ThreadID:   "thr-1",
+		ResultKind: "abtests",
+	})
+	if err != nil {
+		t.Fatalf("attachCaseDetailsReportResult returned error: %v", err)
+	}
+	if !found || summary == nil || summary.TotalCount != 1 || summary.CSVFile == nil {
+		t.Fatalf("expected abtest case details summary from json path, got summary=%#v found=%v", summary, found)
+	}
+	if item["file_url"] != summary.CSVFile.FileURL {
+		t.Fatalf("expected top-level file_url to point at csv file, got %#v", item["file_url"])
+	}
+	responseSummary, ok := item[caseDetailsSummaryField].(*caseDetailsSummary)
+	if !ok || responseSummary == nil {
+		t.Fatalf("expected summary with averages to remain in abtest response item")
+	}
+	if responseSummary.CSVFile != nil {
+		t.Fatalf("expected summary to omit csv file metadata")
+	}
+	if responseSummary.TotalCount != 1 || len(responseSummary.QuestionTypes) != 1 {
+		t.Fatalf("unexpected abtest response summary: %#v", responseSummary)
+	}
+	assertSignedStaticFileExists(t, uploadRoot, summary.CSVFile)
+	if !strings.Contains(summary.CSVFile.FileURL, "/static-files/agent-results/thr-1/abtests/") || !strings.Contains(summary.CSVFile.FileURL, "sig=") {
+		t.Fatalf("unexpected abtest file url: %q", summary.CSVFile.FileURL)
 	}
 	assertOnlyTopLevelFileURL(t, item)
 }
