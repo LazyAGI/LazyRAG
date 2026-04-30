@@ -135,3 +135,84 @@ func AddGroupModel(w http.ResponseWriter, r *http.Request) {
 		BaseURL:                  row.BaseURL,
 	})
 }
+
+type deleteGroupModelResponse struct {
+	ID string `json:"id"`
+}
+
+// DeleteGroupModel soft-deletes one user_model_provider_group_models row under the given group.
+func DeleteGroupModel(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	parentID := strings.TrimSpace(mux.Vars(r)["model_provider_id"])
+	groupID := strings.TrimSpace(mux.Vars(r)["group_id"])
+	modelID := strings.TrimSpace(mux.Vars(r)["model_id"])
+	if parentID == "" || groupID == "" || modelID == "" {
+		common.ReplyErr(w, "missing model_provider_id, group_id, or model_id", http.StatusBadRequest)
+		return
+	}
+
+	var parent orm.UserModelProvider
+	err := db.WithContext(r.Context()).
+		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", parentID, userID).
+		Take(&parent).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "model provider not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query model provider failed", http.StatusInternalServerError)
+		return
+	}
+
+	var group orm.UserModelProviderGroup
+	err = db.WithContext(r.Context()).
+		Where("id = ? AND user_model_provider_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, parent.ID, userID).
+		Take(&group).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "group not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query group failed", http.StatusInternalServerError)
+		return
+	}
+
+	var row orm.UserModelProviderGroupModel
+	err = db.WithContext(r.Context()).
+		Where(
+			"id = ? AND user_model_provider_group_id = ? AND user_model_provider_id = ? AND create_user_id = ? AND deleted_at IS NULL",
+			modelID, group.ID, parent.ID, userID,
+		).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "model not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query model failed", http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now().UTC()
+	if err := db.WithContext(r.Context()).Model(&orm.UserModelProviderGroupModel{}).
+		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", row.ID, userID).
+		Updates(map[string]interface{}{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error; err != nil {
+		common.ReplyErr(w, "delete model failed", http.StatusInternalServerError)
+		return
+	}
+
+	common.ReplyOK(w, deleteGroupModelResponse{ID: modelID})
+}

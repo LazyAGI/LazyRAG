@@ -488,6 +488,16 @@ type addModelProviderGroupModelOpenAPIResponse struct {
 	BaseURL                  string `json:"base_url"`
 }
 
+type modelProviderGroupModelPathParams struct {
+	ModelProviderID string `path:"model_provider_id"`
+	GroupID         string `path:"group_id"`
+	ModelID         string `path:"model_id"`
+}
+
+type deleteModelProviderGroupModelOpenAPIResponse struct {
+	ID string `json:"id"`
+}
+
 type userModelProviderOpenAPIItem struct {
 	ID                     string `json:"id"`
 	DefaultModelProviderID string `json:"default_model_provider_id"`
@@ -1473,6 +1483,15 @@ func registeredCoreOperations() []openAPIOperation {
 			PathParams:  modelProviderGroupByIDPathParams{},
 			RequestBody: jsonBodyOf(addModelProviderGroupModelOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Created group model", addModelProviderGroupModelOpenAPIResponse{})},
+		},
+		{
+			Method:      "DELETE",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}",
+			Summary:     "Delete model under a connection group",
+			Description: "Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupModelPathParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Deleted group model", deleteModelProviderGroupModelOpenAPIResponse{})},
 		},
 		{
 			Method:    "GET",
