@@ -365,28 +365,35 @@ def web_search(
     lang: Literal['zh', 'en'] = 'zh',
     include_content: bool = False,
 ) -> Dict[str, Any]:
-    """当知识库检索不足时，补充检索公开网页信息。
+    """Search public web information as a supplement when knowledge-base
+    retrieval is insufficient.
 
-    应优先使用 `kb_search`。只有在知识库没有相关结果、返回证据明显不足，
-    或用户询问的是知识库外的公开信息时，才使用该工具。
+    Prefer `kb_search` first. Use this tool only when the knowledge base
+    has no relevant results, the returned evidence is clearly insufficient,
+    or the user is asking for public information outside the knowledge base.
 
-    该工具通过统一接口支持多个搜索源：`source='auto'|'wikipedia'|'google'|'bing'|'bocha'`。
-    在 `auto` 模式下，会按配置顺序依次尝试搜索源；未配置的搜索源会被跳过，
-    运行失败时会自动尝试下一个候选源，Wikipedia 始终作为最终兜底源追加。
+    This tool supports multiple providers through a single interface:
+    `source='auto'|'wikipedia'|'google'|'bing'|'bocha'`.
+    In `auto` mode, providers are tried in configured order. Unconfigured
+    providers are skipped, runtime failures fall through to the next
+    candidate, and Wikipedia is always appended as the final fallback.
 
-    参数：
-        query: 自然语言搜索查询。
-        source: 搜索源选择器。除非用户明确要求特定搜索源，否则使用 `auto`。
-        topk: 最多返回的结果条数。
-        lang: Wikipedia 兜底检索的首选语言。目前支持 `zh` 和 `en`。
-        include_content: 是否抓取并包含每条结果的页面内容。除非确实需要更多细节，否则保持为 `False`。
+    Args:
+        query: Natural-language search query.
+        source: Search provider selector. Use `auto` unless the user
+            explicitly needs a specific provider.
+        topk: Maximum number of result items to return.
+        lang: Preferred language for Wikipedia fallback. Currently supports
+            `zh` and `en`.
+        include_content: Whether to fetch and include page content for each
+            result item. Keep this `False` unless extra detail is necessary.
 
-    返回：
-        包含实际搜索源、查询和结果条目的紧凑字典。
+    Returns:
+        A compact dict containing the resolved provider, query, and items.
     """
     normalized_query = str(query or '').strip()
     if not normalized_query:
-        raise ValueError('query 是必填参数')
+        raise ValueError('query is required')
 
     config = _agentic_config()
     resolved_lang = _normalize_lang(lang)
@@ -433,22 +440,25 @@ def arxiv_search(
     include_content: bool = False,
     sort_by: Literal['relevance', 'lastUpdatedDate', 'submittedDate'] = 'relevance',
 ) -> Dict[str, Any]:
-    """针对论文标题、作者、摘要或 arXiv 编号等学术问题检索 arXiv 论文。
+    """Search arXiv papers for academic questions such as paper titles,
+    authors, abstracts, or arXiv identifiers.
 
-    当用户询问论文、研究主题或 arXiv 记录时，应优先使用该工具，而不是 `web_search`。
+    Prefer this tool over `web_search` when the user is asking about papers,
+    research topics, or arXiv records.
 
-    参数：
-        query: 论文标题、研究主题、作者关键词或 arXiv ID 相关文本。
-        max_results: 最多返回的结果条数。
-        include_content: 是否在返回结果中包含论文摘要文本。
-        sort_by: arXiv 排序字段。
+    Args:
+        query: Paper title, topic, author keywords, or arXiv id related text.
+        max_results: Maximum number of result items to return.
+        include_content: Whether to include the paper abstract text in the
+            returned items.
+        sort_by: arXiv sort field.
 
-    返回：
-        包含 arXiv 检索结果的紧凑字典。
+    Returns:
+        A compact dict with arXiv search results.
     """
     normalized_query = str(query or '').strip()
     if not normalized_query:
-        raise ValueError('query 是必填参数')
+        raise ValueError('query is required')
 
     config = _agentic_config()
     timeout = _config_int(config, 'arxiv_search_timeout', 15)
@@ -485,19 +495,20 @@ def arxiv_search(
 def url_fetch(
     url: str,
 ) -> Dict[str, Any]:
-    """抓取并整理公开网页中可读的正文内容。
+    """Fetch and summarize the readable content of a public web page.
 
-    当用户提供具体 URL，或搜索结果已经定位到需要直接查看的页面时，使用该工具。
+    Use this when the user provides a concrete URL or when search results
+    already identified a page that needs direct inspection.
 
-    参数：
-        url: 绝对 URL，或可规范化为 HTTPS 的域名/路径。
+    Args:
+        url: Absolute URL, or a domain/path that can be normalized to HTTPS.
 
-    返回：
-        包含页面元数据和抽取正文内容的紧凑字典。
+    Returns:
+        A compact dict containing page metadata and extracted text content.
     """
     normalized_url = _absolute_url(url)
     if not normalized_url:
-        raise ValueError('url 是必填参数')
+        raise ValueError('url is required')
 
     config = _agentic_config()
     timeout = _fetch_timeout(config)

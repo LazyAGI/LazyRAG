@@ -1,20 +1,21 @@
 ---
-description: 默认使用中文注释；Python 优先使用单引号
+description: Default comments in English; Python prefers single quotes
 alwaysApply: true
 ---
 
-# 编码规范
+# Coding Standards
 
-## 注释
+## Comments
 
-- 默认使用**中文**编写注释。
-- 注释应清晰、简洁，说明代码意图，避免重复代码本身。
+- Write all comments in **English**.
+- Use clear, concise language.
 
 ## Python
 
-- 当单引号和双引号都可用时，优先使用**单引号**（`'`）。
-- 示例：使用 `msg = 'hello'`，不要使用 `msg = "hello"`。
+- Prefer **single quotes** (`'`) for strings when both are valid.
+- Example: `msg = 'hello'` not `msg = "hello"`.
+
 
 ## Go
 
-- 修改 Go 代码后，请使用 `gofmt` 格式化。
+- use gofmt after modifying

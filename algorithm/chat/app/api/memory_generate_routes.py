@@ -41,7 +41,7 @@ class GeneratePayload(BaseModel):
         has_suggestions = bool(self.suggestions)
         has_user_instruct = bool(self.user_instruct and self.user_instruct.strip())
         if not has_suggestions and not has_user_instruct:
-            raise ValueError("必须至少提供 suggestions 或 user_instruct 其中之一。")
+            raise ValueError("At least one of 'suggestions' or 'user_instruct' must be provided.")
         return self
 
 
@@ -70,7 +70,7 @@ def _handle_generate(memory_type: MemoryType, payload: GeneratePayload):
     except UnprocessableContentError as exc:
         return _fail(422, str(exc))
     except Exception as exc:
-        return _fail(500, f'生成失败：{exc}')
+        return _fail(500, f'generate failed: {exc}')
 
 
 @router.post('/api/chat/skill/generate', summary='生成新的 skill content')

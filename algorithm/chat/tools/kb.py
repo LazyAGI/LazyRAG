@@ -70,7 +70,7 @@ def _parse_number_range(number: Any) -> tuple[int, int]:
 
     if isinstance(number, (list, tuple)):
         if len(number) != 2:
-            raise ValueError('number 范围必须是 [start, end]')
+            raise ValueError('number range must be [start, end]')
         start, end = int(number[0]), int(number[1])
     else:
         start = end = int(number)
@@ -141,7 +141,7 @@ def _normalize_es_url(url: Optional[str]) -> str:
 def _resolve_kb_name(config: Dict[str, Any]) -> str:
     resolved = config.get('kb_name')
     if not resolved:
-        raise ValueError('agentic_config 中没有 kb_name 时，必须显式提供 kb_name')
+        raise ValueError('kb_name is required when it is not available in agentic_config')
     return resolved
 
 
@@ -163,7 +163,7 @@ def _resolve_kb_id(config: Dict[str, Any]) -> Optional[str]:
 def _resolve_index(config: Dict[str, Any], group: str) -> str:
     group = (group or 'block').strip()
     if group not in ('block', 'line'):
-        raise ValueError("group 必须是 'block' 或 'line'")
+        raise ValueError("group must be either 'block' or 'line'")
     return f'col_{_resolve_kb_name(config)}_{group}'
 
 
@@ -387,44 +387,57 @@ def kb_search(
     filters: Optional[Dict[str, Any]] = None,
     files: Optional[List[str]] = None,
 ) -> Any:
-    """检索知识库或用户临时上传的文档，并返回检索结果。
+    """Search the knowledge base or uploaded temporary documents and return retrieval results.
 
-    工具会根据 `files` 是否非空自动选择两条检索分支：
+    The pipeline automatically selects one of two retrieval branches based on
+    whether `files` is non-empty:
 
-    分支 A：临时文件检索（提供 `files` 时）：
-        在指定的上传文件 ID 上运行 TempDocRetriever。若用户问题针对当前会话上传的文件，
-        而不是持久化知识库，应使用该分支。
+    Branch A — Temporary-file retrieval (when `files` is provided):
+        Runs TempDocRetriever over the specified uploaded file IDs. Use this
+        branch when the user's question is about files they uploaded in the
+        current session rather than the persistent knowledge base.
 
-    分支 B：知识库检索（`files` 为空或未提供时）：
-        执行多路知识库检索（稠密 + 稀疏、多粒度），随后进行 RRF 融合、重排、
-        自适应 top-k 选择和上下文扩展。若用户问题针对知识库内容，应使用该分支。
+    Branch B — Knowledge-base retrieval (when `files` is empty or omitted):
+        Runs multi-route KB retrieval (dense + sparse, multiple granularities),
+        followed by RRF fusion, reranking, adaptive-k selection, and context
+        expansion. Use this branch for questions about the knowledge base.
 
-    两条分支共享同一套重排、自适应 top-k 和上下文扩展阶段，因此 `topk` 与 `k_max`
-    对两条分支都生效。
+    Both branches share the same reranker, adaptive-k, and context-expansion
+    stages, so `topk` and `k_max` apply to both.
 
-    参数：
-        query: 用于检索的自然语言查询文本。
-        retriever_configs: 多路检索器配置列表。仅对分支 B（知识库检索）有效。
-            若为 None，则回退到运行时配置中的 `retrieval.retriever_configs`。
-            每个元素是一个字典，包含以下字段：
-            - group_name (str, 必填)：检索粒度，只能是 'line'（句子级）或 'block'（段落级）。
-            - embed_keys (List[str], 必填)：该路检索使用的 embedding 模型键，必须与运行时
-              配置中 `embeddings` 下声明的键一致，例如 ['embed_1'] 表示稠密检索，
-              ['embed_2'] 表示稀疏检索。
-            - topk (int, 可选)：融合前该路召回的候选节点数，默认 20。
-            - target (str, 可选)：检索后的跨粒度目标分组，例如 group_name 为 'line' 时
-              可设为 'block'，用于把命中的行提升到父 block。
-            也可以在每个字典中加入 `lazyllm.Retriever` 支持的其他关键字参数。
-        topk: 最终重排 top-k，用于限制重排后返回的节点数量，默认 20。
-        k_max: 自适应 top-k 阶段的硬上限，该阶段会根据 token 预算动态裁剪结果，默认 10。
-        filters: 应用于知识库检索器的元数据过滤条件（仅分支 B 有效）。例如
-            {'file_name': 'report.pdf'} 会把检索限制在单个文件内。当提供 `files` 时忽略该参数。
-        files: 临时文件 ID 列表（由用户在当前会话上传）。非空时切换到分支 A
-            （TempDocRetriever）。默认读取 `agentic_config['temp_files']` 中的当前会话上传文件；
-            可显式传入列表覆盖默认值，或传入 [] 强制使用分支 B。
+    Args:
+        query: Natural language query text used for retrieval.
+        retriever_configs: Multi-route retriever configuration list. Only
+            relevant for Branch B (KB retrieval). If None, falls back to
+            `retrieval.retriever_configs` from runtime config.
+            Each item is a dict with the following fields:
+            - group_name (str, required): retrieval granularity, either
+              'line' (sentence-level) or 'block' (paragraph-level).
+            - embed_keys (List[str], required): embedding model keys for this
+              route. Must match keys declared under `embeddings` in the runtime
+              config (e.g. ['embed_1'] for dense, ['embed_2'] for sparse).
+            - topk (int, optional): number of candidate nodes fetched by this
+              route before fusion. Defaults to 20.
+            - target (str, optional): cross-granularity target group applied
+              after retrieval, e.g. 'block' when group_name is 'line' to
+              promote line hits to their parent blocks.
+            Extra keyword arguments accepted by `lazyllm.Retriever` can also
+            be included in each dict.
+        topk: Final reranker top-k; limits the number of nodes returned after
+            reranking. Defaults to 20.
+        k_max: Hard upper bound on the adaptive-k stage, which dynamically
+            trims results to fit within a token budget. Defaults to 10.
+        filters: Metadata filters applied to KB retrievers (Branch B only).
+            E.g. {'file_name': 'report.pdf'} restricts retrieval to a single
+            file. Ignored when `files` is provided (Branch A).
+        files: List of temporary file IDs (uploaded by the user in the current
+            session). When non-empty, the pipeline switches to Branch A
+            (TempDocRetriever). Defaults to the session's uploaded file list
+            from `agentic_config['temp_files']`; pass an explicit list to
+            override, or pass [] to force Branch B even when temp files exist.
 
-    返回：
-        `get_ppl_search(...)(payload)` 返回的检索结果。
+    Returns:
+        Retrieval results returned by `get_ppl_search(...)(payload)`.
     """
     agentic_config = lazyllm.globals.get('agentic_config') or {}
     kb_url = agentic_config.get('kb_url')
@@ -453,16 +466,18 @@ def kb_search(
 @fc_register('tool', execute_in_sandbox=False)
 @_handle_tool_errors
 def kb_get_parent_node(node_id: str) -> Dict[str, Any]:
-    """根据节点 ID 获取目标节点的父节点。
+    """Get the parent node of a target node by node id.
 
-    参数：
-        node_id: 目标节点 ID。可以匹配 OpenSearch 文档 ID，也可以匹配节点的 ``uid`` 字段。
+    Args:
+        node_id: Target node id. It can match either the OpenSearch document
+            id or the node ``uid`` field.
 
-    返回：
-        如果当前节点存在父节点且能够找到，则返回匹配到的父节点。
+    Returns:
+        The matched parent node, if the current node has a parent and the
+        parent can be found.
     """
     if not node_id:
-        raise ValueError('node_id 是必填参数')
+        raise ValueError('node_id is required')
 
     config = _agentic_config()
     current_hit = _find_node_by_id(node_id, config)
@@ -504,27 +519,28 @@ def kb_get_window_nodes(
     number: Any,
     group: str = 'block',
 ) -> Dict[str, Any]:
-    """使用 LazyLLM Document 按编号读取目标文档中的节点。
+    """Get nodes by number in a target document using LazyLLM Document.
 
-    参数：
-        docid: 目标文档 ID。
-        number: 节点编号或闭区间编号范围。传入 int 表示读取单个节点；传入
-            ``[start, end]`` 或 ``"start,end"`` 表示读取该范围内所有节点。
-        group: 节点分组，只能是 ``block`` 或 ``line``。
+    Args:
+        docid: Target document id.
+        number: Node number or inclusive number range. Pass an int for one
+            node, or ``[start, end]`` / ``"start,end"`` for all nodes in that
+            range.
+        group: Node group, either ``block`` or ``line``.
 
-    返回：
-        仅包含节点编号和内容的紧凑字典。
+    Returns:
+        A compact dict with node numbers and contents only.
     """
     if not docid:
-        raise ValueError('docid 是必填参数')
+        raise ValueError('docid is required')
     if number is None:
-        raise ValueError('number 是必填参数')
+        raise ValueError('number is required')
 
     start, end = _parse_number_range(number)
 
     numbers = set(range(start, end + 1))
     if len(numbers) > _MAX_RESULT_ITEMS:
-        raise ValueError(f'number 范围不能超过 {_MAX_RESULT_ITEMS} 个节点')
+        raise ValueError(f'number range cannot exceed {_MAX_RESULT_ITEMS} nodes')
 
     config = _agentic_config()
     kb_id = _resolve_kb_id(config)
@@ -561,23 +577,24 @@ def kb_keyword_search(
     size: int = 10,
     sort_by: str = 'score',
 ) -> Dict[str, Any]:
-    """在 OpenSearch 中检索某个目标文档内的关键词。
+    """Search a keyword inside one target document in OpenSearch.
 
-    参数：
-        keyword: 要在 ``content`` 字段中检索的关键词或短语。
-        docid: 目标文档 ID。
-        group: 检索粒度，只能是 ``block`` 或 ``line``。
-        phrase: 为 true 时使用 ``match_phrase``，否则使用 ``match``。
-        size: 最大命中数量。
-        sort_by: ``score`` 表示按相关性优先排序，``number`` 表示按文档顺序排序。
+    Args:
+        keyword: Keyword or phrase to search in ``content``.
+        docid: Target document id.
+        group: Search granularity, either ``block`` or ``line``.
+        phrase: Use ``match_phrase`` when true, otherwise ``match``.
+        size: Maximum number of hits.
+        sort_by: ``score`` for relevance first, or ``number`` for document
+            order.
 
-    返回：
-        返回匹配节点、内容片段以及 OpenSearch 高亮结果。
+    Returns:
+        Matching nodes with content snippets and OpenSearch highlights.
     """
     if not keyword:
-        raise ValueError('keyword 是必填参数')
+        raise ValueError('keyword is required')
     if not docid:
-        raise ValueError('docid 是必填参数')
+        raise ValueError('docid is required')
 
     config = _agentic_config()
     kb_id = _resolve_kb_id(config)
