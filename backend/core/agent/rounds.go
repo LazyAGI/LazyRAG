@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -99,7 +98,7 @@ func listThreadHistory(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	threadEvents := loadThreadHistoryEvents(r.Context(), r, db, threadID)
+	threadEvents := loadThreadHistoryEvents(db, threadID)
 
 	common.ReplyOK(w, threadHistoryResponse{
 		ThreadID:     threadID,
@@ -156,22 +155,7 @@ func listThreadRounds(db *gorm.DB, threadID string) ([]orm.AgentThreadRound, err
 	return rounds, nil
 }
 
-func loadThreadHistoryEvents(ctx context.Context, r *http.Request, db *gorm.DB, threadID string) []threadEventHistoryResponse {
-	events, err := fetchThreadEvents(ctx, r, threadID)
-	if err == nil {
-		items := make([]threadEventHistoryResponse, 0, len(events))
-		for _, event := range events {
-			items = append(items, threadEventHistoryResponse{
-				ThreadID:  threadID,
-				TaskID:    event.TaskID,
-				EventName: event.EventName,
-				Payload:   parseJSONValue(event.RawFrame),
-				RawFrame:  event.RawFrame,
-			})
-		}
-		return items
-	}
-
+func loadThreadHistoryEvents(db *gorm.DB, threadID string) []threadEventHistoryResponse {
 	var records []orm.AgentThreadRecord
 	if dbErr := db.Where("thread_id = ? AND stream_kind = ?", threadID, streamKindThreadEvent).Order("id ASC").Find(&records).Error; dbErr != nil {
 		return nil

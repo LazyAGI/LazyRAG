@@ -220,6 +220,13 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resp, err := openThreadEventsStream(r.Context(), r, threadID)
+	if err != nil {
+		common.ReplyErrWithData(w, "open upstream thread events stream failed", map[string]any{"detail": err.Error()}, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
 	flusher, ok := ensureSSEHeaders(w)
 	if !ok {
 		common.ReplyErr(w, "streaming not supported", http.StatusInternalServerError)
@@ -227,66 +234,8 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 
-	seenRaw := make(map[string]struct{})
-	for {
-		if r.Context().Err() != nil {
-			return
-		}
-
-		events, err := fetchThreadEvents(r.Context(), r, threadID)
-		if err != nil {
-			log.Logger.Warn().Err(err).Str("thread_id", threadID).Msg("sync thread events failed")
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		for _, event := range events {
-			if shouldSkipStreamData(event.EventName, parseJSONValue(event.RawFrame), event.RawFrame) {
-				continue
-			}
-			eventKey := sha256Hex(event.RawFrame)
-			if _, ok := seenRaw[eventKey]; ok {
-				continue
-			}
-			seenRaw[eventKey] = struct{}{}
-			logUpstreamSSEData(":events", threadID, "", event.TaskID, event.EventName, event.RawFrame)
-
-			_, _, saveErr := saveThreadRecord(
-				db,
-				threadID,
-				"",
-				event.TaskID,
-				streamKindThreadEvent,
-				event.EventName,
-				event.RawFrame,
-				event.RawFrame,
-			)
-			if saveErr != nil {
-				log.Logger.Warn().Err(saveErr).Str("thread_id", threadID).Msg("save thread event record failed")
-			}
-
-			if event.TaskID != "" {
-				_ = db.Model(&orm.AgentThread{}).
-					Where("thread_id = ?", threadID).
-					Updates(map[string]any{
-						"current_task_id": event.TaskID,
-						"updated_at":      time.Now().UTC(),
-					}).Error
-			}
-
-			_, _ = io.WriteString(w, buildThreadEventFrame(event.RawFrame))
-			flusher.Flush()
-		}
-
-		flowStatus, flowErr := fetchThreadFlowStatus(r.Context(), r, threadID)
-		if flowErr != nil {
-			log.Logger.Warn().Err(flowErr).Str("thread_id", threadID).Msg("fetch thread flow status failed")
-		} else if !strings.EqualFold(strings.TrimSpace(flowStatus.Status), "running") {
-			writeNamedSSE(w, flusher, "thread.stop", flowStatus)
-			return
-		}
-
-		time.Sleep(2 * time.Second)
+	if err := streamUpstreamThreadEvents(r.Context(), w, flusher, db, threadID, resp.Body); err != nil {
+		log.Logger.Warn().Err(err).Str("thread_id", threadID).Msg("consume upstream thread events stream failed")
 	}
 }
 
@@ -433,60 +382,83 @@ type fetchedThreadEvent struct {
 	RawFrame  string
 }
 
-func fetchThreadEvents(ctx context.Context, r *http.Request, threadID string) ([]fetchedThreadEvent, error) {
-	headers := forwardedUpstreamHeaders(r)
-	eventsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(eventsCtx, http.MethodGet, threadEventsURL(threadID), nil)
+func openThreadEventsStream(ctx context.Context, r *http.Request, threadID string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, threadEventsURL(threadID), nil)
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range headers {
+	for key, value := range forwardedUpstreamHeaders(r) {
+		if strings.EqualFold(key, "Accept") {
+			continue
+		}
 		req.Header.Set(key, value)
 	}
-	req.Header.Set("Accept", "text/event-stream, application/json")
+	req.Header.Set("Accept", "text/event-stream")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%s", strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("upstream returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
-		return readUpstreamSSEEvents(eventsCtx, resp.Body)
-	}
-
-	upstreamRaw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	events, err := decodeJSONArrayObjects(upstreamRaw)
-	if err != nil {
-		return nil, err
-	}
-	return buildFetchedThreadEvents(events)
+	return resp, nil
 }
 
-func readUpstreamSSEEvents(ctx context.Context, body io.Reader) ([]fetchedThreadEvent, error) {
+func streamUpstreamThreadEvents(
+	ctx context.Context,
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	db *gorm.DB,
+	threadID string,
+	body io.Reader,
+) error {
 	reader := bufio.NewReader(body)
-	events := make([]fetchedThreadEvent, 0)
 	for {
 		frame, err := readSSEFrame(reader)
 		if err != nil {
 			if err == io.EOF || ctx.Err() != nil {
-				return events, nil
+				return nil
 			}
-			return nil, err
+			return err
 		}
-		if event, ok := fetchedThreadEventFromSSEFrame(frame); ok {
-			events = append(events, event)
+		event, ok := fetchedThreadEventFromSSEFrame(frame)
+		if !ok {
+			if strings.TrimSpace(frame.Data) == "[DONE]" {
+				return nil
+			}
+			continue
 		}
+
+		logUpstreamSSEData(":events", threadID, "", event.TaskID, event.EventName, event.RawFrame)
+		if _, _, saveErr := saveThreadRecord(
+			db,
+			threadID,
+			"",
+			event.TaskID,
+			streamKindThreadEvent,
+			event.EventName,
+			event.RawFrame,
+			event.RawFrame,
+		); saveErr != nil {
+			log.Logger.Warn().Err(saveErr).Str("thread_id", threadID).Msg("save thread event record failed")
+		}
+
+		updates := map[string]any{
+			"status":     "event_streaming",
+			"updated_at": time.Now().UTC(),
+		}
+		if event.TaskID != "" {
+			updates["current_task_id"] = event.TaskID
+		}
+		_ = db.Model(&orm.AgentThread{}).Where("thread_id = ?", threadID).Updates(updates).Error
+
+		_, _ = io.WriteString(w, buildThreadEventFrame(event.RawFrame))
+		flusher.Flush()
 	}
 }
 

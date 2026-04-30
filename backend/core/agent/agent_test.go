@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -113,6 +114,16 @@ func TestDecodeJSONArrayObjectsAllowsEmptyBody(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected empty slice for empty body, got %d items", len(items))
+	}
+}
+
+func TestThreadEventsURLUsesSinceZeroStreamFlag(t *testing.T) {
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", "http://evo-service:8048/")
+
+	got := threadEventsURL("thr/1")
+	want := "http://evo-service:8048/v1/evo/threads/thr%2F1/events?since=0"
+	if got != want {
+		t.Fatalf("unexpected thread events URL:\nwant: %q\ngot:  %q", want, got)
 	}
 }
 
@@ -535,7 +546,7 @@ func TestAttachCaseDetailsReportResultReadsABTestCaseDetailsFromJSONPath(t *test
 	assertOnlyTopLevelFileURL(t, item)
 }
 
-func TestSaveThreadRecordDeduplicatesSameRawFrame(t *testing.T) {
+func TestSaveThreadRecordKeepsDuplicateThreadEventFrames(t *testing.T) {
 	db := newAgentTestDB(t)
 
 	first, created, err := saveThreadRecord(db.DB, "thr_1", "round_1", "task_1", streamKindThreadEvent, "dataset.complete", `{"seq":1}`, `{"seq":1}`)
@@ -550,11 +561,11 @@ func TestSaveThreadRecordDeduplicatesSameRawFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second save returned error: %v", err)
 	}
-	if created {
-		t.Fatalf("expected duplicate save to be deduplicated")
+	if !created {
+		t.Fatalf("expected duplicate thread event frame to be preserved")
 	}
-	if first.ID != second.ID {
-		t.Fatalf("expected duplicate save to return original record id, got %q vs %q", first.ID, second.ID)
+	if first.ID == second.ID {
+		t.Fatalf("expected duplicate thread event frame to get a new record id")
 	}
 }
 
@@ -639,9 +650,12 @@ func TestBuildReplayFrameForThreadEventUsesJSONLineData(t *testing.T) {
 	}
 
 	frame := buildReplayFrame(record)
-	expected := "id: 0001\ndata: {\"seq\":1,\"kind\":\"user.message\"}\n\n"
+	expected := "data: {\"seq\":1,\"kind\":\"user.message\"}\n\n"
 	if frame != expected {
 		t.Fatalf("unexpected task event replay frame:\nwant: %q\ngot:  %q", expected, frame)
+	}
+	if strings.Contains(frame, "\nid:") || strings.HasPrefix(frame, "id:") {
+		t.Fatalf("thread event replay frame must not include SSE id: %q", frame)
 	}
 }
 
@@ -653,6 +667,35 @@ func TestBuildThreadEventFrameOmitsSSEID(t *testing.T) {
 	}
 	if strings.Contains(frame, "\nid:") || strings.HasPrefix(frame, "id:") {
 		t.Fatalf("thread event frame must not include SSE id: %q", frame)
+	}
+}
+
+func TestStreamUpstreamThreadEventsForwardsDuplicateFrames(t *testing.T) {
+	db := newAgentTestDB(t)
+	rec := httptest.NewRecorder()
+	body := strings.NewReader(strings.Join([]string{
+		"event: message\ndata: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n",
+		"event: message\ndata: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n",
+	}, ""))
+
+	if err := streamUpstreamThreadEvents(context.Background(), rec, rec, db.DB, "thr_1", body); err != nil {
+		t.Fatalf("streamUpstreamThreadEvents returned error: %v", err)
+	}
+
+	want := "data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n" +
+		"data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("unexpected forwarded stream:\nwant: %q\ngot:  %q", want, got)
+	}
+
+	var count int64
+	if err := db.DB.Model(&orm.AgentThreadRecord{}).
+		Where("thread_id = ? AND stream_kind = ?", "thr_1", streamKindThreadEvent).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count saved records: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected both duplicate thread event frames to be saved, got %d", count)
 	}
 }
 
