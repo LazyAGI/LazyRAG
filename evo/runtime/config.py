@@ -117,6 +117,8 @@ class EvalRunConfig:
     token: str = ''
     mock_path: str = ''
     target_chat_url: str = ''
+
+
 @dataclass(frozen=True)
 class EvoConfig:
     data_dir: Path
@@ -180,8 +182,18 @@ def load_config(
         enable_embed_features=os.getenv('EVO_ANALYSIS_ENABLE_EMBED_FEATURES', '').lower() in {'1', 'true', 'yes', 'on'},
     )
     chat_source = Path(os.getenv('EVO_CHAT_SOURCE', str(project_root / 'algorithm' / 'chat')))
-    dataset_gen = DatasetGenConfig(kb_base_url=os.getenv('EVO_KB_BASE_URL', 'http://localhost:8055'), chunk_base_url=os.getenv('EVO_CHUNK_BASE_URL', 'http://localhost:8055'), max_workers=int(os.getenv('EVO_DATASETGEN_MAX_WORKERS', '5')))
-    eval_run = EvalRunConfig(provider=os.getenv('EVO_EVAL_PROVIDER', ''), base_url=os.getenv('EVO_EVAL_BASE_URL', ''), token=os.getenv('EVO_EVAL_TOKEN', ''), mock_path=os.getenv('EVO_EVAL_MOCK_PATH', ''), target_chat_url=os.getenv('EVO_TARGET_CHAT_URL', ''))
+    dataset_gen = DatasetGenConfig(
+        kb_base_url=os.getenv('EVO_KB_BASE_URL', 'http://localhost:8055'),
+        chunk_base_url=os.getenv('EVO_CHUNK_BASE_URL', 'http://localhost:8055'),
+        max_workers=int(os.getenv('EVO_DATASETGEN_MAX_WORKERS', '5')),
+    )
+    eval_run = EvalRunConfig(
+        provider=os.getenv('EVO_EVAL_PROVIDER', ''),
+        base_url=os.getenv('EVO_EVAL_BASE_URL', ''),
+        token=os.getenv('EVO_EVAL_TOKEN', ''),
+        mock_path=os.getenv('EVO_EVAL_MOCK_PATH', ''),
+        target_chat_url=os.getenv('EVO_TARGET_CHAT_URL', ''),
+    )
     profile = os.getenv('EVO_PROFILE', 'dev')
     cfg = EvoConfig(
         data_dir=data_dir,
