@@ -27,6 +27,7 @@ type addGroupModelResponse struct {
 	Name                     string `json:"name"`
 	ModelType                string `json:"model_type"`
 	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
 	BaseURL                  string `json:"base_url"`
 	IsDefault                bool   `json:"is_default"`
 }
@@ -38,6 +39,7 @@ type groupModelListItem struct {
 	Name                     string `json:"name"`
 	ModelType                string `json:"model_type"`
 	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
 	BaseURL                  string `json:"base_url"`
 	IsDefault                bool   `json:"is_default"`
 }
@@ -125,6 +127,7 @@ func AddGroupModel(w http.ResponseWriter, r *http.Request) {
 		UserModelProviderID:      parent.ID,
 		UserModelProviderGroupID: group.ID,
 		ProviderName:             parent.Name,
+		GroupName:                group.Name,
 		Name:                     name,
 		ModelType:                modelType,
 		BaseURL:                  group.BaseURL,
@@ -149,6 +152,7 @@ func AddGroupModel(w http.ResponseWriter, r *http.Request) {
 		Name:                     row.Name,
 		ModelType:                row.ModelType,
 		ProviderName:             row.ProviderName,
+		GroupName:                row.GroupName,
 		BaseURL:                  row.BaseURL,
 		IsDefault:                row.IsDefault,
 	})
@@ -222,6 +226,54 @@ func ListGroupModels(w http.ResponseWriter, r *http.Request) {
 			Name:                     m.Name,
 			ModelType:                m.ModelType,
 			ProviderName:             m.ProviderName,
+			GroupName:                m.GroupName,
+			BaseURL:                  m.BaseURL,
+			IsDefault:                m.IsDefault,
+		})
+	}
+	common.ReplyOK(w, groupModelListResponse{Models: out})
+}
+
+// ListUserModelsByModelType lists the current user's models across all user_model_providers,
+// filtered by required query model_type. Response shape matches ListGroupModels.
+func ListUserModelsByModelType(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	modelType := strings.TrimSpace(r.URL.Query().Get("model_type"))
+	if modelType == "" {
+		common.ReplyErr(w, "model_type is required", http.StatusBadRequest)
+		return
+	}
+
+	var rows []orm.UserModelProviderGroupModel
+	if err := db.WithContext(r.Context()).
+		Where("create_user_id = ? AND deleted_at IS NULL AND model_type = ?", userID, modelType).
+		Order("user_model_provider_id ASC, user_model_provider_group_id ASC, name ASC").
+		Find(&rows).Error; err != nil {
+		common.ReplyErr(w, "list models failed", http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]groupModelListItem, 0, len(rows))
+	for i := range rows {
+		m := rows[i]
+		out = append(out, groupModelListItem{
+			ID:                       m.ID,
+			UserModelProviderID:      m.UserModelProviderID,
+			UserModelProviderGroupID: m.UserModelProviderGroupID,
+			Name:                     m.Name,
+			ModelType:                m.ModelType,
+			ProviderName:             m.ProviderName,
+			GroupName:                m.GroupName,
 			BaseURL:                  m.BaseURL,
 			IsDefault:                m.IsDefault,
 		})

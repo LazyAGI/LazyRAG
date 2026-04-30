@@ -251,6 +251,7 @@ func UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	if apiKey != "" {
 		updates["api_key"] = apiKey
 	}
+	oldGroupName := row.Name
 	if err := db.WithContext(r.Context()).Model(&row).Updates(updates).Error; err != nil {
 		common.ReplyErr(w, "update group failed", http.StatusInternalServerError)
 		return
@@ -259,6 +260,21 @@ func UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	row.BaseURL = baseURL
 	if apiKey != "" {
 		row.APIKey = apiKey
+	}
+
+	if name != oldGroupName {
+		if err := db.WithContext(r.Context()).Model(&orm.UserModelProviderGroupModel{}).
+			Where(
+				"user_model_provider_group_id = ? AND create_user_id = ? AND deleted_at IS NULL",
+				row.ID, userID,
+			).
+			Updates(map[string]interface{}{
+				"group_name": name,
+				"updated_at": now,
+			}).Error; err != nil {
+			common.ReplyErr(w, "sync group model names failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	common.ReplyOK(w, createGroupResponse{
@@ -394,6 +410,7 @@ func seedGroupModelsFromDefaults(
 			UserModelProviderID:      parent.ID,
 			UserModelProviderGroupID: group.ID,
 			ProviderName:             d.ProviderName,
+			GroupName:                group.Name,
 			Name:                     d.Name,
 			ModelType:                d.ModelType,
 			BaseURL:                  d.BaseURL,

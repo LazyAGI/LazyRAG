@@ -492,6 +492,7 @@ type addModelProviderGroupModelOpenAPIResponse struct {
 	Name                     string `json:"name"`
 	ModelType                string `json:"model_type"`
 	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
 	BaseURL                  string `json:"base_url"`
 	IsDefault                bool   `json:"is_default"`
 }
@@ -503,12 +504,17 @@ type listModelProviderGroupModelsOpenAPIItem struct {
 	Name                     string `json:"name"`
 	ModelType                string `json:"model_type"`
 	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
 	BaseURL                  string `json:"base_url"`
 	IsDefault                bool   `json:"is_default"`
 }
 
 type listModelProviderGroupModelsOpenAPIResponse struct {
 	Models []listModelProviderGroupModelsOpenAPIItem `json:"models"`
+}
+
+type listUserModelsByModelTypeQueryParams struct {
+	ModelType string `query:"model_type"`
 }
 
 type modelProviderGroupModelPathParams struct {
@@ -1467,6 +1473,15 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"model_providers"},
 			RequestBody: jsonBodyOf(checkModelProviderOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("data contains only success (bool), mapped from algorithm /api/model/check", modelprovider.CheckModelProviderData{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers/models",
+			Summary:     "List current user's models by model_type",
+			Description: "Requires query model_type (e.g. llm, embedding). Returns all non-deleted user_model_provider_group_models for the current user with that model_type across all providers and groups. Ordered by user_model_provider_id, group id, then name. Same items as GET .../groups/{group_id}/models.",
+			Tags:        []string{"model_providers"},
+			QueryParams: listUserModelsByModelTypeQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Models list", listModelProviderGroupModelsOpenAPIResponse{})},
 		},
 		{
 			Method:      "GET",
