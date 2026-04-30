@@ -163,7 +163,7 @@ def _resolve_kb_id(config: Dict[str, Any]) -> Optional[str]:
 def _resolve_index(config: Dict[str, Any], group: str) -> str:
     group = (group or 'block').strip()
     if group not in ('block', 'line'):
-        raise ValueError('group 必须是 "block" 或 "line"')
+        raise ValueError("group 必须是 'block' 或 'line'")
     return f'col_{_resolve_kb_name(config)}_{group}'
 
 
