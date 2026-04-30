@@ -46,32 +46,32 @@ class BgeM3Embed(LazyLLMOnlineEmbedModuleBase):
             return response
         if isinstance(response, list):
             if not response:
-                raise RuntimeError('embedding 服务返回为空')
+                raise RuntimeError('empty embedding response')
             if isinstance(input, str):
                 first = response[0]
                 return response if isinstance(first, float) else first
             return response
-        raise RuntimeError(f'embedding 服务返回了非预期类型：{type(response)!r}')
+        raise RuntimeError(f'unexpected embedding response type: {type(response)!r}')
 
 
 class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
     _PROMPT_PREFIX = (
         '<|im_start|>system\n'
-        '请根据给定的查询和指令，判断文档是否满足要求。'
-        '注意：答案只能是 "yes" 或 "no"。'
+        'Judge whether the Document meets the requirements based on the Query and the Instruct provided. '
+        'Note that the answer can only be "yes" or "no".'
         '<|im_end|>\n<|im_start|>user\n'
     )
     _PROMPT_SUFFIX = '<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
 
-    _QUERY_TEMPLATE = '{prefix}<指令>: {instruction}\n<查询>: {query}\n'
-    _DOCUMENT_TEMPLATE = '<文档>: {doc}{suffix}'
+    _QUERY_TEMPLATE = '{prefix}<Instruct>: {instruction}\n<Query>: {query}\n'
+    _DOCUMENT_TEMPLATE = '<Document>: {doc}{suffix}'
     _LOCAL_ONLY_PAYLOAD_KEYS = frozenset((
         'query', 'documents', 'nodes', 'template',
         'top_n', 'top_k', 'topk', 'timeout', 'request_timeout',
     ))
 
     _LOCAL_TRUNCATE_MAX_CHARS = 16384
-    _DEFAULT_TASK_DESCRIPTION = '给定一个网络搜索查询，请检索能够回答该查询的相关段落'
+    _DEFAULT_TASK_DESCRIPTION = 'Given a web search query, retrieve relevant passages that answer the query'
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
     ) -> None:
         super().__init__(embed_url=embed_url, api_key=api_key, embed_model_name=embed_model_name, skip_auth=skip_auth)
         if not embed_url:
-            raise ValueError('必须提供 `url`，请传入远程重排服务地址。')
+            raise ValueError('`url` is required, pass the remote reranking service address.')
 
         self._url = embed_url
         self._batch_size = max(1, int(batch_size))
@@ -131,7 +131,7 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
                 resp.raise_for_status()
                 parsed = self._parse_response(resp.json())
             except requests.RequestException as exc:
-                LOG.error('重排 HTTP 请求失败（当前批次将按 0 分处理）：%s', exc)
+                LOG.error('HTTP request for reranking failed (this batch will be scored as 0): %s', exc)
                 parsed = []
 
             for idx, score in parsed:
@@ -160,7 +160,7 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
             try:
                 formatted.append(template.format(**values))
             except Exception as exc:
-                LOG.warning('模板格式化失败，将回退为原始文本：%s', exc)
+                LOG.warning('Template formatting failed; fallback to raw text: %s', exc)
                 formatted.append(node.get_text(metadata_mode=MetadataMode.EMBED))
         return formatted
 
@@ -198,20 +198,20 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
     def _warn_on_empty_query(self, query: str) -> str:
         normalized_query = '' if query is None else str(query)
         if not normalized_query:
-            LOG.warning('Qwen3Rerank 收到空查询，请检查调用方输入和 reranker 绑定。')
+            LOG.warning('Qwen3Rerank received an empty query. Check caller input and reranker binding.')
         return normalized_query
 
     def _parse_response(self, response: Any, input=None) -> List[Tuple[int, float]]:
-        """返回 [(index, relevance_score), ...]，兼容 ModuleReranker 协议。"""
+        """Return [(index, relevance_score), ...], compatible with ModuleReranker protocol."""
         if not isinstance(response, dict) or 'results' not in response:
-            LOG.warning("响应缺少 'results' 字段：%r", response)
+            LOG.warning("response missing 'results' field: %r", response)
             return []
 
         results = response.get('results', [])
         try:
             return [(item['index'], float(item['relevance_score'])) for item in results]
         except Exception as exc:
-            LOG.error('解析响应失败：%s；response=%r', exc, response)
+            LOG.error('Failed to parse response: %s; response=%r', exc, response)
             return []
 
     def _rerank_nodes(self, nodes: List[DocNode], query: str, **kwargs: Any) -> List[DocNode]:
@@ -254,7 +254,7 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
                 documents = kwargs.pop('documents')
                 query = kwargs.pop('query', '')
                 return self._rerank_documents(query, documents, **kwargs)
-            raise TypeError('Qwen3Rerank.forward() 缺少必需的位置参数')
+            raise TypeError('Qwen3Rerank.forward() missing required positional argument')
 
         first_arg = args[0]
         if isinstance(first_arg, list) and not first_arg:
@@ -271,5 +271,5 @@ class Qwen3Rerank(LazyLLMOnlineRerankModuleBase):
         query = first_arg
         documents = kwargs.pop('documents', args[1] if len(args) > 1 else None)
         if documents is None:
-            raise TypeError('Qwen3Rerank.forward() 缺少必需参数：`documents`')
+            raise TypeError('Qwen3Rerank.forward() missing required argument: `documents`')
         return self._rerank_documents(query, documents, **kwargs)

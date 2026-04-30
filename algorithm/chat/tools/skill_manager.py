@@ -34,7 +34,7 @@ _MAX_DESCRIPTION_LENGTH = 1024
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
     return {
         'success': False,
-        'reason': f'{tool_name} 执行失败：{exc}',
+        'reason': f'{tool_name} failed: {exc}',
         'error': str(exc),
         'error_type': type(exc).__name__,
     }
@@ -53,11 +53,11 @@ def _handle_tool_errors(func):
 
 def _validate_skill_name(name: str) -> Optional[str]:
     if not name or not name.strip():
-        return "'name' 必须是非空技能名称。"
+        return "'name' must be a non-empty skill name."
     if name in {'.', '..'} or not _PATH_SEGMENT_RE.match(name):
         return (
-            f'技能名称 {name!r} 无效；只能包含 ASCII 字母、数字、'
-            "'-'、'_' 和 '.'（不能有空格、中文或斜杠）。"
+            f'Skill name {name!r} is invalid; only ASCII letters, digits, '
+            "'-', '_' and '.' are allowed (no spaces, no Chinese, no slashes)."
         )
     return None
 
@@ -93,19 +93,19 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
 
 def _validate_skill_content(content: str) -> Optional[str]:
     if not content or not content.strip():
-        return "action='create' 需要提供非空 'content'（完整 SKILL.md 正文）。"
+        return "action='create' requires a non-empty 'content' (full SKILL.md body)."
 
     frontmatter, body = _parse_frontmatter(content)
     if not frontmatter:
-        return 'SKILL.md 必须包含 YAML frontmatter。'
+        return 'SKILL.md must contain YAML frontmatter.'
     if 'name' not in frontmatter:
-        return "Frontmatter 必须包含 'name'。"
+        return "Frontmatter must include 'name'."
     if 'description' not in frontmatter:
-        return "Frontmatter 必须包含 'description'。"
+        return "Frontmatter must include 'description'."
     if len(str(frontmatter.get('description', ''))) > _MAX_DESCRIPTION_LENGTH:
-        return f'description 超过 {_MAX_DESCRIPTION_LENGTH} 个字符。'
+        return f'Description exceeds {_MAX_DESCRIPTION_LENGTH} characters.'
     if not body.strip():
-        return 'SKILL.md 在 frontmatter 后必须包含 markdown 正文。'
+        return 'SKILL.md must have markdown content after frontmatter.'
     return None
 
 
@@ -188,14 +188,14 @@ def skill_manage(
     content: Optional[str] = None,
     suggestions: Optional[List[Suggestion]] = None,
 ) -> Dict[str, Any]:
-    """通过创建、修改或删除技能条目来管理技能。
+    """Manage skills by creating, modifying, or removing a skill entry.
 
-    参数：
-        name: 技能名称。
-        action: 要执行的操作。
-        category: 技能所属类别目录。
-        content: 创建技能时传入的完整 SKILL.md 内容。
-        suggestions: 修改技能时传入的修改建议。
+    Args:
+        name: Skill name.
+        action: Action to perform.
+        category: Skill category directory.
+        content: Full SKILL.md content when creating a skill.
+        suggestions: Suggestions when modifying a skill.
     """
     def _ok(result: Dict[str, Any]) -> Dict[str, Any]:
         return {'success': True, 'result': result}
@@ -210,13 +210,14 @@ def skill_manage(
     agentic_config = _agentic_config()
     session_id = _session_id(agentic_config)
     if not session_id:
-        return _fail("agentic_config 中缺少必需的 'session_id'。")
+        return _fail("'session_id' is required in agentic_config.")
 
     normalized_category = _normalize_category(category)
     if normalized_category is None:
         return _fail(
-            f'类别 {category!r} 无效；它必须是单层 ASCII 安全路径片段'
-            "（只能包含字母、数字、'-'、'_' 和 '.'；不能有空格、中文或 '/'）。"
+            f'Category {category!r} is invalid; it must be a single '
+            "ASCII-safe path segment (only letters, digits, '-', '_' "
+            "and '.'; no spaces, no Chinese, no '/')."
         )
 
     existing_skills = list_all_skill_entries(agentic_config.get('skill_fs_url') or '')
@@ -227,11 +228,11 @@ def skill_manage(
         if content_error:
             return _fail(content_error)
         if suggestions:
-            return _fail("action='create' 不能包含 'suggestions'。")
+            return _fail("action='create' must not include 'suggestions'.")
         if skill_id in existing_skills:
             return _fail(
-                f'技能 {name!r} 已存在于类别 {normalized_category!r} 中；'
-                "请使用 action='modify' 修改它，或先用 action='remove' 删除它。"
+                f'Skill {name!r} already exists in category {normalized_category!r}; '
+                "use action='modify' to edit it or action='remove' to delete it first."
             )
 
         result: Dict[str, Any] = {
@@ -249,23 +250,23 @@ def skill_manage(
         try:
             result.update(_post_core_api('/skill/create', payload))
         except (requests.RequestException, RuntimeError) as exc:
-            return _fail(f'创建技能失败：{exc}')
+            return _fail(f'Failed to create skill: {exc}')
         return _ok(result)
 
     if action == 'modify':
         if content is not None:
-            return _fail("action='modify' 不能包含 'content'；请使用 'suggestions'。")
+            return _fail("action='modify' must not include 'content'; use 'suggestions'.")
         if not suggestions:
-            return _fail("action='modify' 需要提供非空 'suggestions' 列表。")
+            return _fail("action='modify' requires a non-empty 'suggestions' list.")
         if len(suggestions) > MAX_SUGGESTIONS_PER_CALL:
             return _fail(
-                f'每次最多允许提交 {MAX_SUGGESTIONS_PER_CALL} 条 suggestions；'
-                f'当前收到 {len(suggestions)} 条。'
+                f'At most {MAX_SUGGESTIONS_PER_CALL} suggestions are allowed per call; '
+                f'got {len(suggestions)}.'
             )
         if skill_id not in existing_skills:
             return _fail(
-                f'类别 {normalized_category!r} 中不存在技能 {name!r}；'
-                "请使用 action='create' 新增技能。"
+                f'Skill {name!r} does not exist in category {normalized_category!r}; '
+                "use action='create' to add a new skill."
             )
 
         result = {
@@ -283,16 +284,16 @@ def skill_manage(
         try:
             result.update(_post_core_api('/skill/suggestion', payload))
         except (requests.RequestException, RuntimeError) as exc:
-            return _fail(f'提交技能修改建议失败：{exc}')
+            return _fail(f'Failed to submit skill suggestions: {exc}')
         return _ok(result)
 
     if action == 'remove':
         if content is not None or suggestions:
-            return _fail("action='remove' 不能包含 'content' 或 'suggestions'。")
+            return _fail("action='remove' must not include 'content' or 'suggestions'.")
         if skill_id not in existing_skills:
             return _fail(
-                f'类别 {normalized_category!r} 中不存在技能 {name!r}；'
-                '无需删除。'
+                f'Skill {name!r} does not exist in category {normalized_category!r}; '
+                'nothing to remove.'
             )
 
         result = {
@@ -308,7 +309,7 @@ def skill_manage(
         try:
             result.update(_post_core_api('/skill/remove', payload))
         except (requests.RequestException, RuntimeError) as exc:
-            return _fail(f'删除技能失败：{exc}')
+            return _fail(f'Failed to remove skill: {exc}')
         return _ok(result)
 
-    return _fail(f"未知 action：{action!r}；应为 'create'、'modify' 或 'remove'。")
+    return _fail(f"Unknown action {action!r}; expected one of 'create', 'modify', 'remove'.")

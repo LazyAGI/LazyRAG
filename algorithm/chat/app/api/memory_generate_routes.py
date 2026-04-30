@@ -20,28 +20,28 @@ router = APIRouter()
 class SuggestionPayload(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    title: str = Field(..., description='建议标题')
-    content: str = Field(..., description='自然语言修改建议')
-    reason: Optional[str] = Field(default=None, description='提议理由')
-    outdated: Optional[bool] = Field(default=None, description='建议是否已过期')
+    title: str = Field(..., description='Suggestion title')
+    content: str = Field(..., description='Natural-language edit suggestion')
+    reason: Optional[str] = Field(default=None, description='Suggestion reason')
+    outdated: Optional[bool] = Field(default=None, description='Whether the suggestion is outdated')
 
 
 class GeneratePayload(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    content: str = Field(..., description='目标内容当前完整文本')
+    content: str = Field(..., description='Current complete target content')
     suggestions: Optional[List[SuggestionPayload]] = Field(
         default=None,
-        description='待合入建议列表',
+        description='Suggestions to merge',
     )
-    user_instruct: Optional[str] = Field(default=None, description='用户直接下达的自然语言指令')
+    user_instruct: Optional[str] = Field(default=None, description='Direct natural-language instruction from the user')
 
     @model_validator(mode='after')
     def validate_generation_inputs(self) -> 'GeneratePayload':
         has_suggestions = bool(self.suggestions)
         has_user_instruct = bool(self.user_instruct and self.user_instruct.strip())
         if not has_suggestions and not has_user_instruct:
-            raise ValueError('必须至少提供 suggestions 或 user_instruct 其中之一。')
+            raise ValueError("At least one of 'suggestions' or 'user_instruct' must be provided.")
         return self
 
 
@@ -70,19 +70,19 @@ def _handle_generate(memory_type: MemoryType, payload: GeneratePayload):
     except UnprocessableContentError as exc:
         return _fail(422, str(exc))
     except Exception as exc:
-        return _fail(500, f'生成失败：{exc}')
+        return _fail(500, f'generate failed: {exc}')
 
 
-@router.post('/api/chat/skill/generate', summary='生成新的 skill content')
+@router.post('/api/chat/skill/generate', summary='Generate new skill content')
 async def generate_skill(payload: GeneratePayload):
     return _handle_generate('skill', payload)
 
 
-@router.post('/api/chat/memory/generate', summary='生成新的 memory content')
+@router.post('/api/chat/memory/generate', summary='Generate new memory content')
 async def generate_memory(payload: GeneratePayload):
     return _handle_generate('memory', payload)
 
 
-@router.post('/api/chat/user_preference/generate', summary='生成新的 user_preference content')
+@router.post('/api/chat/user_preference/generate', summary='Generate new user_preference content')
 async def generate_user_preference(payload: GeneratePayload):
     return _handle_generate('user_preference', payload)
