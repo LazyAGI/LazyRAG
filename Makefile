@@ -208,6 +208,7 @@ build:
 	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build
 
 up:
+	$(_SUBMODULE_INIT)
 	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d
 
 down:

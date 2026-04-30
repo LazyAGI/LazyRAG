@@ -481,6 +481,7 @@ services:
       LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000}
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
       LAZYRAG_MAX_CONCURRENCY: ${LAZYRAG_MAX_CONCURRENCY:-10}
       LAZYRAG_LLM_PRIORITY: ${LAZYRAG_LLM_PRIORITY:-0}
       LAZYRAG_DEFAULT_CHAT_DATASET: ${LAZYRAG_DEFAULT_CHAT_DATASET:-algo}
@@ -498,7 +499,7 @@ services:
       LAZYRAG_CORE_SERVICE_URL: ${LAZYRAG_CORE_SERVICE_URL:-http://core:8000}
       LAZYRAG_WORD_GROUP_APPLY_URL: ${LAZYRAG_WORD_GROUP_APPLY_URL:-}
       <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
-    command: ["python", "chat/chat.py", "--port", "8046"]
+    command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
       lazyllm-algo:
         condition: service_healthy

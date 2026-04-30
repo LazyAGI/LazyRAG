@@ -81,3 +81,4 @@ volumes/
 AGENTS.md
 algorithm/.agentic_rag/
 version.*
+algorithm/Dockerfile.chat-rebase
