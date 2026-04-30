@@ -29,6 +29,73 @@ type createGroupResponse struct {
 	BaseURL             string `json:"base_url"`
 }
 
+type groupListItem struct {
+	ID                  string `json:"id"`
+	UserModelProviderID string `json:"user_model_provider_id"`
+	Name                string `json:"name"`
+	BaseURL             string `json:"base_url"`
+	APIKey              string `json:"api_key"`
+}
+
+type groupListResponse struct {
+	Groups []groupListItem `json:"groups"`
+}
+
+// ListGroups returns active connection groups for the given user model provider (path model_provider_id).
+func ListGroups(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	parentID := strings.TrimSpace(mux.Vars(r)["model_provider_id"])
+	if parentID == "" {
+		common.ReplyErr(w, "missing model_provider_id", http.StatusBadRequest)
+		return
+	}
+
+	var parent orm.UserModelProvider
+	err := db.WithContext(r.Context()).
+		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", parentID, userID).
+		Take(&parent).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "model provider not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query model provider failed", http.StatusInternalServerError)
+		return
+	}
+
+	var rows []orm.UserModelProviderGroup
+	if err := db.WithContext(r.Context()).
+		Where("user_model_provider_id = ? AND create_user_id = ? AND deleted_at IS NULL", parent.ID, userID).
+		Order("name ASC").
+		Find(&rows).Error; err != nil {
+		common.ReplyErr(w, "list groups failed", http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]groupListItem, 0, len(rows))
+	for i := range rows {
+		g := rows[i]
+		out = append(out, groupListItem{
+			ID:                  g.ID,
+			UserModelProviderID: g.UserModelProviderID,
+			Name:                g.Name,
+			BaseURL:             g.BaseURL,
+			APIKey:              g.APIKey,
+		})
+	}
+	common.ReplyOK(w, groupListResponse{Groups: out})
+}
+
 type updateGroupRequest struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url"`

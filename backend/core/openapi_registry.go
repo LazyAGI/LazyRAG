@@ -485,6 +485,18 @@ type listUserModelProvidersOpenAPIResponse struct {
 	Providers []userModelProviderOpenAPIItem `json:"providers"`
 }
 
+type listModelProviderGroupsOpenAPIItem struct {
+	ID                  string `json:"id"`
+	UserModelProviderID string `json:"user_model_provider_id"`
+	Name                string `json:"name"`
+	BaseURL             string `json:"base_url"`
+	APIKey              string `json:"api_key"`
+}
+
+type listModelProviderGroupsOpenAPIResponse struct {
+	Groups []listModelProviderGroupsOpenAPIItem `json:"groups"`
+}
+
 type listTasksQueryParams struct {
 	PageToken   string `query:"page_token"`
 	PageSize    int32  `query:"page_size"`
@@ -1390,6 +1402,15 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"model_providers"},
 			QueryParams: listUserModelProvidersQueryParams{},
 			Responses:   map[int]openAPIResponse{200: resp("User model provider list", listUserModelProvidersOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers/{model_provider_id}/groups",
+			Summary:     "List model provider connection groups",
+			Description: "Lists non-deleted groups for the user model provider. model_provider_id is the id from GET /model_providers. Each item includes api_key.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupPathParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Group list", listModelProviderGroupsOpenAPIResponse{})},
 		},
 		{
 			Method:      "POST",
