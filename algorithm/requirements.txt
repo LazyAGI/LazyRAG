@@ -26,3 +26,4 @@ autocorrect-py==2.14.0
 rapidfuzz==3.14.3
 json-repair==0.54.3
 pandas==2.3.3
+psycopg[binary]>=3,<4

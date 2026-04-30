@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from chat.components.tmp.local_models import BgeM3Embed, Qwen3Rerank
 from chat.utils.load_config import load_model_config, get_retrieval_settings
 import chat.pipelines.builders.get_models as get_models_mod
 
@@ -189,7 +190,47 @@ def test_model_config_uses_env_override_path(monkeypatch, tmp_path):
     assert settings.embed_keys == ['embed_1']
 
 
-def test_build_auto_model_writes_config_file(monkeypatch):
+def test_inner_model_config_defaults_skill_fs_url_to_remote_skills(monkeypatch):
+    monkeypatch.delenv('LAZYRAG_MODEL_CONFIG_PATH', raising=False)
+    monkeypatch.delenv('LAZYRAG_USE_INNER_MODEL', raising=False)
+    monkeypatch.delenv('LAZYRAG_SKILL_FS_URL', raising=False)
+    monkeypatch.setenv('LAZYLLM_MINIMAX_API_KEY', 'secret-key')
+
+    config = load_model_config()
+
+    assert (
+        config['agentic']['skill_fs_url']
+        == 'remote://skills,/home/mnt/dengyuang/workspace/tyy/LazyRAG/algorithm/.agentic_rag/skills'
+    )
+
+
+def test_build_auto_model_uses_local_bgem3_embed():
+    result = get_models_mod._build_auto_model('bgem3_emb_dense_custom', {
+        'source': 'bgem3embed',
+        'type': 'embed',
+        'url': 'http://127.0.0.1:2269/embed',
+        'skip_auth': True,
+    })
+
+    assert isinstance(result, BgeM3Embed)
+    assert result._embed_model_name == 'bgem3_emb_dense_custom'
+    assert result._embed_url == 'http://127.0.0.1:2269/embed'
+
+
+def test_build_auto_model_uses_local_qwen3_rerank():
+    result = get_models_mod._build_auto_model('Qwen3-Reranker-8B', {
+        'source': 'qwen3rerank',
+        'type': 'rerank',
+        'url': 'http://127.0.0.1:8331/v1/rerank',
+        'skip_auth': True,
+    })
+
+    assert isinstance(result, Qwen3Rerank)
+    assert result._embed_model_name == 'Qwen3-Reranker-8B'
+    assert result._url == 'http://127.0.0.1:8331/v1/rerank'
+
+
+def test_build_auto_model_writes_config_file_for_standard_sources(monkeypatch):
     captured = {}
 
     def fake_auto_model(*, model, config, **kwargs):
@@ -199,23 +240,21 @@ def test_build_auto_model_writes_config_file(monkeypatch):
 
     monkeypatch.setattr(get_models_mod, 'AutoModel', fake_auto_model)
 
-    result = get_models_mod._build_auto_model('bgem3_emb_dense_custom', {
-        'source': 'bgem3embed',
-        'type': 'embed',
-        'url': 'http://127.0.0.1:2269/embed',
-        'skip_auth': True,
+    result = get_models_mod._build_auto_model('BAAI/bge-reranker-v2-m3', {
+        'source': 'siliconflow',
+        'type': 'rerank',
+        'api_key': 'secret-key',
     })
 
     assert result == 'fake-model'
-    assert captured['model'] == 'bgem3_emb_dense_custom'
+    assert captured['model'] == 'BAAI/bge-reranker-v2-m3'
     generated = yaml.safe_load(Path(captured['config']).read_text(encoding='utf-8'))
     assert generated == {
-        'bgem3_emb_dense_custom': [{
-            'source': 'bgem3embed',
-            'type': 'embed',
-            'model': 'bgem3_emb_dense_custom',
-            'url': 'http://127.0.0.1:2269/embed',
-            'skip_auth': True,
+        'BAAI/bge-reranker-v2-m3': [{
+            'source': 'siliconflow',
+            'type': 'rerank',
+            'model': 'BAAI/bge-reranker-v2-m3',
+            'api_key': 'secret-key',
         }]
     }
 

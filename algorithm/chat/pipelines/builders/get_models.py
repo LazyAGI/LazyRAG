@@ -19,6 +19,7 @@ from lazyllm import AutoModel, ModuleBase
 from lazyllm.components.formatter import FormatterBase
 from lazyllm.components.prompter import PrompterBase
 
+from chat.components.tmp.local_models import BgeM3Embed, Qwen3Rerank
 from chat.utils.load_config import get_role_config
 
 _RUNTIME_AUTO_MODEL_DIR = Path(tempfile.gettempdir()) / 'lazyrag-runtime-auto-model'
@@ -32,6 +33,11 @@ _DEFAULT_LLM_KW: Dict[str, Any] = {
 _lock = threading.RLock()
 _base_models: Dict[str, Any] = {}
 _wrapped_models: Dict[str, Any] = {}
+
+_CUSTOM_RUNTIME_MODEL_BUILDERS = {
+    ('embed', 'bgem3embed'): BgeM3Embed,
+    ('rerank', 'qwen3rerank'): Qwen3Rerank,
+}
 
 
 def _cleanup_runtime_auto_model_dir() -> None:
@@ -128,6 +134,25 @@ def _write_auto_model_config(serialized_config: str) -> str:
 
 def _build_auto_model(model_name: str, config: Dict[str, Any]):
     cfg = deepcopy(config)
+    source = cfg.pop('source', None)
+    type_name = cfg.pop('type', None)
+    builder = _CUSTOM_RUNTIME_MODEL_BUILDERS.get((type_name, source))
+    if builder:
+        runtime_url = cfg.pop('url', None)
+        api_key = cfg.pop('api_key', None)
+        skip_auth = bool(cfg.pop('skip_auth', False))
+        init_kwargs = {
+            'embed_model_name': model_name,
+            'embed_url': runtime_url,
+            'api_key': '' if skip_auth and api_key is None else api_key,
+            'skip_auth': skip_auth,
+            **cfg,
+        }
+        return builder(**init_kwargs)
+    if source is not None:
+        cfg['source'] = source
+    if type_name is not None:
+        cfg['type'] = type_name
     cfg['model'] = model_name
     serialized = yaml.safe_dump(cfg, sort_keys=True)
     return AutoModel(model=model_name, config=_write_auto_model_config(serialized))

@@ -51,7 +51,15 @@ def check_sensitive_content(
 def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        filters: Optional[Dict[str, Any]], other_files: List[str],
                        databases: Optional[List[Dict[str, Any]]], debug: bool,
-                       image_files: List[str], priority: Optional[int]) -> Dict[str, Any]:
+                       image_files: List[str], priority: Optional[int],
+                       dataset: Optional[str],
+                       session_id: str,
+                       available_tools: Optional[List[str]],
+                       available_skills: Optional[List[str]],
+                       memory: Optional[str],
+                       user_preference: Optional[str],
+                       use_memory: Optional[bool],
+                       create_user_id: Optional[str] = None) -> Dict[str, Any]:
     hist = [
         {
             'role': str(h.get('role', 'assistant')),
@@ -63,7 +71,16 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
     return {
         'query': query, 'history': hist, 'filters': filters if RAG_MODE and filters else {},
         'files': other_files, 'image_files': image_files if MULTIMODAL_MODE and image_files else [],
-        'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority
+        'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority,
+        'dataset': dataset,
+        'session_id': session_id,
+        'document_url': URL_MAP.get(dataset, ''),
+        'available_tools': available_tools,
+        'available_skills': available_skills,
+        'memory': memory,
+        'user_preference': user_preference,
+        'use_memory': use_memory,
+        'create_user_id': create_user_id or '',
     }
 
 
@@ -84,7 +101,11 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       session_id: str, filters: Optional[Dict[str, Any]],
                       files: Optional[List[str]], debug: Optional[bool], reasoning: Optional[bool],
                       databases: Optional[List[Dict[str, Any]]], dataset: Optional[str],
-                      priority: Optional[int], is_stream: bool) -> Union[Dict[str, Any], StreamingResponse]:
+                      priority: Optional[int], available_tools: Optional[List[str]],
+                      available_skills: Optional[List[str]], memory: Optional[str],
+                      user_preference: Optional[str], use_memory: Optional[bool],
+                      is_stream: bool,
+                      create_user_id: Optional[str] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
 
@@ -110,6 +131,14 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             debug or False,
             image_files,
             priority,
+            dataset,
+            session_id,
+            available_tools,
+            available_skills,
+            memory,
+            user_preference,
+            use_memory,
+            create_user_id,
         )
 
         try:
@@ -117,7 +146,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                 lazyllm.globals._init_sid(sid=session_id)
                 lazyllm.locals._init_sid(sid=session_id)
                 result = await _run_sync_ppl(
-                    bool(reasoning), dataset, query_params, query, filters, priority
+                    bool(reasoning), dataset, query_params
                 )
                 cost = round(time.time() - start_time, 3)
                 return _resp(200, 'success', result, cost)
@@ -152,6 +181,14 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             False,
             image_files,
             priority,
+            dataset,
+            session_id,
+            available_tools,
+            available_skills,
+            memory,
+            user_preference,
+            use_memory,
+            create_user_id,
         )
 
         stream_call = (
@@ -209,20 +246,12 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
 
 async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, Any],
-                        query: str, filters: Optional[Dict[str, Any]], priority: Any) -> Any:
+                        ) -> Any:
     if reasoning:
         return await asyncio.to_thread(
             chat_server.query_ppl_reasoning,
-            {'query': query},
-            {
-                'kb_search': {
-                    'filters': filters,
-                    'files': [],
-                    'stream': False,
-                    'priority': priority,
-                    'document_url': URL_MAP[dataset],
-                }
-            },
+            query_params,
+            None,
             False,
         )
     return await asyncio.to_thread(chat_server.get_query_pipeline(dataset), query_params)
