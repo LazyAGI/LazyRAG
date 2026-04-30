@@ -1,22 +1,36 @@
 from __future__ import annotations
 import argparse
-import asyncio
 import json
 import logging
 import sys
 from pathlib import Path
 from typing import Any, Sequence
 from evo.runtime.config import EvoConfig, load_config
+
 _ROOT_SUBCOMMANDS = frozenset({'pipeline', 'thread'})
 _GLOBAL_ONE_ARG = frozenset({'--data-dir', '--base-dir', '--code-map'})
-def setup_logging(verbose: bool=False) -> None:
-    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+
+
+def setup_logging(verbose: bool = False) -> None:
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+
+
 def default_llm_provider(cfg: EvoConfig) -> Any:
     from chat.pipelines.builders.get_models import get_automodel
-    return lambda : get_automodel(cfg.model_config.llm_role)
+
+    return lambda: get_automodel(cfg.model_config.llm_role)
+
+
 def default_embed_provider(cfg: EvoConfig) -> Any:
     from chat.pipelines.builders.get_models import get_automodel
-    return lambda : get_automodel(cfg.model_config.embed_role)
+
+    return lambda: get_automodel(cfg.model_config.embed_role)
+
+
 def prepend_pipeline_argv(argv: Sequence[str]) -> list[str]:
     av = list(argv)
     if not av:
@@ -42,6 +56,8 @@ def prepend_pipeline_argv(argv: Sequence[str]) -> list[str]:
             return av
         return av[:i] + ['pipeline'] + av[i:]
     return av
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Evo CLI: harness pipeline and orchestrator thread flows.')
     parser.add_argument('--data-dir', type=Path, default=None)
@@ -66,15 +82,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ds_gen_p.add_argument('--eval-name', default=None)
     ds_gen_p.add_argument('--thread-id', default=None)
     return parser
+
+
 def _shared_config_args(ns: argparse.Namespace) -> dict[str, Any]:
     return {'data_dir': ns.data_dir, 'base_dir': ns.base_dir, 'code_map_path': ns.code_map}
+
+
 def run_full(config: EvoConfig, args: argparse.Namespace) -> int:
     from evo.harness.pipeline import PipelineOptions, build_standard_plan
     from evo.runtime.session import create_session, session_scope
+
     log = logging.getLogger('evo.main')
     log.info('Running pipeline (conductor-driven)')
-    session = create_session(config=config, run_id=args.run_id, llm_provider=default_llm_provider(config), embed_provider=default_embed_provider(config))
-    plan = build_standard_plan(PipelineOptions(badcase_limit=args.badcase_limit, score_field=args.score_field), logger=session.logger('plan'))
+    session = create_session(
+        config=config,
+        run_id=args.run_id,
+        llm_provider=default_llm_provider(config),
+        embed_provider=default_embed_provider(config),
+    )
+    plan = build_standard_plan(
+        PipelineOptions(badcase_limit=args.badcase_limit, score_field=args.score_field), logger=session.logger('plan')
+    )
     with session_scope(session):
         result = plan.run(session)
     paths = result.get('persist') or {}
@@ -88,7 +116,9 @@ def run_full(config: EvoConfig, args: argparse.Namespace) -> int:
     for o in result.outcomes:
         log.info('  %-20s %-8s %.2fs', o.name, o.status, o.elapsed_seconds)
     return 0 if result.success else 1
-def main(argv: list[str] | None=None) -> int:
+
+
+def main(argv: list[str] | None = None) -> int:
     argv = prepend_pipeline_argv(sys.argv[1:] if argv is None else argv)
     args = build_arg_parser().parse_args(argv)
     setup_logging(args.verbose)
@@ -99,6 +129,7 @@ def main(argv: list[str] | None=None) -> int:
         if args.command == 'eval':
             config = load_config(**_shared_config_args(args))
             from evo.service.core.manager import build_manager
+
             jm = build_manager(config)
             if args.eval_cmd == 'run':
                 tid = jm.submit_eval(thread_id=args.thread_id or '', dataset_id=args.dataset_id)
@@ -107,14 +138,19 @@ def main(argv: list[str] | None=None) -> int:
         if args.command == 'dataset':
             config = load_config(**_shared_config_args(args))
             from evo.service.core.manager import build_manager
+
             jm = build_manager(config)
             if args.ds_cmd == 'gen':
-                tid = jm.submit_dataset_gen(thread_id=args.thread_id, kb_id=args.kb_id, algo_id=args.algo_id, eval_name=args.eval_name)
+                tid = jm.submit_dataset_gen(
+                    thread_id=args.thread_id, kb_id=args.kb_id, algo_id=args.algo_id, eval_name=args.eval_name
+                )
                 print(json.dumps({'dataset_id': tid}, ensure_ascii=False))
                 return 0
         raise AssertionError(f'unknown command {args.command!r}')
     except Exception as exc:
         logging.getLogger('evo.main').error('Fatal: %s', exc, exc_info=True)
         return 1
+
+
 if __name__ == '__main__':
     sys.exit(main())

@@ -2,7 +2,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from evo.domain import ClusteringResult, FlowAnalysisResult, JudgeRecord, PerStepClusteringResult, TraceMeta, TraceRecord
+from evo.domain import (
+    ClusteringResult,
+    FlowAnalysisResult,
+    JudgeRecord,
+    PerStepClusteringResult,
+    TraceMeta,
+    TraceRecord,
+)
+
+
 @dataclass
 class SessionState:
     parsed_judge: dict[str, JudgeRecord] = field(default_factory=dict)
