@@ -127,6 +127,7 @@ Frontend
 For environment-variable setup and runnable startup examples, see:
 
 - [`docs/quick_start.md`](docs/quick_start.md)
+- CLI usage examples: [`docs/cli.md`](docs/cli.md)
 
 **Full stack (Milvus + OpenSearch deployed by default):**
 ```bash
@@ -243,7 +244,7 @@ LazyRAG/
 | parsing           | `LAZYRAG_MILVUS_URI`, `LAZYRAG_OPENSEARCH_URI`, `LAZYRAG_OPENSEARCH_USER`, `LAZYRAG_OPENSEARCH_PASSWORD` | Vector/segment stores (required) |
 | opensearch (profile) | `LAZYRAG_OPENSEARCH_PASSWORD` | Override for production |
 | milvus-minio (profile) | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Override for production |
-| chat              | `LAZYRAG_DOCUMENT_SERVER_URL`, `LAZYRAG_MAX_CONCURRENCY` | Document API and concurrency    |
+| chat              | `DOCUMENT_SERVER_URL`, `MAX_CONCURRENCY` | Document API and concurrency    |
 
 Override store endpoints when using external Milvus/OpenSearch; built-in services are deployed only when the URIs stay at `http://milvus:19530` and `https://opensearch:9200`.
 
