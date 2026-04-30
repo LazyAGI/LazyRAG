@@ -62,6 +62,7 @@ func TestOpenAPISpecCoversEvolutionSkillMemoryPreferenceOperations(t *testing.T)
 		{"get", "/api/core/model_providers", false, true, true},
 		{"post", "/api/core/model_providers/{model_provider_id}/groups", true, true, true},
 		{"patch", "/api/core/model_providers/{model_provider_id}/groups/{group_id}", true, true, true},
+		{"delete", "/api/core/model_providers/{model_provider_id}/groups/{group_id}", false, true, true},
 		{"get", "/api/core/personalization-setting", false, false, true},
 		{"put", "/api/core/personalization-setting", true, false, true},
 		{"put", "/api/core/memory", true, false, true},

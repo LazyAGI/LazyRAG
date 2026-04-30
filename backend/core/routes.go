@@ -192,6 +192,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "GET", "/model_providers", []string{}, modelprovider.ListUserProviders)
 	handleAPI(r, "POST", "/model_providers/{model_provider_id}/groups", []string{}, modelprovider.CreateGroup)
 	handleAPI(r, "PATCH", "/model_providers/{model_provider_id}/groups/{group_id}", []string{}, modelprovider.UpdateGroup)
+	handleAPI(r, "DELETE", "/model_providers/{model_provider_id}/groups/{group_id}", []string{}, modelprovider.DeleteGroup)
 
 	// ----- Prompttext -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)
