@@ -66,6 +66,7 @@ type UserModelProviderGroupModel struct {
 	Name                     string `gorm:"column:name;type:varchar(512);not null;uniqueIndex:uk_user_model_provider_group_models_group_name,priority:2"`
 	ModelType                string `gorm:"column:model_type;type:varchar(64);not null"`
 	BaseURL                  string `gorm:"column:base_url;type:varchar(1024);not null;default:''"`
+	IsDefault                bool   `gorm:"column:is_default;type:boolean;not null;default:false"`
 	BaseModel
 }
 

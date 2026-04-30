@@ -486,6 +486,22 @@ type addModelProviderGroupModelOpenAPIResponse struct {
 	ModelType                string `json:"model_type"`
 	ProviderName             string `json:"provider_name"`
 	BaseURL                  string `json:"base_url"`
+	IsDefault                bool   `json:"is_default"`
+}
+
+type listModelProviderGroupModelsOpenAPIItem struct {
+	ID                       string `json:"id"`
+	UserModelProviderID      string `json:"user_model_provider_id"`
+	UserModelProviderGroupID string `json:"user_model_provider_group_id"`
+	Name                     string `json:"name"`
+	ModelType                string `json:"model_type"`
+	ProviderName             string `json:"provider_name"`
+	BaseURL                  string `json:"base_url"`
+	IsDefault                bool   `json:"is_default"`
+}
+
+type listModelProviderGroupModelsOpenAPIResponse struct {
+	Models []listModelProviderGroupModelsOpenAPIItem `json:"models"`
 }
 
 type modelProviderGroupModelPathParams struct {
@@ -1475,10 +1491,19 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: resp("Deleted group", deleteModelProviderGroupOpenAPIResponse{})},
 		},
 		{
+			Method:      "GET",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models",
+			Summary:     "List models under a connection group",
+			Description: "Lists non-deleted user_model_provider_group_models for the group. Each item includes is_default (true when copied from default_models seeding; false for user-added models).",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupByIDPathParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Group models list", listModelProviderGroupModelsOpenAPIResponse{})},
+		},
+		{
 			Method:      "POST",
 			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models",
 			Summary:     "Add custom model under a connection group",
-			Description: "Creates a user_model_provider_group_models row (custom model name and model_type). Name must be unique within the group among active rows. provider_name and base_url are taken from the user provider and group.",
+			Description: "Creates a user_model_provider_group_models row with is_default false (custom model name and model_type). Name must be unique within the group among active rows. provider_name and base_url are taken from the user provider and group.",
 			Tags:        []string{"model_providers"},
 			PathParams:  modelProviderGroupByIDPathParams{},
 			RequestBody: jsonBodyOf(addModelProviderGroupModelOpenAPIRequest{}, true),

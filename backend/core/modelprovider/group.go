@@ -397,6 +397,7 @@ func seedGroupModelsFromDefaults(
 			Name:                     d.Name,
 			ModelType:                d.ModelType,
 			BaseURL:                  d.BaseURL,
+			IsDefault:                true,
 			BaseModel: orm.BaseModel{
 				CreateUserID:   userID,
 				CreateUserName: userName,

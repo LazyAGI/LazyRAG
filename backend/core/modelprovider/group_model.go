@@ -28,6 +28,22 @@ type addGroupModelResponse struct {
 	ModelType                string `json:"model_type"`
 	ProviderName             string `json:"provider_name"`
 	BaseURL                  string `json:"base_url"`
+	IsDefault                bool   `json:"is_default"`
+}
+
+type groupModelListItem struct {
+	ID                       string `json:"id"`
+	UserModelProviderID      string `json:"user_model_provider_id"`
+	UserModelProviderGroupID string `json:"user_model_provider_group_id"`
+	Name                     string `json:"name"`
+	ModelType                string `json:"model_type"`
+	ProviderName             string `json:"provider_name"`
+	BaseURL                  string `json:"base_url"`
+	IsDefault                bool   `json:"is_default"`
+}
+
+type groupModelListResponse struct {
+	Models []groupModelListItem `json:"models"`
 }
 
 // AddGroupModel inserts a user-defined model row under a connection group (custom model name and model_type).
@@ -112,6 +128,7 @@ func AddGroupModel(w http.ResponseWriter, r *http.Request) {
 		Name:                     name,
 		ModelType:                modelType,
 		BaseURL:                  group.BaseURL,
+		IsDefault:                false,
 		BaseModel: orm.BaseModel{
 			CreateUserID:   userID,
 			CreateUserName: userName,
@@ -133,7 +150,83 @@ func AddGroupModel(w http.ResponseWriter, r *http.Request) {
 		ModelType:                row.ModelType,
 		ProviderName:             row.ProviderName,
 		BaseURL:                  row.BaseURL,
+		IsDefault:                row.IsDefault,
 	})
+}
+
+// ListGroupModels returns active models under a connection group.
+func ListGroupModels(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	parentID := strings.TrimSpace(mux.Vars(r)["model_provider_id"])
+	groupID := strings.TrimSpace(mux.Vars(r)["group_id"])
+	if parentID == "" || groupID == "" {
+		common.ReplyErr(w, "missing model_provider_id or group_id", http.StatusBadRequest)
+		return
+	}
+
+	var parent orm.UserModelProvider
+	err := db.WithContext(r.Context()).
+		Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", parentID, userID).
+		Take(&parent).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "model provider not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query model provider failed", http.StatusInternalServerError)
+		return
+	}
+
+	var group orm.UserModelProviderGroup
+	err = db.WithContext(r.Context()).
+		Where("id = ? AND user_model_provider_id = ? AND create_user_id = ? AND deleted_at IS NULL", groupID, parent.ID, userID).
+		Take(&group).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ReplyErr(w, "group not found", http.StatusNotFound)
+			return
+		}
+		common.ReplyErr(w, "query group failed", http.StatusInternalServerError)
+		return
+	}
+
+	var rows []orm.UserModelProviderGroupModel
+	if err := db.WithContext(r.Context()).
+		Where(
+			"user_model_provider_group_id = ? AND create_user_id = ? AND deleted_at IS NULL",
+			group.ID, userID,
+		).
+		Order("name ASC").
+		Find(&rows).Error; err != nil {
+		common.ReplyErr(w, "list models failed", http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]groupModelListItem, 0, len(rows))
+	for i := range rows {
+		m := rows[i]
+		out = append(out, groupModelListItem{
+			ID:                       m.ID,
+			UserModelProviderID:      m.UserModelProviderID,
+			UserModelProviderGroupID: m.UserModelProviderGroupID,
+			Name:                     m.Name,
+			ModelType:                m.ModelType,
+			ProviderName:             m.ProviderName,
+			BaseURL:                  m.BaseURL,
+			IsDefault:                m.IsDefault,
+		})
+	}
+	common.ReplyOK(w, groupModelListResponse{Models: out})
 }
 
 type deleteGroupModelResponse struct {
