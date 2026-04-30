@@ -6,28 +6,40 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 from evo.runtime.session import AnalysisSession
+
+
 class CancelTokenProto(Protocol):
-    def requested(self) -> bool:
-        ...
+    def requested(self) -> bool: ...
+
+
 class StopRequested(Exception):
-    def __init__(self, at_step: str | None=None) -> None:
+    def __init__(self, at_step: str | None = None) -> None:
         self.at_step = at_step
         super().__init__(f'stop requested at {at_step}')
+
+
 @dataclass
 class StepContext:
     session: AnalysisSession
     _results: dict[str, Any] = field(default_factory=dict)
-    def get(self, step_name: str, default: Any=None) -> Any:
+
+    def get(self, step_name: str, default: Any = None) -> Any:
         return self._results.get(step_name, default)
+
     def require(self, step_name: str) -> Any:
         if step_name not in self._results:
             raise KeyError(f"Step '{step_name}' has no recorded result.")
         return self._results[step_name]
+
     @property
     def results(self) -> dict[str, Any]:
         return dict(self._results)
+
+
 StepFn = Callable[[StepContext], Any]
 Predicate = Callable[[StepContext], bool]
+
+
 @dataclass
 class Step:
     name: str
@@ -36,6 +48,8 @@ class Step:
     optional: bool = False
     description: str = ''
     always_run: bool = False
+
+
 @dataclass
 class StepOutcome:
     name: str
@@ -43,44 +57,64 @@ class StepOutcome:
     elapsed_seconds: float
     value: Any = None
     error: str | None = None
+
+
 @dataclass
 class PlanResult:
     success: bool
     session: AnalysisSession
     outcomes: list[StepOutcome] = field(default_factory=list)
     elapsed_seconds: float = 0.0
+
     @property
     def completed(self) -> list[str]:
         return [o.name for o in self.outcomes if o.status in ('ok', 'resumed')]
+
     @property
     def failed(self) -> list[StepOutcome]:
         return [o for o in self.outcomes if o.status == 'failed']
+
     def get(self, step_name: str) -> Any:
         for o in self.outcomes:
             if o.name == step_name and o.status in ('ok', 'resumed'):
                 return o.value
         return None
+
+
 def _checkpoints_dir(session: AnalysisSession) -> Path:
     p = session.config.storage.runs_dir / session.run_id / 'steps'
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
 def _ckpt_path(steps_dir: Path, name: str) -> Path:
     return steps_dir / f'{name}.pickle'
+
+
 class Plan:
-    def __init__(self, steps: list[Step], *, logger: logging.Logger | None=None, before_step: Callable[[str, StepContext], None] | None=None) -> None:
+    def __init__(
+        self,
+        steps: list[Step],
+        *,
+        logger: logging.Logger | None = None,
+        before_step: Callable[[str, StepContext], None] | None = None,
+    ) -> None:
         self.steps = steps
         self._log = logger or logging.getLogger('evo.harness.plan')
         self._before_step = before_step
-    def run(self, session: AnalysisSession, *, cancel_token: CancelTokenProto | None=None) -> PlanResult:
+
+    def run(self, session: AnalysisSession, *, cancel_token: CancelTokenProto | None = None) -> PlanResult:
         ctx = StepContext(session=session)
         steps_dir = _checkpoints_dir(session)
         start = time.time()
         outcomes: list[StepOutcome] = []
         fatal = False
         optional_by_name = {s.name: s.optional for s in self.steps}
+
         def _abort_check(step_name: str) -> None:
             if cancel_token is not None and cancel_token.requested():
                 raise StopRequested(at_step=step_name)
+
         for step in self.steps:
             _abort_check(step.name)
             if self._before_step is not None:

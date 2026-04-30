@@ -2,8 +2,12 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+
+
 def is_qa_json_valid(qa_json) -> bool:
     return normalize_qa_json(qa_json) is not None
+
+
 def normalize_qa_json(qa_json: Any) -> dict[str, Any] | None:
     if not isinstance(qa_json, dict):
         return None
@@ -34,8 +38,12 @@ def normalize_qa_json(qa_json: Any) -> dict[str, Any] | None:
         if isinstance(value, list) and any((v is None or (isinstance(v, str) and (not v.strip())) for v in value)):
             return None
     return qa
+
+
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ''
+
+
 def _as_list(value: Any) -> list:
     if isinstance(value, list):
         return value
@@ -44,11 +52,17 @@ def _as_list(value: Any) -> list:
     if isinstance(value, str):
         return [value]
     return []
+
+
 def _nonempty_text_list(value: Any) -> bool:
     return isinstance(value, list) and any((isinstance(v, str) and v.strip() for v in value))
+
+
 def _key_points_from_answer(answer: str) -> list[str]:
     parts = re.split('[，,；;。\\n]+', str(answer).strip())
     return [p.strip() for p in parts if p.strip()][:5]
+
+
 def require_valid_eval_case(case: dict[str, Any]) -> None:
     if not isinstance(case, dict):
         raise ValueError('eval case must be a dict')
@@ -59,6 +73,8 @@ def require_valid_eval_case(case: dict[str, Any]) -> None:
         raise ValueError(f"eval case {case.get('case_id')} key_points must be a list")
     if not str(case.get('question')).strip() or not str(case.get('ground_truth')).strip():
         raise ValueError(f"eval case {case.get('case_id')} has empty question or ground_truth")
+
+
 def safe_parse_qa_json(text: str) -> dict | None:
     if not text:
         return None

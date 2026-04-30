@@ -1,16 +1,19 @@
 from __future__ import annotations
 import logging
 import random
-import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_generate_single_hop
 from evo.datagen.validate import normalize_qa_json
 from evo.datagen.kb_client import KBClient
+
 _log = logging.getLogger('evo.datagen.single_hop')
-def generate_single_hop(ds: KBClient, kb_id: str, algo_id: str, *, count: int, max_workers: int, llm_factory=None) -> list[dict]:
+
+
+def generate_single_hop(
+    ds: KBClient, kb_id: str, algo_id: str, *, count: int, max_workers: int, llm_factory=None
+) -> list[dict]:
     if count <= 0:
         return []
     result_list: list[dict] = []
@@ -19,6 +22,7 @@ def generate_single_hop(ds: KBClient, kb_id: str, algo_id: str, *, count: int, m
     retry_count = 0
     last_log_percent = 0
     no_doc_flag = False
+
     def run_single() -> dict | None:
         nonlocal no_doc_flag
         if no_doc_flag:
@@ -57,6 +61,7 @@ def generate_single_hop(ds: KBClient, kb_id: str, algo_id: str, *, count: int, m
         except Exception as exc:
             _log.error('generate single hop error: %s', exc)
             return None
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         while len(result_list) < count and retry_count < max_retries and (not no_doc_flag):
             tasks = min(max_workers, count - len(result_list))
@@ -84,15 +89,22 @@ def generate_single_hop(ds: KBClient, kb_id: str, algo_id: str, *, count: int, m
                     break
     _log.info('single-hop done: %s items', len(result_list))
     return result_list
-def generate_single_hop_from_chunks(chunks: list[dict], *, count: int, max_workers: int, llm_factory=None) -> list[dict]:
+
+
+def generate_single_hop_from_chunks(
+    chunks: list[dict], *, count: int, max_workers: int, llm_factory=None
+) -> list[dict]:
     if count <= 0:
         return []
     rows = list(chunks)
     random.shuffle(rows)
     result_list: list[dict] = []
     lock = threading.Lock()
+
     def run_one(chunk: dict) -> dict | None:
-        prompt = prompt_generate_single_hop(chunk['content'], chunk.get('filename', 'unknown'), chunk.get('doc_id', ''), chunk.get('chunk_id', ''))
+        prompt = prompt_generate_single_hop(
+            chunk['content'], chunk.get('filename', 'unknown'), chunk.get('doc_id', ''), chunk.get('chunk_id', '')
+        )
         try:
             qa_json = chat(prompt, llm_factory=llm_factory)
         except Exception as exc:
@@ -107,8 +119,9 @@ def generate_single_hop_from_chunks(chunks: list[dict], *, count: int, max_worke
         qa_json['reference_doc_ids'] = [chunk.get('doc_id', '')]
         qa_json['reference_chunk_ids'] = [chunk.get('chunk_id', '')]
         return {'qa': qa_json}
+
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        futures = [executor.submit(run_one, c) for c in rows[:max(count * 3, count)]]
+        futures = [executor.submit(run_one, c) for c in rows[: max(count * 3, count)]]
         for f in futures:
             item = f.result()
             if not item:

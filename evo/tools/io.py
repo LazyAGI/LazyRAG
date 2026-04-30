@@ -4,12 +4,16 @@ from evo.domain.tool_result import ErrorCode, ToolResult
 from evo.harness.registry import tool
 from evo.runtime.session import get_current_session
 from evo.utils import safe_under
+
+
 @tool(tags=['io'])
 def write_artifact(relpath: str, content: str) -> ToolResult[dict[str, Any]]:
     if not relpath:
         return ToolResult.failure('write_artifact', ErrorCode.INVALID_ARGUMENT, 'relpath is required.')
     if content is None:
-        return ToolResult.failure('write_artifact', ErrorCode.INVALID_ARGUMENT, 'content is required (use empty string for empty files).')
+        return ToolResult.failure(
+            'write_artifact', ErrorCode.INVALID_ARGUMENT, 'content is required (use empty string for empty files).'
+        )
     session = get_current_session()
     if session is None:
         return ToolResult.failure('write_artifact', ErrorCode.DATA_NOT_LOADED, 'No active session.')

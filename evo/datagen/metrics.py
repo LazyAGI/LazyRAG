@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+
 def calculate_metrics(reference_chunk_ids, reference_doc_ids, retrieve_chunk_ids, retrieve_doc_ids):
     ref_chunks = set(reference_chunk_ids)
     ref_docs = set(reference_doc_ids)

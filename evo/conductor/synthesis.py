@@ -1,10 +1,13 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
+
 Priority = Literal['P0', 'P1', 'P2']
 Direction = Literal['+', '-']
 PRIORITY_ORDER: tuple[Priority, ...] = ('P0', 'P1', 'P2')
 DIRECTION_VALUES: tuple[Direction, ...] = ('+', '-')
+
+
 @dataclass
 class VerifiedAction:
     id: str
@@ -28,6 +31,8 @@ class VerifiedAction:
     code_map_warning: str = ''
     target_step: str = ''
     target_line: int = 0
+
+
 @dataclass
 class SynthesisResult:
     summary: str = ''

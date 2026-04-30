@@ -9,23 +9,52 @@ from pathlib import Path
 from typing import Any, Callable
 from evo.datagen.kb_client import KBClient
 from evo.runtime.fs import atomic_write_json
+
 _log = logging.getLogger('evo.datagen.corpus')
+
+
 @dataclass
 class CorpusIndex:
     kb_id: str
     algo_id: str
     docs: list[dict]
     chunks: list[dict]
-    def sample(self, count: int, pred: Callable[[str], bool] | None=None) -> list[dict]:
+
+    def sample(self, count: int, pred: Callable[[str], bool] | None = None) -> list[dict]:
         rows = [c for c in self.chunks if pred is None or pred(c.get('content', ''))]
         random.shuffle(rows)
         return rows[:count]
+
     def to_dict(self) -> dict[str, Any]:
-        return {'kb_id': self.kb_id, 'algo_id': self.algo_id, 'docs': self.docs, 'chunks': self.chunks, 'created_at': time.time()}
+        return {
+            'kb_id': self.kb_id,
+            'algo_id': self.algo_id,
+            'docs': self.docs,
+            'chunks': self.chunks,
+            'created_at': time.time(),
+        }
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'CorpusIndex':
-        return cls(kb_id=str(data.get('kb_id') or ''), algo_id=str(data.get('algo_id') or ''), docs=list(data.get('docs') or []), chunks=list(data.get('chunks') or []))
-def build_corpus_index(ds: KBClient, kb_id: str, algo_id: str, *, cache_dir: Path | None=None, docs: list[dict] | None=None, max_docs: int=48, max_chunks: int=160, max_workers: int=8) -> CorpusIndex:
+        return cls(
+            kb_id=str(data.get('kb_id') or ''),
+            algo_id=str(data.get('algo_id') or ''),
+            docs=list(data.get('docs') or []),
+            chunks=list(data.get('chunks') or []),
+        )
+
+
+def build_corpus_index(
+    ds: KBClient,
+    kb_id: str,
+    algo_id: str,
+    *,
+    cache_dir: Path | None = None,
+    docs: list[dict] | None = None,
+    max_docs: int = 48,
+    max_chunks: int = 160,
+    max_workers: int = 8,
+) -> CorpusIndex:
     cache = _cache_path(cache_dir, kb_id, algo_id) if cache_dir else None
     docs = docs if docs is not None else ds.get_doc_list(kb_id, algo_id)
     if cache and cache.is_file():
@@ -62,6 +91,8 @@ def build_corpus_index(ds: KBClient, kb_id: str, algo_id: str, *, cache_dir: Pat
         atomic_write_json(cache, idx.to_dict())
     _log.info('built corpus index chunks=%s docs=%s/%s', len(idx.chunks), len(selected), len(docs))
     return idx
+
+
 def _doc_chunks(ds: KBClient, kb_id: str, algo_id: str, item: dict) -> list[dict]:
     doc = item.get('doc') or {}
     doc_id = doc.get('doc_id', '')
@@ -73,14 +104,28 @@ def _doc_chunks(ds: KBClient, kb_id: str, algo_id: str, item: dict) -> list[dict
         content = str(chunk.get('content') or '').strip()
         if len(content) < 80:
             continue
-        rows.append({'content': content, 'chunk_id': chunk.get('chunk_id') or chunk.get('uid', ''), 'uid': chunk.get('uid') or chunk.get('chunk_id') or '', 'doc_id': chunk.get('doc_id') or doc_id, 'filename': chunk.get('filename') or filename})
+        rows.append(
+            {
+                'content': content,
+                'chunk_id': chunk.get('chunk_id') or chunk.get('uid', ''),
+                'uid': chunk.get('uid') or chunk.get('chunk_id') or '',
+                'doc_id': chunk.get('doc_id') or doc_id,
+                'filename': chunk.get('filename') or filename,
+            }
+        )
     return rows
+
+
 def _cache_path(cache_dir: Path | None, kb_id: str, algo_id: str) -> Path | None:
     if cache_dir is None:
         return None
     safe = ''.join((ch if ch.isalnum() or ch in '._-' else '_' for ch in f'{kb_id}_{algo_id}'))
     return cache_dir / f'{safe}.json'
+
+
 def _same_doc_set(a: list[dict], b: list[dict]) -> bool:
     return _doc_ids(a) == _doc_ids(b)
+
+
 def _doc_ids(rows: list[dict]) -> set[str]:
     return {str((r.get('doc') or r).get('doc_id') or '') for r in rows if (r.get('doc') or r).get('doc_id')}

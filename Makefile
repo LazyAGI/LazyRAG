@@ -6,7 +6,7 @@
 # (which often times out in restricted networks). Override with: make up DOCKER_BUILDKIT=1
 export DOCKER_BUILDKIT ?= 0
 PYTHON ?= python3
-PIP ?= pip
+PIP ?= $(PYTHON) -m pip
 
 # ---------------------------------------------------------------------------
 # Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
@@ -131,7 +131,7 @@ export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG ATTU_IMAGE_TAG MINIO_ACCESS_KEY MIN
 export JUICEFS_MINIO_USER JUICEFS_MINIO_PASSWORD JUICEFS_ACCESS_KEY JUICEFS_SECRET_KEY
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
-PYTHON_DIRS := algorithm backend
+PYTHON_DIRS := algorithm backend evo
 
 # Go dirs to lint
 GO_DIRS := backend/core

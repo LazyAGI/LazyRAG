@@ -7,7 +7,10 @@ from evo.runtime.fs import atomic_write_json
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .context import CancelToken, ExecCtx
+
 log = logging.getLogger('evo.service.executors.eval')
+
+
 def execute(ctx: ExecCtx, tid: str) -> None:
     cur = _store.get(ctx.store, tid)
     if cur is None:
@@ -27,8 +30,22 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     token = CancelToken(ctx, tid)
     try:
         if dataset_id:
-            elog.append_event('eval.start', task_id=tid, payload={'dataset_id': dataset_id, 'target_chat_url': target_chat_url})
-            report = run_eval(dataset_id=dataset_id, target_chat_url=target_chat_url or '', cfg=ctx.cfg, llm_factory=lambda : get_automodel(ctx.cfg.model_config.llm_role), max_workers=(payload.get('eval_options') or {}).get('max_workers', 10), dataset_name=(payload.get('eval_options') or {}).get('dataset_name', ''), filters=(payload.get('eval_options') or {}).get('filters') or {}, persist_report=False, on_progress=lambda current, total: elog.append_event('eval.progress', task_id=tid, payload={'current': current, 'total': total, 'dataset_id': dataset_id}))
+            elog.append_event(
+                'eval.start', task_id=tid, payload={'dataset_id': dataset_id, 'target_chat_url': target_chat_url}
+            )
+            report = run_eval(
+                dataset_id=dataset_id,
+                target_chat_url=target_chat_url or '',
+                cfg=ctx.cfg,
+                llm_factory=lambda: get_automodel(ctx.cfg.model_config.llm_role),
+                max_workers=(payload.get('eval_options') or {}).get('max_workers', 10),
+                dataset_name=(payload.get('eval_options') or {}).get('dataset_name', ''),
+                filters=(payload.get('eval_options') or {}).get('filters') or {},
+                persist_report=False,
+                on_progress=lambda current, total: elog.append_event(
+                    'eval.progress', task_id=tid, payload={'current': current, 'total': total, 'dataset_id': dataset_id}
+                ),
+            )
             upstream_id = report.get('report_id')
             eval_id = upstream_id or eval_id or tid
             if not upstream_id:
@@ -48,7 +65,11 @@ def execute(ctx: ExecCtx, tid: str) -> None:
             ctx.on_stop(tid, 'fetch_traces')
             return
         atomic_write_json(ws.trace_bundle_path(eval_id), traces)
-        elog.append_event('eval.finish', task_id=tid, payload={'eval_id': eval_id, 'cases': report.get('total_cases'), 'traces': len(traces)})
+        elog.append_event(
+            'eval.finish',
+            task_id=tid,
+            payload={'eval_id': eval_id, 'cases': report.get('total_cases'), 'traces': len(traces)},
+        )
         ctx.on_success(tid)
     except Exception as exc:
         if token.requested():
@@ -56,6 +77,8 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         ctx.on_failure(tid, exc)
     finally:
         ctx.pop_thread(tid)
+
+
 def _fetch_traces(tid: str, elog: EventLog, report: dict, token: CancelToken) -> dict[str, Any]:
     if token.requested():
         return {}

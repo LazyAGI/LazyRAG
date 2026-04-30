@@ -4,7 +4,11 @@ from pathlib import Path
 from typing import Any
 from evo.runtime.session import AnalysisSession
 from evo.tools.io import write_artifact
-def write_report_bundle(session: AnalysisSession, payload: dict[str, Any], markdown: str | None, base_name: str) -> dict[str, Path | None]:
+
+
+def write_report_bundle(
+    session: AnalysisSession, payload: dict[str, Any], markdown: str | None, base_name: str
+) -> dict[str, Path | None]:
     json_text = json.dumps(payload, ensure_ascii=False, indent=2)
     json_info = write_artifact(relpath=f'{base_name}.json', content=json_text).unwrap()
     json_path = Path(json_info['path'])

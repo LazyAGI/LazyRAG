@@ -4,12 +4,14 @@ import logging
 import re
 import zipfile
 from pathlib import Path
-from typing import Any
 from xml.etree import ElementTree
 import requests
+
 _log = logging.getLogger('evo.datagen.kb_client')
+
+
 class KBClient:
-    def __init__(self, kb_base_url: str, chunk_base_url: str, *, timeout: int=60) -> None:
+    def __init__(self, kb_base_url: str, chunk_base_url: str, *, timeout: int = 60) -> None:
         self.kb_base_url = kb_base_url.rstrip('/')
         self.chunk_base_url = chunk_base_url.rstrip('/')
         self.timeout = timeout
@@ -17,7 +19,8 @@ class KBClient:
         self._file_chunk_cache: dict[tuple[str, str], list[dict]] = {}
         self._http = requests.Session()
         self._http.trust_env = False
-    def get_doc_list(self, kb_id: str, algo_id: str='general_algo') -> list[dict]:
+
+    def get_doc_list(self, kb_id: str, algo_id: str = 'general_algo') -> list[dict]:
         key = (kb_id, algo_id)
         if key in self._doc_cache:
             return self._doc_cache[key]
@@ -33,6 +36,7 @@ class KBClient:
                     _log.warning('get_doc_list base=%s id_key=%s failed: %s', base, id_key, exc)
         self._doc_cache[key] = []
         return []
+
     def _list_docs(self, base: str, id_key: str, kb_id: str, algo_id: str) -> list[dict]:
         items: list[dict] = []
         page_size = 100
@@ -54,10 +58,13 @@ class KBClient:
             if len(batch) < page_size:
                 break
         return items
-    def get_chunks(self, kb_id: str, doc_id: str, algo_id: str='general_algo') -> list[dict]:
+
+    def get_chunks(self, kb_id: str, doc_id: str, algo_id: str = 'general_algo') -> list[dict]:
         return self._get_chunks(kb_id, doc_id, algo_id, rich=False)
-    def get_all_chunks(self, kb_id: str, doc_id: str, algo_id: str='general_algo') -> list[dict]:
+
+    def get_all_chunks(self, kb_id: str, doc_id: str, algo_id: str = 'general_algo') -> list[dict]:
         return self._get_chunks(kb_id, doc_id, algo_id, rich=True)
+
     def _get_chunks(self, kb_id: str, doc_id: str, algo_id: str, *, rich: bool) -> list[dict]:
         chunk_kb_id = self._chunk_kb_id(kb_id, algo_id, doc_id)
         for group in ('block', 'line'):
@@ -65,16 +72,29 @@ class KBClient:
             if chunks:
                 return chunks
         return self._get_chunks_from_doc_file(kb_id, doc_id, algo_id, rich=rich)
+
     def _chunk_kb_id(self, kb_id: str, algo_id: str, doc_id: str) -> str:
         doc = self._find_doc(kb_id, algo_id, doc_id)
         return str(doc.get('_chunk_kb_id') or kb_id)
+
     def _get_chunks_by_group(self, kb_id: str, doc_id: str, algo_id: str, group: str, *, rich: bool) -> list[dict]:
         for base in _base_candidates(self.chunk_base_url):
             try:
                 chunks = []
                 page_size = 100
                 for page in range(1, 101):
-                    r = self._http.get(f'{base}/v1/chunks', params={'kb_id': kb_id, 'doc_id': doc_id, 'group': group, 'algo_id': algo_id, 'page': page, 'page_size': page_size}, timeout=self.timeout)
+                    r = self._http.get(
+                        f'{base}/v1/chunks',
+                        params={
+                            'kb_id': kb_id,
+                            'doc_id': doc_id,
+                            'group': group,
+                            'algo_id': algo_id,
+                            'page': page,
+                            'page_size': page_size,
+                        },
+                        timeout=self.timeout,
+                    )
                     r.raise_for_status()
                     items = r.json().get('data', {}).get('items', [])
                     for c in items:
@@ -82,7 +102,15 @@ class KBClient:
                         if not content:
                             continue
                         if rich:
-                            chunks.append({'content': content, 'chunk_id': c.get('uid', ''), 'filename': c.get('metadata', {}).get('file_name', 'unknown'), 'uid': c.get('uid', ''), 'doc_id': c.get('doc_id', doc_id)})
+                            chunks.append(
+                                {
+                                    'content': content,
+                                    'chunk_id': c.get('uid', ''),
+                                    'filename': c.get('metadata', {}).get('file_name', 'unknown'),
+                                    'uid': c.get('uid', ''),
+                                    'doc_id': c.get('doc_id', doc_id),
+                                }
+                            )
                         else:
                             chunks.append({'content': content, 'chunk_id': c.get('uid', '')})
                     if len(items) < page_size:
@@ -93,6 +121,7 @@ class KBClient:
             except Exception as exc:
                 _log.warning('get_chunks base=%s group=%s failed: %s', base, group, exc)
         return []
+
     def _get_chunks_from_doc_file(self, kb_id: str, doc_id: str, algo_id: str, *, rich: bool) -> list[dict]:
         key = (kb_id, doc_id)
         if key not in self._file_chunk_cache:
@@ -108,15 +137,19 @@ class KBClient:
         if rich:
             return chunks
         return [{'content': c['content'], 'chunk_id': c['chunk_id']} for c in chunks]
+
     def _find_doc(self, kb_id: str, algo_id: str, doc_id: str) -> dict:
         for item in self.get_doc_list(kb_id, algo_id):
             doc = item.get('doc') or {}
             if doc.get('doc_id') == doc_id:
                 return doc
         return {'doc_id': doc_id}
+
     @classmethod
     def from_config(cls, config) -> 'KBClient':
         return cls(kb_base_url=config.dataset_gen.kb_base_url, chunk_base_url=config.dataset_gen.chunk_base_url)
+
+
 def _doc_path(doc: dict) -> Path | None:
     for key in ('path', 'file_path'):
         if doc.get(key):
@@ -126,6 +159,8 @@ def _doc_path(doc: dict) -> Path | None:
         if meta.get(key):
             return Path(str(meta[key]))
     return None
+
+
 def _doc_meta(doc: dict) -> dict:
     raw = doc.get('metadata') or doc.get('meta') or {}
     if isinstance(raw, dict):
@@ -137,6 +172,8 @@ def _doc_meta(doc: dict) -> dict:
             return {}
         return data if isinstance(data, dict) else {}
     return {}
+
+
 def _extract_text(path: Path | None) -> str:
     if not path or not path.exists():
         return ''
@@ -146,12 +183,17 @@ def _extract_text(path: Path | None) -> str:
     if suffix == '.docx':
         return _extract_docx(path)
     if suffix in {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}:
-        return f'Image document: {path.name}. The file is part of the knowledge base and should be treated as visual source material.'
+        return (
+            f'Image document: {path.name}. The file is part of the knowledge base '
+            'and should be treated as visual source material.'
+        )
     try:
         return path.read_text(encoding='utf-8', errors='ignore')
     except Exception as exc:
         _log.warning('read doc file failed path=%s: %s', path, exc)
         return ''
+
+
 def _doc_stub_text(doc: dict) -> str:
     name = doc.get('filename') or doc.get('name') or doc.get('doc_id') or 'unknown'
     meta = _doc_meta(doc)
@@ -166,9 +208,12 @@ def _doc_stub_text(doc: dict) -> str:
         parts.append(f"Display name: {meta['display_name']}.")
     parts.append('This metadata is the available knowledge-base representation for this non-text document.')
     return ' '.join(parts)
+
+
 def _extract_pdf(path: Path) -> str:
     try:
         from pypdf import PdfReader
+
         reader = PdfReader(str(path))
         parts = []
         for page in reader.pages[:40]:
@@ -177,6 +222,8 @@ def _extract_pdf(path: Path) -> str:
     except Exception as exc:
         _log.warning('extract pdf failed path=%s: %s', path, exc)
         return ''
+
+
 def _extract_docx(path: Path) -> str:
     try:
         with zipfile.ZipFile(path) as zf:
@@ -186,22 +233,28 @@ def _extract_docx(path: Path) -> str:
     except Exception as exc:
         _log.warning('extract docx failed path=%s: %s', path, exc)
         return ''
+
+
 def _split_text(text: str, doc_id: str, doc: dict) -> list[dict]:
     clean = re.sub('\\n{3,}', '\n\n', text).strip()
     if not clean:
         return []
     filename = doc.get('filename') or doc.get('name') or doc_id
     chunks = []
-    (size, overlap) = (1200, 160)
+    size, overlap = (1200, 160)
     pos = 0
     while pos < len(clean) and len(chunks) < 80:
-        part = clean[pos:pos + size].strip()
+        part = clean[pos: pos + size].strip()
         if len(part) >= 80:
             idx = len(chunks)
             chunk_id = f'file:{doc_id}:{idx}'
-            chunks.append({'content': part, 'chunk_id': chunk_id, 'uid': chunk_id, 'filename': filename, 'doc_id': doc_id})
+            chunks.append(
+                {'content': part, 'chunk_id': chunk_id, 'uid': chunk_id, 'filename': filename, 'doc_id': doc_id}
+            )
         pos += size - overlap
     return chunks
+
+
 def _base_candidates(base: str) -> list[str]:
     out = [base.rstrip('/')]
     if '127.0.0.1' in base or 'localhost' in base:
