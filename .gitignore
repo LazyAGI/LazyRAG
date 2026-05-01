@@ -29,6 +29,7 @@ wget-log
 .vscode
 .claude
 .cursor
+.codex
 
 # docs
 lazyllm_chroma/
@@ -85,3 +86,8 @@ data/evo/
 
 # macOS
 .DS_Store
+
+AGENTS.md
+algorithm/.agentic_rag/
+version.*
+algorithm/Dockerfile.chat-rebase
