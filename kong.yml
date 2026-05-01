@@ -38,3 +38,15 @@ services:
           - name: rbac-auth
             config:
               auth_service_url: http://auth-service:8000
+
+  - name: evo-service
+    url: http://evo-api:8047
+    routes:
+      - name: evo-route
+        paths:
+          - /api/evo
+        strip_path: true
+        plugins:
+          - name: rbac-auth
+            config:
+              auth_service_url: http://auth-service:8000
