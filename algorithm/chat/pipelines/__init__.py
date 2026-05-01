@@ -1,6 +1,3 @@
-# Core pipeline definitions
-# Contains agentic and naive modes, corresponding to agentic.py and naive.py
-
 from chat.pipelines.agentic import get_ppl_agentic, agentic_rag
 from chat.pipelines.naive import get_ppl_naive
 

@@ -43,3 +43,13 @@ URL_MAP: Dict[str, str] = {
     'debug': 'http://127.0.0.1:8525',
     'tyy': 'http://10.119.24.129:8056,general_algo',
 }
+
+
+def resolve_dataset_url(dataset: str | None) -> str | None:
+    if not dataset:
+        return None
+    if dataset in URL_MAP:
+        return URL_MAP[dataset]
+    if dataset.startswith('ds_'):
+        return f'{DEFAULT_ALGO_SERVICE_URL},{dataset}'
+    return None
