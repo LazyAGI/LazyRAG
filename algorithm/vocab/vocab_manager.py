@@ -31,83 +31,82 @@ class VocabManager:
 
     Args:
         create_user_id: User identifier (corresponds to core.public.words.create_user_id).
-                        Pass None or '' to load the global vocabulary (no user filter).
-        db_url: Optional explicit database connection URL; falls back to environment variables if not provided.
+        data_source: Optional custom data source (callable or list);
+                     mainly for testing; omit to load from the database.
     """
 
-    def __init__(
-        self,
-        create_user_id: Optional[str] = None,
-        db_url: Optional[str] = None,
-    ) -> None:
-        self._create_user_id = create_user_id or None
-        self._db_url = db_url
-        self._lock = threading.Lock()
-        self._processor: Optional[QueryEnhACProcessor] = None
-        self._vocab_size: int = 0
-        self.reload()
+    def __init__(self, create_user_id: str = '', *, data_source: Optional[Callable] = None) -> None:
+        self._create_user_id = create_user_id
+        self._lock = threading.RLock()
+        actual_source = data_source if data_source is not None else self._load_from_db
+        self._proc = QueryEnhACProcessor(
+            data_source=actual_source,
+            discriminator=None,
+        )
+        LOG.info(f'[VocabManager] initialized for create_user_id={create_user_id!r}, vocab_size={self.vocab_size}')
 
     # ------------------------------------------------------------------
-    # Public interface
+    # Internal helpers
     # ------------------------------------------------------------------
 
-    def reload(self) -> None:
-        """Reload vocabulary from the database and rebuild the AC automaton."""
-        rows = fetch_vocab_for_create_user_id(
-            create_user_id=self._create_user_id,
-            db_url=self._db_url,
-        )
-        synonyms: List[List[str]] = [r['synonyms'] for r in rows if r.get('synonyms')]
-        with self._lock:
-            self._processor = QueryEnhACProcessor(synonyms)
-            self._vocab_size = len(synonyms)
-        LOG.info(
-            f'[VocabManager] Reloaded create_user_id={self._create_user_id!r} '
-            f'vocab_size={self._vocab_size}'
-        )
+    def _load_from_db(self) -> List[dict]:
+        """Load vocabulary rows for the current user from core.public.words;
+        field format matches QueryEnhACProcessor."""
+        return fetch_vocab_for_create_user_id(self._create_user_id)
 
-    def __call__(self, query: Union[str, dict], *args, **kwargs) -> Union[str, dict]:
-        """Enhance the query using the vocabulary (AC automaton synonym replacement).
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-        Accepts either a plain string or a dict with a 'query' key.
-        Returns the same type as the input.
+    def reload(self) -> int:
+        """Hot-reload: re-query vocabulary from the database and rebuild the AC automaton.
+
+        Returns:
+            Total number of words in the updated vocabulary.
         """
         with self._lock:
-            processor = self._processor
-        if processor is None:
-            return query
-        if isinstance(query, dict):
-            raw = query.get('query', '')
-            enhanced = processor(raw) if raw else raw
-            if enhanced != raw:
-                query = dict(query)
-                query['query'] = enhanced
-            return query
-        return processor(query)
+            self._proc.update_data_source(self._load_from_db)
+            count = len(self._proc.word_to_cluster)
+            LOG.info(f'[VocabManager] reloaded for create_user_id={self._create_user_id!r}, vocab_size={count}')
+            return count
+
+    def __call__(self, query: Union[str, list]) -> Union[str, list]:
+        """Enhance the query using the vocabulary and return;
+        returns as-is when vocabulary is empty or discriminator=None."""
+        with self._lock:
+            return self._proc(query)
 
     @property
     def vocab_size(self) -> int:
-        return self._vocab_size
+        """Number of words currently loaded."""
+        with self._lock:
+            return len(self._proc.word_to_cluster)
+
+    @property
+    def create_user_id(self) -> str:
+        return self._create_user_id
 
 
-# ------------------------------------------------------------------
-# Global registry
-# ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Multi-user registry (replaces the original module-level singleton)
+# ---------------------------------------------------------------------------
 
-_registry: dict[Optional[str], VocabManager] = {}
+_registry: dict = {}
 _registry_lock = threading.Lock()
 
 
-def get_vocab_manager(
-    create_user_id: Optional[str] = None,
-    factory: Optional[Callable[[], VocabManager]] = None,
-) -> VocabManager:
-    """Return the VocabManager for the given user, creating one if it does not exist."""
-    key = (create_user_id or '').strip() or None
-    with _registry_lock:
-        if key not in _registry:
-            _registry[key] = factory() if factory else VocabManager(key)
-    return _registry[key]
+def get_vocab_manager(create_user_id: str = '') -> VocabManager:
+    """Return the VocabManager for the given create_user_id (lazy init, one instance per create_user_id).
+
+    Args:
+        create_user_id: User identifier, corresponds to core.public.words.create_user_id.
+                 Pass an empty string to get the default manager with no user filter (vocabulary is usually empty).
+    """
+    if create_user_id not in _registry:
+        with _registry_lock:
+            if create_user_id not in _registry:
+                _registry[create_user_id] = VocabManager(create_user_id)
+    return _registry[create_user_id]
 
 
 def clear_registry() -> None:

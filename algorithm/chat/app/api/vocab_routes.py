@@ -14,7 +14,7 @@ POST /api/vocab/extract
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
 from lazyllm import LOG
 from pydantic import BaseModel
 
@@ -31,40 +31,62 @@ class VocabUserRequest(BaseModel):
 def _target_label(request: dict | None) -> str:
     if not request:
         return '<all-users>'
-    return (request.get('create_user_id') or '<all-users>')
-
-
-@router.post('/api/vocab/reload')
-async def reload_vocab(request: VocabUserRequest):
-    create_user_id = (request.create_user_id or '').strip() or None
-    manager = get_vocab_manager(create_user_id)
-    manager.reload()
-    LOG.info(f'[VocabRoutes] reload done create_user_id={_target_label(request.model_dump())!r} '
-             f'vocab_size={manager.vocab_size}')
-    return {
-        'status': 'ok',
-        'vocab_size': manager.vocab_size,
-        'create_user_id': create_user_id or '',
-    }
+    return (request.get('create_user_id') or '').strip() or '<all-users>'
 
 
 def _run_vocab_evolution_task(request: dict | None) -> None:
+    target_label = _target_label(request)
+    LOG.info(f'[VocabRoutes] extract started create_user_id={target_label!r}')
     try:
-        resolved_create_user_id = (request or {}).get('create_user_id') or None
-        run_vocab_evolution(
-            create_user_id=resolved_create_user_id,
-        )
+        actions = run_vocab_evolution(request)
     except Exception as exc:
-        LOG.error(f'[VocabRoutes] vocab evolution failed: {exc}')
+        LOG.error(f'[VocabRoutes] extract failed create_user_id={target_label!r} error={exc}')
+        return
+    LOG.info(f'[VocabRoutes] extract finished create_user_id={target_label!r} action_count={len(actions)}')
 
 
-@router.post('/api/vocab/extract', status_code=status.HTTP_204_NO_CONTENT)
+@router.post('/api/vocab/reload', summary='Hot-reload vocabulary for the specified user')
+async def reload_vocab(body: VocabUserRequest | None = None):
+    """Reload vocabulary from the database for the specified user and rebuild the AC automaton.
+
+    - **create_user_id**: User ID, corresponds to core.public.words.create_user_id.
+    """
+    body = body or VocabUserRequest()
+    resolved_create_user_id = body.create_user_id.strip()
+    LOG.info(f'[VocabRoutes] reload requested create_user_id={resolved_create_user_id!r}')
+    try:
+        manager = get_vocab_manager(resolved_create_user_id)
+        manager.reload()
+    except Exception as exc:
+        LOG.error(f'[VocabRoutes] reload failed create_user_id={resolved_create_user_id!r} error={exc}')
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f'Vocab reload failed: {exc}',
+        )
+    LOG.info(
+        f'[VocabRoutes] reload done create_user_id={resolved_create_user_id!r} '
+        f'vocab_size={manager.vocab_size}'
+    )
+    return {
+        'status': 'ok',
+        'vocab_size': manager.vocab_size,
+        'create_user_id': resolved_create_user_id,
+    }
+
+
+@router.post('/api/vocab/extract', status_code=status.HTTP_204_NO_CONTENT,
+             summary='Trigger vocabulary evolution and push action list back to core')
 async def extract_vocab(
     background_tasks: BackgroundTasks,
-    request: VocabUserRequest,
+    body: VocabUserRequest | None = None,
 ):
-    resolved_create_user_id = (request.create_user_id or '').strip() or None
-    request_dict = {'create_user_id': resolved_create_user_id} if resolved_create_user_id else None
-    LOG.info(f'[VocabRoutes] extract queued create_user_id={_target_label(request_dict)!r}')
-    background_tasks.add_task(_run_vocab_evolution_task, request_dict)
+    """Trigger vocabulary evolution per backend convention and push the action_list back to core.
+
+    - **create_user_id**: Optional; when empty, scans all users with chat history in the time range.
+    """
+    body = body or VocabUserRequest()
+    resolved_create_user_id = body.create_user_id.strip()
+    request = {'create_user_id': resolved_create_user_id} if resolved_create_user_id else None
+    LOG.info(f'[VocabRoutes] extract queued create_user_id={_target_label(request)!r}')
+    background_tasks.add_task(_run_vocab_evolution_task, request)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
