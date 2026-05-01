@@ -6,12 +6,12 @@ import lazyllm
 router = APIRouter()
 
 
-@router.post('/api/model/check', summary='检测模型供应商连通性')
+@router.post('/api/model/check', summary='Check model provider connectivity')
 async def check_model_connection(
-    model: Annotated[Optional[str], Body(description='模型名称')] = None,
-    source: Annotated[Optional[str], Body(description='供应商名称')] = None,
-    url: Annotated[Optional[str], Body(description='供应商地址')] = None,
-    api_key: Annotated[Optional[str], Body(description='供应商密钥')] = None,
+    model: Annotated[Optional[str], Body(description='Model name')] = None,
+    source: Annotated[Optional[str], Body(description='Provider name')] = None,
+    url: Annotated[Optional[str], Body(description='Provider URL')] = None,
+    api_key: Annotated[Optional[str], Body(description='Provider API key')] = None,
 ):
     try:
         module = lazyllm.OnlineModule(

@@ -15,7 +15,7 @@ def is_path_like(s):
     _windows_drive = re.compile(r'^[a-zA-Z]:[\\/]')
 
     def _looks_like_windows_path(s: str) -> bool:
-        """判断是否符合 Windows 路径特征（盘符或 UNC）"""
+        """Check whether the string looks like a Windows path (drive letter or UNC)."""
         return _windows_drive.match(s) is not None or s.startswith('\\\\')
     return (
         _looks_like_windows_path(s) or
@@ -28,10 +28,10 @@ _QUOTED_SEGMENT = re.compile(r"(?:^|/)(['\"`])[^/]+\1(?:$|/)")
 
 def is_sane_posix_path(s: str) -> bool:
     """
-    严格版 POSIX 路径校验：
-    1) 仍需是 path-like（/、./、../ 开头等）
-    2) 不含 NUL/控制字符
-    3) 不含被成对引号包裹的路径段（如 .../'img_url'）
+    Strict POSIX path validation:
+    1) Must still be path-like (starts with /, ./, ../, etc.)
+    2) No NUL/control characters
+    3) No path segments wrapped in matching quotes (e.g. .../'img_url')
     """
     if not isinstance(s, str) or not s:
         return False

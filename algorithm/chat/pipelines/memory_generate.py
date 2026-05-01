@@ -104,10 +104,10 @@ def _validate_generated_content(memory_type: MemoryType, content: Any) -> str:
 
 
 _COMMON_OUTPUT_SPEC = (
-    '输出要求：\n'
-    '1. 只能输出 JSON 对象，不要输出 markdown 代码块，不要输出额外文本。\n'
-    '2. JSON 结构必须是 {"content": "<新的完整文本>"}。\n'
-    '3. content 必须是合并所有有效输入修改要求后的最终完整文本，不能只给 patch。\n'
+    'Output requirements:\n'
+    '1. Output only a JSON object; no markdown code blocks, no extra text.\n'
+    '2. JSON structure must be {"content": "<new complete text>"}.\n'
+    '3. content must be the final complete text after merging all valid input modification requests; do not provide only a patch.\n'  # noqa: E501
 )
 
 
@@ -117,24 +117,24 @@ def _format_inputs_block(
     user_instruct: Optional[str],
 ) -> str:
     sections = [
-        '输入信息如下：\n'
-        '1) 当前 content（完整旧文本）：\n'
+        'Input information:\n'
+        '1) Current content (full old text):\n'
         f'{content}\n\n'
     ]
 
     next_index = 2
     if suggestions:
         sections.append(
-            f'{next_index}) suggestions（JSON 数组；每条可能包含 outdated 字段）：\n'
-            '- outdated 为 TRUE 表示该建议已经过期，仅供参考；若对当前修改无意义，可以忽略。\n'
-            '- outdated 为 FALSE 或缺失表示该建议仍有效，需要根据建议修改 content。\n'
+            f'{next_index}) suggestions (JSON array; each item may contain an outdated field):\n'
+            '- outdated=TRUE means the suggestion is expired and for reference only; ignore if irrelevant to the current modification.\n'  # noqa: E501
+            '- outdated=FALSE or missing means the suggestion is still valid and content should be updated accordingly.\n'  # noqa: E501
             f'{json.dumps(suggestions, ensure_ascii=False)}\n\n'
         )
         next_index += 1
 
     if user_instruct:
         sections.append(
-            f'{next_index}) user_instruct（用户直接指令）：\n{user_instruct}\n\n'
+            f'{next_index}) user_instruct (direct user instruction):\n{user_instruct}\n\n'
         )
 
     return ''.join(sections)
@@ -153,7 +153,7 @@ def _normalize_user_instruct(raw_user_instruct: Any) -> Optional[str]:
 def _format_retry_note(previous_error: Optional[str]) -> str:
     if not previous_error:
         return ''
-    return f'\n上一次输出不合法，错误：{previous_error}\n请修正后重新生成。\n'
+    return f'\nPrevious output was invalid, error: {previous_error}\nPlease correct and regenerate.\n'
 
 
 def _build_skill_prompt(
@@ -163,32 +163,33 @@ def _build_skill_prompt(
     previous_error: Optional[str] = None,
 ) -> str:
     return (
-        '你是一个 SKILL.md 编辑器，根据输入内容生成新的 SKILL.md 全文，不解释、不摘要。\n'
-        'memory 类型: skill\n'
-        'SKILL.md 是一份抽象的 SOP（标准作业流程），用来指导 agent 在「满足 description 适用范围」时'
-        '按照统一方法论完成任务。\n'
+        'You are a SKILL.md editor. Generate the complete new SKILL.md content based on the input; no explanations or summaries.\n'  # noqa: E501
+        'memory type: skill\n'
+        'SKILL.md is an abstract SOP (Standard Operating Procedure) that guides the agent to complete tasks '
+        'using a unified methodology when the description scope is satisfied.\n'
         '\n'
-        '【格式硬性要求】\n'
-        '1. 必须以 YAML frontmatter 开头，frontmatter 至少包含 name 和 description 两个字段，'
-        '然后是空行，再是 markdown 正文。\n'
-        '2. name 使用已有值，不要随意改名；除非 user_instruct 明确要求改名。\n'
-        '3. description 用一句话描述该 skill 的适用范围与触发条件，这是路由/召回这条 skill 的唯一依据。\n'
+        '[Format requirements]\n'
+        '1. Must start with YAML frontmatter containing at least name and description fields, '
+        'followed by a blank line, then the markdown body.\n'
+        '2. Keep the existing name value; do not rename unless user_instruct explicitly requests it.\n'
+        '3. description should describe the applicable scope and trigger conditions in one sentence; '
+        'this is the sole basis for routing/recalling this skill.\n'
         '\n'
-        '【适用范围与 description 的联动（重要）】\n'
-        '- 当 suggestions 或 user_instruct 涉及「扩大 / 缩小 / 调整 skill 的适用范围、触发场景、覆盖对象」时，'
-        '必须同步更新 frontmatter 中的 description，使其准确反映新的适用范围。\n'
-        '- 当修改仅涉及正文方法论细节、不改变适用范围时，description 保持不变。\n'
+        '[Scope and description linkage (important)]\n'
+        '- When suggestions or user_instruct involve expanding/narrowing/adjusting the skill scope, trigger scenarios, or coverage, '  # noqa: E501
+        'update the frontmatter description accordingly to accurately reflect the new scope.\n'
+        '- When changes only affect methodology details in the body without changing the scope, keep description unchanged.\n'  # noqa: E501
         '\n'
-        '【正文内容规范】\n'
-        '- 正文必须是抽象的 SOP：步骤、判断标准、检查清单、通用规则、输出格式要求等。\n'
-        '- 禁止把「具体案例、具体项目名、具体数据、具体对话片段、一次性示例」写进 SKILL.md 正文；'
-        '如需举例，只保留高度抽象的占位式示意，不要贴真实案例内容。\n'
-        '- 如果 suggestions 或 user_instruct 里带有具体案例，应将其中的**可复用经验**抽象成通用规则，'
-        '再写入正文，而不是原样拷贝案例。\n'
-        '- 正文结构推荐：适用条件 / 操作步骤 / 判断与校验 / 常见陷阱 / 输出规范，可按需裁剪。\n'
+        '[Body content rules]\n'
+        '- The body must be an abstract SOP: steps, decision criteria, checklists, general rules, output format requirements, etc.\n'  # noqa: E501
+        '- Do not include specific cases, project names, specific data, conversation snippets, or one-time examples in the SKILL.md body; '  # noqa: E501
+        'if examples are needed, use only highly abstract placeholder illustrations.\n'
+        '- If suggestions or user_instruct contain specific cases, abstract the reusable experience into general rules '
+        'before writing to the body; do not copy cases verbatim.\n'
+        '- Recommended body structure: Applicable conditions / Steps / Judgment & validation / Common pitfalls / Output spec (trim as needed).\n'  # noqa: E501
         '\n'
-        '【长度控制】\n'
-        '- SKILL.md 全文（含 frontmatter）总字数必须控制在 2000 字以内，尽量精炼。\n'
+        '[Length control]\n'
+        '- Total length of SKILL.md (including frontmatter) must be within 2000 characters; keep it concise.\n'
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'
@@ -203,21 +204,21 @@ def _build_memory_prompt(
     previous_error: Optional[str] = None,
 ) -> str:
     return (
-        '你是一个 agent memory 编辑器，根据输入内容生成新的 memory 全文，不解释、不摘要。\n'
-        'memory 类型: memory\n'
-        'memory 用来沉淀「用户在使用过程中积累的经验类内容」，例如：遇到过的问题与解决方案、'
-        '行之有效的做法、踩过的坑与教训、领域相关的事实性结论、对某类任务的偏好判断依据等。\n'
+        'You are an agent memory editor. Generate the complete new memory content based on the input; no explanations or summaries.\n'  # noqa: E501
+        'memory type: memory\n'
+        'memory stores experience-type content accumulated by the user during usage, such as: problems encountered and solutions, '  # noqa: E501
+        'effective practices, lessons learned, domain-specific factual conclusions, preference criteria for certain tasks, etc.\n'  # noqa: E501
         '\n'
-        '【内容边界】\n'
-        '- 只记录具备复用价值的经验条目；一次性流水账、纯情绪表达、与经验无关的闲聊不要写入。\n'
-        '- 不要在此记录用户画像信息（身份、角色、长期偏好、沟通风格等），那些属于 user_preference。\n'
-        '- 每条经验尽量自包含：说明「场景 / 做法（或结论）/ 依据或效果」，便于后续被检索和直接使用。\n'
+        '[Content boundaries]\n'
+        '- Only record experience entries with reuse value; do not write one-time logs, pure emotional expressions, or unrelated small talk.\n'  # noqa: E501
+        '- Do not record user profile information (identity, role, long-term preferences, communication style, etc.) here; those belong to user_preference.\n'  # noqa: E501
+        '- Each experience entry should be self-contained: describe the scenario / approach (or conclusion) / rationale or effect, for easy retrieval and direct use.\n'  # noqa: E501
         '\n'
-        '【写作与合并规范】\n'
-        '- 输出为纯文本全文\n'
-        '- 合并时要做去重与归并：相同或相近的经验合成一条更准确的表述，不要堆叠重复项。\n'
-        '- 保留原有仍然有效的经验；被 suggestions / user_instruct 明确修正或推翻的经验必须更新或删除。\n'
-        '- 语言保持简洁客观，一条经验一行或一小段，便于增量维护。\n'
+        '[Writing and merging rules]\n'
+        '- Output as plain text full content.\n'
+        '- When merging, deduplicate and consolidate: combine same or similar experiences into a more accurate statement; do not stack duplicates.\n'  # noqa: E501
+        '- Retain existing valid experiences; experiences explicitly corrected or overridden by suggestions/user_instruct must be updated or deleted.\n'  # noqa: E501
+        '- Keep language concise and objective; one experience per line or short paragraph for easy incremental maintenance.\n'  # noqa: E501
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'
@@ -232,21 +233,21 @@ def _build_user_preference_prompt(
     previous_error: Optional[str] = None,
 ) -> str:
     return (
-        '你是一个 user_preference 编辑器，根据输入内容生成新的 user_preference 全文，不解释、不摘要。\n'
-        'memory 类型: user_preference\n'
-        'user_preference 用来沉淀「用户画像」类长期稳定的信息，例如：用户的身份 / 角色 / 所在领域、'
-        '长期偏好（沟通语气、输出格式、语言、详略程度）、禁忌项、常用工作流偏好、默认上下文假设等。\n'
+        'You are a user_preference editor. Generate the complete new user_preference content based on the input; no explanations or summaries.\n'  # noqa: E501
+        'memory type: user_preference\n'
+        'user_preference stores long-term stable user profile information, such as: user identity / role / domain, '
+        'long-term preferences (communication tone, output format, language, level of detail), taboos, common workflow preferences, default context assumptions, etc.\n'  # noqa: E501
         '\n'
-        '【内容边界】\n'
-        '- 只记录长期稳定、可复用于未来每一次交互的画像信息。\n'
-        '- 不要在此记录具体经验、具体项目知识或一次性事件，那些属于 memory。\n'
-        '- 不要写成聊天记录或日志；应组织成可被 agent 快速读取的条目化画像。\n'
+        '[Content boundaries]\n'
+        '- Only record long-term stable profile information that can be reused in every future interaction.\n'
+        '- Do not record specific experiences, specific project knowledge, or one-time events here; those belong to memory.\n'  # noqa: E501
+        '- Do not write as chat logs or journals; organize as itemized profile entries that the agent can quickly read.\n'  # noqa: E501
         '\n'
-        '【写作与合并规范】\n'
-        '- 输出为纯文本全文（可使用简单 markdown 分组/列表），不要 YAML frontmatter。\n'
-        '- 合并时对同一画像维度做更新而非追加：新的偏好覆盖旧的，互相矛盾时以 user_instruct 为准。\n'
-        '- 可按维度分组（如：身份 / 偏好输出 / 语言与语气 / 禁忌 / 其他约定）。\n'
-        '- 语言简洁中立，不要加入拟人化评论；仅陈述事实性的用户画像条目。\n'
+        '[Writing and merging rules]\n'
+        '- Output as plain text full content (simple markdown grouping/lists are allowed); no YAML frontmatter.\n'
+        '- When merging, update rather than append for the same profile dimension: new preferences override old ones; when conflicting, user_instruct takes precedence.\n'  # noqa: E501
+        '- Group by dimension if needed (e.g. identity / output preferences / language & tone / taboos / other conventions).\n'  # noqa: E501
+        '- Keep language concise and neutral; no anthropomorphic comments; only state factual user profile entries.\n'
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'

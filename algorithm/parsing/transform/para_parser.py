@@ -243,7 +243,7 @@ class ParagraphSplitter(ModuleBase):
                     combined_strings.append(current_chunk)
                     current_chunk = string
 
-            # 处理最后一个 chunk
+            # process the last chunk
             if current_chunk:
                 combined_strings.append(current_chunk)
 

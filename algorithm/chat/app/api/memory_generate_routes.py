@@ -20,21 +20,21 @@ router = APIRouter()
 class SuggestionPayload(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    title: str = Field(..., description='建议标题')
-    content: str = Field(..., description='自然语言修改建议')
-    reason: Optional[str] = Field(default=None, description='提议理由')
-    outdated: Optional[bool] = Field(default=None, description='建议是否已过期')
+    title: str = Field(..., description='Suggestion title')
+    content: str = Field(..., description='Natural language modification suggestion')
+    reason: Optional[str] = Field(default=None, description='Reason for the suggestion')
+    outdated: Optional[bool] = Field(default=None, description='Whether the suggestion is outdated')
 
 
 class GeneratePayload(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    content: str = Field(..., description='目标内容当前完整文本')
+    content: str = Field(..., description='Current full text of the target content')
     suggestions: Optional[List[SuggestionPayload]] = Field(
         default=None,
-        description='待合入建议列表',
+        description='List of suggestions to merge',
     )
-    user_instruct: Optional[str] = Field(default=None, description='用户直接下达的自然语言指令')
+    user_instruct: Optional[str] = Field(default=None, description='Natural language instruction directly from the user')  # noqa: E501
 
     @model_validator(mode='after')
     def validate_generation_inputs(self) -> 'GeneratePayload':
@@ -73,16 +73,16 @@ def _handle_generate(memory_type: MemoryType, payload: GeneratePayload):
         return _fail(500, f'generate failed: {exc}')
 
 
-@router.post('/api/chat/skill/generate', summary='生成新的 skill content')
+@router.post('/api/chat/skill/generate', summary='Generate new skill content')
 async def generate_skill(payload: GeneratePayload):
     return _handle_generate('skill', payload)
 
 
-@router.post('/api/chat/memory/generate', summary='生成新的 memory content')
+@router.post('/api/chat/memory/generate', summary='Generate new memory content')
 async def generate_memory(payload: GeneratePayload):
     return _handle_generate('memory', payload)
 
 
-@router.post('/api/chat/user_preference/generate', summary='生成新的 user_preference content')
+@router.post('/api/chat/user_preference/generate', summary='Generate new user_preference content')
 async def generate_user_preference(payload: GeneratePayload):
     return _handle_generate('user_preference', payload)

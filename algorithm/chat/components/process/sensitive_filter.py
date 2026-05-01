@@ -31,20 +31,20 @@ class SensitiveFilter:
             LOG.warning(f'[SensitiveFilter] Path is not a file: {path}')
             return
 
-        # 初始化 AC 自动机
+        # Initialize AC automaton
         self.actree = ahocorasick.Automaton()
 
-        # 加载敏感词
+        # Load sensitive words
         loaded_count = 0
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 for line in f:
                     word = line.strip()
-                    if word:  # 跳过空行
+                    if word:  # skip empty lines
                         self.actree.add_word(word, (word, 'default'))
                         loaded_count += 1
 
-            # 构建失败指针（这是 AC 自动机的核心）
+            # Build failure pointers (core of the AC automaton)
             self.actree.make_automaton()
             self.loaded = True
             self.keyword_count = loaded_count
@@ -61,15 +61,15 @@ class SensitiveFilter:
         if not text:
             return False, ''
 
-        # AC 自动机匹配
-        # iter() 返回 (end_index, (word, category))
+        # AC automaton matching
+        # iter() returns (end_index, (word, category))
         try:
             for _, (word, _) in self.actree.iter(text):
-                # 只要命中一个敏感词就立即返回
+                # Return True immediately upon hitting any sensitive word
                 return True, word
         except Exception as e:
             LOG.error(f'[SensitiveFilter] Error during check: {e}')
-            # 发生错误时默认通过（不阻断业务）
+            # Default to pass on error (do not block business flow)
             return False, ''
 
         return False, ''

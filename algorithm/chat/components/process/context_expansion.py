@@ -63,7 +63,7 @@ class ContextExpansionComponent:
                 if attempt < _RPC_RETRIES:
                     time.sleep(_RPC_RETRY_DELAY)
                 else:
-                    LOG.warning('[CtxExpand] RPC 全部失败 uid=%s: %s', node.uid, e)
+                    LOG.warning('[CtxExpand] All RPC attempts failed uid=%s: %s', node.uid, e)
                     return []
         window = window if isinstance(window, list) else ([window] if window else [])
         neighbors = [
@@ -106,7 +106,7 @@ class ContextExpansionComponent:
                     added_tokens += nb_tok
                 added_for_seed += 1
         if all_added:
-            LOG.info('[CtxExpand] 扩展 +%d 节点 (+%d tokens)', len(all_added), added_tokens)
+            LOG.info('[CtxExpand] Expanded +%d nodes (+%d tokens)', len(all_added), added_tokens)
         result = list(nodes) + all_added
         result.sort(key=_relevance_key)
         return result

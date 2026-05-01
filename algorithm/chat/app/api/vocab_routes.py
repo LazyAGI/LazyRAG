@@ -1,7 +1,8 @@
-"""vocab_routes: 词表相关 API（支持多用户）。
+"""vocab_routes: Vocabulary-related API (multi-user support).
 
-后端在用户修改同义词族后调用此接口，算法服务从数据库重新加载对应用户的词表
-并重建 AC 自动机。
+The backend calls this endpoint after a user modifies synonym groups; the algorithm
+service reloads the vocabulary for the corresponding user from the database and
+rebuilds the AC automaton.
 
 POST /api/vocab/reload
     Body: {"create_user_id": "user_001"}
@@ -13,7 +14,7 @@ POST /api/vocab/extract
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Response, status
 from lazyllm import LOG
 from pydantic import BaseModel
 
@@ -30,50 +31,40 @@ class VocabUserRequest(BaseModel):
 def _target_label(request: dict | None) -> str:
     if not request:
         return '<all-users>'
-    return (request.get('create_user_id') or '').strip() or '<all-users>'
+    return (request.get('create_user_id') or '<all-users>')
+
+
+@router.post('/api/vocab/reload')
+async def reload_vocab(request: VocabUserRequest):
+    create_user_id = (request.create_user_id or '').strip() or None
+    manager = get_vocab_manager(create_user_id)
+    manager.reload()
+    LOG.info(f'[VocabRoutes] reload done create_user_id={_target_label(request.model_dump())!r} '
+             f'vocab_size={manager.vocab_size}')
+    return {
+        'status': 'ok',
+        'vocab_size': manager.vocab_size,
+        'create_user_id': create_user_id or '',
+    }
 
 
 def _run_vocab_evolution_task(request: dict | None) -> None:
-    target_label = _target_label(request)
-    LOG.info(f'[VocabRoutes] extract started create_user_id={target_label!r}')
     try:
-        actions = run_vocab_evolution(request)
+        resolved_create_user_id = (request or {}).get('create_user_id') or None
+        run_vocab_evolution(
+            create_user_id=resolved_create_user_id,
+        )
     except Exception as exc:
-        LOG.error(f'[VocabRoutes] extract failed create_user_id={target_label!r} error={exc}')
-        return
-    LOG.info(f'[VocabRoutes] extract finished create_user_id={target_label!r} action_count={len(actions)}')
+        LOG.error(f'[VocabRoutes] vocab evolution failed: {exc}')
 
 
-@router.post('/api/vocab/reload', summary='热更新指定用户的词表')
-async def reload_vocab(body: VocabUserRequest | None = None):
-    """从 lazyrag_vocab 表重新加载指定用户的词汇并重建 AC 自动机。
-
-    - **create_user_id**: 用户ID，对应 lazyrag_vocab.create_user_id。
-    """
-    body = body or VocabUserRequest()
-    resolved_create_user_id = body.create_user_id.strip()
-    LOG.info(f'[VocabRoutes] reload requested create_user_id={resolved_create_user_id!r}')
-    try:
-        manager = get_vocab_manager(resolved_create_user_id)
-        count = manager.reload()
-    except Exception as exc:
-        LOG.error(f'[VocabRoutes] reload failed create_user_id={resolved_create_user_id!r} error={exc}')
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='vocab reload failed') from exc
-    return {'status': 'ok', 'vocab_size': count, 'create_user_id': resolved_create_user_id}
-
-
-@router.post('/api/vocab/extract', summary='触发词表自动进化抽取', status_code=status.HTTP_204_NO_CONTENT)
+@router.post('/api/vocab/extract', status_code=status.HTTP_204_NO_CONTENT)
 async def extract_vocab(
     background_tasks: BackgroundTasks,
-    body: VocabUserRequest | None = None,
+    request: VocabUserRequest,
 ):
-    """按后端约定触发词表进化，并主动把 action_list 回推给 core。
-
-    - **create_user_id**: 可选；为空时会扫描时间范围内全部有聊天记录的用户。
-    """
-    body = body or VocabUserRequest()
-    resolved_create_user_id = body.create_user_id.strip()
-    request = {'create_user_id': resolved_create_user_id} if resolved_create_user_id else None
-    LOG.info(f'[VocabRoutes] extract queued create_user_id={_target_label(request)!r}')
-    background_tasks.add_task(_run_vocab_evolution_task, request)
+    resolved_create_user_id = (request.create_user_id or '').strip() or None
+    request_dict = {'create_user_id': resolved_create_user_id} if resolved_create_user_id else None
+    LOG.info(f'[VocabRoutes] extract queued create_user_id={_target_label(request_dict)!r}')
+    background_tasks.add_task(_run_vocab_evolution_task, request_dict)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

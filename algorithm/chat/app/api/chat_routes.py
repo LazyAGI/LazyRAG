@@ -7,31 +7,31 @@ from chat.config import DEFAULT_CHAT_DATASET
 router = APIRouter()
 
 
-@router.post('/api/chat', summary='与知识库对话')
-@router.post('/api/chat/stream', summary='与知识库对话')
+@router.post('/api/chat', summary='Chat with the knowledge base')
+@router.post('/api/chat/stream', summary='Chat with the knowledge base (streaming)')
 async def chat(
-    query: Annotated[str, Body(description='用户问题')],
+    query: Annotated[str, Body(description='User question')],
     history: Annotated[
         Optional[List[Dict[str, Any]]],
-        Body(description='历史对话（每项可含 role、content）'),
+        Body(description='Conversation history (each item may contain role and content)'),
     ] = None,
-    session_id: Annotated[str, Body(description='会话 ID')] = 'session_id',
-    filters: Annotated[Optional[Dict[str, Any]], Body(description='检索过滤条件')] = None,
-    files: Annotated[Optional[List[str]], Body(description='上传临时文件')] = None,
-    debug: Annotated[Optional[bool], Body(description='是否开启debug模式')] = False,
-    reasoning: Annotated[Optional[bool], Body(description='是否开启推理')] = False,
-    databases: Annotated[Optional[List[Dict]], Body(description='关联数据库')] = None,
-    dataset: Annotated[Optional[str], Body(description='数据库名称')] = DEFAULT_CHAT_DATASET,
+    session_id: Annotated[str, Body(description='Session ID')] = 'session_id',
+    filters: Annotated[Optional[Dict[str, Any]], Body(description='Retrieval filter conditions')] = None,
+    files: Annotated[Optional[List[str]], Body(description='Uploaded temporary files')] = None,
+    debug: Annotated[Optional[bool], Body(description='Enable debug mode')] = False,
+    reasoning: Annotated[Optional[bool], Body(description='Enable reasoning mode')] = False,
+    databases: Annotated[Optional[List[Dict]], Body(description='Associated databases')] = None,
+    dataset: Annotated[Optional[str], Body(description='Dataset name')] = DEFAULT_CHAT_DATASET,
     priority: Annotated[
         Optional[int],
-        Body(description='请求优先级，用于vllm调度。数值越大优先级越高'),
+        Body(description='Request priority for vllm scheduling; higher value means higher priority'),
     ] = None,
-    available_tools: Annotated[Optional[List[str]], Body(description='可用工具列表')] = None,
-    available_skills: Annotated[Optional[List[str]], Body(description='可用技能列表')] = None,
-    memory: Annotated[Optional[str], Body(description='memory 内容')] = None,
-    user_preference: Annotated[Optional[str], Body(description='user_preference 内容')] = None,
-    use_memory: Annotated[Optional[bool], Body(description='是否使用 memory')] = True,
-    create_user_id: Annotated[Optional[str], Body(description='用户ID，用于加载该用户的专有词表')] = None,
+    available_tools: Annotated[Optional[List[str]], Body(description='List of available tools')] = None,
+    available_skills: Annotated[Optional[List[str]], Body(description='List of available skills')] = None,
+    memory: Annotated[Optional[str], Body(description='Memory content')] = None,
+    user_preference: Annotated[Optional[str], Body(description='User preference content')] = None,
+    use_memory: Annotated[Optional[bool], Body(description='Whether to use memory')] = True,
+    create_user_id: Annotated[Optional[str], Body(description='User ID for loading user-specific vocabulary')] = None,
     *,
     request: Request,
 ):

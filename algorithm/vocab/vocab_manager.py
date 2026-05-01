@@ -1,18 +1,19 @@
-"""VocabManager: 多用户词表管理器，封装 QueryEnhACProcessor，支持热更新。
+"""VocabManager: Multi-user vocabulary manager wrapping QueryEnhACProcessor with hot-reload support.
 
-每个用户（create_user_id）维护独立的 QueryEnhACProcessor 实例，词表数据从
-后端维护的 PostgreSQL core.public.words 表中按 create_user_id 查询。
+Each user (create_user_id) maintains an independent QueryEnhACProcessor instance.
+Vocabulary data is queried from the backend-managed PostgreSQL core.public.words table
+by create_user_id.
 
-用法：
-    # 后端通知算法服务热更新某用户词表
+Usage:
+    # Backend notifies the algorithm service to hot-reload a user's vocabulary
     get_vocab_manager('user_001').reload()
 
-    # 检索前对 query 进行词表增强（pipeline 中使用）
-    enhanced = get_vocab_manager('user_001')('用户的 query 文本')
+    # Enhance a query with the vocabulary before retrieval (used in pipeline)
+    enhanced = get_vocab_manager('user_001')('user query text')
 
-环境变量：
-    LAZYRAG_CORE_DATABASE_URL / ACL_DB_DSN  core 库连接
-    LAZYRAG_DATABASE_URL                     兼容回退连接
+Environment variables:
+    LAZYRAG_CORE_DATABASE_URL / ACL_DB_DSN  core database connection
+    LAZYRAG_DATABASE_URL                     fallback connection
 """
 from __future__ import annotations
 
@@ -26,87 +27,90 @@ from .db import fetch_vocab_for_create_user_id
 
 
 class VocabManager:
-    """单用户词表管理器：绑定一个 create_user_id，从 DB 加载词表，支持热更新。
+    """Single-user vocabulary manager: bound to one create_user_id, loads vocabulary from DB, supports hot-reload.
 
     Args:
-        create_user_id: 用户标识（对应 core.public.words.create_user_id）。
-        data_source: 可选，自定义数据源（callable 或 list）；
-                     主要用于测试，省略时从数据库加载。
+        create_user_id: User identifier (corresponds to core.public.words.create_user_id).
+                        Pass None or '' to load the global vocabulary (no user filter).
+        db_url: Optional explicit database connection URL; falls back to environment variables if not provided.
     """
 
-    def __init__(self, create_user_id: str = '', *, data_source: Optional[Callable] = None) -> None:
-        self._create_user_id = create_user_id
-        self._lock = threading.RLock()
-        actual_source = data_source if data_source is not None else self._load_from_db
-        self._proc = QueryEnhACProcessor(
-            data_source=actual_source,
-            discriminator=None,
+    def __init__(
+        self,
+        create_user_id: Optional[str] = None,
+        db_url: Optional[str] = None,
+    ) -> None:
+        self._create_user_id = create_user_id or None
+        self._db_url = db_url
+        self._lock = threading.Lock()
+        self._processor: Optional[QueryEnhACProcessor] = None
+        self._vocab_size: int = 0
+        self.reload()
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def reload(self) -> None:
+        """Reload vocabulary from the database and rebuild the AC automaton."""
+        rows = fetch_vocab_for_create_user_id(
+            create_user_id=self._create_user_id,
+            db_url=self._db_url,
         )
-        LOG.info(f'[VocabManager] initialized for create_user_id={create_user_id!r}, vocab_size={self.vocab_size}')
+        synonyms: List[List[str]] = [r['synonyms'] for r in rows if r.get('synonyms')]
+        with self._lock:
+            self._processor = QueryEnhACProcessor(synonyms)
+            self._vocab_size = len(synonyms)
+        LOG.info(
+            f'[VocabManager] Reloaded create_user_id={self._create_user_id!r} '
+            f'vocab_size={self._vocab_size}'
+        )
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    def __call__(self, query: Union[str, dict], *args, **kwargs) -> Union[str, dict]:
+        """Enhance the query using the vocabulary (AC automaton synonym replacement).
 
-    def _load_from_db(self) -> List[dict]:
-        """从 core.public.words 加载当前用户的词表行，字段格式与 QueryEnhACProcessor 匹配。"""
-        return fetch_vocab_for_create_user_id(self._create_user_id)
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def reload(self) -> int:
-        """热更新：从数据库重新查询词表并重建 AC 自动机。
-
-        Returns:
-            更新后词表中 word 的总数。
+        Accepts either a plain string or a dict with a 'query' key.
+        Returns the same type as the input.
         """
         with self._lock:
-            self._proc.update_data_source(self._load_from_db)
-            count = len(self._proc.word_to_cluster)
-            LOG.info(f'[VocabManager] reloaded for create_user_id={self._create_user_id!r}, vocab_size={count}')
-            return count
-
-    def __call__(self, query: Union[str, list]) -> Union[str, list]:
-        """对 query 进行词表增强后返回；词表为空或 discriminator=None 时原样返回。"""
-        with self._lock:
-            return self._proc(query)
+            processor = self._processor
+        if processor is None:
+            return query
+        if isinstance(query, dict):
+            raw = query.get('query', '')
+            enhanced = processor(raw) if raw else raw
+            if enhanced != raw:
+                query = dict(query)
+                query['query'] = enhanced
+            return query
+        return processor(query)
 
     @property
     def vocab_size(self) -> int:
-        """当前加载的 word 数量。"""
-        with self._lock:
-            return len(self._proc.word_to_cluster)
-
-    @property
-    def create_user_id(self) -> str:
-        return self._create_user_id
+        return self._vocab_size
 
 
-# ---------------------------------------------------------------------------
-# Multi-user registry（替换原来的模块级单例）
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------
+# Global registry
+# ------------------------------------------------------------------
 
-_registry: dict = {}
+_registry: dict[Optional[str], VocabManager] = {}
 _registry_lock = threading.Lock()
 
 
-def get_vocab_manager(create_user_id: str = '') -> VocabManager:
-    """返回 create_user_id 对应的 VocabManager（惰性初始化，每个 create_user_id 一个实例）。
-
-    Args:
-        create_user_id: 用户标识，对应 core.public.words.create_user_id。
-                 传空字符串时返回"无用户"的默认管理器（词表通常为空）。
-    """
-    if create_user_id not in _registry:
-        with _registry_lock:
-            if create_user_id not in _registry:
-                _registry[create_user_id] = VocabManager(create_user_id)
-    return _registry[create_user_id]
+def get_vocab_manager(
+    create_user_id: Optional[str] = None,
+    factory: Optional[Callable[[], VocabManager]] = None,
+) -> VocabManager:
+    """Return the VocabManager for the given user, creating one if it does not exist."""
+    key = (create_user_id or '').strip() or None
+    with _registry_lock:
+        if key not in _registry:
+            _registry[key] = factory() if factory else VocabManager(key)
+    return _registry[key]
 
 
 def clear_registry() -> None:
-    """清空注册表（仅用于测试，确保用例间互相隔离）。"""
+    """Clear the registry (for testing only, to ensure isolation between test cases)."""
     with _registry_lock:
         _registry.clear()

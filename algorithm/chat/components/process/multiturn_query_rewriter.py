@@ -11,10 +11,7 @@ from chat.prompts.rewrite import MULTITURN_QUERY_REWRITE_PROMPT
 
 
 class RewriterInput(BaseModel):
-    """
-    多轮对话 Query 改写器 的输入结构
-    —— 对应此前的“调用输入模板（User Prompt / 模型输入）”
-    """
+    """Input schema for the multi-turn query rewriter."""
     model_config = ConfigDict(
         extra='forbid',
         json_schema_extra={
@@ -22,32 +19,32 @@ class RewriterInput(BaseModel):
                 'chat_history': [
                     {
                         'role': 'user',
-                        'content': '对比下 Qwen 与 Llama 的推理性能',
+                        'content': 'Compare the inference performance of Qwen and Llama',
                         'time': '2025-08-11T10:00:00+09:00',
                     },
-                    {'role': 'assistant', 'content': '已对比：A100 上 Qwen-32B > Llama-34B ...'},
+                    {'role': 'assistant', 'content': 'Compared: on A100, Qwen-32B > Llama-34B ...'},
                 ],
-                'last_user_query': '那它在多图输入时差异大吗？近两个月的数据就行',
+                'last_user_query': 'Is the difference large for multi-image input? Data from the past two months is fine.',  # noqa: E501
                 'has_appendix': False,
                 'current_date': '2025-08-12',
                 'user_locale': 'zh',
                 'session_memory': {
-                    'topic': '多模型推理对比',
+                    'topic': 'Multi-model inference comparison',
                     'entities': ['Qwen-32B', 'Llama-34B'],
-                    'time_hints': ['近两个月'],
-                    'source_scope': ['官方博客', '评测报告'],
+                    'time_hints': ['past two months'],
+                    'source_scope': ['official blog', 'benchmark reports'],
                 },
             }
         })
 
-    chat_history: List[BaseMessage] = Field(..., description='过去 N 轮对话')
-    last_user_query: str = Field(..., description='用户最新一句')
-    current_date: date = Field(..., description='用于相对时间归一的当前日期（YYYY-MM-DD）')
-    user_locale: Optional[str] = Field(default='zh', description='用户首选语言（如 zh/en），可选')
-    has_appendix: bool = Field(False, description='是否包含附件')
+    chat_history: List[BaseMessage] = Field(..., description='Past N turns of conversation')
+    last_user_query: str = Field(..., description="The user's latest message")
+    current_date: date = Field(..., description='Current date for relative time normalization (YYYY-MM-DD)')
+    user_locale: Optional[str] = Field(default='zh', description='User preferred language (e.g. zh/en), optional')
+    has_appendix: bool = Field(False, description='Whether an attachment is included')
     session_memory: Optional[SessionMemory] = Field(
         default=None,
-        description='会话内已确定的实体/意图/约束（可选）',
+        description='Confirmed entities/intents/constraints within the session (optional)',
     )
 
 

@@ -81,7 +81,7 @@ _SKILL_REVIEW_PROMPT = (
     "First, identify the applicable scenario for the skill. "
     "This scenario must be placed ONLY in the frontmatter `description` field, "
     "and it should state when the skill applies, not what happened in this conversation. "
-    "Do NOT repeat the applicable scenario, trigger conditions, or any '适用场景' / 'When to use' section in the skill body.\n\n"
+    "Do NOT repeat the applicable scenario, trigger conditions, or any 'Applicable Scope' / 'When to use' section in the skill body.\n\n"
     "Then summarize the skill body as an abstract SOP. "
     "The SOP must generalize beyond the current case and explain how to approach similar tasks step by step, "
     "including tool selection order, branching logic, validation steps, and fallback strategy.\n\n"

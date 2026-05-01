@@ -37,90 +37,89 @@ from .db import (
 _LAZYLLM_CONTEXT_CREATE_USER_ATTR = 'user' + '_id'
 
 
-_EXTRACTION_PROMPT = """你是“词表进化抽取器”。
+_EXTRACTION_PROMPT = """You are a "Vocabulary Evolution Extractor".
 
-任务：从给定的一段用户历史对话中，只提取“非常明确、可以直接进入用户词表”的同义词二元组。
+Task: From a given segment of user chat history, extract only synonym pairs that are "very clearly and directly suitable for the user's vocabulary".  # noqa: E501
 
-只在以下证据足够明确时抽取：
-1. 用户明确说“记住 A 就是 B”“A 指的是 B”“A 和 B 是一回事”。
-2. 用户在多轮中反复稳定地把 A 和 B 互指，并且上下文含义一致。
+Only extract when the following evidence is sufficiently clear:
+1. The user explicitly says "remember A is B", "A refers to B", "A and B are the same thing".
+2. The user repeatedly and consistently uses A and B interchangeably across multiple turns with consistent meaning.
 
-必须遵守：
-1. 宁缺毋滥。没有明确证据时返回空列表 []。
-2. 每条记录只能包含一个 word 和一个 synonym，不允许数组、并列短语或多词混写。
-3. message_ids 必须来自输入中提供的消息 ID，且至少包含 1 个。
-4. description 简短说明该同义关系适用的语义场景。
-5. reason 说明为什么这条记录成立。
-6. 最多返回 {max_pairs} 条。
+Rules:
+1. Quality over quantity. Return an empty list [] when there is no clear evidence.
+2. Each record can only contain one word and one synonym; arrays, compound phrases, or multi-word mixing are not allowed.  # noqa: E501
+3. message_ids must come from the message IDs provided in the input, and must include at least 1.
+4. description briefly explains the semantic context where this synonym relationship applies.
+5. reason explains why this record is valid.
+6. Return at most {max_pairs} records.
 
-下面是可用的用户历史片段。每一行都已经把 message_id 和对应用户原话绑定在一起，返回的 message_ids 只能从这些片段里选择：
+Below are the available user history segments. Each line binds a message_id with the corresponding user's original text; the returned message_ids can only be selected from these segments:  # noqa: E501
 {history_segments}
 
-输出必须是 JSON 数组，元素结构严格如下：
+Output must be a JSON array with elements strictly structured as follows:
 [
     {
-    "word": "苹果",
-    "synonym": "apple",
-    "description": "水果语境",
-    "reason": "用户明确要求记住苹果就是 apple",
+    "word": "apple",
+    "synonym": "apple_cn",
+    "description": "fruit context",
+    "reason": "user explicitly asked to remember that apple is apple_cn",
     "message_ids": ["msg_1"]
     }
 ]
-除 JSON 外不要输出任何解释。"""
+Do not output any explanation other than JSON."""
 
+_CONFLICT_PROMPT = """You are a "Synonym Group Conflict Resolver".
 
-_CONFLICT_PROMPT = """你是“词族冲突判定器”。
+Task: A new word and an anchor word have been extracted as synonyms, but the anchor word already belongs to multiple synonym groups. Determine which existing groups the new word can unambiguously join.  # noqa: E501
 
-任务：新词与锚点词被抽取为同义词，但锚点词已经属于多个词族。请判断新词能否无歧义加入哪些现有词族。
+Input will provide:
+1. candidate_word: The new word to be added to the vocabulary.
+2. anchor_word: The word that already exists in multiple synonym groups.
+3. description: Semantic description of the synonym relationship.
+4. evidence: Conversation evidence (containing message_id and text snippets).
+5. existing_groups: Existing candidate synonym groups, each containing group_id, description, words.
 
-输入会给出：
-1. candidate_word: 待加入词表的新词。
-2. anchor_word: 已存在于多个词族中的词。
-3. description: 该同义关系的语义说明。
-4. evidence: 对话证据（包含 message_id 和文本片段）。
-5. existing_groups: 现有候选词族，每个词族包含 group_id、description、words。
+Decision principles:
+1. Only place candidate_word in group_ids_can_join when the context is sufficiently clear.
+2. If the context is clear enough to definitively exclude certain groups, place them in excluded_group_ids.
+3. Groups that cannot be clearly determined, may still belong, and require user confirmation go into conflict_group_ids.
+4. If nothing is clear, place all candidate groups in conflict_group_ids.
+5. Do not fabricate new group_ids.
 
-判定原则：
-1. 只有在上下文足够清楚时，才把 candidate_word 放入对应 group_ids_can_join。
-2. 如果上下文足够清楚，能够明确排除某些词族不可能归属，就把它们放入 excluded_group_ids。
-3. 无法明确判断、仍然可能属于、需要用户处理的词族，才放入 conflict_group_ids。
-4. 如果全部都不清楚，就把所有候选词族放入 conflict_group_ids。
-5. 不允许编造新的 group_id。
+Important semantic constraints:
+1. conflict_group_ids means "multiple possible memberships remain and the model cannot determine", NOT "semantic conflict" or "clearly does not belong".  # noqa: E501
+2. If evidence clearly rules out certain groups (e.g. "this is an engineering context, not a financial term, not a chemical reagent"), those group_ids must go into excluded_group_ids, not conflict_group_ids.  # noqa: E501
+3. Each candidate group_id can only appear in one of the three categories: group_ids_can_join, excluded_group_ids, conflict_group_ids.  # noqa: E501
+4. If a group_id has been clearly excluded, do not ask the user to confirm it again.
 
-重要语义约束：
-1. conflict_group_ids 的含义是“仍然存在多个可能归属，但模型无法判断”，不是“语义上发生冲突”也不是“已经明确不属于”。
-2. 如果证据明确说明某些词族不成立，比如“这是工程语境，不是财务术语，也不是化学试剂”，那么对应 group_id 必须放入 excluded_group_ids，而不是 conflict_group_ids。
-3. 每个候选 group_id 只能出现在三类之一：group_ids_can_join、excluded_group_ids、conflict_group_ids。
-4. 如果某个 group_id 已被明确排除，就不要再要求用户确认。
+Candidate word: {candidate_word}
+Anchor word: {anchor_word}
+Semantic description: {description}
 
-待判定新词：{candidate_word}
-锚点词：{anchor_word}
-语义说明：{description}
-
-对话证据：
+Conversation evidence:
 {evidence}
 
-现有候选词族：
+Existing candidate groups:
 {existing_groups}
 
-示例：
-如果证据明确说明“这是铁路工程语境，不是财务术语，也不是化学试剂”，而候选词族为 g1=铁路工程、g2=财务、g3=化学，则应输出：
+Example:
+If evidence clearly states "this is a railway engineering context, not a financial term, not a chemical reagent", and the candidate groups are g1=railway engineering, g2=finance, g3=chemistry, the output should be:  # noqa: E501
 {
-    "reason": "K 明确属于铁路工程语境，且已排除财务和化学语境。",
+    "reason": "K clearly belongs to the railway engineering context, and finance and chemistry contexts have been excluded.",  # noqa: E501
     "group_ids_can_join": ["g1"],
     "excluded_group_ids": ["g2", "g3"],
     "conflict_group_ids": []
 }
 
-输出 JSON：
+Output JSON:
 {
-  "reason": "简洁说明",
+  "reason": "concise explanation",
     "group_ids_can_join": ["g1"],
     "excluded_group_ids": [],
   "conflict_group_ids": ["g2", "g3"]
 }
 
-除 JSON 外不要输出任何解释。"""
+Do not output any explanation other than JSON."""
 
 
 _SENTENCE_BOUNDARY_RE = re.compile(r'.*?(?:[。！？!?；;]+|[\n]+|$)', re.S)
@@ -203,17 +202,17 @@ def _split_text_for_limit(value: Any, limit: int) -> List[str]:
 
 def _format_evidence_lines(evidence: Sequence[Dict[str, str]]) -> str:
     lines = [f'- [message_id={item["message_id"]}] {item["text"]}' for item in evidence if item.get('message_id')]
-    return '\n'.join(lines) if lines else '无'
+    return '\n'.join(lines) if lines else 'N/A'
 
 
 def _format_group_summaries(groups: Sequence[Dict[str, Any]]) -> str:
     lines = []
     for group in groups:
         group_id = _norm_text(group.get('group_id'))
-        description = _norm_text(group.get('description')) or '无'
-        words = ', '.join(_dedupe_keep_order(group.get('words') or [])) or '无'
+        description = _norm_text(group.get('description')) or 'N/A'
+        words = ', '.join(_dedupe_keep_order(group.get('words') or [])) or 'N/A'
         lines.append(f'[group_id={group_id}] description={description}; words={words}')
-    return '\n'.join(lines) if lines else '无'
+    return '\n'.join(lines) if lines else 'N/A'
 
 
 def _json_dump_list(values: Sequence[str]) -> str:
@@ -582,7 +581,7 @@ class ActionPlanningModule(ModuleBase):
         prompt_payload = {
             'candidate_word': candidate_word,
             'anchor_word': anchor_word,
-            'description': candidate.description or '无',
+            'description': candidate.description or 'N/A',
             'evidence': _format_evidence_lines(evidence),
             'existing_groups': _format_group_summaries(existing_groups),
         }
@@ -624,7 +623,7 @@ class ActionPlanningModule(ModuleBase):
             'reason': (
                 _norm_text(response.get('reason'))
                 or candidate.reason
-                or f'`{candidate_word}` 与 `{anchor_word}` 的归属需要进一步确认。'
+                or f'`{candidate_word}` and `{anchor_word}` membership requires further confirmation.'
             ),
             'allowed_group_ids': allowed,
             'excluded_group_ids': excluded,
@@ -695,7 +694,7 @@ class ActionPlanningModule(ModuleBase):
                 continue
             if not word_groups and not synonym_groups:
                 actions.append(self._build_action(
-                    reason=candidate.reason or f'从历史对话中抽取到 `{candidate.word}` 与 `{candidate.synonym}` 的明确同义关系。',
+                    reason=candidate.reason or f'Extracted a clear synonym relationship between `{candidate.word}` and `{candidate.synonym}` from chat history.',  # noqa: E501
                     words=[candidate.word, candidate.synonym],
                     description=candidate.description,
                     group_ids=[],
@@ -720,7 +719,7 @@ class ActionPlanningModule(ModuleBase):
 
             if len(anchor_groups) == 1:
                 actions.append(self._build_action(
-                    reason=candidate.reason or f'`{new_word}` 可直接加入 `{anchor_word}` 所在词族。',
+                    reason=candidate.reason or f'`{new_word}` can be directly added to the synonym group containing `{anchor_word}`.',  # noqa: E501
                     words=[new_word],
                     description='',
                     group_ids=list(anchor_groups),
