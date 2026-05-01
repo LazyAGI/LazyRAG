@@ -32,6 +32,7 @@ async def chat(
     user_preference: Annotated[Optional[str], Body(description='user_preference 内容')] = None,
     use_memory: Annotated[Optional[bool], Body(description='是否使用 memory')] = True,
     create_user_id: Annotated[Optional[str], Body(description='用户ID，用于加载该用户的专有词表')] = None,
+    trace: Annotated[Optional[bool], Body(description='是否记录 trace（仅管理员调试时开启）')] = False,
     *,
     request: Request,
 ):
@@ -48,6 +49,7 @@ async def chat(
         databases=databases,
         dataset=dataset,
         priority=priority,
+        trace=bool(trace),
         available_tools=available_tools,
         available_skills=available_skills,
         memory=memory,
