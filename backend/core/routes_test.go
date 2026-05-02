@@ -10,6 +10,7 @@ import (
 
 func TestAgentThreadEventsRouteWinsOverGenericThreadRoute(t *testing.T) {
 	r := mux.NewRouter()
+	r.UseEncodedPath()
 	registerAllRoutes(r)
 
 	req := httptest.NewRequest(http.MethodGet, "/agent/threads/thr-306c5b7b:events", nil)

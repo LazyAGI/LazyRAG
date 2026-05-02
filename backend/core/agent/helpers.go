@@ -33,6 +33,7 @@ const (
 var recordIDCounter atomic.Uint64
 
 type sseFrame struct {
+	ID    string
 	Event string
 	Data  string
 	Raw   string
@@ -133,8 +134,9 @@ func ensureSSEHeaders(w http.ResponseWriter) (http.Flusher, bool) {
 		return nil, false
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 	return flusher, true
 }
 
@@ -532,6 +534,56 @@ func readSSEFrame(reader *bufio.Reader) (*sseFrame, error) {
 	}
 }
 
+func readThreadEventSSEFrame(reader *bufio.Reader) (*sseFrame, error) {
+	lines := make([]string, 0, 8)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				line = strings.TrimRight(line, "\r\n")
+				if line != "" {
+					lines = append(lines, line)
+				}
+				if len(lines) == 0 {
+					return nil, io.EOF
+				}
+				return parseSSEFrame(lines), nil
+			}
+			return nil, err
+		}
+
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if len(lines) == 0 {
+				continue
+			}
+			return parseSSEFrame(lines), nil
+		}
+		lines = append(lines, line)
+		if isSingleLineJSONDataFrame(lines) {
+			return parseSSEFrame(lines), nil
+		}
+	}
+}
+
+func isSingleLineJSONDataFrame(lines []string) bool {
+	dataLines := 0
+	data := ""
+	for _, line := range lines {
+		if strings.HasPrefix(line, "data:") {
+			dataLines++
+			data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		}
+	}
+	if dataLines != 1 {
+		return false
+	}
+	if data == "[DONE]" {
+		return true
+	}
+	return json.Valid([]byte(data))
+}
+
 func parseSSEFrame(lines []string) *sseFrame {
 	frame := &sseFrame{
 		Event: "message",
@@ -539,6 +591,10 @@ func parseSSEFrame(lines []string) *sseFrame {
 	}
 	dataLines := make([]string, 0, len(lines))
 	for _, line := range lines {
+		if strings.HasPrefix(line, "id:") {
+			frame.ID = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+			continue
+		}
 		if strings.HasPrefix(line, "event:") {
 			frame.Event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 			continue

@@ -198,6 +198,31 @@ func TestBuildFetchedThreadEventsSkipsHeartbeatAndEmptyItems(t *testing.T) {
 	}
 }
 
+func TestShouldKeepThreadFlowStreamAliveKeepsRunningAndPending(t *testing.T) {
+	cases := []struct {
+		status string
+		want   bool
+	}{
+		{status: "running", want: true},
+		{status: "pending", want: true},
+		{status: "waiting_checkpoint", want: true},
+		{status: "RUNNING", want: true},
+		{status: " completed ", want: false},
+		{status: "failed", want: false},
+		{status: "", want: false},
+	}
+
+	for _, tc := range cases {
+		got := shouldKeepThreadFlowStreamAlive(&threadFlowStatusResponse{Status: tc.status})
+		if got != tc.want {
+			t.Fatalf("shouldKeepThreadFlowStreamAlive(%q) = %v, want %v", tc.status, got, tc.want)
+		}
+	}
+	if shouldKeepThreadFlowStreamAlive(nil) {
+		t.Fatalf("nil flow status must not keep stream alive")
+	}
+}
+
 func TestReadSSEFrameParsesMultilineData(t *testing.T) {
 	reader := bufio.NewReader(strings.NewReader("event: answer\ndata: {\"delta\":\"hello\"}\ndata: {\"delta\":\"world\"}\n\n"))
 
@@ -210,6 +235,29 @@ func TestReadSSEFrameParsesMultilineData(t *testing.T) {
 	}
 	if frame.Data != "{\"delta\":\"hello\"}\n{\"delta\":\"world\"}" {
 		t.Fatalf("unexpected frame data: %q", frame.Data)
+	}
+}
+
+func TestReadThreadEventSSEFrameAcceptsLineDelimitedData(t *testing.T) {
+	reader := bufio.NewReader(strings.NewReader(
+		"data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n" +
+			"data: {\"kind\":\"task.done\",\"task_id\":\"task_1\"}\n",
+	))
+
+	first, err := readThreadEventSSEFrame(reader)
+	if err != nil {
+		t.Fatalf("read first thread event frame: %v", err)
+	}
+	if first.Data != "{\"kind\":\"task.running\",\"task_id\":\"task_1\"}" {
+		t.Fatalf("unexpected first frame data: %q", first.Data)
+	}
+
+	second, err := readThreadEventSSEFrame(reader)
+	if err != nil {
+		t.Fatalf("read second thread event frame: %v", err)
+	}
+	if second.Data != "{\"kind\":\"task.done\",\"task_id\":\"task_1\"}" {
+		t.Fatalf("unexpected second frame data: %q", second.Data)
 	}
 }
 
@@ -678,7 +726,8 @@ func TestStreamUpstreamThreadEventsForwardsDuplicateFrames(t *testing.T) {
 		"event: message\ndata: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n",
 	}, ""))
 
-	if err := streamUpstreamThreadEvents(context.Background(), rec, rec, db.DB, "thr_1", body); err != nil {
+	var lastUpstreamEventID string
+	if err := streamUpstreamThreadEvents(context.Background(), rec, rec, db.DB, "thr_1", body, &lastUpstreamEventID, nil); err != nil {
 		t.Fatalf("streamUpstreamThreadEvents returned error: %v", err)
 	}
 
@@ -696,6 +745,45 @@ func TestStreamUpstreamThreadEventsForwardsDuplicateFrames(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("expected both duplicate thread event frames to be saved, got %d", count)
+	}
+}
+
+func TestStreamUpstreamThreadEventsTracksUpstreamIDWithoutForwarding(t *testing.T) {
+	db := newAgentTestDB(t)
+	rec := httptest.NewRecorder()
+	body := strings.NewReader("id: 339\nevent: message\ndata: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n")
+
+	var lastUpstreamEventID string
+	if err := streamUpstreamThreadEvents(context.Background(), rec, rec, db.DB, "thr_1", body, &lastUpstreamEventID, nil); err != nil {
+		t.Fatalf("streamUpstreamThreadEvents returned error: %v", err)
+	}
+
+	want := "data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("unexpected forwarded stream:\nwant: %q\ngot:  %q", want, got)
+	}
+	if lastUpstreamEventID != "339" {
+		t.Fatalf("unexpected last upstream event id: %q", lastUpstreamEventID)
+	}
+}
+
+func TestStreamUpstreamThreadEventsForwardsLineDelimitedFrames(t *testing.T) {
+	db := newAgentTestDB(t)
+	rec := httptest.NewRecorder()
+	body := strings.NewReader(strings.Join([]string{
+		"data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n",
+		"data: {\"kind\":\"task.done\",\"task_id\":\"task_1\"}\n",
+	}, ""))
+
+	var lastUpstreamEventID string
+	if err := streamUpstreamThreadEvents(context.Background(), rec, rec, db.DB, "thr_1", body, &lastUpstreamEventID, nil); err != nil {
+		t.Fatalf("streamUpstreamThreadEvents returned error: %v", err)
+	}
+
+	want := "data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n" +
+		"data: {\"kind\":\"task.done\",\"task_id\":\"task_1\"}\n\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("unexpected forwarded stream:\nwant: %q\ngot:  %q", want, got)
 	}
 }
 

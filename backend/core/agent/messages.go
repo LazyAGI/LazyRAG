@@ -23,9 +23,29 @@ type activeMessageStream struct {
 	roundID     string
 	requestHash string
 	done        chan struct{}
+	subscribers map[*messageStreamSubscription]struct{}
 
 	mu  sync.RWMutex
 	err error
+}
+
+type messageStreamSubscription struct {
+	records chan orm.AgentThreadRecord
+	done    chan struct{}
+	once    sync.Once
+}
+
+func newMessageStreamSubscription() *messageStreamSubscription {
+	return &messageStreamSubscription{
+		records: make(chan orm.AgentThreadRecord, 256),
+		done:    make(chan struct{}),
+	}
+}
+
+func (s *messageStreamSubscription) close() {
+	s.once.Do(func() {
+		close(s.done)
+	})
 }
 
 func (s *activeMessageStream) setErr(err error) {
@@ -38,6 +58,59 @@ func (s *activeMessageStream) Err() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.err
+}
+
+func (s *activeMessageStream) subscribe() *messageStreamSubscription {
+	sub := newMessageStreamSubscription()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.subscribers == nil {
+		s.subscribers = make(map[*messageStreamSubscription]struct{})
+	}
+	s.subscribers[sub] = struct{}{}
+	return sub
+}
+
+func (s *activeMessageStream) unsubscribe(sub *messageStreamSubscription) {
+	if sub == nil {
+		return
+	}
+	s.mu.Lock()
+	delete(s.subscribers, sub)
+	s.mu.Unlock()
+	sub.close()
+}
+
+func (s *activeMessageStream) publish(record orm.AgentThreadRecord) {
+	s.mu.RLock()
+	subscribers := make([]*messageStreamSubscription, 0, len(s.subscribers))
+	for sub := range s.subscribers {
+		subscribers = append(subscribers, sub)
+	}
+	s.mu.RUnlock()
+
+	for _, sub := range subscribers {
+		select {
+		case sub.records <- record:
+		case <-sub.done:
+		case <-s.done:
+			return
+		}
+	}
+}
+
+func (s *activeMessageStream) closeSubscribers() {
+	s.mu.Lock()
+	subscribers := make([]*messageStreamSubscription, 0, len(s.subscribers))
+	for sub := range s.subscribers {
+		subscribers = append(subscribers, sub)
+		delete(s.subscribers, sub)
+	}
+	s.mu.Unlock()
+
+	for _, sub := range subscribers {
+		sub.close()
+	}
 }
 
 type messageStreamRegistry struct {
@@ -118,6 +191,7 @@ func ensureMessageStream(
 		roundID:     round.RoundID,
 		requestHash: requestHash,
 		done:        make(chan struct{}),
+		subscribers: make(map[*messageStreamSubscription]struct{}),
 	}
 	if !activeStreams.put(thread.ThreadID, session) {
 		_ = resp.Body.Close()
@@ -177,6 +251,7 @@ func consumeMessageStream(db *gorm.DB, session *activeMessageStream, threadID st
 	defer func() {
 		_ = resp.Body.Close()
 		activeStreams.delete(threadID, session)
+		session.closeSubscribers()
 		close(session.done)
 	}()
 
@@ -211,11 +286,15 @@ func consumeMessageStream(db *gorm.DB, session *activeMessageStream, threadID st
 		if delta := extractAssistantTextFromFrameData(frame.Data); delta != "" {
 			assistantMessage.WriteString(delta)
 		}
-		if _, _, saveErr := saveThreadRecord(db, threadID, session.roundID, taskID, streamKindMessage, frame.Event, frame.Data, frame.Raw); saveErr != nil {
+		record, _, saveErr := saveThreadRecord(db, threadID, session.roundID, taskID, streamKindMessage, frame.Event, frame.Data, frame.Raw)
+		if saveErr != nil {
 			status = "failed"
 			session.setErr(saveErr)
 			log.Logger.Error().Err(saveErr).Str("thread_id", threadID).Msg("save message stream record failed")
 			break
+		}
+		if record != nil {
+			session.publish(*record)
 		}
 
 		updates := map[string]any{
