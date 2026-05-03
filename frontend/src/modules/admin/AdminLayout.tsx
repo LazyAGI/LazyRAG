@@ -77,7 +77,10 @@ export default function AdminLayout() {
     return <Navigate to="/login" replace />;
   }
 
-  if (!isAdminUser && pathname.startsWith("/admin/users")) {
+  if (
+    !isAdminUser &&
+    pathname.startsWith("/admin/users")
+  ) {
     return <Navigate to="/admin/groups" replace />;
   }
 

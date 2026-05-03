@@ -109,9 +109,9 @@ def build_document() -> Document:
     )
 
     docs.add_reader('*.pdf', _build_pdf_reader())
-    docs.create_node_group(name='block', display_name='段落切片',
+    docs.create_node_group(name='block', display_name='paragraph slice',
                            group_type=NodeGroupType.CHUNK, transform=GeneralParser(max_length=2048, split_by='\n'))
-    docs.create_node_group(name='line', display_name='句子切片',
+    docs.create_node_group(name='line', display_name='sentence slice',
                            group_type=NodeGroupType.CHUNK, transform=LineSplitter, parent='block')
     docs.activate_group('block', embed_keys=settings.embed_keys)
     docs.activate_group('line', embed_keys=settings.embed_keys)

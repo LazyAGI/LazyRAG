@@ -18,11 +18,11 @@
 
 ### 1. 线上 API 模型
 
-使用 [`algorithm/chat/runtime_models.yaml`](algorithm/chat/runtime_models.yaml)：
+使用 [`model_gateway/runtime_models.yaml`](model_gateway/runtime_models.yaml)：
 
 ```bash
 export LAZYLLM_SILICONFLOW_API_KEY=你的key
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.yaml
 ```
 
 这里的环境变量名必须和 yaml 里使用的占位符一致。例如 yaml 中写的是 `${LAZYLLM_SILICONFLOW_API_KEY}`，那就必须 export `LAZYLLM_SILICONFLOW_API_KEY`。
@@ -31,10 +31,10 @@ export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.yaml
 ### 2. 内网已部署模型
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.inner.yaml
 ```
 
-对应配置文件是 [`algorithm/chat/runtime_models.inner.yaml`](algorithm/chat/runtime_models.inner.yaml)。
+对应配置文件是 [`model_gateway/runtime_models.inner.yaml`](model_gateway/runtime_models.inner.yaml)。
 
 ### 3. OCR 相关
 
@@ -85,7 +85,7 @@ make up-build
 
 ```bash
 export LAZYLLM_SILICONFLOW_API_KEY=你的key
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.yaml
 export LAZYRAG_OCR_SERVER_TYPE=none
 
 make up-build
@@ -94,7 +94,7 @@ make up-build
 ### 3. 使用内网 runtime 配置启动
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=none
 
 make up-build
@@ -103,7 +103,7 @@ make up-build
 ### 4. 启用 MinerU 启动
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=mineru
 export LAZYRAG_OCR_SERVER_URL=http://mineru:8000
 export LAZYRAG_MINERU_BACKEND=pipeline
@@ -151,7 +151,7 @@ docker compose logs --tail=200
 
 ```bash
 export LAZYLLM_SILICONFLOW_API_KEY=你的key
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.yaml
 export LAZYRAG_OCR_SERVER_TYPE=none
 
 make up-build
@@ -164,7 +164,7 @@ make up-build
 使用新的内网 runtime 配置 + 本地 MinerU：
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=mineru
 export LAZYRAG_OCR_SERVER_URL=http://mineru:8000
 export LAZYRAG_MINERU_BACKEND=pipeline
@@ -176,7 +176,7 @@ make up-build
 如果要复用 ECS / 内网已经部署好的 MinerU：
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+export MODEL_GATEWAY_CONFIG_PATH=/app/model_gateway/runtime_models.inner.yaml
 export LAZYRAG_OCR_SERVER_TYPE=mineru
 export LAZYRAG_OCR_SERVER_URL=http://your-inner-mineru:port
 export LAZYRAG_MINERU_UPLOAD_MODE=true

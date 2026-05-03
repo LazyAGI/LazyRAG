@@ -1,0 +1,51 @@
+from chat.tools import kb
+from chat.tools import memory as memory_mod
+from chat.tools import skill_manager as skill_manager_mod
+
+
+def test_kb_tool_returns_error_result_for_invalid_arguments():
+    result = kb.kb_get_window_nodes('', 1)
+
+    assert result['success'] is False
+    assert result['error_type'] == 'ValueError'
+    assert 'docid is required' in result['error']
+
+
+def test_memory_tool_returns_error_result_for_unexpected_exception(monkeypatch):
+    def raise_unexpected(_path, _payload):
+        raise ValueError('backend payload is invalid')
+
+    monkeypatch.setattr(memory_mod, '_agentic_config', lambda: {'session_id': 'sid-1'})
+    monkeypatch.setattr(memory_mod, '_post_core_api', raise_unexpected)
+
+    result = memory_mod.memory(
+        'memory',
+        [{'title': 'Keep preference', 'content': 'Remember the preference.'}],
+    )
+
+    assert result['success'] is False
+    assert result['error_type'] == 'ValueError'
+    assert 'backend payload is invalid' in result['error']
+
+
+def test_skill_manage_returns_error_result_for_skill_index_exception(monkeypatch):
+    def raise_unexpected(_base_dir):
+        raise RuntimeError('skill index unavailable')
+
+    monkeypatch.setattr(
+        skill_manager_mod,
+        '_agentic_config',
+        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
+    )
+    monkeypatch.setattr(skill_manager_mod, 'list_all_skill_entries', raise_unexpected)
+
+    result = skill_manager_mod.skill_manage(
+        'existing',
+        'modify',
+        '',
+        suggestions=[{'title': 'Update instructions', 'content': 'Tighten the wording.'}],
+    )
+
+    assert result['success'] is False
+    assert result['error_type'] == 'RuntimeError'
+    assert 'skill index unavailable' in result['error']
