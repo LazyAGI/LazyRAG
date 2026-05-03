@@ -67,6 +67,16 @@ func CreateThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var creationGuard *userActiveThreadCreationGuard
+	// Temporary integration bypass: comment this guard block to disable single-active-thread enforcement.
+	if guard, guardErr := reserveUserActiveThreadCreation(r.Context(), db, r); guardErr != nil {
+		replyUserActiveThreadError(w, guardErr)
+		return
+	} else {
+		creationGuard = guard
+		defer creationGuard.Abort(db)
+	}
+
 	var upstreamRaw json.RawMessage
 	headers := forwardedUpstreamHeaders(r)
 	if err := common.ApiPost(r.Context(), threadCreateURL(), requestPayload, headers, &upstreamRaw, 30*time.Second); err != nil {
@@ -89,6 +99,10 @@ func CreateThread(w http.ResponseWriter, r *http.Request) {
 	thread, err := upsertThread(db, threadID, "", "created", string(upstreamRaw), "", store.UserID(r), store.UserName(r))
 	if err != nil {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "save thread failed", err), http.StatusInternalServerError)
+		return
+	}
+	if err := creationGuard.Commit(db, threadID); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "activate user thread failed", err), http.StatusInternalServerError)
 		return
 	}
 
