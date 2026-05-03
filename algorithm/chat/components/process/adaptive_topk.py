@@ -5,11 +5,11 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from lazyllm import LOG
 
 
-# ------------- 工具函数 -----------------
+# ------------- utility functions -----------------
 
 
 def _moving_average(xs: List[float], w: int) -> List[float]:
-    """居中滑动平均；w=1 表示不平滑。纯 Python 实现，边界用边缘值延拓。"""
+    """Centered moving average; w=1 means no smoothing. Pure Python, edges padded with boundary values."""
     if w <= 1 or len(xs) == 0:
         return xs[:]
     pad = w // 2
@@ -30,7 +30,7 @@ def _clamp(x: int, lo: int, hi: int) -> int:
 def _fit_by_budget(nodes: Sequence[Any],
                    get_token_len: Optional[Callable[[Any], int]],
                    max_tokens: Optional[int]) -> int:
-    """按 token 预算计算能保留的最大 k（从头累加）。"""
+    """Compute the maximum k that fits within the token budget (cumulative from the front)."""
     if max_tokens is None or get_token_len is None or len(nodes) == 0:
         return 0
     acc = 0
@@ -44,7 +44,7 @@ def _fit_by_budget(nodes: Sequence[Any],
     return max(k, 1)
 
 
-# ------------- 主函数 -----------------
+# ------------- main function -----------------
 
 
 def adaptive_k_select_from_nodes(
@@ -63,12 +63,12 @@ def adaptive_k_select_from_nodes(
     default_k: int = 6,
 ) -> Tuple[List[Any], int, Dict]:
     """
-    使用 DocNode.relevance_score 的自适应 k 选择：
-    - 在分数序列前 search_pct 区间内寻找“一阶最大落差”位置作为阈值，并加缓冲 B；
-    - 可选 gap_tau：当最大落差不显著时回退到预算驱动或 default_k；
-    - 最后应用 token 预算进行二次截断。
+    Adaptive k selection using DocNode.relevance_score:
+    - Finds the position of the "maximum first-order gap" in the score sequence within the first search_pct range as the threshold, plus a buffer B;  # noqa: E501
+    - Optional gap_tau: falls back to budget-driven or default_k when the maximum gap is not significant;
+    - Finally applies a token budget for secondary truncation.
 
-    返回: (selected_nodes, k, diag)
+    Returns: (selected_nodes, k, diag)
     """
     N = len(nodes)
     if N == 0:

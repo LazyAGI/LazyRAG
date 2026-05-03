@@ -44,8 +44,6 @@ const Login = () => {
         "signin_password",
         "signin_login_count",
         "signin_login_tag",
-        "signin_sso_url",
-        "signin_sso_client_id",
       ].forEach((key) => {
         localStorage.removeItem(key);
         sessionStorage.removeItem(key);
@@ -67,8 +65,6 @@ const Login = () => {
       "signin_password",
       "signin_login_count",
       "signin_login_tag",
-      "signin_sso_url",
-      "signin_sso_client_id",
     ].forEach((key) => {
       localStorage.removeItem(key);
       sessionStorage.removeItem(key);

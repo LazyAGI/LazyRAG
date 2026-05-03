@@ -51,7 +51,7 @@ class CitationPlugin(BasePlugin):
         idx = int(m.group(1))
         node = self.refs.get(idx)
         if not node or not node.text:
-            return (m.end(), '')  # 删除未知编号
+            return (m.end(), '')  # remove unknown citation number
         self._collected.setdefault(idx, self._source_node(idx, node))
         return (m.end(), self._citation(idx, node))
 
@@ -67,7 +67,7 @@ class CitationPlugin(BasePlugin):
         images = {get_url_basename(url): url for url in metadata.get('images', [])}
 
         def _recover_image_path(match: re.Match) -> str:
-            """re.sub 回调：若本地存在图片，则收集并替换为占位符。"""
+            """re.sub callback: if image exists locally, collect and replace with placeholder."""
             title, image_path = match.groups()
             return f'![{title}]({images.get(image_path, image_path)})'
 
@@ -88,11 +88,11 @@ class CitationPlugin(BasePlugin):
         return list(self._collected.values())
 
     def last_incomplete_pos(self, buf: str) -> int | None:
-        # 1) 未闭合的 '[[...'
+        # 1) unclosed '[[...'
         last_double = buf.rfind('[[')
         if last_double != -1 and ']]' not in buf[last_double + 2:]:
             return last_double
-        # 2) 缓冲以单 '[' 结尾，可能下一片段是 '['
+        # 2) buffer ends with single '[', next chunk may be '['
         if buf.endswith('['):
             return len(buf) - 1
         return None
@@ -103,7 +103,7 @@ class CitationPlugin(BasePlugin):
 # ============================================================
 class ImagePlugin(BasePlugin):
     prefix_set = {'!'}
-    # 使用非贪婪匹配 alt 与 url，使 alt 中可以包含括号等字符
+    # Use non-greedy matching for alt and url, allowing alt to contain parentheses etc.
     _pat = re.compile(r'!\[(.*?)\]\((.*?)\)')
 
     def __init__(self, url_map: Dict[str, str]):
@@ -116,7 +116,7 @@ class ImagePlugin(BasePlugin):
         alt, url = m.group(1), m.group(2)
         if url in self.url_map:
             return (m.end(), f'![{alt}]({self.url_map[url]})')
-        # 模糊匹配相似度大于80%的最相似的图片
+        # fuzzy match: find the most similar image with similarity > 80%
         best_key = None
         best_score = 0
 
@@ -134,9 +134,9 @@ class ImagePlugin(BasePlugin):
 
     def last_incomplete_pos(self, buf: str) -> int | None:
         """
-        更精确地检测图像 token 是否为未闭合：
-        - 搜索最后一个 '![', 然后按顺序检查是否存在 ']'、'('、')'。
-        - 只在这些结构均完整时才认为 token 可能完整，其他情况返回 last_img 表示需要保留到下一 chunk。
+        More precise detection of whether an image token is unclosed:
+        - Search for the last '![', then check in order for ']', '(', ')'.
+        - Only consider the token complete when all these structures are present; otherwise return last_img to hold until next chunk.  # noqa: E501
         """
         last_img = buf.rfind('![')
         if last_img == -1:
@@ -144,25 +144,25 @@ class ImagePlugin(BasePlugin):
                 return len(buf) - 1
             return None
 
-        # 从 last_img + 2 开始查找 ']'（结束 alt）
+        # Search for ']' (end of alt) starting from last_img + 2
         alt_end = buf.find(']', last_img + 2)
         if alt_end == -1:
-            # alt 未闭合
+            # alt not closed
             return last_img
 
-        # 在 alt_end 之后寻找 '(' 开始 url
+        # Search for '(' to start url after alt_end
         paren_start = buf.find('(', alt_end + 1)
         if paren_start == -1:
-            # '(' 未出现（还没到 url 部分）
+            # '(' not found (url part not reached yet)
             return last_img
 
-        # 在 paren_start 之后寻找 ')' 结束 url
+        # Search for ')' to end url after paren_start
         paren_end = buf.find(')', paren_start + 1)
         if paren_end == -1:
-            # url 未闭合
+            # url not closed
             return last_img
 
-        # 如果都找到了，说明有完整的 '![...](...)'，返回 None（没有未闭合）
+        # If all found, a complete '![...](...)'  exists; return None (no unclosed)
         return None
 
 
@@ -170,7 +170,7 @@ class ImagePlugin(BasePlugin):
 # IncrementalScanner
 # ============================================================
 class IncrementalScanner:
-    """BODY / THINK 状态流式解析器。"""
+    """BODY / THINK state streaming parser."""
 
     def __init__(self, plugins: List[BasePlugin], initial_state: str = 'BODY'):
         self.plugins = plugins
@@ -180,12 +180,12 @@ class IncrementalScanner:
     # ---------------- helpers ----------------
     @staticmethod
     def _partial_tag_start(buf: str, tag: str) -> int | None:
-        """若缓冲以 `tag` 的**不完整前缀**结尾，返回该前缀在缓冲中的起始索引。
-        例如 buf="<thi" & tag="`think`" → 返回 len(buf)-4。
-        完整匹配或无前缀返回 None。
+        """If the buffer ends with an incomplete prefix of `tag`, return the start index of that prefix in the buffer.
+        E.g. buf="<thi" & tag="`think`" -> return len(buf)-4.
+        Returns None for a complete match or no prefix.
         """
         n = len(tag)
-        # 只考虑严格的“尾部是 tag 的真前缀”，完整不算
+        # Only consider strict "tail is a proper prefix of tag"; complete match does not count
         for k in range(n - 1, 0, -1):
             if buf.endswith(tag[:k]):
                 return len(buf) - k
@@ -198,7 +198,7 @@ class IncrementalScanner:
         i = seg_start = 0
 
         while i < len(self.buf):
-            # ---- think 开关 ----
+            # ---- think toggle ----
             if self.state == 'BODY' and self.buf.startswith(_THINK_OPEN, i):
                 if i > seg_start:
                     out.append(('text', self.buf[seg_start:i]))
@@ -214,7 +214,7 @@ class IncrementalScanner:
                 self.state = 'BODY'
                 continue
 
-            # ---- 插件尝试匹配 ----
+            # ---- plugin match attempt ----
             handled = False
             for pl in self.plugins:
                 if self.buf[i] not in pl.prefix_set:
@@ -230,14 +230,14 @@ class IncrementalScanner:
             if not handled:
                 i += 1
 
-        # ---- 截取安全区 ----
+        # ---- safe zone cutoff ----
         cut = len(self.buf)
-        # 1) 插件报告的未闭合 token
+        # 1) unclosed token reported by plugin
         for pl in self.plugins:
             pos = pl.last_incomplete_pos(self.buf)
             if pos is not None and pos >= seg_start and pos < cut:
                 cut = pos
-        # 2) THINK 标签的未完整前缀（`think` / `/think`）
+        # 2) incomplete prefix of THINK tag (`think` / `/think`)
         for tag in (_THINK_OPEN, _THINK_CLOSE):
             pos = self._partial_tag_start(self.buf, tag)
             if pos is not None and pos >= seg_start and pos < cut:

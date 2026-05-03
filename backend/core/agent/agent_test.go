@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -27,7 +29,7 @@ func newAgentTestDB(t *testing.T) *orm.DB {
 	if err != nil {
 		t.Fatalf("connect sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&orm.AgentThread{}, &orm.AgentThreadRecord{}, &orm.AgentThreadRound{}); err != nil {
+	if err := db.AutoMigrate(&orm.AgentThread{}, &orm.AgentUserActiveThread{}, &orm.AgentThreadRecord{}, &orm.AgentThreadRound{}); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
 	return db
@@ -905,5 +907,131 @@ func TestDeleteThreadHistoryRemovesThreadRoundsAndRecords(t *testing.T) {
 	}
 	if result["deleted_records"] != int64(1) {
 		t.Fatalf("expected deleted_records=1, got %#v", result["deleted_records"])
+	}
+}
+
+func TestReserveUserActiveThreadCreationCreatesPlaceholder(t *testing.T) {
+	db := newAgentTestDB(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
+	req.Header.Set("X-User-Id", "u1")
+
+	guard, err := reserveUserActiveThreadCreation(context.Background(), db.DB, req)
+	if err != nil {
+		t.Fatalf("reserveUserActiveThreadCreation returned error: %v", err)
+	}
+	defer guard.Abort(db.DB)
+
+	var active orm.AgentUserActiveThread
+	if err := db.DB.Where("user_id = ?", "u1").First(&active).Error; err != nil {
+		t.Fatalf("load active thread placeholder: %v", err)
+	}
+	if active.Status != userActiveThreadStatusCreating || active.ThreadID != "" || active.CreateToken == "" {
+		t.Fatalf("unexpected placeholder: %#v", active)
+	}
+
+	if err := guard.Commit(db.DB, "thr_new"); err != nil {
+		t.Fatalf("commit active thread: %v", err)
+	}
+	if err := db.DB.Where("user_id = ?", "u1").First(&active).Error; err != nil {
+		t.Fatalf("reload active thread: %v", err)
+	}
+	if active.Status != userActiveThreadStatusActive || active.ThreadID != "thr_new" || active.CreateToken != "" {
+		t.Fatalf("unexpected committed active thread: %#v", active)
+	}
+}
+
+func TestReserveUserActiveThreadCreationRejectsRunningThread(t *testing.T) {
+	db := newAgentTestDB(t)
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentUserActiveThread{
+		UserID:     "u1",
+		ThreadID:   "thr_old",
+		Status:     userActiveThreadStatusActive,
+		LeaseUntil: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error; err != nil {
+		t.Fatalf("seed active thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/v1/evo/threads/thr_old/flow-status") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "running"})
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
+	req.Header.Set("X-User-Id", "u1")
+	guard, err := reserveUserActiveThreadCreation(context.Background(), db.DB, req)
+	if guard != nil {
+		t.Fatalf("expected no guard for running thread")
+	}
+	var activeErr *userActiveThreadError
+	if !errors.As(err, &activeErr) || activeErr.statusCode != http.StatusConflict {
+		t.Fatalf("expected conflict active thread error, got %T %v", err, err)
+	}
+}
+
+func TestReserveUserActiveThreadCreationReplacesEndedThread(t *testing.T) {
+	db := newAgentTestDB(t)
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentUserActiveThread{
+		UserID:     "u1",
+		ThreadID:   "thr_old",
+		Status:     userActiveThreadStatusActive,
+		LeaseUntil: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error; err != nil {
+		t.Fatalf("seed active thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/v1/evo/threads/thr_old/flow-status") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "completed"})
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
+	req.Header.Set("X-User-Id", "u1")
+	guard, err := reserveUserActiveThreadCreation(context.Background(), db.DB, req)
+	if err != nil {
+		t.Fatalf("reserveUserActiveThreadCreation returned error: %v", err)
+	}
+	defer guard.Abort(db.DB)
+
+	var active orm.AgentUserActiveThread
+	if err := db.DB.Where("user_id = ?", "u1").First(&active).Error; err != nil {
+		t.Fatalf("load active thread placeholder: %v", err)
+	}
+	if active.Status != userActiveThreadStatusCreating || active.ThreadID != "" {
+		t.Fatalf("expected new creating placeholder after ended thread, got %#v", active)
+	}
+}
+
+func TestReserveUserActiveThreadCreationRejectsLiveCreatingLease(t *testing.T) {
+	db := newAgentTestDB(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
+	req.Header.Set("X-User-Id", "u1")
+
+	guard, err := reserveUserActiveThreadCreation(context.Background(), db.DB, req)
+	if err != nil {
+		t.Fatalf("first reserve returned error: %v", err)
+	}
+	defer guard.Abort(db.DB)
+
+	secondGuard, err := reserveUserActiveThreadCreation(context.Background(), db.DB, req)
+	if secondGuard != nil {
+		t.Fatalf("expected no second guard while first creation lease is live")
+	}
+	var activeErr *userActiveThreadError
+	if !errors.As(err, &activeErr) || activeErr.statusCode != http.StatusConflict {
+		t.Fatalf("expected creating conflict, got %T %v", err, err)
 	}
 }
