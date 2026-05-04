@@ -89,24 +89,25 @@ type cloudObjectIndexEntity struct {
 func (cloudObjectIndexEntity) TableName() string { return "cloud_object_index" }
 
 type cloudSyncRunEntity struct {
-	RunID        string     `gorm:"column:run_id;type:text;primaryKey"`
-	SourceID     string     `gorm:"column:source_id;type:text;not null;index:idx_cloud_sync_runs_source_started,priority:1"`
-	TenantID     string     `gorm:"column:tenant_id;type:text;not null;index:idx_cloud_sync_runs_tenant,priority:1"`
-	Provider     string     `gorm:"column:provider;type:text;not null;index:idx_cloud_sync_runs_provider,priority:1"`
-	TriggerType  string     `gorm:"column:trigger_type;type:text;not null"`
-	Status       string     `gorm:"column:status;type:text;not null;index:idx_cloud_sync_runs_status"`
-	StartedAt    *time.Time `gorm:"column:started_at;index:idx_cloud_sync_runs_source_started,priority:2"`
-	FinishedAt   *time.Time `gorm:"column:finished_at"`
-	RemoteTotal  int        `gorm:"column:remote_total;not null;default:0"`
-	CreatedCount int        `gorm:"column:created_count;not null;default:0"`
-	UpdatedCount int        `gorm:"column:updated_count;not null;default:0"`
-	DeletedCount int        `gorm:"column:deleted_count;not null;default:0"`
-	SkippedCount int        `gorm:"column:skipped_count;not null;default:0"`
-	FailedCount  int        `gorm:"column:failed_count;not null;default:0"`
-	ErrorCode    string     `gorm:"column:error_code;type:text"`
-	ErrorMessage string     `gorm:"column:error_message;type:text"`
-	CreatedAt    time.Time  `gorm:"column:created_at;not null"`
-	UpdatedAt    time.Time  `gorm:"column:updated_at;not null"`
+	RunID              string     `gorm:"column:run_id;type:text;primaryKey"`
+	SourceID           string     `gorm:"column:source_id;type:text;not null;index:idx_cloud_sync_runs_source_started,priority:1"`
+	TenantID           string     `gorm:"column:tenant_id;type:text;not null;index:idx_cloud_sync_runs_tenant,priority:1"`
+	Provider           string     `gorm:"column:provider;type:text;not null;index:idx_cloud_sync_runs_provider,priority:1"`
+	TriggerType        string     `gorm:"column:trigger_type;type:text;not null"`
+	RequestedPathsJSON string     `gorm:"column:requested_paths_json;type:text"`
+	Status             string     `gorm:"column:status;type:text;not null;index:idx_cloud_sync_runs_status"`
+	StartedAt          *time.Time `gorm:"column:started_at;index:idx_cloud_sync_runs_source_started,priority:2"`
+	FinishedAt         *time.Time `gorm:"column:finished_at"`
+	RemoteTotal        int        `gorm:"column:remote_total;not null;default:0"`
+	CreatedCount       int        `gorm:"column:created_count;not null;default:0"`
+	UpdatedCount       int        `gorm:"column:updated_count;not null;default:0"`
+	DeletedCount       int        `gorm:"column:deleted_count;not null;default:0"`
+	SkippedCount       int        `gorm:"column:skipped_count;not null;default:0"`
+	FailedCount        int        `gorm:"column:failed_count;not null;default:0"`
+	ErrorCode          string     `gorm:"column:error_code;type:text"`
+	ErrorMessage       string     `gorm:"column:error_message;type:text"`
+	CreatedAt          time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt          time.Time  `gorm:"column:updated_at;not null"`
 }
 
 func (cloudSyncRunEntity) TableName() string { return "cloud_sync_runs" }
@@ -240,7 +241,7 @@ type sourceFileSnapshotEntity struct {
 	TenantID       string     `gorm:"column:tenant_id;type:text;not null;index:idx_source_file_snapshots_tenant_created,priority:1"`
 	SnapshotType   string     `gorm:"column:snapshot_type;type:text;not null"`
 	BaseSnapshotID string     `gorm:"column:base_snapshot_id;type:text"`
-	SelectionToken string     `gorm:"column:selection_token;type:text;index:idx_source_file_snapshots_selection_token,unique"`
+	SelectionToken string     `gorm:"column:selection_token;type:text"`
 	ExpiresAt      *time.Time `gorm:"column:expires_at;index:idx_source_file_snapshots_expires_at"`
 	ConsumedAt     *time.Time `gorm:"column:consumed_at"`
 	FileCount      int64      `gorm:"column:file_count;not null;default:0"`

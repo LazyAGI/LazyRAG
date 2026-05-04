@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -83,6 +84,113 @@ func TestBatchApplyDocumentMutationsLatestWins(t *testing.T) {
 	}
 	if !doc.LastModifiedAt.Equal(newer) {
 		t.Fatalf("expected last_modified_at=%v, got %v", newer, doc.LastModifiedAt)
+	}
+}
+
+func TestBatchApplyDocumentMutationsCloudRenameByOriginRef(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "cloud-src",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	originRef := "obj_rename_001"
+	oldPath := "/tmp/cloud/src/mirror/docs/spec.md"
+	newPath := "/tmp/cloud/src/mirror/docs/spec.docx"
+	firstAt := time.Now().UTC().Add(-2 * time.Minute)
+	secondAt := firstAt.Add(10 * time.Second)
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{
+			SourceID:       src.ID,
+			EventType:      "modified",
+			Path:           oldPath,
+			OccurredAt:     firstAt,
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: "FEISHU",
+			OriginRef:      originRef,
+		},
+	})
+	if err != nil {
+		t.Fatalf("build first cloud mutations failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply first cloud mutations failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, oldPath)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(map[string]any{
+		"core_document_id":   "core_doc_rename",
+		"current_version_id": "v_old",
+	}).Error; err != nil {
+		t.Fatalf("prepare core document fields failed: %v", err)
+	}
+
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{
+			SourceID:       src.ID,
+			EventType:      "modified",
+			Path:           newPath,
+			OccurredAt:     secondAt,
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: "FEISHU",
+			OriginRef:      originRef,
+		},
+	})
+	if err != nil {
+		t.Fatalf("build rename cloud mutations failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply rename cloud mutations failed: %v", err)
+	}
+
+	var docs []documentEntity
+	if err := st.db.WithContext(ctx).Where("source_id = ?", src.ID).Find(&docs).Error; err != nil {
+		t.Fatalf("query cloud documents failed: %v", err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("expected 1 document after rename, got %d", len(docs))
+	}
+	renamed := docs[0]
+	if renamed.SourceObjectID != newPath {
+		t.Fatalf("expected renamed source_object_id=%s, got %s", newPath, renamed.SourceObjectID)
+	}
+	if renamed.CoreDocumentID != "core_doc_rename" {
+		t.Fatalf("expected core_document_id to be preserved, got %s", renamed.CoreDocumentID)
+	}
+
+	var oldCount int64
+	if err := st.db.WithContext(ctx).
+		Model(&documentEntity{}).
+		Where("source_id = ? AND source_object_id = ?", src.ID, oldPath).
+		Count(&oldCount).Error; err != nil {
+		t.Fatalf("count old path failed: %v", err)
+	}
+	if oldCount != 0 {
+		t.Fatalf("expected old path document removed after rename, still has %d rows", oldCount)
+	}
+
+	created, err := st.ScheduleDueParses(ctx, secondAt.Add(20*time.Second))
+	if err != nil {
+		t.Fatalf("schedule due parses after rename failed: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("expected created parse task count=1, got %d", created)
+	}
+	tasks := loadTasksByDocumentID(t, st, renamed.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 parse task for renamed document, got %d", len(tasks))
+	}
+	if normalizeTaskAction(tasks[0].TaskAction) != taskActionReparse {
+		t.Fatalf("expected task_action REPARSE for renamed document, got %s", tasks[0].TaskAction)
 	}
 }
 
@@ -375,6 +483,36 @@ func TestCreateSourceReusesSameRootPath(t *testing.T) {
 	}
 }
 
+func TestCreateCloudSourceAutoRootPath(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "cloud-src",
+		RootPath:              "",
+		AgentID:               "agent-1",
+		DefaultOriginType:     "CLOUD_SYNC",
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+	if !strings.HasPrefix(src.RootPath, sourcelayout.CloudSourceBaseRoot+string(filepath.Separator)) {
+		t.Fatalf("expected auto cloud root path under %q, got %q", sourcelayout.CloudSourceBaseRoot, src.RootPath)
+	}
+	if src.SourceType != "cloud_sync" {
+		t.Fatalf("expected source_type=cloud_sync, got %s", src.SourceType)
+	}
+	if src.WatchEnabled {
+		t.Fatalf("expected cloud source watch_enabled=false")
+	}
+	if !strings.EqualFold(src.DefaultOriginType, "CLOUD_SYNC") {
+		t.Fatalf("expected default_origin_type=CLOUD_SYNC, got %s", src.DefaultOriginType)
+	}
+}
+
 func TestGenerateTasksForSourceQueuesBaselineSnapshot(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -657,6 +795,132 @@ func TestListParseTasksAndStats(t *testing.T) {
 	}
 }
 
+func TestDeleteSourceCascadesAndStopsWatcher(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	path := "/tmp/watch/delete-source.txt"
+	eventAt := time.Now().UTC().Add(-40 * time.Second)
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: eventAt},
+	})
+	if err != nil {
+		t.Fatalf("build mutations failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply mutations failed: %v", err)
+	}
+	if _, err := st.ScheduleDueParses(ctx, eventAt.Add(12*time.Second)); err != nil {
+		t.Fatalf("schedule due parses failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one parse task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskFailed(ctx, tasks[0].ID, "delete source test failure"); err != nil {
+		t.Fatalf("mark task failed failed: %v", err)
+	}
+	if _, _, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{{Title: "delete-source.txt", Key: path, IsDir: false}}, nil); err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_delete_source",
+		ScheduleExpr:     "daily@05:00",
+		ScheduleTZ:       "Asia/Shanghai",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+	if _, err := st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{TriggerType: "manual"}); err != nil {
+		t.Fatalf("trigger cloud sync failed: %v", err)
+	}
+	if err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []CloudObjectIndexRecord{
+		{ExternalObjectID: "obj_delete_source", ExternalPath: "/docs/delete-source.txt", LocalAbsPath: path},
+	}, time.Now().UTC()); err != nil {
+		t.Fatalf("upsert cloud object index failed: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := st.db.WithContext(ctx).Create(&reconcileSnapshotEntity{
+		SourceID:    src.ID,
+		SnapshotRef: "local://snapshot/delete-source.json",
+		FileCount:   1,
+		TakenAt:     now,
+		UpdatedAt:   now,
+	}).Error; err != nil {
+		t.Fatalf("create reconcile snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceBaselineSnapshotEntity{
+		SourceID:    src.ID,
+		SnapshotRef: "local://baseline/delete-source.json",
+		FileCount:   1,
+		TakenAt:     now,
+		Reason:      "DELETE_SOURCE_TEST",
+		UpdatedAt:   now,
+	}).Error; err != nil {
+		t.Fatalf("create baseline snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&manualPullJobEntity{
+		JobID:     "mpj_delete_source",
+		TenantID:  src.TenantID,
+		SourceID:  src.ID,
+		Status:    "SUCCEEDED",
+		Mode:      "partial",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("create manual pull job failed: %v", err)
+	}
+
+	if err := st.DeleteSource(ctx, src.ID); err != nil {
+		t.Fatalf("delete source failed: %v", err)
+	}
+	if _, err := st.GetSource(ctx, src.ID); err == nil {
+		t.Fatalf("expected deleted source lookup to fail")
+	}
+
+	for name, target := range map[string]any{
+		"documents":                  &documentEntity{},
+		"parse_tasks":                &parseTaskEntity{},
+		"parse_task_dead_letters":    &parseTaskDeadLetterEntity{},
+		"source_file_snapshots":      &sourceFileSnapshotEntity{},
+		"source_file_snapshot_items": &sourceFileSnapshotItemEntity{},
+		"source_snapshot_relations":  &sourceSnapshotRelationEntity{},
+		"source_baseline_snapshots":  &sourceBaselineSnapshotEntity{},
+		"reconcile_snapshots":        &reconcileSnapshotEntity{},
+		"manual_pull_jobs":           &manualPullJobEntity{},
+		"cloud_source_bindings":      &cloudSourceBindingEntity{},
+		"cloud_sync_checkpoints":     &cloudSyncCheckpointEntity{},
+		"cloud_sync_runs":            &cloudSyncRunEntity{},
+		"cloud_object_index":         &cloudObjectIndexEntity{},
+	} {
+		var count int64
+		if err := st.db.WithContext(ctx).Model(target).Count(&count).Error; err != nil {
+			t.Fatalf("count %s failed: %v", name, err)
+		}
+		if count != 0 {
+			t.Fatalf("expected %s to be empty after delete, got %d", name, count)
+		}
+	}
+
+	var commands []agentCommandEntity
+	if err := st.db.WithContext(ctx).Order("id ASC").Find(&commands).Error; err != nil {
+		t.Fatalf("list agent commands failed: %v", err)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("expected only stop_source command after delete, got %+v", commands)
+	}
+	if commands[0].Type != string(model.CommandStopSource) {
+		t.Fatalf("expected stop_source command, got %s", commands[0].Type)
+	}
+	if !strings.Contains(commands[0].Payload, `"source_id":"`+src.ID+`"`) {
+		t.Fatalf("expected stop command payload to reference source_id %s, got %s", src.ID, commands[0].Payload)
+	}
+}
+
 func TestRetryParseTask(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -809,6 +1073,84 @@ func TestListSourceDocumentsWithUpdateTypeFilter(t *testing.T) {
 	}
 }
 
+func TestListSourceDocumentsShowsProcessingDuringResync(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	path := "/tmp/watch/resync-after-failed.txt"
+	firstAt := time.Now().UTC().Add(-3 * time.Minute)
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: firstAt},
+	})
+	if err != nil {
+		t.Fatalf("build first mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply first mutation failed: %v", err)
+	}
+	if _, err := st.ScheduleDueParses(ctx, firstAt.Add(12*time.Second)); err != nil {
+		t.Fatalf("schedule first parse failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected first task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskFailed(ctx, tasks[0].ID, "mock old failure"); err != nil {
+		t.Fatalf("mark old task failed failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Update("parse_status", "FAILED").Error; err != nil {
+		t.Fatalf("mark document failed failed: %v", err)
+	}
+
+	secondAt := firstAt.Add(2 * time.Minute)
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: secondAt},
+	})
+	if err != nil {
+		t.Fatalf("build second mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply second mutation failed: %v", err)
+	}
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents after second mutation failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 source document, got %d", len(resp.Items))
+	}
+	if resp.Items[0].ParseState != "PENDING" {
+		t.Fatalf("expected pending parse state while resync is queued, got %s", resp.Items[0].ParseState)
+	}
+
+	if _, err := st.ScheduleDueParses(ctx, secondAt.Add(12*time.Second)); err != nil {
+		t.Fatalf("schedule second parse failed: %v", err)
+	}
+	resp, err = st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents after second schedule failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 source document after second schedule, got %d", len(resp.Items))
+	}
+	if resp.Items[0].ParseState != "PENDING" {
+		t.Fatalf("expected latest pending task to override old failure, got %s", resp.Items[0].ParseState)
+	}
+}
+
 func TestGenerateTasksForSourceUpdatedOnly(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -954,6 +1296,57 @@ func TestCloudBindingUpsertAndTriggerSyncRun(t *testing.T) {
 	}
 }
 
+func TestTriggerCloudSyncWithManualPaths(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	_, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_feishu_manual_paths_001",
+		ScheduleExpr:     "daily@05:00",
+		ScheduleTZ:       "Asia/Shanghai",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	run, err := st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{
+		TriggerType: "manual",
+		Paths: []string{
+			filepath.Join(src.RootPath, "mirror", "docs", "a.md"),
+			filepath.Join(src.RootPath, "mirror", "docs", "a.md"), // duplicate
+		},
+	})
+	if err != nil {
+		t.Fatalf("trigger cloud sync with manual paths failed: %v", err)
+	}
+	if len(run.RequestedPaths) != 1 {
+		t.Fatalf("expected 1 normalized requested path, got %d (%v)", len(run.RequestedPaths), run.RequestedPaths)
+	}
+	if want := filepath.Join(src.RootPath, "mirror", "docs", "a.md"); run.RequestedPaths[0] != want {
+		t.Fatalf("expected requested path %s, got %s", want, run.RequestedPaths[0])
+	}
+
+	_, err = st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{
+		TriggerType: "scheduled",
+		Paths:       []string{filepath.Join(src.RootPath, "mirror", "docs", "b.md")},
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "only supported when trigger_type is manual") {
+		t.Fatalf("expected scheduled+paths to fail, got %v", err)
+	}
+
+	_, err = st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{
+		TriggerType: "manual",
+		Paths:       []string{"/tmp/not-under-mirror/docs/c.md"},
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "paths must be inside cloud mirror root") {
+		t.Fatalf("expected invalid manual paths to fail, got %v", err)
+	}
+}
+
 func TestTriggerCloudSyncDoesNotAdvanceLastSyncAt(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1051,7 +1444,7 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 			ExternalName:     "docs",
 			ExternalKind:     "folder",
 			LocalRelPath:     "docs",
-			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/mirror/docs",
 			CreatedAt:        now,
 			UpdatedAt:        now,
 		},
@@ -1062,7 +1455,7 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 			ExternalName:     "a.md",
 			ExternalKind:     "file",
 			LocalRelPath:     "docs/a.md",
-			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs/a.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/mirror/docs/a.md",
 			CreatedAt:        now,
 			UpdatedAt:        now,
 		},
@@ -1073,7 +1466,7 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 			ExternalName:     "sub",
 			ExternalKind:     "folder",
 			LocalRelPath:     "docs/sub",
-			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs/sub",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/mirror/docs/sub",
 			CreatedAt:        now,
 			UpdatedAt:        now,
 		},
@@ -1084,7 +1477,7 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 			ExternalName:     "b.md",
 			ExternalKind:     "file",
 			LocalRelPath:     "docs/sub/b.md",
-			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/docs/sub/b.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/mirror/docs/sub/b.md",
 			CreatedAt:        now,
 			UpdatedAt:        now,
 		},
@@ -1095,7 +1488,7 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 			ExternalName:     "readme.md",
 			ExternalKind:     "file",
 			LocalRelPath:     "readme.md",
-			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/readme.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud/mirror/readme.md",
 			CreatedAt:        now,
 			UpdatedAt:        now,
 		},
@@ -1104,11 +1497,11 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 		t.Fatalf("seed cloud_object_index failed: %v", err)
 	}
 
-	items, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/docs", 2, true)
+	items, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/mirror/docs", 2, true)
 	if err != nil {
 		t.Fatalf("build cloud tree failed: %v", err)
 	}
-	nodeA, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/docs/a.md")
+	nodeA, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/mirror/docs/a.md")
 	if !ok {
 		t.Fatalf("expected node a.md")
 	}
@@ -1118,26 +1511,26 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 	if nodeA.ExternalFileID != "doc_a" {
 		t.Fatalf("expected external_file_id=doc_a, got %s", nodeA.ExternalFileID)
 	}
-	nodeSub, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/docs/sub")
+	nodeSub, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/mirror/docs/sub")
 	if !ok || !nodeSub.IsDir {
 		t.Fatalf("expected docs/sub directory node")
 	}
-	if _, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/readme.md"); ok {
+	if _, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/mirror/readme.md"); ok {
 		t.Fatalf("unexpected readme.md in docs subtree")
 	}
 
-	itemsNoFiles, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/docs", 1, false)
+	itemsNoFiles, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/mirror/docs", 1, false)
 	if err != nil {
 		t.Fatalf("build cloud tree without files failed: %v", err)
 	}
-	if _, ok := findTreeNodeByPath(itemsNoFiles, "/tmp/cloud-mirror/src-cloud/docs/a.md"); ok {
+	if _, ok := findTreeNodeByPath(itemsNoFiles, "/tmp/cloud-mirror/src-cloud/mirror/docs/a.md"); ok {
 		t.Fatalf("did not expect file node when include_files=false")
 	}
-	if _, ok := findTreeNodeByPath(itemsNoFiles, "/tmp/cloud-mirror/src-cloud/docs/sub/b.md"); ok {
+	if _, ok := findTreeNodeByPath(itemsNoFiles, "/tmp/cloud-mirror/src-cloud/mirror/docs/sub/b.md"); ok {
 		t.Fatalf("did not expect depth>1 node when max_depth=1")
 	}
 
-	_, err = st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/not-found", 2, true)
+	_, err = st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/mirror/not-found", 2, true)
 	if !errors.Is(err, ErrTreePathInvalid) {
 		t.Fatalf("expected ErrTreePathInvalid, got %v", err)
 	}
@@ -1225,6 +1618,68 @@ func TestCloudSyncClaimAndFinishLifecycle(t *testing.T) {
 	}
 	if checkpoint.LastSuccessAt == nil || checkpoint.LastSuccessAt.IsZero() {
 		t.Fatalf("expected checkpoint.last_success_at to be set")
+	}
+}
+
+func TestCloudSyncClaimDueDoesNotReuseFinishedRun(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	_, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_002",
+		ScheduleExpr:     "daily@02:00",
+		ScheduleTZ:       "Asia/Shanghai",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	firstRun, err := st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{TriggerType: "manual"})
+	if err != nil {
+		t.Fatalf("trigger cloud sync failed: %v", err)
+	}
+	finishedAt := time.Now().UTC().Add(2 * time.Second)
+	if err := st.FinishCloudSyncRun(ctx, src.ID, CloudSyncRunFinalize{
+		RunID:      firstRun.RunID,
+		Status:     "SUCCEEDED",
+		FinishedAt: finishedAt,
+	}); err != nil {
+		t.Fatalf("finish first cloud sync run failed: %v", err)
+	}
+
+	dueAt := finishedAt.Add(2 * time.Second)
+	if err := st.db.WithContext(ctx).Model(&cloudSyncCheckpointEntity{}).
+		Where("source_id = ?", src.ID).
+		Updates(map[string]any{
+			"next_sync_at": &dueAt,
+			"lock_owner":   "",
+			"lock_until":   nil,
+			"updated_at":   dueAt,
+		}).Error; err != nil {
+		t.Fatalf("force next_sync_at failed: %v", err)
+	}
+
+	claims, err := st.ClaimDueCloudSources(ctx, "ut-lock-owner-2", dueAt.Add(time.Second), 10, 2*time.Minute)
+	if err != nil {
+		t.Fatalf("claim due cloud sources failed: %v", err)
+	}
+	if len(claims) != 1 {
+		t.Fatalf("expected 1 due claim, got %d", len(claims))
+	}
+	if claims[0].ExistingRunID != "" {
+		t.Fatalf("expected empty existing_run_id for finished run, got %s", claims[0].ExistingRunID)
+	}
+
+	secondRun, err := st.StartCloudSyncRun(ctx, src.ID, "scheduled", claims[0].ExistingRunID, dueAt.Add(time.Second))
+	if err != nil {
+		t.Fatalf("start scheduled cloud sync run failed: %v", err)
+	}
+	if secondRun.RunID == firstRun.RunID {
+		t.Fatalf("expected new run_id for scheduled run, got reused %s", secondRun.RunID)
 	}
 }
 
@@ -1370,6 +1825,58 @@ func TestBuildTreeUpdateState(t *testing.T) {
 	}
 }
 
+func TestBuildTreeUpdateStateIgnoresStaleParseQueueTask(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	baseAt := time.Now().UTC().Add(-3 * time.Minute)
+
+	path := "/tmp/watch/tree-stale-task.txt"
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply mutation failed: %v", err)
+	}
+	if _, err := st.ScheduleDueParses(ctx, baseAt.Add(20*time.Second)); err != nil {
+		t.Fatalf("schedule parse failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one parse task, got %d", len(tasks))
+	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"desired_version_id": tasks[0].TargetVersionID + "_new",
+			"current_version_id": tasks[0].TargetVersionID,
+			"parse_status":       "PENDING",
+		}).Error; err != nil {
+		t.Fatalf("seed newer desired version failed: %v", err)
+	}
+
+	treeItems := []model.TreeNode{{Title: "tree-stale-task.txt", Key: path, IsDir: false}}
+	items, _, err := st.BuildTreeUpdateState(ctx, src.ID, treeItems, nil)
+	if err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(items, path)
+	if !ok {
+		t.Fatalf("missing node for path %s", path)
+	}
+	if node.ParseQueueState != "" {
+		t.Fatalf("expected stale task not to set parse_queue_state, got %s", node.ParseQueueState)
+	}
+	if node.UpdateType != "MODIFIED" {
+		t.Fatalf("expected document update_type MODIFIED, got %s", node.UpdateType)
+	}
+}
+
 func TestNonWatchSnapshotDiffAndSelectionToken(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1502,5 +2009,499 @@ func TestNonWatchSnapshotDiffAndSelectionToken(t *testing.T) {
 	docB := loadDocumentByPath(t, st, src, pathB)
 	if docB.ParseStatus != "DELETED" {
 		t.Fatalf("expected deleted path parse_status=DELETED, got %s", docB.ParseStatus)
+	}
+}
+
+func TestSnapshotSourceAckDoesNotReplaceCommittedSnapshotItems(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-ack-baseline",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/a.txt"
+	modAt := time.Now().UTC().Add(-2 * time.Minute)
+	items := []model.TreeNode{{Title: "a.txt", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, ModTime: &modAt},
+	}
+	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build initial tree state failed: %v", err)
+	}
+	if _, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		SelectionToken: token,
+	}); err != nil {
+		t.Fatalf("generate tasks with selection token failed: %v", err)
+	}
+
+	var before sourceSnapshotRelationEntity
+	if err := st.db.WithContext(ctx).Take(&before, "source_id = ?", src.ID).Error; err != nil {
+		t.Fatalf("load relation before ack failed: %v", err)
+	}
+	if before.LastCommittedSnapshotID == "" {
+		t.Fatalf("expected committed snapshot before ack")
+	}
+
+	pulled, err := st.PullPendingCommands(ctx, model.PullCommandsRequest{
+		AgentID:  "agent-1",
+		TenantID: "tenant-1",
+	})
+	if err != nil {
+		t.Fatalf("pull commands failed: %v", err)
+	}
+	if len(pulled.Commands) != 1 || pulled.Commands[0].Type != model.CommandSnapshotSource {
+		t.Fatalf("expected one snapshot_source command, got %+v", pulled.Commands)
+	}
+	resultJSON := `{"snapshot_ref":"local://snapshot/src-ack-baseline/snapshot.json","file_count":1,"taken_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`
+	if err := st.AckCommand(ctx, model.AckCommandRequest{
+		AgentID:    "agent-1",
+		CommandID:  pulled.Commands[0].ID,
+		Success:    true,
+		ResultJSON: resultJSON,
+	}); err != nil {
+		t.Fatalf("ack snapshot_source failed: %v", err)
+	}
+
+	var after sourceSnapshotRelationEntity
+	if err := st.db.WithContext(ctx).Take(&after, "source_id = ?", src.ID).Error; err != nil {
+		t.Fatalf("load relation after ack failed: %v", err)
+	}
+	if after.LastCommittedSnapshotID != before.LastCommittedSnapshotID {
+		t.Fatalf("snapshot_source ack replaced committed snapshot: before=%s after=%s", before.LastCommittedSnapshotID, after.LastCommittedSnapshotID)
+	}
+
+	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build tree state after ack failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, path)
+	if !ok {
+		t.Fatalf("missing node for path %s", path)
+	}
+	if node.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected unchanged after snapshot_source ack, got %s", node.UpdateType)
+	}
+}
+
+func TestSourceFileSnapshotSelectionTokenIndexAllowsCommittedSnapshotsWithoutTokens(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.db.WithContext(ctx).Exec("DROP INDEX IF EXISTS idx_source_file_snapshots_selection_token").Error; err != nil {
+		t.Fatalf("drop selection token index failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Exec("CREATE UNIQUE INDEX idx_source_file_snapshots_selection_token ON source_file_snapshots (selection_token)").Error; err != nil {
+		t.Fatalf("create legacy selection token index failed: %v", err)
+	}
+	if err := st.ensureSourceFileSnapshotIndexes(ctx); err != nil {
+		t.Fatalf("rebuild legacy selection token index failed: %v", err)
+	}
+
+	src := createTestSource(t, st)
+	now := time.Now().UTC()
+
+	committed := []sourceFileSnapshotEntity{
+		{
+			SnapshotID:   "ss_empty_token_1",
+			SourceID:     src.ID,
+			TenantID:     src.TenantID,
+			SnapshotType: "COMMITTED",
+			FileCount:    1,
+			CreatedAt:    now,
+		},
+		{
+			SnapshotID:   "ss_empty_token_2",
+			SourceID:     src.ID,
+			TenantID:     src.TenantID,
+			SnapshotType: "COMMITTED",
+			FileCount:    2,
+			CreatedAt:    now.Add(time.Nanosecond),
+		},
+	}
+	for _, snap := range committed {
+		if err := st.db.WithContext(ctx).Create(&snap).Error; err != nil {
+			t.Fatalf("create committed snapshot with empty selection token failed: %v", err)
+		}
+	}
+
+	token := "sel_duplicate_token"
+	preview := sourceFileSnapshotEntity{
+		SnapshotID:     "ss_token_1",
+		SourceID:       src.ID,
+		TenantID:       src.TenantID,
+		SnapshotType:   "PREVIEW",
+		SelectionToken: token,
+		FileCount:      1,
+		CreatedAt:      now.Add(2 * time.Nanosecond),
+	}
+	if err := st.db.WithContext(ctx).Create(&preview).Error; err != nil {
+		t.Fatalf("create preview snapshot with token failed: %v", err)
+	}
+	preview.SnapshotID = "ss_token_2"
+	preview.CreatedAt = now.Add(3 * time.Nanosecond)
+	if err := st.db.WithContext(ctx).Create(&preview).Error; err == nil {
+		t.Fatalf("expected duplicate non-empty selection token to fail")
+	}
+}
+
+func TestListSourceDocumentsUsesLatestNonWatchSnapshotState(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-non-watch-doc-list",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/a.txt"
+	modAt := time.Now().UTC().Add(-2 * time.Minute)
+	items := []model.TreeNode{{Title: "a.txt", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, ModTime: &modAt},
+	}
+	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build initial tree state failed: %v", err)
+	}
+	if _, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		SelectionToken: token,
+	}); err != nil {
+		t.Fatalf("generate tasks with selection token failed: %v", err)
+	}
+
+	doc := loadDocumentByPath(t, st, src, path)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"desired_version_id": "v_stale_desired",
+			"current_version_id": "v_current",
+			"parse_status":       "SUCCEEDED",
+		}).Error; err != nil {
+		t.Fatalf("seed stale document versions failed: %v", err)
+	}
+
+	_, _, err = st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build unchanged preview failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	}
+	if resp.Items[0].UpdateType != "UNCHANGED" {
+		t.Fatalf("expected snapshot state to mark document UNCHANGED, got %s", resp.Items[0].UpdateType)
+	}
+	if resp.Items[0].HasUpdate == nil || *resp.Items[0].HasUpdate {
+		t.Fatalf("expected has_update=false from snapshot state, got %+v", resp.Items[0].HasUpdate)
+	}
+	if resp.Summary.ModifiedCount != 0 || resp.Summary.PendingPullCount != 0 {
+		t.Fatalf("expected snapshot state to clear pending counts, got modified=%d pending=%d", resp.Summary.ModifiedCount, resp.Summary.PendingPullCount)
+	}
+}
+
+func TestListSourceDocumentsIgnoresConsumedNonWatchPreview(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-consumed-preview-doc-list",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/a.txt"
+	modAt := time.Now().UTC().Add(-2 * time.Minute)
+	items := []model.TreeNode{{Title: "a.txt", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, ModTime: &modAt},
+	}
+	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build initial tree state failed: %v", err)
+	}
+	if _, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		SelectionToken: token,
+	}); err != nil {
+		t.Fatalf("generate tasks with selection token failed: %v", err)
+	}
+
+	var consumed sourceFileSnapshotEntity
+	if err := st.db.WithContext(ctx).
+		Where("source_id = ? AND selection_token = ?", src.ID, token).
+		Take(&consumed).Error; err != nil {
+		t.Fatalf("load consumed snapshot failed: %v", err)
+	}
+	if consumed.ConsumedAt == nil {
+		t.Fatalf("expected preview to be consumed after generate tasks")
+	}
+
+	doc := loadDocumentByPath(t, st, src, path)
+	if _, err := st.ScheduleDueParses(ctx, time.Now().UTC().Add(20*time.Second)); err != nil {
+		t.Fatalf("schedule due parses failed: %v", err)
+	}
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 parse task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark task succeeded failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	}
+	if resp.Items[0].UpdateType != "UNCHANGED" {
+		t.Fatalf("expected consumed preview to leave document UNCHANGED, got %s", resp.Items[0].UpdateType)
+	}
+	if resp.Items[0].HasUpdate == nil || *resp.Items[0].HasUpdate {
+		t.Fatalf("expected has_update=false after consumed preview, got %+v", resp.Items[0].HasUpdate)
+	}
+	if resp.Summary.PendingPullCount != 0 {
+		t.Fatalf("expected pending_pull_count=0 after consumed preview, got %d", resp.Summary.PendingPullCount)
+	}
+}
+
+func TestGenerateTasksWithoutSelectionTokenConsumesNonWatchPreview(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-no-token-preview",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/a.txt"
+	items := []model.TreeNode{{Title: "a.txt", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10},
+	}
+	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build initial tree state failed: %v", err)
+	}
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:  "partial",
+		Paths: []string{path},
+	})
+	if err != nil {
+		t.Fatalf("generate tasks without selection token failed: %v", err)
+	}
+	if resp.AcceptedCount != 1 {
+		t.Fatalf("expected accepted_count=1, got %d", resp.AcceptedCount)
+	}
+	var consumed sourceFileSnapshotEntity
+	if err := st.db.WithContext(ctx).
+		Where("source_id = ? AND selection_token = ?", src.ID, token).
+		Take(&consumed).Error; err != nil {
+		t.Fatalf("load consumed snapshot failed: %v", err)
+	}
+	if consumed.ConsumedAt == nil {
+		t.Fatalf("expected preview to be consumed after tokenless generate tasks")
+	}
+}
+
+func TestBuildTreeUpdateStateFallsBackFromEmptyCommittedSnapshot(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-empty-committed",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/a.txt"
+	modAt := time.Now().UTC().Add(-2 * time.Minute)
+	items := []model.TreeNode{{Title: "a.txt", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, ModTime: &modAt},
+	}
+	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build initial tree state failed: %v", err)
+	}
+	if _, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		SelectionToken: token,
+	}); err != nil {
+		t.Fatalf("generate tasks with selection token failed: %v", err)
+	}
+
+	var relation sourceSnapshotRelationEntity
+	if err := st.db.WithContext(ctx).Take(&relation, "source_id = ?", src.ID).Error; err != nil {
+		t.Fatalf("load relation failed: %v", err)
+	}
+	validCommittedID := relation.LastCommittedSnapshotID
+	if validCommittedID == "" {
+		t.Fatalf("expected valid committed snapshot")
+	}
+
+	emptyCommittedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:     emptyCommittedID,
+		SourceID:       src.ID,
+		TenantID:       src.TenantID,
+		SnapshotType:   "COMMITTED",
+		BaseSnapshotID: validCommittedID,
+		FileCount:      1,
+		CreatedAt:      time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("create empty committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&sourceSnapshotRelationEntity{}).
+		Where("source_id = ?", src.ID).
+		Updates(map[string]any{
+			"last_committed_snapshot_id": emptyCommittedID,
+			"updated_at":                 time.Now().UTC(),
+		}).Error; err != nil {
+		t.Fatalf("point relation at empty committed snapshot failed: %v", err)
+	}
+
+	tree, token2, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build tree state with empty committed baseline failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, path)
+	if !ok {
+		t.Fatalf("missing node for path %s", path)
+	}
+	if node.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected fallback baseline to mark unchanged, got %s", node.UpdateType)
+	}
+	preview, err := st.loadPreviewSnapshotBySelectionToken(ctx, src.ID, token2)
+	if err != nil {
+		t.Fatalf("load preview snapshot failed: %v", err)
+	}
+	if preview.BaseSnapshotID != validCommittedID {
+		t.Fatalf("expected preview base snapshot %s, got %s", validCommittedID, preview.BaseSnapshotID)
+	}
+}
+
+func TestNonWatchSnapshotDiffMixedDirectoryAndSiblingFiles(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-mixed-tree",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	dirPath := "/tmp/watch/test"
+	nestedPath := "/tmp/watch/test/perm_1.md"
+	siblingPath := "/tmp/watch/alpha.txt"
+	modAt := time.Now().UTC().Add(-2 * time.Minute)
+	items := []model.TreeNode{
+		{
+			Title: "test",
+			Key:   dirPath,
+			IsDir: true,
+			Children: []model.TreeNode{
+				{Title: "perm_1", Key: nestedPath, IsDir: false},
+			},
+		},
+		{Title: "alpha.txt", Key: siblingPath, IsDir: false},
+	}
+	stats := map[string]model.TreeFileStat{
+		nestedPath:  {Path: nestedPath, Size: 10, Checksum: "v1", ModTime: &modAt},
+		siblingPath: {Path: siblingPath, Size: 20, Checksum: "v1", ModTime: &modAt},
+	}
+
+	_, token1, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build first snapshot tree state failed: %v", err)
+	}
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{nestedPath, siblingPath},
+		SelectionToken: token1,
+	})
+	if err != nil {
+		t.Fatalf("generate tasks with first selection token failed: %v", err)
+	}
+	if resp.AcceptedCount != 2 {
+		t.Fatalf("expected accepted_count=2, got %d", resp.AcceptedCount)
+	}
+
+	tree2, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build second snapshot tree state failed: %v", err)
+	}
+	for _, path := range []string{nestedPath, siblingPath} {
+		node, ok := findTreeNodeByPath(tree2, path)
+		if !ok {
+			t.Fatalf("missing node for path %s", path)
+		}
+		if node.UpdateType != "UNCHANGED" {
+			t.Fatalf("expected %s UNCHANGED, got %s", path, node.UpdateType)
+		}
+		if node.HasUpdate == nil || *node.HasUpdate {
+			t.Fatalf("expected %s has_update=false, got %+v", path, node.HasUpdate)
+		}
 	}
 }

@@ -175,9 +175,8 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 		nextParse = &when
 	}
 
-	var doc documentEntity
-	err := tx.Where("tenant_id = ? AND source_id = ? AND source_object_id = ?", m.TenantID, m.SourceID, m.SourceObjectID).Take(&doc).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
+	doc, err := resolveMutationDocument(tx, m, now, log)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 
@@ -270,6 +269,99 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 		return tx.Create(&doc).Error
 	}
 	return tx.Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(updates).Error
+}
+
+func resolveMutationDocument(tx *gorm.DB, m DocumentMutation, now time.Time, log *zap.Logger) (documentEntity, error) {
+	var doc documentEntity
+	err := tx.Where("tenant_id = ? AND source_id = ? AND source_object_id = ?", m.TenantID, m.SourceID, m.SourceObjectID).Take(&doc).Error
+	if err == nil {
+		return doc, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return documentEntity{}, err
+	}
+	if !shouldResolveCloudDocumentByOriginRef(m.OriginType, m.OriginRef) {
+		return documentEntity{}, gorm.ErrRecordNotFound
+	}
+
+	originRef := strings.TrimSpace(m.OriginRef)
+	if err := tx.
+		Where(
+			"tenant_id = ? AND source_id = ? AND origin_ref = ? AND UPPER(origin_type) = ?",
+			m.TenantID,
+			m.SourceID,
+			originRef,
+			string(model.OriginTypeCloudSync),
+		).
+		Order("updated_at DESC, id DESC").
+		Take(&doc).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return documentEntity{}, gorm.ErrRecordNotFound
+		}
+		return documentEntity{}, err
+	}
+
+	if normalizeEventType(m.EventType) == "deleted" {
+		return doc, nil
+	}
+	newPath := strings.TrimSpace(m.SourceObjectID)
+	oldPath := strings.TrimSpace(doc.SourceObjectID)
+	if newPath == "" || oldPath == "" || newPath == oldPath {
+		return doc, nil
+	}
+
+	var conflict documentEntity
+	conflictErr := tx.Where(
+		"tenant_id = ? AND source_id = ? AND source_object_id = ?",
+		m.TenantID,
+		m.SourceID,
+		newPath,
+	).Take(&conflict).Error
+	if conflictErr != nil && !errors.Is(conflictErr, gorm.ErrRecordNotFound) {
+		return documentEntity{}, conflictErr
+	}
+	if conflictErr == nil && conflict.ID != doc.ID {
+		// 同一路径已存在记录。若刚好也是同一 origin_ref，则直接复用该记录；
+		// 否则中止，避免污染不同文档的主键身份。
+		if strings.TrimSpace(conflict.OriginRef) == originRef &&
+			shouldResolveCloudDocumentByOriginRef(conflict.OriginType, conflict.OriginRef) {
+			return conflict, nil
+		}
+		return documentEntity{}, fmt.Errorf(
+			"cloud path collision for origin_ref=%s source_id=%s target_path=%s existing_document_id=%d current_document_id=%d",
+			originRef,
+			m.SourceID,
+			newPath,
+			conflict.ID,
+			doc.ID,
+		)
+	}
+
+	if err := tx.Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(map[string]any{
+		"source_object_id": newPath,
+		"updated_at":       now,
+	}).Error; err != nil {
+		return documentEntity{}, err
+	}
+	if log != nil {
+		log.Info("cloud document path updated by origin_ref",
+			zap.Int64("document_id", doc.ID),
+			zap.String("source_id", m.SourceID),
+			zap.String("origin_ref", originRef),
+			zap.String("old_path", oldPath),
+			zap.String("new_path", newPath),
+		)
+	}
+	doc.SourceObjectID = newPath
+	doc.UpdatedAt = now
+	return doc, nil
+}
+
+func shouldResolveCloudDocumentByOriginRef(originType, originRef string) bool {
+	if strings.TrimSpace(originRef) == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(originType), string(model.OriginTypeCloudSync))
 }
 
 func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, error) {
@@ -495,6 +587,7 @@ func (s *Store) ClaimDueTasks(ctx context.Context, leaseOwner string, now time.T
 		var row struct {
 			DocumentID       int64
 			SourceID         string
+			SourceRootPath   string
 			SourceDatasetID  string
 			CoreDocumentID   string
 			SourceObjectID   string
@@ -504,7 +597,7 @@ func (s *Store) ClaimDueTasks(ctx context.Context, leaseOwner string, now time.T
 		}
 		if err := s.db.WithContext(ctx).
 			Table("documents d").
-			Select("d.id as document_id, d.source_id, s.dataset_id as source_dataset_id, d.core_document_id, d.source_object_id, d.desired_version_id, s.agent_id, a.listen_addr").
+			Select("d.id as document_id, d.source_id, s.root_path as source_root_path, s.dataset_id as source_dataset_id, d.core_document_id, d.source_object_id, d.desired_version_id, s.agent_id, a.listen_addr").
 			Joins("JOIN sources s ON s.id = d.source_id").
 			Joins("LEFT JOIN agents a ON a.agent_id = s.agent_id").
 			Where("d.id = ?", task.DocumentID).
@@ -524,6 +617,7 @@ func (s *Store) ClaimDueTasks(ctx context.Context, leaseOwner string, now time.T
 			OriginPlatform:   task.OriginPlatform,
 			TriggerPolicy:    task.TriggerPolicy,
 			SourceID:         row.SourceID,
+			SourceRootPath:   row.SourceRootPath,
 			SourceDatasetID:  strings.TrimSpace(row.SourceDatasetID),
 			CoreDocumentID:   firstNonEmpty(strings.TrimSpace(task.CoreDocumentID), strings.TrimSpace(row.CoreDocumentID)),
 			SourceObjectID:   row.SourceObjectID,
@@ -1031,7 +1125,7 @@ func (s *Store) latestParseTasksByDocumentIDs(ctx context.Context, documentIDs [
 	var rows []parseTaskDocJoin
 	if err := s.db.WithContext(ctx).
 		Table("parse_tasks pt").
-		Select("pt.document_id, pt.task_action, pt.core_document_id, pt.status, pt.core_dataset_id, pt.core_task_id, pt.scan_orchestration_status").
+		Select("pt.id AS task_id, pt.document_id, pt.task_action, pt.target_version_id, pt.core_document_id, pt.status, pt.core_dataset_id, pt.core_task_id, pt.scan_orchestration_status").
 		Joins("JOIN (?) latest ON latest.max_id = pt.id", sub).
 		Scan(&rows).Error; err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -19,6 +20,7 @@ type Handler struct {
 	validator fs.PathValidator
 	scanner   fs.Scanner
 	staging   fs.StagingService
+	mapper    fs.PathMapper
 	log       *zap.Logger
 }
 
@@ -34,11 +36,12 @@ func (h *Handler) Tree(w http.ResponseWriter, r *http.Request) {
 	if req.MaxDepth > 8 {
 		req.MaxDepth = 8
 	}
-	if err := h.validator.EnsureAllowed(req.Path); err != nil {
+	runtimePath := h.mapper.ToRuntime(req.Path)
+	if err := h.validator.EnsureAllowed(runtimePath); err != nil {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
 		return
 	}
-	root, err := h.buildTreeNode(req.Path, req.MaxDepth, req.IncludeFiles, 0)
+	root, err := h.buildTreeNode(runtimePath, h.mapper.ToPublic(runtimePath), req.MaxDepth, req.IncludeFiles, 0)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, string(internal.ErrInvalidPath), err.Error())
 		return
@@ -46,8 +49,11 @@ func (h *Handler) Tree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, internal.TreeResponse{Items: []internal.TreeNode{root}})
 }
 
-func NewHandler(manager source.Manager, validator fs.PathValidator, scanner fs.Scanner, staging fs.StagingService, log *zap.Logger) *Handler {
-	return &Handler{manager: manager, validator: validator, scanner: scanner, staging: staging, log: log}
+func NewHandler(manager source.Manager, validator fs.PathValidator, scanner fs.Scanner, staging fs.StagingService, mapper fs.PathMapper, log *zap.Logger) *Handler {
+	if mapper == nil {
+		mapper = fs.NewPathMapper("", nil)
+	}
+	return &Handler{manager: manager, validator: validator, scanner: scanner, staging: staging, mapper: mapper, log: log}
 }
 
 // Healthz GET /healthz
@@ -62,26 +68,28 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.validator.EnsureAllowed(req.Path); err != nil {
+	runtimePath := h.mapper.ToRuntime(req.Path)
+	if err := h.validator.EnsureAllowed(runtimePath); err != nil {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
 		return
 	}
 
-	entries, err := os.ReadDir(req.Path)
+	entries, err := os.ReadDir(runtimePath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, string(internal.ErrInvalidPath), err.Error())
 		return
 	}
 
-	resp := internal.BrowseResponse{Path: req.Path, Entries: make([]internal.BrowseEntry, 0, len(entries))}
+	resp := internal.BrowseResponse{Path: h.mapper.ToPublic(runtimePath), Entries: make([]internal.BrowseEntry, 0, len(entries))}
 	for _, e := range entries {
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
+		childRuntimePath := filepath.Join(runtimePath, e.Name())
 		resp.Entries = append(resp.Entries, internal.BrowseEntry{
 			Name:    e.Name(),
-			Path:    req.Path + "/" + e.Name(),
+			Path:    h.mapper.ToPublic(childRuntimePath),
 			IsDir:   e.IsDir(),
 			Size:    info.Size(),
 			ModTime: info.ModTime(),
@@ -96,7 +104,8 @@ func (h *Handler) ValidatePath(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	resp := h.validator.Validate(req.Path)
+	resp := h.validator.Validate(h.mapper.ToRuntime(req.Path))
+	resp.Path = h.mapper.ToPublic(resp.Path)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -107,12 +116,13 @@ func (h *Handler) StatFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.validator.EnsureAllowed(req.Path); err != nil {
+	runtimePath := h.mapper.ToRuntime(req.Path)
+	if err := h.validator.EnsureAllowed(runtimePath); err != nil {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
 		return
 	}
 
-	meta, err := h.scanner.Stat(r.Context(), req.Path)
+	meta, err := h.scanner.Stat(r.Context(), runtimePath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, string(internal.ErrInvalidPath), err.Error())
 		return
@@ -177,12 +187,13 @@ func (h *Handler) StageFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.validator.EnsureAllowed(req.SrcPath); err != nil {
+	runtimePath := h.mapper.ToRuntime(req.SrcPath)
+	if err := h.validator.EnsureAllowed(runtimePath); err != nil {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
 		return
 	}
 
-	result, err := h.staging.StageFile(r.Context(), req.SourceID, req.DocumentID, req.VersionID, req.SrcPath)
+	result, err := h.staging.StageFile(r.Context(), req.SourceID, req.DocumentID, req.VersionID, runtimePath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, string(internal.ErrStageFailed), err.Error())
 		return
@@ -196,31 +207,32 @@ func (h *Handler) StageFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) buildTreeNode(path string, maxDepth int, includeFiles bool, depth int) (internal.TreeNode, error) {
-	name := filepath.Base(path)
-	if name == "." || name == "/" {
-		name = path
+func (h *Handler) buildTreeNode(runtimePath, publicPath string, maxDepth int, includeFiles bool, depth int) (internal.TreeNode, error) {
+	name := publicBase(publicPath)
+	if name == "." || name == "/" || name == "\\" {
+		name = publicPath
 	}
 	node := internal.TreeNode{
 		Title: name,
-		Key:   filepath.Clean(path),
+		Key:   h.mapper.CleanPublic(publicPath),
 		IsDir: true,
 	}
 	if depth >= maxDepth {
 		return node, nil
 	}
-	entries, err := os.ReadDir(path)
+	entries, err := os.ReadDir(runtimePath)
 	if err != nil {
 		return node, err
 	}
 	children := make([]internal.TreeNode, 0, len(entries))
 	for _, entry := range entries {
-		childPath := filepath.Join(path, entry.Name())
-		if err := h.validator.EnsureAllowed(childPath); err != nil {
+		childRuntimePath := filepath.Join(runtimePath, entry.Name())
+		childPublicPath := h.mapper.ToPublic(childRuntimePath)
+		if err := h.validator.EnsureAllowed(childRuntimePath); err != nil {
 			continue
 		}
 		if entry.IsDir() {
-			next, err := h.buildTreeNode(childPath, maxDepth, includeFiles, depth+1)
+			next, err := h.buildTreeNode(childRuntimePath, childPublicPath, maxDepth, includeFiles, depth+1)
 			if err != nil {
 				continue
 			}
@@ -232,12 +244,24 @@ func (h *Handler) buildTreeNode(path string, maxDepth int, includeFiles bool, de
 		}
 		children = append(children, internal.TreeNode{
 			Title: entry.Name(),
-			Key:   filepath.Clean(childPath),
+			Key:   h.mapper.CleanPublic(childPublicPath),
 			IsDir: false,
 		})
 	}
 	node.Children = children
 	return node, nil
+}
+
+func publicBase(path string) string {
+	clean := strings.TrimRight(strings.ReplaceAll(path, "\\", "/"), "/")
+	if clean == "" {
+		return path
+	}
+	idx := strings.LastIndex(clean, "/")
+	if idx < 0 {
+		return clean
+	}
+	return clean[idx+1:]
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

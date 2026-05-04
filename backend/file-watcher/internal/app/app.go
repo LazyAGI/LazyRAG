@@ -39,13 +39,14 @@ func New(cfg *config.Config, log *zap.Logger) *App {
 	cpClient := control.NewHTTPClient(cfg.ControlPlaneBaseURL, cfg.AgentToken, log)
 
 	// fs 层
+	pathMapper := fs.NewPathMapper(cfg.HostPathStyle, cfg.PathMappings)
 	validator := fs.NewPathValidator(cfg.Security.AllowedRoots)
-	scanner := fs.NewScanner(cfg.AgentID, cfg.Scan, cpClient, validator, log)
-	watcher := fs.NewRecursiveWatcher(cfg.AgentID, cfg.Watch, cpClient, log)
+	scanner := fs.NewScanner(cfg.AgentID, cfg.Scan, cpClient, validator, pathMapper, log)
+	watcher := fs.NewRecursiveWatcher(cfg.AgentID, cfg.Watch, cpClient, pathMapper, log)
 	stagingSvc := fs.NewStagingService(cfg.Staging, log)
 
 	// source manager（同时实现 Manager 和 CommandDispatcher）
-	mgr := source.NewManager(cfg, scanner, watcher, validator, cpClient, stagingSvc, log)
+	mgr := source.NewManager(cfg, scanner, watcher, validator, pathMapper, cpClient, stagingSvc, log)
 
 	a := &App{
 		cfg:         cfg,
@@ -68,7 +69,7 @@ func New(cfg *config.Config, log *zap.Logger) *App {
 	a.heartbeat = heartbeat
 
 	// HTTP server
-	handler := api.NewHandler(mgr, validator, scanner, stagingSvc, log)
+	handler := api.NewHandler(mgr, validator, scanner, stagingSvc, pathMapper, log)
 	a.server = api.NewServer(cfg, handler, log)
 
 	return a

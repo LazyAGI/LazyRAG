@@ -1,17 +1,20 @@
-agent_id: "file-watcher-local-001"
-tenant_id: "tenant-demo"
-agent_token: "my-secret-token"
-listen_addr: "127.0.0.1:19090"
+agent_id: "${RAGSCAN_AGENT_ID:-file-watcher-local-001}"
+tenant_id: "${RAGSCAN_TENANT_ID:-tenant-demo}"
+agent_token: "${RAGSCAN_AGENT_TOKEN:-my-secret-token}"
+listen_addr: "${RAGSCAN_AGENT_LISTEN_ADDR:-127.0.0.1:19090}"
 # 对外上报给 control-plane 的地址（当 control-plane 运行在容器内时建议使用 host.docker.internal）
-advertise_addr: "http://host.docker.internal:19090"
-control_plane_base_url: "http://127.0.0.1:18080"
+advertise_addr: "${RAGSCAN_AGENT_ADVERTISE_ADDR:-http://host.docker.internal:19090}"
+control_plane_base_url: "${RAGSCAN_CONTROL_PLANE_BASE_URL:-http://127.0.0.1:18080}"
 heartbeat_interval: "30s"
 pull_interval: "20s"
 reconcile_interval: "20m"
-# base_root 需放在 docker-compose volume 对应的宿主机目录中；
-# 并确保 compose 中挂载 ${RAGSCAN_BASE_ROOT}/staging -> /data/staging
-# 这里必须是“宿主机可写绝对路径”，不要填容器内路径（如 /data/ragscan）
-base_root: "${RAGSCAN_BASE_ROOT}"
+# base_root 是 file-watcher 运行环境内的可写目录。
+# 宿主机模式默认落到项目根目录 data/scan；容器模式由 docker-compose.yml 覆盖为 /data/ragscan。
+# scan-control-plane 需要挂载同一个宿主机 data/scan，并把 staging 暴露为 /data/staging。
+base_root: "${RAGSCAN_BASE_ROOT:-../../../data/scan}"
+host_path_style: "${RAGSCAN_HOST_PATH_STYLE:-auto}"
+# 容器模式下会优先用 RAGSCAN_WATCH_HOST_DIR 和 RAGSCAN_WATCH_CONTAINER_DIR
+# 自动推导“用户/宿主机路径 -> 容器内实际路径”的映射。
 log_level: "info"
 
 watch:
@@ -42,6 +45,7 @@ security:
     - "/Users"
     - "/home"
     - "/data"
+    - "/watch"
 
 http:
   read_timeout: "10s"

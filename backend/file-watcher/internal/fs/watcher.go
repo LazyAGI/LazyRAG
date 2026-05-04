@@ -46,17 +46,22 @@ type recursiveWatcher struct {
 	cfg      config.WatchConfig
 	agentID  string
 	reporter EventReporter
+	mapper   PathMapper
 	log      *zap.Logger
 
 	mu      sync.Mutex
 	entries map[string]*watcherEntry // sourceID -> entry
 }
 
-func NewRecursiveWatcher(agentID string, cfg config.WatchConfig, reporter EventReporter, log *zap.Logger) RecursiveWatcher {
+func NewRecursiveWatcher(agentID string, cfg config.WatchConfig, reporter EventReporter, mapper PathMapper, log *zap.Logger) RecursiveWatcher {
+	if mapper == nil {
+		mapper = NewPathMapper("", nil)
+	}
 	return &recursiveWatcher{
 		cfg:      cfg,
 		agentID:  agentID,
 		reporter: reporter,
+		mapper:   mapper,
 		log:      log,
 		entries:  make(map[string]*watcherEntry),
 	}
@@ -214,11 +219,12 @@ func (rw *recursiveWatcher) loop(ctx context.Context, sourceID, tenantID string,
 	var mu sync.Mutex
 
 	flush := func(path string, et internal.FileEventType, isDir bool) {
+		publicPath := rw.mapper.ToPublic(path)
 		ev := internal.FileEvent{
 			SourceID:   sourceID,
 			TenantID:   tenantID,
 			EventType:  et,
-			Path:       path,
+			Path:       publicPath,
 			IsDir:      isDir,
 			OccurredAt: time.Now(),
 		}
@@ -230,7 +236,7 @@ func (rw *recursiveWatcher) loop(ctx context.Context, sourceID, tenantID string,
 		} else {
 			rw.log.Debug("reported debounced event",
 				zap.String("source_id", sourceID),
-				zap.String("path", path),
+				zap.String("path", publicPath),
 				zap.String("type", string(et)),
 				zap.Bool("is_dir", isDir),
 			)

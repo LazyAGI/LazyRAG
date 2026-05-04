@@ -60,6 +60,11 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		return resp, err
 	}
 
+	snapshotUpdates, snapshotUpdatesAvailable, err := s.nonWatchSourceDocumentUpdateOverrides(ctx, src)
+	if err != nil {
+		return resp, err
+	}
+
 	offset := (page - 1) * pageSize
 	var docs []documentEntity
 	if err := docQuery.
@@ -81,6 +86,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 
 	for _, doc := range docs {
 		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, snapshotUpdates, snapshotUpdatesAvailable)
 		var hasUpdate *bool
 		switch update {
 		case "NEW", "MODIFIED", "DELETED":
@@ -100,17 +106,23 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			HasUpdate:               hasUpdate,
 			UpdateType:              update,
 			UpdateDesc:              updateTypeDescription(update),
-			ParseState:              doc.ParseStatus,
+			ParseState:              effectiveSourceDocumentParseState(doc.ParseStatus, doc.DesiredVersionID, latestTask),
 			FileType:                fileTypeFromPath(doc.SourceObjectID),
 			SizeBytes:               0,
 			LastSyncedAt:            &lastSyncedAt,
 			CoreDatasetID:           latestTask.CoreDatasetID,
 			CoreTaskID:              latestTask.CoreTaskID,
 			ScanOrchestrationStatus: latestTask.ScanOrchestrationStatus,
+			DesiredVersionID:        doc.DesiredVersionID,
+			CurrentVersionID:        doc.CurrentVersionID,
+			ParseTaskID:             latestTask.TaskID,
+			ParseTaskAction:         latestTask.TaskAction,
+			ParseTaskTargetVersion:  latestTask.TargetVersionID,
 		})
 	}
 
 	type summaryDoc struct {
+		SourceObjectID   string
 		ParseStatus      string
 		DesiredVersionID string
 		CurrentVersionID string
@@ -119,7 +131,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	var summaryDocs []summaryDoc
 	if err := s.db.WithContext(ctx).
 		Table("documents").
-		Select("parse_status, desired_version_id, current_version_id, updated_at").
+		Select("source_object_id, parse_status, desired_version_id, current_version_id, updated_at").
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID).
 		Scan(&summaryDocs).Error; err != nil {
 		return resp, err
@@ -134,6 +146,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	)
 	for _, doc := range summaryDocs {
 		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, snapshotUpdates, snapshotUpdatesAvailable)
 		switch update {
 		case "NEW":
 			newCount++
@@ -181,6 +194,135 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	return resp, nil
 }
 
+func effectiveSourceDocumentParseState(documentStatus, desiredVersion string, latestTask parseTaskDocJoin) string {
+	documentState := strings.ToUpper(strings.TrimSpace(documentStatus))
+	if documentState == "" {
+		documentState = "PENDING"
+	}
+
+	taskState := effectiveLatestParseTaskState(desiredVersion, latestTask)
+	if taskState == "" {
+		return documentState
+	}
+
+	switch taskState {
+	case "PENDING", "RETRY_WAITING", "RUNNING", "STAGING", "SUBMITTED":
+		return taskState
+	case "SUBMIT_FAILED", "FAILED":
+		return taskState
+	case "SUCCEEDED":
+		if documentState == "QUEUED" || documentState == "PENDING" || documentState == "RUNNING" {
+			return taskState
+		}
+	}
+	return documentState
+}
+
+func effectiveLatestParseTaskState(desiredVersion string, latestTask parseTaskDocJoin) string {
+	taskState := strings.ToUpper(strings.TrimSpace(latestTask.ScanOrchestrationStatus))
+	if taskState == "" {
+		taskState = strings.ToUpper(strings.TrimSpace(latestTask.Status))
+	}
+	if taskState == "" {
+		return ""
+	}
+
+	taskTargetVersion := strings.TrimSpace(latestTask.TargetVersionID)
+	currentDesiredVersion := strings.TrimSpace(desiredVersion)
+	if taskTargetVersion != "" && currentDesiredVersion != "" && taskTargetVersion != currentDesiredVersion {
+		return ""
+	}
+	return taskState
+}
+
+func (s *Store) nonWatchSourceDocumentUpdateOverrides(ctx context.Context, src sourceEntity) (map[string]string, bool, error) {
+	if src.WatchEnabled {
+		return nil, false, nil
+	}
+	var relation sourceSnapshotRelationEntity
+	if err := s.db.WithContext(ctx).Take(&relation, "source_id = ?", src.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	if previewID := strings.TrimSpace(relation.LastPreviewSnapshotID); previewID != "" {
+		preview, err := s.loadSnapshotByID(ctx, previewID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, err
+		}
+		if err == nil && strings.EqualFold(strings.TrimSpace(preview.SnapshotType), "PREVIEW") && preview.ConsumedAt == nil {
+			diff, err := s.diffBySnapshotID(ctx, preview)
+			if err != nil {
+				return nil, false, err
+			}
+			return normalizeSnapshotUpdateOverrides(diff), true, nil
+		}
+	}
+
+	if committedID := strings.TrimSpace(relation.LastCommittedSnapshotID); committedID != "" {
+		items, _, err := s.snapshotItemsForDiffBase(ctx, src.ID, committedID)
+		if err != nil {
+			return nil, false, err
+		}
+		updates := make(map[string]string, len(items))
+		for rawPath, item := range items {
+			if item.IsDir {
+				continue
+			}
+			path := filepath.Clean(strings.TrimSpace(rawPath))
+			if path == "" || path == "." {
+				continue
+			}
+			updates[path] = "UNCHANGED"
+		}
+		if len(updates) > 0 {
+			return updates, true, nil
+		}
+	}
+
+	return nil, false, nil
+}
+
+func normalizeSnapshotUpdateOverrides(diff map[string]string) map[string]string {
+	updates := make(map[string]string, len(diff))
+	for rawPath, rawUpdate := range diff {
+		path := filepath.Clean(strings.TrimSpace(rawPath))
+		update := normalizeSnapshotUpdateType(rawUpdate)
+		if path == "" || path == "." || update == "" {
+			continue
+		}
+		updates[path] = update
+	}
+	return updates
+}
+
+func documentUpdateTypeWithSnapshotOverride(path, fallback string, updates map[string]string, available bool) string {
+	if !available {
+		return fallback
+	}
+	if update, ok := updates[filepath.Clean(strings.TrimSpace(path))]; ok {
+		return update
+	}
+	return fallback
+}
+
+func normalizeSnapshotUpdateType(raw string) string {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case "NEW":
+		return "NEW"
+	case "MODIFIED":
+		return "MODIFIED"
+	case "DELETED":
+		return "DELETED"
+	case "UNCHANGED", "NONE":
+		return "UNCHANGED"
+	default:
+		return ""
+	}
+}
+
 func (s *Store) ListSourceDocumentCoreRefs(ctx context.Context, sourceID, tenantID string) ([]SourceDocumentCoreRef, error) {
 	sourceID = strings.TrimSpace(sourceID)
 	tenantID = strings.TrimSpace(tenantID)
@@ -205,13 +347,18 @@ func (s *Store) ListSourceDocumentCoreRefs(ctx context.Context, sourceID, tenant
 		Table("documents d").
 		Select(`
 			d.id AS document_id,
+			d.source_object_id AS source_object_id,
 			d.parse_status AS parse_status,
 			d.desired_version_id AS desired_version_id,
 			d.current_version_id AS current_version_id,
 			d.updated_at AS updated_at,
+			pt.id AS task_id,
+			pt.task_action AS task_action,
+			pt.target_version_id AS target_version_id,
 			pt.core_dataset_id AS core_dataset_id,
 			d.core_document_id AS core_document_id,
-			pt.core_task_id AS core_task_id
+			pt.core_task_id AS core_task_id,
+			pt.scan_orchestration_status AS scan_orchestration_status
 		`).
 		Joins("LEFT JOIN (?) latest ON latest.document_id = d.id", sub).
 		Joins("LEFT JOIN parse_tasks pt ON pt.id = latest.max_id").
@@ -320,7 +467,10 @@ func (s *Store) createPreviewSnapshotAndDiff(ctx context.Context, src sourceEnti
 		relation = sourceSnapshotRelationEntity{SourceID: src.ID}
 	}
 
-	baseSnapshotID := strings.TrimSpace(relation.LastCommittedSnapshotID)
+	baseItems, baseSnapshotID, err := s.snapshotItemsForDiffBase(ctx, src.ID, relation.LastCommittedSnapshotID)
+	if err != nil {
+		return nil, err
+	}
 	previewSnapshotID := sourceSnapshotID()
 	expiresAt := now.Add(selectionTokenTTL)
 	preview := sourceFileSnapshotEntity{
@@ -364,10 +514,6 @@ func (s *Store) createPreviewSnapshotAndDiff(ctx context.Context, src sourceEnti
 		return nil, err
 	}
 
-	baseItems, err := s.snapshotItemsByPath(ctx, baseSnapshotID)
-	if err != nil {
-		return nil, err
-	}
 	if len(scopeRoots) > 0 {
 		filtered := make(map[string]sourceFileSnapshotItemEntity, len(baseItems))
 		for path, item := range baseItems {
@@ -550,7 +696,7 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 		if err := s.db.WithContext(ctx).Take(&relation, "source_id = ?", src.ID).Error; err == nil {
 			if strings.TrimSpace(relation.LastPreviewSnapshotID) != "" {
 				preview, err := s.loadSnapshotByID(ctx, relation.LastPreviewSnapshotID)
-				if err == nil {
+				if err == nil && strings.EqualFold(strings.TrimSpace(preview.SnapshotType), "PREVIEW") && preview.ConsumedAt == nil {
 					diff, err := s.diffBySnapshotID(ctx, preview)
 					if err != nil {
 						return resp, err
@@ -606,10 +752,7 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 				if err := s.promotePreviewSnapshotToCommittedTx(tx, src.ID, selectedPreview.SnapshotID, now); err != nil {
 					return err
 				}
-				if selectionToken != "" {
-					return s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now)
-				}
-				return nil
+				return s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now)
 			}); err != nil {
 				return resp, err
 			}
@@ -672,10 +815,8 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 			if err := s.promotePreviewSnapshotToCommittedTx(tx, src.ID, selectedPreview.SnapshotID, now); err != nil {
 				return err
 			}
-			if selectionToken != "" {
-				if err := s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now); err != nil {
-					return err
-				}
+			if err := s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now); err != nil {
+				return err
 			}
 		}
 		if err := enqueueSourceCommand(tx, src.AgentID, model.CommandSnapshotSource, model.SourcePayload{

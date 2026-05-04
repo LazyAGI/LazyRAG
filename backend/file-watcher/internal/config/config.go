@@ -21,6 +21,8 @@ type Config struct {
 	PullInterval        time.Duration `yaml:"pull_interval"`
 	ReconcileInterval   time.Duration `yaml:"reconcile_interval"`
 	BaseRoot            string        `yaml:"base_root"`
+	HostPathStyle       string        `yaml:"host_path_style"`
+	PathMappings        []PathMapping `yaml:"path_mappings"`
 	LogLevel            string        `yaml:"log_level"`
 	// 以下目录均由 base_root 自动派生，不直接从配置文件读取。
 	LogDir   string         `yaml:"-"`
@@ -40,6 +42,11 @@ type StagingConfig struct {
 
 type SnapshotConfig struct {
 	HostRoot string `yaml:"-"`
+}
+
+type PathMapping struct {
+	PublicRoot  string `yaml:"public_root"`
+	RuntimeRoot string `yaml:"runtime_root"`
 }
 
 type WatchConfig struct {
@@ -80,8 +87,10 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config file: %w", err)
 	}
-	cfg.BaseRoot = strings.TrimSpace(expandEnvWithDefault(cfg.BaseRoot))
-	if err := cfg.deriveDirsFromBaseRoot(); err != nil {
+	if err := cfg.expandEnvOverrides(); err != nil {
+		return nil, err
+	}
+	if err := cfg.deriveDirsFromBaseRoot(configDir(path)); err != nil {
 		return nil, fmt.Errorf("derive dirs from base_root: %w", err)
 	}
 
@@ -90,6 +99,14 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func configDir(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(abs)
 }
 
 // expandEnvWithDefault 支持以下两种写法：
@@ -114,6 +131,7 @@ func defaultConfig() *Config {
 		PullInterval:      10 * time.Second,
 		ReconcileInterval: 10 * time.Minute,
 		BaseRoot:          "",
+		HostPathStyle:     "auto",
 		LogLevel:          "info",
 		Staging: StagingConfig{
 			Enabled:       true,
@@ -136,17 +154,78 @@ func defaultConfig() *Config {
 	}
 }
 
-func (c *Config) deriveDirsFromBaseRoot() error {
+func (c *Config) expandEnvOverrides() error {
+	c.AgentID = strings.TrimSpace(expandEnvWithDefault(c.AgentID))
+	c.TenantID = strings.TrimSpace(expandEnvWithDefault(c.TenantID))
+	c.AgentToken = strings.TrimSpace(expandEnvWithDefault(c.AgentToken))
+	c.ListenAddr = strings.TrimSpace(expandEnvWithDefault(c.ListenAddr))
+	c.AdvertiseAddr = strings.TrimSpace(expandEnvWithDefault(c.AdvertiseAddr))
+	c.ControlPlaneBaseURL = strings.TrimSpace(expandEnvWithDefault(c.ControlPlaneBaseURL))
+	c.BaseRoot = strings.TrimSpace(expandEnvWithDefault(c.BaseRoot))
+	c.HostPathStyle = strings.TrimSpace(expandEnvWithDefault(c.HostPathStyle))
+	c.LogLevel = strings.TrimSpace(expandEnvWithDefault(c.LogLevel))
+	for i := range c.Security.AllowedRoots {
+		c.Security.AllowedRoots[i] = strings.TrimSpace(expandEnvWithDefault(c.Security.AllowedRoots[i]))
+	}
+	for i := range c.PathMappings {
+		c.PathMappings[i].PublicRoot = strings.TrimSpace(expandEnvWithDefault(c.PathMappings[i].PublicRoot))
+		c.PathMappings[i].RuntimeRoot = strings.TrimSpace(expandEnvWithDefault(c.PathMappings[i].RuntimeRoot))
+	}
+	if raw, ok := os.LookupEnv("RAGSCAN_HOST_PATH_STYLE"); ok {
+		c.HostPathStyle = strings.TrimSpace(raw)
+	}
+	if raw, ok := os.LookupEnv("RAGSCAN_PATH_MAPPINGS"); ok && strings.TrimSpace(raw) != "" {
+		mappings, err := parsePathMappingsEnv(raw)
+		if err != nil {
+			return fmt.Errorf("parse RAGSCAN_PATH_MAPPINGS: %w", err)
+		}
+		c.PathMappings = mappings
+	} else if len(c.PathMappings) == 0 {
+		if mapping, ok := watchVolumePathMappingFromEnv(); ok {
+			c.PathMappings = []PathMapping{mapping}
+		}
+	}
+	return nil
+}
+
+func watchVolumePathMappingFromEnv() (PathMapping, bool) {
+	hostRoot := strings.TrimSpace(os.Getenv("RAGSCAN_WATCH_HOST_DIR"))
+	runtimeRoot := strings.TrimSpace(os.Getenv("RAGSCAN_WATCH_CONTAINER_DIR"))
+	if hostRoot == "" || runtimeRoot == "" {
+		return PathMapping{}, false
+	}
+	return PathMapping{PublicRoot: hostRoot, RuntimeRoot: runtimeRoot}, true
+}
+
+func parsePathMappingsEnv(raw string) ([]PathMapping, error) {
+	parts := strings.Split(raw, ",")
+	mappings := make([]PathMapping, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item == "" {
+			continue
+		}
+		left, right, ok := strings.Cut(item, "=")
+		if !ok {
+			return nil, fmt.Errorf("mapping %q must use public_root=runtime_root", item)
+		}
+		publicRoot := strings.TrimSpace(left)
+		runtimeRoot := strings.TrimSpace(right)
+		if publicRoot == "" || runtimeRoot == "" {
+			return nil, fmt.Errorf("mapping %q has empty public_root or runtime_root", item)
+		}
+		mappings = append(mappings, PathMapping{PublicRoot: publicRoot, RuntimeRoot: runtimeRoot})
+	}
+	return mappings, nil
+}
+
+func (c *Config) deriveDirsFromBaseRoot(baseDir string) error {
 	base := strings.TrimSpace(c.BaseRoot)
 	if base == "" {
 		return fmt.Errorf("base_root is required")
 	}
 	if !filepath.IsAbs(base) {
-		abs, err := filepath.Abs(base)
-		if err != nil {
-			return fmt.Errorf("resolve base_root: %w", err)
-		}
-		base = abs
+		base = filepath.Join(baseDir, base)
 	}
 	base = filepath.Clean(base)
 	c.BaseRoot = base
@@ -188,6 +267,22 @@ func (c *Config) validate() error {
 	}
 	if strings.TrimSpace(c.BaseRoot) == "" {
 		return fmt.Errorf("base_root is required (set host path via RAGSCAN_BASE_ROOT)")
+	}
+	style := strings.ToLower(strings.TrimSpace(c.HostPathStyle))
+	if style == "" {
+		c.HostPathStyle = "auto"
+		style = "auto"
+	}
+	switch style {
+	case "auto", "posix", "windows":
+		c.HostPathStyle = style
+	default:
+		return fmt.Errorf("host_path_style must be auto, posix, or windows")
+	}
+	for i, mapping := range c.PathMappings {
+		if strings.TrimSpace(mapping.PublicRoot) == "" || strings.TrimSpace(mapping.RuntimeRoot) == "" {
+			return fmt.Errorf("path_mappings[%d] requires public_root and runtime_root", i)
+		}
 	}
 	return nil
 }

@@ -38,72 +38,11 @@ func (s *Store) diffBySnapshotID(ctx context.Context, snapshot sourceFileSnapsho
 	if err != nil {
 		return nil, err
 	}
-	baseItems, err := s.snapshotItemsByPath(ctx, snapshot.BaseSnapshotID)
+	baseItems, _, err := s.snapshotItemsForDiffBase(ctx, snapshot.SourceID, snapshot.BaseSnapshotID)
 	if err != nil {
 		return nil, err
 	}
 	return diffSnapshotMaps(baseItems, currentItems), nil
-}
-
-func (s *Store) promotePreviewSnapshotToCommitted(ctx context.Context, sourceID, snapshotID string) error {
-	sourceID = strings.TrimSpace(sourceID)
-	snapshotID = strings.TrimSpace(snapshotID)
-	if sourceID == "" || snapshotID == "" {
-		return nil
-	}
-	now := time.Now().UTC()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return s.promotePreviewSnapshotToCommittedTx(tx, sourceID, snapshotID, now)
-	})
-}
-
-func (s *Store) syncCommittedSnapshotMetadataTx(tx *gorm.DB, sourceID, tenantID, snapshotRef string, fileCount int64, takenAt, now time.Time) error {
-	sourceID = strings.TrimSpace(sourceID)
-	tenantID = strings.TrimSpace(tenantID)
-	if sourceID == "" {
-		return nil
-	}
-	if tenantID == "" {
-		var src sourceEntity
-		if err := tx.Select("tenant_id").Take(&src, "id = ?", sourceID).Error; err == nil {
-			tenantID = strings.TrimSpace(src.TenantID)
-		}
-	}
-	if tenantID == "" {
-		return nil
-	}
-	var relation sourceSnapshotRelationEntity
-	if err := tx.Take(&relation, "source_id = ?", sourceID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	createdAt := takenAt.UTC()
-	if createdAt.IsZero() {
-		createdAt = now.UTC()
-	}
-	snapshotID := sourceSnapshotID()
-	entity := sourceFileSnapshotEntity{
-		SnapshotID:     snapshotID,
-		SourceID:       sourceID,
-		TenantID:       tenantID,
-		SnapshotType:   "COMMITTED",
-		BaseSnapshotID: strings.TrimSpace(relation.LastCommittedSnapshotID),
-		FileCount:      fileCount,
-		CreatedAt:      createdAt,
-	}
-	if err := tx.Create(&entity).Error; err != nil {
-		return err
-	}
-	return tx.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "source_id"}},
-		DoUpdates: clause.Assignments(map[string]any{
-			"last_committed_snapshot_id": snapshotID,
-			"updated_at":                 now.UTC(),
-		}),
-	}).Create(&sourceSnapshotRelationEntity{
-		SourceID:                sourceID,
-		LastCommittedSnapshotID: snapshotID,
-		UpdatedAt:               now.UTC(),
-	}).Error
 }
 
 func (s *Store) promotePreviewSnapshotToCommittedTx(tx *gorm.DB, sourceID, snapshotID string, now time.Time) error {
@@ -131,6 +70,63 @@ func (s *Store) promotePreviewSnapshotToCommittedTx(tx *gorm.DB, sourceID, snaps
 		LastCommittedSnapshotID: snapshotID,
 		UpdatedAt:               now,
 	}).Error
+}
+
+func (s *Store) snapshotItemsForDiffBase(ctx context.Context, sourceID, baseSnapshotID string) (map[string]sourceFileSnapshotItemEntity, string, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	baseSnapshotID = strings.TrimSpace(baseSnapshotID)
+	baseItems, err := s.snapshotItemsByPath(ctx, baseSnapshotID)
+	if err != nil {
+		return nil, "", err
+	}
+	if baseSnapshotID == "" || len(baseItems) > 0 {
+		return baseItems, baseSnapshotID, nil
+	}
+
+	var baseSnapshot sourceFileSnapshotEntity
+	err = s.db.WithContext(ctx).
+		Select("snapshot_id", "file_count").
+		Take(&baseSnapshot, "snapshot_id = ? AND source_id = ?", baseSnapshotID, sourceID).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return baseItems, baseSnapshotID, nil
+		}
+		return nil, "", err
+	}
+	if baseSnapshot.FileCount == 0 {
+		return baseItems, baseSnapshotID, nil
+	}
+
+	// Older snapshot_source ACKs could point the committed relation at metadata-only snapshots.
+	// Diff must use a committed snapshot that actually has item rows.
+	fallbackID, err := s.latestCommittedSnapshotWithItems(ctx, sourceID)
+	if err != nil {
+		return nil, "", err
+	}
+	if fallbackID == "" {
+		return baseItems, baseSnapshotID, nil
+	}
+	fallbackItems, err := s.snapshotItemsByPath(ctx, fallbackID)
+	if err != nil {
+		return nil, "", err
+	}
+	return fallbackItems, fallbackID, nil
+}
+
+func (s *Store) latestCommittedSnapshotWithItems(ctx context.Context, sourceID string) (string, error) {
+	var snap sourceFileSnapshotEntity
+	err := s.db.WithContext(ctx).
+		Where("source_id = ? AND snapshot_type = ?", strings.TrimSpace(sourceID), "COMMITTED").
+		Where("EXISTS (SELECT 1 FROM source_file_snapshot_items WHERE source_file_snapshot_items.snapshot_id = source_file_snapshots.snapshot_id)").
+		Order("created_at DESC").
+		Take(&snap).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(snap.SnapshotID), nil
 }
 
 func (s *Store) consumeSelectionTokenTx(tx *gorm.DB, snapshotID string, consumedAt time.Time) error {

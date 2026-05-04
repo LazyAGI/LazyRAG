@@ -8,17 +8,88 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
 )
 
 func (s *Store) CreateSource(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {
-	if req.TenantID == "" || req.Name == "" || req.RootPath == "" || req.AgentID == "" {
-		return model.Source{}, fmt.Errorf("tenant_id/name/root_path/agent_id are required")
+	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.Name = strings.TrimSpace(req.Name)
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	req.RootPath = strings.TrimSpace(req.RootPath)
+	if req.TenantID == "" || req.Name == "" || req.AgentID == "" {
+		return model.Source{}, fmt.Errorf("tenant_id/name/agent_id are required")
+	}
+	if sourcelayout.IsCloudOriginType(req.DefaultOriginType) {
+		return s.createCloudSource(ctx, req)
+	}
+	if req.RootPath == "" {
+		return model.Source{}, fmt.Errorf("root_path is required for local source")
 	}
 	return s.ensureSourceByRootPath(ctx, req)
+}
+
+func (s *Store) createCloudSource(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {
+	id := sourceID()
+	rootPath := filepath.Clean(strings.TrimSpace(req.RootPath))
+	if rootPath == "" || rootPath == "." {
+		rootPath = sourcelayout.CloudSourceRootForID(id)
+	}
+	idle := req.IdleWindowSeconds
+	if idle <= 0 {
+		idle = int64(s.defaultIdleWindow.Seconds())
+	}
+	reconcile, reconcileSchedule, err := normalizeReconcilePolicy(req.ReconcileSeconds, req.ReconcileSchedule, 600)
+	if err != nil {
+		return model.Source{}, err
+	}
+	defaultOriginPlatform := strings.TrimSpace(req.DefaultOriginPlatform)
+	if defaultOriginPlatform == "" {
+		defaultOriginPlatform = "CLOUD"
+	}
+	defaultTriggerPolicy := strings.TrimSpace(req.DefaultTriggerPolicy)
+	if defaultTriggerPolicy == "" {
+		defaultTriggerPolicy = string(model.TriggerPolicyIdleWindow)
+	}
+	datasetID := strings.TrimSpace(req.DatasetID)
+	now := time.Now().UTC()
+	src := sourceEntity{
+		ID:                    id,
+		TenantID:              req.TenantID,
+		Name:                  req.Name,
+		SourceType:            "cloud_sync",
+		RootPath:              rootPath,
+		Status:                string(model.SourceStatusDisabled),
+		WatchEnabled:          false,
+		IdleWindowSeconds:     idle,
+		ReconcileSeconds:      reconcile,
+		ReconcileSchedule:     reconcileSchedule,
+		AgentID:               req.AgentID,
+		DatasetID:             datasetID,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: defaultOriginPlatform,
+		DefaultTriggerPolicy:  defaultTriggerPolicy,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+	if err := s.db.WithContext(ctx).Create(&src).Error; err != nil {
+		return model.Source{}, err
+	}
+	if s.log != nil {
+		s.log.Info("cloud source created with auto layout root",
+			zap.String("source_id", src.ID),
+			zap.String("tenant_id", src.TenantID),
+			zap.String("source_root", src.RootPath),
+			zap.String("mirror_root", sourcelayout.CloudMirrorRoot(src.RootPath)),
+			zap.String("parse_root", sourcelayout.CloudParseRoot(src.RootPath)),
+			zap.String("agent_id", src.AgentID),
+		)
+	}
+	return toModelSource(src), nil
 }
 
 func (s *Store) ensureSourceByRootPath(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {
@@ -255,6 +326,89 @@ func (s *Store) SetSourceEnabled(ctx context.Context, id string, enabled bool) (
 		return model.Source{}, err
 	}
 	return toModelSource(src), nil
+}
+
+func (s *Store) DeleteSource(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("source_id is required")
+	}
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var src sourceEntity
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&src, "id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := deletePendingSourceCommands(tx, src.AgentID, src.ID); err != nil {
+			return err
+		}
+		if shouldStopSourceOnDelete(src) {
+			if err := enqueueSourceCommand(tx, src.AgentID, model.CommandStopSource, model.SourcePayload{
+				SourceID: src.ID,
+				TenantID: src.TenantID,
+				RootPath: src.RootPath,
+				Reason:   "SOURCE_DELETED",
+			}); err != nil {
+				return err
+			}
+		}
+
+		docIDs := tx.Model(&documentEntity{}).Select("id").Where("source_id = ?", src.ID)
+		taskIDs := tx.Model(&parseTaskEntity{}).Select("id").Where("document_id IN (?)", docIDs)
+		snapshotIDs := tx.Model(&sourceFileSnapshotEntity{}).Select("snapshot_id").Where("source_id = ?", src.ID)
+
+		if err := tx.Where("task_id IN (?)", taskIDs).Delete(&parseTaskDeadLetterEntity{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("document_id IN (?)", docIDs).Delete(&parseTaskEntity{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("source_id = ?", src.ID).Delete(&documentEntity{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("snapshot_id IN (?)", snapshotIDs).Delete(&sourceFileSnapshotItemEntity{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("source_id = ?", src.ID).Delete(&sourceFileSnapshotEntity{}).Error; err != nil {
+			return err
+		}
+		for _, cleanup := range []any{
+			&sourceSnapshotRelationEntity{},
+			&sourceBaselineSnapshotEntity{},
+			&reconcileSnapshotEntity{},
+			&manualPullJobEntity{},
+			&cloudObjectIndexEntity{},
+			&cloudSyncRunEntity{},
+			&cloudSyncCheckpointEntity{},
+			&cloudSourceBindingEntity{},
+		} {
+			if err := tx.Where("source_id = ?", src.ID).Delete(cleanup).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Delete(&sourceEntity{}, "id = ?", src.ID).Error
+	})
+}
+
+func shouldStopSourceOnDelete(src sourceEntity) bool {
+	if strings.TrimSpace(src.AgentID) == "" {
+		return false
+	}
+	if sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+		return false
+	}
+	return src.WatchEnabled || strings.EqualFold(strings.TrimSpace(src.Status), string(model.SourceStatusEnabled)) ||
+		strings.EqualFold(strings.TrimSpace(src.Status), string(model.SourceStatusDegraded))
+}
+
+func deletePendingSourceCommands(tx *gorm.DB, agentID, sourceID string) error {
+	agentID = strings.TrimSpace(agentID)
+	sourceID = strings.TrimSpace(sourceID)
+	if agentID == "" || sourceID == "" {
+		return nil
+	}
+	pattern := fmt.Sprintf("%%\"source_id\":\"%s\"%%", sourceID)
+	return tx.Where("agent_id = ? AND status = ? AND payload LIKE ?", agentID, commandStatusPending, pattern).
+		Delete(&agentCommandEntity{}).Error
 }
 
 func (s *Store) ListSources(ctx context.Context, tenantID string) ([]model.Source, error) {
@@ -506,18 +660,34 @@ func (s *Store) TriggerCloudSync(ctx context.Context, sourceID string, req model
 	default:
 		return model.CloudSyncRun{}, fmt.Errorf("trigger_type must be one of scheduled/manual/retry")
 	}
+	requestedPaths, skippedPaths := normalizeCloudSyncRequestedPaths(req.Paths, sourceID, src.RootPath)
+	if len(req.Paths) > 0 && triggerType != "manual" {
+		return model.CloudSyncRun{}, fmt.Errorf("paths is only supported when trigger_type is manual")
+	}
+	if len(req.Paths) > 0 && len(requestedPaths) == 0 {
+		return model.CloudSyncRun{}, fmt.Errorf("paths must be inside cloud mirror root")
+	}
+	if skippedPaths > 0 && s.log != nil {
+		s.log.Warn("cloud sync trigger paths skipped",
+			zap.String("source_id", sourceID),
+			zap.Int("requested_paths", len(req.Paths)),
+			zap.Int("accepted_paths", len(requestedPaths)),
+			zap.Int("skipped_paths", skippedPaths),
+		)
+	}
 
 	now := time.Now().UTC()
 	run := cloudSyncRunEntity{
-		RunID:       cloudSyncRunID(),
-		SourceID:    sourceID,
-		TenantID:    src.TenantID,
-		Provider:    binding.Provider,
-		TriggerType: triggerType,
-		Status:      "RUNNING",
-		StartedAt:   &now,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		RunID:              cloudSyncRunID(),
+		SourceID:           sourceID,
+		TenantID:           src.TenantID,
+		Provider:           binding.Provider,
+		TriggerType:        triggerType,
+		RequestedPathsJSON: encodeJSON(requestedPaths),
+		Status:             "RUNNING",
+		StartedAt:          &now,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -561,6 +731,45 @@ func (s *Store) TriggerCloudSync(ctx context.Context, sourceID string, req model
 		return model.CloudSyncRun{}, err
 	}
 	return toModelCloudSyncRun(run), nil
+}
+
+func normalizeCloudSyncRequestedPaths(rawPaths []string, sourceID, sourceRoot string) ([]string, int) {
+	if len(rawPaths) == 0 {
+		return nil, 0
+	}
+	cleanRoot := filepath.Clean(strings.TrimSpace(sourceRoot))
+	if cleanRoot == "" || cleanRoot == "." {
+		return nil, len(rawPaths)
+	}
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(cleanRoot))
+	publicRoot := sourcelayout.CloudPublicRoot(sourceID)
+	publicRootAlt := strings.Replace(publicRoot, "://", ":/", 1)
+
+	unique := make(map[string]struct{}, len(rawPaths))
+	out := make([]string, 0, len(rawPaths))
+	skipped := 0
+	for _, raw := range rawPaths {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			skipped++
+			continue
+		}
+		if path == publicRoot || path == publicRootAlt ||
+			strings.HasPrefix(path, publicRoot+"/") || strings.HasPrefix(path, publicRootAlt+"/") {
+			path = sourcelayout.ResolveCloudPublicPath(path, sourceID, mirrorRoot)
+		}
+		cleanPath := filepath.Clean(path)
+		if cleanPath == "" || cleanPath == "." || !pathInScope(cleanPath, []string{mirrorRoot}) {
+			skipped++
+			continue
+		}
+		if _, ok := unique[cleanPath]; ok {
+			continue
+		}
+		unique[cleanPath] = struct{}{}
+		out = append(out, cleanPath)
+	}
+	return out, skipped
 }
 
 func (s *Store) ListCloudSyncRuns(ctx context.Context, sourceID string, limit int) ([]model.CloudSyncRun, error) {
@@ -1073,12 +1282,12 @@ func (s *Store) BuildCloudTreeByPath(ctx context.Context, sourceID, path string,
 		return nil, err
 	}
 
-	rootPath := filepath.Clean(strings.TrimSpace(src.RootPath))
+	rootPath := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
 	if rootPath == "" || rootPath == "." {
 		return nil, fmt.Errorf("source root_path is empty")
 	}
 	targetPath := filepath.Clean(strings.TrimSpace(path))
-	if targetPath == "" || targetPath == "." {
+	if targetPath == "" || targetPath == "." || targetPath == filepath.Clean(strings.TrimSpace(src.RootPath)) {
 		targetPath = rootPath
 	}
 	if !pathInScope(targetPath, []string{rootPath}) {

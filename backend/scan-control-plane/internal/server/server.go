@@ -28,6 +28,7 @@ import (
 	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider/feishu"
 	"github.com/lazyrag/scan_control_plane/internal/coreclient"
 	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
 	"github.com/lazyrag/scan_control_plane/internal/store"
 )
 
@@ -84,7 +85,7 @@ func NewHandler(
 		cloudSyncTrig: cloudSyncTrigger,
 		cloudAuth:     cloudAuthClient,
 		cloudProviders: map[string]cloudprovider.Provider{
-			"feishu": feishu.New(cloudHTTPTimeout),
+			"feishu": feishu.NewWithLogger(cloudHTTPTimeout, log),
 		},
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -229,6 +230,7 @@ func (h *Handler) registerFrontendRoutes(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/sources", h.listSources)
 	mux.HandleFunc("GET "+prefix+"/sources/{id}", h.getSource)
 	mux.HandleFunc("PUT "+prefix+"/sources/{id}", h.updateSource)
+	mux.HandleFunc("DELETE "+prefix+"/sources/{id}", h.deleteSource)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/enable", h.enableSource)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/disable", h.disableSource)
 	mux.HandleFunc("POST "+prefix+"/sources/{id}/cloud/binding", h.upsertCloudBinding)
@@ -277,7 +279,7 @@ func (h *Handler) createSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "CREATE_SOURCE_FAILED", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, src)
+	writeJSON(w, http.StatusOK, publicSourceModel(src))
 }
 
 func (h *Handler) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
@@ -329,7 +331,11 @@ func (h *Handler) listSources(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "LIST_SOURCES_FAILED", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": sources})
+	items := make([]model.Source, 0, len(sources))
+	for _, src := range sources {
+		items = append(items, publicSourceModel(src))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (h *Handler) getSource(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +349,7 @@ func (h *Handler) getSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "GET_SOURCE_FAILED", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, src)
+	writeJSON(w, http.StatusOK, publicSourceModel(src))
 }
 
 func (h *Handler) updateSource(w http.ResponseWriter, r *http.Request) {
@@ -361,7 +367,27 @@ func (h *Handler) updateSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "UPDATE_SOURCE_FAILED", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, src)
+	writeJSON(w, http.StatusOK, publicSourceModel(src))
+}
+
+func (h *Handler) deleteSource(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := h.store.DeleteSource(r.Context(), id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+			return
+		}
+		if isBadRequestError(err) {
+			writeError(w, http.StatusBadRequest, "DELETE_SOURCE_FAILED", err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "DELETE_SOURCE_FAILED", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, model.DeleteSourceResponse{
+		SourceID: id,
+		Deleted:  true,
+	})
 }
 
 func (h *Handler) enableSource(w http.ResponseWriter, r *http.Request) {
@@ -383,7 +409,7 @@ func (h *Handler) setSourceEnabled(w http.ResponseWriter, r *http.Request, enabl
 		writeError(w, http.StatusBadRequest, "SET_SOURCE_STATUS_FAILED", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, src)
+	writeJSON(w, http.StatusOK, publicSourceModel(src))
 }
 
 func (h *Handler) upsertCloudBinding(w http.ResponseWriter, r *http.Request) {
@@ -450,6 +476,15 @@ func (h *Handler) triggerCloudSync(w http.ResponseWriter, r *http.Request) {
 				zap.String("run_id", run.RunID),
 			)
 		}
+	}
+	if src, srcErr := h.store.GetSource(r.Context(), sourceID); srcErr == nil {
+		h.log.Info("cloud sync trigger accepted",
+			zap.String("source_id", sourceID),
+			zap.String("run_id", run.RunID),
+			zap.String("source_root", filepath.Clean(strings.TrimSpace(src.RootPath))),
+			zap.String("mirror_root", sourcelayout.CloudMirrorRoot(src.RootPath)),
+			zap.String("parse_root", sourcelayout.CloudParseRoot(src.RootPath)),
+		)
 	}
 	writeJSON(w, http.StatusOK, model.TriggerCloudSyncResponse{
 		RunID:    run.RunID,
@@ -579,6 +614,15 @@ func (h *Handler) listSourceDocuments(w http.ResponseWriter, r *http.Request) {
 		Page:       parseIntDefault(r.URL.Query().Get("page"), 1),
 		PageSize:   parseIntDefault(r.URL.Query().Get("page_size"), 20),
 	}
+	coreStates := map[string]coreclient.TaskState{}
+	if h.core != nil && h.core.Enabled() {
+		snapshot, err := h.reconcileSourceCoreTasks(r.Context(), sourceID, req.TenantID)
+		if err != nil {
+			h.log.Warn("reconcile source core tasks before listing documents failed", zap.Error(err), zap.String("source_id", sourceID))
+		} else {
+			coreStates = snapshot.states
+		}
+	}
 	resp, err := h.store.ListSourceDocuments(r.Context(), sourceID, req)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -593,39 +637,33 @@ func (h *Handler) listSourceDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.core != nil && h.core.Enabled() {
-		pageRefs := make([]store.SourceDocumentCoreRef, 0, len(resp.Items))
-		for i := range resp.Items {
-			taskID := strings.TrimSpace(resp.Items[i].CoreTaskID)
-			if taskID == "" {
-				continue
-			}
-			pageRefs = append(pageRefs, store.SourceDocumentCoreRef{
-				CoreDatasetID: strings.TrimSpace(resp.Items[i].CoreDatasetID),
-				CoreTaskID:    taskID,
-			})
-		}
-		if len(pageRefs) > 0 {
-			states, err := h.searchCoreTaskStates(r.Context(), pageRefs)
-			if err != nil {
-				h.log.Warn("search core tasks for current page failed", zap.Error(err), zap.String("source_id", sourceID))
-			} else {
-				for i := range resp.Items {
-					id := strings.TrimSpace(resp.Items[i].CoreTaskID)
-					if id == "" {
-						continue
-					}
-					state, ok := states[id]
-					if !ok {
-						continue
-					}
-					resp.Items[i].CoreTaskState = strings.TrimSpace(state.TaskState)
-					if strings.TrimSpace(resp.Items[i].CoreTaskState) != "" {
-						resp.Items[i].ParseState = resp.Items[i].CoreTaskState
-					}
+		if len(coreStates) == 0 {
+			pageRefs := sourceDocumentItemsCoreRefs(resp.Items)
+			if len(pageRefs) > 0 {
+				states, err := h.searchCoreTaskStates(r.Context(), pageRefs)
+				if err != nil {
+					h.log.Warn("search core tasks for current page failed", zap.Error(err), zap.String("source_id", sourceID))
+				} else {
+					coreStates = states
 				}
 			}
 		}
+		for i := range resp.Items {
+			id := strings.TrimSpace(resp.Items[i].CoreTaskID)
+			if id == "" {
+				continue
+			}
+			state, ok := coreStates[id]
+			if !ok {
+				continue
+			}
+			applyCoreTaskStateToSourceDocumentItem(&resp.Items[i], strings.TrimSpace(state.TaskState))
+		}
 	}
+	if src, srcErr := h.store.GetSource(r.Context(), sourceID); srcErr == nil {
+		resp.Source.RootPath = publicSourceModel(src).RootPath
+	}
+	normalizeSourceDocumentParseStatesForResponse(resp.Items)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -662,6 +700,11 @@ func (h *Handler) listParseTasks(w http.ResponseWriter, r *http.Request) {
 		Page:     parseIntDefault(r.URL.Query().Get("page"), 1),
 		PageSize: parseIntDefault(r.URL.Query().Get("page_size"), 20),
 	}
+	if h.core != nil && h.core.Enabled() && strings.TrimSpace(req.SourceID) != "" {
+		if _, err := h.reconcileSourceCoreTasks(r.Context(), req.SourceID, req.TenantID); err != nil {
+			h.log.Warn("reconcile source core tasks before listing parse tasks failed", zap.Error(err), zap.String("source_id", req.SourceID))
+		}
+	}
 	resp, err := h.store.ListParseTasks(r.Context(), req)
 	if err != nil {
 		if isBadRequestError(err) {
@@ -670,6 +713,17 @@ func (h *Handler) listParseTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "LIST_PARSE_TASKS_FAILED", err.Error())
 		return
+	}
+	if h.core != nil && h.core.Enabled() {
+		refs := parseTaskItemsCoreRefs(resp.Items)
+		if len(refs) > 0 {
+			states, err := h.searchCoreTaskStates(r.Context(), refs)
+			if err != nil {
+				h.log.Warn("search core tasks for parse task list failed", zap.Error(err))
+			} else {
+				applyCoreTaskStatesToParseTaskItems(resp.Items, states)
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -688,12 +742,29 @@ func (h *Handler) getParseTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "GET_PARSE_TASK_FAILED", err.Error())
 		return
 	}
+	if h.core != nil && h.core.Enabled() && strings.TrimSpace(resp.CoreTaskID) != "" {
+		if _, err := h.reconcileSourceCoreTasks(r.Context(), resp.SourceID, resp.TenantID); err != nil {
+			h.log.Warn("reconcile source core tasks before getting parse task failed", zap.Error(err), zap.String("source_id", resp.SourceID))
+		}
+		refs := parseTaskItemsCoreRefs([]model.ParseTaskListItem{resp.ParseTaskListItem})
+		states, err := h.searchCoreTaskStates(r.Context(), refs)
+		if err != nil {
+			h.log.Warn("search core task for parse task detail failed", zap.Error(err), zap.Int64("task_id", resp.TaskID))
+		} else if state, ok := states[strings.TrimSpace(resp.CoreTaskID)]; ok {
+			applyCoreTaskStateToParseTaskItem(&resp.ParseTaskListItem, state.TaskState)
+		}
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) parseTaskStats(w http.ResponseWriter, r *http.Request) {
 	tenantID := strings.TrimSpace(r.URL.Query().Get("tenant_id"))
 	sourceID := strings.TrimSpace(r.URL.Query().Get("source_id"))
+	if h.core != nil && h.core.Enabled() && sourceID != "" {
+		if _, err := h.reconcileSourceCoreTasks(r.Context(), sourceID, tenantID); err != nil {
+			h.log.Warn("reconcile source core tasks before parse task stats failed", zap.Error(err), zap.String("source_id", sourceID))
+		}
+	}
 	counts, err := h.store.CountParseTasksByStatusWithFilter(r.Context(), tenantID, sourceID)
 	if err != nil {
 		if isBadRequestError(err) {
@@ -925,25 +996,44 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "GET_SOURCE_FAILED", err.Error())
 			return
 		}
-
-		treePath := filepath.Clean(strings.TrimSpace(req.Path))
-		if treePath == "" || treePath == "." {
-			treePath = filepath.Clean(strings.TrimSpace(src.RootPath))
-		}
-		if !pathInSourceRoot(treePath, src.RootPath) {
-			writeError(w, http.StatusBadRequest, "TREE_PATH_INVALID", "path must be inside source.root_path")
-			return
-		}
-
 		_, bindErr := h.store.GetCloudSourceBinding(r.Context(), sourceID)
 		hasCloudBinding := bindErr == nil
 		if bindErr != nil && !errors.Is(bindErr, gorm.ErrRecordNotFound) {
 			writeError(w, http.StatusInternalServerError, "GET_CLOUD_BINDING_FAILED", bindErr.Error())
 			return
 		}
-		if errors.Is(bindErr, gorm.ErrRecordNotFound) && strings.EqualFold(strings.TrimSpace(src.DefaultOriginType), string(model.OriginTypeCloudSync)) {
+		isCloudSource := hasCloudBinding || sourcelayout.IsCloudOriginType(src.DefaultOriginType)
+		if errors.Is(bindErr, gorm.ErrRecordNotFound) && sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
 			writeError(w, http.StatusNotFound, "CLOUD_BINDING_NOT_FOUND", "cloud binding not found")
 			return
+		}
+
+		rootScopePath := filepath.Clean(strings.TrimSpace(src.RootPath))
+		if isCloudSource {
+			rootScopePath = filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+		}
+		treePath := strings.TrimSpace(req.Path)
+		if treePath == "" || treePath == "." {
+			treePath = rootScopePath
+		} else {
+			treePath = filepath.Clean(treePath)
+			if isCloudSource {
+				treePath = sourcelayout.ResolveCloudPublicPath(treePath, sourceID, rootScopePath)
+			}
+		}
+		if !pathInSourceRoot(treePath, rootScopePath) {
+			writeError(w, http.StatusBadRequest, "TREE_PATH_INVALID", "path must be inside source.root_path")
+			return
+		}
+
+		coreSnapshot := sourceCoreTaskSnapshot{states: map[string]coreclient.TaskState{}}
+		if h.core != nil && h.core.Enabled() {
+			snapshot, err := h.reconcileSourceCoreTasks(r.Context(), sourceID, src.TenantID)
+			if err != nil {
+				h.log.Warn("reconcile source core tasks before building tree failed", zap.Error(err), zap.String("source_id", sourceID))
+			} else {
+				coreSnapshot = snapshot
+			}
 		}
 
 		var (
@@ -1005,9 +1095,13 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "BUILD_TREE_STATE_FAILED", err.Error())
 			return
 		}
+		if h.core != nil && h.core.Enabled() && len(coreSnapshot.states) > 0 {
+			items = applyCoreTaskStatesToTreeNodes(items, coreSnapshot.refs, coreSnapshot.states)
+		}
 		if req.ChangesOnly || req.UpdatedOnly {
 			items = filterTreeToChanged(items)
 		}
+		items = normalizeTreeParseQueueStatesForResponse(items)
 		writeJSON(w, http.StatusOK, model.AgentPathTreeResponse{
 			Items:          items,
 			SelectionToken: token,
@@ -1137,6 +1231,13 @@ func parsePathInt64(w http.ResponseWriter, r *http.Request, name string) (int64,
 	return id, true
 }
 
+func publicSourceModel(src model.Source) model.Source {
+	if sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+		src.RootPath = sourcelayout.CloudPublicRoot(src.ID)
+	}
+	return src
+}
+
 func isBadRequestError(err error) bool {
 	if err == nil {
 		return false
@@ -1183,14 +1284,47 @@ func (h *Handler) buildCloudTreeBySourceLive(
 	if err != nil {
 		return nil, nil, fmt.Errorf("acquire cloud access token failed: %w", err)
 	}
+	accessToken := strings.TrimSpace(tokenResp.AccessToken)
+	if accessToken == "" {
+		return nil, nil, fmt.Errorf("acquire cloud access token failed: empty access_token")
+	}
+	if h.log != nil {
+		expiresAt := ""
+		if tokenResp.ExpiresAt != nil && !tokenResp.ExpiresAt.IsZero() {
+			expiresAt = tokenResp.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+		h.log.Info("cloud tree access token acquired",
+			zap.String("source_id", sourceID),
+			zap.String("provider", providerName),
+			zap.String("auth_connection_id", strings.TrimSpace(binding.AuthConnectionID)),
+			zap.String("token_provider", strings.TrimSpace(tokenResp.Provider)),
+			zap.String("token_status", strings.TrimSpace(tokenResp.Status)),
+			zap.Int("access_token_len", len(accessToken)),
+			zap.String("access_token_expires_at", expiresAt),
+		)
+	}
 	objects, err := impl.ListObjects(ctx, cloudprovider.ListRequest{
-		AccessToken:     tokenResp.AccessToken,
+		AccessToken:     accessToken,
 		TargetType:      binding.TargetType,
 		TargetRef:       binding.TargetRef,
 		ProviderOptions: binding.ProviderOptions,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("list remote cloud objects failed: %w", err)
+	}
+	remoteObjectDetails, remoteObjectsOmitted := describeCloudObjectsForLog(objects, 500)
+	if h.log != nil {
+		h.log.Info("cloud tree remote list fetched",
+			zap.String("source_id", sourceID),
+			zap.String("provider", providerName),
+			zap.String("target_type", strings.TrimSpace(binding.TargetType)),
+			zap.String("target_ref", strings.TrimSpace(binding.TargetRef)),
+			zap.Int("remote_objects_total", len(objects)),
+			zap.Int("remote_objects_omitted", remoteObjectsOmitted),
+			zap.Strings("remote_objects", remoteObjectDetails),
+			zap.Strings("include_patterns", binding.IncludePatterns),
+			zap.Strings("exclude_patterns", binding.ExcludePatterns),
+		)
 	}
 
 	indexRows, err := h.store.ListCloudObjectIndex(ctx, sourceID)
@@ -1214,16 +1348,57 @@ func (h *Handler) buildCloudTreeBySourceLive(
 		}
 	}
 
-	rootPath := filepath.Clean(strings.TrimSpace(src.RootPath))
+	rootPath := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	if h.log != nil {
+		h.log.Info("cloud tree scope resolved",
+			zap.String("source_id", sourceID),
+			zap.String("source_root", filepath.Clean(strings.TrimSpace(src.RootPath))),
+			zap.String("mirror_root", rootPath),
+			zap.String("requested_tree_path", treePath),
+		)
+	}
 	nodeMap := make(map[string]*model.TreeNode, len(objects))
 	childMap := make(map[string]map[string]struct{}, len(objects))
 	fileStats := make(map[string]model.TreeFileStat, len(objects))
 	hasScopedObject := false
 	pathIsFile := false
+	filteredByPattern := 0
+	keptByDirPassthrough := 0
+	keptByIncludePattern := 0
+	keptByNoIncludeRules := 0
+	droppedByIncludeMiss := 0
+	droppedByExcludeMatch := 0
+	filteredByRootScope := 0
+	filteredByTreeScope := 0
+	filteredByDepth := 0
+	filteredByIncludeFiles := 0
+	addedNodeCount := 0
+	filteredPatternSamples := make([]string, 0, 4)
+	passedPatternSamples := make([]string, 0, 4)
+	decisionSamples := make([]string, 0, 12)
 
 	for _, obj := range objects {
-		if !cloudIncludeObjectByPath(strings.TrimSpace(obj.ExternalPath), binding.IncludePatterns, binding.ExcludePatterns) {
+		decision := cloudIncludeObjectDecision(obj, binding.IncludePatterns, binding.ExcludePatterns)
+		decisionSamples = appendCloudFilterDecisionSample(decisionSamples, obj, decision, 12)
+		if !decision.Include {
+			filteredByPattern++
+			filteredPatternSamples = appendCloudObjectSample(filteredPatternSamples, obj, 4)
+			switch decision.Reason {
+			case "include_not_matched":
+				droppedByIncludeMiss++
+			case "excluded_by_pattern":
+				droppedByExcludeMatch++
+			}
 			continue
+		}
+		passedPatternSamples = appendCloudObjectSample(passedPatternSamples, obj, 4)
+		switch decision.Reason {
+		case "directory_passthrough":
+			keptByDirPassthrough++
+		case "included_by_pattern":
+			keptByIncludePattern++
+		default:
+			keptByNoIncludeRules++
 		}
 		objectID := strings.TrimSpace(obj.ExternalObjectID)
 		if objectID == "" {
@@ -1239,6 +1414,7 @@ func (h *Handler) buildCloudTreeBySourceLive(
 			pathOwner[relPath] = objectID
 		}
 		if !pathInSourceRoot(objectPath, rootPath) {
+			filteredByRootScope++
 			continue
 		}
 
@@ -1251,6 +1427,7 @@ func (h *Handler) buildCloudTreeBySourceLive(
 			}
 		}
 		if !pathInSourceRoot(objectPath, treePath) {
+			filteredByTreeScope++
 			continue
 		}
 		hasScopedObject = true
@@ -1266,9 +1443,11 @@ func (h *Handler) buildCloudTreeBySourceLive(
 			continue
 		}
 		if depth > maxDepth {
+			filteredByDepth++
 			continue
 		}
 		if !isDir && !includeFiles {
+			filteredByIncludeFiles++
 			continue
 		}
 
@@ -1300,6 +1479,41 @@ func (h *Handler) buildCloudTreeBySourceLive(
 			fileStats[objectPath] = stat
 		}
 		cloudEnsureNode(nodeMap, childMap, objectPath, isDir, strings.TrimSpace(obj.ExternalName), externalFileID)
+		addedNodeCount++
+	}
+
+	if h.log != nil {
+		h.log.Info("cloud tree build summary",
+			zap.String("source_id", sourceID),
+			zap.String("provider", providerName),
+			zap.String("tree_path", treePath),
+			zap.Int("remote_total", len(objects)),
+			zap.Int("filtered_by_pattern", filteredByPattern),
+			zap.Int("kept_by_directory_passthrough", keptByDirPassthrough),
+			zap.Int("kept_by_include_pattern", keptByIncludePattern),
+			zap.Int("kept_without_include_rules", keptByNoIncludeRules),
+			zap.Int("dropped_by_include_not_matched", droppedByIncludeMiss),
+			zap.Int("dropped_by_exclude_matched", droppedByExcludeMatch),
+			zap.Int("filtered_by_root_scope", filteredByRootScope),
+			zap.Int("filtered_by_tree_scope", filteredByTreeScope),
+			zap.Int("filtered_by_depth", filteredByDepth),
+			zap.Int("filtered_by_include_files", filteredByIncludeFiles),
+			zap.Int("added_nodes", addedNodeCount),
+			zap.Strings("sample_filtered_by_pattern", filteredPatternSamples),
+			zap.Strings("sample_passed_pattern", passedPatternSamples),
+			zap.Strings("sample_filter_decisions", decisionSamples),
+		)
+		if len(objects) > 0 && addedNodeCount == 0 {
+			h.log.Warn("cloud tree empty after filtering",
+				zap.String("source_id", sourceID),
+				zap.String("provider", providerName),
+				zap.String("tree_path", treePath),
+				zap.Strings("include_patterns", binding.IncludePatterns),
+				zap.Strings("exclude_patterns", binding.ExcludePatterns),
+				zap.Strings("sample_filtered_by_pattern", filteredPatternSamples),
+				zap.Strings("sample_passed_pattern", passedPatternSamples),
+			)
+		}
 	}
 
 	if treePath != rootPath {
@@ -1310,48 +1524,175 @@ func (h *Handler) buildCloudTreeBySourceLive(
 	return cloudBuildTreeNodes(treePath, nodeMap, childMap), fileStats, nil
 }
 
-func cloudIncludeObjectByPath(remotePath string, includes, excludes []string) bool {
-	remotePath = strings.Trim(strings.ReplaceAll(strings.TrimSpace(remotePath), "\\", "/"), "/")
-	if remotePath == "" {
-		return true
+func cloudIncludeObjectDecision(obj cloudprovider.RemoteObject, includes, excludes []string) cloudObjectFilterDecision {
+	kind := cloudNormalizeKind(obj.ExternalKind, obj.ProviderMeta)
+	candidates := cloudObjectMatchCandidates(obj)
+	decision := cloudObjectFilterDecision{
+		Kind:       kind,
+		Candidates: candidates,
+	}
+	if cloudIsDirKind(kind) {
+		if ok, pattern, candidate := cloudMatchesAnyPattern(excludes, candidates...); ok {
+			decision.Reason = "excluded_by_pattern"
+			decision.MatchedPattern = pattern
+			decision.MatchedCandidate = candidate
+			return decision
+		}
+		decision.Include = true
+		decision.Reason = "directory_passthrough"
+		return decision
 	}
 	if len(includes) > 0 {
-		matched := false
-		for _, pattern := range includes {
-			if cloudMatchesPattern(pattern, remotePath) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
+		if ok, pattern, candidate := cloudMatchesAnyPattern(includes, candidates...); !ok {
+			decision.Reason = "include_not_matched"
+			return decision
+		} else {
+			decision.Reason = "included_by_pattern"
+			decision.MatchedPattern = pattern
+			decision.MatchedCandidate = candidate
 		}
 	}
-	for _, pattern := range excludes {
-		if cloudMatchesPattern(pattern, remotePath) {
-			return false
-		}
+	if ok, pattern, candidate := cloudMatchesAnyPattern(excludes, candidates...); ok {
+		decision.Reason = "excluded_by_pattern"
+		decision.MatchedPattern = pattern
+		decision.MatchedCandidate = candidate
+		return decision
 	}
-	return true
+	decision.Include = true
+	if decision.Reason == "" {
+		decision.Reason = "included_no_include_rules"
+	}
+	return decision
 }
 
-func cloudMatchesPattern(pattern, p string) bool {
+func cloudMatchesPattern(pattern string, candidates ...string) bool {
+	ok, _ := cloudMatchPatternCandidate(pattern, candidates...)
+	return ok
+}
+
+func cloudMatchPatternCandidate(pattern string, candidates ...string) (bool, string) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
-		return false
+		return false, ""
 	}
-	if ok, _ := path.Match(pattern, p); ok {
-		return true
-	}
-	if ok, _ := path.Match(pattern, path.Base(p)); ok {
-		return true
-	}
+	altPattern := ""
 	if strings.HasPrefix(pattern, "**/") {
-		if ok, _ := path.Match(strings.TrimPrefix(pattern, "**/"), path.Base(p)); ok {
-			return true
+		altPattern = strings.TrimPrefix(pattern, "**/")
+	}
+	for _, raw := range candidates {
+		p := strings.Trim(strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/"), "/")
+		if p == "" {
+			continue
+		}
+		if ok, _ := path.Match(pattern, p); ok {
+			return true, p
+		}
+		if ok, _ := path.Match(pattern, path.Base(p)); ok {
+			return true, p
+		}
+		if strings.HasPrefix(pattern, "**/") {
+			if ok, _ := path.Match(strings.TrimPrefix(pattern, "**/"), path.Base(p)); ok {
+				return true, p
+			}
+		}
+		if altPattern != "" {
+			if ok, _ := path.Match(altPattern, p); ok {
+				return true, p
+			}
+			if ok, _ := path.Match(altPattern, path.Base(p)); ok {
+				return true, p
+			}
 		}
 	}
-	return false
+	return false, ""
+}
+
+func cloudMatchesAnyPattern(patterns []string, candidates ...string) (bool, string, string) {
+	for _, rawPattern := range patterns {
+		pattern := strings.TrimSpace(rawPattern)
+		if pattern == "" {
+			continue
+		}
+		if ok, candidate := cloudMatchPatternCandidate(pattern, candidates...); ok {
+			return true, pattern, candidate
+		}
+	}
+	return false, "", ""
+}
+
+func cloudObjectMatchCandidates(obj cloudprovider.RemoteObject) []string {
+	kind := cloudNormalizeKind(obj.ExternalKind, obj.ProviderMeta)
+	remotePath := strings.Trim(strings.ReplaceAll(strings.TrimSpace(obj.ExternalPath), "\\", "/"), "/")
+	remoteName := strings.Trim(strings.ReplaceAll(strings.TrimSpace(obj.ExternalName), "\\", "/"), "/")
+
+	ordered := make([]string, 0, 12)
+	seen := make(map[string]struct{}, 12)
+	appendUnique := func(v string) {
+		v = strings.Trim(strings.ReplaceAll(strings.TrimSpace(v), "\\", "/"), "/")
+		if v == "" {
+			return
+		}
+		if _, ok := seen[v]; ok {
+			return
+		}
+		seen[v] = struct{}{}
+		ordered = append(ordered, v)
+	}
+
+	appendUnique(remotePath)
+	appendUnique(path.Base(remotePath))
+	appendUnique(remoteName)
+	appendUnique(path.Base(remoteName))
+
+	primary := remotePath
+	if primary == "" {
+		primary = remoteName
+	}
+	ext := strings.ToLower(strings.TrimSpace(path.Ext(primary)))
+	if ext != "" {
+		appendUnique("ext:" + strings.TrimPrefix(ext, "."))
+	}
+
+	for _, suffix := range cloudKindMatchSuffixes(kind) {
+		if suffix == "" {
+			continue
+		}
+		suffix = strings.ToLower(strings.TrimSpace(suffix))
+		if primary != "" && path.Ext(primary) == "" {
+			appendUnique(primary + suffix)
+			appendUnique(path.Base(primary + suffix))
+		}
+		if remoteName != "" && path.Ext(remoteName) == "" {
+			appendUnique(remoteName + suffix)
+			appendUnique(path.Base(remoteName + suffix))
+		}
+		appendUnique("ext:" + strings.TrimPrefix(suffix, "."))
+	}
+
+	if kind != "" {
+		appendUnique("kind:" + kind)
+	}
+	if kind == "file" && ext != "" {
+		appendUnique("kind:" + strings.TrimPrefix(ext, "."))
+	}
+	return ordered
+}
+
+func cloudKindMatchSuffixes(kind string) []string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "docx":
+		return []string{".docx"}
+	case "doc":
+		return []string{".doc"}
+	case "sheet":
+		return []string{".xlsx", ".xls"}
+	case "slides":
+		return []string{".pptx", ".ppt"}
+	case "pdf":
+		return []string{".pdf"}
+	default:
+		return nil
+	}
 }
 
 func cloudNormalizeKind(kind string, meta map[string]any) string {
@@ -1393,13 +1734,26 @@ func cloudResolveObjectPath(
 		return "", ""
 	}
 	if existing, ok := existingByID[objectID]; ok {
-		if abs := filepath.Clean(strings.TrimSpace(existing.LocalAbsPath)); abs != "" && abs != "." {
-			rel := strings.Trim(strings.ReplaceAll(strings.TrimSpace(existing.LocalRelPath), "\\", "/"), "/")
-			return abs, rel
-		}
 		rel := strings.Trim(strings.ReplaceAll(strings.TrimSpace(existing.LocalRelPath), "\\", "/"), "/")
 		if rel != "" {
-			return filepath.Clean(filepath.Join(rootPath, filepath.FromSlash(rel))), rel
+			absFromRel := filepath.Clean(filepath.Join(rootPath, filepath.FromSlash(rel)))
+			if pathInSourceRoot(absFromRel, rootPath) {
+				return absFromRel, rel
+			}
+		}
+
+		abs := filepath.Clean(strings.TrimSpace(existing.LocalAbsPath))
+		if abs != "" && abs != "." && pathInSourceRoot(abs, rootPath) {
+			if rel == "" {
+				relFromAbs, err := filepath.Rel(rootPath, abs)
+				if err == nil {
+					relFromAbs = strings.Trim(strings.ReplaceAll(filepath.ToSlash(filepath.Clean(relFromAbs)), "\\", "/"), "/")
+					if relFromAbs != "" && relFromAbs != "." && !strings.HasPrefix(relFromAbs, "../") && relFromAbs != ".." {
+						rel = relFromAbs
+					}
+				}
+			}
+			return abs, rel
 		}
 	}
 	rel := cloudSanitizeRelativePath(obj.ExternalPath, obj.ExternalName, objectID, kind)
@@ -1645,6 +1999,77 @@ func cloudFirstNonEmptyString(values ...string) string {
 	return ""
 }
 
+func appendCloudObjectSample(samples []string, obj cloudprovider.RemoteObject, limit int) []string {
+	if limit <= 0 || len(samples) >= limit {
+		return samples
+	}
+	samples = append(samples, cloudObjectLogLine(obj))
+	return samples
+}
+
+func describeCloudObjectsForLog(objects []cloudprovider.RemoteObject, limit int) ([]string, int) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if len(objects) == 0 {
+		return []string{}, 0
+	}
+	count := len(objects)
+	used := count
+	if used > limit {
+		used = limit
+	}
+	out := make([]string, 0, used)
+	for i := 0; i < used; i++ {
+		out = append(out, cloudObjectLogLine(objects[i]))
+	}
+	return out, count - used
+}
+
+func cloudObjectLogLine(obj cloudprovider.RemoteObject) string {
+	return fmt.Sprintf(
+		"id=%s parent=%s name=%s kind=%s path=%s version=%s size=%d",
+		strings.TrimSpace(obj.ExternalObjectID),
+		strings.TrimSpace(obj.ExternalParentID),
+		strings.TrimSpace(obj.ExternalName),
+		strings.TrimSpace(obj.ExternalKind),
+		strings.TrimSpace(obj.ExternalPath),
+		strings.TrimSpace(obj.ExternalVersion),
+		obj.SizeBytes,
+	)
+}
+
+type cloudObjectFilterDecision struct {
+	Include          bool
+	Reason           string
+	MatchedPattern   string
+	MatchedCandidate string
+	Kind             string
+	Candidates       []string
+}
+
+func appendCloudFilterDecisionSample(samples []string, obj cloudprovider.RemoteObject, decision cloudObjectFilterDecision, limit int) []string {
+	if limit <= 0 || len(samples) >= limit {
+		return samples
+	}
+	const maxCandidates = 8
+	used := decision.Candidates
+	if len(used) > maxCandidates {
+		used = used[:maxCandidates]
+	}
+	samples = append(samples, fmt.Sprintf(
+		"id=%s decision=%s include=%t kind=%s matched_pattern=%s matched_candidate=%s candidates=%s",
+		strings.TrimSpace(obj.ExternalObjectID),
+		strings.TrimSpace(decision.Reason),
+		decision.Include,
+		strings.TrimSpace(decision.Kind),
+		strings.TrimSpace(decision.MatchedPattern),
+		strings.TrimSpace(decision.MatchedCandidate),
+		strings.Join(used, "|"),
+	))
+	return samples
+}
+
 func (h *Handler) fetchTreeFileStats(ctx context.Context, agentAddr string, items []model.TreeNode) (map[string]model.TreeFileStat, error) {
 	paths := store.CollectTreeFilePaths(items)
 	stats := make(map[string]model.TreeFileStat, len(paths))
@@ -1827,6 +2252,265 @@ func (h *Handler) searchCoreTaskStates(ctx context.Context, refs []store.SourceD
 	return states, nil
 }
 
+type sourceCoreTaskSnapshot struct {
+	refs   []store.SourceDocumentCoreRef
+	states map[string]coreclient.TaskState
+}
+
+func (h *Handler) reconcileSourceCoreTasks(ctx context.Context, sourceID, tenantID string) (sourceCoreTaskSnapshot, error) {
+	snapshot := sourceCoreTaskSnapshot{states: map[string]coreclient.TaskState{}}
+	if h.core == nil || !h.core.Enabled() {
+		return snapshot, nil
+	}
+	sourceID = strings.TrimSpace(sourceID)
+	tenantID = strings.TrimSpace(tenantID)
+	if sourceID == "" || tenantID == "" {
+		return snapshot, nil
+	}
+	refs, err := h.store.ListSourceDocumentCoreRefs(ctx, sourceID, tenantID)
+	if err != nil {
+		return snapshot, err
+	}
+	states, err := h.searchCoreTaskStates(ctx, refs)
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.refs = refs
+	snapshot.states = states
+	for _, ref := range refs {
+		state, ok := states[strings.TrimSpace(ref.CoreTaskID)]
+		if !ok {
+			continue
+		}
+		if !shouldMarkSourceDocumentRefSucceededFromCore(ref, state.TaskState) {
+			continue
+		}
+		if err := h.store.MarkTaskSucceeded(ctx, ref.TaskID, ref.DocumentID, ref.TargetVersionID); err != nil {
+			h.log.Warn("reconcile source document core success failed",
+				zap.Error(err),
+				zap.String("source_id", sourceID),
+				zap.Int64("document_id", ref.DocumentID),
+				zap.Int64("task_id", ref.TaskID),
+				zap.String("core_task_id", ref.CoreTaskID),
+			)
+		}
+	}
+	return snapshot, nil
+}
+
+func sourceDocumentItemsCoreRefs(items []model.SourceDocumentItem) []store.SourceDocumentCoreRef {
+	refs := make([]store.SourceDocumentCoreRef, 0, len(items))
+	for _, item := range items {
+		taskID := strings.TrimSpace(item.CoreTaskID)
+		if taskID == "" {
+			continue
+		}
+		refs = append(refs, store.SourceDocumentCoreRef{
+			DocumentID:       item.DocumentID,
+			ParseStatus:      item.ParseState,
+			DesiredVersionID: item.DesiredVersionID,
+			CurrentVersionID: item.CurrentVersionID,
+			TaskID:           item.ParseTaskID,
+			TaskAction:       item.ParseTaskAction,
+			TargetVersionID:  item.ParseTaskTargetVersion,
+			CoreDatasetID:    strings.TrimSpace(item.CoreDatasetID),
+			CoreTaskID:       taskID,
+		})
+	}
+	return refs
+}
+
+func parseTaskItemsCoreRefs(items []model.ParseTaskListItem) []store.SourceDocumentCoreRef {
+	refs := make([]store.SourceDocumentCoreRef, 0, len(items))
+	for _, item := range items {
+		taskID := strings.TrimSpace(item.CoreTaskID)
+		if taskID == "" {
+			continue
+		}
+		refs = append(refs, store.SourceDocumentCoreRef{
+			DocumentID:      item.DocumentID,
+			TaskID:          item.TaskID,
+			TaskAction:      item.TaskAction,
+			TargetVersionID: item.TargetVersionID,
+			CoreDatasetID:   strings.TrimSpace(item.CoreDatasetID),
+			CoreTaskID:      taskID,
+		})
+	}
+	return refs
+}
+
+func applyCoreTaskStateToSourceDocumentItem(item *model.SourceDocumentItem, coreTaskState string) {
+	rawState := strings.TrimSpace(coreTaskState)
+	state := normalizeCoreTaskState(rawState)
+	if state == "" {
+		return
+	}
+	if !itemCoreTaskTargetsDesired(*item) {
+		return
+	}
+	if !isKnownCoreTaskState(state) {
+		item.CoreTaskState = rawState
+		return
+	}
+	item.CoreTaskState = state
+	item.ParseState = state
+}
+
+func normalizeSourceDocumentParseStatesForResponse(items []model.SourceDocumentItem) {
+	for i := range items {
+		items[i].ParseState = publicParseState(items[i].ParseState)
+		items[i].CoreTaskState = publicParseState(items[i].CoreTaskState)
+		items[i].ScanOrchestrationStatus = publicParseState(items[i].ScanOrchestrationStatus)
+	}
+}
+
+func normalizeTreeParseQueueStatesForResponse(items []model.TreeNode) []model.TreeNode {
+	out := make([]model.TreeNode, 0, len(items))
+	for _, node := range items {
+		item := node
+		if len(item.Children) > 0 {
+			item.Children = normalizeTreeParseQueueStatesForResponse(item.Children)
+		}
+		item.ParseQueueState = publicParseState(item.ParseQueueState)
+		item.CoreTaskState = publicParseState(item.CoreTaskState)
+		out = append(out, item)
+	}
+	return out
+}
+
+func publicParseState(state string) string {
+	normalized := normalizeCoreTaskState(state)
+	switch normalized {
+	case "":
+		return ""
+	case "SUCCEEDED", "DELETED":
+		return "SUCCESS"
+	case "FAILED", "SUBMIT_FAILED", "CANCELED", "SUSPENDED":
+		return "FAILED"
+	default:
+		return "PROCESSING"
+	}
+}
+
+func applyCoreTaskStatesToParseTaskItems(items []model.ParseTaskListItem, states map[string]coreclient.TaskState) {
+	for i := range items {
+		taskID := strings.TrimSpace(items[i].CoreTaskID)
+		if taskID == "" {
+			continue
+		}
+		state, ok := states[taskID]
+		if !ok {
+			continue
+		}
+		applyCoreTaskStateToParseTaskItem(&items[i], state.TaskState)
+	}
+}
+
+func applyCoreTaskStateToParseTaskItem(item *model.ParseTaskListItem, coreTaskState string) {
+	rawState := strings.TrimSpace(coreTaskState)
+	state := normalizeCoreTaskState(rawState)
+	if state == "" {
+		return
+	}
+	if !isKnownCoreTaskState(state) {
+		item.CoreTaskState = rawState
+		return
+	}
+	item.CoreTaskState = state
+	item.Status = state
+}
+
+func applyCoreTaskStatesToTreeNodes(items []model.TreeNode, refs []store.SourceDocumentCoreRef, states map[string]coreclient.TaskState) []model.TreeNode {
+	refsByPath := make(map[string]store.SourceDocumentCoreRef, len(refs))
+	for _, ref := range refs {
+		path := strings.TrimSpace(ref.SourceObjectID)
+		if path == "" || strings.TrimSpace(ref.CoreTaskID) == "" || !sourceDocumentCoreTaskTargetsDesired(ref) {
+			continue
+		}
+		refsByPath[path] = ref
+	}
+	var walk func([]model.TreeNode) []model.TreeNode
+	walk = func(nodes []model.TreeNode) []model.TreeNode {
+		out := make([]model.TreeNode, 0, len(nodes))
+		for _, node := range nodes {
+			item := node
+			if item.IsDir {
+				item.Children = walk(item.Children)
+				out = append(out, item)
+				continue
+			}
+			ref, ok := refsByPath[strings.TrimSpace(item.Key)]
+			if !ok {
+				out = append(out, item)
+				continue
+			}
+			state, ok := states[strings.TrimSpace(ref.CoreTaskID)]
+			if !ok {
+				out = append(out, item)
+				continue
+			}
+			rawState := strings.TrimSpace(state.TaskState)
+			normalized := normalizeCoreTaskState(rawState)
+			if normalized == "" {
+				out = append(out, item)
+				continue
+			}
+			if !isKnownCoreTaskState(normalized) {
+				item.CoreTaskState = rawState
+				out = append(out, item)
+				continue
+			}
+			item.CoreTaskState = normalized
+			item.ParseQueueState = normalized
+			out = append(out, item)
+		}
+		return out
+	}
+	return walk(items)
+}
+
+func itemCoreTaskTargetsDesired(item model.SourceDocumentItem) bool {
+	targetVersion := strings.TrimSpace(item.ParseTaskTargetVersion)
+	desiredVersion := strings.TrimSpace(item.DesiredVersionID)
+	return targetVersion != "" && desiredVersion != "" && targetVersion == desiredVersion
+}
+
+func itemCoreStateMatchesDesired(item model.SourceDocumentItem, coreTaskState string) bool {
+	if !isCoreParsedState(coreTaskState) {
+		return false
+	}
+	return itemCoreTaskTargetsDesired(item)
+}
+
+func shouldMarkSourceDocumentSucceededFromCore(item model.SourceDocumentItem) bool {
+	if item.ParseTaskID <= 0 || !itemCoreStateMatchesDesired(item, item.CoreTaskState) {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(item.ParseTaskAction), "DELETE") {
+		return true
+	}
+	return strings.TrimSpace(item.CurrentVersionID) != strings.TrimSpace(item.ParseTaskTargetVersion) ||
+		!isCoreParsedState(item.ParseState)
+}
+
+func shouldMarkSourceDocumentRefSucceededFromCore(ref store.SourceDocumentCoreRef, coreTaskState string) bool {
+	if ref.TaskID <= 0 || !isCoreParsedState(coreTaskState) || !sourceDocumentCoreTaskTargetsDesired(ref) {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(ref.TaskAction), "DELETE") {
+		return true
+	}
+	return strings.TrimSpace(ref.CurrentVersionID) != strings.TrimSpace(ref.TargetVersionID) ||
+		!isCoreParsedState(ref.ParseStatus) ||
+		!strings.EqualFold(strings.TrimSpace(ref.ScanOrchestrationStatus), "SUCCEEDED")
+}
+
+func sourceDocumentCoreTaskTargetsDesired(ref store.SourceDocumentCoreRef) bool {
+	targetVersion := strings.TrimSpace(ref.TargetVersionID)
+	desiredVersion := strings.TrimSpace(ref.DesiredVersionID)
+	return targetVersion != "" && desiredVersion != "" && targetVersion == desiredVersion
+}
+
 func buildSourceDocumentsSummaryWithCore(refs []store.SourceDocumentCoreRef, states map[string]coreclient.TaskState, storageBytes int64) model.SourceDocumentsSummary {
 	var (
 		parsedCount int64
@@ -1835,6 +2519,13 @@ func buildSourceDocumentsSummaryWithCore(refs []store.SourceDocumentCoreRef, sta
 		delCount    int64
 	)
 	for _, ref := range refs {
+		taskID := strings.TrimSpace(ref.CoreTaskID)
+		taskState := ""
+		if taskID != "" {
+			if state, ok := states[taskID]; ok {
+				taskState = strings.ToUpper(strings.TrimSpace(state.TaskState))
+			}
+		}
 		update := store.InferDocumentUpdateType(ref.DesiredVersionID, ref.CurrentVersionID, ref.ParseStatus)
 		switch update {
 		case "NEW":
@@ -1845,16 +2536,11 @@ func buildSourceDocumentsSummaryWithCore(refs []store.SourceDocumentCoreRef, sta
 			delCount++
 		}
 		parseState := strings.ToUpper(strings.TrimSpace(ref.ParseStatus))
-		taskID := strings.TrimSpace(ref.CoreTaskID)
-		if taskID != "" {
-			if taskState, ok := states[taskID]; ok {
-				if s := strings.ToUpper(strings.TrimSpace(taskState.TaskState)); s != "" {
-					parseState = s
-				}
-			}
+		if taskState != "" && sourceDocumentCoreTaskTargetsDesired(ref) {
+			parseState = taskState
 		}
 		if isCoreParsedState(parseState) ||
-			(taskID == "" && strings.TrimSpace(ref.CurrentVersionID) != "" && strings.ToUpper(strings.TrimSpace(ref.ParseStatus)) != "DELETED") {
+			(!sourceDocumentCoreTaskTargetsDesired(ref) && strings.TrimSpace(ref.CurrentVersionID) != "" && strings.ToUpper(strings.TrimSpace(ref.ParseStatus)) != "DELETED") {
 			parsedCount++
 		}
 	}
@@ -1870,10 +2556,46 @@ func buildSourceDocumentsSummaryWithCore(refs []store.SourceDocumentCoreRef, sta
 }
 
 func isCoreParsedState(state string) bool {
-	switch strings.ToUpper(strings.TrimSpace(state)) {
-	case "SUCCEEDED", "SUCCESS", "COMPLETED", "DONE", "FINISHED", "TASK_STATE_SUCCEEDED", "TASK_STATE_SUCCESS":
+	switch normalizeCoreTaskState(state) {
+	case "SUCCEEDED":
 		return true
 	default:
 		return false
+	}
+}
+
+func isKnownCoreTaskState(state string) bool {
+	switch normalizeCoreTaskState(state) {
+	case "CREATING", "UPLOADING", "UPLOADED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED", "SUSPENDED":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeCoreTaskState(state string) string {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "":
+		return ""
+	case "SUCCEEDED", "SUCCESS", "COMPLETED", "DONE", "FINISHED", "TASK_STATE_SUCCEEDED", "TASK_STATE_SUCCESS":
+		return "SUCCEEDED"
+	case "FAILED", "FAIL", "ERROR", "TASK_STATE_FAILED", "TASK_STATE_FAIL":
+		return "FAILED"
+	case "CANCELED", "CANCELLED", "TASK_STATE_CANCELED", "TASK_STATE_CANCELLED":
+		return "CANCELED"
+	case "SUSPENDED", "TASK_STATE_SUSPENDED":
+		return "SUSPENDED"
+	case "CREATING", "TASK_STATE_CREATING":
+		return "CREATING"
+	case "UPLOADING", "TASK_STATE_UPLOADING":
+		return "UPLOADING"
+	case "UPLOADED", "TASK_STATE_UPLOADED":
+		return "UPLOADED"
+	case "RUNNING", "STARTED", "SUBMITTED", "PROCESSING", "TASK_STATE_RUNNING", "TASK_STATE_STARTED", "TASK_STATE_SUBMITTED", "TASK_STATE_PROCESSING":
+		return "RUNNING"
+	case "PENDING", "QUEUED", "WAITING", "TASK_STATE_PENDING", "TASK_STATE_QUEUED", "TASK_STATE_WAITING":
+		return "CREATING"
+	default:
+		return strings.ToUpper(strings.TrimSpace(state))
 	}
 }

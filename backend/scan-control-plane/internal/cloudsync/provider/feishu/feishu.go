@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
+	"go.uber.org/zap"
 )
 
 const apiBase = "https://open.feishu.cn/open-apis"
@@ -20,17 +21,26 @@ const apiBase = "https://open.feishu.cn/open-apis"
 type Provider struct {
 	baseURL string
 	client  *http.Client
+	log     *zap.Logger
 }
 
 func New(timeout time.Duration) *Provider {
+	return NewWithLogger(timeout, nil)
+}
+
+func NewWithLogger(timeout time.Duration, logger *zap.Logger) *Provider {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
+	}
+	if logger == nil {
+		logger = zap.NewNop()
 	}
 	return &Provider{
 		baseURL: apiBase,
 		client: &http.Client{
 			Timeout: timeout,
 		},
+		log: logger,
 	}
 }
 
@@ -43,6 +53,13 @@ func (p *Provider) ListObjects(ctx context.Context, req provider.ListRequest) ([
 	}
 	targetType := strings.ToLower(strings.TrimSpace(req.TargetType))
 	targetRef := strings.TrimSpace(req.TargetRef)
+	if p.log != nil {
+		p.log.Info("feishu list objects request",
+			zap.String("target_type", targetType),
+			zap.String("target_ref", targetRef),
+			zap.Int("access_token_len", len(accessToken)),
+		)
+	}
 	switch targetType {
 	case "wiki_space", "wiki":
 		if targetRef == "" {
@@ -51,14 +68,30 @@ func (p *Provider) ListObjects(ctx context.Context, req provider.ListRequest) ([
 		if targetRef == "" {
 			return nil, fmt.Errorf("feishu wiki target_ref(space_id) is required")
 		}
+		if p.log != nil {
+			p.log.Info("feishu list wiki space resolved",
+				zap.String("space_id", targetRef),
+			)
+		}
 		return p.listWikiSpace(ctx, accessToken, targetRef)
 	case "drive_folder", "folder":
 		if targetRef == "" {
 			targetRef = strings.TrimSpace(stringOption(req.ProviderOptions, "folder_token"))
 		}
+		if p.log != nil {
+			p.log.Info("feishu list drive folder resolved",
+				zap.String("folder_token", targetRef),
+			)
+		}
 		return p.listDrive(ctx, accessToken, targetRef)
 	default:
 		// default to drive root for backward compatibility
+		if p.log != nil {
+			p.log.Info("feishu list default to drive root",
+				zap.String("target_type", targetType),
+				zap.String("target_ref", targetRef),
+			)
+		}
 		return p.listDrive(ctx, accessToken, targetRef)
 	}
 }
@@ -78,6 +111,15 @@ func (p *Provider) DownloadObject(ctx context.Context, accessToken string, objec
 
 	objType := strings.ToLower(strings.TrimSpace(stringOption(object.ProviderMeta, "obj_type")))
 	kind := strings.ToLower(strings.TrimSpace(object.ExternalKind))
+	if p.log != nil {
+		p.log.Info("feishu download object request",
+			zap.String("external_object_id", strings.TrimSpace(object.ExternalObjectID)),
+			zap.String("external_path", strings.TrimSpace(object.ExternalPath)),
+			zap.String("external_kind", kind),
+			zap.String("obj_type", objType),
+			zap.String("download_ref", ref),
+		)
+	}
 	switch {
 	case objType == "docx" || kind == "docx":
 		return p.downloadDocRaw(ctx, accessToken, ref, true)
@@ -91,8 +133,19 @@ func (p *Provider) DownloadObject(ctx context.Context, accessToken string, objec
 func (p *Provider) listDrive(ctx context.Context, accessToken, rootFolderToken string) ([]provider.RemoteObject, error) {
 	visited := make(map[string]struct{}, 64)
 	out := make([]provider.RemoteObject, 0, 512)
+	if p.log != nil {
+		p.log.Info("feishu drive walk start",
+			zap.String("root_folder_token", strings.TrimSpace(rootFolderToken)),
+		)
+	}
 	if err := p.walkDriveFolder(ctx, accessToken, strings.TrimSpace(rootFolderToken), "", "", visited, &out); err != nil {
 		return nil, err
+	}
+	if p.log != nil {
+		p.log.Info("feishu drive walk done",
+			zap.String("root_folder_token", strings.TrimSpace(rootFolderToken)),
+			zap.Int("objects_total", len(out)),
+		)
 	}
 	return out, nil
 }
@@ -114,6 +167,13 @@ func (p *Provider) walkDriveFolder(
 	items, err := p.listDriveFiles(ctx, accessToken, folderToken)
 	if err != nil {
 		return err
+	}
+	if p.log != nil {
+		p.log.Info("feishu drive folder listed",
+			zap.String("folder_token", strings.TrimSpace(folderToken)),
+			zap.String("parent_path", strings.TrimSpace(parentPath)),
+			zap.Int("items_count", len(items)),
+		)
 	}
 	for _, item := range items {
 		name := strings.TrimSpace(valueAsString(item["name"]))
@@ -173,7 +233,9 @@ func (p *Provider) listDriveFiles(ctx context.Context, accessToken, folderToken 
 
 	out := make([]map[string]any, 0, 128)
 	pageToken := ""
+	pageNo := 0
 	for {
+		pageNo++
 		if pageToken != "" {
 			params["page_token"] = pageToken
 		}
@@ -184,6 +246,15 @@ func (p *Provider) listDriveFiles(ctx context.Context, accessToken, folderToken 
 		}
 		if err := p.getJSON(ctx, accessToken, "/drive/v1/files", params, &data); err != nil {
 			return nil, err
+		}
+		if p.log != nil {
+			p.log.Info("feishu drive list page",
+				zap.Int("page_no", pageNo),
+				zap.String("folder_token", strings.TrimSpace(folderToken)),
+				zap.String("request_page_token", strings.TrimSpace(params["page_token"])),
+				zap.Int("files_count", len(data.Files)),
+				zap.String("next_page_token", strings.TrimSpace(firstNonEmptyString(data.NextPageToken, data.PageToken))),
+			)
 		}
 		out = append(out, data.Files...)
 		if strings.TrimSpace(folderToken) == "" {
@@ -201,8 +272,19 @@ func (p *Provider) listDriveFiles(ctx context.Context, accessToken, folderToken 
 func (p *Provider) listWikiSpace(ctx context.Context, accessToken, spaceID string) ([]provider.RemoteObject, error) {
 	visited := make(map[string]struct{}, 128)
 	out := make([]provider.RemoteObject, 0, 512)
+	if p.log != nil {
+		p.log.Info("feishu wiki walk start",
+			zap.String("space_id", strings.TrimSpace(spaceID)),
+		)
+	}
 	if err := p.walkWikiNodes(ctx, accessToken, spaceID, "", "", "", visited, &out); err != nil {
 		return nil, err
+	}
+	if p.log != nil {
+		p.log.Info("feishu wiki walk done",
+			zap.String("space_id", strings.TrimSpace(spaceID)),
+			zap.Int("objects_total", len(out)),
+		)
 	}
 	return out, nil
 }
@@ -214,7 +296,9 @@ func (p *Provider) walkWikiNodes(
 	out *[]provider.RemoteObject,
 ) error {
 	pageToken := ""
+	pageNo := 0
 	for {
+		pageNo++
 		params := map[string]string{"page_size": "50"}
 		if strings.TrimSpace(parentToken) != "" {
 			params["parent_node_token"] = strings.TrimSpace(parentToken)
@@ -234,6 +318,16 @@ func (p *Provider) walkWikiNodes(
 		nodes := data.Items
 		if len(nodes) == 0 {
 			nodes = data.Nodes
+		}
+		if p.log != nil {
+			p.log.Info("feishu wiki list page",
+				zap.String("space_id", strings.TrimSpace(spaceID)),
+				zap.String("parent_node_token", strings.TrimSpace(parentToken)),
+				zap.Int("page_no", pageNo),
+				zap.String("request_page_token", strings.TrimSpace(params["page_token"])),
+				zap.Int("nodes_count", len(nodes)),
+				zap.String("next_page_token", strings.TrimSpace(firstNonEmptyString(data.PageToken, data.NextPageToken))),
+			)
 		}
 		for _, node := range nodes {
 			nodeToken := strings.TrimSpace(firstNonEmptyString(valueAsString(node["node_token"]), valueAsString(node["token"])))
@@ -318,6 +412,13 @@ func (p *Provider) downloadDocRaw(ctx context.Context, accessToken, docToken str
 	if err := p.getJSON(ctx, accessToken, pathSuffix, nil, &data); err != nil {
 		return nil, err
 	}
+	if p.log != nil {
+		p.log.Info("feishu doc raw downloaded",
+			zap.String("doc_token", strings.TrimSpace(docToken)),
+			zap.Bool("is_docx", isDocx),
+			zap.Int("content_bytes", len(data.Content)),
+		)
+	}
 	return []byte(data.Content), nil
 }
 
@@ -339,6 +440,13 @@ func (p *Provider) downloadDriveFile(ctx context.Context, accessToken, fileToken
 	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("feishu file download returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if p.log != nil {
+		p.log.Info("feishu drive file downloaded",
+			zap.String("file_token", strings.TrimSpace(fileToken)),
+			zap.Int("bytes", len(body)),
+			zap.String("content_type", strings.TrimSpace(resp.Header.Get("Content-Type"))),
+		)
 	}
 	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "application/json") {
 		var envelope struct {
@@ -385,6 +493,14 @@ func (p *Provider) getJSON(ctx context.Context, accessToken, apiPath string, par
 	}
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("feishu api %s returned %d: %s", apiPath, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if p.log != nil {
+		p.log.Info("feishu api call success",
+			zap.String("api_path", apiPath),
+			zap.String("query", u.RawQuery),
+			zap.Int("status_code", resp.StatusCode),
+			zap.Int("response_bytes", len(body)),
+		)
 	}
 	var envelope struct {
 		Code int             `json:"code"`

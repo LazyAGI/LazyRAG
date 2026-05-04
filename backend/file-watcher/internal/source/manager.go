@@ -31,6 +31,7 @@ type manager struct {
 	scanner   fs.Scanner
 	watcher   fs.RecursiveWatcher
 	validator fs.PathValidator
+	mapper    fs.PathMapper
 	reporter  EventReporter
 	staging   StagingService
 	log       *zap.Logger
@@ -62,15 +63,20 @@ func NewManager(
 	scanner fs.Scanner,
 	watcher fs.RecursiveWatcher,
 	validator fs.PathValidator,
+	mapper fs.PathMapper,
 	reporter EventReporter,
 	staging StagingService,
 	log *zap.Logger,
 ) Manager {
+	if mapper == nil {
+		mapper = fs.NewPathMapper("", nil)
+	}
 	return &manager{
 		cfg:       cfg,
 		scanner:   scanner,
 		watcher:   watcher,
 		validator: validator,
+		mapper:    mapper,
 		reporter:  reporter,
 		staging:   staging,
 		log:       log,
@@ -87,8 +93,10 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 		return nil
 	}
 
+	publicRootPath := m.mapper.CleanPublic(req.RootPath)
+	runtimeRootPath := m.mapper.ToRuntime(req.RootPath)
 	// 校验路径
-	if err := m.validator.EnsureAllowed(req.RootPath); err != nil {
+	if err := m.validator.EnsureAllowed(runtimeRootPath); err != nil {
 		return err
 	}
 	if err := m.ensureSourceDirs(req.SourceID); err != nil {
@@ -109,7 +117,7 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 	rt := internal.SourceRuntime{
 		SourceID: req.SourceID,
 		TenantID: tenantID,
-		RootPath: req.RootPath,
+		RootPath: publicRootPath,
 		Status:   internal.SourceRuntimeStatusStarting,
 	}
 
@@ -117,7 +125,7 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 		req.SourceID,
 		tenantID,
 		m.cfg.AgentID,
-		req.RootPath,
+		runtimeRootPath,
 		m.cfg.Snapshot.HostRoot,
 		reconcileInterval,
 		m.scanner,
@@ -134,7 +142,7 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 			entry.scanMu.Lock()
 			m.setStatus(req.SourceID, internal.SourceRuntimeStatusInitialScanning)
 			fullScanStart := time.Now()
-			if err := m.scanner.FullScan(sourceCtx, req.SourceID, req.RootPath); err != nil {
+			if err := m.scanner.FullScan(sourceCtx, req.SourceID, runtimeRootPath); err != nil {
 				entry.scanMu.Unlock()
 				m.log.Error("full scan failed",
 					zap.String("source_id", req.SourceID),
@@ -153,13 +161,13 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 		} else {
 			m.log.Info("skip initial full scan",
 				zap.String("source_id", req.SourceID),
-				zap.String("root_path", req.RootPath),
+				zap.String("root_path", publicRootPath),
 			)
 		}
 
 		// 启动 watcher
 		watcherStart := time.Now()
-		if err := m.watcher.Start(sourceCtx, req.SourceID, tenantID, req.RootPath); err != nil {
+		if err := m.watcher.Start(sourceCtx, req.SourceID, tenantID, runtimeRootPath); err != nil {
 			m.log.Error("watcher start failed",
 				zap.String("source_id", req.SourceID),
 				zap.Duration("watcher_start_cost", time.Since(watcherStart)),
@@ -192,7 +200,8 @@ func (m *manager) StopSource(_ context.Context, sourceID string) error {
 
 	entry, ok := m.runtimes[sourceID]
 	if !ok {
-		return fmt.Errorf("source %s not found", sourceID)
+		m.log.Info("source already stopped", zap.String("source_id", sourceID))
+		return nil
 	}
 
 	entry.cancel()
@@ -231,7 +240,7 @@ func (m *manager) TriggerScan(ctx context.Context, sourceID string, mode interna
 			}
 			defer entry.scanMu.Unlock()
 			fullScanStart := time.Now()
-			if err := m.scanner.FullScan(runCtx, sourceID, entry.runtime.RootPath); err != nil {
+			if err := m.scanner.FullScan(runCtx, sourceID, m.mapper.ToRuntime(entry.runtime.RootPath)); err != nil {
 				m.log.Error("triggered full scan failed",
 					zap.String("source_id", sourceID),
 					zap.Duration("full_scan_cost", time.Since(fullScanStart)),
@@ -329,7 +338,11 @@ func (m *manager) HandleCommand(ctx context.Context, cmd internal.Command) (any,
 		if err := m.ensureSourceDirs(cmd.SourceID); err != nil {
 			return nil, err
 		}
-		result, err := m.staging.StageFile(ctx, cmd.SourceID, cmd.DocumentID, cmd.VersionID, cmd.SrcPath)
+		runtimeSrcPath := m.mapper.ToRuntime(cmd.SrcPath)
+		if err := m.validator.EnsureAllowed(runtimeSrcPath); err != nil {
+			return nil, err
+		}
+		result, err := m.staging.StageFile(ctx, cmd.SourceID, cmd.DocumentID, cmd.VersionID, runtimeSrcPath)
 		if err != nil {
 			m.log.Error("stage file failed",
 				zap.String("source_id", cmd.SourceID),
@@ -371,7 +384,7 @@ func (m *manager) captureSnapshot(ctx context.Context, sourceID, tenantID, rootP
 			sourceID,
 			tenantID,
 			m.cfg.AgentID,
-			rootPath,
+			m.mapper.ToRuntime(rootPath),
 			m.cfg.Snapshot.HostRoot,
 			interval,
 			m.scanner,

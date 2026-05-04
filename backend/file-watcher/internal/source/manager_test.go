@@ -95,6 +95,25 @@ func (stagingStub) StageFile(context.Context, string, string, string, string) (i
 	return internal.StageResult{}, nil
 }
 
+func TestStopSourceIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewManager(
+		&config.Config{AgentID: "agent-1", TenantID: "tenant-default", ReconcileInterval: time.Hour},
+		scannerStub{},
+		newWatcherStub(),
+		validatorStub{},
+		fs.NewPathMapper("", nil),
+		reporterStub{},
+		stagingStub{},
+		zap.NewNop(),
+	)
+
+	if err := mgr.StopSource(context.Background(), "src-missing"); err != nil {
+		t.Fatalf("expected stopping a missing source to be a no-op, got %v", err)
+	}
+}
+
 func TestHandleCommandUsesCommandTenantID(t *testing.T) {
 	t.Parallel()
 
@@ -104,6 +123,7 @@ func TestHandleCommandUsesCommandTenantID(t *testing.T) {
 		scannerStub{},
 		watcher,
 		validatorStub{},
+		fs.NewPathMapper("", nil),
 		reporterStub{},
 		stagingStub{},
 		zap.NewNop(),
@@ -151,6 +171,7 @@ func TestHandleCommandFallsBackToAgentTenantID(t *testing.T) {
 		scannerStub{},
 		watcher,
 		validatorStub{},
+		fs.NewPathMapper("", nil),
 		reporterStub{},
 		stagingStub{},
 		zap.NewNop(),
@@ -176,6 +197,54 @@ func TestHandleCommandFallsBackToAgentTenantID(t *testing.T) {
 	}
 
 	if err := mgr.StopSource(context.Background(), "src-2"); err != nil {
+		t.Fatalf("stop source: %v", err)
+	}
+}
+
+func TestStartSourceMapsPublicRootToRuntimeRoot(t *testing.T) {
+	t.Parallel()
+
+	watcher := newWatcherStub()
+	runtimeRoot := t.TempDir()
+	mapper := fs.NewPathMapper("posix", []config.PathMapping{
+		{PublicRoot: "/host/docs", RuntimeRoot: runtimeRoot},
+	})
+	mgr := NewManager(
+		&config.Config{AgentID: "agent-1", TenantID: "tenant-default", ReconcileInterval: time.Hour},
+		scannerStub{},
+		watcher,
+		validatorStub{},
+		mapper,
+		reporterStub{},
+		stagingStub{},
+		zap.NewNop(),
+	)
+
+	if err := mgr.StartSource(context.Background(), internal.StartSourceRequest{
+		SourceID:        "src-map",
+		RootPath:        "/host/docs",
+		SkipInitialScan: true,
+	}); err != nil {
+		t.Fatalf("start source: %v", err)
+	}
+
+	select {
+	case call := <-watcher.startCh:
+		if call.root != runtimeRoot {
+			t.Fatalf("expected watcher root %q, got %q", runtimeRoot, call.root)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for watcher start")
+	}
+
+	runtimes := mgr.ListRuntimes()
+	if len(runtimes) != 1 {
+		t.Fatalf("expected 1 runtime, got %d", len(runtimes))
+	}
+	if runtimes[0].RootPath != "/host/docs" {
+		t.Fatalf("expected public runtime root, got %q", runtimes[0].RootPath)
+	}
+	if err := mgr.StopSource(context.Background(), "src-map"); err != nil {
 		t.Fatalf("stop source: %v", err)
 	}
 }

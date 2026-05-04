@@ -78,7 +78,7 @@ func applyWatchTreeNodeStates(items []model.TreeNode, docMap map[string]treeDocu
 			item.HasUpdate = nil
 		}
 		if queue, ok := queueMap[doc.ID]; ok {
-			item.ParseQueueState = queue.Status
+			item.ParseQueueState = effectiveLatestParseTaskState(doc.DesiredVersionID, queue)
 		}
 		out = append(out, item)
 	}
@@ -119,7 +119,7 @@ func applySnapshotTreeNodeStates(items []model.TreeNode, diffByPath map[string]s
 		}
 		if doc, ok := docMap[path]; ok {
 			if queue, ok := queueMap[doc.ID]; ok {
-				item.ParseQueueState = queue.Status
+				item.ParseQueueState = effectiveLatestParseTaskState(doc.DesiredVersionID, queue)
 			}
 		}
 		out = append(out, item)
@@ -425,7 +425,7 @@ func ensureDeletedAtPath(nodes []model.TreeNode, ancestors []string, filePath, s
 		}
 		if doc, ok := docMap[filePath]; ok {
 			if queue, ok := queueMap[doc.ID]; ok {
-				node.ParseQueueState = queue.Status
+				node.ParseQueueState = effectiveLatestParseTaskState(doc.DesiredVersionID, queue)
 			}
 		}
 		return append(nodes, node)
@@ -522,7 +522,7 @@ func nodeTitleFromPath(path string) string {
 func collectTreeScopeRoots(items []model.TreeNode) []string {
 	dirRoots := make([]string, 0, len(items))
 	seen := make(map[string]struct{}, len(items))
-	fileKeys := make([]string, 0, len(items))
+	fileParentRoots := make([]string, 0, len(items))
 	for _, item := range items {
 		key := filepath.Clean(strings.TrimSpace(item.Key))
 		if key == "" || key == "." {
@@ -536,18 +536,44 @@ func collectTreeScopeRoots(items []model.TreeNode) []string {
 			dirRoots = append(dirRoots, key)
 			continue
 		}
-		fileKeys = append(fileKeys, key)
+		parent := filepath.Clean(filepath.Dir(key))
+		if parent == "" || parent == "." {
+			continue
+		}
+		fileParentRoots = append(fileParentRoots, parent)
+	}
+	if len(fileParentRoots) > 0 {
+		candidates := make([]string, 0, len(fileParentRoots)+len(dirRoots))
+		candidates = append(candidates, fileParentRoots...)
+		for _, dirRoot := range dirRoots {
+			parent := filepath.Clean(filepath.Dir(dirRoot))
+			if parent == "" || parent == "." {
+				continue
+			}
+			candidates = append(candidates, parent)
+		}
+		if common := commonScopeRoot(candidates); common != "" {
+			return []string{common}
+		}
 	}
 	if len(dirRoots) > 0 {
 		return dirRoots
 	}
-	if len(fileKeys) == 0 {
-		return nil
-	}
-	common := filepath.Clean(filepath.Dir(fileKeys[0]))
-	for i := 1; i < len(fileKeys); i++ {
-		key := filepath.Clean(fileKeys[i])
-		for common != "" && common != "." && common != string(filepath.Separator) && !pathInScope(key, []string{common}) {
+	return nil
+}
+
+func commonScopeRoot(paths []string) string {
+	common := ""
+	for _, raw := range paths {
+		path := filepath.Clean(strings.TrimSpace(raw))
+		if path == "" || path == "." {
+			continue
+		}
+		if common == "" {
+			common = path
+			continue
+		}
+		for common != "" && common != "." && common != string(filepath.Separator) && !pathInScope(path, []string{common}) {
 			parent := filepath.Clean(filepath.Dir(common))
 			if parent == common {
 				break
@@ -556,9 +582,9 @@ func collectTreeScopeRoots(items []model.TreeNode) []string {
 		}
 	}
 	if common == "" || common == "." {
-		return nil
+		return ""
 	}
-	return []string{common}
+	return common
 }
 
 func pathInScope(path string, roots []string) bool {

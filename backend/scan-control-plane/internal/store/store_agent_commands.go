@@ -313,15 +313,7 @@ func (s *Store) AckCommand(ctx context.Context, req model.AckCommandRequest) err
 		}).Create(&baseline).Error; err != nil {
 			return err
 		}
-		return s.syncCommittedSnapshotMetadataTx(
-			tx,
-			strings.TrimSpace(payload.SourceID),
-			strings.TrimSpace(payload.TenantID),
-			snapshotRef,
-			snapshotResult.FileCount,
-			takenAt,
-			now,
-		)
+		return nil
 	}); err != nil {
 		return err
 	}

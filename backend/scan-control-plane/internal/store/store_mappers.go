@@ -31,6 +31,10 @@ func InferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus str
 	return inferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus)
 }
 
+func UpdateTypeDescription(updateType string) string {
+	return updateTypeDescription(updateType)
+}
+
 func NormalizeTaskAction(raw string) string {
 	return normalizeTaskAction(raw)
 }
@@ -165,7 +169,8 @@ func toCloudSyncClaim(row cloudSyncClaimRow) CloudSyncClaim {
 		ExcludePatterns:       decodeStringSliceJSON(row.ExcludePatternsJSON),
 		MaxObjectSizeBytes:    row.MaxObjectSizeBytes,
 		ProviderOptions:       decodeMapJSON(row.ProviderOptionsJSON),
-		ExistingRunID:         strings.TrimSpace(row.LastRunID),
+		// ExistingRunID is assigned only after explicit RUNNING-state checks in claim paths.
+		ExistingRunID: "",
 	}
 }
 
@@ -196,22 +201,23 @@ func toModelCloudSourceBinding(e cloudSourceBindingEntity, nextSyncAt *time.Time
 
 func toModelCloudSyncRun(e cloudSyncRunEntity) model.CloudSyncRun {
 	return model.CloudSyncRun{
-		RunID:        e.RunID,
-		SourceID:     e.SourceID,
-		TenantID:     e.TenantID,
-		Provider:     e.Provider,
-		TriggerType:  e.TriggerType,
-		Status:       e.Status,
-		StartedAt:    e.StartedAt,
-		FinishedAt:   e.FinishedAt,
-		RemoteTotal:  e.RemoteTotal,
-		CreatedCount: e.CreatedCount,
-		UpdatedCount: e.UpdatedCount,
-		DeletedCount: e.DeletedCount,
-		SkippedCount: e.SkippedCount,
-		FailedCount:  e.FailedCount,
-		ErrorCode:    e.ErrorCode,
-		ErrorMessage: e.ErrorMessage,
+		RunID:          e.RunID,
+		SourceID:       e.SourceID,
+		TenantID:       e.TenantID,
+		Provider:       e.Provider,
+		TriggerType:    e.TriggerType,
+		RequestedPaths: decodeStringSliceJSON(e.RequestedPathsJSON),
+		Status:         e.Status,
+		StartedAt:      e.StartedAt,
+		FinishedAt:     e.FinishedAt,
+		RemoteTotal:    e.RemoteTotal,
+		CreatedCount:   e.CreatedCount,
+		UpdatedCount:   e.UpdatedCount,
+		DeletedCount:   e.DeletedCount,
+		SkippedCount:   e.SkippedCount,
+		FailedCount:    e.FailedCount,
+		ErrorCode:      e.ErrorCode,
+		ErrorMessage:   e.ErrorMessage,
 	}
 }
 

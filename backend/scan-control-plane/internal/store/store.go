@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
@@ -46,6 +48,7 @@ type PendingTask struct {
 	OriginPlatform   string
 	TriggerPolicy    string
 	SourceID         string
+	SourceRootPath   string
 	SourceDatasetID  string
 	CoreDocumentID   string
 	SourceObjectID   string
@@ -77,8 +80,10 @@ type treeDocumentRow struct {
 }
 
 type parseTaskDocJoin struct {
+	TaskID                  int64
 	DocumentID              int64
 	TaskAction              string
+	TargetVersionID         string
 	CoreDocumentID          string
 	Status                  string
 	CoreDatasetID           string
@@ -87,14 +92,19 @@ type parseTaskDocJoin struct {
 }
 
 type SourceDocumentCoreRef struct {
-	DocumentID       int64
-	ParseStatus      string
-	DesiredVersionID string
-	CurrentVersionID string
-	UpdatedAt        time.Time
-	CoreDatasetID    string
-	CoreDocumentID   string
-	CoreTaskID       string
+	DocumentID              int64
+	SourceObjectID          string
+	ParseStatus             string
+	DesiredVersionID        string
+	CurrentVersionID        string
+	UpdatedAt               time.Time
+	TaskID                  int64
+	TaskAction              string
+	TargetVersionID         string
+	CoreDatasetID           string
+	CoreDocumentID          string
+	CoreTaskID              string
+	ScanOrchestrationStatus string
 }
 
 type cloudSyncClaimRow struct {
@@ -259,7 +269,10 @@ func (s *Store) migrate(ctx context.Context) error {
 	); err != nil {
 		return err
 	}
-	return s.ensureParseTaskIndexes(ctx)
+	if err := s.ensureParseTaskIndexes(ctx); err != nil {
+		return err
+	}
+	return s.ensureSourceFileSnapshotIndexes(ctx)
 }
 
 func (s *Store) ensureParseTaskIndexes(ctx context.Context) error {
@@ -290,4 +303,52 @@ func (s *Store) ensureParseTaskIndexes(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) ensureSourceFileSnapshotIndexes(ctx context.Context) error {
+	needsRebuild, err := s.sourceFileSnapshotSelectionTokenIndexNeedsRebuild(ctx)
+	if err != nil {
+		return err
+	}
+	if needsRebuild {
+		if err := s.db.WithContext(ctx).Exec("DROP INDEX IF EXISTS idx_source_file_snapshots_selection_token").Error; err != nil {
+			return err
+		}
+	}
+	return s.db.WithContext(ctx).Exec(
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_source_file_snapshots_selection_token ON source_file_snapshots (selection_token) WHERE selection_token <> ''",
+	).Error
+}
+
+func (s *Store) sourceFileSnapshotSelectionTokenIndexNeedsRebuild(ctx context.Context) (bool, error) {
+	indexSQL := ""
+	switch s.db.Dialector.Name() {
+	case "postgres":
+		err := s.db.WithContext(ctx).Raw(
+			`SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'source_file_snapshots' AND indexname = 'idx_source_file_snapshots_selection_token'`,
+		).Row().Scan(&indexSQL)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	case "sqlite":
+		err := s.db.WithContext(ctx).Raw(
+			`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_source_file_snapshots_selection_token'`,
+		).Row().Scan(&indexSQL)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	default:
+		return true, nil
+	}
+	normalized := strings.ToLower(indexSQL)
+	return !strings.Contains(normalized, "unique") ||
+		!strings.Contains(normalized, "where") ||
+		!strings.Contains(normalized, "selection_token") ||
+		!strings.Contains(normalized, "<>"), nil
 }

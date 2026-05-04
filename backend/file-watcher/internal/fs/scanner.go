@@ -34,6 +34,7 @@ type scanner struct {
 	cfg       config.ScanConfig
 	reporter  ScanReporter
 	validator PathValidator
+	mapper    PathMapper
 	log       *zap.Logger
 
 	// 预处理后的扩展名集合，key 统一为小写带点（如 ".pdf"）
@@ -41,12 +42,16 @@ type scanner struct {
 	excludeExts map[string]struct{}
 }
 
-func NewScanner(agentID string, cfg config.ScanConfig, reporter ScanReporter, validator PathValidator, log *zap.Logger) Scanner {
+func NewScanner(agentID string, cfg config.ScanConfig, reporter ScanReporter, validator PathValidator, mapper PathMapper, log *zap.Logger) Scanner {
+	if mapper == nil {
+		mapper = NewPathMapper("", nil)
+	}
 	s := &scanner{
 		agentID:   agentID,
 		cfg:       cfg,
 		reporter:  reporter,
 		validator: validator,
+		mapper:    mapper,
 		log:       log,
 	}
 	if len(cfg.IncludeExtensions) > 0 {
@@ -121,7 +126,7 @@ func (s *scanner) FullScan(ctx context.Context, sourceID string, root string) er
 
 		batch = append(batch, internal.ScanRecord{
 			SourceID: sourceID,
-			Path:     path,
+			Path:     s.mapper.ToPublic(path),
 			IsDir:    d.IsDir(),
 			Size:     info.Size(),
 			ModTime:  info.ModTime(),
@@ -168,7 +173,7 @@ func (s *scanner) ReconcileScan(ctx context.Context, sourceID string, root strin
 		if !s.shouldInclude(path, d.IsDir()) {
 			return nil
 		}
-		snap.Files[path] = internal.SnapshotEntry{
+		snap.Files[s.mapper.ToPublic(path)] = internal.SnapshotEntry{
 			Size:     info.Size(),
 			ModTime:  info.ModTime(),
 			IsDir:    d.IsDir(),
@@ -191,8 +196,8 @@ func (s *scanner) Stat(_ context.Context, path string) (internal.FileMeta, error
 		canonical = filepath.Clean(path) // 降级：无法解析符号链接时用 Clean
 	}
 	return internal.FileMeta{
-		Path:          path,
-		CanonicalPath: canonical,
+		Path:          s.mapper.ToPublic(path),
+		CanonicalPath: s.mapper.ToPublic(canonical),
 		Name:          info.Name(),
 		Size:          info.Size(),
 		ModTime:       info.ModTime(),

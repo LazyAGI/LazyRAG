@@ -2,8 +2,13 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +17,7 @@ import (
 
 	"github.com/lazyrag/scan_control_plane/internal/config"
 	"github.com/lazyrag/scan_control_plane/internal/coreclient"
+	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
 	"github.com/lazyrag/scan_control_plane/internal/store"
 )
 
@@ -187,10 +193,18 @@ func (w *Worker) executeTask(ctx context.Context, task store.PendingTask) {
 		}
 
 		var err error
-		staged, err = w.callStage(ctx, task)
-		if err != nil {
-			w.failSubmitWithRetry(ctx, task, err)
-			return
+		if isCloudSyncOrigin(task.OriginType) {
+			staged, err = w.stageFromCloudMirror(task)
+			if err != nil {
+				w.failSubmitWithRetry(ctx, task, err)
+				return
+			}
+		} else {
+			staged, err = w.callStage(ctx, task)
+			if err != nil {
+				w.failSubmitWithRetry(ctx, task, err)
+				return
+			}
 		}
 
 		releaseLarge := func() {}
@@ -399,4 +413,293 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func isCloudSyncOrigin(originType string) bool {
+	return strings.EqualFold(strings.TrimSpace(originType), "CLOUD_SYNC")
+}
+
+func (w *Worker) stageFromCloudMirror(task store.PendingTask) (stageResponse, error) {
+	resp := stageResponse{}
+	srcPath := strings.TrimSpace(task.SourceObjectID)
+	if srcPath == "" {
+		return resp, fmt.Errorf("empty source object path for cloud sync task")
+	}
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return resp, fmt.Errorf("cloud sync mirror stat failed: %w", err)
+	}
+	if info.IsDir() {
+		return resp, fmt.Errorf("cloud sync mirror path is directory: %s", srcPath)
+	}
+	sourceRoot := filepath.Clean(strings.TrimSpace(task.SourceRootPath))
+	if sourceRoot == "" || sourceRoot == "." {
+		sourceRoot = deriveCloudSourceRootFromMirrorPath(srcPath)
+	}
+	if sourceRoot == "" || sourceRoot == "." {
+		return resp, fmt.Errorf("resolve cloud source root failed for source path %s", srcPath)
+	}
+	parseRoot := sourcelayout.CloudParseRoot(sourceRoot)
+	if err := os.MkdirAll(parseRoot, 0o755); err != nil {
+		return resp, fmt.Errorf("ensure parse root failed: %w", err)
+	}
+
+	relPath, collisionDepth, err := allocateCloudParseRelativePath(parseRoot, task.SourceID, srcPath)
+	if err != nil {
+		return resp, err
+	}
+	parsePath, err := joinUnderRoot(parseRoot, relPath)
+	if err != nil {
+		return resp, err
+	}
+	if err := os.MkdirAll(filepath.Dir(parsePath), 0o755); err != nil {
+		return resp, fmt.Errorf("ensure parse subdir failed: %w", err)
+	}
+	if existing, err := os.Stat(parsePath); err == nil && existing.Size() == info.Size() && existing.ModTime().Equal(info.ModTime()) {
+		resp = stageResponse{
+			HostPath:      parsePath,
+			ContainerPath: parsePath,
+			URI:           "file://" + parsePath,
+			Size:          existing.Size(),
+		}
+		w.log.Info("cloud sync parse staging hit",
+			zap.Int64("task_id", task.TaskID),
+			zap.String("source_id", task.SourceID),
+			zap.String("mirror_path", srcPath),
+			zap.String("parse_path", parsePath),
+			zap.String("parse_root", parseRoot),
+		)
+		return resp, nil
+	}
+
+	written, err := copyFileAtomic(srcPath, parsePath, info.ModTime())
+	if err != nil {
+		return resp, fmt.Errorf("copy cloud mirror to parse path failed: %w", err)
+	}
+	resp = stageResponse{
+		HostPath:      parsePath,
+		ContainerPath: parsePath,
+		URI:           "file://" + parsePath,
+		Size:          written,
+	}
+	w.log.Info("cloud sync mirror staged into parse layout",
+		zap.Int64("task_id", task.TaskID),
+		zap.String("source_id", task.SourceID),
+		zap.String("mirror_path", srcPath),
+		zap.String("source_root", sourceRoot),
+		zap.String("parse_root", parseRoot),
+		zap.String("mapped_name", relPath),
+		zap.Int("collision_depth", collisionDepth),
+		zap.String("parse_path", parsePath),
+		zap.Int64("size", resp.Size),
+	)
+	return resp, nil
+}
+
+type cloudParseIndex struct {
+	Entries map[string]string `json:"entries"`
+}
+
+func allocateCloudParseRelativePath(parseRoot, sourceID, srcPath string) (string, int, error) {
+	safeSourceID, err := safeCloudSourceID(sourceID)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid source id for cloud parse staging: %w", err)
+	}
+	idx, err := loadCloudParseIndex(parseRoot)
+	if err != nil {
+		return "", 0, fmt.Errorf("load cloud parse index failed: %w", err)
+	}
+	key := cloudParseIndexKey(safeSourceID, srcPath)
+	relPath, collisionDepth := nextCloudHashedRelativePath(safeSourceID, srcPath, key, idx.Entries)
+	if strings.TrimSpace(idx.Entries[key]) != relPath {
+		idx.Entries[key] = relPath
+		if err := persistCloudParseIndex(parseRoot, idx); err != nil {
+			return "", 0, fmt.Errorf("persist cloud parse index failed: %w", err)
+		}
+	}
+	return relPath, collisionDepth, nil
+}
+
+func safeCloudSourceID(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("source_id is empty")
+	}
+	if strings.Contains(value, "/") || strings.Contains(value, "\\") {
+		return "", fmt.Errorf("source_id contains path separator")
+	}
+	clean := filepath.Clean(value)
+	if clean != value || clean == "." || clean == ".." {
+		return "", fmt.Errorf("source_id contains invalid path segment")
+	}
+	return value, nil
+}
+
+func cloudParseIndexPath(parseRoot string) string {
+	return filepath.Join(filepath.Clean(parseRoot), ".parse-index.json")
+}
+
+func loadCloudParseIndex(parseRoot string) (cloudParseIndex, error) {
+	path := cloudParseIndexPath(parseRoot)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cloudParseIndex{Entries: map[string]string{}}, nil
+		}
+		return cloudParseIndex{}, err
+	}
+	var idx cloudParseIndex
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return cloudParseIndex{}, err
+	}
+	if idx.Entries == nil {
+		idx.Entries = map[string]string{}
+	}
+	return idx, nil
+}
+
+func persistCloudParseIndex(parseRoot string, idx cloudParseIndex) error {
+	if idx.Entries == nil {
+		idx.Entries = map[string]string{}
+	}
+	path := cloudParseIndexPath(parseRoot)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(idx)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".parse-index-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+func cloudParseIndexKey(sourceID, srcPath string) string {
+	return sourceID + "|" + filepath.Clean(srcPath)
+}
+
+func nextCloudHashedRelativePath(sourceID, srcPath, key string, entries map[string]string) (string, int) {
+	used := make(map[string]struct{}, len(entries))
+	for k, v := range entries {
+		if k == key {
+			continue
+		}
+		name := strings.TrimSpace(v)
+		if name == "" {
+			continue
+		}
+		used[name] = struct{}{}
+	}
+	for salt := 0; ; salt++ {
+		candidate := cloudHashedFileRelativePath(sourceID, srcPath, salt)
+		if _, exists := used[candidate]; !exists {
+			return candidate, salt
+		}
+	}
+}
+
+func cloudHashedFileRelativePath(sourceID, srcPath string, salt int) string {
+	return filepath.Join("sources", sourceID, "files", cloudHashedFileName(sourceID, srcPath, salt))
+}
+
+func cloudHashedFileName(sourceID, srcPath string, salt int) string {
+	cleanPath := filepath.Clean(srcPath)
+	key := sourceID + "|" + cleanPath
+	if salt > 0 {
+		key = fmt.Sprintf("%s|%d", key, salt)
+	}
+	sum := sha256.Sum256([]byte(key))
+	hash := hex.EncodeToString(sum[:16])
+	ext := filepath.Ext(filepath.Base(cleanPath))
+	if ext == "" {
+		return hash
+	}
+	return hash + ext
+}
+
+func deriveCloudSourceRootFromMirrorPath(srcPath string) string {
+	clean := filepath.Clean(strings.TrimSpace(srcPath))
+	if clean == "" || clean == "." {
+		return ""
+	}
+	needle := string(filepath.Separator) + sourcelayout.CloudMirrorDirName + string(filepath.Separator)
+	idx := strings.Index(clean, needle)
+	if idx <= 0 {
+		return ""
+	}
+	return clean[:idx]
+}
+
+func joinUnderRoot(root, relPath string) (string, error) {
+	cleanRoot := filepath.Clean(strings.TrimSpace(root))
+	if cleanRoot == "" || cleanRoot == "." {
+		return "", fmt.Errorf("empty root")
+	}
+	candidate := filepath.Clean(filepath.Join(cleanRoot, relPath))
+	if candidate != cleanRoot && !strings.HasPrefix(candidate, cleanRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes root")
+	}
+	return candidate, nil
+}
+
+func copyFileAtomic(src, dst string, modTime time.Time) (_ int64, retErr error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".stage-*")
+	if err != nil {
+		return 0, err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if retErr != nil {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	written, err := io.Copy(tmp, in)
+	if err != nil {
+		_ = tmp.Close()
+		return 0, err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return 0, err
+	}
+	if err := tmp.Close(); err != nil {
+		return 0, err
+	}
+	if err := os.Chtimes(tmpPath, modTime, modTime); err != nil {
+		return 0, err
+	}
+	_ = os.Remove(dst)
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return 0, err
+	}
+	return written, nil
 }

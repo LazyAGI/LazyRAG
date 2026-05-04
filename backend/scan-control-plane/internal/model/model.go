@@ -91,6 +91,11 @@ type UpdateSourceRequest struct {
 	DefaultTriggerPolicy  string `json:"default_trigger_policy,omitempty"`
 }
 
+type DeleteSourceResponse struct {
+	SourceID string `json:"source_id"`
+	Deleted  bool   `json:"deleted"`
+}
+
 type UpsertCloudSourceBindingRequest struct {
 	Provider              string         `json:"provider"`
 	Enabled               *bool          `json:"enabled,omitempty"`
@@ -131,7 +136,8 @@ type CloudSourceBinding struct {
 }
 
 type TriggerCloudSyncRequest struct {
-	TriggerType string `json:"trigger_type,omitempty"`
+	TriggerType string   `json:"trigger_type,omitempty"`
+	Paths       []string `json:"paths,omitempty"`
 }
 
 type TriggerCloudSyncResponse struct {
@@ -140,22 +146,23 @@ type TriggerCloudSyncResponse struct {
 }
 
 type CloudSyncRun struct {
-	RunID        string     `json:"run_id"`
-	SourceID     string     `json:"source_id"`
-	TenantID     string     `json:"tenant_id"`
-	Provider     string     `json:"provider"`
-	TriggerType  string     `json:"trigger_type"`
-	Status       string     `json:"status"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
-	FinishedAt   *time.Time `json:"finished_at,omitempty"`
-	RemoteTotal  int        `json:"remote_total"`
-	CreatedCount int        `json:"created_count"`
-	UpdatedCount int        `json:"updated_count"`
-	DeletedCount int        `json:"deleted_count"`
-	SkippedCount int        `json:"skipped_count"`
-	FailedCount  int        `json:"failed_count"`
-	ErrorCode    string     `json:"error_code,omitempty"`
-	ErrorMessage string     `json:"error_message,omitempty"`
+	RunID          string     `json:"run_id"`
+	SourceID       string     `json:"source_id"`
+	TenantID       string     `json:"tenant_id"`
+	Provider       string     `json:"provider"`
+	TriggerType    string     `json:"trigger_type"`
+	RequestedPaths []string   `json:"requested_paths,omitempty"`
+	Status         string     `json:"status"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	RemoteTotal    int        `json:"remote_total"`
+	CreatedCount   int        `json:"created_count"`
+	UpdatedCount   int        `json:"updated_count"`
+	DeletedCount   int        `json:"deleted_count"`
+	SkippedCount   int        `json:"skipped_count"`
+	FailedCount    int        `json:"failed_count"`
+	ErrorCode      string     `json:"error_code,omitempty"`
+	ErrorMessage   string     `json:"error_message,omitempty"`
 }
 
 type ListCloudSyncRunsResponse struct {
@@ -360,6 +367,7 @@ type ParseTaskListItem struct {
 	CoreDatasetID           string     `json:"core_dataset_id,omitempty"`
 	CoreDocumentID          string     `json:"core_document_id,omitempty"`
 	CoreTaskID              string     `json:"core_task_id,omitempty"`
+	CoreTaskState           string     `json:"core_task_state,omitempty"`
 	ScanOrchestrationStatus string     `json:"scan_orchestration_status,omitempty"`
 	SubmitErrorMessage      string     `json:"submit_error_message,omitempty"`
 	SubmitAt                *time.Time `json:"submit_at,omitempty"`
@@ -430,6 +438,11 @@ type SourceDocumentItem struct {
 	CoreTaskID              string     `json:"core_task_id,omitempty"`
 	CoreTaskState           string     `json:"core_task_state,omitempty"`
 	ScanOrchestrationStatus string     `json:"scan_orchestration_status,omitempty"`
+	DesiredVersionID        string     `json:"-"`
+	CurrentVersionID        string     `json:"-"`
+	ParseTaskID             int64      `json:"-"`
+	ParseTaskAction         string     `json:"-"`
+	ParseTaskTargetVersion  string     `json:"-"`
 }
 
 type SourceDocumentsResponse struct {
@@ -505,6 +518,7 @@ type TreeNode struct {
 	Selectable      *bool      `json:"selectable,omitempty"`
 	ExternalFileID  string     `json:"external_file_id,omitempty"`
 	ParseQueueState string     `json:"parse_queue_state,omitempty"`
+	CoreTaskState   string     `json:"core_task_state,omitempty"`
 	StatusSource    string     `json:"status_source,omitempty"`
 	Children        []TreeNode `json:"children,omitempty"`
 }
