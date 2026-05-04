@@ -1,5 +1,5 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
-.PHONY: help lint install-flake8 lint-python lint-go test build up up-build down clear
+.PHONY: help lint install-flake8 lint-python lint-go test build up up-build down clear file-watcher-dirs file-watcher-build file-watcher-run file-watcher-start file-watcher-stop
 .DEFAULT_GOAL := help
 
 # Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
@@ -7,6 +7,7 @@
 export DOCKER_BUILDKIT ?= 0
 PYTHON ?= python3
 PIP ?= pip
+GO ?= go
 
 # ---------------------------------------------------------------------------
 # Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
@@ -20,6 +21,34 @@ ifneq (,$(wildcard .env))
 include .env
 export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env)
 endif
+
+# ---------------------------------------------------------------------------
+# Scan / file-watcher process
+# ---------------------------------------------------------------------------
+# file-watcher runs in compose by default. Host mode is kept for local
+# debugging and disables the compose file-watcher service on make up.
+# Keep its writable roots under the compose volume root by default.
+# RAGSCAN_BASE_ROOT is exported as a compose-friendly path; internal Makefile
+# bookkeeping uses the resolved absolute path below.
+RAGSCAN_BASE_ROOT ?= ./data/scan
+RAGSCAN_BASE_ROOT_ABS := $(abspath $(RAGSCAN_BASE_ROOT))
+RAGSCAN_BASE_ROOT_CONTAINER_DIR ?= /data/ragscan
+RAGSCAN_STAGING_CONTAINER_DIR ?= /data/staging
+RAGSCAN_FILE_WATCHER_MODE ?= container
+RAGSCAN_WATCH_HOST_DIR ?= ./data/watch
+RAGSCAN_WATCH_HOST_DIR_RAW := $(RAGSCAN_WATCH_HOST_DIR)
+RAGSCAN_WATCH_HOST_DIR_ABS := $(abspath $(RAGSCAN_WATCH_HOST_DIR_RAW))
+RAGSCAN_WATCH_CONTAINER_DIR ?= /watch/docs
+RAGSCAN_HOST_PATH_STYLE ?= posix
+override RAGSCAN_WATCH_HOST_DIR := $(if $(filter windows,$(RAGSCAN_HOST_PATH_STYLE)),$(RAGSCAN_WATCH_HOST_DIR_RAW),$(RAGSCAN_WATCH_HOST_DIR_ABS))
+RAGSCAN_FILE_WATCHER_DIR := backend/file-watcher
+RAGSCAN_FILE_WATCHER_BIN := $(RAGSCAN_FILE_WATCHER_DIR)/file_watcher
+RAGSCAN_FILE_WATCHER_CONFIG := $(RAGSCAN_FILE_WATCHER_DIR)/configs/agent.yaml
+RAGSCAN_FILE_WATCHER_PID := $(RAGSCAN_BASE_ROOT_ABS)/run/file_watcher.pid
+RAGSCAN_FILE_WATCHER_CONSOLE_LOG := $(RAGSCAN_BASE_ROOT_ABS)/logs/file_watcher.console.log
+export RAGSCAN_BASE_ROOT RAGSCAN_BASE_ROOT_CONTAINER_DIR RAGSCAN_STAGING_CONTAINER_DIR
+export RAGSCAN_FILE_WATCHER_MODE RAGSCAN_WATCH_HOST_DIR RAGSCAN_WATCH_CONTAINER_DIR
+export RAGSCAN_HOST_PATH_STYLE
 
 # ---------------------------------------------------------------------------
 # Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)
@@ -139,9 +168,13 @@ GO_DIRS := backend/core
 help:
 	@echo "LazyRAG Make targets:"
 	@echo "  make up         - Start services in background (with derived profiles)"
+	@echo "                    file-watcher runs in compose by default"
+	@echo "                    Use RAGSCAN_FILE_WATCHER_MODE=host for host-process debugging"
 	@echo "  make up-build   - Build images and start services"
 	@echo "  make down       - Stop services"
 	@echo "  make build      - Build compose services (mineru profile only when needed)"
+	@echo "  make file-watcher-start - Rebuild and start host file-watcher"
+	@echo "  make file-watcher-stop  - Stop host file-watcher started by Makefile"
 	@echo "                    Use LAZYRAG_ENABLE_STORE_DASHBOARDS=1 to add Attu/OpenSearch Dashboards for built-in stores"
 	@echo "  make lint       - Run Python flake8 and Go gofmt checks"
 	@echo "  make test       - Run project test script"
@@ -192,9 +225,9 @@ _enable_milvus_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_
 _enable_opensearch_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD))
 _need_milvus_dashboard := $(and $(_need_milvus),$(_enable_milvus_dashboard))
 _need_opensearch_dashboard := $(and $(_need_opensearch),$(_enable_opensearch_dashboard))
-
 # Shared compose profile flags for up/down/up-build
 _COMPOSE_PROFILES := $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch) $(if $(_need_milvus_dashboard),--profile milvus-dashboard) $(if $(_need_opensearch_dashboard),--profile opensearch-dashboard))
+_COMPOSE_FILE_WATCHER_SCALE := $(if $(filter container,$(RAGSCAN_FILE_WATCHER_MODE)),,--scale file-watcher=0)
 
 # Only init submodules when not yet cloned; if already present (even with different commit), do nothing. Never recursive.
 _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update --init || true
@@ -203,17 +236,99 @@ build:
 	$(_SUBMODULE_INIT)
 	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build
 
+file-watcher-dirs:
+	@mkdir -p "$(RAGSCAN_BASE_ROOT_ABS)" "$(RAGSCAN_BASE_ROOT_ABS)/staging" "$(RAGSCAN_BASE_ROOT_ABS)/snapshots" "$(RAGSCAN_BASE_ROOT_ABS)/logs" "$(RAGSCAN_BASE_ROOT_ABS)/run" "$(RAGSCAN_WATCH_HOST_DIR)"
+
+file-watcher-build: file-watcher-stop file-watcher-dirs
+	@echo "🔨 Rebuilding file-watcher..."
+	@rm -f "$(RAGSCAN_FILE_WATCHER_BIN)"
+	@cd "$(RAGSCAN_FILE_WATCHER_DIR)" && $(GO) build -o file_watcher ./cmd/main.go
+	@echo "✅ file-watcher built: $(RAGSCAN_FILE_WATCHER_BIN)"
+
+file-watcher-stop:
+	@if [ -f "$(RAGSCAN_FILE_WATCHER_PID)" ]; then \
+		pid=$$(cat "$(RAGSCAN_FILE_WATCHER_PID)"); \
+		if [ -n "$$pid" ] && kill -0 "$$pid" 2>/dev/null; then \
+			echo "🛑 Stopping file-watcher ($$pid)..."; \
+			kill "$$pid"; \
+			for i in 1 2 3 4 5; do \
+				kill -0 "$$pid" 2>/dev/null || break; \
+				sleep 1; \
+			done; \
+			if kill -0 "$$pid" 2>/dev/null; then \
+				echo "⚠️  file-watcher still running ($$pid), please stop it manually if needed."; \
+			fi; \
+		fi; \
+		rm -f "$(RAGSCAN_FILE_WATCHER_PID)"; \
+	fi
+	@if command -v lsof >/dev/null 2>&1; then \
+		for pid in $$(lsof -t -nP -iTCP:19090 -sTCP:LISTEN 2>/dev/null | sort -u); do \
+			cmd=$$(ps -p "$$pid" -o command= 2>/dev/null || true); \
+			case "$$cmd" in \
+				*file_watcher*) \
+					echo "🛑 Stopping host file-watcher on :19090 ($$pid)..."; \
+					kill "$$pid" 2>/dev/null || true; \
+					;; \
+			esac; \
+		done; \
+	fi
+
+file-watcher-run: file-watcher-stop file-watcher-dirs
+	@echo "🚀 Starting file-watcher (RAGSCAN_BASE_ROOT=$(RAGSCAN_BASE_ROOT_ABS))..."
+	@RAGSCAN_BASE_ROOT="$(RAGSCAN_BASE_ROOT_ABS)" nohup sh -c 'cd "$(RAGSCAN_FILE_WATCHER_DIR)" && exec ./file_watcher -config configs/agent.yaml' >> "$(RAGSCAN_FILE_WATCHER_CONSOLE_LOG)" 2>&1 & echo $$! > "$(RAGSCAN_FILE_WATCHER_PID)"
+	@sleep 1
+	@pid=$$(cat "$(RAGSCAN_FILE_WATCHER_PID)"); \
+	if kill -0 "$$pid" 2>/dev/null; then \
+		echo "✅ file-watcher started ($$pid), log: $(RAGSCAN_FILE_WATCHER_CONSOLE_LOG)"; \
+	else \
+		echo "❌ file-watcher failed to start. Recent log:"; \
+		tail -n 80 "$(RAGSCAN_FILE_WATCHER_CONSOLE_LOG)" 2>/dev/null || true; \
+		rm -f "$(RAGSCAN_FILE_WATCHER_PID)"; \
+		exit 1; \
+	fi
+
+file-watcher-start: file-watcher-build
+	@$(MAKE) --no-print-directory file-watcher-run
+
 up:
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d
+	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" = "container" ]; then \
+		$(MAKE) --no-print-directory file-watcher-stop; \
+		$(MAKE) --no-print-directory file-watcher-dirs; \
+	else \
+		$(MAKE) --no-print-directory file-watcher-build; \
+	fi
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up $(_COMPOSE_FILE_WATCHER_SCALE) -d
+	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
+		$(MAKE) --no-print-directory file-watcher-run; \
+	else \
+		echo "✅ file-watcher container enabled"; \
+	fi
 
 down:
+	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
+		$(MAKE) --no-print-directory file-watcher-stop; \
+	fi
 	@$(_COMPOSE) $(_COMPOSE_PROFILES) down
 
 up-build:
+	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" = "container" ]; then \
+		$(MAKE) --no-print-directory file-watcher-stop; \
+		$(MAKE) --no-print-directory file-watcher-dirs; \
+	else \
+		$(MAKE) --no-print-directory file-watcher-build; \
+	fi
 	$(_SUBMODULE_INIT)
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) up --build -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up $(_COMPOSE_FILE_WATCHER_SCALE) --build -d
+	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
+		$(MAKE) --no-print-directory file-watcher-run; \
+	else \
+		echo "✅ file-watcher container enabled"; \
+	fi
 
 clear:
+	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
+		$(MAKE) --no-print-directory file-watcher-stop; \
+	fi
 	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."
 	@$(_COMPOSE) $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
 	@echo "🧹 Clearing Python cache..."
