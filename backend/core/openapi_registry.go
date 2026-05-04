@@ -411,6 +411,26 @@ type agentFileContentOpenAPIResponse struct {
 	FileSize int64  `json:"file_size"`
 }
 
+type agentThreadListQueryParams struct {
+	PageSize  int32  `query:"page_size"`
+	PageToken string `query:"page_token"`
+}
+
+type agentThreadOpenAPIResponse struct {
+	ThreadID      string         `json:"thread_id"`
+	CurrentTaskID string         `json:"current_task_id,omitempty"`
+	Status        string         `json:"status"`
+	ThreadPayload map[string]any `json:"thread_payload,omitempty"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+}
+
+type agentThreadListOpenAPIResponse struct {
+	Threads       []agentThreadOpenAPIResponse `json:"threads"`
+	TotalSize     int64                        `json:"total_size"`
+	NextPageToken string                       `json:"next_page_token"`
+}
+
 type skillPathParams struct {
 	SkillID string `path:"skill_id"`
 }
@@ -1453,6 +1473,15 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:       []string{"conversations"},
 			PathParams: exportConversationFilePathParams{},
 			Responses:  map[int]openAPIResponse{200: {Description: "Exported conversation file", ContentType: "application/octet-stream", Schema: schemaSource{Inline: map[string]any{"type": "string", "format": "binary"}}}},
+		},
+		{
+			Method:      "GET",
+			Path:        "/agent/threads",
+			Summary:     "List agent threads",
+			Description: "List the current user's agent threads. Use thread_id from this response to load thread details or history.",
+			Tags:        []string{"agent"},
+			QueryParams: agentThreadListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Agent thread list", agentThreadListOpenAPIResponse{})},
 		},
 		{
 			Method:      "POST",

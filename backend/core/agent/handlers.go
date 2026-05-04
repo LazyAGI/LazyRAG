@@ -29,6 +29,12 @@ type threadResponse struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+type threadListResponse struct {
+	Threads       []threadResponse `json:"threads"`
+	TotalSize     int64            `json:"total_size"`
+	NextPageToken string           `json:"next_page_token"`
+}
+
 type recordResponse struct {
 	ID         string    `json:"id"`
 	ThreadID   string    `json:"thread_id"`
@@ -52,6 +58,68 @@ type threadFlowStatusResponse struct {
 	LatestAbtestID     any      `json:"latest_abtest_id,omitempty"`
 	LatestAbtestStatus any      `json:"latest_abtest_status,omitempty"`
 	ReportReady        bool     `json:"report_ready,omitempty"`
+}
+
+type threadStatusesResponse struct {
+	Total   int                        `json:"total,omitempty"`
+	Counts  map[string]int             `json:"counts,omitempty"`
+	Threads []threadFlowStatusResponse `json:"threads,omitempty"`
+}
+
+func ListThreads(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
+
+	pageSize := parseThreadPageSize(r.URL.Query().Get("page_size"))
+	offset, err := parseThreadPageToken(r.URL.Query().Get("page_token"))
+	if err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	threads, total, err := listThreads(db, userID, offset, pageSize)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "list agent threads failed", err), http.StatusInternalServerError)
+		return
+	}
+
+	statusByThread := map[string]threadFlowStatusResponse{}
+	if len(threads) > 0 {
+		var statusErr error
+		statusByThread, statusErr = fetchThreadStatuses(r.Context(), r)
+		if statusErr != nil {
+			log.Logger.Warn().Err(statusErr).Str("user_id", userID).Msg("list agent thread statuses failed; using local thread status")
+		}
+	}
+
+	items := make([]threadResponse, 0, len(threads))
+	for _, thread := range threads {
+		item := toThreadResponse(thread)
+		if upstreamStatus, ok := statusByThread[thread.ThreadID]; ok {
+			if status := strings.TrimSpace(upstreamStatus.Status); status != "" {
+				item.Status = status
+			}
+		}
+		items = append(items, item)
+	}
+	nextPageToken := ""
+	if offset+len(threads) < int(total) {
+		nextPageToken = fmt.Sprintf("%d", offset+len(threads))
+	}
+
+	common.ReplyOK(w, threadListResponse{
+		Threads:       items,
+		TotalSize:     total,
+		NextPageToken: nextPageToken,
+	})
 }
 
 func CreateThread(w http.ResponseWriter, r *http.Request) {
@@ -512,6 +580,7 @@ type threadEventStreamChunk struct {
 	ParseElapsed    time.Duration
 	FrameStarted    time.Time
 	StreamElapsed   time.Duration
+	Keepalive       bool
 }
 
 type threadEventStreamResult struct {
@@ -576,6 +645,16 @@ func streamUpstreamThreadEvents(
 				}
 				return result.Err
 			}
+			if chunk.Keepalive {
+				if chunk.UpstreamEventID != "" && lastUpstreamEventID != nil {
+					*lastUpstreamEventID = chunk.UpstreamEventID
+				}
+				if err := writeThreadEventKeepalive(w, flusher, threadID, chunk); err != nil {
+					cancelReader()
+					return err
+				}
+				continue
+			}
 			if err := writeThreadEventStreamChunk(
 				w,
 				flusher,
@@ -589,6 +668,29 @@ func streamUpstreamThreadEvents(
 			}
 		}
 	}
+}
+
+func writeThreadEventKeepalive(
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	threadID string,
+	chunk threadEventStreamChunk,
+) error {
+	writeStarted := time.Now()
+	writeErr := writeSSEKeepalive(w, flusher)
+	log.Logger.Info().
+		Str("thread_id", threadID).
+		Str("sse_endpoint", ":events").
+		Str("upstream_event_id", chunk.UpstreamEventID).
+		Int("frame_index", chunk.FrameIndex).
+		Dur("read_frame_elapsed", chunk.ReadElapsed).
+		Dur("parse_frame_elapsed", chunk.ParseElapsed).
+		Dur("write_frontend_elapsed", time.Since(writeStarted)).
+		Dur("frame_total_elapsed", time.Since(chunk.FrameStarted)).
+		Dur("stream_elapsed", chunk.StreamElapsed).
+		Err(writeErr).
+		Msg("agent thread events keepalive forwarded")
+	return writeErr
 }
 
 func writeThreadEventStreamChunk(
@@ -735,6 +837,29 @@ func readUpstreamThreadEvents(
 					Dur("parse_frame_elapsed", parseElapsed).
 					Dur("stream_elapsed", time.Since(streamStarted)).
 					Msg("agent thread events upstream frame skipped")
+				keepalive := threadEventStreamChunk{
+					Keepalive:       true,
+					UpstreamEventID: frame.ID,
+					FrameIndex:      frameIndex,
+					ReadElapsed:     readElapsed,
+					ParseElapsed:    parseElapsed,
+					FrameStarted:    frameStarted,
+					StreamElapsed:   time.Since(streamStarted),
+				}
+				queueStarted := time.Now()
+				select {
+				case chunks <- keepalive:
+					log.Logger.Info().
+						Str("thread_id", threadID).
+						Str("sse_endpoint", ":events").
+						Str("upstream_event_id", frame.ID).
+						Int("frame_index", frameIndex).
+						Dur("queue_frontend_elapsed", time.Since(queueStarted)).
+						Dur("stream_elapsed", time.Since(streamStarted)).
+						Msg("agent thread events keepalive queued for frontend")
+				case <-ctx.Done():
+					return
+				}
 				if shouldContinue != nil && !shouldContinue("upstream_keepalive", nil) {
 					return
 				}
@@ -969,6 +1094,23 @@ func fetchThreadFlowStatus(ctx context.Context, r *http.Request, threadID string
 	return &flowStatus, nil
 }
 
+func fetchThreadStatuses(ctx context.Context, r *http.Request) (map[string]threadFlowStatusResponse, error) {
+	headers := forwardedUpstreamHeaders(r)
+	var statuses threadStatusesResponse
+	if err := common.ApiGet(ctx, threadStatusesURL(), headers, &statuses, 5*time.Second); err != nil {
+		return nil, err
+	}
+	result := make(map[string]threadFlowStatusResponse, len(statuses.Threads))
+	for _, status := range statuses.Threads {
+		threadID := strings.TrimSpace(status.ThreadID)
+		if threadID == "" {
+			continue
+		}
+		result[threadID] = status
+	}
+	return result, nil
+}
+
 func fetchUpstreamProxy(ctx context.Context, r *http.Request, targetURL string) (*upstreamProxyResponse, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
@@ -1121,6 +1263,10 @@ func streamMessageRecords(
 		case <-session.done:
 			_ = replay()
 			return
+		case <-sub.heartbeats:
+			if err := writeSSEKeepalive(w, flusher); err != nil {
+				return
+			}
 		case record := <-sub.records:
 			if record.ID <= lastSent {
 				continue
@@ -1224,6 +1370,34 @@ func loadThread(db *gorm.DB, threadID string) (orm.AgentThread, error) {
 		return orm.AgentThread{}, err
 	}
 	return thread, nil
+}
+
+func listThreads(db *gorm.DB, userID string, offset, pageSize int) ([]orm.AgentThread, int64, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, 0, errors.New("user_id required")
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if pageSize <= 0 {
+		pageSize = defaultThreadPageSize
+	}
+	if pageSize > maxThreadPageSize {
+		pageSize = maxThreadPageSize
+	}
+
+	query := db.Model(&orm.AgentThread{}).Where("create_user_id = ?", userID)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var threads []orm.AgentThread
+	if err := query.Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&threads).Error; err != nil {
+		return nil, 0, err
+	}
+	return threads, total, nil
 }
 
 func upsertThread(

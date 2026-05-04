@@ -94,6 +94,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/chat", []string{"qa.read"}, chat.Chat)
 
 	// ----- Agent thread stream -----
+	handleAPI(r, "GET", "/agent/threads", []string{"qa.read"}, agent.ListThreads)
 	handleAPI(r, "POST", "/agent/threads", []string{"qa.read"}, agent.CreateThread)
 	handleAPI(r, "GET", "/agent/threads/{thread_id}:events", []string{"qa.read"}, agent.StreamThreadEvents)
 	handleAPI(r, "GET", "/agent/threads/{thread_id}", []string{"qa.read"}, agent.GetThread)

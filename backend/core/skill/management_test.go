@@ -478,6 +478,148 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	}
 }
 
+func TestGenerateAllowsGeneratedDescriptionChange(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat/skill/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"content": "---\nname: git-workflow\ndescription: expanded git workflow\n---\nupdated body",
+			},
+		})
+	})
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("listener unavailable in current test environment: %v", err)
+	}
+	algoServer := &http.Server{Handler: handler}
+	go func() { _ = algoServer.Serve(listener) }()
+	defer func() { _ = algoServer.Shutdown(context.Background()) }()
+	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+
+	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
+	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	now := time.Now()
+	skillRow := orm.SkillResource{
+		ID:             "skill-1",
+		OwnerUserID:    "u1",
+		OwnerUserName:  "User 1",
+		Category:       "coding",
+		SkillName:      "git-workflow",
+		NodeType:       evolution.SkillNodeTypeParent,
+		Description:    "git workflow",
+		FileExt:        "md",
+		RelativePath:   relativePath,
+		Content:        currentContent,
+		ContentSize:    int64(len([]byte(currentContent))),
+		MimeType:       "text/markdown; charset=utf-8",
+		ContentHash:    evolution.HashContent(currentContent),
+		Version:        1,
+		IsEnabled:      true,
+		UpdateStatus:   evolution.UpdateStatusUpToDate,
+		CreateUserID:   "u1",
+		CreateUserName: "User 1",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := db.Create(&skillRow).Error; err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/skills/skill-1:generate", strings.NewReader(`{"user_instruct":"扩展技能适用范围"}`))
+	req = mux.SetURLVars(req, map[string]string{"skill_id": "skill-1"})
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+
+	Generate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updatedSkill orm.SkillResource
+	if err := db.Where("id = ?", "skill-1").Take(&updatedSkill).Error; err != nil {
+		t.Fatalf("query updated skill: %v", err)
+	}
+	if !strings.Contains(updatedSkill.DraftContent, "description: expanded git workflow") {
+		t.Fatalf("expected generated description in draft_content, got %q", updatedSkill.DraftContent)
+	}
+	if updatedSkill.Description != "git workflow" {
+		t.Fatalf("generate should not persist description before confirm, got %q", updatedSkill.Description)
+	}
+}
+
+func TestConfirmPersistsDraftFrontmatterDescription(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
+	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	draftContent := "---\nname: git-workflow\ndescription: expanded git workflow\n---\nupdated body"
+	now := time.Now()
+	skillRow := orm.SkillResource{
+		ID:                 "skill-1",
+		OwnerUserID:        "u1",
+		OwnerUserName:      "User 1",
+		Category:           "coding",
+		ParentSkillName:    "git-workflow",
+		SkillName:          "git-workflow",
+		NodeType:           evolution.SkillNodeTypeParent,
+		Description:        "git workflow",
+		FileExt:            "md",
+		RelativePath:       relativePath,
+		Content:            currentContent,
+		ContentSize:        int64(len([]byte(currentContent))),
+		MimeType:           "text/markdown; charset=utf-8",
+		ContentHash:        evolution.HashContent(currentContent),
+		Version:            2,
+		DraftContent:       draftContent,
+		DraftSourceVersion: 2,
+		DraftStatus:        "pending_confirm",
+		IsEnabled:          true,
+		UpdateStatus:       "pending_confirm",
+		CreateUserID:       "u1",
+		CreateUserName:     "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&skillRow).Error; err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/skills/skill-1:confirm", nil)
+	req = mux.SetURLVars(req, map[string]string{"skill_id": "skill-1"})
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+
+	Confirm(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updatedSkill orm.SkillResource
+	if err := db.Where("id = ?", "skill-1").Take(&updatedSkill).Error; err != nil {
+		t.Fatalf("query updated skill: %v", err)
+	}
+	if updatedSkill.Description != "expanded git workflow" {
+		t.Fatalf("expected confirmed description to persist, got %q", updatedSkill.Description)
+	}
+	if updatedSkill.Content != draftContent {
+		t.Fatalf("expected content to be confirmed, got %q", updatedSkill.Content)
+	}
+	if updatedSkill.DraftStatus != "" {
+		t.Fatalf("expected draft status to be cleared, got %q", updatedSkill.DraftStatus)
+	}
+}
+
 func TestDraftPreviewReturnsCurrentDraftAndDiff(t *testing.T) {
 	db := newSkillTestDB(t)
 	store.Init(db.DB, nil, nil)

@@ -28,6 +28,9 @@ const (
 
 	defaultRecordLimit = 100
 	maxRecordLimit     = 1000
+
+	defaultThreadPageSize = 20
+	maxThreadPageSize     = 100
 )
 
 var recordIDCounter atomic.Uint64
@@ -54,6 +57,10 @@ func agentServiceEndpoint() string {
 
 func threadCreateURL() string {
 	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads")
+}
+
+func threadStatusesURL() string {
+	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/statuse")
 }
 
 func threadMessagesURL(threadID string) string {
@@ -126,6 +133,33 @@ func parseAfterID(r *http.Request) string {
 		return value
 	}
 	return strings.TrimSpace(r.Header.Get("Last-Event-ID"))
+}
+
+func parseThreadPageSize(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultThreadPageSize
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return defaultThreadPageSize
+	}
+	if value > maxThreadPageSize {
+		return maxThreadPageSize
+	}
+	return value
+}
+
+func parseThreadPageToken(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("invalid page_token")
+	}
+	return value, nil
 }
 
 func ensureSSEHeaders(w http.ResponseWriter) (http.Flusher, bool) {
@@ -490,6 +524,14 @@ func writeReplayFrame(w http.ResponseWriter, flusher http.Flusher, record orm.Ag
 	if flusher != nil {
 		flusher.Flush()
 	}
+}
+
+func writeSSEKeepalive(w http.ResponseWriter, flusher http.Flusher) error {
+	_, err := io.WriteString(w, ": keepalive\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return err
 }
 
 func writeNamedSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload any) {

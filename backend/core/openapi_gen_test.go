@@ -73,6 +73,7 @@ func TestOpenAPISpecCoversEvolutionSkillMemoryPreferenceOperations(t *testing.T)
 		{"post", "/api/core/user-preference:generate", true, false, true},
 		{"post", "/api/core/user-preference:confirm", false, false, true},
 		{"post", "/api/core/user-preference:discard", false, false, true},
+		{"get", "/api/core/agent/threads", false, true, true},
 	}
 
 	for _, tc := range cases {

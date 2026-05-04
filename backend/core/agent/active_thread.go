@@ -245,7 +245,8 @@ func isThreadFlowRunning(flowStatus *threadFlowStatusResponse) bool {
 	if flowStatus == nil {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(flowStatus.Status), "running") {
+	switch strings.ToLower(strings.TrimSpace(flowStatus.Status)) {
+	case "running", "pending", "waiting_checkpoint", "paused":
 		return true
 	}
 	return len(flowStatus.ActiveTaskIDs) > 0

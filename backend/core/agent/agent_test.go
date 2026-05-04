@@ -15,11 +15,55 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
+
 	"lazyrag/core/common/orm"
+	"lazyrag/core/store"
 )
+
+type testSSERecorder struct {
+	header  http.Header
+	writeCh chan string
+
+	mu   sync.Mutex
+	body strings.Builder
+}
+
+func newTestSSERecorder() *testSSERecorder {
+	return &testSSERecorder{
+		header:  make(http.Header),
+		writeCh: make(chan string, 16),
+	}
+}
+
+func (r *testSSERecorder) Header() http.Header {
+	return r.header
+}
+
+func (r *testSSERecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	n, err := r.body.Write(p)
+	r.mu.Unlock()
+	select {
+	case r.writeCh <- string(p):
+	default:
+	}
+	return n, err
+}
+
+func (r *testSSERecorder) WriteHeader(statusCode int) {}
+
+func (r *testSSERecorder) Flush() {}
+
+func (r *testSSERecorder) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.String()
+}
 
 func newAgentTestDB(t *testing.T) *orm.DB {
 	t.Helper()
@@ -789,6 +833,88 @@ func TestStreamUpstreamThreadEventsForwardsLineDelimitedFrames(t *testing.T) {
 	}
 }
 
+func TestStreamUpstreamThreadEventsForwardsKeepalive(t *testing.T) {
+	db := newAgentTestDB(t)
+	rec := httptest.NewRecorder()
+	body := strings.NewReader(strings.Join([]string{
+		": upstream heartbeat\n\n",
+		"data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n",
+	}, ""))
+
+	var lastUpstreamEventID string
+	if err := streamUpstreamThreadEvents(context.Background(), rec, rec, db.DB, "thr_1", body, &lastUpstreamEventID, nil); err != nil {
+		t.Fatalf("streamUpstreamThreadEvents returned error: %v", err)
+	}
+
+	want := ": keepalive\n\n" +
+		"data: {\"kind\":\"task.running\",\"task_id\":\"task_1\"}\n\n"
+	if got := rec.Body.String(); got != want {
+		t.Fatalf("unexpected forwarded stream:\nwant: %q\ngot:  %q", want, got)
+	}
+
+	var count int64
+	if err := db.DB.Model(&orm.AgentThreadRecord{}).
+		Where("thread_id = ? AND stream_kind = ?", "thr_1", streamKindThreadEvent).
+		Count(&count).Error; err != nil {
+		t.Fatalf("count saved records: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected keepalive to stay unpersisted and one thread event to be saved, got %d", count)
+	}
+}
+
+func TestStreamMessageRecordsForwardsPublishedKeepalive(t *testing.T) {
+	db := newAgentTestDB(t)
+	session := &activeMessageStream{
+		threadID:    "thr_1",
+		roundID:     "round_1",
+		done:        make(chan struct{}),
+		subscribers: make(map[*messageStreamSubscription]struct{}),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/agent/threads/thr_1:messages", nil)
+	rec := newTestSSERecorder()
+	done := make(chan struct{})
+	go func() {
+		streamMessageRecords(req, rec, rec, db.DB, "thr_1", "", session)
+		close(done)
+	}()
+
+	deadline := time.After(time.Second)
+	for {
+		session.mu.RLock()
+		subscriberCount := len(session.subscribers)
+		session.mu.RUnlock()
+		if subscriberCount > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("message stream did not subscribe")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	session.publishHeartbeat()
+	select {
+	case chunk := <-rec.writeCh:
+		if chunk != ": keepalive\n\n" {
+			t.Fatalf("unexpected keepalive frame: %q", chunk)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for keepalive frame")
+	}
+
+	close(session.done)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("message stream did not stop")
+	}
+	if got := rec.String(); got != ": keepalive\n\n" {
+		t.Fatalf("unexpected message stream body: %q", got)
+	}
+}
+
 func TestBuildAnalysisMarkdownResultReadsMarkdownPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	mdPath := filepath.Join(tmpDir, "analysis.md")
@@ -910,6 +1036,422 @@ func TestDeleteThreadHistoryRemovesThreadRoundsAndRecords(t *testing.T) {
 	}
 }
 
+func TestDeleteThreadHistoryCancelsRunningFlowBeforeDeleting(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:       "thr_1",
+		Status:         "message_streaming",
+		CreateUserID:   "u1",
+		CreateUserName: "tester",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	var mu sync.Mutex
+	calls := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/evo/threads/thr_1/flow-status":
+			_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{
+				ThreadID:      "thr_1",
+				Status:        "running",
+				ActiveTaskIDs: []string{"task_1"},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/evo/threads/thr_1/cancel":
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "cancelled"})
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
+	rec := httptest.NewRecorder()
+	DeleteThreadHistory(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected delete ok, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	mu.Lock()
+	gotCalls := append([]string(nil), calls...)
+	mu.Unlock()
+	wantCalls := []string{
+		"GET /v1/evo/threads/thr_1/flow-status",
+		"POST /v1/evo/threads/thr_1/cancel",
+	}
+	if fmt.Sprint(gotCalls) != fmt.Sprint(wantCalls) {
+		t.Fatalf("unexpected upstream calls: want %v got %v", wantCalls, gotCalls)
+	}
+	var count int64
+	if err := db.DB.Model(&orm.AgentThread{}).Where("thread_id = ?", "thr_1").Count(&count).Error; err != nil {
+		t.Fatalf("count thread: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected thread to be deleted, found %d rows", count)
+	}
+}
+
+func TestDeleteThreadHistoryDoesNotCancelEndedFlow(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:       "thr_1",
+		Status:         "completed",
+		CreateUserID:   "u1",
+		CreateUserName: "tester",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/evo/threads/thr_1/flow-status" {
+			_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_1", Status: "ended"})
+			return
+		}
+		http.Error(w, "unexpected request", http.StatusNotFound)
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
+	rec := httptest.NewRecorder()
+	DeleteThreadHistory(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected delete ok, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var count int64
+	if err := db.DB.Model(&orm.AgentThread{}).Where("thread_id = ?", "thr_1").Count(&count).Error; err != nil {
+		t.Fatalf("count thread: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected thread to be deleted, found %d rows", count)
+	}
+}
+
+func TestDeleteThreadHistoryCancelsRunningFlowBeforeActiveStreamConflict(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:       "thr_1",
+		Status:         "message_streaming",
+		CreateUserID:   "u1",
+		CreateUserName: "tester",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	session := &activeMessageStream{
+		threadID:    "thr_1",
+		done:        make(chan struct{}),
+		subscribers: make(map[*messageStreamSubscription]struct{}),
+	}
+	if !activeStreams.put("thr_1", session) {
+		t.Fatalf("seed active stream")
+	}
+	t.Cleanup(func() {
+		activeStreams.delete("thr_1", session)
+		close(session.done)
+	})
+
+	var mu sync.Mutex
+	cancelCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/evo/threads/thr_1/flow-status":
+			_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_1", Status: "running"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/evo/threads/thr_1/cancel":
+			mu.Lock()
+			cancelCalled = true
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "cancelled"})
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
+	rec := httptest.NewRecorder()
+	DeleteThreadHistory(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected active stream conflict, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	mu.Lock()
+	gotCancelCalled := cancelCalled
+	mu.Unlock()
+	if !gotCancelCalled {
+		t.Fatalf("expected delete to request cancel before returning active stream conflict")
+	}
+	var count int64
+	if err := db.DB.Model(&orm.AgentThread{}).Where("thread_id = ?", "thr_1").Count(&count).Error; err != nil {
+		t.Fatalf("count thread: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected local thread to remain while active stream is open, found %d rows", count)
+	}
+}
+
+func TestDeleteThreadHistoryKeepsLocalRowsWhenCancelFails(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:       "thr_1",
+		Status:         "message_streaming",
+		CreateUserID:   "u1",
+		CreateUserName: "tester",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/evo/threads/thr_1/flow-status":
+			_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_1", Status: "running"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/evo/threads/thr_1/cancel":
+			http.Error(w, `{"message":"cancel failed"}`, http.StatusInternalServerError)
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
+	rec := httptest.NewRecorder()
+	DeleteThreadHistory(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected bad gateway when cancel fails, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var count int64
+	if err := db.DB.Model(&orm.AgentThread{}).Where("thread_id = ?", "thr_1").Count(&count).Error; err != nil {
+		t.Fatalf("count thread: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected local thread to remain after cancel failure, found %d rows", count)
+	}
+}
+
+func TestDeleteThreadHistoryKeepsLocalRowsWhenFlowStatusFails(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:       "thr_1",
+		Status:         "completed",
+		CreateUserID:   "u1",
+		CreateUserName: "tester",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"status failed"}`, http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
+	rec := httptest.NewRecorder()
+	DeleteThreadHistory(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected bad gateway when flow status fails, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var count int64
+	if err := db.DB.Model(&orm.AgentThread{}).Where("thread_id = ?", "thr_1").Count(&count).Error; err != nil {
+		t.Fatalf("count thread: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected local thread to remain after flow status failure, found %d rows", count)
+	}
+}
+
+func TestListThreadsFiltersByUserAndPaginates(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC)
+	threads := []orm.AgentThread{
+		{
+			ThreadID:       "thr_old",
+			Status:         "completed",
+			CreateUserID:   "u1",
+			CreateUserName: "tester",
+			CreatedAt:      now.Add(-2 * time.Hour),
+			UpdatedAt:      now.Add(-2 * time.Hour),
+		},
+		{
+			ThreadID:       "thr_new",
+			Status:         "message_streaming",
+			CreateUserID:   "u1",
+			CreateUserName: "tester",
+			CreatedAt:      now.Add(-1 * time.Hour),
+			UpdatedAt:      now.Add(-1 * time.Hour),
+		},
+		{
+			ThreadID:       "thr_other_user",
+			Status:         "completed",
+			CreateUserID:   "u2",
+			CreateUserName: "other",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}
+	if err := db.DB.Create(&threads).Error; err != nil {
+		t.Fatalf("create threads: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/evo/threads/statuse" {
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(threadStatusesResponse{
+			Threads: []threadFlowStatusResponse{
+				{ThreadID: "thr_new", Status: "running"},
+				{ThreadID: "thr_old", Status: "failed"},
+				{ThreadID: "thr_other_user", Status: "cancelled"},
+			},
+		})
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/agent/threads?page_size=1", nil)
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+	ListThreads(rec, req)
+
+	var firstPage struct {
+		Code    int                `json:"code"`
+		Message string             `json:"message"`
+		Data    threadListResponse `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&firstPage); err != nil {
+		t.Fatalf("decode first page: %v", err)
+	}
+	if rec.Code != http.StatusOK || firstPage.Code != 0 {
+		t.Fatalf("expected ok response, status=%d code=%d message=%s", rec.Code, firstPage.Code, firstPage.Message)
+	}
+	if firstPage.Data.TotalSize != 2 {
+		t.Fatalf("expected total_size=2, got %d", firstPage.Data.TotalSize)
+	}
+	if firstPage.Data.NextPageToken != "1" {
+		t.Fatalf("expected next_page_token=1, got %q", firstPage.Data.NextPageToken)
+	}
+	if len(firstPage.Data.Threads) != 1 || firstPage.Data.Threads[0].ThreadID != "thr_new" {
+		t.Fatalf("unexpected first page threads: %#v", firstPage.Data.Threads)
+	}
+	if firstPage.Data.Threads[0].Status != "running" {
+		t.Fatalf("expected upstream status running, got %q", firstPage.Data.Threads[0].Status)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/core/agent/threads?page_size=10&page_token=1", nil)
+	req.Header.Set("X-User-Id", "u1")
+	rec = httptest.NewRecorder()
+	ListThreads(rec, req)
+
+	var secondPage struct {
+		Code    int                `json:"code"`
+		Message string             `json:"message"`
+		Data    threadListResponse `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&secondPage); err != nil {
+		t.Fatalf("decode second page: %v", err)
+	}
+	if rec.Code != http.StatusOK || secondPage.Code != 0 {
+		t.Fatalf("expected ok second response, status=%d code=%d message=%s", rec.Code, secondPage.Code, secondPage.Message)
+	}
+	if secondPage.Data.NextPageToken != "" {
+		t.Fatalf("expected empty next_page_token, got %q", secondPage.Data.NextPageToken)
+	}
+	if len(secondPage.Data.Threads) != 1 || secondPage.Data.Threads[0].ThreadID != "thr_old" {
+		t.Fatalf("unexpected second page threads: %#v", secondPage.Data.Threads)
+	}
+	if secondPage.Data.Threads[0].Status != "failed" {
+		t.Fatalf("expected upstream status failed, got %q", secondPage.Data.Threads[0].Status)
+	}
+}
+
+func TestListThreadsFallsBackToLocalStatusWhenStatusesFail(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC)
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:       "thr_1",
+		Status:         "completed",
+		CreateUserID:   "u1",
+		CreateUserName: "tester",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "status service unavailable", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/agent/threads?page_size=10", nil)
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+	ListThreads(rec, req)
+
+	var response struct {
+		Code    int                `json:"code"`
+		Message string             `json:"message"`
+		Data    threadListResponse `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if rec.Code != http.StatusOK || response.Code != 0 {
+		t.Fatalf("expected ok response, status=%d code=%d message=%s", rec.Code, response.Code, response.Message)
+	}
+	if len(response.Data.Threads) != 1 || response.Data.Threads[0].Status != "completed" {
+		t.Fatalf("expected local status fallback, got %#v", response.Data.Threads)
+	}
+}
+
 func TestReserveUserActiveThreadCreationCreatesPlaceholder(t *testing.T) {
 	db := newAgentTestDB(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
@@ -968,6 +1510,41 @@ func TestReserveUserActiveThreadCreationRejectsRunningThread(t *testing.T) {
 	guard, err := reserveUserActiveThreadCreation(context.Background(), db.DB, req)
 	if guard != nil {
 		t.Fatalf("expected no guard for running thread")
+	}
+	var activeErr *userActiveThreadError
+	if !errors.As(err, &activeErr) || activeErr.statusCode != http.StatusConflict {
+		t.Fatalf("expected conflict active thread error, got %T %v", err, err)
+	}
+}
+
+func TestReserveUserActiveThreadCreationRejectsCheckpointThread(t *testing.T) {
+	db := newAgentTestDB(t)
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentUserActiveThread{
+		UserID:     "u1",
+		ThreadID:   "thr_old",
+		Status:     userActiveThreadStatusActive,
+		LeaseUntil: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error; err != nil {
+		t.Fatalf("seed active thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/v1/evo/threads/thr_old/flow-status") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "waiting_checkpoint"})
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
+	req.Header.Set("X-User-Id", "u1")
+	guard, err := reserveUserActiveThreadCreation(context.Background(), db.DB, req)
+	if guard != nil {
+		t.Fatalf("expected no guard for waiting checkpoint thread")
 	}
 	var activeErr *userActiveThreadError
 	if !errors.As(err, &activeErr) || activeErr.statusCode != http.StatusConflict {

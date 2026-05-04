@@ -30,15 +30,17 @@ type activeMessageStream struct {
 }
 
 type messageStreamSubscription struct {
-	records chan orm.AgentThreadRecord
-	done    chan struct{}
-	once    sync.Once
+	records    chan orm.AgentThreadRecord
+	heartbeats chan struct{}
+	done       chan struct{}
+	once       sync.Once
 }
 
 func newMessageStreamSubscription() *messageStreamSubscription {
 	return &messageStreamSubscription{
-		records: make(chan orm.AgentThreadRecord, 256),
-		done:    make(chan struct{}),
+		records:    make(chan orm.AgentThreadRecord, 256),
+		heartbeats: make(chan struct{}, 16),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -95,6 +97,24 @@ func (s *activeMessageStream) publish(record orm.AgentThreadRecord) {
 		case <-sub.done:
 		case <-s.done:
 			return
+		}
+	}
+}
+
+func (s *activeMessageStream) publishHeartbeat() {
+	s.mu.RLock()
+	subscribers := make([]*messageStreamSubscription, 0, len(s.subscribers))
+	for sub := range s.subscribers {
+		subscribers = append(subscribers, sub)
+	}
+	s.mu.RUnlock()
+
+	for _, sub := range subscribers {
+		select {
+		case sub.heartbeats <- struct{}{}:
+		case <-sub.done:
+		case <-s.done:
+		default:
 		}
 	}
 }
@@ -275,6 +295,14 @@ func consumeMessageStream(db *gorm.DB, session *activeMessageStream, threadID st
 			if rawData == "[DONE]" {
 				break
 			}
+			session.publishHeartbeat()
+			log.Logger.Info().
+				Str("thread_id", threadID).
+				Str("round_id", session.roundID).
+				Str("sse_endpoint", ":messages").
+				Str("event_name", strings.TrimSpace(frame.Event)).
+				Int("data_bytes", len(rawData)).
+				Msg("agent messages upstream frame skipped; keepalive published")
 			continue
 		}
 
