@@ -1,0 +1,136 @@
+import json
+from datetime import datetime, timedelta, timezone
+from urllib import parse, request
+from urllib.error import HTTPError, URLError
+
+from services.cloud_oauth_provider import CloudOAuthProvider, CloudTokenPayload
+
+
+_FEISHU_OAUTH_AUTHORIZE_URL = 'https://accounts.feishu.cn/open-apis/authen/v1/authorize'
+_FEISHU_USER_TOKEN_URL = 'https://open.feishu.cn/open-apis/authen/v2/oauth/token'
+_FEISHU_TENANT_TOKEN_URL = 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal'
+
+_DEFAULT_SCOPE = (
+    'offline_access '
+    'drive:drive drive:drive:readonly drive:drive.metadata:readonly '
+    'wiki:wiki wiki:wiki:readonly wiki:node:retrieve docx:document'
+)
+
+_REFRESH_BUFFER_SECONDS = 300
+
+
+def _post_json(url: str, payload: dict, timeout_seconds: int = 30) -> dict:
+    body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    req = request.Request(
+        url=url,
+        method='POST',
+        data=body,
+        headers={'Content-Type': 'application/json; charset=utf-8'},
+    )
+    try:
+        with request.urlopen(req, timeout=timeout_seconds) as resp:
+            resp_body = resp.read().decode('utf-8')
+            return json.loads(resp_body) if resp_body else {}
+    except HTTPError as exc:
+        detail = exc.read().decode('utf-8', errors='ignore')
+        raise RuntimeError(f'provider http error {exc.code}: {detail}') from exc
+    except URLError as exc:
+        raise RuntimeError(f'provider network error: {exc}') from exc
+
+
+def _safe_expires_at(seconds: int | None) -> datetime | None:
+    if not seconds or seconds <= 0:
+        return None
+    return datetime.now(timezone.utc) + timedelta(seconds=max(0, seconds-_REFRESH_BUFFER_SECONDS))
+
+
+class FeishuOAuthProvider(CloudOAuthProvider):
+    def provider_name(self) -> str:
+        return 'feishu'
+
+    def default_scope(self) -> str:
+        return _DEFAULT_SCOPE
+
+    def build_authorize_url(
+        self,
+        *,
+        client_id: str,
+        redirect_uri: str,
+        scope: str,
+        state: str,
+    ) -> str:
+        query = parse.urlencode({
+            'client_id': client_id,
+            'redirect_uri': redirect_uri,
+            'scope': scope or self.default_scope(),
+            'response_type': 'code',
+            'state': state,
+        })
+        return f'{_FEISHU_OAUTH_AUTHORIZE_URL}?{query}'
+
+    def exchange_code(
+        self,
+        *,
+        client_id: str,
+        client_secret: str,
+        code: str,
+        redirect_uri: str,
+    ) -> CloudTokenPayload:
+        payload = {
+            'grant_type': 'authorization_code',
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'code': code,
+            'redirect_uri': redirect_uri,
+        }
+        data = _post_json(_FEISHU_USER_TOKEN_URL, payload)
+        if data.get('code', 0) != 0:
+            raise RuntimeError(f"feishu code exchange failed: {data.get('error_description') or data.get('msg') or data}")
+        return CloudTokenPayload(
+            access_token=(data.get('access_token') or '').strip(),
+            expires_at=_safe_expires_at(int(data.get('expires_in') or 0)),
+            refresh_token=(data.get('refresh_token') or '').strip(),
+            token_type='Bearer',
+        )
+
+    def refresh_access_token(
+        self,
+        *,
+        client_id: str,
+        client_secret: str,
+        refresh_token: str,
+    ) -> CloudTokenPayload:
+        payload = {
+            'grant_type': 'refresh_token',
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'refresh_token': refresh_token,
+        }
+        data = _post_json(_FEISHU_USER_TOKEN_URL, payload)
+        if data.get('code', 0) != 0:
+            raise RuntimeError(
+                f"feishu token refresh failed: {data.get('error_description') or data.get('msg') or data}"
+            )
+        return CloudTokenPayload(
+            access_token=(data.get('access_token') or '').strip(),
+            expires_at=_safe_expires_at(int(data.get('expires_in') or 0)),
+            refresh_token=(data.get('refresh_token') or refresh_token or '').strip(),
+            token_type='Bearer',
+        )
+
+    def acquire_tenant_access_token(
+        self,
+        *,
+        client_id: str,
+        client_secret: str,
+    ) -> CloudTokenPayload:
+        payload = {'app_id': client_id, 'app_secret': client_secret}
+        data = _post_json(_FEISHU_TENANT_TOKEN_URL, payload)
+        if data.get('code') != 0:
+            raise RuntimeError(f"feishu tenant token failed: {data.get('msg') or data}")
+        return CloudTokenPayload(
+            access_token=(data.get('tenant_access_token') or '').strip(),
+            expires_at=_safe_expires_at(int(data.get('expire') or 0)),
+            refresh_token=None,
+            token_type='Bearer',
+        )

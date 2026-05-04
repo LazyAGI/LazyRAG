@@ -3,6 +3,7 @@ import { ConfigProvider } from "antd";
 import { useTranslation } from "react-i18next";
 import MainLayout from "@/layouts/MainLayout";
 import SigninLogin from "@/modules/signin/pages/login";
+import FeishuCallback from "@/modules/signin/pages/feishuCallback";
 import SigninRegister from "@/modules/signin/pages/register";
 import SigninDashboard from "@/modules/signin/pages/dashboard";
 import LoginTransition from "@/modules/signin/pages/loginTransition";
@@ -17,6 +18,10 @@ import AdminLayout from "@/modules/admin/AdminLayout";
 import UserManagement from "@/modules/admin/pages/user";
 import GroupManagement from "@/modules/admin/pages/group";
 import GroupDetail from "@/modules/admin/pages/group/detail.tsx";
+import DataSourceManagement from "@/modules/admin/pages/dataSource";
+import DataSourceDetail from "@/modules/admin/pages/dataSource/detail";
+import DataSourceFeishuCallback from "@/modules/admin/pages/dataSource/feishuCallback";
+import MemoryManagement from "@/modules/admin/pages/memory";
 import { getAntdLocale } from "@/i18n/antdLocale";
 
 export default function AppRouter() {
@@ -27,10 +32,15 @@ export default function AppRouter() {
       <Routes>
         <Route path="/login" element={<SigninDashboard />}>
           <Route index element={<SigninLogin />} />
+          <Route path="feishu/callback" element={<FeishuCallback />} />
         </Route>
         <Route path="/register" element={<SigninDashboard />}>
           <Route index element={<SigninRegister />} />
         </Route>
+        <Route
+          path="/oauth/feishu/data-source/callback"
+          element={<DataSourceFeishuCallback />}
+        />
         <Route path="/loginTransition" element={<LoginTransition />} />
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Navigate to="/agent/chat" replace />} />
@@ -54,6 +64,9 @@ export default function AppRouter() {
           <Route path="users" element={<UserManagement />} />
           <Route path="groups" element={<GroupManagement />} />
           <Route path="groups/:id" element={<GroupDetail />} />
+          <Route path="data-sources" element={<DataSourceManagement />} />
+          <Route path="data-sources/:id" element={<DataSourceDetail />} />
+          <Route path="memory-management" element={<MemoryManagement />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

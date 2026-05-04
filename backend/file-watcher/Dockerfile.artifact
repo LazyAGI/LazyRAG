@@ -1,0 +1,18 @@
+FROM golang:1.24.6-alpine AS builder
+WORKDIR /src
+
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /out/file_watcher ./cmd/main.go
+
+FROM alpine:3.19
+ENV OUTPUT_DIR=/output
+
+COPY --from=builder /out/file_watcher /artifact/file_watcher
+
+ENTRYPOINT ["/bin/sh", "-c", "set -eu; mkdir -p \"$OUTPUT_DIR\"; cp /artifact/file_watcher \"$OUTPUT_DIR/file_watcher\"; chmod 755 \"$OUTPUT_DIR/file_watcher\"; ls -lh \"$OUTPUT_DIR/file_watcher\""]

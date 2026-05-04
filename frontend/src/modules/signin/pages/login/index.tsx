@@ -6,6 +6,7 @@ import {
   storeLoginSession,
   unwrapLoginResponse,
 } from "@/modules/signin/utils/request";
+import { startFeishuLogin } from "@/modules/signin/utils/feishuAuth";
 import { AgentAppsAuth } from "@/components/auth";
 import { useTranslation } from "react-i18next";
 
@@ -19,6 +20,7 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
+  const [feishuLoading, setFeishuLoading] = useState(false);
   const { t } = useTranslation();
 
   const checkUserLogin = () => {
@@ -91,6 +93,16 @@ const Login = () => {
     }
   };
 
+  const handleFeishuLogin = async () => {
+    setFeishuLoading(true);
+    try {
+      await startFeishuLogin();
+    } catch (error: any) {
+      message.error(error?.message || t("auth.feishuLoginUnavailable"));
+      setFeishuLoading(false);
+    }
+  };
+
   return (
     <div className="signin-container">
       <div style={{ paddingBottom: '4px' }}>
@@ -141,8 +153,19 @@ const Login = () => {
             size="large"
             htmlType="submit"
             loading={loading}
+            disabled={feishuLoading}
           >
             {t("auth.login")}
+          </Button>
+          <Button
+            block
+            size="large"
+            style={{ marginTop: "12px" }}
+            loading={feishuLoading}
+            disabled={loading}
+            onClick={handleFeishuLogin}
+          >
+            {t("auth.loginWithFeishu")}
           </Button>
           <div style={{ textAlign: "center", marginTop: "16px", color: '#86909c' }}>
             {t("auth.noAccount")} <a style={{ color: '#1677ff', fontWeight: 500 }} onClick={() => navigate("/register")}>{t("auth.registerNow")}</a>
