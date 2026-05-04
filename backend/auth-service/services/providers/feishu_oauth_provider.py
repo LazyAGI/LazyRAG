@@ -85,7 +85,8 @@ class FeishuOAuthProvider(CloudOAuthProvider):
         }
         data = _post_json(_FEISHU_USER_TOKEN_URL, payload)
         if data.get('code', 0) != 0:
-            raise RuntimeError(f"feishu code exchange failed: {data.get('error_description') or data.get('msg') or data}")
+            detail = data.get('error_description') or data.get('msg') or data
+            raise RuntimeError(f'feishu code exchange failed: {detail}')
         return CloudTokenPayload(
             access_token=(data.get('access_token') or '').strip(),
             expires_at=_safe_expires_at(int(data.get('expires_in') or 0)),

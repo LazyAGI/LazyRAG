@@ -264,7 +264,7 @@ class CloudOAuthService:
         authorize_url = ''
         scope_value = (scope or '').strip()
         if not scope_value and hasattr(provider_impl, 'default_scope'):
-            scope_value = getattr(provider_impl, 'default_scope')()
+            scope_value = provider_impl.default_scope()
         oauth_state = (state or '').strip() or secrets.token_urlsafe(18)
         oauth_state_expires = _utcnow() + timedelta(minutes=_OAUTH_STATE_TTL_MINUTES)
         authorize_url = provider_impl.build_authorize_url(

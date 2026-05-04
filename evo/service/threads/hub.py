@@ -394,7 +394,8 @@ def _single_thread_flow_is_active(flow_status: dict | None) -> bool:
         return False
     if flow_status.get('active_task_ids'):
         return True
-    return str(flow_status.get('status') or '').strip().lower() in {'running', 'pending', 'waiting_checkpoint', 'paused'}
+    active_statuses = {'running', 'pending', 'waiting_checkpoint', 'paused'}
+    return str(flow_status.get('status') or '').strip().lower() in active_statuses
 
 
 def _thread_state_summary(snapshot: dict) -> str:
