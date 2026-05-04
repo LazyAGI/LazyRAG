@@ -16,6 +16,7 @@ import (
 
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
+	"lazyrag/core/evolution"
 )
 
 const (
@@ -275,18 +276,31 @@ func upstreamSessionID(convID string) string {
 	return fmt.Sprintf("%s_%d", convID, time.Now().UnixMilli())
 }
 
-func buildChatRequestBody(convID, query string, histories []orm.ChatHistory, raw map[string]any) map[string]any {
+func buildChatRequestBody(convID, sessionID, query string, histories []orm.ChatHistory, raw map[string]any, resourceContext *evolution.ChatResourceContext) map[string]any {
+	if strings.TrimSpace(sessionID) == "" {
+		sessionID = upstreamSessionID(convID)
+	}
+	useMemory := resolveUseMemory(raw, resourceContext)
 	body := map[string]any{
 		"query":           query,
-		"session_id":      upstreamSessionID(convID),
+		"session_id":      sessionID,
 		"history":         buildHistoryMessages(histories),
 		"filters":         raw["filters"],
 		"files":           raw["files"],
 		"databases":       raw["databases"],
 		"debug":           raw["debug"],
-		"reasoning":       raw["reasoning"],
+		"reasoning":       resolveReasoning(raw),
 		"priority":        raw["priority"],
 		"enable_thinking": raw["enable_thinking"],
+		"use_memory":      useMemory,
+	}
+	if resourceContext != nil {
+		body["available_tools"] = resourceContext.AvailableTools
+		body["available_skills"] = resourceContext.AvailableSkills
+		if useMemory {
+			body["memory"] = resourceContext.Memory
+			body["user_preference"] = resourceContext.UserPreference
+		}
 	}
 	if body["filters"] == nil {
 		conv, _ := raw["conversation"].(map[string]any)
@@ -309,6 +323,24 @@ func buildChatRequestBody(convID, query string, histories []orm.ChatHistory, raw
 		}
 	}
 	return body
+}
+
+func resolveUseMemory(raw map[string]any, resourceContext *evolution.ChatResourceContext) bool {
+	enabled := true
+	if resourceContext != nil {
+		enabled = resourceContext.UsePersonalization
+	}
+	if value, ok := raw["use_memory"].(bool); ok {
+		return value && enabled
+	}
+	return enabled
+}
+
+func resolveReasoning(raw map[string]any) bool {
+	if value, ok := raw["reasoning"].(bool); ok {
+		return value
+	}
+	return true
 }
 
 func datasetIDsFromSearchConfig(sc map[string]any) []string {

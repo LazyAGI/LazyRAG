@@ -1,4 +1,4 @@
-FROM crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/deepquery/golang:1.24.6 AS build
+FROM golang:1.24.6 AS build
 WORKDIR /app
 
 # 配置国内源
@@ -19,7 +19,7 @@ ENV NO_PROXY=${NO_PROXY}
 
 RUN CGO_ENABLED=0 go build -o /core .
 
-FROM crpi-0p2nl66w5s7mxwtm.cn-beijing.personal.cr.aliyuncs.com/deepquery/alpine:3.19
+FROM alpine:3.19
 RUN apk add --no-cache ca-certificates wget
 COPY --from=build /core /core
 # Startup wrapper (runs /core; hooks for optional checks)

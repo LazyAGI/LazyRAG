@@ -9,18 +9,17 @@ class BaseTool(ABC):
     @property
     @abstractmethod
     def tool_schema(self) -> Dict[str, Any]:
-        """
-        工具 schema，描述工具的功能和参数
+        """Tool schema describing the tool's functionality and parameters.
 
         Returns:
-            Dict[str, Any]: 工具 schema 字典，格式为:
+            Dict[str, Any]: Tool schema dict in the format:
             {
                 'tool_name': {
-                    'description': '工具描述',
+                    'description': 'tool description',
                     'parameters': {
                         'param_name': {
-                            'type': '参数类型',
-                            'des': '参数描述'
+                            'type': 'parameter type',
+                            'des': 'parameter description'
                         }
                     }
                 }
@@ -34,13 +33,13 @@ class BaseTool(ABC):
 
     @property
     def tool_name(self) -> str:
-        """返回工具名称，默认使用 schema 中的第一个 key"""
+        """Return the tool name; defaults to the first key in the schema."""
         if self.tool_schema:
             return list(self.tool_schema.keys())[0]
         return self.__class__.__name__.lower()
 
 
-# 工具注册表：自动收集所有 BaseTool 子类的实例
+# Tool registry: automatically collects instances of all BaseTool subclasses
 _tool_instances: Dict[str, BaseTool] = {}
 _tool_schemas: Dict[str, Dict[str, Any]] = {}
 

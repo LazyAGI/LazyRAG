@@ -1,4 +1,4 @@
 [submodule "algorithm/lazyllm"]
 	path = algorithm/lazyllm
-	url = https://github.com/ChenJiahaoST/LazyLLM.git
-	branch = cjh/refact-doc-manager
+	url = https://github.com/LazyAGI/LazyLLM.git
+	branch = main

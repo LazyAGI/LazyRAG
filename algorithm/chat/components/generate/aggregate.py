@@ -53,7 +53,7 @@ class AggregateComponent:
 
     def __call__(self, nodes, **kwargs) -> List[DocNode]:
         """Run component."""
-        # 处理空列表
+        # handle empty list
         if not nodes:
             return nodes
 
@@ -62,7 +62,7 @@ class AggregateComponent:
         for _, group in itertools.groupby(nodes, key=lambda x: x.global_metadata['docid']):
             grouped_nodes = sorted(group, key=lambda x: (x.metadata.get('index') or 0))
 
-            # 合并节点内容
+            # merge node content
             content = []
             all_images = []
             table_image_map = []
@@ -79,7 +79,7 @@ class AggregateComponent:
             content = f"\n\n{'---'}\n\n".join(content)
 
             first_node = grouped_nodes[0]
-            # 创建新节点
+            # create new node
             metadata = {'images': all_images}
             metadata.update(first_node._metadata)
             if table_image_map:

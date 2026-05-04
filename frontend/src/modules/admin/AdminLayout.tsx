@@ -95,9 +95,7 @@ export default function AdminLayout() {
 
   if (
     !isAdminUser &&
-    (pathname.startsWith("/admin/users") ||
-      pathname.startsWith("/admin/data-sources") ||
-      pathname.startsWith("/admin/memory-management"))
+    pathname.startsWith("/admin/users")
   ) {
     return <Navigate to="/admin/groups" replace />;
   }

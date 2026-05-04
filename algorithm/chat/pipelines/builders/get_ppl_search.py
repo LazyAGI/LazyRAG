@@ -6,6 +6,7 @@ from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
 from chat.pipelines.builders import get_automodel, get_retriever, get_remote_docment
 from chat.utils.load_config import get_retrieval_settings
+from vocab.vocab_manager import get_vocab_manager
 
 
 def _adaptive_get_token_len(n: Any) -> int:
@@ -24,7 +25,7 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
 
     with lazyllm.save_pipeline_result():
         with pipeline() as search_ppl:
-            search_ppl.parse_input = lambda x: x['query']
+            search_ppl.parse_input = lambda x: get_vocab_manager(x.get('create_user_id', ''))(x['query'])
             search_ppl.divert = ifs(
                 (lambda _, x: bool(x.get('files'))) | bind(x=search_ppl.input),
                 tpath=tmp_retriever | bind(files=search_ppl.input['files']),

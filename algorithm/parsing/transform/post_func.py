@@ -42,13 +42,13 @@ NORMAL_PATTERN_TEMPLATE = {
     # r'^(\s*[\(（]?{num}+[\)）])(?:\s*(.+))': [''],
 }
 
-# 纯数字序号的最大层级数量 (1.1.1 NUMBER_INDEX_MAX_LEVEL = 3 )
+# Maximum number of levels for pure numeric indices (1.1.1 NUMBER_INDEX_MAX_LEVEL = 3)
 NUMBER_INDEX_MAX_LEVEL = 4
 
 
 def _generate_normal_index_patterns() -> list:
-    # 依赖 NORMAL_PATTERN_TEMPLATE && NUMBER_PATTERN
-    # 构建 中文、括号 的pattern 列表
+    # depends on NORMAL_PATTERN_TEMPLATE && NUMBER_PATTERN
+    # build pattern list for Chinese and bracket styles
     return [
         re.compile(pattern_template.format(num=num, index_type=index_type))
         for num in NUMBER_PATTERN
@@ -58,19 +58,19 @@ def _generate_normal_index_patterns() -> list:
 
 
 def _generate_number_index_patterns() -> list:
-    # 构建 纯数字index的patterns 列表
+    # build patterns list for pure numeric index
     def _generate_index_pattern(level, model: str = 'loose') -> list:
-        """生成指定层级的正则表达式"""
+        """Generate regex for the specified level."""
         pattern_leve_temp = rf'([\.．]\s*{NUMBER_PATTERN[1]}{{1,3}})'
         pattern_leve = pattern_leve_temp * level
 
         sep = r'\s?' if model == 'loose' else r'\s'
 
-        # 标准纯数字index 后随内容，开头不为：'数字'、')'、'）'、']'、'】'
+        # Standard pure numeric index followed by content; must not start with: 'digit', ')', '）', ']', '】'
         end_with = r'(?:\s*([^\d\)）\]】]\s*[^\d\)）\]】].*))'
 
         if level == 1:
-            # 当层级为 1.1 时，为避免误将浮点数识别为index 要求序号后必须有空格
+            # When level is 1.1, to avoid misidentifying floats as indices, require a space after the index
             pattern = rf'^(\s*{NUMBER_PATTERN[1]}{{1,2}}{pattern_leve}{sep}){end_with}'
         else:
             pattern = rf'^(\s*{NUMBER_PATTERN[1]}{{1,2}}{pattern_leve}{sep}){end_with}'
@@ -80,10 +80,10 @@ def _generate_number_index_patterns() -> list:
 
 
 def _generate_letter_number_index_patterns() -> list:
-    """生成字母.数字.数字模式的patterns列表，如B.0.1"""
+    """Generate patterns list for letter.number.number style, e.g. B.0.1"""
     patterns = []
 
-    # 字母.数字.数字模式，如B.0.1, A.1.2等
+    # letter.number.number pattern, e.g. B.0.1, A.1.2, etc.
     letter_num_pattern = r'^(\s*[a-zA-Z]\.\d+\.\d+)(?:\s*(.+))'
     patterns.append(re.compile(letter_num_pattern))
 
@@ -136,10 +136,10 @@ def _match(node: Union[DocNode, str], patterns: List) -> Union[re.Match, bool]:
 
 class LayoutNodeParser(ModuleBase):
     """
-    通过正则表达式对节点进行分类 -> :
+    Classify nodes via regex ->
     node.metadata['type'] =
-        ParagraphType.Index_text:    序号标题
-        ParagraphType.Time_text:    时间戳
+        ParagraphType.Index_text:    numbered heading
+        ParagraphType.Time_text:    timestamp
         ...
     """
 
@@ -147,7 +147,7 @@ class LayoutNodeParser(ModuleBase):
         super().__init__(return_trace=return_trace, **kwargs)
 
     def forward(self, document: List[DocNode], **kwargs) -> List[DocNode]:
-        # document 后更替为 nodes
+        # replaced by nodes after document
         result_nodes = []
         nodes = sorted(document, key=lambda x: x.metadata['file_name'])
         for _file_name, group in itertools.groupby(nodes, key=lambda x: x.metadata['file_name']):
@@ -222,7 +222,7 @@ class TableConverterNode(ModuleBase):
                 markdown_table = self._html_table_to_markdown(table_body)
                 parts = [p for p in [table_caption, markdown_table, table_footnote] if p]
                 node._content = '\n'.join(parts) + '\n' if parts else ''
-                # 从lines中查找table image
+                # find table image from lines
                 lines = node.metadata.get('lines', [])
                 table_image = None
                 for line in lines:
@@ -230,7 +230,7 @@ class TableConverterNode(ModuleBase):
                         true_image_path = os.path.join('images', line['image_path'])
                         table_image = f'![{table_caption}]({true_image_path})'
                         break
-                # 设置table_image_map
+                # set table_image_map
                 if table_image:
                     node.metadata['table_image'] = table_image
                     node.metadata['table_image_map'] = serialize_table_image_map(
@@ -242,8 +242,8 @@ class TableConverterNode(ModuleBase):
 
 class NodeTextClear(ModuleBase):
     """
-    1. 主要清理可能出现的空节点
-    2. 将已知的字符进行转义或删除
+    1. Mainly clean up possible empty nodes
+    2. Escape or remove known characters
     """
 
     def __init__(self, num_workers: int = 0, **kwargs):
@@ -274,8 +274,8 @@ class NodeTextClear(ModuleBase):
 
 class GroupNodeParser(ModuleBase):
     """
-    合并plain text 到 index text, 节点长度控制
-    返回list[list[DocNode]]
+    Merge plain text into index text, control node length
+    Returns list[list[DocNode]]
     """
 
     def __init__(self, num_workers: int = 0, return_trace: bool = False, **kwargs):
@@ -304,7 +304,7 @@ class GroupNodeParser(ModuleBase):
             text_type = node.metadata.get('text_type', 'text')
             text_level = node.metadata.get('text_level', 0)
 
-            if text_level:  # 处理标题节点
+            if text_level:  # process heading node
                 if not cur_title_list:
                     cur_title_list = [node._content.strip()]
                     if cur_group:
@@ -333,7 +333,7 @@ class GroupNodeParser(ModuleBase):
                         cur_title_list = [node._content.strip()]
                         cur_group = [node]
             elif cur_title_list and re.match(toc_pattern, cur_title_list[-1]):
-                # 目录特殊处理
+                # special handling for table of contents
                 if self._is_toc_node(node):
                     cur_group.append(node)
                 else:
@@ -368,19 +368,19 @@ class GroupNodeParser(ModuleBase):
     def _process_group(self, nodes: List[DocNode], max_length: int = 2048) -> List[List[DocNode]]:
         if sum(len(node._content) for node in nodes) <= max_length:
             return [nodes]
-        result = []  # 存储最终的分组结果
-        current_group = []  # 当前正在处理的组
-        current_length = 0  # 当前组的总长度
+        result = []  # store final grouped results
+        current_group = []  # current group being processed
+        current_length = 0  # total length of current group
 
         for node in nodes:
-            node_length = len(node._content)  # 获取当前节点的长度
+            node_length = len(node._content)  # get length of current node
 
-            # 如果节点长度大于2048，需要进一步切分
+            # if node length > 2048, further splitting is needed
             if node_length > max_length:
-                if current_group:  # 如果当前组已有内容，先保存当前组
+                if current_group:  # if current group has content, save it first
                     result.append(current_group[:])
 
-                # 对大节点进行切分
+                # split large node
                 split_nodes = self._split_large_node(node)
                 for split_node in split_nodes:
                     result.append([split_node])
@@ -407,25 +407,25 @@ class GroupNodeParser(ModuleBase):
         content = node._content
         result_nodes = []
 
-        # 先尝试按\n切分
+        # try splitting by \n first
         lines = content.split('\n')
         current_chunks = []
         current_length = 0
 
         for line in lines:
             if len(line) > max_length:
-                # 先保存当前累积的chunks
+                # save currently accumulated chunks first
                 if current_chunks:
                     result_nodes.append(self._create_split_node(current_chunks, node.metadata))
                     current_chunks = []
                     current_length = 0
 
-                # 对超长行进行强制切分
+                # force-split overlong lines
                 for i in range(0, len(line), max_length):
                     chunk_text = line[i:i + max_length]
                     result_nodes.append(self._create_split_node([chunk_text], node.metadata))
             elif current_length + len(line) + max(0, len(current_chunks) - 1) > max_length:
-                # 保存当前chunks
+                # save current chunks
                 if current_chunks:
                     result_nodes.append(self._create_split_node(current_chunks, node.metadata))
                 current_chunks = [line]
@@ -441,13 +441,13 @@ class GroupNodeParser(ModuleBase):
 
     def _create_split_node(self, current_chunks, metadata):
         """
-        创建切分后的子节点
+        Create sub-nodes after splitting
         """
-        # 将chunks合并为文本内容
+        # merge chunks into text content
         content = '\n'.join(current_chunks)
         metadata = copy.deepcopy(metadata)
 
-        # 为table类型节点添加caption和footnote
+        # add caption and footnote for table-type nodes
         is_table = metadata.get('type', 'text') == 'table'
         if is_table:
             table_caption = metadata.get('table_caption', '')
@@ -462,7 +462,7 @@ class GroupNodeParser(ModuleBase):
                     [{'content': content, 'image': table_image_map[0]['image']}]
                 )
 
-        # 创建新节点，继承原节点的metadata
+        # create new node, inheriting metadata from original node
         new_node = DocNode(text=content, metadata=copy.deepcopy(metadata))
         new_node.metadata['lines'] = [{
             'content': new_node._content,
@@ -474,13 +474,13 @@ class GroupNodeParser(ModuleBase):
         return new_node
 
     def _extract_heading_numbers(self, title: str) -> list:
-        # 提取标题开头的数字层级，例如 '3.2.1' -> ['3', '2', '1']
+        # extract numeric level prefix from heading, e.g. '3.2.1' -> ['3', '2', '1']
         match = re.match(r'^(\d+(?:\.\d+)*)(?=\D|$)', title.strip())
         return match.group(1).split('.') if match else []
 
     def is_parent_child_title(self, title1: str, title2: str, direct_parent: bool = True) -> bool:
         """
-        判断两个标题是否具有父子关系, 如 '3 xxx' 和 '3.2 xxx'。
+        Determine whether two headings have a parent-child relationship, e.g. '3 xxx' and '3.2 xxx'.
         """
 
         nums1 = self._extract_heading_numbers(title1)
@@ -513,7 +513,7 @@ class GroupNodeParser(ModuleBase):
 
 class MergeNodeParser(ModuleBase):
     """
-    合并同组节点，合并bbox
+    Merge nodes in the same group, merge bbox
     """
 
     def __init__(self, num_workers: int = 0, return_trace: bool = False, **kwargs):
