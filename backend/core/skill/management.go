@@ -379,7 +379,7 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "skill generate failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	if _, err := validateParentSkillContent(row.SkillName, row.Description, generated); err != nil {
+	if _, err := validateParentSkillContent(row.SkillName, "", generated); err != nil {
 		common.ReplyErr(w, "generated skill content invalid: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -481,10 +481,16 @@ func Confirm(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "read skill draft failed", http.StatusInternalServerError)
 		return
 	}
+	description, err := validateParentSkillContent(row.SkillName, "", content)
+	if err != nil {
+		common.ReplyErr(w, "skill draft content invalid: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	hash := evolution.HashContent(content)
 	now := time.Now()
 	ids := evolution.DraftSuggestionIDs(row.Ext)
 	update := map[string]any{
+		"description":          description,
 		"content_hash":         hash,
 		"content":              content,
 		"content_size":         skillContentSize(content),

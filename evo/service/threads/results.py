@@ -37,16 +37,7 @@ def build_results_router(*, base_dir: Path, store: _store.FsStateStore) -> APIRo
         ws = _ws(base_dir, thread_id)
         out = []
         for path in sorted((ws.dir / 'evals').glob('*.json')):
-            data = _read_json(path) or {}
-            out.append(
-                {
-                    'eval_id': path.stem,
-                    'path': str(path),
-                    'report_id': data.get('report_id'),
-                    'total_cases': data.get('total_cases'),
-                    'metrics': data.get('metrics') or data.get('summary'),
-                }
-            )
+            out.append(_eval_report_row(path, eval_id=path.stem))
         return out
 
     @router.get('/analysis-reports')
@@ -102,17 +93,25 @@ def build_results_router(*, base_dir: Path, store: _store.FsStateStore) -> APIRo
     @router.get('/abtests')
     def abtests(thread_id: str) -> list[dict]:
         ws = _ws(base_dir, thread_id)
+        rows = _store.list_flow_tasks_by_thread(store, 'abtest', thread_id)
+        tasks_by_id = {row.get('id'): row for row in rows}
+        abtest_ids = list(ws.load_artifacts().get('abtest_ids') or [])
+        for row in rows:
+            abtest_id = row.get('id')
+            if abtest_id and abtest_id not in abtest_ids:
+                abtest_ids.append(abtest_id)
+
         out = []
-        for abtest_id in ws.load_artifacts().get('abtest_ids') or []:
-            d = ws.dir / 'abtests' / abtest_id
-            out.append(
-                {
-                    'abtest_id': abtest_id,
-                    'summary': _read_json(d / 'summary.json'),
-                    'decision': _read_json(d / 'decision.json'),
-                    'markdown': _read_text(d / 'summary.md'),
-                }
-            )
+        seen_eval_ids = set()
+        for abtest_id in abtest_ids:
+            eval_id = _abtest_new_eval_id(ws, abtest_id, tasks_by_id.get(abtest_id))
+            if not eval_id or eval_id in seen_eval_ids:
+                continue
+            path = ws.eval_path(eval_id)
+            if not path.is_file():
+                continue
+            seen_eval_ids.add(eval_id)
+            out.append(_eval_report_row(path, eval_id=eval_id))
         return out
 
     return router
@@ -137,6 +136,35 @@ def _read_text(path: Path) -> str | None:
         return path.read_text(encoding='utf-8')
     except OSError:
         return None
+
+
+def _eval_report_row(path: Path, *, eval_id: str) -> dict:
+    data = _read_json(path) or {}
+    return {
+        'eval_id': eval_id,
+        'path': str(path),
+        'report_id': data.get('report_id'),
+        'total_cases': data.get('total_cases'),
+        'metrics': data.get('metrics') or data.get('summary'),
+    }
+
+
+def _abtest_new_eval_id(ws: ThreadWorkspace, abtest_id: str, task: dict | None) -> str | None:
+    abtest_dir = ws.dir / 'abtests' / abtest_id
+    sources = [
+        _read_json(abtest_dir / 'decision.json'),
+        _read_json(abtest_dir / 'checkpoint.json'),
+        _read_json(abtest_dir / 'phase.json'),
+        (task or {}).get('payload') or {},
+        task or {},
+    ]
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        eval_id = source.get('new_eval_id')
+        if eval_id:
+            return str(eval_id)
+    return None
 
 
 def _first_existing(*paths: Path) -> Path:

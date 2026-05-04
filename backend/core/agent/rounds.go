@@ -119,7 +119,32 @@ func DeleteThreadHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	flowStatus, err := fetchThreadFlowStatus(r.Context(), r, threadID)
+	if err != nil {
+		common.ReplyErrWithData(w, "fetch thread flow status failed", map[string]any{"detail": err.Error()}, http.StatusBadGateway)
+		return
+	}
+
+	cancelRequested := false
+	if isThreadFlowRunning(flowStatus) {
+		if _, statusCode, err := postUpstreamProxy(r.Context(), r, threadActionURL(threadID, "cancel")); err != nil {
+			common.ReplyErrWithData(w, "cancel running thread failed", map[string]any{
+				"detail":      err.Error(),
+				"flow_status": flowStatus,
+			}, statusCode)
+			return
+		}
+		cancelRequested = true
+	}
+
 	if stream := activeStreams.get(threadID); stream != nil {
+		if cancelRequested {
+			common.ReplyErrWithData(w, "thread has active message stream", map[string]any{
+				"thread_id":        threadID,
+				"cancel_requested": true,
+			}, http.StatusConflict)
+			return
+		}
 		common.ReplyErr(w, "thread has active message stream", http.StatusConflict)
 		return
 	}
@@ -128,6 +153,9 @@ func DeleteThreadHistory(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "delete thread history failed", err), http.StatusInternalServerError)
 		return
+	}
+	if cancelRequested {
+		result["cancel_requested"] = true
 	}
 	common.ReplyOK(w, result)
 }

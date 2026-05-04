@@ -28,11 +28,15 @@ const (
 
 	defaultRecordLimit = 100
 	maxRecordLimit     = 1000
+
+	defaultThreadPageSize = 20
+	maxThreadPageSize     = 100
 )
 
 var recordIDCounter atomic.Uint64
 
 type sseFrame struct {
+	ID    string
 	Event string
 	Data  string
 	Raw   string
@@ -53,6 +57,10 @@ func agentServiceEndpoint() string {
 
 func threadCreateURL() string {
 	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads")
+}
+
+func threadStatusesURL() string {
+	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/statuse")
 }
 
 func threadMessagesURL(threadID string) string {
@@ -127,14 +135,42 @@ func parseAfterID(r *http.Request) string {
 	return strings.TrimSpace(r.Header.Get("Last-Event-ID"))
 }
 
+func parseThreadPageSize(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultThreadPageSize
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return defaultThreadPageSize
+	}
+	if value > maxThreadPageSize {
+		return maxThreadPageSize
+	}
+	return value
+}
+
+func parseThreadPageToken(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("invalid page_token")
+	}
+	return value, nil
+}
+
 func ensureSSEHeaders(w http.ResponseWriter) (http.Flusher, bool) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		return nil, false
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 	return flusher, true
 }
 
@@ -490,6 +526,14 @@ func writeReplayFrame(w http.ResponseWriter, flusher http.Flusher, record orm.Ag
 	}
 }
 
+func writeSSEKeepalive(w http.ResponseWriter, flusher http.Flusher) error {
+	_, err := io.WriteString(w, ": keepalive\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return err
+}
+
 func writeNamedSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload any) {
 	body, _ := json.Marshal(payload)
 	if event != "" {
@@ -532,6 +576,56 @@ func readSSEFrame(reader *bufio.Reader) (*sseFrame, error) {
 	}
 }
 
+func readThreadEventSSEFrame(reader *bufio.Reader) (*sseFrame, error) {
+	lines := make([]string, 0, 8)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				line = strings.TrimRight(line, "\r\n")
+				if line != "" {
+					lines = append(lines, line)
+				}
+				if len(lines) == 0 {
+					return nil, io.EOF
+				}
+				return parseSSEFrame(lines), nil
+			}
+			return nil, err
+		}
+
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if len(lines) == 0 {
+				continue
+			}
+			return parseSSEFrame(lines), nil
+		}
+		lines = append(lines, line)
+		if isSingleLineJSONDataFrame(lines) {
+			return parseSSEFrame(lines), nil
+		}
+	}
+}
+
+func isSingleLineJSONDataFrame(lines []string) bool {
+	dataLines := 0
+	data := ""
+	for _, line := range lines {
+		if strings.HasPrefix(line, "data:") {
+			dataLines++
+			data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		}
+	}
+	if dataLines != 1 {
+		return false
+	}
+	if data == "[DONE]" {
+		return true
+	}
+	return json.Valid([]byte(data))
+}
+
 func parseSSEFrame(lines []string) *sseFrame {
 	frame := &sseFrame{
 		Event: "message",
@@ -539,6 +633,10 @@ func parseSSEFrame(lines []string) *sseFrame {
 	}
 	dataLines := make([]string, 0, len(lines))
 	for _, line := range lines {
+		if strings.HasPrefix(line, "id:") {
+			frame.ID = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+			continue
+		}
 		if strings.HasPrefix(line, "event:") {
 			frame.Event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 			continue
