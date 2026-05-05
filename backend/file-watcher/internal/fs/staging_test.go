@@ -132,7 +132,7 @@ func TestStageFileUsesHashedNameForCollisionAndStableOverwrite(t *testing.T) {
 		t.Fatalf("expected second uses hashed relative path %q, got %q", expectedB, strings.TrimPrefix(resB1.HostPath, hostRoot+string(filepath.Separator)))
 	}
 
-	// 同一源文件再次修改，应该覆盖原来的同一落地点，而不是新建其它名字。
+	// Updating the same source file should overwrite the original staging path instead of creating another name.
 	if err := os.WriteFile(srcA, []byte("aaa-updated"), 0o644); err != nil {
 		t.Fatalf("update srcA: %v", err)
 	}

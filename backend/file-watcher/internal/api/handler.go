@@ -14,7 +14,7 @@ import (
 	"github.com/lazyrag/file_watcher/internal/source"
 )
 
-// Handler 持有所有 HTTP handler 依赖。
+// Handler holds all HTTP handler dependencies.
 type Handler struct {
 	manager   source.Manager
 	validator fs.PathValidator

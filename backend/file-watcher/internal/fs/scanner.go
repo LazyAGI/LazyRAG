@@ -17,14 +17,14 @@ import (
 	"github.com/lazyrag/file_watcher/internal/config"
 )
 
-// Scanner 扫描接口。
+// Scanner defines the scan interface.
 type Scanner interface {
 	FullScan(ctx context.Context, sourceID string, root string) error
 	ReconcileScan(ctx context.Context, sourceID string, root string) (*internal.Snapshot, error)
 	Stat(ctx context.Context, path string) (internal.FileMeta, error)
 }
 
-// ScanReporter 扫描结果上报接口（由 control.Client 实现）。
+// ScanReporter reports scan results.
 type ScanReporter interface {
 	ReportScanResults(ctx context.Context, req internal.ReportScanResultsRequest) error
 }
@@ -37,7 +37,7 @@ type scanner struct {
 	mapper    PathMapper
 	log       *zap.Logger
 
-	// 预处理后的扩展名集合，key 统一为小写带点（如 ".pdf"）
+	// Preprocessed extension sets. Keys are lowercase and include the dot, such as ".pdf".
 	includeExts map[string]struct{}
 	excludeExts map[string]struct{}
 }
@@ -62,7 +62,7 @@ func NewScanner(agentID string, cfg config.ScanConfig, reporter ScanReporter, va
 	return s
 }
 
-// normalizeExts 统一扩展名格式：小写 + 确保有 "." 前缀。
+// normalizeExts normalizes extensions to lowercase and ensures they have a "." prefix.
 func normalizeExts(exts []string) map[string]struct{} {
 	m := make(map[string]struct{}, len(exts))
 	for _, e := range exts {
@@ -75,7 +75,7 @@ func normalizeExts(exts []string) map[string]struct{} {
 	return m
 }
 
-// shouldInclude 判断文件是否应该被扫描。目录始终通过（需要继续遍历子目录）。
+// shouldInclude returns whether a file should be scanned. Directories always pass so traversal can continue.
 func (s *scanner) shouldInclude(path string, isDir bool) bool {
 	if isDir {
 		return true
@@ -92,7 +92,7 @@ func (s *scanner) shouldInclude(path string, isDir bool) bool {
 	return true
 }
 
-// FullScan 遍历目录树，按批次上报扫描结果。
+// FullScan walks the directory tree and reports scan results in batches.
 func (s *scanner) FullScan(ctx context.Context, sourceID string, root string) error {
 	batch := make([]internal.ScanRecord, 0, s.cfg.BatchSize)
 
@@ -104,11 +104,11 @@ func (s *scanner) FullScan(ctx context.Context, sourceID string, root string) er
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// 跳过符号链接
+		// Skip symlinks.
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		// 跳过白名单外路径
+		// Skip paths outside the allowlist.
 		if err := s.validator.EnsureAllowed(path); err != nil {
 			return nil
 		}
@@ -118,7 +118,7 @@ func (s *scanner) FullScan(ctx context.Context, sourceID string, root string) er
 			return nil
 		}
 
-		// 文件类型过滤
+		// File type filtering.
 		if !s.shouldInclude(path, d.IsDir()) {
 			s.log.Debug("skipped by extension filter", zap.String("path", path))
 			return nil
@@ -151,7 +151,7 @@ func (s *scanner) FullScan(ctx context.Context, sourceID string, root string) er
 	return nil
 }
 
-// ReconcileScan 扫描目录并返回快照，不上报（由 reconcile 模块负责 diff 后上报）。
+// ReconcileScan scans the directory and returns a snapshot without reporting it.
 func (s *scanner) ReconcileScan(ctx context.Context, sourceID string, root string) (*internal.Snapshot, error) {
 	snap := &internal.Snapshot{
 		SourceID: sourceID,
@@ -185,7 +185,7 @@ func (s *scanner) ReconcileScan(ctx context.Context, sourceID string, root strin
 	return snap, err
 }
 
-// Stat 读取单个文件元数据。
+// Stat reads metadata for a single file.
 func (s *scanner) Stat(_ context.Context, path string) (internal.FileMeta, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -193,7 +193,7 @@ func (s *scanner) Stat(_ context.Context, path string) (internal.FileMeta, error
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		canonical = filepath.Clean(path) // 降级：无法解析符号链接时用 Clean
+		canonical = filepath.Clean(path) // Fallback to Clean when symlinks cannot be resolved.
 	}
 	return internal.FileMeta{
 		Path:          s.mapper.ToPublic(path),
@@ -207,7 +207,7 @@ func (s *scanner) Stat(_ context.Context, path string) (internal.FileMeta, error
 	}, nil
 }
 
-// detectMimeType 通过扩展名做简单 MIME 检测，避免读取文件内容。
+// detectMimeType detects a simple MIME type by extension to avoid reading file content.
 func detectMimeType(path string, info os.FileInfo) string {
 	if info.IsDir() {
 		return "inode/directory"
@@ -253,14 +253,14 @@ func (s *scanner) reportBatch(ctx context.Context, sourceID string, mode interna
 	})
 }
 
-// computeChecksum 对小文件计算 sha256，大文件（超过阈值）跳过返回空字符串。
+// computeChecksum calculates sha256 for small files and returns empty string for files above the threshold.
 func (s *scanner) computeChecksum(path string, info os.FileInfo) string {
 	if info.IsDir() {
 		return ""
 	}
 	thresholdBytes := s.cfg.LargeFileThresholdMB * 1024 * 1024
 	if info.Size() > thresholdBytes {
-		return "" // 大文件延后计算
+		return "" // Defer checksum calculation for large files.
 	}
 	sum, err := checksumFile(path)
 	if err != nil {
@@ -270,7 +270,7 @@ func (s *scanner) computeChecksum(path string, info os.FileInfo) string {
 	return sum
 }
 
-// checksumFile 计算文件的 sha256 hex 摘要。
+// checksumFile calculates the file's sha256 hex digest.
 func checksumFile(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {

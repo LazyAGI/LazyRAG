@@ -12,18 +12,18 @@ import (
 	"github.com/lazyrag/file_watcher/internal/config"
 )
 
-// CommandDispatcher 接收控制面指令并分发（由 source.Manager 实现）。
+// CommandDispatcher receives control-plane commands and dispatches them.
 type CommandDispatcher interface {
 	HandleCommand(ctx context.Context, cmd internal.Command) (any, error)
 }
 
-// HeartbeatReporter 负责定时上报心跳和拉取控制面指令。
+// HeartbeatReporter periodically reports heartbeats and pulls control-plane commands.
 type HeartbeatReporter struct {
 	cfg        *config.Config
 	client     ControlPlaneClient
 	dispatcher CommandDispatcher
-	statusFn   func() internal.AgentStatus                     // 获取当前 Agent 状态
-	statsFn    func() (sourceCount, watchCount, taskCount int) // 获取运行时统计
+	statusFn   func() internal.AgentStatus                     // current Agent status
+	statsFn    func() (sourceCount, watchCount, taskCount int) // runtime statistics
 	log        *zap.Logger
 }
 
@@ -45,7 +45,7 @@ func NewHeartbeatReporter(
 	}
 }
 
-// Run 启动心跳上报和指令拉取两个独立 goroutine，阻塞直到 ctx 取消。
+// Run starts the heartbeat and command-pull goroutines, then blocks until ctx is canceled.
 func (h *HeartbeatReporter) Run(ctx context.Context) {
 	go h.heartbeatLoop(ctx)
 	go h.pullLoop(ctx)

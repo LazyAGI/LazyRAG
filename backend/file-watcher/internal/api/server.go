@@ -11,7 +11,7 @@ import (
 	"github.com/lazyrag/file_watcher/internal/config"
 )
 
-// NewServer 创建并配置 HTTP server。
+// NewServer creates and configures the HTTP server.
 func NewServer(cfg *config.Config, handler *Handler, log *zap.Logger) *http.Server {
 	mux := http.NewServeMux()
 	registerRoutes(mux, handler, cfg.AgentToken, log)
@@ -38,7 +38,7 @@ func registerRoutes(mux *http.ServeMux, h *Handler, token string, log *zap.Logge
 	mux.HandleFunc("/api/v1/sources/scan", auth(h.ScanSource))
 }
 
-// bearerAuth Bearer Token 认证 middleware。
+// bearerAuth is Bearer Token authentication middleware.
 func bearerAuth(token string, log *zap.Logger) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +53,7 @@ func bearerAuth(token string, log *zap.Logger) func(http.HandlerFunc) http.Handl
 	}
 }
 
-// GracefulShutdown 优雅关闭 HTTP server。
+// GracefulShutdown gracefully shuts down the HTTP server.
 func GracefulShutdown(srv *http.Server, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

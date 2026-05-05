@@ -39,12 +39,12 @@ func notifyVocabReload(ctx context.Context, userID string) {
 }
 
 // CreateWordGroupRequest is the JSON body for POST /word_group.
-// 一次提交一个术语及可选的多个别名（aliases）。
+// Submits one term plus optional aliases in a single request.
 type CreateWordGroupRequest struct {
 	Term        string   `json:"term"`
 	Aliases     []string `json:"aliases"`
 	Description string   `json:"description"`
-	Lock        bool     `json:"lock"` // 保护态
+	Lock        bool     `json:"lock"` // protected
 	Conflict    bool     `json:"conflict"`
 	ID          string   `json:"id"`
 }

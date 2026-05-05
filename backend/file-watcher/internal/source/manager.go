@@ -16,7 +16,7 @@ import (
 	"github.com/lazyrag/file_watcher/internal/fs"
 )
 
-// Manager Source 生命周期管理接口。
+// Manager defines the Source lifecycle management interface.
 type Manager interface {
 	StartSource(ctx context.Context, req internal.StartSourceRequest) error
 	StopSource(ctx context.Context, sourceID string) error
@@ -40,12 +40,12 @@ type manager struct {
 	runtimes map[string]*runtimeEntry
 }
 
-// StagingService 文件落地接口（由 fs.StagingService 实现）。
+// StagingService stages files.
 type StagingService interface {
 	StageFile(ctx context.Context, sourceID, documentID, versionID, srcPath string) (internal.StageResult, error)
 }
 
-// EventReporter 事件上报接口，由 control.Client 实现。
+// EventReporter reports events and snapshots.
 type EventReporter interface {
 	ReportEvents(ctx context.Context, req internal.ReportEventsRequest) error
 	ReportSnapshot(ctx context.Context, req internal.ReportSnapshotRequest) error
@@ -55,7 +55,7 @@ type runtimeEntry struct {
 	runtime    internal.SourceRuntime
 	cancel     context.CancelFunc
 	reconciler *Reconciler
-	scanMu     sync.Mutex // 同一 Source 同时只允许一个 full scan
+	scanMu     sync.Mutex // Allow only one full scan per Source at a time.
 }
 
 func NewManager(
@@ -95,7 +95,7 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 
 	publicRootPath := m.mapper.CleanPublic(req.RootPath)
 	runtimeRootPath := m.mapper.ToRuntime(req.RootPath)
-	// 校验路径
+	// Validate the path.
 	if err := m.validator.EnsureAllowed(runtimeRootPath); err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 		return err
 	}
 
-	// Source 是长生命周期任务，不应绑定到单次 HTTP/命令请求上下文。
+	// Source is long-lived and should not be bound to a single HTTP or command request context.
 	sourceCtx, cancel := context.WithCancel(context.Background())
 	tenantID := req.TenantID
 	if tenantID == "" {
@@ -138,7 +138,7 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 
 	go func() {
 		if !req.SkipInitialScan {
-			// 首次全量扫描（持 scanMu，防止启动期间被 TriggerScan 并发）
+			// Initial full scan. Hold scanMu to prevent concurrent TriggerScan during startup.
 			entry.scanMu.Lock()
 			m.setStatus(req.SourceID, internal.SourceRuntimeStatusInitialScanning)
 			fullScanStart := time.Now()
@@ -165,7 +165,7 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 			)
 		}
 
-		// 启动 watcher
+		// Start the watcher.
 		watcherStart := time.Now()
 		if err := m.watcher.Start(sourceCtx, req.SourceID, tenantID, runtimeRootPath); err != nil {
 			m.log.Error("watcher start failed",
@@ -185,9 +185,9 @@ func (m *manager) StartSource(ctx context.Context, req internal.StartSourceReque
 		m.setStatus(req.SourceID, internal.SourceRuntimeStatusRunning)
 		m.log.Info("source started", zap.String("source_id", req.SourceID))
 
-		// 启动后先补偿一次，再进入周期 reconcile。
+		// Run one reconcile pass after startup, then enter periodic reconcile.
 		reconciler.RunOnce(sourceCtx)
-		// 启动 reconcile 循环
+		// Start the reconcile loop.
 		reconciler.Run(sourceCtx)
 	}()
 
@@ -223,7 +223,7 @@ func (m *manager) TriggerScan(ctx context.Context, sourceID string, mode interna
 		return fmt.Errorf("source %s not found", sourceID)
 	}
 
-	// TriggerScan 是异步任务，避免被调用方（尤其 HTTP 请求）提前取消。
+	// TriggerScan is asynchronous, so avoid premature cancellation by the caller, especially HTTP requests.
 	runCtx := context.WithoutCancel(ctx)
 	m.log.Info("trigger scan accepted",
 		zap.String("source_id", sourceID),
@@ -233,7 +233,7 @@ func (m *manager) TriggerScan(ctx context.Context, sourceID string, mode interna
 	go func() {
 		switch mode {
 		case internal.ScanModeFull:
-			// 同一 Source 同时只允许一个 full scan
+			// Allow only one full scan per Source at a time.
 			if !entry.scanMu.TryLock() {
 				m.log.Warn("full scan already in progress, skipping", zap.String("source_id", sourceID))
 				return
@@ -284,7 +284,7 @@ func (m *manager) ListRuntimes() []internal.SourceRuntime {
 	return result
 }
 
-// HandleCommand 处理控制面下发的指令（实现 control.CommandDispatcher 接口）。
+// HandleCommand handles commands issued by control-plane.
 func (m *manager) HandleCommand(ctx context.Context, cmd internal.Command) (any, error) {
 	m.log.Info("received control-plane command",
 		zap.Int64("command_id", cmd.ID),
@@ -465,7 +465,7 @@ func (m *manager) ensureSourceDirs(sourceID string) error {
 	return nil
 }
 
-// Stats 返回运行时统计，供心跳上报使用。
+// Stats returns runtime statistics for heartbeat reporting.
 func (m *manager) Stats() (sourceCount, watchCount, taskCount int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

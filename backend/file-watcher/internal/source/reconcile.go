@@ -17,7 +17,7 @@ import (
 	"github.com/lazyrag/file_watcher/internal/fs"
 )
 
-// Reconciler 负责周期性快照 diff，补偿 watcher 漏事件。
+// Reconciler runs periodic snapshot diffs to compensate for watcher events that may have been missed.
 type Reconciler struct {
 	sourceID     string
 	tenantID     string
@@ -31,8 +31,8 @@ type Reconciler struct {
 	log          *zap.Logger
 
 	lastSnapshot *internal.Snapshot
-	mu           sync.Mutex // 保护 lastSnapshot 和防止并发执行
-	running      bool       // 是否正在执行，防止并发 RunOnce
+	mu           sync.Mutex // Protects lastSnapshot and prevents concurrent execution.
+	running      bool       // True while running, preventing concurrent RunOnce calls.
 }
 
 type persistedSnapshot struct {
@@ -79,7 +79,7 @@ func NewReconciler(sourceID, tenantID, agentID, rootPath, snapshotRoot string, i
 	return r
 }
 
-// Run 启动周期性 reconcile，阻塞直到 ctx 取消。
+// Run starts periodic reconcile and blocks until ctx is canceled.
 func (r *Reconciler) Run(ctx context.Context) {
 	if r.schedule != nil {
 		r.runBySchedule(ctx)
@@ -308,7 +308,7 @@ func parseChineseNumber(raw string) int {
 	return 0
 }
 
-// CaptureSnapshot 采集并持久化当前快照，不做 diff。
+// CaptureSnapshot captures and persists the current snapshot without diffing.
 func (r *Reconciler) CaptureSnapshot(ctx context.Context) (*internal.Snapshot, error) {
 	snap, err := r.scanner.ReconcileScan(ctx, r.sourceID, r.rootPath)
 	if err != nil {
@@ -324,8 +324,8 @@ func (r *Reconciler) CaptureSnapshot(ctx context.Context) (*internal.Snapshot, e
 	return snap, nil
 }
 
-// RunOnce 执行一次 reconcile，对比快照差异并上报差异事件。
-// 若上一次 reconcile 尚未完成，直接跳过本次。
+// RunOnce executes one reconcile pass, compares snapshot differences, and reports diff events.
+// It skips the run when the previous reconcile has not finished.
 func (r *Reconciler) RunOnce(ctx context.Context) {
 	r.mu.Lock()
 	if r.running {
@@ -370,7 +370,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) {
 	}
 
 	if lastSnap == nil {
-		// 没有历史快照，退化为全量扫描
+		// No historical snapshot exists, so fall back to a full scan.
 		r.log.Info("no previous snapshot, triggering full scan", zap.String("source_id", r.sourceID))
 		if err := r.scanner.FullScan(ctx, r.sourceID, r.rootPath); err != nil {
 			r.log.Error("fallback full scan failed", zap.String("source_id", r.sourceID), zap.Error(err))
@@ -412,7 +412,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) {
 		return
 	}
 
-	// 上报差异事件到控制面
+	// Report diff events to control-plane.
 	if err := r.reporter.ReportEvents(ctx, internal.ReportEventsRequest{
 		AgentID: r.agentID,
 		Events:  events,
@@ -421,12 +421,12 @@ func (r *Reconciler) RunOnce(ctx context.Context) {
 	}
 }
 
-// diff 对比两个快照，返回差异事件列表。
+// diff compares two snapshots and returns diff events.
 func (r *Reconciler) diff(old, new *internal.Snapshot) []internal.FileEvent {
 	var events []internal.FileEvent
 	now := time.Now()
 
-	// 新增 / 修改
+	// Additions and modifications.
 	for path, newEntry := range new.Files {
 		oldEntry, exists := old.Files[path]
 		if !exists {
@@ -452,7 +452,7 @@ func (r *Reconciler) diff(old, new *internal.Snapshot) []internal.FileEvent {
 		}
 	}
 
-	// 删除
+	// Deletions.
 	for path, oldEntry := range old.Files {
 		if _, exists := new.Files[path]; !exists {
 			events = append(events, internal.FileEvent{

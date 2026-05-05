@@ -24,7 +24,7 @@ type Config struct {
 	HostPathStyle       string        `yaml:"host_path_style"`
 	PathMappings        []PathMapping `yaml:"path_mappings"`
 	LogLevel            string        `yaml:"log_level"`
-	// 以下目录均由 base_root 自动派生，不直接从配置文件读取。
+	// These directories are derived from base_root and are not read from YAML directly.
 	LogDir   string         `yaml:"-"`
 	Staging  StagingConfig  `yaml:"-"`
 	Snapshot SnapshotConfig `yaml:"-"`
@@ -59,11 +59,11 @@ type ScanConfig struct {
 	BatchSize            int   `yaml:"batch_size"`
 	MaxConcurrency       int   `yaml:"max_concurrency"`
 	LargeFileThresholdMB int64 `yaml:"large_file_threshold_mb"`
-	// IncludeExtensions 白名单：只扫描这些扩展名（如 [".pdf", ".docx"]）。
-	// 与 ExcludeExtensions 互斥，两者同时配置时 Include 优先。
-	// 不配置则不过滤。
+	// IncludeExtensions is an allowlist of extensions to scan, such as [".pdf", ".docx"].
+	// It is mutually exclusive with ExcludeExtensions; IncludeExtensions wins when both are set.
+	// When unset, files are not filtered by extension.
 	IncludeExtensions []string `yaml:"include_extensions"`
-	// ExcludeExtensions 黑名单：跳过这些扩展名（如 [".tmp", ".log"]）。
+	// ExcludeExtensions is a blocklist of extensions to skip, such as [".tmp", ".log"].
 	ExcludeExtensions []string `yaml:"exclude_extensions"`
 }
 
@@ -76,7 +76,7 @@ type HTTPConfig struct {
 	WriteTimeout time.Duration `yaml:"write_timeout"`
 }
 
-// Load 从 YAML 文件加载配置，并填充默认值。
+// Load loads the YAML config file and fills default values.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -109,7 +109,7 @@ func configDir(path string) string {
 	return filepath.Dir(abs)
 }
 
-// expandEnvWithDefault 支持以下两种写法：
+// expandEnvWithDefault supports these two forms:
 // 1) ${VAR}
 // 2) ${VAR:-default}
 func expandEnvWithDefault(raw string) string {
@@ -240,7 +240,7 @@ func (c *Config) deriveDirsFromBaseRoot(baseDir string) error {
 	return nil
 }
 
-// AgentListenURL 返回上报给 control-plane 的 agent 地址（带 scheme）。
+// AgentListenURL returns the agent address advertised to control-plane, including the scheme.
 func (c *Config) AgentListenURL() string {
 	addr := strings.TrimSpace(c.AdvertiseAddr)
 	if addr == "" {

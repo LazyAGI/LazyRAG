@@ -13,7 +13,7 @@ import (
 	internal "github.com/lazyrag/file_watcher/internal"
 )
 
-// ControlPlaneClient 控制面通信接口。
+// ControlPlaneClient defines the control-plane communication interface.
 type ControlPlaneClient interface {
 	RegisterAgent(ctx context.Context, req internal.RegisterAgentRequest) error
 	ReportHeartbeat(ctx context.Context, req internal.HeartbeatPayload) error

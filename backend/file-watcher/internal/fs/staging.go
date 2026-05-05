@@ -19,7 +19,7 @@ import (
 	"github.com/lazyrag/file_watcher/internal/config"
 )
 
-// StagingService 文件落地接口。
+// StagingService stages files.
 type StagingService interface {
 	StageFile(ctx context.Context, sourceID, documentID, versionID, srcPath string) (internal.StageResult, error)
 }
@@ -38,8 +38,8 @@ type stagingIndex struct {
 	Entries map[string]string `json:"entries"` // key(sourceID|srcPath) -> staged filename
 }
 
-// StageFile 将源文件流式复制到 staging 落地区，按 source 分目录隔离。
-// 文件名使用稳定 hash（保留扩展名）；同一源文件重复触发时保持稳定映射并覆盖原文件。
+// StageFile streams the source file into the staging area and isolates files by source.
+// Filenames use a stable hash while preserving the extension; repeated triggers for the same source file keep the same mapping and overwrite the file.
 func (s *stagingService) StageFile(_ context.Context, sourceID, documentID, versionID, srcPath string) (internal.StageResult, error) {
 	if !s.cfg.Enabled {
 		return internal.StageResult{}, fmt.Errorf("%s: staging is disabled", internal.ErrStageFailed)
@@ -52,7 +52,7 @@ func (s *stagingService) StageFile(_ context.Context, sourceID, documentID, vers
 	_ = documentID
 	_ = versionID
 
-	// 确保目标目录存在
+	// Ensure the target directory exists.
 	if err := os.MkdirAll(s.cfg.HostRoot, 0o755); err != nil {
 		return internal.StageResult{}, fmt.Errorf("%s: mkdir: %w", internal.ErrStageFailed, err)
 	}
@@ -122,7 +122,7 @@ func (s *stagingService) StageFile(_ context.Context, sourceID, documentID, vers
 		return internal.StageResult{}, fmt.Errorf("%s: mkdir target dir: %w", internal.ErrStageFailed, err)
 	}
 
-	// 幂等检查：目标已存在且 size+mtime 一致则跳过
+	// Idempotency check: skip when the target exists with matching size and mtime.
 	if destInfo, err := os.Stat(hostDest); err == nil {
 		if destInfo.Size() == srcInfo.Size() && destInfo.ModTime().Equal(srcInfo.ModTime()) {
 			s.log.Info("staging skipped (already up-to-date)", zap.String("dest", hostDest))
@@ -144,7 +144,7 @@ func (s *stagingService) StageFile(_ context.Context, sourceID, documentID, vers
 		)
 	}
 
-	// 流式复制
+	// Stream the file copy.
 	written, err := copyFile(srcPath, hostDest, srcInfo.ModTime())
 	if err != nil {
 		return internal.StageResult{}, fmt.Errorf("%s: copy: %w", internal.ErrStageFailed, err)
@@ -278,7 +278,7 @@ func hashedFileName(sourceID, srcPath string, salt int) string {
 		key = fmt.Sprintf("%s|%d", key, salt)
 	}
 	sum := sha256.Sum256([]byte(key))
-	// 128bit hex 足够作为 staging 名称，且长度更可控。
+	// 128-bit hex is enough for staging names and keeps the filename length manageable.
 	hash := hex.EncodeToString(sum[:16])
 	ext := filepath.Ext(filepath.Base(cleanPath))
 	if ext == "" {

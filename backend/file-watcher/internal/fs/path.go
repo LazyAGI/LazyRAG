@@ -9,7 +9,7 @@ import (
 	internal "github.com/lazyrag/file_watcher/internal"
 )
 
-// PathValidator 路径校验接口。
+// PathValidator validates filesystem paths.
 type PathValidator interface {
 	Validate(path string) internal.ValidatePathResponse
 	EnsureAllowed(path string) error
@@ -60,7 +60,7 @@ func (v *pathValidator) Validate(path string) internal.ValidatePathResponse {
 	resp.Exists = true
 	resp.IsDir = info.IsDir()
 
-	// 尝试读取来判断可读性
+	// Try reading the path to determine readability.
 	if info.IsDir() {
 		f, err := os.Open(clean)
 		if err == nil {
@@ -102,7 +102,7 @@ func (v *pathValidator) isAllowed(clean string) bool {
 	return false
 }
 
-// canonicalize 对路径做 Clean + Abs，并尽可能解析现有路径中的符号链接。
+// canonicalize applies Clean and Abs, and resolves symlinks where the path exists.
 func canonicalize(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty path")

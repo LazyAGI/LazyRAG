@@ -2,10 +2,10 @@ package orm
 
 import "time"
 
-// 词条在词表中的角色（与 UI「术语 / 别名」对应）。
+// Role of a word in the vocabulary, matching the UI term or alias concepts.
 const (
-	WordKindTerm  = "term"  // 术语
-	WordKindAlias = "alias" // 别名
+	WordKindTerm  = "term"  // term
+	WordKindAlias = "alias" // alias
 )
 
 // WordBase is the audit column set for words; CreateUserID leads composite indexes (user-scoped).

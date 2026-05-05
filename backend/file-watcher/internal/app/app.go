@@ -20,7 +20,7 @@ import (
 	"github.com/lazyrag/file_watcher/internal/source"
 )
 
-// App 是进程级生命周期中枢。
+// App coordinates the process-level lifecycle.
 type App struct {
 	cfg         *config.Config
 	log         *zap.Logger
@@ -33,19 +33,19 @@ type App struct {
 	statusMu    sync.Mutex
 }
 
-// New 装配所有依赖，返回可运行的 App。
+// New wires all dependencies and returns a runnable App.
 func New(cfg *config.Config, log *zap.Logger) *App {
-	// 控制面客户端
+	// Control-plane client.
 	cpClient := control.NewHTTPClient(cfg.ControlPlaneBaseURL, cfg.AgentToken, log)
 
-	// fs 层
+	// fs layer.
 	pathMapper := fs.NewPathMapper(cfg.HostPathStyle, cfg.PathMappings)
 	validator := fs.NewPathValidator(cfg.Security.AllowedRoots)
 	scanner := fs.NewScanner(cfg.AgentID, cfg.Scan, cpClient, validator, pathMapper, log)
 	watcher := fs.NewRecursiveWatcher(cfg.AgentID, cfg.Watch, cpClient, pathMapper, log)
 	stagingSvc := fs.NewStagingService(cfg.Staging, log)
 
-	// source manager（同时实现 Manager 和 CommandDispatcher）
+	// Source manager, which also implements Manager and CommandDispatcher.
 	mgr := source.NewManager(cfg, scanner, watcher, validator, pathMapper, cpClient, stagingSvc, log)
 
 	a := &App{
@@ -57,7 +57,7 @@ func New(cfg *config.Config, log *zap.Logger) *App {
 		agentStatus: internal.AgentStatusRegistering,
 	}
 
-	// 心跳 + 拉配置（statusFn 通过闭包读取 app 动态状态）
+	// Heartbeat and command puller. statusFn reads the dynamic App status through a closure.
 	heartbeat := control.NewHeartbeatReporter(
 		cfg,
 		cpClient,
@@ -75,7 +75,7 @@ func New(cfg *config.Config, log *zap.Logger) *App {
 	return a
 }
 
-// Run 按固定顺序启动各子系统，阻塞直到收到退出信号。
+// Run starts subsystems in a fixed order and blocks until an exit signal arrives.
 func (a *App) Run(ctx context.Context) error {
 	hostname, _ := os.Hostname()
 	advertiseAddr := a.cfg.AgentListenURL()
@@ -93,7 +93,7 @@ func (a *App) Run(ctx context.Context) error {
 		zap.String("log_dir", a.cfg.LogDir),
 	)
 
-	// 注册 Agent 到控制面
+	// Register the Agent with control-plane.
 	if err := a.cpClient.RegisterAgent(ctx, internal.RegisterAgentRequest{
 		AgentID:    a.cfg.AgentID,
 		TenantID:   a.cfg.TenantID,
@@ -106,12 +106,12 @@ func (a *App) Run(ctx context.Context) error {
 		a.setStatus(internal.AgentStatusOnline)
 	}
 
-	// 启动心跳协程
+	// Start the heartbeat goroutine.
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
 	defer cancelHeartbeat()
 	go a.heartbeat.Run(heartbeatCtx)
 
-	// 启动 HTTP server
+	// Start the HTTP server.
 	serverErr := make(chan error, 1)
 	go func() {
 		a.log.Info("http server listening", zap.String("addr", a.cfg.ListenAddr))
@@ -120,10 +120,10 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}()
 
-	// 启动健康自检
+	// Start the health check loop.
 	go a.healthLoop(ctx)
 
-	// 等待退出信号
+	// Wait for an exit signal.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -147,7 +147,7 @@ func (a *App) shutdown() error {
 	return nil
 }
 
-// healthLoop 每 30s 执行一次健康自检，检查 6 项并更新 AgentStatus。
+// healthLoop runs health checks every 30s and updates AgentStatus.
 func (a *App) healthLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -165,7 +165,7 @@ func (a *App) healthLoop(ctx context.Context) {
 func (a *App) runHealthCheck(ctx context.Context) {
 	var failures []string
 
-	// 1. 检查 staging 根目录是否可写
+	// 1. Check whether local runtime directories are writable.
 	if a.cfg.Staging.Enabled {
 		if err := checkDirWritable(a.cfg.Staging.HostRoot); err != nil {
 			failures = append(failures, "staging_not_writable: "+err.Error())
@@ -182,7 +182,7 @@ func (a *App) runHealthCheck(ctx context.Context) {
 		}
 	}
 
-	// 2. 检查控制面是否可达（复用心跳接口做探活）
+	// 2. Check control-plane reachability by reusing the heartbeat endpoint.
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := a.cpClient.ReportHeartbeat(probeCtx, internal.HeartbeatPayload{
@@ -194,7 +194,7 @@ func (a *App) runHealthCheck(ctx context.Context) {
 		failures = append(failures, "control_plane_unreachable: "+err.Error())
 	}
 
-	// 3. 检查各 Source 的 watcher 是否存活
+	// 3. Check whether each Source watcher is alive.
 	runtimes := a.manager.ListRuntimes()
 	for _, rt := range runtimes {
 		if rt.Status == internal.SourceRuntimeStatusRunning && !rt.WatcherHealthy {
@@ -206,7 +206,7 @@ func (a *App) runHealthCheck(ctx context.Context) {
 		}
 	}
 
-	// 4. 检查是否有 Source 长时间处于 ERROR 状态
+	// 4. Check whether any Source is in ERROR status.
 	for _, rt := range runtimes {
 		if rt.Status == internal.SourceRuntimeStatusError {
 			failures = append(failures, "source_error: source_id="+rt.SourceID)
@@ -237,7 +237,7 @@ func (a *App) setStatus(s internal.AgentStatus) {
 	a.agentStatus = s
 }
 
-// checkDirWritable 检查目录是否存在且可写。
+// checkDirWritable checks whether a directory exists and is writable.
 func checkDirWritable(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

@@ -2,19 +2,19 @@ agent_id: "${RAGSCAN_AGENT_ID:-file-watcher-local-001}"
 tenant_id: "${RAGSCAN_TENANT_ID:-tenant-demo}"
 agent_token: "${RAGSCAN_AGENT_TOKEN:-my-secret-token}"
 listen_addr: "${RAGSCAN_AGENT_LISTEN_ADDR:-127.0.0.1:19090}"
-# 对外上报给 control-plane 的地址（当 control-plane 运行在容器内时建议使用 host.docker.internal）
+# Address advertised to control-plane. Use host.docker.internal when control-plane runs in a container.
 advertise_addr: "${RAGSCAN_AGENT_ADVERTISE_ADDR:-http://host.docker.internal:19090}"
 control_plane_base_url: "${RAGSCAN_CONTROL_PLANE_BASE_URL:-http://127.0.0.1:18080}"
 heartbeat_interval: "30s"
 pull_interval: "20s"
 reconcile_interval: "20m"
-# base_root 是 file-watcher 运行环境内的可写目录。
-# 宿主机模式默认落到项目根目录 data/scan；容器模式由 docker-compose.yml 覆盖为 /data/ragscan。
-# scan-control-plane 需要挂载同一个宿主机 data/scan，并把 staging 暴露为 /data/staging。
+# base_root is a writable directory in the file-watcher runtime environment.
+# Host mode defaults to the project data/scan directory; container mode overrides it to /data/ragscan via docker-compose.yml.
+# scan-control-plane must mount the same host data/scan directory and expose staging as /data/staging.
 base_root: "${RAGSCAN_BASE_ROOT:-../../../data/scan}"
 host_path_style: "${RAGSCAN_HOST_PATH_STYLE:-auto}"
-# 容器模式下会优先用 RAGSCAN_WATCH_HOST_DIR 和 RAGSCAN_WATCH_CONTAINER_DIR
-# 自动推导“用户/宿主机路径 -> 容器内实际路径”的映射。
+# In container mode, RAGSCAN_WATCH_HOST_DIR and RAGSCAN_WATCH_CONTAINER_DIR are preferred
+# to derive the "user/host path -> actual in-container path" mapping automatically.
 log_level: "info"
 
 watch:
@@ -26,7 +26,7 @@ scan:
   batch_size: 1000
   max_concurrency: 2
   large_file_threshold_mb: 200
-  # 白名单：只扫描这些类型（与 exclude_extensions 互斥，include 优先）
+  # Allowlist: scan only these types (mutually exclusive with exclude_extensions; include wins).
   # include_extensions:
   #   - ".pdf"
   #   - ".docx"
@@ -34,7 +34,7 @@ scan:
   #   - ".pptx"
   #   - ".txt"
   #   - ".md"
-  # 黑名单：跳过这些类型
+  # Blocklist: skip these types.
   # exclude_extensions:
   #   - ".tmp"
   #   - ".log"

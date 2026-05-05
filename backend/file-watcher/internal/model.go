@@ -2,7 +2,7 @@ package internal
 
 import "time"
 
-// ─── Agent 状态枚举 ───────────────────────────────────────────────────────────
+// Agent status enum.
 
 type AgentStatus string
 
@@ -14,7 +14,7 @@ const (
 	AgentStatusUnhealthy   AgentStatus = "UNHEALTHY"
 )
 
-// ─── Source 运行时状态枚举 ────────────────────────────────────────────────────
+// Source runtime status enum.
 
 type SourceRuntimeStatus string
 
@@ -28,7 +28,7 @@ const (
 	SourceRuntimeStatusError           SourceRuntimeStatus = "ERROR"
 )
 
-// ─── 扫描模式枚举 ─────────────────────────────────────────────────────────────
+// Scan mode enum.
 
 type ScanMode string
 
@@ -37,7 +37,7 @@ const (
 	ScanModeReconcile ScanMode = "reconcile"
 )
 
-// ─── 控制面指令类型枚举 ───────────────────────────────────────────────────────
+// Control-plane command type enum.
 
 type CommandType string
 
@@ -50,7 +50,7 @@ const (
 	CommandSnapshotSource CommandType = "snapshot_source"
 )
 
-// ─── 错误码枚举 ───────────────────────────────────────────────────────────────
+// Error code enum.
 
 type ErrorCode string
 
@@ -64,7 +64,7 @@ const (
 	ErrControlPlaneDown ErrorCode = "CONTROL_PLANE_DOWN"
 )
 
-// ─── 文件事件类型 ─────────────────────────────────────────────────────────────
+// File event type enum.
 
 type FileEventType string
 
@@ -75,9 +75,9 @@ const (
 	FileRenamed  FileEventType = "renamed"
 )
 
-// ─── 核心数据结构 ─────────────────────────────────────────────────────────────
+// Core data structures.
 
-// SourceRuntime 表示 Agent 侧一个正在运行的本地 Source。
+// SourceRuntime describes a local Source running on the Agent side.
 type SourceRuntime struct {
 	SourceID         string
 	TenantID         string
@@ -92,7 +92,7 @@ type SourceRuntime struct {
 	Cancel           func() // context.CancelFunc
 }
 
-// FileMeta 文件元数据。
+// FileMeta stores file metadata.
 type FileMeta struct {
 	Path          string
 	CanonicalPath string
@@ -104,7 +104,7 @@ type FileMeta struct {
 	Checksum      string
 }
 
-// FileEvent 文件变更事件。
+// FileEvent stores a file change event.
 type FileEvent struct {
 	SourceID   string        `json:"source_id"`
 	TenantID   string        `json:"tenant_id"`
@@ -116,7 +116,7 @@ type FileEvent struct {
 	TraceID    string        `json:"trace_id,omitempty"`
 }
 
-// HeartbeatPayload 心跳上报结构。
+// HeartbeatPayload is the heartbeat report payload.
 type HeartbeatPayload struct {
 	AgentID          string         `json:"agent_id"`
 	TenantID         string         `json:"tenant_id"`
@@ -132,7 +132,7 @@ type HeartbeatPayload struct {
 	ResourceUsage    map[string]any `json:"resource_usage_json,omitempty"`
 }
 
-// ScanRecord 单条扫描记录，用于批量上报。
+// ScanRecord stores one scan record for batch reporting.
 type ScanRecord struct {
 	SourceID string    `json:"source_id"`
 	Path     string    `json:"path"`
@@ -142,7 +142,7 @@ type ScanRecord struct {
 	Checksum string    `json:"checksum,omitempty"`
 }
 
-// SnapshotEntry reconcile 快照中的单条记录。
+// SnapshotEntry stores one entry in a reconcile snapshot.
 type SnapshotEntry struct {
 	Size     int64
 	ModTime  time.Time
@@ -150,14 +150,14 @@ type SnapshotEntry struct {
 	Checksum string
 }
 
-// Snapshot reconcile 快照。
+// Snapshot stores a reconcile snapshot.
 type Snapshot struct {
 	SourceID string
 	Files    map[string]SnapshotEntry
 	TakenAt  time.Time
 }
 
-// StageResult staging 复制结果。
+// StageResult stores the staging copy result.
 type StageResult struct {
 	HostPath      string
 	ContainerPath string
@@ -258,7 +258,7 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-// ─── 控制面客户端 DTO ─────────────────────────────────────────────────────────
+// Control-plane client DTOs.
 
 type RegisterAgentRequest struct {
 	AgentID    string `json:"agent_id"`

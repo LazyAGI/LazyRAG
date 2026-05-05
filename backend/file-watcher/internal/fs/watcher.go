@@ -14,14 +14,14 @@ import (
 	"github.com/lazyrag/file_watcher/internal/config"
 )
 
-// RecursiveWatcher 递归文件监听接口。
+// RecursiveWatcher defines the recursive file watching interface.
 type RecursiveWatcher interface {
 	Start(ctx context.Context, sourceID, tenantID, root string) error
 	Stop(sourceID string) error
 	Health(sourceID string) WatcherHealth
 }
 
-// EventReporter 事件上报接口（由 control.Client 实现）。
+// EventReporter reports file events.
 type EventReporter interface {
 	ReportEvents(ctx context.Context, req internal.ReportEventsRequest) error
 }
@@ -72,10 +72,10 @@ func (rw *recursiveWatcher) Start(ctx context.Context, sourceID, tenantID, root 
 	defer rw.mu.Unlock()
 
 	if _, exists := rw.entries[sourceID]; exists {
-		return nil // 已在监听
+		return nil // Already watching.
 	}
 
-	// 先做一次试探性创建，确认 root 可访问后再启动 goroutine
+	// Create a watcher first to verify root is accessible before starting the goroutine.
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -84,7 +84,7 @@ func (rw *recursiveWatcher) Start(ctx context.Context, sourceID, tenantID, root 
 		_ = fw.Close()
 		return err
 	}
-	_ = fw.Close() // 由 runWithRestart 内部重新创建，保持统一管理
+	_ = fw.Close() // Re-created inside runWithRestart for unified lifecycle management.
 
 	watchCtx, cancel := context.WithCancel(ctx)
 	entry := &watcherEntry{cancel: cancel, watcher: nil, tenantID: tenantID}
@@ -95,7 +95,7 @@ func (rw *recursiveWatcher) Start(ctx context.Context, sourceID, tenantID, root 
 	return nil
 }
 
-// runWithRestart 在 watcher loop 异常退出后自动重建，使用指数退避。
+// runWithRestart rebuilds the watcher after unexpected loop exits using exponential backoff.
 func (rw *recursiveWatcher) runWithRestart(ctx context.Context, sourceID, tenantID, root string) {
 	const maxBackoff = 60 * time.Second
 	backoff := time.Second
@@ -115,7 +115,7 @@ func (rw *recursiveWatcher) runWithRestart(ctx context.Context, sourceID, tenant
 				rw.log.Error("watcher addRecursive failed", zap.String("source_id", sourceID), zap.Error(err))
 				_ = fw.Close()
 			} else {
-				// 更新 entry 中的 watcher 引用
+				// Update the watcher reference in the entry.
 				rw.mu.Lock()
 				if e, ok := rw.entries[sourceID]; ok {
 					if e.watcher != nil && e.watcher != fw {
@@ -130,7 +130,7 @@ func (rw *recursiveWatcher) runWithRestart(ctx context.Context, sourceID, tenant
 				rw.log.Info("watcher loop running", zap.String("source_id", sourceID))
 				rw.loop(ctx, sourceID, tenantID, fw)
 
-				// loop 正常退出（ctx 取消）则不重建
+				// Do not rebuild when the loop exits normally due to ctx cancellation.
 				if ctx.Err() != nil {
 					_ = fw.Close()
 					return
@@ -196,7 +196,7 @@ func (rw *recursiveWatcher) Health(sourceID string) WatcherHealth {
 	}
 }
 
-// loop 是每个 Source 的 watcher 主循环，内置 debounce。
+// loop is the per-Source watcher main loop with built-in debounce.
 func (rw *recursiveWatcher) loop(ctx context.Context, sourceID, tenantID string, fw *fsnotify.Watcher) {
 	defer func() {
 		rw.mu.Lock()
@@ -331,15 +331,15 @@ func (rw *recursiveWatcher) handleFsEvent(
 		schedule(ev.Name, internal.FileDeleted, isDir)
 
 	case ev.Op&fsnotify.Rename != 0:
-		// P0: rename 按删除处理，新路径会触发 Create 事件
+		// P0: Treat rename as delete; the new path will trigger a Create event.
 		_ = fw.Remove(ev.Name)
 		schedule(ev.Name, internal.FileDeleted, isDir)
 
-		// Chmod 忽略
+		// Ignore Chmod.
 	}
 }
 
-// addRecursive 递归注册目录树到 fsnotify.Watcher。
+// addRecursive registers the directory tree recursively with fsnotify.Watcher.
 func addRecursive(fw *fsnotify.Watcher, root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {

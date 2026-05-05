@@ -278,7 +278,7 @@ func (s *Store) migrate(ctx context.Context) error {
 func (s *Store) ensureParseTaskIndexes(ctx context.Context) error {
 	switch s.db.Dialector.Name() {
 	case "postgres":
-		// 兼容历史 schema：旧版本使用 document_id 全局唯一索引/约束。
+		// Keep compatibility with historical schemas that used a global unique index or constraint on document_id.
 		if err := s.db.WithContext(ctx).Exec("ALTER TABLE parse_tasks DROP CONSTRAINT IF EXISTS uk_parse_task_document").Error; err != nil {
 			return err
 		}

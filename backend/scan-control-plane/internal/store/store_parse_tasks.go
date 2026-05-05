@@ -184,8 +184,8 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 	if err == nil && doc.LastModifiedAt != nil {
 		existingLast = doc.LastModifiedAt.UTC()
 	}
-	// 对同一文件，仅接受“更新的”事件时间。
-	// 这样可以避免 full-scan/restart 时用相同 mtime 重复触发任务。
+	// For the same file, accept only newer event timestamps.
+	// This avoids duplicate task triggers from identical mtimes during full-scan or restart.
 	if !existingLast.IsZero() && !occurred.After(existingLast) {
 		if log != nil {
 			log.Debug("event skipped",
@@ -321,8 +321,8 @@ func resolveMutationDocument(tx *gorm.DB, m DocumentMutation, now time.Time, log
 		return documentEntity{}, conflictErr
 	}
 	if conflictErr == nil && conflict.ID != doc.ID {
-		// 同一路径已存在记录。若刚好也是同一 origin_ref，则直接复用该记录；
-		// 否则中止，避免污染不同文档的主键身份。
+		// A record already exists for the same path. Reuse it only when it has the same origin_ref;
+		// otherwise abort to avoid contaminating another document's primary identity.
 		if strings.TrimSpace(conflict.OriginRef) == originRef &&
 			shouldResolveCloudDocumentByOriginRef(conflict.OriginType, conflict.OriginRef) {
 			return conflict, nil
@@ -430,7 +430,7 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 				"updated_at":                now.UTC(),
 			}
 
-			// 只合并“未执行任务”；已执行任务保留为历史记录。
+			// Merge only unexecuted tasks; executed tasks remain as history.
 			updateRes := tx.Model(&parseTaskEntity{}).
 				Where("document_id = ? AND status IN ?", doc.ID, []string{"PENDING", "RETRY_WAITING"}).
 				Updates(taskUpdates)
@@ -467,7 +467,7 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 					UpdatedAt:               now.UTC(),
 				}
 				if err := tx.Create(&task).Error; err != nil {
-					// 并发场景下可能被唯一索引拦住，回退到 update 即可。
+					// Concurrent inserts may be blocked by the unique index, so fall back to update.
 					if isUniqueConstraintError(err) {
 						if lookupErr := tx.
 							Where("document_id = ? AND status IN ?", doc.ID, []string{"PENDING", "RETRY_WAITING"}).
