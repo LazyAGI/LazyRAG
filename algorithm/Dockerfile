@@ -80,8 +80,7 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     lazyllm install rag
 
 # Stage: default - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-# Submodule lazyllm is copied via COPY . . and its parent dir is prepended to PYTHONPATH so
-# "import lazyllm" resolves to /app/lazyllm/lazyllm/ (submodule) instead of pip-installed lazyllm.
+# Use the LazyLLM runtime installed under /opt/lazyllm so tracing behavior matches Evo/chat images.
 FROM base AS default
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
@@ -92,9 +91,8 @@ LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN test -d /app/lazyllm/lazyllm
 RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/app/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
 ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
 ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
@@ -113,8 +111,7 @@ ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
 # Stage: mineru - base + requirements.txt + configurable mineru extra + code.
-# Submodule lazyllm is copied via COPY . . and its parent dir is prepended to PYTHONPATH so
-# "import lazyllm" resolves to /app/lazyllm/lazyllm/ (submodule) instead of pip-installed lazyllm.
+# Use the same LazyLLM runtime as the default stage.
 FROM base AS mineru
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
@@ -143,5 +140,5 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
-ENV PYTHONPATH=/app/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]
