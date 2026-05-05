@@ -281,6 +281,7 @@ type AbComparisonRow = {
 
 const FIXED_EVAL_SET = "__none__";
 const FIXED_EXTRA_EVAL_STRATEGY: ExtraEvalStrategy = "generate";
+const DEFAULT_EVAL_CASE_COUNT = 100;
 const AGENT_API_BASE = `${BASE_URL}/api/core/agent`;
 const SELF_EVOLUTION_LAST_THREAD_STORAGE_KEY = "lazyrag:self-evolution:last-thread";
 const DEPRECATED_SELF_EVOLUTION_THREAD_HISTORY_STORAGE_KEY = "lazyrag:self-evolution:thread-history";
@@ -346,6 +347,39 @@ type AbCategoryComparison = {
   baseline: Record<PxMetricKey, number>;
   experiment: Record<PxMetricKey, number>;
   delta: Record<PxMetricKey, number>;
+};
+
+type AbSummaryMetricRow = {
+  key: string;
+  metric: string;
+  metricLabel: string;
+  meanA: number;
+  meanB: number;
+  deltaMean: number;
+  winRateB: number;
+  signP?: number | null;
+  n?: number;
+};
+
+type AbTopDiffRow = {
+  key: string;
+  caseKey: string;
+  a: number;
+  b: number;
+  delta: number;
+};
+
+type AbSummaryReport = {
+  id: string;
+  markdown?: string;
+  verdict?: string;
+  alignedCases?: number;
+  reasons: string[];
+  metricRows: AbSummaryMetricRow[];
+  topDiffRows: AbTopDiffRow[];
+  missingMetrics: string[];
+  primaryMetric?: string;
+  guardMetrics: string[];
 };
 
 const pxMetricMeta: Array<{ key: PxMetricKey; label: string; color: string }> = [
@@ -1116,6 +1150,27 @@ function getDialogueEventAgentLabel(event: NormalizedThreadEvent) {
   return undefined;
 }
 
+function buildAutoInteractionMessagesFromEvents(events: NormalizedThreadEvent[]): ChatMessage[] {
+  return dedupeNormalizedEvents(events)
+    .filter((event) => event.role && event.content && getDialogueEventAgentLabel(event))
+    .map((event) => ({
+      id: `event-chat-${event.key}`,
+      role: event.role as ChatRole,
+      content: event.content || "",
+      time: formatThreadTime(event.timestamp),
+      sortTime:
+        getThreadTimeSortValue(event.timestamp) ||
+        (typeof event.sequence === "number" ? event.sequence : undefined),
+      agentLabel: getDialogueEventAgentLabel(event),
+    }))
+    .sort((a, b) => {
+      if (typeof a.sortTime === "number" && typeof b.sortTime === "number" && a.sortTime !== b.sortTime) {
+        return a.sortTime - b.sortTime;
+      }
+      return a.id.localeCompare(b.id, "zh-CN", { numeric: true });
+    });
+}
+
 function getEventPayloadData(payload: Record<string, unknown> | undefined) {
   if (isRecord(payload?.payload)) {
     return payload.payload;
@@ -1782,6 +1837,105 @@ function formatMetricSummary(metrics: Record<PxMetricKey, number>) {
     `上下文召回 ${formatMetricPercent(metrics.context_recall)}`,
     `文档召回 ${formatMetricPercent(metrics.doc_recall)}`,
   ].join(" / ");
+}
+
+function toFiniteNumber(value: unknown, fallback = 0) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+  return fallback;
+}
+
+function formatAbMetricLabel(metric: string) {
+  return pxMetricMeta.find((item) => item.key === metric)?.label || metric;
+}
+
+function getAbtestResultRecords(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is Record<string, unknown> => isRecord(item));
+  }
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const nestedItems = getResultItems(value).filter((item): item is Record<string, unknown> => isRecord(item));
+  return nestedItems.length > 0 ? nestedItems : [value];
+}
+
+function buildAbSummaryReports(payload: unknown): AbSummaryReport[] {
+  return getAbtestResultRecords(payload)
+    .reduce<AbSummaryReport[]>((reports, record, index) => {
+      const summary =
+        getStructuredRecordField(record, ["summary"]) ||
+        getNestedRecordField(record, ["summary"]) ||
+        (isRecord(record.metrics) ? record : undefined);
+      if (!summary) {
+        return reports;
+      }
+
+      const metricsRecord =
+        getStructuredRecordField(summary, ["metrics"]) || getNestedRecordField(summary, ["metrics"]);
+      const metricRows = metricsRecord
+        ? Object.entries(metricsRecord)
+            .filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]))
+            .map(([metric, item]) => ({
+              key: metric,
+              metric,
+              metricLabel: formatAbMetricLabel(metric),
+              meanA: clampScore(toFiniteNumber(item.mean_a)),
+              meanB: clampScore(toFiniteNumber(item.mean_b)),
+              deltaMean: toFiniteNumber(item.delta_mean),
+              winRateB: clampScore(toFiniteNumber(item.win_rate_b)),
+              signP: item.sign_p === null || item.sign_p === undefined ? null : toFiniteNumber(item.sign_p),
+              n: getNumberField(item, ["n"]),
+            }))
+        : [];
+
+      const topDiffRows = (getStructuredArrayField(summary, ["top_diff_cases"]) || [])
+        .filter((item): item is Record<string, unknown> => isRecord(item))
+        .map((item, rowIndex) => ({
+          key: getStringField(item, ["case_key", "case_id", "id"]) || `case-${rowIndex + 1}`,
+          caseKey: getStringField(item, ["case_key", "case_id", "id"]) || `case-${rowIndex + 1}`,
+          a: toFiniteNumber(item.a),
+          b: toFiniteNumber(item.b),
+          delta: toFiniteNumber(item.delta),
+        }));
+
+      const policy = getStructuredRecordField(summary, ["policy"]) || getNestedRecordField(summary, ["policy"]);
+      const reasons = (getStructuredArrayField(summary, ["reasons"]) || []).filter(
+        (item): item is string => typeof item === "string" && item.trim().length > 0,
+      );
+      const missingMetrics = (getStructuredArrayField(summary, ["missing_metrics"]) || []).filter(
+        (item): item is string => typeof item === "string" && item.trim().length > 0,
+      );
+      const guardMetrics = (getStructuredArrayField(policy, ["guard_metrics"]) || []).filter(
+        (item): item is string => typeof item === "string" && item.trim().length > 0,
+      );
+
+      reports.push({
+        id: getStringField(record, ["abtest_id", "id", "task_id"]) || `abtest-${index + 1}`,
+        markdown: getResultStringField(record, ["markdown", "report", "content", "text"]),
+        verdict: getStringField(summary, ["verdict"]) || getResultStringField(record, ["verdict"]),
+        alignedCases: getNumberField(summary, ["aligned_cases"]),
+        reasons,
+        metricRows,
+        topDiffRows,
+        missingMetrics,
+        primaryMetric: getStringField(policy, ["primary_metric"]),
+        guardMetrics,
+      });
+      return reports;
+    }, []);
+}
+
+function formatMaybePValue(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+  return value < 0.001 ? "<0.001" : value.toFixed(3);
 }
 
 function parseSSEFrame(rawFrame: string): ThreadEventFrame | undefined {
@@ -2852,6 +3006,10 @@ export default function SelfEvolutionPage() {
       })),
     [abCategoryComparisons],
   );
+  const abSummaryReports = useMemo<AbSummaryReport[]>(
+    () => buildAbSummaryReports(workflowResults.abtests.data),
+    [workflowResults.abtests.data],
+  );
   const abComparisonColumns = useMemo<ColumnsType<AbComparisonRow>>(
     () => [
       { title: "评测分类", dataIndex: "category", key: "category", width: 140 },
@@ -2934,6 +3092,12 @@ export default function SelfEvolutionPage() {
   const activeMessages = activeSession?.messages ?? [];
   const activeThreadId = activeSession?.threadId || routeThreadId;
   const isAutoInteractionActive = mode === "auto" && Boolean(activeThreadId);
+  const autoInteractionMessages = useMemo(
+    () => buildAutoInteractionMessagesFromEvents(threadEvents),
+    [threadEvents],
+  );
+  const displayedMessages = isAutoInteractionActive ? autoInteractionMessages : activeMessages;
+  const displayedCheckpointWaitPrompt = isAutoInteractionActive ? undefined : pendingCheckpointWaitPrompt;
   const datasetResultDownloadUrl = useMemo(
     () => buildCoreDownloadUrl(getResultDownloadPath(workflowResults.datasets.data)),
     [workflowResults.datasets.data],
@@ -3165,7 +3329,7 @@ export default function SelfEvolutionPage() {
       top: chatStream.scrollHeight,
       behavior: "auto",
     });
-  }, [activeSessionId, activeMessages.length]);
+  }, [activeSessionId, displayedMessages.length]);
 
   useEffect(
     () => () => {
@@ -3286,7 +3450,7 @@ export default function SelfEvolutionPage() {
         kb_id: selectedKb,
         algo_id: "general_algo",
         eval_name: evalName,
-        num_cases: 1,
+        num_cases: DEFAULT_EVAL_CASE_COUNT,
         target_chat_url: "http://evo-chat:8046/api/chat",
         dataset_name: "algo",
       },
@@ -5335,9 +5499,213 @@ export default function SelfEvolutionPage() {
     );
   };
 
+  const renderAbSummaryMetricChart = (rows: AbSummaryMetricRow[]) => {
+    const width = Math.max(620, rows.length * 132);
+    const height = 300;
+    const padding = { top: 28, right: 24, bottom: 62, left: 44 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    const yToPx = (value: number) => padding.top + (1 - clampScore(value)) * chartHeight;
+    const ticks = [0, 0.25, 0.5, 0.75, 1];
+    const groupWidth = chartWidth / Math.max(rows.length, 1);
+    const barWidth = Math.min(24, groupWidth * 0.26);
+    const aColor = "#7f97ba";
+    const bColor = "#1a73e8";
+
+    return (
+      <div className="self-evolution-ab-summary-chart-scroller">
+        <svg className="self-evolution-ab-summary-chart" viewBox={`0 0 ${width} ${height}`} role="img">
+          <title>A/B 测试 summary 指标对比</title>
+          {ticks.map((tick) => {
+            const y = yToPx(tick);
+            return (
+              <g key={`ab-summary-tick-${tick}`}>
+                <line
+                  x1={padding.left}
+                  y1={y}
+                  x2={width - padding.right}
+                  y2={y}
+                  className="self-evolution-px-grid-line"
+                />
+                <text x={padding.left - 8} y={y + 4} textAnchor="end" className="self-evolution-px-axis-label">
+                  {tick.toFixed(2)}
+                </text>
+              </g>
+            );
+          })}
+          {rows.map((row, index) => {
+            const groupCenter = padding.left + groupWidth * index + groupWidth / 2;
+            const meanAY = yToPx(row.meanA);
+            const meanBY = yToPx(row.meanB);
+            return (
+              <g key={`ab-summary-group-${row.key}`}>
+                <rect
+                  x={groupCenter - barWidth - 4}
+                  y={meanAY}
+                  width={barWidth}
+                  height={padding.top + chartHeight - meanAY}
+                  fill={aColor}
+                  rx={3}
+                />
+                <rect
+                  x={groupCenter + 4}
+                  y={meanBY}
+                  width={barWidth}
+                  height={padding.top + chartHeight - meanBY}
+                  fill={bColor}
+                  rx={3}
+                />
+                <text
+                  x={groupCenter}
+                  y={Math.min(meanAY, meanBY) - 8}
+                  textAnchor="middle"
+                  className={`self-evolution-ab-delta-text${row.deltaMean >= 0 ? " is-up" : " is-down"}`}
+                >
+                  {`${row.deltaMean >= 0 ? "+" : ""}${(row.deltaMean * 100).toFixed(1)}%`}
+                </text>
+                <text x={groupCenter} y={height - 28} textAnchor="middle" className="self-evolution-px-axis-label">
+                  {getShortLabel(row.metricLabel, 7)}
+                </text>
+                <text x={groupCenter} y={height - 12} textAnchor="middle" className="self-evolution-px-axis-label">
+                  {`胜率 ${formatPercent(row.winRateB)}`}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
+  const renderAbSummaryReport = (report: AbSummaryReport) => {
+    const metricColumns: ColumnsType<AbSummaryMetricRow> = [
+      { title: "指标", dataIndex: "metricLabel", key: "metricLabel", width: 150 },
+      { title: "mean A", dataIndex: "meanA", key: "meanA", width: 110, render: (value: number) => formatPercent(value) },
+      { title: "mean B", dataIndex: "meanB", key: "meanB", width: 110, render: (value: number) => formatPercent(value) },
+      {
+        title: "Δmean",
+        dataIndex: "deltaMean",
+        key: "deltaMean",
+        width: 110,
+        render: (value: number) => <span className={value >= 0 ? "is-up" : "is-down"}>{formatMetricDelta(value)}</span>,
+      },
+      { title: "B 胜率", dataIndex: "winRateB", key: "winRateB", width: 110, render: (value: number) => formatPercent(value) },
+      { title: "sign p", dataIndex: "signP", key: "signP", width: 100, render: (value: number | null | undefined) => formatMaybePValue(value) },
+    ];
+    const topDiffColumns: ColumnsType<AbTopDiffRow> = [
+      {
+        title: "case",
+        dataIndex: "caseKey",
+        key: "caseKey",
+        width: 280,
+        render: (value: string) => (
+          <span className="self-evolution-table-ellipsis" title={value}>
+            {value}
+          </span>
+        ),
+      },
+      { title: "A", dataIndex: "a", key: "a", width: 90 },
+      { title: "B", dataIndex: "b", key: "b", width: 90 },
+      {
+        title: "Δ",
+        dataIndex: "delta",
+        key: "delta",
+        width: 90,
+        render: (value: number) => <span className={value >= 0 ? "is-up" : "is-down"}>{value}</span>,
+      },
+    ];
+
+    return (
+      <div key={report.id} className="self-evolution-ab-summary-report">
+        <div className="self-evolution-ab-summary-head">
+          <div>
+            <Text strong>{report.id}</Text>
+            <div className="self-evolution-ab-summary-meta">
+              {report.alignedCases !== undefined && <span>{`对齐样本 ${report.alignedCases}`}</span>}
+              {report.primaryMetric && <span>{`主指标 ${formatAbMetricLabel(report.primaryMetric)}`}</span>}
+              {report.guardMetrics.length > 0 && (
+                <span>{`保护指标 ${report.guardMetrics.map(formatAbMetricLabel).join(" / ")}`}</span>
+              )}
+            </div>
+          </div>
+          {report.verdict && <Tag color={report.verdict === "pass" ? "success" : "warning"}>{report.verdict}</Tag>}
+        </div>
+
+        {report.metricRows.length > 0 && (
+          <div className="self-evolution-ab-chart-shell">
+            {renderAbSummaryMetricChart(report.metricRows)}
+            <div className="self-evolution-ab-legend">
+              <span className="self-evolution-ab-legend-item">
+                <span className="self-evolution-ab-legend-dot is-a" />
+                A 评测（基线）
+              </span>
+              <span className="self-evolution-ab-legend-item">
+                <span className="self-evolution-ab-legend-dot is-b" />
+                B 评测（优化后）
+              </span>
+            </div>
+          </div>
+        )}
+
+        {report.metricRows.length > 0 && (
+          <Table<AbSummaryMetricRow>
+            className="self-evolution-dataset-table self-evolution-ab-table self-evolution-ab-summary-table"
+            size="small"
+            rowKey="key"
+            columns={metricColumns}
+            dataSource={report.metricRows}
+            pagination={false}
+            scroll={{ x: 690 }}
+          />
+        )}
+
+        {report.markdown && (
+          <div className="self-evolution-ab-markdown">
+            <div className="self-evolution-ab-section-title">Markdown 报告</div>
+            <div className="self-evolution-ab-markdown-body">
+              <MarkdownViewer>{report.markdown}</MarkdownViewer>
+            </div>
+          </div>
+        )}
+
+        {report.topDiffRows.length > 0 && (
+          <div className="self-evolution-ab-top-diff">
+            <div className="self-evolution-ab-section-title">Top diff cases</div>
+            <Table<AbTopDiffRow>
+              className="self-evolution-dataset-table self-evolution-ab-table"
+              size="small"
+              rowKey="key"
+              columns={topDiffColumns}
+              dataSource={report.topDiffRows}
+              pagination={false}
+              scroll={{ x: 550 }}
+            />
+          </div>
+        )}
+
+        {(report.reasons.length > 0 || report.missingMetrics.length > 0) && (
+          <div className="self-evolution-ab-reasons">
+            {report.reasons.map((reason) => (
+              <span key={`reason-${report.id}-${reason}`}>{reason}</span>
+            ))}
+            {report.missingMetrics.length > 0 && <span>{`缺失指标：${report.missingMetrics.join(" / ")}`}</span>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderAbTestPreview = () => (
     <section className="self-evolution-ab-report" aria-label="A/B 对比展示">
-      {workflowResults.abtests.loaded || workflowResults.abtests.loading || workflowResults.abtests.error ? (
+      {workflowResults.abtests.loaded && abSummaryReports.length > 0 ? (
+        <>
+          <div className="self-evolution-ab-head">
+            <Text>ABTest 对照报告</Text>
+            <Text>{`当前展示 ${abSummaryReports.length} 条`}</Text>
+          </div>
+          <div className="self-evolution-ab-summary-list">{abSummaryReports.map(renderAbSummaryReport)}</div>
+        </>
+      ) : workflowResults.abtests.loaded || workflowResults.abtests.loading || workflowResults.abtests.error ? (
         renderWorkflowResultPayload("abtests")
       ) : (
         <>
@@ -5554,7 +5922,7 @@ export default function SelfEvolutionPage() {
                               key: "ab-test-preview",
                               label: (
                                 <span className="self-evolution-dataset-collapse-label">
-                                  <span>{`查看 A/B 测试结果（${abComparisonRows.length}/${abCategoryComparisons.length}）`}</span>
+                                  <span>{`查看 A/B 测试结果（${abSummaryReports.length || abComparisonRows.length}/${abSummaryReports.length || abCategoryComparisons.length}）`}</span>
                                   <a
                                     className="self-evolution-dataset-download-link"
                                     href={abtestResultDownloadUrl || abComparisonDownloadUrl || undefined}
@@ -5646,13 +6014,13 @@ export default function SelfEvolutionPage() {
               </div>
             </div>
 
-            <ChatMessageStream messages={activeMessages} streamRef={chatStreamRef} />
+            <ChatMessageStream messages={displayedMessages} streamRef={chatStreamRef} />
 
             <ChatComposer
               activeStepText={activeStepText}
               isAutoInteractionActive={isAutoInteractionActive}
               isSendingMessage={isSendingMessage}
-              pendingCheckpointWaitPrompt={pendingCheckpointWaitPrompt}
+              pendingCheckpointWaitPrompt={displayedCheckpointWaitPrompt}
               prompt={prompt}
               onPromptChange={setPrompt}
               onSend={(command) => void onSend(command)}
