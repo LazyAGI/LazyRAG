@@ -35,9 +35,6 @@ import { AgentAppsAuth } from "@/components/auth";
 import MarkdownViewer from "@/modules/knowledge/components/MarkdownViewer";
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
 import { BASE_URL, axiosInstance, getLocalizedErrorMessage } from "@/components/request";
-import { pxReportCaseMetrics } from "./mockPxReport";
-import analysisReportMarkdown from "./mockAnalysisReport.md?raw";
-import codeOptimizeDiff from "./mockCodeOptimize.diff?raw";
 import {
   ChatComposer,
   ChatMessageStream,
@@ -552,20 +549,6 @@ const clampScore = (value: number) => {
   return Math.min(1, Math.max(0, value));
 };
 
-const formatQuestionCategory = (questionType: number | string | null | undefined) => {
-  if (typeof questionType === "number") {
-    return formatQuestionType(questionType);
-  }
-  if (typeof questionType === "string" && questionType.trim()) {
-    const normalized = Number(questionType);
-    if (Number.isFinite(normalized)) {
-      return formatQuestionType(normalized);
-    }
-    return questionType;
-  }
-  return "未分类";
-};
-
 const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
 
 const getQuestionTypeDisplayName = (item: EvalQuestionTypeSummary, index: number) => {
@@ -579,79 +562,6 @@ const getQuestionTypeDisplayName = (item: EvalQuestionTypeSummary, index: number
     return formatQuestionType(item.question_type);
   }
   return `分类 ${index + 1}`;
-};
-
-const buildPxCategoryMetricAverages = (
-  cases: Array<{
-    question_type: number | string | null;
-    answer_correctness: number | null;
-    faithfulness: number | null;
-    context_recall: number | null;
-    doc_recall: number | null;
-  }>,
-): PxCategoryMetricAverage[] => {
-  const grouped = new Map<
-    string,
-    {
-      category: string;
-      caseCount: number;
-      sums: Record<PxMetricKey, number>;
-      counts: Record<PxMetricKey, number>;
-    }
-  >();
-
-  for (const item of cases) {
-    const category = formatQuestionCategory(item.question_type);
-    if (!grouped.has(category)) {
-      grouped.set(category, {
-        category,
-        caseCount: 0,
-        sums: {
-          answer_correctness: 0,
-          faithfulness: 0,
-          context_recall: 0,
-          doc_recall: 0,
-        },
-        counts: {
-          answer_correctness: 0,
-          faithfulness: 0,
-          context_recall: 0,
-          doc_recall: 0,
-        },
-      });
-    }
-
-    const bucket = grouped.get(category);
-    if (!bucket) {
-      continue;
-    }
-    bucket.caseCount += 1;
-
-    for (const metric of pxMetricMeta) {
-      const value = item[metric.key];
-      if (typeof value === "number" && Number.isFinite(value)) {
-        bucket.sums[metric.key] += clampScore(value);
-        bucket.counts[metric.key] += 1;
-      }
-    }
-  }
-
-  return Array.from(grouped.values())
-    .map((bucket) => ({
-      category: bucket.category,
-      caseCount: bucket.caseCount,
-      metrics: {
-        answer_correctness:
-          bucket.counts.answer_correctness > 0
-            ? bucket.sums.answer_correctness / bucket.counts.answer_correctness
-            : 0,
-        faithfulness: bucket.counts.faithfulness > 0 ? bucket.sums.faithfulness / bucket.counts.faithfulness : 0,
-        context_recall:
-          bucket.counts.context_recall > 0 ? bucket.sums.context_recall / bucket.counts.context_recall : 0,
-        doc_recall: bucket.counts.doc_recall > 0 ? bucket.sums.doc_recall / bucket.counts.doc_recall : 0,
-      },
-    }))
-    .sort((a, b) => a.category.localeCompare(b.category, "zh-CN", { numeric: true }));
 };
 
 const buildPxCategoryMetricAveragesFromReport = (payload: unknown): PxCategoryMetricAverage[] => {
@@ -1782,43 +1692,29 @@ function buildDiffFileTree(files: ParsedDiffFile[]): DiffFileTreeNode[] {
   return tree;
 }
 
-function buildAbCategoryComparisons(
-  baseline: PxCategoryMetricAverage[],
-  experiment: PxCategoryMetricAverage[],
-): AbCategoryComparison[] {
-  const baselineMap = new Map(baseline.map((item) => [item.category, item]));
-  const experimentMap = new Map(experiment.map((item) => [item.category, item]));
-  const allCategories = Array.from(new Set([...baselineMap.keys(), ...experimentMap.keys()]));
+function buildAbCategoryComparisons(reports: AbSummaryReport[]): AbCategoryComparison[] {
+  return reports
+    .filter((report) => report.metricRows.length > 0)
+    .map((report, index) => {
+      const metricMap = new Map(report.metricRows.map((row) => [row.metric, row]));
+      const baseline = {} as Record<PxMetricKey, number>;
+      const experiment = {} as Record<PxMetricKey, number>;
+      const delta = {} as Record<PxMetricKey, number>;
 
-  return allCategories
-    .map((category) => {
-      const a = baselineMap.get(category);
-      const b = experimentMap.get(category);
-      const baselineMetrics: Record<PxMetricKey, number> = {
-        answer_correctness: a?.metrics.answer_correctness ?? 0,
-        faithfulness: a?.metrics.faithfulness ?? 0,
-        context_recall: a?.metrics.context_recall ?? 0,
-        doc_recall: a?.metrics.doc_recall ?? 0,
-      };
-      const experimentMetrics: Record<PxMetricKey, number> = {
-        answer_correctness: b?.metrics.answer_correctness ?? 0,
-        faithfulness: b?.metrics.faithfulness ?? 0,
-        context_recall: b?.metrics.context_recall ?? 0,
-        doc_recall: b?.metrics.doc_recall ?? 0,
-      };
+      pxMetricMeta.forEach((metric) => {
+        const row = metricMap.get(metric.key);
+        baseline[metric.key] = clampScore(row?.meanA ?? 0);
+        experiment[metric.key] = clampScore(row?.meanB ?? 0);
+        delta[metric.key] = row?.deltaMean ?? experiment[metric.key] - baseline[metric.key];
+      });
+
       return {
-        category,
-        baseline: baselineMetrics,
-        experiment: experimentMetrics,
-        delta: {
-          answer_correctness: experimentMetrics.answer_correctness - baselineMetrics.answer_correctness,
-          faithfulness: experimentMetrics.faithfulness - baselineMetrics.faithfulness,
-          context_recall: experimentMetrics.context_recall - baselineMetrics.context_recall,
-          doc_recall: experimentMetrics.doc_recall - baselineMetrics.doc_recall,
-        },
+        category: reports.length === 1 ? "总体" : report.id || `报告 ${index + 1}`,
+        baseline,
+        experiment,
+        delta,
       };
-    })
-    .sort((a, b) => a.category.localeCompare(b.category, "zh-CN", { numeric: true }));
+    });
 }
 
 function formatMetricPercent(value: number) {
@@ -2942,16 +2838,11 @@ export default function SelfEvolutionPage() {
     });
     return URL.createObjectURL(datasetBlob);
   }, []);
-  const pxCategoryMetricAverages = useMemo<PxCategoryMetricAverage[]>(
-    () => buildPxCategoryMetricAverages(pxReportCaseMetrics),
-    [],
-  );
   const fetchedPxCategoryMetricAverages = useMemo<PxCategoryMetricAverage[]>(
     () => buildPxCategoryMetricAveragesFromReport(workflowResults["eval-reports"].data),
     [workflowResults["eval-reports"].data],
   );
-  const pxReportCategoryMetrics =
-    fetchedPxCategoryMetricAverages.length > 0 ? fetchedPxCategoryMetricAverages : pxCategoryMetricAverages;
+  const pxReportCategoryMetrics = fetchedPxCategoryMetricAverages;
   const isSinglePxCategory = pxReportCategoryMetrics.length === 1;
   const pxReportTotalCases = useMemo(() => {
     const sourceRecord = Array.isArray(workflowResults["eval-reports"].data)
@@ -2967,27 +2858,16 @@ export default function SelfEvolutionPage() {
     return (
       getNumberField(caseDetailSummary, ["total_count"]) ||
       getNumberField(sourceRecord, ["total_cases"]) ||
-      pxReportCaseMetrics.length
+      pxReportCategoryMetrics.reduce((total, item) => total + item.caseCount, 0)
     );
-  }, [workflowResults]);
-  const pxExperimentCaseMetrics = useMemo(
-    () =>
-      pxReportCaseMetrics.map((item, index) => ({
-        ...item,
-        answer_correctness: clampScore((item.answer_correctness ?? 0) + (index % 4 === 0 ? 0.08 : 0.05)),
-        faithfulness: clampScore((item.faithfulness ?? 0) + (index % 5 === 0 ? 0.12 : 0.09)),
-        context_recall: clampScore((item.context_recall ?? 0) + (index % 3 === 0 ? 0.09 : 0.06)),
-        doc_recall: clampScore((item.doc_recall ?? 0) + (index % 2 === 0 ? 0.08 : 0.05)),
-      })),
-    [],
-  );
-  const pxExperimentCategoryAverages = useMemo<PxCategoryMetricAverage[]>(
-    () => buildPxCategoryMetricAverages(pxExperimentCaseMetrics),
-    [pxExperimentCaseMetrics],
+  }, [pxReportCategoryMetrics, workflowResults]);
+  const abSummaryReports = useMemo<AbSummaryReport[]>(
+    () => buildAbSummaryReports(workflowResults.abtests.data),
+    [workflowResults.abtests.data],
   );
   const abCategoryComparisons = useMemo<AbCategoryComparison[]>(
-    () => buildAbCategoryComparisons(pxCategoryMetricAverages, pxExperimentCategoryAverages),
-    [pxCategoryMetricAverages, pxExperimentCategoryAverages],
+    () => buildAbCategoryComparisons(abSummaryReports),
+    [abSummaryReports],
   );
   const isSingleAbCategory = abCategoryComparisons.length <= 1;
   const abComparisonRows = useMemo<AbComparisonRow[]>(
@@ -3005,10 +2885,6 @@ export default function SelfEvolutionPage() {
         ].join(" / "),
       })),
     [abCategoryComparisons],
-  );
-  const abSummaryReports = useMemo<AbSummaryReport[]>(
-    () => buildAbSummaryReports(workflowResults.abtests.data),
-    [workflowResults.abtests.data],
   );
   const abComparisonColumns = useMemo<ColumnsType<AbComparisonRow>>(
     () => [
@@ -3083,7 +2959,7 @@ export default function SelfEvolutionPage() {
     [workflowResults],
   );
   const parsedDiffFiles = useMemo(
-    () => parseUnifiedDiff(fetchedDiffText || codeOptimizeDiff),
+    () => parseUnifiedDiff(fetchedDiffText),
     [fetchedDiffText],
   );
   const diffFileTree = useMemo(() => buildDiffFileTree(parsedDiffFiles), [parsedDiffFiles]);
@@ -5000,9 +4876,7 @@ export default function SelfEvolutionPage() {
             renderWorkflowResultPayload("analysis-reports")
           )
         ) : (
-          <div className="self-evolution-analysis-markdown">
-            <MarkdownViewer>{analysisReportMarkdown}</MarkdownViewer>
-          </div>
+          renderWorkflowResultPayload("analysis-reports")
         )}
       </div>
     </section>
@@ -5842,7 +5716,7 @@ export default function SelfEvolutionPage() {
                               label: (
                                 <span className="self-evolution-dataset-collapse-label">
                                   <span>
-                                    {pxCategoryMetricAverages.length === 0
+                                    {pxReportCategoryMetrics.length === 0
                                       ? "查看评测图表（暂无有效数据）"
                                       : isSinglePxCategory
                                         ? "查看评测图表（单分类饼图）"
