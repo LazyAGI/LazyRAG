@@ -59,7 +59,7 @@ def call_rag_chat(
     data_obj = result.get('data') if isinstance(result.get('data'), dict) else {}
     sources = result.get('sources') or data_obj.get('sources') or data_obj.get('recall') or []
     trace = data_obj.get('trace') if isinstance(data_obj.get('trace'), dict) else None
-    trace_id = result.get('trace_id') or data_obj.get('trace_id') or (trace or {}).get('trace_id') or (trace or {}).get('id') or ''
+    trace_id = result.get('trace_id') or data_obj.get('trace_id') or (trace or {}).get('trace_id') or (trace or {}).get('id') or ''  # noqa: E501
     if require_trace and not trace_id and not trace:
         raise RAGTraceMissing('target chat did not return trace_id or inline trace')
     answer = result.get('answer') or data_obj.get('answer') or data_obj.get('text') or data_obj.get('data') or ''

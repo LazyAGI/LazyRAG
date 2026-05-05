@@ -79,7 +79,7 @@ def _assert_trace_complete(trace: dict[str, Any]) -> None:
     if tree.get('name') == 'run_chat_pipeline' and not {'answer', 'parser'}.issubset(set(names)):
         raise RuntimeError(
             f"trace {trace.get('trace_id')} is not complete yet; "
-            f"nodes={names}"
+            f'nodes={names}'
         )
 
 

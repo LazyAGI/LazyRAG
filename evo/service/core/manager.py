@@ -476,7 +476,7 @@ def _coerce_policy(policy: VerdictPolicy | dict | None) -> VerdictPolicy:
     return VerdictPolicy(**data)
 
 
-def _matching_apply(st: store.FsStateStore, thread_id: str | None, report_id: str, payload: dict | None = None) -> dict | None:
+def _matching_apply(st: store.FsStateStore, thread_id: str | None, report_id: str, payload: dict | None = None) -> dict | None:  # noqa: E501
     rows = store.list_flow_tasks_by_thread(st, 'apply', thread_id) if thread_id else store.list_recent(st, 'apply', 100)
     reusable = {'queued', 'running', 'stopping', 'paused', 'failed_transient'}
     for row in reversed(rows):

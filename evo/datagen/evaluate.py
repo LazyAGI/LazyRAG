@@ -65,7 +65,7 @@ def _score01(value: Any) -> float:
     return round(score, 4)
 
 
-def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_workers: int = 10, on_progress=None) -> list[dict]:
+def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_workers: int = 10, on_progress=None) -> list[dict]:  # noqa: E501
     result_list: list[dict] = []
     done = 0
     total = len(eval_queue)

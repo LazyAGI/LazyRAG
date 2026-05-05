@@ -168,7 +168,7 @@ def _walk_execution_tree(tree: dict[str, Any]) -> tuple[list[str], dict[str, Mod
         raw = node.get('raw_data', {}) or {}
         sem = node.get('semantic_data') or {}
         raw_scores = sem.get('scores')
-        scores = [float(s) for s in raw_scores if isinstance(s, (int, float))] if isinstance(raw_scores, (list, tuple)) else []
+        scores = [float(s) for s in raw_scores if isinstance(s, (int, float))] if isinstance(raw_scores, (list, tuple)) else []  # noqa: E501
         counter[name] = counter.get(name, 0) + 1
         key = name if counter[name] == 1 else f'{name}_{counter[name]}'
         modules[key] = ModuleOutput(input=raw.get('input'), output=raw.get('output'), scores=scores)

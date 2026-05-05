@@ -29,8 +29,6 @@ class Planner:
         self.stream_llm = stream_llm
 
     def draft(self, message: str, ctx: PlanContext) -> Intent:
-        import uuid
-
         cap_summary = '\n'.join(
             (f"- {c['op']} (flow={c['flow']}, safety={c['safety']})" for c in ctx.capabilities_with_safety)
         )
