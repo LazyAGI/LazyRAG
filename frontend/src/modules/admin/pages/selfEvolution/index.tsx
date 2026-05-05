@@ -2886,10 +2886,6 @@ export default function SelfEvolutionPage() {
       })),
     [abCategoryComparisons],
   );
-  const abSummaryReports = useMemo<AbSummaryReport[]>(
-    () => buildAbSummaryReports(workflowResults.abtests.data),
-    [workflowResults.abtests.data],
-  );
   const abComparisonColumns = useMemo<ColumnsType<AbComparisonRow>>(
     () => [
       { title: "评测分类", dataIndex: "category", key: "category", width: 140 },
