@@ -17,11 +17,6 @@ x-upload-paths: &upload-paths
   LAZYRAG_UPLOAD_HOST_DIR: ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}
   LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
 
-x-skill-volume-paths: &skill-volume-paths
-  LAZYRAG_SKILL_VOLUME_HOST_DIR: ${LAZYRAG_SKILL_VOLUME_HOST_DIR:-./data/core/skill-volume}
-  LAZYRAG_SHARED_SKILL_VOLUME_DIR: ${LAZYRAG_SHARED_SKILL_VOLUME_DIR:-/var/lib/lazyrag/skill-volume}
-
-
 x-db-conn: &db-conn
   LAZYRAG_DATABASE_URL: ${LAZYRAG_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
 
@@ -77,6 +72,7 @@ services:
     volumes:
       - ./scripts/db-bootstrap.sh:/db-bootstrap.sh:ro
     command: ["/bin/sh", "/db-bootstrap.sh"]
+
   file-watcher-artifact:
     profiles: ["file-watcher-artifact"]
     image: lazyrag-file-watcher-artifact:20260417-1
@@ -87,7 +83,10 @@ services:
     restart: "no"
 
   scan-control-plane:
-    image: lazyrag-scan-control-plane:20260503-1-2
+    build:
+      network: host
+      context: ./backend/scan-control-plane
+      dockerfile: Dockerfile
     command: ["-config", "/app/configs/control-plane.scan.yml"]
     volumes:
       - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
@@ -109,11 +108,10 @@ services:
     restart: unless-stopped
 
   file-watcher:
-    # build:
-    #   network: host
-    #   context: ./backend/file-watcher
-    #   dockerfile: Dockerfile
-    image: lazyrag-file-watcher:20260504-watch-root
+    build:
+      network: host
+      context: ./backend/file-watcher
+      dockerfile: Dockerfile
     command: ["-config", "/app/configs/agent.yaml"]
     environment:
       RAGSCAN_AGENT_LISTEN_ADDR: "0.0.0.0:19090"
@@ -121,13 +119,11 @@ services:
       RAGSCAN_CONTROL_PLANE_BASE_URL: "http://scan-control-plane:18080"
       RAGSCAN_BASE_ROOT: ${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
       RAGSCAN_HOST_PATH_STYLE: ${RAGSCAN_HOST_PATH_STYLE:-posix}
-      # 监控根目录：用户创建的数据源目录必须位于该宿主机根目录下；容器会按这两个变量自动计算实际监听路径。
       RAGSCAN_WATCH_HOST_DIR: ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}
       RAGSCAN_WATCH_CONTAINER_DIR: ${RAGSCAN_WATCH_CONTAINER_DIR:-/watch/docs}
     volumes:
       - ./backend/file-watcher/configs/agent.yaml:/app/configs/agent.yaml:ro
       - ${RAGSCAN_BASE_ROOT:-./data/scan}:${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
-      # 监控根目录 volume：冒号右侧是容器内监控根目录，可在该目录下设置具体监控目录。
       - ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}:${RAGSCAN_WATCH_CONTAINER_DIR:-/watch/docs}
     depends_on:
       scan-control-plane:
@@ -149,7 +145,10 @@ services:
       retries: 20
 
   auth-service:
-    image: auth-service:20260419-3
+    build:
+      network: host
+      context: ./backend
+      dockerfile: auth-service/Dockerfile
     volumes:
       - ./api/backend:/openapi-export
     expose:
@@ -161,8 +160,8 @@ services:
       LAZYRAG_JWT_SECRET: dev-secret-change-me
       LAZYRAG_JWT_TTL_MINUTES: "60"
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
-      LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: my-secret-token
       RAGSCAN_SECRET_KEY: dev-ragscan-secret-key-change-me
+      LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
@@ -177,11 +176,12 @@ services:
         condition: service_healthy
 
   office-convert-service:
-    image: office-convert-service:20260417-1
+    build:
+      network: host
+      context: ./backend
+      dockerfile: office-convert-service/Dockerfile
     expose:
       - "8080"
-    ports:
-      - "8085:8080"
     environment:
       OFFICE_CONVERT_ALLOWED_ROOTS: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       OFFICE_CONVERT_TIMEOUT_SECONDS: "900"
@@ -194,11 +194,14 @@ services:
       retries: 3
 
   core:
-    image: core:20260428-4
+    build:
+      network: host
+      context: ./backend
+      dockerfile: core/Dockerfile
     volumes:
       - ./api/backend:/openapi-export
+      - /tmp/evo:/var/lib/lazyrag/evo
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      - ${LAZYRAG_SKILL_VOLUME_HOST_DIR:-./data/core/skill-volume}:${LAZYRAG_SHARED_SKILL_VOLUME_DIR:-/var/lib/lazyrag/skill-volume}
     expose:
       - "8000"
     environment:
@@ -206,7 +209,6 @@ services:
       ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
       MIGRATIONS_DIR: /migrations
       LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-      LAZYRAG_SKILL_VOLUME_ROOT: ${LAZYRAG_SHARED_SKILL_VOLUME_DIR:-/var/lib/lazyrag/skill-volume}
       LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
       LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
@@ -222,6 +224,8 @@ services:
       LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://lazyllm-doc-server:8000}
       LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://lazyllm-parse-server:8000}
       LAZYRAG_CHAT_SERVICE_URL: ${LAZYRAG_CHAT_SERVICE_URL:-http://chat:8046}
+      LAZYRAG_EVO_SERVICE_URL: ${LAZYRAG_EVO_SERVICE_URL:-http://evo-api:8048}
+      LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -264,7 +268,8 @@ services:
         condition: service_healthy
 
   frontend:
-    image: lazyrag-frontend:20260503-2-mac
+    build:
+      context: ./frontend
     ports:
       - "8090:80"
     expose:
@@ -279,13 +284,14 @@ services:
       FRONTEND_API_DOCS_PROXY_PASS: ${FRONTEND_API_DOCS_PROXY_PASS:-http://kong:8000}
 
   lazyllm-doc-server:
-    image: lazyllm-doc-server:20260417-4
+    build:
+      network: host
+      context: .
+      dockerfile: backend/core/doc/Dockerfile
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
-    ports:
-      - "8055:8000"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
@@ -399,7 +405,11 @@ services:
     restart: unless-stopped
 
   lazyllm-parse-server:
-    image: lazyllm-parse-server:20260417-4
+    build:
+      network: host
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -427,7 +437,11 @@ services:
           - processor-server
 
   lazyllm-parse-worker:
-    image: lazyllm-parse-worker:20260417-4
+    build:
+      network: host
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -461,7 +475,11 @@ services:
           - processor-worker
 
   lazyllm-algo:
-    image: lazyllm-algo:20260417-4
+    build:
+      network: host
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     expose:
       - "8000"
     healthcheck:
@@ -494,7 +512,11 @@ services:
           - parsing
 
   chat:
-    image: chat:20260417-4
+    build:
+      network: host
+      context: ./algorithm
+      dockerfile: Dockerfile
+      target: default
     expose:
       - "8046"
     volumes:
@@ -520,7 +542,6 @@ services:
       LAZYRAG_MEMORY_REVIEW_INTERVAL: ${LAZYRAG_MEMORY_REVIEW_INTERVAL:-1}
       LAZYRAG_SKILL_REVIEW_INTERVAL: ${LAZYRAG_SKILL_REVIEW_INTERVAL:-5}
       LAZYRAG_SKILL_REVIEW_DEBUG: ${LAZYRAG_SKILL_REVIEW_DEBUG:-false}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
