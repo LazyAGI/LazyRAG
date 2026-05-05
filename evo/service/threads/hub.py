@@ -3,7 +3,7 @@ import json
 import threading
 import time
 from typing import TYPE_CHECKING
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 from evo.service.core import schemas as api_schemas
 from evo.service.core import store as _store
@@ -26,7 +26,6 @@ class ThreadHub:
         self.ops = ops
         self.driver = ThreadDriver(jm=jm, ops=ops)
         self._auto_threads: dict[str, threading.Event] = {}
-        self._thread_create_guard = threading.Lock()
 
     def list_threads(self) -> list[dict]:
         base = self.intents._base_dir.parent / 'threads'
@@ -34,76 +33,30 @@ class ThreadHub:
             return []
         return [__import__('json').loads(p.read_text(encoding='utf-8')) for p in sorted(base.glob('*/thread.json'))]
 
-    def create_thread(self, payload: dict, *, user_id: str = '', user_name: str = '') -> dict:
+    def create_thread(self, payload: dict) -> dict:
         mode = payload.get('mode', 'interactive')
         if mode not in ('auto', 'interactive'):
             raise HTTPException(400, f'bad mode {mode!r}')
         import uuid
         import time
 
-        user_id = _clean_user_header(user_id)
-        user_name = _clean_user_header(user_name)
-        with self._thread_create_guard:
-            if user_id:
-                active = self._active_thread_for_user(user_id)
-                if active:
-                    raise HTTPException(
-                        409,
-                        {
-                            'message': 'user already has an active thread',
-                            'thread_id': active['thread_id'],
-                            'flow_status': active['flow_status'],
-                        },
-                    )
+        tid = f'thr-{uuid.uuid4().hex[:8]}'
+        from evo.service.threads.workspace import ThreadWorkspace
 
-            tid = f'thr-{uuid.uuid4().hex[:8]}'
-            from evo.service.threads.workspace import ThreadWorkspace
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, tid)
+        meta = {
+            'id': tid,
+            'mode': mode,
+            'title': payload.get('title', ''),
+            'inputs': payload.get('inputs') or {},
+            'status': 'active',
+            'created_at': time.time(),
+            'updated_at': time.time(),
+        }
+        from evo.runtime.fs import atomic_write_json
 
-            ws = ThreadWorkspace(self.jm.config.storage.base_dir, tid)
-            meta = {
-                'id': tid,
-                'mode': mode,
-                'title': payload.get('title', ''),
-                'inputs': payload.get('inputs') or {},
-                'status': 'active',
-                'create_user_id': user_id,
-                'create_user_name': user_name,
-                'created_at': time.time(),
-                'updated_at': time.time(),
-            }
-            from evo.runtime.fs import atomic_write_json
-
-            atomic_write_json(ws.thread_meta_path, meta)
-            return meta
-
-    def _active_thread_for_user(self, user_id: str) -> dict | None:
-        user_id = _clean_user_header(user_id)
-        if not user_id:
-            return None
-        for meta in self._iter_thread_meta():
-            if _thread_owner_id(meta) != user_id:
-                continue
-            thread_id = _thread_id_from_meta(meta)
-            if not thread_id:
-                continue
-            flow_status = self.flow_status(thread_id)
-            if _single_thread_flow_is_active(flow_status):
-                return {'thread_id': thread_id, 'flow_status': flow_status}
-        return None
-
-    def _iter_thread_meta(self) -> list[dict]:
-        base = self.jm.config.storage.base_dir / 'state' / 'threads'
-        if not base.exists():
-            return []
-        items: list[dict] = []
-        for path in sorted(base.glob('*/thread.json')):
-            try:
-                value = json.loads(path.read_text(encoding='utf-8'))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if isinstance(value, dict):
-                items.append(value)
-        return items
+        atomic_write_json(ws.thread_meta_path, meta)
+        return meta
 
     def get_thread(self, thread_id: str) -> dict:
         from evo.service.threads.workspace import ThreadWorkspace
@@ -375,27 +328,6 @@ def _format_artifacts(artifacts: dict) -> str:
         if vals:
             parts.append(f"{kind}: {', '.join(vals[-3:])}")
     return '\n'.join(parts) if parts else ''
-
-
-def _clean_user_header(value: object) -> str:
-    return str(value or '').strip()
-
-
-def _thread_owner_id(meta: dict) -> str:
-    return _clean_user_header(meta.get('create_user_id') or meta.get('user_id') or meta.get('owner_user_id'))
-
-
-def _thread_id_from_meta(meta: dict) -> str:
-    return _clean_user_header(meta.get('id') or meta.get('thread_id'))
-
-
-def _single_thread_flow_is_active(flow_status: dict | None) -> bool:
-    if not flow_status:
-        return False
-    if flow_status.get('active_task_ids'):
-        return True
-    active_statuses = {'running', 'pending', 'waiting_checkpoint', 'paused'}
-    return str(flow_status.get('status') or '').strip().lower() in active_statuses
 
 
 def _thread_state_summary(snapshot: dict) -> str:
@@ -728,12 +660,8 @@ def build_router(hub: ThreadHub) -> APIRouter:
     router = APIRouter(prefix='/v1/evo')
 
     @router.post('/threads')
-    async def create_thread(request: Request, req: dict = Body(...)) -> dict:  # noqa: B008
-        return hub.create_thread(
-            req,
-            user_id=request.headers.get('x-user-id', ''),
-            user_name=request.headers.get('x-user-name', ''),
-        )
+    async def create_thread(req: dict = Body(...)) -> dict:  # noqa: B008
+        return hub.create_thread(req)
 
     @router.get('/threads')
     async def list_threads() -> list[dict]:

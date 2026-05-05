@@ -1,6 +1,4 @@
 import {
-  BulbOutlined,
-  DatabaseOutlined,
   LeftCircleOutlined,
   UserOutlined,
   UsergroupAddOutlined,
@@ -38,10 +36,6 @@ export default function AdminLayout() {
   const pathname = location.pathname;
   const selectedKey = pathname.startsWith("/admin/users")
     ? "/admin/users"
-    : pathname.startsWith("/admin/data-sources")
-      ? "/admin/data-sources"
-    : pathname.startsWith("/admin/memory-management")
-      ? "/admin/memory-management"
     : "/admin/groups";
 
   const menuChildren: MenuItem[] = [
@@ -51,16 +45,6 @@ export default function AdminLayout() {
             key: "/admin/users",
             label: t("layout.userManagement"),
             icon: <UserOutlined />,
-          },
-          {
-            key: "/admin/data-sources",
-            label: t("layout.dataSourceManagement"),
-            icon: <DatabaseOutlined />,
-          },
-          {
-            key: "/admin/memory-management",
-            label: t("layout.memoryManagement"),
-            icon: <BulbOutlined />,
           },
         ]
       : []),
