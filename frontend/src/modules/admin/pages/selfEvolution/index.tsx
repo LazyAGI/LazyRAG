@@ -281,6 +281,7 @@ type AbComparisonRow = {
 
 const FIXED_EVAL_SET = "__none__";
 const FIXED_EXTRA_EVAL_STRATEGY: ExtraEvalStrategy = "generate";
+const DEFAULT_EVAL_CASE_COUNT = 100;
 const AGENT_API_BASE = `${BASE_URL}/api/core/agent`;
 const SELF_EVOLUTION_LAST_THREAD_STORAGE_KEY = "lazyrag:self-evolution:last-thread";
 const DEPRECATED_SELF_EVOLUTION_THREAD_HISTORY_STORAGE_KEY = "lazyrag:self-evolution:thread-history";
@@ -1147,6 +1148,27 @@ function getDialogueEventAgentLabel(event: NormalizedThreadEvent) {
     return "回复 Agent";
   }
   return undefined;
+}
+
+function buildAutoInteractionMessagesFromEvents(events: NormalizedThreadEvent[]): ChatMessage[] {
+  return dedupeNormalizedEvents(events)
+    .filter((event) => event.role && event.content && getDialogueEventAgentLabel(event))
+    .map((event) => ({
+      id: `event-chat-${event.key}`,
+      role: event.role as ChatRole,
+      content: event.content || "",
+      time: formatThreadTime(event.timestamp),
+      sortTime:
+        getThreadTimeSortValue(event.timestamp) ||
+        (typeof event.sequence === "number" ? event.sequence : undefined),
+      agentLabel: getDialogueEventAgentLabel(event),
+    }))
+    .sort((a, b) => {
+      if (typeof a.sortTime === "number" && typeof b.sortTime === "number" && a.sortTime !== b.sortTime) {
+        return a.sortTime - b.sortTime;
+      }
+      return a.id.localeCompare(b.id, "zh-CN", { numeric: true });
+    });
 }
 
 function getEventPayloadData(payload: Record<string, unknown> | undefined) {
@@ -3070,6 +3092,12 @@ export default function SelfEvolutionPage() {
   const activeMessages = activeSession?.messages ?? [];
   const activeThreadId = activeSession?.threadId || routeThreadId;
   const isAutoInteractionActive = mode === "auto" && Boolean(activeThreadId);
+  const autoInteractionMessages = useMemo(
+    () => buildAutoInteractionMessagesFromEvents(threadEvents),
+    [threadEvents],
+  );
+  const displayedMessages = isAutoInteractionActive ? autoInteractionMessages : activeMessages;
+  const displayedCheckpointWaitPrompt = isAutoInteractionActive ? undefined : pendingCheckpointWaitPrompt;
   const datasetResultDownloadUrl = useMemo(
     () => buildCoreDownloadUrl(getResultDownloadPath(workflowResults.datasets.data)),
     [workflowResults.datasets.data],
@@ -3301,7 +3329,7 @@ export default function SelfEvolutionPage() {
       top: chatStream.scrollHeight,
       behavior: "auto",
     });
-  }, [activeSessionId, activeMessages.length]);
+  }, [activeSessionId, displayedMessages.length]);
 
   useEffect(
     () => () => {
@@ -3422,7 +3450,7 @@ export default function SelfEvolutionPage() {
         kb_id: selectedKb,
         algo_id: "general_algo",
         eval_name: evalName,
-        num_cases: 1,
+        num_cases: DEFAULT_EVAL_CASE_COUNT,
         target_chat_url: "http://evo-chat:8046/api/chat",
         dataset_name: "algo",
       },
@@ -5986,13 +6014,13 @@ export default function SelfEvolutionPage() {
               </div>
             </div>
 
-            <ChatMessageStream messages={activeMessages} streamRef={chatStreamRef} />
+            <ChatMessageStream messages={displayedMessages} streamRef={chatStreamRef} />
 
             <ChatComposer
               activeStepText={activeStepText}
               isAutoInteractionActive={isAutoInteractionActive}
               isSendingMessage={isSendingMessage}
-              pendingCheckpointWaitPrompt={pendingCheckpointWaitPrompt}
+              pendingCheckpointWaitPrompt={displayedCheckpointWaitPrompt}
               prompt={prompt}
               onPromptChange={setPrompt}
               onSend={(command) => void onSend(command)}
