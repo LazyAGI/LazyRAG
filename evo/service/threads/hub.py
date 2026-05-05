@@ -257,7 +257,7 @@ class ThreadHub:
                 if cancel.is_set():
                     yield _sse(
                         'error',
-                        {'code': 'MESSAGE_CANCELLED', 'message': 'message generation cancelled', 'message_id': message_id},
+                        {'code': 'MESSAGE_CANCELLED', 'message': 'message generation cancelled', 'message_id': message_id},  # noqa: E501
                     )
                     return
                 try:
@@ -404,7 +404,7 @@ class ThreadHub:
                 payload={'checkpoint_id': checkpoint.get('checkpoint_id'), 'reason': args.get('reason')},
             )
             runtime_status = _checkpoint_cancel_runtime_status(checkpoint, _thread_runtime(ws))
-            self.driver._write_runtime(ws, {'status': runtime_status, 'active_task_id': None, 'pending_checkpoint': None})
+            self.driver._write_runtime(ws, {'status': runtime_status, 'active_task_id': None, 'pending_checkpoint': None})  # noqa: E501
             return
         if name == 'checkpoint.continue':
             next_op = checkpoint.get('next_op')
@@ -957,7 +957,7 @@ def _auto_checkpoint_message(ws, checkpoint: dict) -> str:
     if stage == 'apply' and inputs.get('auto_apply_feedback'):
         return f"回退到 apply 重新修改代码，要求：{inputs['auto_apply_feedback']}"
     if stage in {'dataset_gen', 'eval', 'run', 'apply', 'abtest'}:
-        return f"继续执行 {stage} 后的下一步。"
+        return f'继续执行 {stage} 后的下一步。'
     return '继续执行。'
 
 

@@ -20,6 +20,9 @@ x-upload-paths: &upload-paths
 x-db-conn: &db-conn
   LAZYRAG_DATABASE_URL: ${LAZYRAG_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
 
+x-core-db-conn: &core-db-conn
+  LAZYRAG_CORE_DATABASE_URL: ${LAZYRAG_CORE_DATABASE_URL:-postgresql+psycopg://root:123456@db:5432/core}
+
 services:
 
   kong:
@@ -488,10 +491,18 @@ services:
     environment:
       LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000,general_algo}
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_MAX_CONCURRENCY: "10"
-      LAZYRAG_LLM_PRIORITY: "0"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
+      LAZYRAG_MAX_CONCURRENCY: ${LAZYRAG_MAX_CONCURRENCY:-10}
+      LAZYRAG_LLM_PRIORITY: ${LAZYRAG_LLM_PRIORITY:-0}
+      LAZYRAG_DEFAULT_CHAT_DATASET: ${LAZYRAG_DEFAULT_CHAT_DATASET:-algo}
+      LAZYRAG_CORE_API_URL: ${LAZYRAG_CORE_API_URL:-http://core:8000}
+      LAZYRAG_MAX_RETRIES: ${LAZYRAG_MAX_RETRIES:-20}
+      LAZYRAG_REVIEW_MAX_RETRIES: ${LAZYRAG_REVIEW_MAX_RETRIES:-5}
+      LAZYRAG_MEMORY_REVIEW_INTERVAL: ${LAZYRAG_MEMORY_REVIEW_INTERVAL:-1}
+      LAZYRAG_SKILL_REVIEW_INTERVAL: ${LAZYRAG_SKILL_REVIEW_INTERVAL:-5}
+      LAZYRAG_SKILL_REVIEW_DEBUG: ${LAZYRAG_SKILL_REVIEW_DEBUG:-false}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
@@ -509,7 +520,9 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      <<: [*llm-api-keys, *upload-paths]
+      LAZYRAG_CORE_SERVICE_URL: ${LAZYRAG_CORE_SERVICE_URL:-http://core:8000}
+      LAZYRAG_WORD_GROUP_APPLY_URL: ${LAZYRAG_WORD_GROUP_APPLY_URL:-}
+      <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
       lazyllm-algo:

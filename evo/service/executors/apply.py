@@ -407,7 +407,7 @@ def resolve_worktree(ctx: ExecCtx, apply_id: str):
 def _apply_options(ctx: ExecCtx, task: dict | None = None) -> ApplyOptions:
     base = ctx.apply_opts or ApplyOptions()
     extra = ((task or {}).get('payload') or {}).get('extra_instructions')
-    instruction = base.instruction if not extra else f"{base.instruction}\n\n额外修改要求：{extra}"
+    instruction = base.instruction if not extra else f'{base.instruction}\n\n额外修改要求：{extra}'
     return ApplyOptions(
         max_rounds=base.max_rounds,
         test_command=base.test_command,

@@ -130,6 +130,8 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
 WORKDIR /app
 COPY evo/ /app/evo/
 COPY algorithm/chat /app/chat
+COPY algorithm/common /app/common
+COPY algorithm/vocab /app/vocab
 COPY algorithm/processor /app/processor
 RUN chmod +x /app/evo/service/entrypoint.sh
 

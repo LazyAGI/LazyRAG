@@ -33,17 +33,17 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
       } > /etc/apt/apt.conf.d/99proxy; \
     fi; \
     apt-get update && apt-get install -y \
-    ca-certificates \
-    curl \
-    build-essential \
-    gcc \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender1 \
-    libxcb1 \
-    python3-dev \
+        ca-certificates \
+        curl \
+        build-essential \
+        gcc \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        libxcb1 \
+        python3-dev \
     && update-ca-certificates \
     && rm -f /etc/apt/apt.conf.d/99proxy \
     && rm -rf /var/lib/apt/lists/*
@@ -80,17 +80,48 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     lazyllm install rag
 
 # Stage: default - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-# LazyLLM main is installed under /opt/lazyllm so chat and evo share the same tracing implementation.
+# Submodule lazyllm is copied via COPY . . and its parent dir is prepended to PYTHONPATH so
+# "import lazyllm" resolves to /app/lazyllm/lazyllm/ (submodule) instead of pip-installed lazyllm.
 FROM base AS default
+ARG LAZYRAG_GIT_SHA=unknown
+ARG LAZYLLM_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
+LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ENV PYTHONPATH=/opt/lazyllm:/app
+RUN test -d /app/lazyllm/lazyllm
+RUN chmod +x /app/docker-entrypoint.sh
+ENV PYTHONPATH=/app/lazyllm:/app
+ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
+ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
+ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
+ENV LAZYRAG_MAX_CONCURRENCY=10
+ENV LAZYRAG_LLM_PRIORITY=0
+ENV LAZYRAG_DEFAULT_CHAT_DATASET=algo
+ENV LAZYRAG_CORE_API_URL=http://core:8000
+ENV LAZYRAG_MAX_RETRIES=20
+ENV LAZYRAG_REVIEW_MAX_RETRIES=5
+ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
+ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
+ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
+ENV LAZYRAG_USE_INNER_MODEL=true
+ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
 # Stage: mineru - base + requirements.txt + configurable mineru extra + code.
-# LazyLLM main is installed under /opt/lazyllm so mineru uses the same runtime as other services.
+# Submodule lazyllm is copied via COPY . . and its parent dir is prepended to PYTHONPATH so
+# "import lazyllm" resolves to /app/lazyllm/lazyllm/ (submodule) instead of pip-installed lazyllm.
 FROM base AS mineru
+ARG LAZYRAG_GIT_SHA=unknown
+ARG LAZYLLM_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="LazyRAG algorithm/mineru"
+LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
+LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 ARG MINERU_VERSION=2.7.1
 ARG MINERU_PACKAGE_VARIANT=pipeline
 ARG MINERU_PREINSTALL_CPU_TORCH=1
@@ -112,5 +143,5 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/app/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]

@@ -6,21 +6,15 @@ from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
 from chat.pipelines.builders import get_automodel, get_retriever, get_remote_docment
 from chat.utils.load_config import get_retrieval_settings
+from vocab.vocab_manager import get_vocab_manager
 
 
-def parse_query(query_params=None, *_, **__) -> str:
-    return query_params.get('query', '') if isinstance(query_params, dict) else ''
+def parse_query(query_params: dict) -> str:
+    return get_vocab_manager(query_params.get('create_user_id', ''))(query_params['query'])
 
 
-def has_files(_=None, x=None, *args, **kwargs) -> bool:
-    if x is None:
-        x = kwargs.get('x')
-    if x is None:
-        for arg in args:
-            if isinstance(arg, dict):
-                x = arg
-                break
-    return bool(isinstance(x, dict) and x.get('files'))
+def has_files(_, x: dict) -> bool:
+    return bool(x.get('files'))
 
 
 def merge_rank_results(*args):
