@@ -143,7 +143,7 @@ const AddUserModal = (props: IProps, ref: Ref<unknown> | undefined) => {
             }) => {
               return {
                 value: item.user_id,
-                label: item.display_name || item.username || "",
+                label: item.display_name || item.username || item.user_id,
                 disabled: item.status?.toLowerCase() === "inactive",
               };
             },

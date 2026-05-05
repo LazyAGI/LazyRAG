@@ -19,9 +19,10 @@ if ! command -v java >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
     fi
     echo "   Warning: spec changed but generated client was not refreshed for: ${STALE_APIS}." >&2
   fi
-  echo '   To regenerate locally, install JDK 17+ and rerun `node scripts/openapi/generate-api.mjs auth`.' >&2
+  echo '   To regenerate locally, install JDK 17+ and rerun `node scripts/openapi/generate-api.mjs`.' >&2
   exit 0
 fi
 
 node scripts/openapi/generate-api.mjs auth
 node scripts/openapi/generate-api.mjs core
+node scripts/openapi/generate-api.mjs scan
