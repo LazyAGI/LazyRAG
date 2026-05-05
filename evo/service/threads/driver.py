@@ -42,6 +42,10 @@ class ThreadDriver:
         EventLog(ws.events_path)
         if not ops:
             return self.runtime(thread_id)
+        if len(ops) == 1 and ops[0].get('op') in {'task.stop_active', 'task.cancel_active'}:
+            elog = EventLog(ws.events_path)
+            self._execute_op(thread_id, ops[0], source, elog, ws)
+            return self.runtime(thread_id)
         self._write_runtime(ws, {'status': 'running'})
         t = threading.Thread(
             target=self._run_ops, args=(thread_id, ops, source), daemon=True, name=f'evo-thread-driver-{thread_id}'
@@ -141,6 +145,25 @@ class ThreadDriver:
                     continue
                 self._fail_thread(ws, elog, RuntimeError(str(result.error)))
                 return None
+            if result.status == 'cancelled':
+                self._write_runtime(
+                    ws,
+                    {
+                        'status': 'cancelled',
+                        'active_task_id': result.task_id,
+                        'pending_checkpoint': None,
+                    },
+                )
+                return None
+            if result.status == 'stopped':
+                self._write_runtime(
+                    ws,
+                    {
+                        'status': 'paused',
+                        'active_task_id': result.task_id,
+                    },
+                )
+                return None
             if result.status != 'submitted':
                 return {}
             if not result.task_id:
@@ -149,8 +172,13 @@ class ThreadDriver:
             task = self._wait_task(result.task_id, elog, ws)
             if task and task.get('status') in OK:
                 return task
+            if task and task.get('status') == 'cancelled':
+                return None
             if _task_ends_thread(task):
                 return task
+            if task and task.get('status') in {'failed_permanent', 'rejected'}:
+                self._fail_thread(ws, elog, RuntimeError(f"{op_name} failed with task status {task.get('status')}"))
+                return None
             if task and task.get('status') == 'paused':
                 self._write_runtime(ws, {'status': 'paused', 'active_task_id': result.task_id})
                 return None
@@ -232,8 +260,12 @@ class ThreadDriver:
         path = _runtime_path(ws)
         data = _read_json(path) or {}
         data.update(patch)
+        if patch.get('status') in {'running', 'waiting_checkpoint', 'idle', 'ended'} and 'last_error' not in patch:
+            data.pop('last_error', None)
         data['updated_at'] = time.time()
         atomic_write_json(path, data)
+        if 'status' in patch:
+            _write_thread_meta_status(ws, str(patch['status']), data['updated_at'])
 
     def _fail_thread(self, ws: ThreadWorkspace, elog: EventLog, exc: Exception) -> None:
         self._write_runtime(ws, {'status': 'failed', 'active_task_id': None, 'last_error': str(exc)})
@@ -248,6 +280,24 @@ def _read_json(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _write_thread_meta_status(ws: ThreadWorkspace, runtime_status: str, updated_at: float) -> None:
+    meta = _read_json(ws.thread_meta_path)
+    if not meta:
+        return
+    status_map = {
+        'running': 'active',
+        'waiting_checkpoint': 'active',
+        'idle': 'active',
+        'ended': 'completed',
+        'failed': 'failed',
+        'paused': 'paused',
+        'cancelled': 'cancelled',
+    }
+    meta['status'] = status_map.get(runtime_status, runtime_status)
+    meta['updated_at'] = updated_at
+    atomic_write_json(ws.thread_meta_path, meta)
 
 
 def _thread_task_rows(base_dir: Path, thread_id: str) -> list[dict]:
@@ -327,6 +377,8 @@ def _checkpoint_artifacts(task: dict, store: _store.FsStateStore, ws: ThreadWork
         out.update(
             {'report_id': rid, 'report_path': str(ws.dir / 'outputs' / 'reports' / f'{rid}.json') if rid else None}
         )
+        if rid:
+            out.update(_report_action_readiness(ws.dir / 'outputs' / 'reports' / f'{rid}.json'))
     elif flow == 'apply':
         out.update(
             {
@@ -361,9 +413,42 @@ def _checkpoint_message(flow: str, artifacts: dict, next_op: dict | None) -> str
     }
     done = labels.get(flow, flow)
     facts = ', '.join((f'{k}={v}' for (k, v) in artifacts.items() if k not in {'status'}))
+    if flow == 'run' and artifacts.get('apply_ready') is False:
+        notice = (
+            '报告中的自动修改建议置信度/有效性不足，暂不建议直接进入 apply。'
+            '请选择：1）明确确认执行，强制进入 opencode 修改；'
+            '2）放弃本轮自进化；3）回退到 run 重新分析并补充证据。'
+        )
+        return f'{done}已完成（{facts}）。{notice}'
     if next_op:
         return f'{done}已完成（{facts}）。是否继续下一步：{next_op.get("op")}？你也可以说明要回退到某个阶段重新执行。'
     return f'{done}已完成（{facts}）。流程已结束，你可以查看对比报告或要求回退到某个阶段重新执行。'
+
+
+def _report_action_readiness(path: Path) -> dict:
+    try:
+        report = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    actions = [a for a in (report.get('actions') or []) if isinstance(a, dict)]
+    in_scope = [a for a in actions if a.get('code_map_in_scope') and a.get('code_map_target')]
+    if not in_scope:
+        return {'apply_ready': False, 'apply_block_reason': 'no_in_scope_actions'}
+    min_conf = float(os.getenv('EVO_APPLY_MIN_ACTION_CONFIDENCE', '0.5'))
+    min_valid = float(os.getenv('EVO_APPLY_MIN_ACTION_VALIDITY', '0.5'))
+    ready = [
+        a
+        for a in in_scope
+        if float(a.get('confidence') or 0.0) >= min_conf
+        and float(a.get('validity_score') or 0.0) >= min_valid
+    ]
+    return {
+        'apply_ready': bool(ready),
+        'apply_ready_actions': len(ready),
+        'apply_total_actions': len(in_scope),
+        'apply_min_confidence': min_conf,
+        'apply_min_validity': min_valid,
+    }
 
 
 def _append_message(path: Path, role: str, content: str) -> None:

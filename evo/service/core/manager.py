@@ -171,6 +171,7 @@ class JobManager:
         eval_id: str | None = None,
         badcase_limit: int | None = None,
         score_field: str | None = None,
+        extra_instructions: str | None = None,
     ) -> str:
         eid = eval_id or self._latest_thread_eval(thread_id)
         payload: dict[str, Any] = {}
@@ -180,17 +181,24 @@ class JobManager:
             payload['badcase_limit'] = badcase_limit
         if score_field:
             payload['score_field'] = score_field
+        if extra_instructions:
+            payload['extra_instructions'] = extra_instructions
         tid = store.create_task(self._store, 'run', thread_id=thread_id, payload=payload)
         self._binder.attach(thread_id, 'run_ids', tid)
         self._spawn(tid, 'run')
         return tid
 
-    def submit_apply(self, *, report_id: str | None = None, thread_id: str | None = None) -> str:
+    def submit_apply(
+        self, *, report_id: str | None = None, thread_id: str | None = None, extra_instructions: str | None = None
+    ) -> str:
         rid, parent_run_id, _ = apply_exec.resolve_report(self._make_ctx(), report_id, thread_id=thread_id)
-        existing = _matching_apply(self._store, thread_id, rid)
+        payload = {'extra_instructions': extra_instructions} if extra_instructions else {}
+        existing = _matching_apply(self._store, thread_id, rid, payload)
         if existing:
             return existing['id']
-        tid = store.create_task(self._store, 'apply', parent_run_id=parent_run_id, report_id=rid, thread_id=thread_id)
+        tid = store.create_task(
+            self._store, 'apply', parent_run_id=parent_run_id, report_id=rid, thread_id=thread_id, payload=payload
+        )
         self._binder.attach(thread_id, 'apply_ids', tid)
         self._spawn(tid, 'apply')
         return tid
@@ -215,6 +223,14 @@ class JobManager:
             payload['target_chat_url'] = target_chat_url
         if options:
             payload['eval_options'] = options
+        existing = _matching_eval(self._store, thread_id, payload)
+        if existing:
+            tid = existing['id']
+            if existing.get('status') in {'paused', 'failed_transient'}:
+                store.patch(self._store, tid, payload=payload)
+                store.transition(self._store, tid, 'continue', error_code=None, error_kind=None)
+                self._spawn(tid, 'eval')
+            return tid
         tid = store.create_task(self._store, 'eval', thread_id=thread_id, payload=payload)
         if eval_id:
             self._binder.attach(thread_id, 'eval_ids', eval_id)
@@ -302,7 +318,7 @@ class JobManager:
             shutil.rmtree(self._cfg.storage.runs_dir / tid, ignore_errors=True)
         elif row['flow'] == 'apply':
             self._stop_apply_candidate(row)
-            apply_exec.cleanup(self._make_ctx(), tid, drop_logs=True, drop_diffs=True)
+            apply_exec.cleanup(self._make_ctx(), tid, drop_logs=False, drop_diffs=True)
         return row
 
     def cont(self, tid: str) -> dict:
@@ -460,11 +476,23 @@ def _coerce_policy(policy: VerdictPolicy | dict | None) -> VerdictPolicy:
     return VerdictPolicy(**data)
 
 
-def _matching_apply(st: store.FsStateStore, thread_id: str | None, report_id: str) -> dict | None:
+def _matching_apply(st: store.FsStateStore, thread_id: str | None, report_id: str, payload: dict | None = None) -> dict | None:
     rows = store.list_flow_tasks_by_thread(st, 'apply', thread_id) if thread_id else store.list_recent(st, 'apply', 100)
     reusable = {'queued', 'running', 'stopping', 'paused', 'failed_transient'}
     for row in reversed(rows):
-        if row.get('report_id') == report_id and row.get('status') in reusable:
+        if (
+            row.get('report_id') == report_id
+            and row.get('status') in reusable
+            and ((row.get('payload') or {}) == (payload or {}))
+        ):
+            return row
+    return None
+
+
+def _matching_eval(st: store.FsStateStore, thread_id: str, payload: dict) -> dict | None:
+    reusable = {'queued', 'running', 'stopping', 'paused', 'failed_transient'}
+    for row in reversed(store.list_flow_tasks_by_thread(st, 'eval', thread_id)):
+        if row.get('status') in reusable and (row.get('payload') or {}) == payload:
             return row
     return None
 

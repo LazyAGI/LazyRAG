@@ -13,13 +13,13 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import requests
 import yaml
 import lazyllm
 from lazyllm import AutoModel, ModuleBase
 from lazyllm.components.formatter import FormatterBase
 from lazyllm.components.prompter import PrompterBase
 
-from chat.components.tmp.local_models import BgeM3Embed, Qwen3Rerank
 from chat.utils.load_config import get_role_config
 
 _RUNTIME_AUTO_MODEL_DIR = Path(tempfile.gettempdir()) / 'lazyrag-runtime-auto-model'
@@ -33,11 +33,6 @@ _DEFAULT_LLM_KW: Dict[str, Any] = {
 _lock = threading.RLock()
 _base_models: Dict[str, Any] = {}
 _wrapped_models: Dict[str, Any] = {}
-
-_CUSTOM_RUNTIME_MODEL_BUILDERS = {
-    ('embed', 'bgem3embed'): BgeM3Embed,
-    ('rerank', 'qwen3rerank'): Qwen3Rerank,
-}
 
 
 def _cleanup_runtime_auto_model_dir() -> None:
@@ -108,6 +103,40 @@ class _StreamingLlmModule(ModuleBase):
             llm = None
 
 
+class _BgeM3Embedding:
+    def __init__(self, url: str, *, timeout: float = 30.0):
+        self.url = url
+        self.timeout = timeout
+
+    def __call__(self, inputs: Any, **_: Any) -> Any:
+        single = isinstance(inputs, str)
+        payload = {'inputs': [inputs] if single else list(inputs)}
+        response = requests.post(self.url, json=payload, timeout=self.timeout)
+        response.raise_for_status()
+        vectors = response.json()
+        return vectors[0] if single else vectors
+
+
+class _Qwen3Rerank:
+    def __init__(self, url: str, model: str, *, timeout: float = 30.0):
+        self.url = url
+        self.model = model
+        self.timeout = timeout
+
+    def __call__(self, query: str, *, documents: List[str], top_n: int = None, **_: Any) -> List[tuple[int, float]]:
+        payload = {
+            'model': self.model,
+            'query': query,
+            'documents': documents,
+        }
+        if top_n is not None:
+            payload['top_n'] = top_n
+        response = requests.post(self.url, json=payload, timeout=self.timeout)
+        response.raise_for_status()
+        results = response.json().get('results', [])
+        return [(int(item['index']), float(item['relevance_score'])) for item in results]
+
+
 @functools.lru_cache(maxsize=64)
 def _write_auto_model_config(serialized_config: str) -> str:
     config = yaml.safe_load(serialized_config)
@@ -134,25 +163,12 @@ def _write_auto_model_config(serialized_config: str) -> str:
 
 def _build_auto_model(model_name: str, config: Dict[str, Any]):
     cfg = deepcopy(config)
-    source = cfg.pop('source', None)
-    type_name = cfg.pop('type', None)
-    builder = _CUSTOM_RUNTIME_MODEL_BUILDERS.get((type_name, source))
-    if builder:
-        runtime_url = cfg.pop('url', None)
-        api_key = cfg.pop('api_key', None)
-        skip_auth = bool(cfg.pop('skip_auth', False))
-        init_kwargs = {
-            'embed_model_name': model_name,
-            'embed_url': runtime_url,
-            'api_key': '' if skip_auth and api_key is None else api_key,
-            'skip_auth': skip_auth,
-            **cfg,
-        }
-        return builder(**init_kwargs)
-    if source is not None:
-        cfg['source'] = source
-    if type_name is not None:
-        cfg['type'] = type_name
+    source = cfg.get('source')
+    model_type = cfg.get('type')
+    if source == 'bgem3embed' and model_type == 'embed':
+        return _BgeM3Embedding(cfg['url'])
+    if source == 'qwen3rerank' and model_type == 'rerank':
+        return _Qwen3Rerank(cfg['url'], model_name)
     cfg['model'] = model_name
     serialized = yaml.safe_dump(cfg, sort_keys=True)
     return AutoModel(model=model_name, config=_write_auto_model_config(serialized))

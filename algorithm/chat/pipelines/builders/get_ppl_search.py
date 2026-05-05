@@ -6,7 +6,25 @@ from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
 from chat.pipelines.builders import get_automodel, get_retriever, get_remote_docment
 from chat.utils.load_config import get_retrieval_settings
-from vocab.vocab_manager import get_vocab_manager
+
+
+def parse_query(query_params=None, *_, **__) -> str:
+    return query_params.get('query', '') if isinstance(query_params, dict) else ''
+
+
+def has_files(_=None, x=None, *args, **kwargs) -> bool:
+    if x is None:
+        x = kwargs.get('x')
+    if x is None:
+        for arg in args:
+            if isinstance(arg, dict):
+                x = arg
+                break
+    return bool(isinstance(x, dict) and x.get('files'))
+
+
+def merge_rank_results(*args):
+    return tuple(rank_list for rank_list in args if rank_list)
 
 
 def _adaptive_get_token_len(n: Any) -> int:
@@ -25,13 +43,13 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
 
     with lazyllm.save_pipeline_result():
         with pipeline() as search_ppl:
-            search_ppl.parse_input = lambda x: get_vocab_manager(x.get('create_user_id', ''))(x['query'])
+            search_ppl.parse_input = parse_query
             search_ppl.divert = ifs(
-                (lambda _, x: bool(x.get('files'))) | bind(x=search_ppl.input),
+                has_files | bind(x=search_ppl.input),
                 tpath=tmp_retriever | bind(files=search_ppl.input['files']),
                 fpath=parallel(*[(retriever | bind(filters=search_ppl.input['filters'])) for retriever in retrievers])
             )
-            search_ppl.merge_results = lambda *args: args
+            search_ppl.merge_results = merge_rank_results
             search_ppl.join = RRFFusion(top_k=50)
             search_ppl.reranker = Reranker('ModuleReranker', model=get_automodel('reranker'), topk=topk) | bind(
                 query=search_ppl.input['query']

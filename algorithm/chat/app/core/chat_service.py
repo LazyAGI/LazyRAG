@@ -1,18 +1,16 @@
 from __future__ import annotations
 import asyncio
-import base64
 import json
 import os
-import threading
-import uuid
 import time
 from typing import Any, Dict, List, Optional, Union
 import lazyllm
-import requests
 from lazyllm import LOG
+import lazyllm.tracing.collect.configs  # noqa: F401
 from lazyllm.tracing import current_trace, enable_trace
 from lazyllm.tracing.collect import runtime as tracing_runtime
 from fastapi.responses import StreamingResponse
+from chat.app.core.trace_sink import ensure_local_trace_sink, local_trace_enabled
 from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT,
                          URL_MAP, resolve_dataset_url)
@@ -28,58 +26,28 @@ def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_e
         return ppl(*ppl_args), None, None
 
     captured: Dict[str, Any] = {}
-    started_at = time.time()
+    sink = ensure_local_trace_sink() if local_trace_enabled() else None
 
-    def naive_rag(*args, **kwargs):
+    def run_chat_pipeline(*args, **kwargs):
         out = ppl(*args, **kwargs)
-        ct = current_trace()
-        captured['trace_id'] = ct.trace_id if ct else None
-        captured['result'] = out
+        trace = current_trace()
+        captured['trace_id'] = trace.trace_id if trace else None
         return out
 
-    enable_trace(
-        naive_rag, *ppl_args,
+    result = enable_trace(
+        run_chat_pipeline, *ppl_args,
         session_id=session_id,
         request_tags=[f'dataset:{dataset}', f'mode:{mode_tag}'],
+        module_trace={'default': True},
     )
-    result = captured.get('result')
-    trace_id = captured.get('trace_id') or uuid.uuid4().hex
-    _export_trace_async(trace_id, ppl_args, result,
-                        session_id=session_id, dataset=dataset,
-                        mode_tag=mode_tag)
-    local_trace = None if captured.get('trace_id') else {
-        'trace_id': trace_id,
-        'name': 'chat.pipelines.naive',
-        'query': ppl_args[0].get('query', '') if ppl_args and isinstance(ppl_args[0], dict) else '',
-        'modules': {
-            'naive.py': {
-                'input': ppl_args[0] if ppl_args else None,
-                'output': result,
-            }
-        },
-        'metadata': {'dataset': dataset, 'mode': mode_tag, 'session_id': session_id},
-        'steps': [{
-            'name': 'naive.py',
-            'start_time': started_at,
-            'end_time': time.time(),
-            'metadata': {'fallback': True},
-            'inputs': {'args': [str(a)[:4000] for a in ppl_args]},
-            'outputs': {'result': str(result)[:4000]},
-        }],
-    }
+    _flush_trace_exporter()
+    trace_id = captured.get('trace_id')
+    if not trace_id:
+        raise RuntimeError('LazyLLM trace did not expose a trace_id')
+    local_trace = sink.get_trace(trace_id) if sink is not None else None
+    if sink is not None and local_trace is None:
+        raise RuntimeError(f'local LazyLLM trace sink did not capture trace {trace_id}')
     return result, trace_id, local_trace
-
-
-def _export_trace_async(trace_id: str, ppl_args: tuple, result: Any, *,
-                        session_id: str, dataset: str, mode_tag: str) -> None:
-    def run() -> None:
-        _flush_trace_exporter()
-        _ingest_langfuse_trace(trace_id, ppl_args, result,
-                               session_id=session_id, dataset=dataset,
-                               mode_tag=mode_tag)
-
-    threading.Thread(target=run, daemon=True,
-                     name=f'chat-trace-export-{trace_id[:8]}').start()
 
 
 def _flush_trace_exporter() -> None:
@@ -91,64 +59,6 @@ def _flush_trace_exporter() -> None:
         provider.force_flush(timeout_millis=timeout_ms)
     except Exception as exc:
         LOG.warning(f'[ChatServer] [TRACE_FLUSH_FAILED] {exc}')
-
-
-def _ingest_langfuse_trace(trace_id: str, ppl_args: tuple, result: Any, *,
-                           session_id: str, dataset: str, mode_tag: str) -> None:
-    host = _clean_env(os.getenv('LANGFUSE_HOST') or os.getenv('LANGFUSE_BASE_URL')).rstrip('/')
-    public_key = _clean_env(os.getenv('LANGFUSE_PUBLIC_KEY'))
-    secret_key = _clean_env(os.getenv('LANGFUSE_SECRET_KEY'))
-    if not host or not public_key or not secret_key:
-        return
-    query_payload = ppl_args[0] if ppl_args else None
-    now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-    auth = base64.b64encode(f'{public_key}:{secret_key}'.encode()).decode('ascii')
-    headers = {'Authorization': f'Basic {auth}', 'Content-Type': 'application/json'}
-    batch = [
-        {
-            'id': uuid.uuid4().hex,
-            'type': 'trace-create',
-            'timestamp': now,
-            'body': {
-                'id': trace_id,
-                'name': 'chat.pipelines.naive',
-                'sessionId': session_id,
-                'input': query_payload,
-                'output': result,
-                'metadata': {'dataset': dataset, 'mode': mode_tag},
-            },
-        },
-        {
-            'id': uuid.uuid4().hex,
-            'type': 'span-create',
-            'timestamp': now,
-            'body': {
-                'id': uuid.uuid4().hex[:16],
-                'traceId': trace_id,
-                'name': 'naive.py',
-                'startTime': now,
-                'endTime': now,
-                'input': query_payload,
-                'output': result,
-                'metadata': {'dataset': dataset, 'mode': mode_tag},
-            },
-        },
-    ]
-    for attempt in range(3):
-        try:
-            resp = requests.post(f'{host}/api/public/ingestion',
-                                 headers=headers, json={'batch': batch},
-                                 timeout=45)
-            if resp.status_code == 207 and not (resp.json().get('errors') or []):
-                return
-            LOG.warning(f'[ChatServer] [TRACE_INGEST_FAILED] status={resp.status_code} body={resp.text[:500]}')
-        except Exception as exc:
-            LOG.warning(f'[ChatServer] [TRACE_INGEST_FAILED] attempt={attempt + 1} error={exc}')
-        time.sleep(2)
-
-
-def _clean_env(value: str | None) -> str:
-    return (value or '').strip().strip('"').strip("'")
 
 
 def _sse_line(payload: Dict[str, Any]) -> str:

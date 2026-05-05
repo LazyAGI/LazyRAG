@@ -25,12 +25,17 @@ class RAGTraceMissing(RuntimeError):
 
 
 def call_rag_chat(
-    question: str, target_chat_url: str, dataset_name: str = '', filters: dict[str, Any] | None = None
+    question: str,
+    target_chat_url: str,
+    dataset_name: str = '',
+    filters: dict[str, Any] | None = None,
+    *,
+    require_trace: bool = True,
 ) -> dict[str, Any]:
     if not target_chat_url:
         raise RAGTargetRequiredError('target_chat_url is required for RAG evaluation')
     session_id = f'evo-eval-{uuid.uuid4().hex}'
-    payload = {'query': question, 'trace': True, 'session_id': session_id}
+    payload = {'query': question, 'trace': require_trace, 'session_id': session_id}
     if dataset_name:
         payload['dataset'] = dataset_name
     if filters:
@@ -53,10 +58,10 @@ def call_rag_chat(
         raise RAGCallFailed(f"RAG_CALL_FAILED: {result.get('msg') or result}")
     data_obj = result.get('data') if isinstance(result.get('data'), dict) else {}
     sources = result.get('sources') or data_obj.get('sources') or data_obj.get('recall') or []
-    trace_id = result.get('trace_id') or data_obj.get('trace_id') or ''
-    if not trace_id:
-        trace_id = session_id
-        _log.info('target chat omitted trace_id; using session_id %s', trace_id)
+    trace = data_obj.get('trace') if isinstance(data_obj.get('trace'), dict) else None
+    trace_id = result.get('trace_id') or data_obj.get('trace_id') or (trace or {}).get('trace_id') or (trace or {}).get('id') or ''
+    if require_trace and not trace_id and not trace:
+        raise RAGTraceMissing('target chat did not return trace_id or inline trace')
     answer = result.get('answer') or data_obj.get('answer') or data_obj.get('text') or data_obj.get('data') or ''
     return {
         'answer': answer,
@@ -66,7 +71,7 @@ def call_rag_chat(
         'chunk_ids': result.get('chunk_ids') or _pluck_any(sources, ('chunk_id', 'segment_id', 'segement_id')),
         'doc_ids': result.get('doc_ids') or _pluck_any(sources, ('doc_id', 'document_id')),
         'trace_id': trace_id,
-        'trace': data_obj.get('trace') if isinstance(data_obj.get('trace'), dict) else None,
+        'trace': trace,
     }
 
 

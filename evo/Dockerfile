@@ -45,7 +45,7 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     fi; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        git curl ca-certificates build-essential cmake ninja-build \
+        git curl ca-certificates ripgrep build-essential cmake ninja-build \
         libgl1 libglib2.0-0; \
     rm -f /etc/apt/apt.conf.d/99proxy; \
     rm -rf /var/lib/apt/lists/*
