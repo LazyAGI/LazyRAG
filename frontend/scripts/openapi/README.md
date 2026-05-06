@@ -8,6 +8,7 @@
 ```
 scripts/openapi/specs/auth-openapi.yaml
 scripts/openapi/specs/core.yaml
+scripts/openapi/specs/scan.yaml
 ```
 
 
@@ -15,6 +16,7 @@ scripts/openapi/specs/core.yaml
 ```
 src/api/generated/auth-client/
 src/api/generated/core-client/
+src/api/generated/scan-client/
 ```
 
 
@@ -26,7 +28,7 @@ npm run dev
 ```
 
 这个命令会：
-1. 自动生成 `auth` 和 `core` 接口（通过 `predev` 钩子）
+1. 自动生成 `auth`、`core` 和 `scan` 接口（通过 `predev` 钩子）
 2. 启动开发服务器
 
 
@@ -37,6 +39,7 @@ npm run gen:auth
 
 npm run gen:openapi auth
 npm run gen:openapi core
+npm run gen:openapi scan
 
 npm run gen:openapi
 
@@ -71,7 +74,7 @@ npm run gen:openapi your-service
 - `scripts/openapi/openapi-manifest.mjs`: OpenAPI 输入/输出清单
 - `scripts/openapi/check-stale.mjs`: 检查 spec 与已生成 client 是否一致
 - `scripts/openapi/generate-api.mjs`: 主生成脚本
-- `scripts/openapi/generate-auth.sh`: 批量生成 auth 与 core 接口（依赖系统 `PATH` 中的 `java`）
+- `scripts/openapi/generate-auth.sh`: 批量生成 auth、core、scan 接口（依赖系统 `PATH` 中的 `java`）
 - `scripts/openapi/openapi-generator-config.json`: OpenAPI Generator 配置
 - `scripts/openapi/.openapi-cache.json`: 缓存文件（避免重复生成）
 

@@ -314,9 +314,19 @@ const Detail = () => {
             value:
               detail?.tags && detail?.tags.length > 0
                 ? detail.tags.map((tag) => (
-                    <Tag style={{ marginLeft: "8px" }} key={tag}>
-                      {tag}
-                    </Tag>
+                    <Tooltip key={tag} title={tag}>
+                      <Tag
+                        style={{
+                          marginLeft: "8px",
+                          maxWidth: "240px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {tag}
+                      </Tag>
+                    </Tooltip>
                   ))
                 : "-",
           },

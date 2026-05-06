@@ -74,7 +74,7 @@ def test_history_chunker_splits_long_user_messages_without_overlap():
 
 
 def test_synonym_extraction_module_validates_and_dedupes_candidates():
-    llm = FakeLLM([[ 
+    llm = FakeLLM([[
         {
             'word': '苹果',
             'synonym': 'apple',
