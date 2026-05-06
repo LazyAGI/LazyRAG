@@ -47,7 +47,7 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
     report_id = cur['report_id']
     report = load_json(_report_path(ctx, report_id, cur.get('thread_id')))
     workspace = GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source)
-    opts = _apply_options(ctx)
+    opts = _apply_options(ctx, cur)
     thread_id = cur.get('thread_id')
     elog = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path) if thread_id else None
     if elog:
@@ -404,11 +404,13 @@ def resolve_worktree(ctx: ExecCtx, apply_id: str):
     return GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source).worktree_path(apply_id)
 
 
-def _apply_options(ctx: ExecCtx) -> ApplyOptions:
+def _apply_options(ctx: ExecCtx, task: dict | None = None) -> ApplyOptions:
     base = ctx.apply_opts or ApplyOptions()
+    extra = ((task or {}).get('payload') or {}).get('extra_instructions')
+    instruction = base.instruction if not extra else f'{base.instruction}\n\n额外修改要求：{extra}'
     return ApplyOptions(
         max_rounds=base.max_rounds,
         test_command=base.test_command,
-        instruction=base.instruction,
+        instruction=instruction,
         opencode_options=opencode_admin.apply_options(ctx.cfg, base.opencode_options),
     )

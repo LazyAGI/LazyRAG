@@ -1,9 +1,13 @@
 from __future__ import annotations
+import hashlib
 import logging
+import os
+from dataclasses import replace
 from typing import Any
 from evo.datagen import run_eval, load_report, fetch_traces_for_report
 from evo.orchestrator.llm import get_automodel
 from evo.runtime.fs import atomic_write_json
+from evo.runtime.model_gateway import ModelGateway
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .context import CancelToken, ExecCtx
@@ -37,13 +41,20 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 dataset_id=dataset_id,
                 target_chat_url=target_chat_url or '',
                 cfg=ctx.cfg,
-                llm_factory=lambda: get_automodel(ctx.cfg.model_config.llm_role),
+                llm_factory=_eval_judge_llm_factory(ctx),
                 max_workers=(payload.get('eval_options') or {}).get('max_workers', 10),
                 dataset_name=(payload.get('eval_options') or {}).get('dataset_name', ''),
                 filters=(payload.get('eval_options') or {}).get('filters') or {},
                 persist_report=False,
                 on_progress=lambda current, total: elog.append_event(
-                    'eval.progress', task_id=tid, payload={'current': current, 'total': total, 'dataset_id': dataset_id}
+                    'eval.progress',
+                    task_id=tid,
+                    payload={'phase': 'rag', 'current': current, 'total': total, 'dataset_id': dataset_id},
+                ),
+                on_judge_progress=lambda current, total: elog.append_event(
+                    'eval.progress',
+                    task_id=tid,
+                    payload={'phase': 'judge', 'current': current, 'total': total, 'dataset_id': dataset_id},
                 ),
             )
             upstream_id = report.get('report_id')
@@ -84,3 +95,22 @@ def _fetch_traces(tid: str, elog: EventLog, report: dict, token: CancelToken) ->
         return {}
     out = fetch_traces_for_report(report, max_workers=8)
     return out
+
+
+def _eval_judge_llm_factory(ctx: ExecCtx):
+    timeout_s = float(os.getenv('EVO_EVAL_JUDGE_TIMEOUT_S', '120'))
+    max_retries = int(os.getenv('EVO_EVAL_JUDGE_MAX_RETRIES', '1'))
+    cfg = replace(ctx.cfg.llm, producer_timeout_s=timeout_s, max_retries=max_retries)
+    gateway: ModelGateway[str] = ModelGateway(
+        cfg, name='evo-eval-judge-llm', logger=logging.getLogger('evo.datagen.evaluate')
+    )
+    client = get_automodel(ctx.cfg.model_config.llm_role)
+
+    def factory():
+        def call(prompt: str):
+            digest = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+            return gateway.call(lambda: client(prompt), cache_key=f'eval-judge:{digest}', agent='eval_judge')
+
+        return call
+
+    return factory

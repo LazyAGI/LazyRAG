@@ -7,6 +7,14 @@ from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewri
 from chat.utils.load_config import get_retrieval_settings
 
 
+def has_history(query_params=None, *_, **__) -> bool:
+    return bool(isinstance(query_params, dict) and query_params.get('history'))
+
+
+def keep_query_params(query_params=None, *_, **__):
+    return query_params
+
+
 def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
     if retriever_configs is None:
         retriever_configs = get_retrieval_settings().retriever_configs
@@ -14,14 +22,14 @@ def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
     with lazyllm.save_pipeline_result():
         with pipeline() as rag_ppl:
             rag_ppl.rewriter = ifs(
-                lambda x: x.get('history'),
+                has_history,
                 tpath=MultiturnQueryRewriter(llm=get_automodel('llm_instruct'))
                 | bind(
                     priority=rag_ppl.input['priority'],
                     has_appendix=bool(rag_ppl.input['image_files'])
                     or bool(rag_ppl.input['files']),
                 ),
-                fpath=lambda x: x,
+                fpath=keep_query_params,
             )
             rag_ppl.search = get_ppl_search(url, retriever_configs)
             rag_ppl.generate = get_ppl_generate(stream=stream) | bind(

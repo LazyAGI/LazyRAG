@@ -94,13 +94,20 @@ def _generate_structured(
         return {'qa': qa}
 
     results: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        futures = [executor.submit(one, c) for c in chunks[: max(count * 3, count)]]
+    executor = ThreadPoolExecutor(max_workers=max(1, max_workers))
+    futures = [executor.submit(one, c) for c in chunks[: max(count * 3, count)]]
+    try:
         for f in as_completed(futures):
             if len(results) >= count:
                 break
             item = f.result()
             if item:
                 results.append(item)
+            if len(results) >= count:
+                break
+    finally:
+        for pending in futures:
+            pending.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
     _log.info('%s generation done: %s/%s', label, len(results), count)
     return results

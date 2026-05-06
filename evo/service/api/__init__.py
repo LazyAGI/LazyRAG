@@ -30,9 +30,12 @@ def create_app(
     from evo.service.core.intent_store import IntentStore
     from evo.service.core.ops_executor import OpsExecutor
     from evo.orchestrator.planner import Planner
-    from evo.orchestrator.llm import get_automodel
+    from evo.orchestrator.llm import get_automodel, make_evo_stream_llm
 
-    planner = Planner(llm=lambda prompt: get_automodel(cfg.model_config.llm_role)(prompt))
+    planner = Planner(
+        llm=lambda prompt: get_automodel(cfg.model_config.llm_role)(prompt),
+        stream_llm=make_evo_stream_llm(cfg),
+    )
     intent_store = IntentStore(cfg.storage.base_dir / 'state' / 'intents')
     ops = OpsExecutor(jm)
     hub = ThreadHub(jm=jm, planner=planner, intent_store=intent_store, ops=ops)
