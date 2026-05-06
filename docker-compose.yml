@@ -37,7 +37,7 @@ services:
       - ./kong.yml:/kong/kong.yml
       - ./kong/plugins/rbac-auth:/usr/local/share/lua/5.1/kong/plugins/rbac-auth
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       auth-service:
         condition: service_healthy
@@ -50,8 +50,10 @@ services:
 
     expose:
       - "5432"
+    ports:
+      - "5432:5432"
     volumes:
-      - ./volumes/db:/var/lib/postgresql/data
+      - ./data/state/postgres:/var/lib/postgresql/data
       - ./db-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d postgres"]
@@ -71,11 +73,70 @@ services:
       - ./scripts/db-bootstrap.sh:/db-bootstrap.sh:ro
     command: ["/bin/sh", "/db-bootstrap.sh"]
 
+  file-watcher-artifact:
+    profiles: ["file-watcher-artifact"]
+    image: lazyrag-file-watcher-artifact:20260417-1
+    environment:
+      OUTPUT_DIR: /output
+    volumes:
+      - ./backend/file-watcher:/output
+    restart: "no"
+
+  scan-control-plane:
+    build:
+      network: host
+      context: ./backend/scan-control-plane
+      dockerfile: Dockerfile
+    command: ["-config", "/app/configs/control-plane.scan.yml"]
+    volumes:
+      - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
+      - ${RAGSCAN_BASE_ROOT:-./data/scan}:${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
+      - ${RAGSCAN_BASE_ROOT:-./data/scan}/staging:${RAGSCAN_STAGING_CONTAINER_DIR:-/data/staging}
+      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+    depends_on:
+      db:
+        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "18080:18080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:18080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  file-watcher:
+    build:
+      network: host
+      context: ./backend/file-watcher
+      dockerfile: Dockerfile
+    command: ["-config", "/app/configs/agent.yaml"]
+    environment:
+      RAGSCAN_AGENT_LISTEN_ADDR: "0.0.0.0:19090"
+      RAGSCAN_AGENT_ADVERTISE_ADDR: "http://file-watcher:19090"
+      RAGSCAN_CONTROL_PLANE_BASE_URL: "http://scan-control-plane:18080"
+      RAGSCAN_BASE_ROOT: ${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
+      RAGSCAN_HOST_PATH_STYLE: ${RAGSCAN_HOST_PATH_STYLE:-posix}
+      RAGSCAN_WATCH_HOST_DIR: ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}
+      RAGSCAN_WATCH_CONTAINER_DIR: ${RAGSCAN_WATCH_CONTAINER_DIR:-/watch/docs}
+    volumes:
+      - ./backend/file-watcher/configs/agent.yaml:/app/configs/agent.yaml:ro
+      - ${RAGSCAN_BASE_ROOT:-./data/scan}:${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
+      - ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}:${RAGSCAN_WATCH_CONTAINER_DIR:-/watch/docs}
+    depends_on:
+      scan-control-plane:
+        condition: service_healthy
+    ports:
+      - "19090:19090"
+    restart: unless-stopped
+
   redis:
     image: docker.m.daocloud.io/redis:7
     command: ["redis-server", "--appendonly", "yes", "--aclfile", "/usr/local/etc/redis/users.acl"]
     volumes:
-      - ./volumes/redis:/data
+      - ./data/state/redis:/data
       - ./redis-users.acl:/usr/local/etc/redis/users.acl:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -99,6 +160,7 @@ services:
       LAZYRAG_JWT_SECRET: dev-secret-change-me
       LAZYRAG_JWT_TTL_MINUTES: "60"
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
+      RAGSCAN_SECRET_KEY: dev-ragscan-secret-key-change-me
       LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
@@ -138,6 +200,7 @@ services:
       dockerfile: core/Dockerfile
     volumes:
       - ./api/backend:/openapi-export
+      - /tmp/evo:/var/lib/lazyrag/evo
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     expose:
       - "8000"
@@ -161,6 +224,7 @@ services:
       LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://lazyllm-doc-server:8000}
       LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://lazyllm-parse-server:8000}
       LAZYRAG_CHAT_SERVICE_URL: ${LAZYRAG_CHAT_SERVICE_URL:-http://chat:8046}
+      LAZYRAG_EVO_SERVICE_URL: ${LAZYRAG_EVO_SERVICE_URL:-http://evo-api:8048}
       LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
@@ -207,7 +271,7 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8080:80"
+      - "8090:80"
     expose:
       - "80"
     depends_on:
@@ -228,8 +292,6 @@ services:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
-    ports:
-      - "8848:8000"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
@@ -257,9 +319,6 @@ services:
       default:
         aliases:
           - doc-server
-
-  # ---------- Algorithm stack: MinerU/PaddleOCR -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
-  # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru extra/backend are configured by env.
   mineru:
     profiles:
       - mineru
@@ -292,9 +351,6 @@ services:
       LAZYRAG_MINERU_CACHE_DIR: ${LAZYRAG_MINERU_CACHE_DIR:-/app/.mineru-cache}
       LAZYRAG_MINERU_IMAGE_SAVE_DIR: ${LAZYRAG_MINERU_IMAGE_SAVE_DIR:-/app/.mineru-images}
     command: ["python", "parsing/mineru.py"]
-
-  # PaddleOCR-VL document parsing service (official images).
-  # See: https://www.paddleocr.ai/main/version3.x/pipeline_usage/PaddleOCR-VL.html Section 4
   paddleocr-vlm-server:
     profiles:
       - paddleocr
@@ -446,10 +502,11 @@ services:
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-mineru}
+      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://host.docker.internal:20234}
+      LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-true}
       <<: *llm-api-keys
-    volumes:
-      - rag-uploads:/app/uploads
-      - ./tmp:/app/tmp:ro
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
       lazyllm-parse-server:
@@ -480,8 +537,6 @@ services:
       - "8046"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-    ports:
-      - "8046:8046"
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s
@@ -489,6 +544,7 @@ services:
       retries: 5
       start_period: 30s
     environment:
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-chat/runtime_models.inner.yaml}
       LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000,general_algo}
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
@@ -629,14 +685,12 @@ services:
     volumes:
       - milvus-minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
-    # Healthcheck disabled: newer MinIO images lack curl; use service_started in milvus depends_on
 
   milvus:
     profiles:
       - milvus
     image: milvusdb/milvus:${MILVUS_IMAGE_TAG:-v2.6.11}
     command: ['sh', '-c', 'sleep 15 && exec milvus run standalone']
-    # seccomp:unconfined removed for security; add back if Milvus fails on your platform
     environment:
       MINIO_REGION: us-east-1
       ETCD_ENDPOINTS: milvus-etcd:2379
@@ -658,20 +712,6 @@ services:
         condition: service_healthy
       milvus-minio:
         condition: service_started
-
-  attu:
-    profiles:
-      - milvus-dashboard
-    image: zilliz/attu:${ATTU_IMAGE_TAG:-v2.6.3}
-    ports:
-      - '127.0.0.1:3000:3000'
-    environment:
-      MILVUS_URL: milvus:19530
-    depends_on:
-      milvus:
-        condition: service_healthy
-
-  # ---------- Segment store: OpenSearch single-node (profile: opensearch) ----------
   opensearch:
     profiles:
       - opensearch

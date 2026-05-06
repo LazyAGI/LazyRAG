@@ -19,6 +19,7 @@ import (
 	"lazyrag/core/acl"
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
+	"lazyrag/core/evolution"
 	"lazyrag/core/store"
 )
 
@@ -196,7 +197,13 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	db.Where("conversation_id = ?", convID).Order("seq ASC").Find(&histories)
 	target := resolvePersistTarget(histories, raw, seq)
 	upstreamHistories := historiesForUpstream(histories, target)
-	reqBody := buildChatRequestBody(convID, query, upstreamHistories, raw)
+	sessionID := upstreamSessionID(convID)
+	resourceContext, err := evolution.BuildChatResourceContext(r.Context(), db, userID, userName, sessionID)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "build chat resource context failed", err), http.StatusInternalServerError)
+		return
+	}
+	reqBody := buildChatRequestBody(convID, sessionID, query, upstreamHistories, raw, resourceContext)
 	baseURL := chatServiceURL()
 	reqCtx := r.Context()
 	rdb := store.Redis()

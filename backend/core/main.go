@@ -19,6 +19,7 @@ import (
 	"lazyrag/core/log"
 	"lazyrag/core/migrate"
 	"lazyrag/core/store"
+	"lazyrag/core/wordgroup"
 )
 
 //go:embed docs.html
@@ -65,7 +66,7 @@ func exportOpenAPIArtifacts(openAPIJSON []byte) {
 // handleAPI textPermissiontext。perms text extract_api_permissions.py text api_permissions.json（Kong RBAC），
 // text core text（text Kong + auth-service Authorization）。text gorilla/mux，text path text，text ":action" text。
 func handleAPI(r *mux.Router, method, path string, perms []string, h http.HandlerFunc) {
-	r.HandleFunc(path, h).Methods(method)
+	r.HandleFunc(path, withMutationRequestAudit(method, path, h)).Methods(method)
 }
 
 func main() {
@@ -173,6 +174,8 @@ func main() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(swaggerUIHTML)
 	}).Methods(http.MethodGet)
+
+	go wordgroup.StartPeriodicVocabExtract(context.Background())
 
 	log.Logger.Info().Msg("Core listening on :8000")
 	if err := http.ListenAndServe(":8000", r); err != nil {

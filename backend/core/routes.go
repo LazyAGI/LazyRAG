@@ -2,9 +2,15 @@ package main
 
 import (
 	"lazyrag/core/acl"
+	"lazyrag/core/agent"
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
+	"lazyrag/core/evolution"
 	"lazyrag/core/file"
+	"lazyrag/core/memory"
+	"lazyrag/core/preference"
+	"lazyrag/core/skill"
+	"lazyrag/core/wordgroup"
 
 	"github.com/gorilla/mux"
 )
@@ -87,11 +93,69 @@ func registerAllRoutes(r *mux.Router) {
 	// ----- text -----
 	handleAPI(r, "POST", "/chat", []string{"qa.read"}, chat.Chat)
 
+	// ----- Agent thread stream -----
+	handleAPI(r, "GET", "/agent/threads", []string{"qa.read"}, agent.ListThreads)
+	handleAPI(r, "POST", "/agent/threads", []string{"qa.read"}, agent.CreateThread)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}:events", []string{"qa.read"}, agent.StreamThreadEvents)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}", []string{"qa.read"}, agent.GetThread)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/history", []string{"qa.read"}, agent.GetThreadHistory)
+	handleAPI(r, "DELETE", "/agent/threads/{thread_id}:history", []string{"qa.read"}, agent.DeleteThreadHistory)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/rounds", []string{"qa.read"}, agent.ListThreadRounds)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/records", []string{"qa.read"}, agent.ListThreadRecords)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/datasets", []string{"qa.read"}, agent.GetThreadResultDatasets)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/eval-reports", []string{"qa.read"}, agent.GetThreadResultEvalReports)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/analysis-reports", []string{"qa.read"}, agent.GetThreadResultAnalysisReports)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/diffs", []string{"qa.read"}, agent.GetThreadResultDiffs)
+	handleAPI(r, "GET", "/agent/threads/{thread_id}/results/abtests", []string{"qa.read"}, agent.GetThreadResultAbtests)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:messages", []string{"qa.read"}, agent.StreamThreadMessages)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:start", []string{"qa.read"}, agent.StartThread)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:pause", []string{"qa.read"}, agent.PauseThread)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:cancel", []string{"qa.read"}, agent.CancelThread)
+	handleAPI(r, "POST", "/agent/threads/{thread_id}:retry", []string{"qa.read"}, agent.RetryThread)
+	handleAPI(r, "GET", "/agent/reports/{report_id}:content", []string{"qa.read"}, agent.GetReportContent)
+	handleAPI(r, "GET", "/agent/diffs/{apply_id}/{filename:.*}", []string{"qa.read"}, agent.GetDiffContent)
+	handleAPI(r, "POST", "/agent/files:content", []string{"qa.read"}, agent.GetAgentFileContent)
+
 	// ----- Conversationtext -----
 	handleAPI(r, "POST", "/conversations:chat", []string{"qa.read"}, chat.ChatConversations)
 	handleAPI(r, "POST", "/conversations:resumeChat", []string{"qa.read"}, chat.ResumeChat)
 	handleAPI(r, "POST", "/conversations:stopChatGeneration", []string{"qa.read"}, chat.StopChatGeneration)
 	handleAPI(r, "GET", "/conversations/{conversation_id}:status", []string{"qa.read"}, chat.GetChatStatus)
+	handleAPI(r, "GET", "/evolution/suggestions", []string{"qa.read"}, evolution.ListSuggestions)
+	handleAPI(r, "GET", "/evolution/suggestions/{id}", []string{"qa.read"}, evolution.GetSuggestion)
+	handleAPI(r, "POST", "/evolution/suggestions/{id}:approve", []string{"qa.read"}, evolution.ApproveSuggestion)
+	handleAPI(r, "POST", "/evolution/suggestions/{id}:reject", []string{"qa.read"}, evolution.RejectSuggestion)
+	handleAPI(r, "POST", "/evolution/suggestions:batchApprove", []string{"qa.read"}, evolution.BatchApproveSuggestions)
+	handleAPI(r, "POST", "/evolution/suggestions:batchReject", []string{"qa.read"}, evolution.BatchRejectSuggestions)
+	handleAPI(r, "GET", "/personalization-items", []string{"qa.read"}, evolution.ListManagedStates)
+	handleAPI(r, "GET", "/personalization-setting", []string{"qa.read"}, evolution.GetPersonalizationSetting)
+	handleAPI(r, "PUT", "/personalization-setting", []string{"qa.read"}, evolution.SetPersonalizationSetting)
+	handleAPI(r, "GET", "/skills", []string{"qa.read"}, skill.List)
+	handleAPI(r, "POST", "/skills", []string{"qa.read"}, skill.CreateManaged)
+	handleAPI(r, "GET", "/skills/{skill_id}:shares", []string{"qa.read"}, skill.ListSkillShareTargets)
+	handleAPI(r, "GET", "/skill-shares/incoming", []string{"qa.read"}, skill.IncomingShares)
+	handleAPI(r, "GET", "/skill-shares/outgoing", []string{"qa.read"}, skill.OutgoingShares)
+	handleAPI(r, "GET", "/skill-shares/{share_item_id}", []string{"qa.read"}, skill.GetShareItem)
+	handleAPI(r, "POST", "/skill-shares/{share_item_id}:accept", []string{"qa.read"}, skill.AcceptShare)
+	handleAPI(r, "POST", "/skill-shares/{share_item_id}:reject", []string{"qa.read"}, skill.RejectShare)
+	handleAPI(r, "GET", "/skills/{skill_id}:draft-preview", []string{"qa.read"}, skill.DraftPreview)
+	handleAPI(r, "GET", "/skills/{skill_id}", []string{"qa.read"}, skill.Get)
+	handleAPI(r, "PATCH", "/skills/{skill_id}", []string{"qa.read"}, skill.UpdateManaged)
+	handleAPI(r, "DELETE", "/skills/{skill_id}", []string{"qa.read"}, skill.DeleteManaged)
+	handleAPI(r, "POST", "/skills/{skill_id}:generate", []string{"qa.read"}, skill.Generate)
+	handleAPI(r, "POST", "/skills/{skill_id}:confirm", []string{"qa.read"}, skill.Confirm)
+	handleAPI(r, "POST", "/skills/{skill_id}:discard", []string{"qa.read"}, skill.Discard)
+	handleAPI(r, "POST", "/skills/{skill_id}:share", []string{"qa.read"}, skill.Share)
+	handleAPI(r, "PUT", "/memory", []string{"qa.read"}, memory.Upsert)
+	handleAPI(r, "GET", "/memory:draft-preview", []string{"qa.read"}, memory.DraftPreview)
+	handleAPI(r, "POST", "/memory:generate", []string{"qa.read"}, memory.Generate)
+	handleAPI(r, "POST", "/memory:confirm", []string{"qa.read"}, memory.Confirm)
+	handleAPI(r, "POST", "/memory:discard", []string{"qa.read"}, memory.Discard)
+	handleAPI(r, "PUT", "/user-preference", []string{"qa.read"}, preference.Upsert)
+	handleAPI(r, "GET", "/user-preference:draft-preview", []string{"qa.read"}, preference.DraftPreview)
+	handleAPI(r, "POST", "/user-preference:generate", []string{"qa.read"}, preference.Generate)
+	handleAPI(r, "POST", "/user-preference:confirm", []string{"qa.read"}, preference.Confirm)
+	handleAPI(r, "POST", "/user-preference:discard", []string{"qa.read"}, preference.Discard)
 
 	// :detail text {name} text，text /conversations/xxx:detail text {name} text GetConversation（text history）
 	handleAPI(r, "GET", "/conversations/{name}:detail", []string{"qa.read"}, chat.GetConversationDetail)
@@ -107,6 +171,23 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/conversation:export", []string{"qa.read"}, chat.ExportConversations)
 	handleAPI(r, "GET", "/conversation:export/files/{file_id}", []string{"qa.read"}, chat.DownloadExportConversationFile)
 
+	// ----- Word group -----
+	handleAPI(r, "POST", "/word_group:checkExists", []string{}, wordgroup.CheckWordsExist)
+	handleAPI(r, "POST", "/word_group:update", []string{}, wordgroup.UpdateWordGroup)
+	handleAPI(r, "POST", "/word_group:search", []string{}, wordgroup.SearchWordGroups)
+	handleAPI(r, "GET", "/word_group", []string{}, wordgroup.ListWordGroups)
+	handleAPI(r, "GET", "/word_group/{group_id}", []string{}, wordgroup.GetWordGroup)
+	handleAPI(r, "DELETE", "/word_group/{group_id}", []string{}, wordgroup.DeleteWordGroup)
+	handleAPI(r, "POST", "/word_group:batchDelete", []string{}, wordgroup.BatchDeleteWordGroups)
+	handleAPI(r, "POST", "/word_group:merge", []string{}, wordgroup.MergeWordGroups)
+	handleAPI(r, "POST", "/word_group:mergeAndAddWord", []string{}, wordgroup.MergeWordGroupsAndAddWord)
+	handleAPI(r, "POST", "/word_group", []string{}, wordgroup.CreateWordGroup)
+	handleAPI(r, "GET", "/word_group_conflict", []string{}, wordgroup.ListWordGroupConflicts)
+	handleAPI(r, "POST", "/word_group_conflict:addToGroup", []string{}, wordgroup.AddWordGroupConflictToGroups)
+	handleAPI(r, "DELETE", "/word_group_conflict/{id}", []string{}, wordgroup.DeleteWordGroupConflict)
+	// Internal endpoint for algorithm service. Uses create_user_id in payload, no request auth headers.
+	handleAPI(r, "POST", "/inner/word_group:apply", []string{}, wordgroup.ApplyWordGroupAction)
+
 	// ----- Prompttext -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)
 	// :setDefault/:unsetDefault text {name} text，text :action text。
@@ -116,6 +197,17 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "DELETE", "/prompts/{name}", []string{"document.write"}, chat.DeletePrompt)
 	handleAPI(r, "GET", "/prompts/{name}", []string{"document.read"}, chat.GetPrompt)
 	handleAPI(r, "GET", "/prompts", []string{"document.read"}, chat.ListPrompts)
+
+	// ----- Evolution / long-term state -----
+	handleAPI(r, "POST", "/skill/suggestion", []string{}, skill.Suggestion)
+	handleAPI(r, "POST", "/skill/create", []string{}, skill.Create)
+	handleAPI(r, "POST", "/skill/remove", []string{}, skill.Remove)
+	handleAPI(r, "GET", "/remote-fs/list", []string{}, skill.RemoteFSList)
+	handleAPI(r, "GET", "/remote-fs/info", []string{}, skill.RemoteFSInfo)
+	handleAPI(r, "GET", "/remote-fs/exists", []string{}, skill.RemoteFSExists)
+	handleAPI(r, "GET", "/remote-fs/content", []string{}, skill.RemoteFSContent)
+	handleAPI(r, "POST", "/memory/suggestion", []string{}, memory.Suggestion)
+	handleAPI(r, "POST", "/user_preference/suggestion", []string{}, preference.Suggestion)
 
 	// ----- ACL（Knowledge basetextPermission） -----
 	handleAPI(r, "GET", "/kb/list", []string{"document.read"}, acl.ListKB)

@@ -8,6 +8,7 @@ import (
 
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
+	"lazyrag/core/wordgroup"
 )
 
 type schemaSource struct {
@@ -32,6 +33,7 @@ type openAPIOperation struct {
 	Method      string
 	Path        string
 	Summary     string
+	Description string
 	Tags        []string
 	PathParams  any
 	QueryParams any
@@ -74,6 +76,9 @@ func operationRegistryOpenAPISpec() map[string]any {
 func (op openAPIOperation) toOpenAPI(builder *schemaBuilder) map[string]any {
 	result := map[string]any{
 		"summary": op.Summary,
+	}
+	if strings.TrimSpace(op.Description) != "" {
+		result["description"] = op.Description
 	}
 	if len(op.Tags) > 0 {
 		result["tags"] = op.Tags
@@ -395,6 +400,41 @@ type exportConversationFilePathParams struct {
 	FileID string `path:"file_id"`
 }
 
+type agentFileContentOpenAPIRequest struct {
+	Path string `json:"path"`
+}
+
+type agentFileContentOpenAPIResponse struct {
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+	FileSize int64  `json:"file_size"`
+}
+
+type agentThreadListQueryParams struct {
+	PageSize  int32  `query:"page_size"`
+	PageToken string `query:"page_token"`
+}
+
+type agentThreadOpenAPIResponse struct {
+	ThreadID      string         `json:"thread_id"`
+	CurrentTaskID string         `json:"current_task_id,omitempty"`
+	Status        string         `json:"status"`
+	ThreadPayload map[string]any `json:"thread_payload,omitempty"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+}
+
+type agentThreadListOpenAPIResponse struct {
+	Threads       []agentThreadOpenAPIResponse `json:"threads"`
+	TotalSize     int64                        `json:"total_size"`
+	NextPageToken string                       `json:"next_page_token"`
+}
+
+type skillPathParams struct {
+	SkillID string `path:"skill_id"`
+}
+
 type datasetQueryParams struct {
 	PageToken string   `query:"page_token"`
 	PageSize  int32    `query:"page_size"`
@@ -412,6 +452,11 @@ type listDocumentsQueryParams struct {
 	PageSize  int32  `query:"page_size"`
 }
 
+type listWordGroupsQueryParams struct {
+	PageToken string `query:"page_token"`
+	PageSize  int32  `query:"page_size"`
+}
+
 type listTasksQueryParams struct {
 	PageToken   string `query:"page_token"`
 	PageSize    int32  `query:"page_size"`
@@ -419,6 +464,398 @@ type listTasksQueryParams struct {
 	TaskType    string `query:"task_type"`
 	DocumentID  string `query:"document_id"`
 	DocumentPID string `query:"document_pid"`
+}
+
+type skillGenerateOpenAPIRequest struct {
+	SuggestionIDs []string `json:"suggestion_ids"`
+	UserInstruct  string   `json:"user_instruct"`
+}
+
+type skillGenerateOpenAPIResponse struct {
+	DraftStatus        string `json:"draft_status"`
+	DraftSourceVersion int64  `json:"draft_source_version"`
+	DraftPath          string `json:"draft_path"`
+	Outdated           bool   `json:"outdated"`
+}
+
+type skillDraftPreviewOpenAPIResponse struct {
+	SkillID            string `json:"skill_id"`
+	DraftStatus        string `json:"draft_status"`
+	DraftSourceVersion int64  `json:"draft_source_version"`
+	CurrentContent     string `json:"current_content"`
+	DraftContent       string `json:"draft_content"`
+	Diff               string `json:"diff"`
+	Outdated           bool   `json:"outdated"`
+}
+
+type suggestionIDPathParams struct {
+	ID string `path:"id"`
+}
+
+type shareItemPathParams struct {
+	ShareItemID string `path:"share_item_id"`
+}
+
+type suggestionListQueryParams struct {
+	Page         int32  `query:"page"`
+	PageSize     int32  `query:"page_size"`
+	EvolutionID  string `query:"evolution_id"`
+	ResourceType string `query:"resource_type"`
+	ResourceKey  string `query:"resource_key"`
+	Keyword      string `query:"keyword"`
+}
+
+type skillListQueryParams struct {
+	Keyword  string   `query:"keyword"`
+	Category string   `query:"category"`
+	Tags     []string `query:"tags"`
+	Page     int32    `query:"page"`
+	PageSize int32    `query:"page_size"`
+}
+
+type shareListQueryParams struct {
+	Status   string `query:"status"`
+	Page     int32  `query:"page"`
+	PageSize int32  `query:"page_size"`
+}
+
+type suggestionPayloadOpenAPIRequest struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type suggestionBatchReviewOpenAPIRequest struct {
+	IDs []string `json:"ids"`
+}
+
+type recordedSuggestionOpenAPIResponse struct {
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	InvalidReason string `json:"invalid_reason,omitempty"`
+}
+
+type recordedSuggestionListOpenAPIResponse struct {
+	Items []recordedSuggestionOpenAPIResponse `json:"items"`
+}
+
+type suggestionItemOpenAPIResponse struct {
+	ID              string  `json:"id"`
+	UserID          string  `json:"user_id"`
+	ResourceType    string  `json:"resource_type"`
+	ResourceKey     string  `json:"resource_key"`
+	Category        string  `json:"category"`
+	ParentSkillName string  `json:"parent_skill_name"`
+	SkillName       string  `json:"skill_name"`
+	FileExt         string  `json:"file_ext"`
+	RelativePath    string  `json:"relative_path"`
+	Action          string  `json:"action"`
+	SessionID       string  `json:"session_id"`
+	Title           string  `json:"title"`
+	Content         string  `json:"content"`
+	Reason          string  `json:"reason"`
+	FullContent     string  `json:"full_content"`
+	Status          string  `json:"status"`
+	InvalidReason   string  `json:"invalid_reason"`
+	ReviewerID      string  `json:"reviewer_id"`
+	ReviewerName    string  `json:"reviewer_name"`
+	ReviewedAt      *string `json:"reviewed_at,omitempty"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
+	Outdated        bool    `json:"outdated"`
+}
+
+type suggestionListOpenAPIResponse struct {
+	Items    []suggestionItemOpenAPIResponse `json:"items"`
+	Page     int32                           `json:"page"`
+	PageSize int32                           `json:"page_size"`
+	Total    int64                           `json:"total"`
+}
+
+type suggestionBatchReviewOpenAPIResponse struct {
+	Items []suggestionItemOpenAPIResponse `json:"items"`
+}
+
+type skillChildCreateOpenAPIRequest struct {
+	Name     string `json:"name"`
+	Content  string `json:"content"`
+	FileExt  string `json:"file_ext,omitempty"`
+	IsLocked *bool  `json:"is_locked,omitempty"`
+}
+
+type skillCreateManagedOpenAPIRequest struct {
+	Name            string                           `json:"name"`
+	Description     string                           `json:"description,omitempty"`
+	Category        string                           `json:"category"`
+	ParentSkillName string                           `json:"parent_skill_name,omitempty"`
+	Tags            []string                         `json:"tags,omitempty"`
+	Content         string                           `json:"content"`
+	FileExt         string                           `json:"file_ext,omitempty"`
+	IsLocked        *bool                            `json:"is_locked,omitempty"`
+	IsEnabled       *bool                            `json:"is_enabled,omitempty"`
+	Children        []skillChildCreateOpenAPIRequest `json:"children,omitempty"`
+}
+
+type skillUpdateManagedOpenAPIRequest struct {
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Category    *string  `json:"category,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Content     *string  `json:"content,omitempty"`
+	FileExt     *string  `json:"file_ext,omitempty"`
+	IsLocked    *bool    `json:"is_locked,omitempty"`
+	IsEnabled   *bool    `json:"is_enabled,omitempty"`
+}
+
+type skillListChildOpenAPIResponse struct {
+	SkillID                     string `json:"skill_id"`
+	Name                        string `json:"name"`
+	Description                 string `json:"description"`
+	FileExt                     string `json:"file_ext"`
+	IsLocked                    bool   `json:"is_locked"`
+	IsEnabled                   bool   `json:"is_enabled"`
+	UpdateStatus                string `json:"update_status"`
+	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
+	SuggestionStatus            string `json:"suggestion_status"`
+	NodeType                    string `json:"node_type"`
+}
+
+type skillListItemOpenAPIResponse struct {
+	SkillID                     string                          `json:"skill_id"`
+	Name                        string                          `json:"name"`
+	Description                 string                          `json:"description"`
+	Category                    string                          `json:"category"`
+	Tags                        []string                        `json:"tags"`
+	IsLocked                    bool                            `json:"is_locked"`
+	IsEnabled                   bool                            `json:"is_enabled"`
+	UpdateStatus                string                          `json:"update_status"`
+	HasPendingReviewSuggestions bool                            `json:"has_pending_review_suggestions"`
+	SuggestionStatus            string                          `json:"suggestion_status"`
+	NodeType                    string                          `json:"node_type"`
+	Children                    []skillListChildOpenAPIResponse `json:"children"`
+}
+
+type skillListOpenAPIResponse struct {
+	Items    []skillListItemOpenAPIResponse `json:"items"`
+	Page     int32                          `json:"page"`
+	PageSize int32                          `json:"page_size"`
+	Total    int32                          `json:"total"`
+}
+
+type skillDetailChildOpenAPIResponse struct {
+	SkillID                     string `json:"skill_id"`
+	Name                        string `json:"name"`
+	Description                 string `json:"description"`
+	FileExt                     string `json:"file_ext"`
+	IsLocked                    bool   `json:"is_locked"`
+	IsEnabled                   bool   `json:"is_enabled"`
+	UpdateStatus                string `json:"update_status"`
+	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
+	SuggestionStatus            string `json:"suggestion_status"`
+	NodeType                    string `json:"node_type"`
+	ParentSkillName             string `json:"parent_skill_name"`
+	Content                     string `json:"content"`
+}
+
+type skillDetailOpenAPIResponse struct {
+	SkillID                     string                            `json:"skill_id"`
+	Name                        string                            `json:"name"`
+	Description                 string                            `json:"description"`
+	Category                    string                            `json:"category"`
+	Tags                        []string                          `json:"tags"`
+	IsLocked                    bool                              `json:"is_locked"`
+	IsEnabled                   bool                              `json:"is_enabled"`
+	UpdateStatus                string                            `json:"update_status"`
+	HasPendingReviewSuggestions bool                              `json:"has_pending_review_suggestions"`
+	SuggestionStatus            string                            `json:"suggestion_status"`
+	NodeType                    string                            `json:"node_type"`
+	ParentSkillName             string                            `json:"parent_skill_name"`
+	Content                     string                            `json:"content"`
+	FileExt                     string                            `json:"file_ext"`
+	Children                    []skillDetailChildOpenAPIResponse `json:"children"`
+}
+
+type skillDeleteOpenAPIResponse struct {
+	Deleted bool `json:"deleted"`
+}
+
+type skillDiscardOpenAPIResponse struct {
+	Discarded bool `json:"discarded"`
+}
+
+type shareSkillOpenAPIRequest struct {
+	TargetUserIDs  []string `json:"target_user_ids,omitempty"`
+	TargetGroupIDs []string `json:"target_group_ids,omitempty"`
+	Message        string   `json:"message,omitempty"`
+}
+
+type skillShareCreateItemOpenAPIResponse struct {
+	ID                 string  `json:"id"`
+	ShareTaskID        string  `json:"share_task_id"`
+	TargetUserID       string  `json:"target_user_id"`
+	TargetUserName     string  `json:"target_user_name"`
+	Status             string  `json:"status"`
+	TargetRelativeRoot string  `json:"target_relative_root,omitempty"`
+	AcceptedAt         *string `json:"accepted_at,omitempty"`
+	RejectedAt         *string `json:"rejected_at,omitempty"`
+	TargetRootSkillID  string  `json:"target_root_skill_id,omitempty"`
+	ErrorMessage       string  `json:"error_message,omitempty"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
+}
+
+type skillShareCreateOpenAPIResponse struct {
+	ShareTaskID string                                `json:"share_task_id"`
+	Items       []skillShareCreateItemOpenAPIResponse `json:"items"`
+}
+
+type skillShareTargetStatusSummaryOpenAPIResponse struct {
+	PendingAccept int64 `json:"pending_accept"`
+	Completed     int64 `json:"completed"`
+	Rejected      int64 `json:"rejected"`
+	Failed        int64 `json:"failed"`
+}
+
+type skillShareTargetItemOpenAPIResponse struct {
+	TargetUserID      string  `json:"target_user_id"`
+	TargetUserName    string  `json:"target_user_name"`
+	Status            string  `json:"status"`
+	ShareItemID       string  `json:"share_item_id"`
+	ShareTaskID       string  `json:"share_task_id"`
+	Message           string  `json:"message"`
+	AcceptedAt        *string `json:"accepted_at,omitempty"`
+	RejectedAt        *string `json:"rejected_at,omitempty"`
+	TargetRootSkillID string  `json:"target_root_skill_id,omitempty"`
+	ErrorMessage      string  `json:"error_message,omitempty"`
+	SharedAt          string  `json:"shared_at"`
+	UpdatedAt         string  `json:"updated_at"`
+}
+
+type skillShareTargetsOpenAPIResponse struct {
+	SkillID       string                                       `json:"skill_id"`
+	StatusSummary skillShareTargetStatusSummaryOpenAPIResponse `json:"status_summary"`
+	Items         []skillShareTargetItemOpenAPIResponse        `json:"items"`
+	Page          int32                                        `json:"page"`
+	PageSize      int32                                        `json:"page_size"`
+	Total         int64                                        `json:"total"`
+}
+
+type skillShareListItemOpenAPIResponse struct {
+	ShareItemID           string  `json:"share_item_id"`
+	ShareTaskID           string  `json:"share_task_id"`
+	Status                string  `json:"status"`
+	SourceUserID          string  `json:"source_user_id"`
+	SourceUserName        string  `json:"source_user_name"`
+	TargetUserID          string  `json:"target_user_id"`
+	TargetUserName        string  `json:"target_user_name"`
+	SourceSkillID         string  `json:"source_skill_id"`
+	SourceCategory        string  `json:"source_category"`
+	SourceParentSkillName string  `json:"source_parent_skill_name"`
+	Message               string  `json:"message"`
+	AcceptedAt            *string `json:"accepted_at,omitempty"`
+	RejectedAt            *string `json:"rejected_at,omitempty"`
+	TargetRootSkillID     string  `json:"target_root_skill_id,omitempty"`
+	ErrorMessage          string  `json:"error_message,omitempty"`
+	CreatedAt             string  `json:"created_at"`
+	UpdatedAt             string  `json:"updated_at"`
+}
+
+type skillShareListOpenAPIResponse struct {
+	Items    []skillShareListItemOpenAPIResponse `json:"items"`
+	Page     int32                               `json:"page"`
+	PageSize int32                               `json:"page_size"`
+	Total    int64                               `json:"total"`
+}
+
+type skillShareDetailOpenAPIResponse struct {
+	ShareItemID string                     `json:"share_item_id"`
+	Status      string                     `json:"status"`
+	Message     string                     `json:"message"`
+	Source      skillDetailOpenAPIResponse `json:"source"`
+}
+
+type skillShareAcceptOpenAPIResponse struct {
+	Accepted          bool   `json:"accepted"`
+	TargetRootSkillID string `json:"target_root_skill_id"`
+}
+
+type skillShareRejectOpenAPIResponse struct {
+	Rejected bool `json:"rejected"`
+}
+
+type systemSuggestionOpenAPIRequest struct {
+	SessionID   string                            `json:"session_id"`
+	Suggestions []suggestionPayloadOpenAPIRequest `json:"suggestions"`
+}
+
+type managedStateUpsertOpenAPIRequest struct {
+	Content string `json:"content"`
+}
+
+type managedStateOpenAPIResponse struct {
+	ResourceID                  string `json:"resource_id"`
+	ResourceType                string `json:"resource_type"`
+	Title                       string `json:"title"`
+	Content                     string `json:"content"`
+	ContentSummary              string `json:"content_summary"`
+	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
+	SuggestionStatus            string `json:"suggestion_status"`
+}
+
+type managedStateListOpenAPIResponse struct {
+	Items []managedStateOpenAPIResponse `json:"items"`
+}
+
+type personalizationSettingOpenAPIRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type personalizationSettingOpenAPIResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+type systemGenerateOpenAPIResponse struct {
+	DraftStatus        string   `json:"draft_status"`
+	DraftSourceVersion int64    `json:"draft_source_version"`
+	DraftContent       string   `json:"draft_content"`
+	SuggestionIDs      []string `json:"suggestion_ids"`
+}
+
+type systemDraftPreviewOpenAPIResponse struct {
+	DraftStatus        string `json:"draft_status"`
+	DraftSourceVersion int64  `json:"draft_source_version"`
+	CurrentContent     string `json:"current_content"`
+	DraftContent       string `json:"draft_content"`
+	Diff               string `json:"diff"`
+}
+
+type systemConfirmOpenAPIResponse struct {
+	Content string `json:"content"`
+	Version int64  `json:"version"`
+}
+
+type systemDiscardOpenAPIResponse struct {
+	Discarded bool `json:"discarded"`
+}
+
+type internalSkillSuggestionOpenAPIRequest struct {
+	SessionID   string                            `json:"session_id"`
+	Category    string                            `json:"category"`
+	SkillName   string                            `json:"skill_name"`
+	Suggestions []suggestionPayloadOpenAPIRequest `json:"suggestions"`
+}
+
+type internalSkillCreateOpenAPIRequest struct {
+	SessionID string `json:"session_id"`
+	Category  string `json:"category"`
+	SkillName string `json:"skill_name"`
+	Content   string `json:"content"`
+}
+
+type internalSkillRemoveOpenAPIRequest struct {
+	SessionID string `json:"session_id"`
+	Category  string `json:"category"`
+	SkillName string `json:"skill_name"`
 }
 
 func registeredCoreOperations() []openAPIOperation {
@@ -703,6 +1140,325 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:   map[int]openAPIResponse{200: resp("Complete uploadtext", doc.CompleteUploadResponse{})},
 		},
 		{
+			Method:      "GET",
+			Path:        "/evolution/suggestions",
+			Summary:     "List evolution suggestions",
+			Description: "Use evolution_id=<resource_type>:<resource_id> for a single-parameter resource filter. resource_type and resource_key remain available as optional compatibility filters.",
+			Tags:        []string{"evolution"},
+			QueryParams: suggestionListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Suggestion list", suggestionListOpenAPIResponse{})},
+		},
+		{
+			Method:     "GET",
+			Path:       "/evolution/suggestions/{id}",
+			Summary:    "Get evolution suggestion",
+			Tags:       []string{"evolution"},
+			PathParams: suggestionIDPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Suggestion details", suggestionItemOpenAPIResponse{})},
+		},
+		{
+			Method:     "POST",
+			Path:       "/evolution/suggestions/{id}:approve",
+			Summary:    "Approve evolution suggestion",
+			Tags:       []string{"evolution"},
+			PathParams: suggestionIDPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Approved suggestion", suggestionItemOpenAPIResponse{})},
+		},
+		{
+			Method:     "POST",
+			Path:       "/evolution/suggestions/{id}:reject",
+			Summary:    "Reject evolution suggestion",
+			Tags:       []string{"evolution"},
+			PathParams: suggestionIDPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Rejected suggestion", suggestionItemOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/evolution/suggestions:batchApprove",
+			Summary:     "Batch approve evolution suggestions",
+			Description: "Sets every listed suggestion to accepted regardless of its current status, as long as the suggestion exists.",
+			Tags:        []string{"evolution"},
+			RequestBody: jsonBodyOf(suggestionBatchReviewOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Approved suggestions", suggestionBatchReviewOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/evolution/suggestions:batchReject",
+			Summary:     "Batch reject evolution suggestions",
+			Description: "Sets every listed suggestion to rejected regardless of its current status, as long as the suggestion exists.",
+			Tags:        []string{"evolution"},
+			RequestBody: jsonBodyOf(suggestionBatchReviewOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Rejected suggestions", suggestionBatchReviewOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/skills",
+			Summary:     "List skills",
+			Tags:        []string{"skills"},
+			QueryParams: skillListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Skill list", skillListOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/skills",
+			Summary:     "Create managed skill",
+			Tags:        []string{"skills"},
+			RequestBody: jsonBodyOf(skillCreateManagedOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created skill", skillDetailOpenAPIResponse{})},
+		},
+		{
+			Method:     "GET",
+			Path:       "/skills/{skill_id}",
+			Summary:    "Get skill details",
+			Tags:       []string{"skills"},
+			PathParams: skillPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Skill details", skillDetailOpenAPIResponse{})},
+		},
+		{
+			Method:      "PATCH",
+			Path:        "/skills/{skill_id}",
+			Summary:     "Update managed skill",
+			Tags:        []string{"skills"},
+			PathParams:  skillPathParams{},
+			RequestBody: jsonBodyOf(skillUpdateManagedOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Updated skill", skillDetailOpenAPIResponse{})},
+		},
+		{
+			Method:     "DELETE",
+			Path:       "/skills/{skill_id}",
+			Summary:    "Delete managed skill",
+			Tags:       []string{"skills"},
+			PathParams: skillPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Deleted skill", skillDeleteOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/skills/{skill_id}:generate",
+			Summary:     "Generate skill draft",
+			Tags:        []string{"skills"},
+			PathParams:  skillPathParams{},
+			RequestBody: jsonBodyOf(skillGenerateOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Generated skill draft", skillGenerateOpenAPIResponse{})},
+		},
+		{
+			Method:     "GET",
+			Path:       "/skills/{skill_id}:draft-preview",
+			Summary:    "Preview skill draft diff",
+			Tags:       []string{"skills"},
+			PathParams: skillPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Skill draft preview", skillDraftPreviewOpenAPIResponse{})},
+		},
+		{
+			Method:     "POST",
+			Path:       "/skills/{skill_id}:confirm",
+			Summary:    "Confirm skill draft",
+			Tags:       []string{"skills"},
+			PathParams: skillPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Confirmed skill", skillDetailOpenAPIResponse{})},
+		},
+		{
+			Method:     "POST",
+			Path:       "/skills/{skill_id}:discard",
+			Summary:    "Discard skill draft",
+			Tags:       []string{"skills"},
+			PathParams: skillPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Discarded skill draft", skillDiscardOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/skills/{skill_id}:share",
+			Summary:     "Share skill",
+			Tags:        []string{"skill-shares"},
+			PathParams:  skillPathParams{},
+			RequestBody: jsonBodyOf(shareSkillOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created share task", skillShareCreateOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/skills/{skill_id}:shares",
+			Summary:     "List latest skill share status by target user",
+			Tags:        []string{"skill-shares"},
+			PathParams:  skillPathParams{},
+			QueryParams: shareListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Skill share targets", skillShareTargetsOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/skill-shares/incoming",
+			Summary:     "List incoming skill shares",
+			Tags:        []string{"skill-shares"},
+			QueryParams: shareListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Incoming share list", skillShareListOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/skill-shares/outgoing",
+			Summary:     "List outgoing skill shares",
+			Tags:        []string{"skill-shares"},
+			QueryParams: shareListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Outgoing share list", skillShareListOpenAPIResponse{})},
+		},
+		{
+			Method:     "GET",
+			Path:       "/skill-shares/{share_item_id}",
+			Summary:    "Get skill share item",
+			Tags:       []string{"skill-shares"},
+			PathParams: shareItemPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Skill share detail", skillShareDetailOpenAPIResponse{})},
+		},
+		{
+			Method:     "POST",
+			Path:       "/skill-shares/{share_item_id}:accept",
+			Summary:    "Accept skill share",
+			Tags:       []string{"skill-shares"},
+			PathParams: shareItemPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Accepted share", skillShareAcceptOpenAPIResponse{})},
+		},
+		{
+			Method:     "POST",
+			Path:       "/skill-shares/{share_item_id}:reject",
+			Summary:    "Reject skill share",
+			Tags:       []string{"skill-shares"},
+			PathParams: shareItemPathParams{},
+			Responses:  map[int]openAPIResponse{200: resp("Rejected share", skillShareRejectOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/skill/suggestion",
+			Summary:     "Create skill suggestions",
+			Tags:        []string{"skill-evolution"},
+			RequestBody: jsonBodyOf(internalSkillSuggestionOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created skill suggestions", recordedSuggestionListOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/skill/create",
+			Summary:     "Create skill directly from internal request",
+			Tags:        []string{"skill-evolution"},
+			RequestBody: jsonBodyOf(internalSkillCreateOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created skill", skillDetailOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/skill/remove",
+			Summary:     "Delete skill directly from internal request",
+			Tags:        []string{"skill-evolution"},
+			RequestBody: jsonBodyOf(internalSkillRemoveOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Deleted skill", skillDeleteOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/memory/suggestion",
+			Summary:     "Create memory suggestions",
+			Tags:        []string{"memory"},
+			RequestBody: jsonBodyOf(systemSuggestionOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created memory suggestions", recordedSuggestionListOpenAPIResponse{})},
+		},
+		{
+			Method:    "GET",
+			Path:      "/personalization-items",
+			Summary:   "List managed memory and preference items",
+			Tags:      []string{"personalization"},
+			Responses: map[int]openAPIResponse{200: resp("Managed personalization items", managedStateListOpenAPIResponse{})},
+		},
+		{
+			Method:    "GET",
+			Path:      "/personalization-setting",
+			Summary:   "Get personalization setting",
+			Tags:      []string{"personalization"},
+			Responses: map[int]openAPIResponse{200: resp("Personalization setting", personalizationSettingOpenAPIResponse{})},
+		},
+		{
+			Method:      "PUT",
+			Path:        "/personalization-setting",
+			Summary:     "Set personalization setting",
+			Tags:        []string{"personalization"},
+			RequestBody: jsonBodyOf(personalizationSettingOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Updated personalization setting", personalizationSettingOpenAPIResponse{})},
+		},
+		{
+			Method:      "PUT",
+			Path:        "/memory",
+			Summary:     "Upsert managed memory",
+			Tags:        []string{"memory"},
+			RequestBody: jsonBodyOf(managedStateUpsertOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Managed memory item", managedStateOpenAPIResponse{})},
+		},
+		{
+			Method:    "GET",
+			Path:      "/memory:draft-preview",
+			Summary:   "Preview memory draft diff",
+			Tags:      []string{"memory"},
+			Responses: map[int]openAPIResponse{200: resp("Memory draft preview", systemDraftPreviewOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/memory:generate",
+			Summary:     "Generate memory draft",
+			Tags:        []string{"memory"},
+			RequestBody: jsonBodyOf(skillGenerateOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Generated memory draft", systemGenerateOpenAPIResponse{})},
+		},
+		{
+			Method:    "POST",
+			Path:      "/memory:confirm",
+			Summary:   "Confirm memory draft",
+			Tags:      []string{"memory"},
+			Responses: map[int]openAPIResponse{200: resp("Confirmed memory draft", systemConfirmOpenAPIResponse{})},
+		},
+		{
+			Method:    "POST",
+			Path:      "/memory:discard",
+			Summary:   "Discard memory draft",
+			Tags:      []string{"memory"},
+			Responses: map[int]openAPIResponse{200: resp("Discarded memory draft", systemDiscardOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/user_preference/suggestion",
+			Summary:     "Create user preference suggestions",
+			Tags:        []string{"preferences"},
+			RequestBody: jsonBodyOf(systemSuggestionOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created user preference suggestions", recordedSuggestionListOpenAPIResponse{})},
+		},
+		{
+			Method:      "PUT",
+			Path:        "/user-preference",
+			Summary:     "Upsert managed user preference",
+			Tags:        []string{"preferences"},
+			RequestBody: jsonBodyOf(managedStateUpsertOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Managed user preference item", managedStateOpenAPIResponse{})},
+		},
+		{
+			Method:    "GET",
+			Path:      "/user-preference:draft-preview",
+			Summary:   "Preview user preference draft diff",
+			Tags:      []string{"preferences"},
+			Responses: map[int]openAPIResponse{200: resp("User preference draft preview", systemDraftPreviewOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/user-preference:generate",
+			Summary:     "Generate user preference draft",
+			Tags:        []string{"preferences"},
+			RequestBody: jsonBodyOf(skillGenerateOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Generated user preference draft", systemGenerateOpenAPIResponse{})},
+		},
+		{
+			Method:    "POST",
+			Path:      "/user-preference:confirm",
+			Summary:   "Confirm user preference draft",
+			Tags:      []string{"preferences"},
+			Responses: map[int]openAPIResponse{200: resp("Confirmed user preference draft", systemConfirmOpenAPIResponse{})},
+		},
+		{
+			Method:    "POST",
+			Path:      "/user-preference:discard",
+			Summary:   "Discard user preference draft",
+			Tags:      []string{"preferences"},
+			Responses: map[int]openAPIResponse{200: resp("Discarded user preference draft", systemDiscardOpenAPIResponse{})},
+		},
+		{
 			Method:      "POST",
 			Path:        "/conversation:export",
 			Summary:     "Export conversations",
@@ -719,6 +1475,24 @@ func registeredCoreOperations() []openAPIOperation {
 			Responses:  map[int]openAPIResponse{200: {Description: "Exported conversation file", ContentType: "application/octet-stream", Schema: schemaSource{Inline: map[string]any{"type": "string", "format": "binary"}}}},
 		},
 		{
+			Method:      "GET",
+			Path:        "/agent/threads",
+			Summary:     "List agent threads",
+			Description: "List the current user's agent threads. Use thread_id from this response to load thread details or history.",
+			Tags:        []string{"agent"},
+			QueryParams: agentThreadListQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Agent thread list", agentThreadListOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/agent/files:content",
+			Summary:     "Read agent result file content",
+			Description: "Read a local agent result file by path and return its text content. Use JSON body to avoid URL path escaping issues.",
+			Tags:        []string{"agent"},
+			RequestBody: jsonBodyOf(agentFileContentOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Agent result file content", agentFileContentOpenAPIResponse{})},
+		},
+		{
 			Method:  "POST",
 			Path:    "/temp/uploads/{upload_id}:abort",
 			Summary: "AborttextUpload",
@@ -728,6 +1502,136 @@ func registeredCoreOperations() []openAPIOperation {
 			}{},
 			RequestBody: jsonBodyOf(doc.AbortUploadRequest{}, false),
 			Responses:   map[int]openAPIResponse{200: refResp("Abort uploadtext", "AbortUploadResponse")},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:checkExists",
+			Summary:     "Check which words already exist",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CheckWordsExistRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Existing words among term and aliases", wordgroup.CheckWordsExistResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:update",
+			Summary:     "Update word group (term, description, lock, replace aliases)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.UpdateWordGroupRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Updated word group", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:search",
+			Summary:     "Search word groups by keyword and optional source (paginated list)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.SearchWordGroupsRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group search results", wordgroup.ListWordGroupsResponse{}),
+			},
+		},
+		{
+			Method:      "GET",
+			Path:        "/word_group",
+			Summary:     "List word groups (term row updated_at DESC)",
+			Tags:        []string{"word_group"},
+			QueryParams: listWordGroupsQueryParams{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group list", wordgroup.ListWordGroupsResponse{}),
+			},
+		},
+		{
+			Method:  "GET",
+			Path:    "/word_group/{group_id}",
+			Summary: "Get word group detail by group_id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				GroupID string `path:"group_id"`
+			}{},
+			Responses: map[int]openAPIResponse{200: resp("Word group detail", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:  "DELETE",
+			Path:    "/word_group/{group_id}",
+			Summary: "Delete word group by group_id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				GroupID string `path:"group_id"`
+			}{},
+			Responses: map[int]openAPIResponse{200: resp("Deleted word group", wordgroup.DeleteWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:batchDelete",
+			Summary:     "Batch soft-delete word groups by group_ids",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.BatchDeleteWordGroupsRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Batch deleted word groups", wordgroup.BatchDeleteWordGroupsResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:merge",
+			Summary:     "Merge word groups into the first group_id (first term kept; others become aliases)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.MergeWordGroupsRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Merged word group", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group:mergeAndAddWord",
+			Summary:     "Merge word groups then add one word into merged group as alias",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.MergeAndAddWordRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Merged word group with added word", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group",
+			Summary:     "Create word group",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CreateWordGroupRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created word group", wordgroup.CreateWordGroupResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/word_group_conflict",
+			Summary:     "List pending word group conflicts (updated_at DESC)",
+			Tags:        []string{"word_group"},
+			QueryParams: listWordGroupsQueryParams{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Word group conflict list", wordgroup.ListWordGroupConflictsResponse{}),
+			},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group_conflict:addToGroup",
+			Summary:     "Add conflict word to selected groups",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.AddWordGroupConflictToGroupsRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Conflict word add-to-group result", wordgroup.AddWordGroupConflictToGroupsResponse{}),
+			},
+		},
+		{
+			Method:  "DELETE",
+			Path:    "/word_group_conflict/{id}",
+			Summary: "Soft-delete a word group conflict by id",
+			Tags:    []string{"word_group"},
+			PathParams: struct {
+				ID string `path:"id"`
+			}{},
+			Responses: map[int]openAPIResponse{
+				200: resp("Deleted word group conflict", wordgroup.DeleteWordGroupConflictResponse{}),
+			},
+		},
+		{
+			Method:      "POST",
+			Path:        "/inner/word_group:apply",
+			Summary:     "Internal: apply word-group actions in batch (algorithm → core)",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.ApplyWordGroupActionRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Per-item apply results", wordgroup.ApplyWordGroupActionBatchResponse{}),
+			},
 		},
 	}
 }

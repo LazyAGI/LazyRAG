@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -579,7 +577,7 @@ func getDatasetMemberByPrincipal(r *http.Request, datasetID, granteeType, princi
 }
 
 func buildDatasetMembers(r *http.Request, datasetID string, rows []acl.ACLListItem) []datasetMember {
-	ds, _ := loadDatasetByID(requestContext(r), datasetID)
+	ds, _ := loadDatasetByID(r.Context(), datasetID)
 	type principalKey struct {
 		granteeType string
 		granteeID   string
@@ -712,6 +710,13 @@ func loadDatasetByID(ctx context.Context, datasetID string) (*orm.Dataset, bool)
 	return &ds, true
 }
 
+func requestContext(r *http.Request) context.Context {
+	if r != nil {
+		return r.Context()
+	}
+	return context.Background()
+}
+
 func ensureDatasetCreatorMember(st *acl.Store, datasetID, creatorUserID string) {
 	if st == nil {
 		return
@@ -830,104 +835,7 @@ func fetchDatasetMemberNames(r *http.Request, members []datasetMember) (map[stri
 			}
 		}
 	}
-	return fetchUserNames(r, userIDs), fetchGroupNames(r, groupIDs)
-}
-
-func fetchUserNames(r *http.Request, userIDs []string) map[string]string {
-	out := map[string]string{}
-	for _, userID := range userIDs {
-		userID = strings.TrimSpace(userID)
-		if userID == "" {
-			continue
-		}
-		var resp struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-			Data    struct {
-				UserID      string `json:"user_id"`
-				Username    string `json:"username"`
-				DisplayName string `json:"display_name"`
-			} `json:"data"`
-			// auth-service may return the object directly (not wrapped by "data").
-			UserID      string `json:"user_id"`
-			Username    string `json:"username"`
-			DisplayName string `json:"display_name"`
-		}
-		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/user/"+url.PathEscape(userID), authRequestHeaders(r), &resp, 3*time.Second); err != nil {
-			continue
-		}
-		// Support both response formats: top-level fields or "data" wrapper.
-		name := strings.TrimSpace(firstNonEmpty(resp.DisplayName, resp.Username, resp.Data.DisplayName, resp.Data.Username))
-		if name != "" {
-			out[userID] = name
-		}
-	}
-	return out
-}
-
-func fetchGroupNames(r *http.Request, groupIDs []string) map[string]string {
-	out := map[string]string{}
-	for _, groupID := range groupIDs {
-		groupID = strings.TrimSpace(groupID)
-		if groupID == "" {
-			continue
-		}
-		var resp struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-			Data    struct {
-				GroupID   string `json:"group_id"`
-				GroupName string `json:"group_name"`
-			} `json:"data"`
-			// auth-service may return the object directly (not wrapped by "data").
-			GroupID   string `json:"group_id"`
-			GroupName string `json:"group_name"`
-		}
-		if err := common.ApiGet(requestContext(r), authServiceBaseURL()+"/group/"+url.PathEscape(groupID), authRequestHeaders(r), &resp, 3*time.Second); err != nil {
-			continue
-		}
-		// Support both response formats: top-level fields or "data" wrapper.
-		name := strings.TrimSpace(firstNonEmpty(resp.GroupName, resp.Data.GroupName))
-		if name != "" {
-			out[groupID] = name
-		}
-	}
-	return out
-}
-
-func authServiceBaseURL() string {
-	if u := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_URL")); u != "" {
-		base := strings.TrimRight(u, "/")
-		if strings.HasSuffix(base, "/api/authservice") {
-			return base
-		}
-		return base + "/api/authservice"
-	}
-	return "http://auth-service:8000/api/authservice"
-}
-
-func authRequestHeaders(r *http.Request) map[string]string {
-	headers := map[string]string{}
-	if r == nil {
-		return headers
-	}
-	if v := strings.TrimSpace(r.Header.Get("Authorization")); v != "" {
-		headers["Authorization"] = v
-	}
-	if v := strings.TrimSpace(r.Header.Get("X-User-Id")); v != "" {
-		headers["X-User-Id"] = v
-	}
-	if v := strings.TrimSpace(r.Header.Get("X-User-Name")); v != "" {
-		headers["X-User-Name"] = v
-	}
-	return headers
-}
-
-func requestContext(r *http.Request) context.Context {
-	if r != nil {
-		return r.Context()
-	}
-	return context.Background()
+	return common.FetchUserNamesFromAuthService(r, userIDs), common.FetchGroupNamesFromAuthService(r, groupIDs)
 }
 
 func roleToPermissions(role string) []string {
