@@ -74,8 +74,9 @@ class TestStreamCallHelperAstream:
         chunks_received = []
 
         def fake_impl(*args, **kwargs):
-            # Simulate writing to the queue
-            lazyllm.FileSystemQueue().enqueue(['hello', ' world'])
+            # Simulate writing to the queue — enqueue one string at a time
+            lazyllm.FileSystemQueue().enqueue('hello')
+            lazyllm.FileSystemQueue().enqueue(' world')
             return 'hello world'
 
         helper = StreamCallHelper(fake_impl, interval=0.01)
@@ -526,7 +527,7 @@ class TestChatRouteModelConfig:
             await routes_mod.chat(
                 query='hello',
                 session_id='sid-1',
-                model_config={'source': 'openai', 'name': 'gpt-4o'},
+                llm_config={'source': 'openai', 'name': 'gpt-4o'},
                 request=fake_request,
             )
 

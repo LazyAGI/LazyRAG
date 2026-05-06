@@ -33,7 +33,7 @@ async def chat(
     use_memory: Annotated[Optional[bool], Body(description='Whether to use memory')] = True,
     create_user_id: Annotated[Optional[str], Body(description='User ID for loading user-specific vocabulary')] = None,
     trace: Annotated[Optional[bool], Body(description='Enable trace recording (for admin debugging only)')] = False,
-    model_config: Annotated[
+    llm_config: Annotated[
         Optional[Dict[str, Any]],
         Body(
             description=(
@@ -69,5 +69,5 @@ async def chat(
         use_memory=use_memory,
         is_stream=is_stream,
         create_user_id=(create_user_id or '').strip(),
-        model_config=model_config,
+        model_config=llm_config,
     )
