@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"lazyrag/core/common"
+	"lazyrag/core/log"
 	"lazyrag/core/store"
 )
 
@@ -68,9 +69,19 @@ func CheckModelProvider(w http.ResponseWriter, r *http.Request) {
 		URL:    urlStr,
 		APIKey: apiKey,
 	}
+	checkStart := time.Now()
 
 	var algo modelCheckResponse
 	if err := common.ApiPost(r.Context(), upstream, body, nil, &algo, modelProviderCheckTimeout); err != nil {
+		log.Logger.Error().
+			Err(err).
+			Str("upstream", upstream).
+			Str("provider_name", source).
+			Str("base_url", urlStr).
+			Str("user_id", userID).
+			Dur("timeout", modelProviderCheckTimeout).
+			Dur("elapsed", time.Since(checkStart)).
+			Msg("model provider check failed")
 		common.ReplyErr(w, err.Error(), http.StatusBadGateway)
 		return
 	}
