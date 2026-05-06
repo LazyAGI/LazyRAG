@@ -41,12 +41,12 @@ def _runtime_models_yaml(tmp_path: Path, content: str):
     config_path.write_text(textwrap.dedent(content), encoding='utf-8')
     get_dynamic_role_slot_map.cache_clear()
     import chat.utils.load_config as lc
-    old = lc._EXTERNAL_CONFIG_PATH
-    lc._EXTERNAL_CONFIG_PATH = config_path
+    old = lc._DYNAMIC_CONFIG_PATH
+    lc._DYNAMIC_CONFIG_PATH = config_path
     try:
         yield config_path
     finally:
-        lc._EXTERNAL_CONFIG_PATH = old
+        lc._DYNAMIC_CONFIG_PATH = old
         get_dynamic_role_slot_map.cache_clear()
 
 

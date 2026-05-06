@@ -98,10 +98,12 @@ def test_load_model_config_preserves_agentic_section(tmp_path):
     assert config['agentic']['timeout'] == 10
 
 
-def test_get_config_path_returns_inner_by_default(monkeypatch):
+def test_get_config_path_returns_dynamic_by_default(monkeypatch):
     monkeypatch.delenv('LAZYRAG_MODEL_CONFIG_PATH', raising=False)
     path = get_config_path()
-    assert 'inner' in path
+    assert path.endswith('runtime_models.yaml')
+    assert 'inner' not in path
+    assert 'online' not in path
 
 
 def test_get_config_path_alias_online(monkeypatch):

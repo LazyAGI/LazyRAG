@@ -12,13 +12,6 @@ _ONLINE_CONFIG_PATH = _CHAT_DIR / 'runtime_models.online.yaml'
 _DYNAMIC_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
 _ENV_PATTERN = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
 
-# Shorthand aliases accepted by LAZYRAG_MODEL_CONFIG_PATH.
-_CONFIG_ALIASES: Dict[str, Path] = {
-    'inner': _INNER_CONFIG_PATH,
-    'online': _ONLINE_CONFIG_PATH,
-    'dynamic': _DYNAMIC_CONFIG_PATH,
-}
-
 # Maps runtime_models.yaml type values to _dynamic_module_slot names used by
 # _DynamicSourceRouterMixin subclasses (OnlineChatModule / OnlineEmbeddingModule).
 _TYPE_TO_SLOT: Dict[str, str] = {
@@ -57,11 +50,18 @@ def get_config_path() -> str:
         online   → runtime_models.online.yaml  (public cloud API deployment)
         dynamic  → runtime_models.yaml         (fully dynamic, key injected per request)
 
-    If the env var is not set, defaults to 'inner'.
+    If the env var is not set, defaults to 'dynamic'.
     '''
-    raw = os.environ.get('LAZYRAG_MODEL_CONFIG_PATH', 'inner')
-    if raw in _CONFIG_ALIASES:
-        return str(_CONFIG_ALIASES[raw])
+    # Aliases are resolved at call time (not at import time) so that tests can
+    # patch the module-level path variables and have the change take effect.
+    aliases = {
+        'inner': _INNER_CONFIG_PATH,
+        'online': _ONLINE_CONFIG_PATH,
+        'dynamic': _DYNAMIC_CONFIG_PATH,
+    }
+    raw = os.environ.get('LAZYRAG_MODEL_CONFIG_PATH', 'dynamic')
+    if raw in aliases:
+        return str(aliases[raw])
     return raw
 
 
@@ -94,8 +94,13 @@ def get_dynamic_role_slot_map(config_path: Optional[str] = None) -> Dict[str, st
             'reranker':   'embed',
             'embed_main': 'embed',
         }
+
+    When config_path is None, reads from _DYNAMIC_CONFIG_PATH (runtime_models.yaml).
+    This is intentionally independent of LAZYRAG_MODEL_CONFIG_PATH: the dynamic role
+    map describes which roles expect per-request key injection, and that is always
+    defined in the dynamic config file regardless of which config is active at runtime.
     '''
-    raw = load_model_config(config_path)
+    raw = load_model_config(config_path or str(_DYNAMIC_CONFIG_PATH))
     result: Dict[str, str] = {}
     for role, cfg in raw.items():
         if not isinstance(cfg, dict):

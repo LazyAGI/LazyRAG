@@ -246,7 +246,7 @@ class TestInjectModelConfig:
         config_path.write_text(yaml_content, encoding='utf-8')
         try:
             get_dynamic_role_slot_map.cache_clear()
-            monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+            monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
             with _globals_config_patch('dynamic_model_configs', None) as gcfg:
                 inject_model_config({
@@ -283,7 +283,7 @@ class TestInjectModelConfig:
               type: llm
         '''), encoding='utf-8')
         get_dynamic_role_slot_map.cache_clear()
-        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+        monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
         with _globals_config_patch('dynamic_model_configs', None) as gcfg:
             inject_model_config({
@@ -310,7 +310,7 @@ class TestInjectModelConfig:
               model: qwen-turbo
         '''), encoding='utf-8')
         get_dynamic_role_slot_map.cache_clear()
-        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+        monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
         inject_model_config(None)
         inject_model_config({})
@@ -329,7 +329,7 @@ class TestInjectModelConfig:
               type: llm
         '''), encoding='utf-8')
         get_dynamic_role_slot_map.cache_clear()
-        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+        monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
         with pytest.raises(ValueError, match='model_config is required'):
             inject_model_config(None)
@@ -353,7 +353,7 @@ class TestInjectModelConfig:
               type: embed
         '''), encoding='utf-8')
         get_dynamic_role_slot_map.cache_clear()
-        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+        monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
         with pytest.raises(ValueError, match='missing required dynamic roles'):
             inject_model_config({'llm': {'source': 'openai', 'model': 'gpt-4o', 'api_key': 'sk-x'}})
@@ -372,7 +372,7 @@ class TestInjectModelConfig:
               type: llm
         '''), encoding='utf-8')
         get_dynamic_role_slot_map.cache_clear()
-        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+        monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
         with pytest.raises(ValueError, match='no usable fields'):
             inject_model_config({'llm': {'source': None, 'model': None}})
@@ -392,7 +392,7 @@ class TestInjectModelConfig:
               type: llm
         '''), encoding='utf-8')
         get_dynamic_role_slot_map.cache_clear()
-        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+        monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
         with _globals_config_patch('dynamic_model_configs', None) as gcfg:
             inject_model_config({
@@ -418,7 +418,7 @@ class TestInjectModelConfig:
               type: llm
         '''), encoding='utf-8')
         get_dynamic_role_slot_map.cache_clear()
-        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+        monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
         with _globals_config_patch('dynamic_model_configs', None) as gcfg:
             inject_model_config({'llm': {'source': 'qwen', 'model': None, 'base_url': None}})
