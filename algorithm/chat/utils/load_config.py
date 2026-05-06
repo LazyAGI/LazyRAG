@@ -8,8 +8,16 @@ import yaml
 
 _CHAT_DIR = Path(__file__).resolve().parents[1]
 _INNER_CONFIG_PATH = _CHAT_DIR / 'runtime_models.inner.yaml'
-_EXTERNAL_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
+_ONLINE_CONFIG_PATH = _CHAT_DIR / 'runtime_models.online.yaml'
+_DYNAMIC_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
 _ENV_PATTERN = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
+
+# Shorthand aliases accepted by LAZYRAG_MODEL_CONFIG_PATH.
+_CONFIG_ALIASES: Dict[str, Path] = {
+    'inner': _INNER_CONFIG_PATH,
+    'online': _ONLINE_CONFIG_PATH,
+    'dynamic': _DYNAMIC_CONFIG_PATH,
+}
 
 # Maps runtime_models.yaml type values to _dynamic_module_slot names used by
 # _DynamicSourceRouterMixin subclasses (OnlineChatModule / OnlineEmbeddingModule).
@@ -39,6 +47,24 @@ def _expand_env_placeholders(value: Any) -> Any:
     return value
 
 
+def get_config_path() -> str:
+    '''Return the active runtime_models config file path as a string.
+
+    Controlled entirely by LAZYRAG_MODEL_CONFIG_PATH.  Three shorthand values
+    are accepted in addition to an explicit file path:
+
+        inner    → runtime_models.inner.yaml   (intranet / on-prem deployment)
+        online   → runtime_models.online.yaml  (public cloud API deployment)
+        dynamic  → runtime_models.yaml         (fully dynamic, key injected per request)
+
+    If the env var is not set, defaults to 'inner'.
+    '''
+    raw = os.environ.get('LAZYRAG_MODEL_CONFIG_PATH', 'inner')
+    if raw in _CONFIG_ALIASES:
+        return str(_CONFIG_ALIASES[raw])
+    return raw
+
+
 def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     '''Load and return the model config dict with environment variables expanded.
 
@@ -47,7 +73,7 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     '''
     if config_path is None:
         import lazyllm
-        config_path = lazyllm.config['auto_model_config_map_path'] or str(_EXTERNAL_CONFIG_PATH)
+        config_path = lazyllm.config['auto_model_config_map_path'] or get_config_path()
     path = Path(config_path)
     with path.open(encoding='utf-8') as f:
         raw = yaml.safe_load(f) or {}

@@ -437,7 +437,6 @@ services:
       LAZYRAG_ALGO_SERVER_PORT: ${LAZYRAG_ALGO_SERVER_PORT:-8000}
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
       LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
@@ -492,7 +491,6 @@ services:
       LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000,general_algo}
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
       LAZYRAG_MAX_CONCURRENCY: ${LAZYRAG_MAX_CONCURRENCY:-10}
       LAZYRAG_LLM_PRIORITY: ${LAZYRAG_LLM_PRIORITY:-0}
       LAZYRAG_DEFAULT_CHAT_DATASET: ${LAZYRAG_DEFAULT_CHAT_DATASET:-algo}
@@ -565,7 +563,6 @@ services:
       EVO_CHUNK_BASE_URL: http://172.17.0.1:8055
       EVO_TARGET_CHAT_URL: ${EVO_TARGET_CHAT_URL:-http://chat:8046/api/chat}
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
       MAAS_BASE_URL: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
       MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-minimax-m27}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
