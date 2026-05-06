@@ -23,6 +23,10 @@ _TYPE_TO_SLOT: Dict[str, str] = {
     'cross_modal_embed': 'embed',
 }
 
+# Prefix convention for embed-type roles in the flat yaml format.
+# Any top-level key starting with this prefix is treated as an embed role.
+_EMBED_KEY_PREFIX = 'embed_'
+
 
 def _expand_env_placeholders(value: Any) -> Any:
     if isinstance(value, str):
@@ -261,3 +265,60 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
             lazyllm.globals['config'][config_key] = existing
 
     lazyllm.globals['config']['dynamic_model_configs'] = cfg
+
+
+@lru_cache(maxsize=1)
+def get_embed_keys(config_path: Optional[str] = None) -> list:
+    '''Return the list of embed-type role names defined in the active config.
+
+    A role is considered an embed role when its key starts with the prefix
+    ``embed_`` (e.g. ``embed_main``, ``embed_sparse``).  The order matches the
+    yaml definition order, so the first key is always the primary (dense) embed.
+
+    Returns an empty list when no embed roles are found (caller should handle
+    this as a configuration error).
+    '''
+    raw = load_model_config(config_path)
+    return [role for role in raw if role.startswith(_EMBED_KEY_PREFIX)]
+
+
+_DEFAULT_DENSE_INDEX_KWARGS = {
+    'index_type': 'IVF_FLAT',
+    'metric_type': 'COSINE',
+    'params': {'nlist': 128},
+}
+
+_DEFAULT_SPARSE_INDEX_KWARGS = {
+    'index_type': 'SPARSE_INVERTED_INDEX',
+    'metric_type': 'IP',
+}
+
+
+@lru_cache(maxsize=1)
+def get_embed_index_kwargs(config_path: Optional[str] = None) -> list:
+    '''Return a list of index_kwargs dicts (one per embed role) for the vector store.
+
+    Each dict contains an `embed_key` field plus the Milvus index parameters.
+    The index params are read from the yaml entry's `index_kwargs` field when
+    present; otherwise a default is inferred from the model name:
+      - names containing "sparse" → SPARSE_INVERTED_INDEX / IP
+      - everything else           → IVF_FLAT / COSINE
+    '''
+    from copy import deepcopy
+    raw = load_model_config(config_path)
+    result = []
+    for role, entries in raw.items():
+        if not role.startswith(_EMBED_KEY_PREFIX):
+            continue
+        if not isinstance(entries, list) or not entries:
+            continue
+        entry = entries[0]
+        if 'index_kwargs' in entry:
+            ik = deepcopy(entry['index_kwargs'])
+        else:
+            model_name = (entry.get('name') or entry.get('model') or '').lower()
+            ik = deepcopy(_DEFAULT_SPARSE_INDEX_KWARGS if 'sparse' in model_name
+                          else _DEFAULT_DENSE_INDEX_KWARGS)
+        ik['embed_key'] = role
+        result.append(ik)
+    return result

@@ -24,3 +24,9 @@ embed_main:
     name: bgem3_emb_dense_custom
     url: http://10.119.27.151:2269/embed
     skip_auth: true
+
+embed_sparse:
+  - source: bgem3embed
+    name: bgem3_emb_sparse_custom
+    url: http://10.119.27.151:2269/sparse_embed
+    skip_auth: true

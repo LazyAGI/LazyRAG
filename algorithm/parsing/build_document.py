@@ -1,12 +1,12 @@
 from urllib.parse import urlparse
 
+from lazyllm import AutoModel
 from lazyllm.tools.rag import Document, MineruPDFReader, PDFReader
 from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
-from chat.pipelines.builders.get_models import get_automodel
-from chat.utils.load_config import get_retrieval_settings
+from chat.utils.load_config import get_embed_keys, get_embed_index_kwargs
 from config import config as _cfg
 from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
@@ -94,14 +94,16 @@ def _build_pdf_reader():
 def build_document() -> Document:
     processor_url = _cfg['document_processor_url']
     server_port = get_algo_server_port()
-    settings = get_retrieval_settings()
-    embed = {k: get_automodel(k) for k in settings.embed_keys}
+    embed_keys = get_embed_keys()
+    if not embed_keys:
+        raise ValueError('At least one embed role must be configured in the model config.')
+    embed = {k: AutoModel(model=k, config=True) for k in embed_keys}
 
     docs = Document(
         dataset_path=None,
         name=ALGO_ID,
         embed=embed,
-        store_conf=_build_store_config(settings.index_kwargs),
+        store_conf=_build_store_config(get_embed_index_kwargs()),
         manager=DocumentProcessor(url=processor_url),
         doc_fields=[],
         server=server_port,
@@ -112,6 +114,6 @@ def build_document() -> Document:
                            group_type=NodeGroupType.CHUNK, transform=GeneralParser(max_length=2048, split_by='\n'))
     docs.create_node_group(name='line', display_name='sentence slice',
                            group_type=NodeGroupType.CHUNK, transform=LineSplitter, parent='block')
-    docs.activate_group('block', embed_keys=settings.embed_keys)
-    docs.activate_group('line', embed_keys=settings.embed_keys)
+    docs.activate_group('block', embed_keys=embed_keys)
+    docs.activate_group('line', embed_keys=embed_keys)
     return docs

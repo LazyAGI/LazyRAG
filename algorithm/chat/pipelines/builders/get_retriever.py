@@ -4,22 +4,28 @@ from lazyllm import AutoModel, Retriever, bind, pipeline, Document
 from lazyllm.tools.rag import TempDocRetriever
 
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
+from chat.utils.load_config import get_embed_keys
 
-# Embed role name — must match the key in runtime_models yaml.
+# Primary dense embed role name — always the first embed key in the config.
 EMBED_MAIN = 'embed_main'
 
-# Default index parameters for the vector store.
-DEFAULT_INDEX_KWARGS = {
-    'index_type': 'IVF_FLAT',
-    'metric_type': 'COSINE',
-    'params': {'nlist': 128},
-}
 
-# Default retriever configs: line-level (targeting block) + block-level for embed_main.
-DEFAULT_RETRIEVER_CONFIGS = [
-    {'group_name': 'line', 'embed_keys': [EMBED_MAIN], 'topk': 20, 'target': 'block'},
-    {'group_name': 'block', 'embed_keys': [EMBED_MAIN], 'topk': 20},
-]
+def _build_default_retriever_configs(topk: int = 20) -> List[dict]:
+    '''Build retriever configs from the active embed keys in the yaml config.
+
+    Mirrors the original _build_default_retriever_configs logic: each embed key
+    gets its own line-level and block-level group entry.  If embed_sparse is not
+    present in the config it is simply omitted — sparse retrieval is optional.
+    '''
+    embed_keys = get_embed_keys()
+    if not embed_keys:
+        embed_keys = [EMBED_MAIN]
+    configs = []
+    for ek in embed_keys:
+        configs.append({'group_name': 'line', 'embed_keys': [ek], 'topk': topk, 'target': 'block'})
+    for ek in embed_keys:
+        configs.append({'group_name': 'block', 'embed_keys': [ek], 'topk': topk})
+    return configs
 
 
 class SearchRetrievalParts(NamedTuple):
@@ -40,7 +46,7 @@ def get_retriever(url: str, retriever_configs: List[dict] = None, *,
                   tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK
                   ) -> SearchRetrievalParts:
     if retriever_configs is None:
-        retriever_configs = DEFAULT_RETRIEVER_CONFIGS
+        retriever_configs = _build_default_retriever_configs()
     document = get_remote_docment(url)
     kb_retrievers = [Retriever(document, **cfg) for cfg in retriever_configs]
 

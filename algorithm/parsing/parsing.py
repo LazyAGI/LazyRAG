@@ -3,6 +3,7 @@ import requests
 import urllib.error
 import urllib.request
 
+import chat.components.tmp  # noqa: F401 — registers BgeM3Embed / Qwen3Rerank into lazyllm.online
 from config import config as _cfg
 from parsing.build_document import build_document, get_algo_server_port, ALGO_ID
 

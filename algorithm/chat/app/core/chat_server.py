@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI
 from lazyllm import LOG, once_wrapper
 
+import chat.components.tmp  # noqa: F401 — registers BgeM3Embed / Qwen3Rerank into lazyllm.online
 from chat.config import SENSITIVE_WORDS_PATH, DEFAULT_CHAT_DATASET, resolve_dataset_url
 from chat.pipelines.agentic import agentic_rag
 from chat.pipelines.naive import get_ppl_naive
