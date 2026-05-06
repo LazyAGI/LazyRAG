@@ -4,7 +4,7 @@ from lazyllm import AutoModel, pipeline, parallel, bind, ifs
 from lazyllm.tools.rag import Reranker
 from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
-from chat.pipelines.builders.get_retriever import get_retriever, get_remote_docment, DEFAULT_RETRIEVER_CONFIGS
+from chat.pipelines.builders.get_retriever import get_retriever, get_remote_docment
 from vocab.vocab_manager import get_vocab_manager
 
 
@@ -26,8 +26,6 @@ def _adaptive_get_token_len(n: Any) -> int:
 
 
 def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_max=10):
-    if retriever_configs is None:
-        retriever_configs = DEFAULT_RETRIEVER_CONFIGS
 
     retrieval = get_retriever(url, retriever_configs)
     retrievers = retrieval.kb_retrievers

@@ -4,7 +4,6 @@ from lazyllm import AutoModel, pipeline, bind, ifs
 
 from chat.pipelines.builders import get_ppl_search, get_ppl_generate
 from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewriter
-from chat.pipelines.builders.get_retriever import DEFAULT_RETRIEVER_CONFIGS
 
 
 def has_history(query_params=None, *_, **__) -> bool:
@@ -16,8 +15,6 @@ def keep_query_params(query_params=None, *_, **__):
 
 
 def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
-    if retriever_configs is None:
-        retriever_configs = DEFAULT_RETRIEVER_CONFIGS
 
     with lazyllm.save_pipeline_result():
         with pipeline() as rag_ppl:

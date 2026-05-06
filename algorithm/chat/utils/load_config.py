@@ -1,5 +1,3 @@
-import os
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -10,7 +8,6 @@ _CHAT_DIR = Path(__file__).resolve().parents[1]
 _INNER_CONFIG_PATH = _CHAT_DIR / 'runtime_models.inner.yaml'
 _ONLINE_CONFIG_PATH = _CHAT_DIR / 'runtime_models.online.yaml'
 _DYNAMIC_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
-_ENV_PATTERN = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
 
 # Maps runtime_models.yaml type values to _dynamic_module_slot names used by
 # _DynamicSourceRouterMixin subclasses (OnlineChatModule / OnlineEmbeddingModule).
@@ -26,22 +23,6 @@ _TYPE_TO_SLOT: Dict[str, str] = {
 # Prefix convention for embed-type roles in the flat yaml format.
 # Any top-level key starting with this prefix is treated as an embed role.
 _EMBED_KEY_PREFIX = 'embed_'
-
-
-def _expand_env_placeholders(value: Any) -> Any:
-    if isinstance(value, str):
-        def _replace(m: re.Match) -> str:
-            env_val = os.environ.get(m.group(1))
-            if env_val is not None:
-                return env_val
-            default = m.group(2)
-            return default if default is not None else m.group(0)
-        return _ENV_PATTERN.sub(_replace, value)
-    if isinstance(value, dict):
-        return {k: _expand_env_placeholders(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_expand_env_placeholders(item) for item in value]
-    return value
 
 
 def get_config_path() -> str:
@@ -71,7 +52,7 @@ def get_config_path() -> str:
 
 
 def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
-    '''Load and return the model config dict with environment variables expanded.
+    '''Load and return the raw model config dict (yaml parsed, no env expansion).
 
     When config_path is None, falls back to the path set by
     LAZYLLM_AUTO_MODEL_CONFIG_MAP_PATH (same env var AutoModel uses with config=True).
@@ -81,8 +62,7 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
         config_path = lazyllm.config['auto_model_config_map_path'] or get_config_path()
     path = Path(config_path)
     with path.open(encoding='utf-8') as f:
-        raw = yaml.safe_load(f) or {}
-    return _expand_env_placeholders(raw)
+        return yaml.safe_load(f) or {}
 
 
 @lru_cache(maxsize=1)
@@ -125,14 +105,9 @@ def coerce_bool(value: Any) -> Optional[bool]:
     a string (e.g. "true", "false", "1", "0") we handle that too.
     Returns None when value is None so callers can distinguish "not provided".
     '''
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return bool(value)
-    if isinstance(value, str):
-        return value.strip().lower() not in ('false', '0', 'no', '')
+    if value is None: return None
+    if isinstance(value, int): return bool(value)  # bool is subclass of int
+    if isinstance(value, str): return value.strip().lower() not in ('false', '0', 'no', '')
     return bool(value)
 
 
@@ -144,12 +119,8 @@ def _make_bucket(cfg: Dict[str, Any]) -> Dict[str, Any]:
     that _default_api_key() can retrieve it dynamically via the stack lookup
     mechanism in _GlobalConfig.__getitem__.  See inject_model_config for details.
     '''
-    return {k: v for k, v in {
-        'source': cfg.get('source'),
-        'model': cfg.get('model'),
-        'url': cfg.get('base_url'),
-        'skip_auth': coerce_bool(cfg.get('skip_auth')),
-    }.items() if v is not None}
+    return {k: v for k, v in {'source': cfg.get('source'), 'model': cfg.get('model'), 'url': cfg.get('base_url'),
+                              'skip_auth': coerce_bool(cfg.get('skip_auth'))}.items() if v is not None}
 
 
 def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:

@@ -17,15 +17,9 @@ def _build_default_retriever_configs(topk: int = 20) -> List[dict]:
     gets its own line-level and block-level group entry.  If embed_sparse is not
     present in the config it is simply omitted — sparse retrieval is optional.
     '''
-    embed_keys = get_embed_keys()
-    if not embed_keys:
-        embed_keys = [EMBED_MAIN]
-    configs = []
-    for ek in embed_keys:
-        configs.append({'group_name': 'line', 'embed_keys': [ek], 'topk': topk, 'target': 'block'})
-    for ek in embed_keys:
-        configs.append({'group_name': 'block', 'embed_keys': [ek], 'topk': topk})
-    return configs
+    embed_keys = get_embed_keys() or [EMBED_MAIN]
+    return [{'group_name': 'line', 'embed_keys': embed_keys, 'topk': topk, 'target': 'block'},
+            {'group_name': 'block', 'embed_keys': embed_keys, 'topk': topk}]
 
 
 class SearchRetrievalParts(NamedTuple):
@@ -45,8 +39,7 @@ def get_remote_docment(url: str) -> Document:
 def get_retriever(url: str, retriever_configs: List[dict] = None, *,
                   tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK
                   ) -> SearchRetrievalParts:
-    if retriever_configs is None:
-        retriever_configs = _build_default_retriever_configs()
+    retriever_configs = retriever_configs or _build_default_retriever_configs()
     document = get_remote_docment(url)
     kb_retrievers = [Retriever(document, **cfg) for cfg in retriever_configs]
 
