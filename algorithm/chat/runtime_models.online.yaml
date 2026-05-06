@@ -1,0 +1,35 @@
+# Runtime model config for online/cloud deployment using Qwen (Alibaba DashScope).
+# All model roles are statically configured; API key is read from the environment.
+# yaml key = AutoModel(model=...) lookup name; name field = actual model name sent to the API.
+
+llm:
+  - source: qwen
+    name: qwen-plus
+    api_key: ${LAZYLLM_QWEN_API_KEY}
+
+llm_instruct:
+  - source: qwen
+    name: qwen-plus
+    api_key: ${LAZYLLM_QWEN_API_KEY}
+
+reranker:
+  - source: qwen
+    name: gte-rerank-v2
+    api_key: ${LAZYLLM_QWEN_API_KEY}
+
+embed_main:
+  - source: qwen
+    name: text-embedding-v3
+    api_key: ${LAZYLLM_QWEN_API_KEY}
+
+agentic:
+  kb_url: ${LAZYRAG_AGENTIC_KB_URL:-http://lazyllm-algo:8000}
+  core_api_url: ${LAZYRAG_CORE_API_URL:-http://core:8000}
+  kb_name: ${LAZYRAG_AGENTIC_KB_NAME:-lazyrag}
+  web_search_enabled: ${LAZYRAG_WEB_SEARCH_ENABLED:-false}
+  web_search_engine: ${LAZYRAG_WEB_SEARCH_ENGINE:-bing}
+  web_search_bing_api_key: ${LAZYRAG_WEB_SEARCH_BING_API_KEY:-}
+  web_search_bing_endpoint: ${LAZYRAG_WEB_SEARCH_BING_ENDPOINT:-}
+  web_search_bocha_api_key: ${LAZYRAG_WEB_SEARCH_BOCHA_API_KEY:-}
+  web_search_bocha_base_url: ${LAZYRAG_WEB_SEARCH_BOCHA_BASE_URL:-https://api.bochaai.com}
+  arxiv_search_timeout: ${LAZYRAG_ARXIV_SEARCH_TIMEOUT:-15}

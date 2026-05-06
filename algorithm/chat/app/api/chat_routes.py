@@ -35,7 +35,15 @@ async def chat(
     trace: Annotated[Optional[bool], Body(description='Enable trace recording (for admin debugging only)')] = False,
     model_config: Annotated[
         Optional[Dict[str, Any]],
-        Body(description='Per-request model override: source, name, base_url, api_key, skip_auth'),
+        Body(
+            description=(
+                'Per-request model configuration. Keys are role names from runtime_models.yaml '
+                '(llm, llm_instruct, reranker, embed_main), each with its own config dict '
+                '{source, model, base_url, api_key, skip_auth}. '
+                'Example: {"llm": {"source": "openai", "model": "gpt-4o", "api_key": "sk-..."}, '
+                '"embed_main": {"source": "siliconflow", "model": "BAAI/bge-m3", "api_key": "..."}}'
+            )
+        ),
     ] = None,
     *,
     request: Request,

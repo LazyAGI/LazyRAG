@@ -16,6 +16,7 @@ from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          URL_MAP, resolve_dataset_url)
 from chat.utils.helpers import validate_and_resolve_files
 from chat.app.core.chat_server import chat_server
+from chat.utils.load_config import inject_model_config
 
 
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -143,25 +144,36 @@ def log_chat_request(query: str, session_id: str, filters: Optional[Dict[str, An
     )
 
 
-def _inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
-    if not model_config:
-        return
-    from lazyllm.module.llms.onlinemodule.dynamic_router import ConfigsDict
-    bucket = {k: v for k, v in {
-        'source': model_config.get('source'),
-        'model': model_config.get('name'),
-        'url': model_config.get('base_url'),
-        'skip_auth': model_config.get('skip_auth'),
-    }.items() if v is not None}
-    if not bucket:
-        return
-    cfg = lazyllm.globals['config'].get('dynamic_model_configs') or ConfigsDict()
-    if not isinstance(cfg, ConfigsDict):
-        cfg = ConfigsDict(cfg)
-    # _DynamicSourceRouterMixin._get_dynamic_bucket reads raw.get(slot),
-    # where slot is 'chat' for OnlineChatModule. Write directly at that key.
-    cfg['chat'] = bucket
-    lazyllm.globals['config']['dynamic_model_configs'] = cfg
+def _attach_trace_info(data: Any, trace_id: Optional[str], local_trace: Optional[dict]) -> Any:
+    if trace_id is None:
+        return data
+    out = {**data, 'trace_id': trace_id} if isinstance(data, dict) else {'data': data, 'trace_id': trace_id}
+    if local_trace is not None:
+        out['trace'] = local_trace
+    return out
+
+
+def _build_ppl_call(reasoning: bool, dataset: str, query_params: Dict[str, Any], query: str,
+                    filters: Optional[Dict[str, Any]], priority: Any, stream: bool) -> tuple:
+    if reasoning:
+        dataset_url = resolve_dataset_url(dataset)
+        if dataset_url is None:
+            raise KeyError(f'dataset `{dataset}` not found in URL_MAP')
+        return (
+            chat_server.query_ppl_reasoning,
+            {'query': query},
+            {
+                'kb_search': {
+                    'filters': filters,
+                    'files': [],
+                    'stream': stream,
+                    'priority': priority,
+                    'document_url': dataset_url,
+                }
+            },
+            stream,
+        )
+    return (chat_server.get_query_pipeline(dataset, stream=stream), query_params)
 
 
 async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
@@ -185,48 +197,37 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
     log_tag = 'KB_CHAT_STREAM' if is_stream else 'KB_CHAT'
     LOG.info(f'[ChatServer] [{log_tag}] [query={query}] [sid={session_id}]')
 
+    other_files, image_files = validate_and_resolve_files(files)
+    query_params = build_query_params(
+        query, history, filters, other_files, databases,
+        debug or False, image_files, priority, dataset, session_id,
+        available_tools, available_skills, memory, user_preference,
+        use_memory, create_user_id,
+    )
+
+    def _init_session():
+        lazyllm.globals._init_sid(sid=session_id)
+        lazyllm.locals._init_sid(sid=session_id)
+        inject_model_config(model_config)
+
     if not is_stream:
         if sensitive_check_result:
             return sensitive_check_result
 
-        other_files, image_files = validate_and_resolve_files(files)
-        query_params = build_query_params(
-            query,
-            history,
-            filters,
-            other_files,
-            databases,
-            debug or False,
-            image_files,
-            priority,
-            dataset,
-            session_id,
-            available_tools,
-            available_skills,
-            memory,
-            user_preference,
-            use_memory,
-            create_user_id,
-        )
-
         try:
             async with rag_sem:
-                lazyllm.globals._init_sid(sid=session_id)
-                lazyllm.locals._init_sid(sid=session_id)
-                _inject_model_config(model_config)
-                result, trace_id, local_trace = await _run_sync_ppl(
-                    bool(reasoning), dataset, query_params, query, filters, priority,
-                    session_id=session_id, trace_enabled=trace,
+                _init_session()
+                ppl_call = _build_ppl_call(
+                    bool(reasoning), dataset, query_params, query, filters, priority, stream=False
+                )
+                result, trace_id, local_trace = await asyncio.to_thread(
+                    _run_ppl_with_trace, ppl_call[0], ppl_call[1:],
+                    session_id=session_id, dataset=dataset,
+                    mode_tag='sync_reasoning' if reasoning else 'sync',
+                    trace_enabled=trace,
                 )
                 cost = round(time.time() - start_time, 3)
-                if trace_id is None:
-                    data = result
-                elif isinstance(result, dict):
-                    data = {**result, 'trace_id': trace_id}
-                else:
-                    data = {'data': result, 'trace_id': trace_id}
-                if local_trace is not None and isinstance(data, dict):
-                    data['trace'] = local_trace
+                data = _attach_trace_info(result, trace_id, local_trace)
                 return _resp(200, 'success', data, cost)
         except Exception as exc:
             LOG.exception(exc)
@@ -247,41 +248,16 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             return StreamingResponse(error_stream(), media_type='text/event-stream')
 
         first_frame_logged = False
-        other_files, image_files = validate_and_resolve_files(files)
         collected_chunks: List[str] = []
-
-        query_params = build_query_params(
-            query,
-            history,
-            filters,
-            other_files,
-            databases,
-            False,
-            image_files,
-            priority,
-            dataset,
-            session_id,
-            available_tools,
-            available_skills,
-            memory,
-            user_preference,
-            use_memory,
-            create_user_id,
-        )
-
-        stream_call = (
-            (chat_server.query_ppl_reasoning, query_params, None, True)
-            if reasoning
-            else (chat_server.get_query_pipeline(dataset, stream=True), query_params)
+        ppl_call = _build_ppl_call(
+            bool(reasoning), dataset, query_params, query, filters, priority, stream=True
         )
 
         async def event_stream(ppl, *args) -> Any:
             nonlocal first_frame_logged
             try:
                 async with rag_sem:
-                    lazyllm.globals._init_sid(sid=session_id)
-                    lazyllm.locals._init_sid(sid=session_id)
-                    _inject_model_config(model_config)
+                    _init_session()
                     async_result, trace_id, local_trace = await asyncio.to_thread(
                         _run_ppl_with_trace, ppl, args,
                         session_id=session_id, dataset=dataset,
@@ -289,10 +265,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                         trace_enabled=trace,
                     )
                     if trace_id is not None:
-                        payload = {'trace_id': trace_id}
-                        if local_trace is not None:
-                            payload['trace'] = local_trace
-                        yield _sse_line(_resp(200, 'success', payload, 0.0))
+                        yield _sse_line(_resp(200, 'success',
+                                              _attach_trace_info({}, trace_id, local_trace), 0.0))
                     async for chunk in async_result:
                         now = time.time()
                         if not first_frame_logged:
@@ -330,39 +304,5 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                              cost, '\n'.join(collected_chunks), 'KB_CHAT_STREAM_FINISH')
 
         return StreamingResponse(
-            event_stream(*stream_call), media_type='text/event-stream'
+            event_stream(*ppl_call), media_type='text/event-stream'
         )
-
-
-async def _run_sync_ppl(reasoning: bool, dataset: str, query_params: Dict[str, Any],
-                        query: str, filters: Optional[Dict[str, Any]], priority: Any,
-                        *, session_id: str, trace_enabled: bool) -> tuple[Any, Optional[str], Optional[dict]]:
-    if reasoning:
-        dataset_url = resolve_dataset_url(dataset)
-        if dataset_url is None:
-            raise KeyError(f'dataset `{dataset}` not found in URL_MAP')
-        ppl = chat_server.query_ppl_reasoning
-        ppl_args = (
-            {'query': query},
-            {
-                'kb_search': {
-                    'filters': filters,
-                    'files': [],
-                    'stream': False,
-                    'priority': priority,
-                    'document_url': dataset_url,
-                }
-            },
-            False,
-        )
-        mode_tag = 'sync_reasoning'
-    else:
-        ppl = chat_server.get_query_pipeline(dataset)
-        ppl_args = (query_params,)
-        mode_tag = 'sync'
-
-    return await asyncio.to_thread(
-        _run_ppl_with_trace, ppl, ppl_args,
-        session_id=session_id, dataset=dataset, mode_tag=mode_tag,
-        trace_enabled=trace_enabled,
-    )

@@ -159,108 +159,330 @@ class TestLLMBaseAstreamCall:
 
 
 # ---------------------------------------------------------------------------
-# Task 4: _inject_model_config
+# Task 4: _inject_model_config and helpers
 # ---------------------------------------------------------------------------
 
-def _load_chat_service(monkeypatch):
-    '''Load chat_service with a minimal lazyllm stub.'''
-    fake_globals_store: Dict[str, Any] = {}
+class TestCoerceBool:
+    '''Unit tests for coerce_bool — the skip_auth string-to-bool normalizer.'''
 
-    class FakeGlobalsConfig:
-        def get(self, key, default=None):
-            return fake_globals_store.get(key, default)
+    def test_none_returns_none(self):
+        from chat.utils.load_config import coerce_bool
+        assert coerce_bool(None) is None
 
-        def __getitem__(self, key):
-            return fake_globals_store.get(key)
+    def test_true_bool(self):
+        from chat.utils.load_config import coerce_bool
+        assert coerce_bool(True) is True
 
-        def __setitem__(self, key, value):
-            fake_globals_store[key] = value
+    def test_false_bool(self):
+        from chat.utils.load_config import coerce_bool
+        assert coerce_bool(False) is False
 
-    fake_lazyllm = ModuleType('lazyllm')
-    fake_lazyllm.globals = SimpleNamespace(
-        _init_sid=lambda sid=None: None,
-        config=FakeGlobalsConfig(),
-    )
-    fake_lazyllm.locals = SimpleNamespace(_init_sid=lambda sid=None: None)
-    fake_lazyllm.LOG = SimpleNamespace(
-        info=lambda *a, **k: None,
-        warning=lambda *a, **k: None,
-        exception=lambda *a, **k: None,
-    )
+    def test_string_true_variants(self):
+        from chat.utils.load_config import coerce_bool
+        for v in ('true', 'True', 'TRUE', '1', 'yes', 'YES'):
+            assert coerce_bool(v) is True, f'Expected True for {v!r}'
 
-    monkeypatch.setitem(sys.modules, 'lazyllm', fake_lazyllm)
-    sys.modules.pop('chat.app.core.chat_service', None)
+    def test_string_false_variants(self):
+        from chat.utils.load_config import coerce_bool
+        for v in ('false', 'False', 'FALSE', '0', 'no', 'NO', ''):
+            assert coerce_bool(v) is False, f'Expected False for {v!r}'
 
-    return importlib.import_module('chat.app.core.chat_service'), fake_globals_store
+    def test_int_zero_is_false(self):
+        from chat.utils.load_config import coerce_bool
+        assert coerce_bool(0) is False
+
+    def test_int_nonzero_is_true(self):
+        from chat.utils.load_config import coerce_bool
+        assert coerce_bool(1) is True
+
+
+def _globals_config_patch(key: str, value: Any):
+    '''Context manager: temporarily set lazyllm.globals["config"][key] = value.'''
+    import lazyllm
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        cfg = lazyllm.globals['config']
+        old = cfg.get(key)
+        cfg[key] = value
+        try:
+            yield cfg
+        finally:
+            cfg[key] = old
+
+    return _ctx()
+
 
 
 class TestInjectModelConfig:
-    def test_writes_chat_bucket_to_globals(self, monkeypatch):
-        '''_inject_model_config should write source/model/url/skip_auth to globals config.'''
+    def test_per_role_keyed_by_role_name(self, monkeypatch):
+        '''Each role should be stored under its own name in ConfigsDict, not under "default".'''
+        import textwrap
         from lazyllm.module.llms.onlinemodule.dynamic_router import ConfigsDict
-        from chat.app.core.chat_service import _inject_model_config
-        import lazyllm
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
 
-        # Patch globals to use a real ConfigsDict
-        store: Dict[str, Any] = {}
+        yaml_content = textwrap.dedent('''
+            llm:
+              source: dynamic
+              dynamic_auth: true
+              type: llm
+            llm_instruct:
+              source: dynamic
+              dynamic_auth: true
+              type: llm
+            reranker:
+              source: dynamic
+              dynamic_auth: true
+              type: rerank
+            embed_main:
+              source: dynamic
+              dynamic_auth: true
+              type: embed
+        ''')
+        config_path = Path(__file__).parent / '_tmp_runtime_models.yaml'
+        config_path.write_text(yaml_content, encoding='utf-8')
+        try:
+            get_dynamic_role_slot_map.cache_clear()
+            monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
 
-        class _Cfg:
-            def get(self, k, d=None): return store.get(k, d)
-            def __getitem__(self, k): return store.get(k)
-            def __setitem__(self, k, v): store[k] = v
+            with _globals_config_patch('dynamic_model_configs', None) as gcfg:
+                inject_model_config({
+                    'llm':          {'source': 'openai', 'model': 'gpt-4o',       'api_key': 'sk-chat'},
+                    'llm_instruct': {'source': 'openai', 'model': 'gpt-4o-mini',  'api_key': 'sk-chat'},
+                    'embed_main':   {'source': 'sf',     'model': 'bge-m3',       'api_key': 'sk-embed'},
+                    'reranker':     {'source': 'sf',     'model': 'bge-reranker', 'api_key': 'sk-embed'},
+                })
+                cfg = gcfg.get('dynamic_model_configs')
 
-        with patch.object(lazyllm.globals, 'config', _Cfg()):
-            _inject_model_config({
-                'source': 'openai',
-                'name': 'gpt-4o',
-                'base_url': 'https://api.openai.com/v1',
-                'skip_auth': False,
+            assert isinstance(cfg, ConfigsDict)
+            assert cfg['llm']['chat']['model'] == 'gpt-4o'
+            assert cfg['llm_instruct']['chat']['model'] == 'gpt-4o-mini'
+            assert cfg['embed_main']['embed']['model'] == 'bge-m3'
+            assert cfg['reranker']['embed']['model'] == 'bge-reranker'
+            assert 'default' not in cfg
+        finally:
+            config_path.unlink(missing_ok=True)
+            get_dynamic_role_slot_map.cache_clear()
+
+    def test_same_slot_different_roles_independent(self, monkeypatch, tmp_path):
+        '''Two roles sharing the same slot (e.g. llm and llm_instruct) can have independent configs.'''
+        import textwrap
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
+
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: dynamic
+              type: llm
+            llm_instruct:
+              source: dynamic
+              type: llm
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+
+        with _globals_config_patch('dynamic_model_configs', None) as gcfg:
+            inject_model_config({
+                'llm':          {'source': 'openai', 'model': 'gpt-4o',      'api_key': 'sk-x'},
+                'llm_instruct': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-x'},
             })
+            cfg = gcfg.get('dynamic_model_configs')
 
-        cfg = store.get('dynamic_model_configs')
-        assert cfg is not None
-        assert cfg['chat']['source'] == 'openai'
-        assert cfg['chat']['model'] == 'gpt-4o'
-        assert cfg['chat']['url'] == 'https://api.openai.com/v1'
+        assert cfg['llm']['chat']['model'] == 'gpt-4o'
+        assert cfg['llm_instruct']['chat']['model'] == 'gpt-4o-mini'
+        get_dynamic_role_slot_map.cache_clear()
 
-    def test_noop_on_none(self):
-        '''_inject_model_config(None) should not touch globals.'''
-        from chat.app.core.chat_service import _inject_model_config
-        import lazyllm
+    def test_noop_when_no_dynamic_roles(self, monkeypatch, tmp_path):
+        '''When no dynamic roles are configured, model_config=None is fine.'''
+        import textwrap
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
 
-        original = lazyllm.globals.config.get('dynamic_model_configs')
-        _inject_model_config(None)
-        assert lazyllm.globals.config.get('dynamic_model_configs') == original
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: siliconflow
+              type: llm
+              model: qwen-turbo
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
 
-    def test_noop_on_empty_dict(self):
-        '''_inject_model_config({}) should not write anything.'''
-        from chat.app.core.chat_service import _inject_model_config
-        import lazyllm
+        inject_model_config(None)
+        inject_model_config({})
+        get_dynamic_role_slot_map.cache_clear()
 
-        original = lazyllm.globals.config.get('dynamic_model_configs')
-        _inject_model_config({})
-        assert lazyllm.globals.config.get('dynamic_model_configs') == original
+    def test_raises_when_model_config_none_but_dynamic_roles_exist(self, monkeypatch, tmp_path):
+        '''Raises ValueError when model_config is None but dynamic roles are configured.'''
+        import textwrap
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
 
-    def test_skips_none_fields(self):
-        '''Only non-None fields should appear in the bucket.'''
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: dynamic
+              type: llm
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+
+        with pytest.raises(ValueError, match='model_config is required'):
+            inject_model_config(None)
+        with pytest.raises(ValueError, match='model_config is required'):
+            inject_model_config({})
+        get_dynamic_role_slot_map.cache_clear()
+
+    def test_raises_on_missing_roles(self, monkeypatch, tmp_path):
+        '''Raises ValueError when model_config omits one or more dynamic roles.'''
+        import textwrap
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
+
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: dynamic
+              type: llm
+            embed_main:
+              source: dynamic
+              type: embed
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+
+        with pytest.raises(ValueError, match='missing required dynamic roles'):
+            inject_model_config({'llm': {'source': 'openai', 'model': 'gpt-4o', 'api_key': 'sk-x'}})
+        get_dynamic_role_slot_map.cache_clear()
+
+    def test_raises_on_empty_bucket(self, monkeypatch, tmp_path):
+        '''Raises ValueError when a role config has no usable fields.'''
+        import textwrap
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
+
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: dynamic
+              type: llm
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+
+        with pytest.raises(ValueError, match='no usable fields'):
+            inject_model_config({'llm': {'source': None, 'model': None}})
+        get_dynamic_role_slot_map.cache_clear()
+
+    def test_unknown_role_is_skipped(self, monkeypatch, tmp_path):
+        '''Unknown role keys should be skipped with a warning, not raise.'''
+        import textwrap
         from lazyllm.module.llms.onlinemodule.dynamic_router import ConfigsDict
-        from chat.app.core.chat_service import _inject_model_config
-        import lazyllm
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
 
-        store: Dict[str, Any] = {}
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: dynamic
+              type: llm
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
 
-        class _Cfg:
-            def get(self, k, d=None): return store.get(k, d)
-            def __getitem__(self, k): return store.get(k)
-            def __setitem__(self, k, v): store[k] = v
+        with _globals_config_patch('dynamic_model_configs', None) as gcfg:
+            inject_model_config({
+                'llm': {'source': 'openai', 'model': 'gpt-4o', 'api_key': 'sk-x'},
+                'nonexistent_role': {'source': 'openai', 'model': 'gpt-4o', 'api_key': 'sk-x'},
+            })
+            cfg = gcfg.get('dynamic_model_configs')
 
-        with patch.object(lazyllm.globals, 'config', _Cfg()):
-            _inject_model_config({'source': 'qwen', 'name': None, 'base_url': None})
+        assert cfg['llm']['chat']['model'] == 'gpt-4o'
+        assert 'nonexistent_role' not in cfg
+        get_dynamic_role_slot_map.cache_clear()
 
-        cfg = store.get('dynamic_model_configs')
-        assert 'source' in cfg['chat']
-        assert 'model' not in cfg['chat']
-        assert 'url' not in cfg['chat']
+    def test_skips_none_fields(self, monkeypatch, tmp_path):
+        '''Only non-None fields should appear in the bucket; None values are stripped.'''
+        import textwrap
+        from chat.utils.load_config import inject_model_config
+        from chat.utils.load_config import get_dynamic_role_slot_map
+
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: dynamic
+              type: llm
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+        monkeypatch.setattr('chat.utils.load_config._EXTERNAL_CONFIG_PATH', config_path)
+
+        with _globals_config_patch('dynamic_model_configs', None) as gcfg:
+            inject_model_config({'llm': {'source': 'qwen', 'model': None, 'base_url': None}})
+            cfg = gcfg.get('dynamic_model_configs')
+
+        assert 'source' in cfg['llm']['chat']
+        assert 'model' not in cfg['llm']['chat']
+        assert 'url' not in cfg['llm']['chat']
+        get_dynamic_role_slot_map.cache_clear()
+
+
+
+class TestGetDynamicRoleSlotMap:
+    def test_maps_dynamic_roles_to_slots(self, tmp_path):
+        import textwrap
+        from chat.utils.load_config import get_dynamic_role_slot_map
+
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: dynamic
+              type: llm
+            llm_instruct:
+              source: dynamic
+              type: llm
+            reranker:
+              source: dynamic
+              type: rerank
+            embed_main:
+              source: dynamic
+              type: embed
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+
+        result = get_dynamic_role_slot_map(str(config_path))
+
+        assert result == {
+            'llm': 'chat',
+            'llm_instruct': 'chat',
+            'reranker': 'embed',
+            'embed_main': 'embed',
+        }
+        get_dynamic_role_slot_map.cache_clear()
+
+    def test_ignores_non_dynamic_roles(self, tmp_path):
+        import textwrap
+        from chat.utils.load_config import get_dynamic_role_slot_map
+
+        config_path = tmp_path / 'runtime_models.yaml'
+        config_path.write_text(textwrap.dedent('''
+            llm:
+              source: siliconflow
+              type: llm
+              model: qwen-turbo
+            embed_main:
+              source: dynamic
+              type: embed
+        '''), encoding='utf-8')
+        get_dynamic_role_slot_map.cache_clear()
+
+        result = get_dynamic_role_slot_map(str(config_path))
+
+        assert 'llm' not in result
+        assert result['embed_main'] == 'embed'
+        get_dynamic_role_slot_map.cache_clear()
 
 
 # ---------------------------------------------------------------------------
