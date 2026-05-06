@@ -436,7 +436,8 @@ services:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
       LAZYRAG_ALGO_SERVER_PORT: ${LAZYRAG_ALGO_SERVER_PORT:-8000}
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
       LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
@@ -466,6 +467,15 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
+        PIP_RETRIES: ${PIP_RETRIES:-10}
+      secrets:
+        - apt_http_proxy
+        - apt_https_proxy
     expose:
       - "8046"
     volumes:
@@ -479,7 +489,7 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000}
+      LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000,general_algo}
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
@@ -492,13 +502,18 @@ services:
       LAZYRAG_MEMORY_REVIEW_INTERVAL: ${LAZYRAG_MEMORY_REVIEW_INTERVAL:-1}
       LAZYRAG_SKILL_REVIEW_INTERVAL: ${LAZYRAG_SKILL_REVIEW_INTERVAL:-5}
       LAZYRAG_SKILL_REVIEW_DEBUG: ${LAZYRAG_SKILL_REVIEW_DEBUG:-false}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-true}
+      TRACE_ENABLED: ${TRACE_ENABLED:-1}
+      TRACE_BACKEND: langfuse
+      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
       LAZYLLM_TRACE_BACKEND: langfuse
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-60}
+      OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: ${OTEL_EXPORTER_OTLP_TRACES_TIMEOUT:-60}
+      LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: ${LANGFUSE_FORCE_FLUSH_TIMEOUT_MS:-70000}
       http_proxy: ${http_proxy:-}
       https_proxy: ${https_proxy:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
@@ -512,6 +527,10 @@ services:
     depends_on:
       lazyllm-algo:
         condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - evo-chat
 
   evo-api:
     build:
@@ -538,7 +557,7 @@ services:
       OPENCODE_BIN: /usr/local/bin/opencode
       EVO_OPENCODE_PROVIDER: ${EVO_OPENCODE_PROVIDER:-maas}
       EVO_OPENCODE_MODEL: ${EVO_OPENCODE_MODEL:-minimax-m27}
-      EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-600}
+      EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-2400}
       EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
       EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
       EVO_EMBED_ROLE: ${EVO_EMBED_ROLE:-evo_embed}
@@ -553,7 +572,13 @@ services:
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      TRACE_ENABLED: ${TRACE_ENABLED:-1}
+      TRACE_BACKEND: langfuse
+      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
       LAZYLLM_TRACE_BACKEND: langfuse
+      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-60}
+      OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: ${OTEL_EXPORTER_OTLP_TRACES_TIMEOUT:-60}
+      LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: ${LANGFUSE_FORCE_FLUSH_TIMEOUT_MS:-70000}
       http_proxy: ${http_proxy:-}
       https_proxy: ${https_proxy:-}
       HTTP_PROXY: ${HTTP_PROXY:-}

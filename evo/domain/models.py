@@ -124,7 +124,14 @@ def parse_judge_record(data: dict[str, Any]) -> tuple[JudgeRecord, list[str]]:
 def _extract_query(tree: dict[str, Any]) -> str:
     raw_in = tree.get('raw_data', {}).get('input', {})
     args = raw_in.get('args', []) if isinstance(raw_in, dict) else []
-    return args[0] if args and isinstance(args[0], str) else ''
+    if not args:
+        return ''
+    first = args[0]
+    if isinstance(first, str):
+        return first
+    if isinstance(first, dict) and isinstance(first.get('query'), str):
+        return first['query']
+    return ''
 
 
 def _walk_execution_tree(tree: dict[str, Any]) -> tuple[list[str], dict[str, ModuleOutput], list[dict[str, Any]]]:
@@ -149,9 +156,19 @@ def _walk_execution_tree(tree: dict[str, Any]) -> tuple[list[str], dict[str, Mod
             for child in children:
                 _walk(child, under_parallel)
             return
+        if children:
+            skeleton.append({
+                'type': node.get('node_type') or 'container',
+                'name': name,
+                'children_count': len(children),
+            })
+            for child in children:
+                _walk(child, under_parallel)
+            return
         raw = node.get('raw_data', {}) or {}
         sem = node.get('semantic_data') or {}
-        scores = [float(s) for s in sem.get('scores', []) if isinstance(s, (int, float))]
+        raw_scores = sem.get('scores')
+        scores = [float(s) for s in raw_scores if isinstance(s, (int, float))] if isinstance(raw_scores, (list, tuple)) else []  # noqa: E501
         counter[name] = counter.get(name, 0) + 1
         key = name if counter[name] == 1 else f'{name}_{counter[name]}'
         modules[key] = ModuleOutput(input=raw.get('input'), output=raw.get('output'), scores=scores)

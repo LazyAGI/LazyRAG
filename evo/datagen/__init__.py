@@ -221,8 +221,10 @@ def run_eval(
     max_workers: int = 10,
     dataset_name: str = '',
     filters: dict[str, Any] | None = None,
+    require_trace: bool = True,
     persist_report: bool = True,
     on_progress=None,
+    on_judge_progress=None,
 ) -> dict[str, Any]:
     _log.info('start eval dataset_id=%s target=%s', dataset_id, target_chat_url)
     eval_data = get_eval_queue(
@@ -232,12 +234,15 @@ def run_eval(
         target_chat_url=target_chat_url,
         max_workers=max_workers,
         filters=filters or {},
+        require_trace=require_trace,
         on_progress=on_progress,
     )
     eval_queue = eval_data['eval_queue']
     if not eval_queue:
         raise EvalDatasetEmptyError(f'eval dataset {dataset_id} has no cases')
-    result = create_evaluate_task(eval_queue, llm_factory=llm_factory, max_workers=max_workers)
+    result = create_evaluate_task(
+        eval_queue, llm_factory=llm_factory, max_workers=max_workers, on_progress=on_judge_progress
+    )
     report = build_eval_report(result, eval_data)
     if persist_report:
         path = save_eval_report(dataset_id, report, cfg.storage.base_dir)

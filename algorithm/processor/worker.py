@@ -1,6 +1,7 @@
 import os
 import signal
 import threading
+import inspect
 
 from lazyllm.tools.rag.parsing_service import DocumentProcessorWorker
 from processor.db import require_shared_db_config
@@ -8,15 +9,19 @@ from processor.env import env_bool, env_float, env_int, env_list
 
 
 db_config = require_shared_db_config('DocumentProcessorWorker')
+worker_kwargs = {
+    'port': env_int('LAZYRAG_DOCUMENT_WORKER_PORT', 8001),
+    'db_config': db_config,
+    'num_workers': env_int('LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS', 1),
+    'lease_duration': env_float('LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION', 300.0),
+    'lease_renew_interval': env_float('LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL', 60.0),
+    'high_priority_task_types': env_list('LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES'),
+    'high_priority_only': env_bool('LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY', False),
+    'poll_mode': os.environ.get('LAZYRAG_DOCUMENT_WORKER_POLL_MODE', 'direct'),
+}
+supported_params = set(inspect.signature(DocumentProcessorWorker).parameters)
 doc_processor_worker = DocumentProcessorWorker(
-    port=env_int('LAZYRAG_DOCUMENT_WORKER_PORT', 8001),
-    db_config=db_config,
-    num_workers=env_int('LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS', 1),
-    lease_duration=env_float('LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION', 300.0),
-    lease_renew_interval=env_float('LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL', 60.0),
-    high_priority_task_types=env_list('LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES'),
-    high_priority_only=env_bool('LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY', False),
-    poll_mode=os.environ.get('LAZYRAG_DOCUMENT_WORKER_POLL_MODE', 'direct'),
+    **{key: value for key, value in worker_kwargs.items() if key in supported_params}
 )
 
 _shutdown_event = threading.Event()

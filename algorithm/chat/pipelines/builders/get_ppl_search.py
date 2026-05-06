@@ -8,6 +8,18 @@ from chat.pipelines.builders.get_retriever import get_retriever, get_remote_docm
 from vocab.vocab_manager import get_vocab_manager
 
 
+def parse_query(query_params: dict) -> str:
+    return get_vocab_manager(query_params.get('create_user_id', ''))(query_params['query'])
+
+
+def has_files(_, x: dict) -> bool:
+    return bool(x.get('files'))
+
+
+def merge_rank_results(*args):
+    return tuple(rank_list for rank_list in args if rank_list)
+
+
 def _adaptive_get_token_len(n: Any) -> int:
     txt = getattr(n, 'text', '') or ''
     return max(1, len(txt) // 4)
@@ -24,13 +36,13 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
 
     with lazyllm.save_pipeline_result():
         with pipeline() as search_ppl:
-            search_ppl.parse_input = lambda x: get_vocab_manager(x.get('create_user_id', ''))(x['query'])
+            search_ppl.parse_input = parse_query
             search_ppl.divert = ifs(
-                (lambda _, x: bool(x.get('files'))) | bind(x=search_ppl.input),
+                has_files | bind(x=search_ppl.input),
                 tpath=tmp_retriever | bind(files=search_ppl.input['files']),
                 fpath=parallel(*[(retriever | bind(filters=search_ppl.input['filters'])) for retriever in retrievers])
             )
-            search_ppl.merge_results = lambda *args: args
+            search_ppl.merge_results = merge_rank_results
             search_ppl.join = RRFFusion(top_k=50)
             search_ppl.reranker = Reranker(
                 'ModuleReranker',
