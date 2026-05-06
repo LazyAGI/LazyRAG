@@ -52,14 +52,19 @@ def _runtime_models_yaml(tmp_path: Path, content: str):
 
 @contextmanager
 def _clean_globals():
-    """Isolate dynamic_model_configs in lazyllm.globals for each test."""
+    """Isolate dynamic_model_configs and per-source api_key entries in lazyllm.globals for each test."""
     cfg = lazyllm.globals['config']
-    old = cfg.get('dynamic_model_configs')
+    old_dmc = cfg.get('dynamic_model_configs')
+    # Snapshot all {source}_api_key entries that may be written by inject_model_config.
+    api_key_keys = [k for k in cfg.keys() if k.endswith('_api_key')]
+    old_api_keys = {k: cfg.get(k) for k in api_key_keys}
     cfg['dynamic_model_configs'] = None
     try:
         yield cfg
     finally:
-        cfg['dynamic_model_configs'] = old
+        cfg['dynamic_model_configs'] = old_dmc
+        for k, v in old_api_keys.items():
+            cfg[k] = v
 
 
 def _make_fake_post(captured: list):
@@ -284,23 +289,34 @@ class TestForwardUsesCorrectKeyAndModel:
         assert any(msg.get('content') == 'hello' for msg in messages)
 
     def test_two_users_get_independent_keys(self, tmp_path):
-        """Two sequential requests with different api_keys must each use their own key."""
+        """Two sequential requests with different api_keys must each use their own key.
+
+        The module is constructed with dynamic_auth=True so that _api_key='dynamic'
+        and the supplier resolves the key dynamically on every forward() call via
+        _materialize_lazy_api_key() → globals.config['{source}_api_key'].
+        Each request calls _init_sid() to set a distinct session id, so that
+        inject_model_config writes into separate ConfigsDict slots and the two
+        requests are fully isolated.
+        """
         with _runtime_models_yaml(tmp_path, '''
             llm:
               source: dynamic
               type: llm
         '''):
-            m = OnlineChatModule(source='dynamic', name='llm', stream=False)
+            # dynamic_auth=True → self._api_key='dynamic' → supplier._dynamic_auth=True
+            m = OnlineChatModule(source='dynamic', name='llm', stream=False, dynamic_auth=True)
             captured_a, captured_b = [], []
 
             with _clean_globals():
-                # Request A
+                # Request A (session-A)
+                lazyllm.globals._init_sid(sid='session-A')
                 inject_model_config({'llm': {'source': 'openai', 'model': 'gpt-4o', 'api_key': 'sk-user-A'}})
                 with patch('requests.post', side_effect=_make_fake_post(captured_a)):
                     with lazyllm.globals.stack_enter(m.identities):
                         m.forward('hello from A')
 
-                # Request B — different key and model
+                # Request B (session-B) — different key and model
+                lazyllm.globals._init_sid(sid='session-B')
                 inject_model_config({'llm': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-user-B'}})
                 with patch('requests.post', side_effect=_make_fake_post(captured_b)):
                     with lazyllm.globals.stack_enter(m.identities):

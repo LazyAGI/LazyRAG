@@ -101,12 +101,17 @@ def coerce_bool(value: Any) -> Optional[bool]:
 
 
 def _make_bucket(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    '''Extract the fields that _DynamicSourceRouterMixin understands from a config dict.'''
+    '''Extract the fields that _DynamicSourceRouterMixin understands from a config dict.
+
+    Note: api_key is intentionally excluded here.  It is stored separately in
+    globals.config['{source}_api_key'] (a ConfigsDict keyed by role name) so
+    that _default_api_key() can retrieve it dynamically via the stack lookup
+    mechanism in _GlobalConfig.__getitem__.  See inject_model_config for details.
+    '''
     return {k: v for k, v in {
         'source': cfg.get('source'),
         'model': cfg.get('model'),
         'url': cfg.get('base_url'),
-        'api_key': cfg.get('api_key'),
         'skip_auth': coerce_bool(cfg.get('skip_auth')),
     }.items() if v is not None}
 
@@ -117,21 +122,45 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     model_config keys are role names defined in runtime_models.yaml (only roles
     with source=dynamic are relevant).  Each value is a config dict for that role:
         {
-            "llm":        {"source": "openai", "model": "gpt-4o", "api_key": "sk-..."},
-            "llm_instruct": {"source": "openai", "model": "gpt-4o-mini", "api_key": "sk-..."},
+            "llm":        {"source": "openai",      "model": "gpt-4o",      "api_key": "sk-..."},
+            "llm_instruct": {"source": "openai",    "model": "gpt-4o-mini", "api_key": "sk-..."},
             "embed_main": {"source": "siliconflow", "model": "BAAI/bge-m3", "api_key": "..."},
             "reranker":   {"source": "siliconflow", "model": "BAAI/bge-reranker-v2-m3", "api_key": "..."},
         }
 
-    ConfigsDict lookup chain (per _GlobalConfig.__getitem__):
-        cfg[module.identities]  ->  [config_id, name, group_id, 'default']
+    After this call, globals has the following structure:
 
-    process_online_args sets name=<role_name> on each OnlineModule, so the
-    lookup hits cfg[role_name] directly.  Each entry is {slot: bucket}, where
-    slot is 'chat' (OnlineChatModule) or 'embed' (OnlineEmbeddingModule).
+        globals['config']['dynamic_model_configs'] = ConfigsDict({
+            'llm':          {'chat':  {'source': 'openai',      'model': 'gpt-4o',      ...}},
+            'llm_instruct': {'chat':  {'source': 'openai',      'model': 'gpt-4o-mini', ...}},
+            'embed_main':   {'embed': {'source': 'siliconflow', 'model': 'bge-m3',       ...}},
+            'reranker':     {'embed': {'source': 'siliconflow', 'model': 'bge-reranker', ...}},
+        })
+        # api_key is NOT stored in dynamic_model_configs.  It lives in the
+        # per-source config key so that _GlobalConfig.__getitem__ can resolve it
+        # dynamically via the stack lookup (stack = [config_id, role_name, group_id]):
+        globals['config']['openai_api_key'] = ConfigsDict({
+            'llm':          'sk-...',
+            'llm_instruct': 'sk-...',
+        })
+        globals['config']['siliconflow_api_key'] = ConfigsDict({
+            'embed_main': 'sk-...',
+            'reranker':   'sk-...',
+        })
 
-    This means two roles sharing the same slot (e.g. llm and llm_instruct) can
-    carry independent configs as long as they have different role names.
+    Lookup chain at forward() time (OnlineChatModule with name='llm'):
+        stack_enter(m.identities)           # stack = [config_id, 'llm', group_id]
+        _build_supplier('openai', False)
+          → OpenAIChat(api_key='dynamic')   # _dynamic_auth = True
+        supplier.forward()
+          → _api_key → _materialize_lazy_api_key()
+              → _default_api_key()
+                  → globals.config['openai_api_key']
+                      → ConfigsDict lookup hits cfg['llm'] = 'sk-...'  ✓
+
+    Two roles with the same source but different keys (e.g. llm / llm_instruct)
+    are fully isolated because the ConfigsDict is keyed by role name, and each
+    module's stack contains its own role name.
 
     Raises ValueError if any dynamic role defined in runtime_models.yaml is
     missing from model_config — there is no fallback for dynamic sources.
@@ -158,6 +187,10 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
             f'All dynamic roles must be provided: {sorted(role_slot_map)}'
         )
 
+    # Build the new dynamic_model_configs ConfigsDict (source/model/url/skip_auth only).
+    # We read the existing value directly from the underlying globals['config'] dict
+    # (not via globals.config[...]) because the latter requires a non-empty stack and
+    # is intended for per-forward reads, not for the write path here.
     cfg = lazyllm.globals['config'].get('dynamic_model_configs') or ConfigsDict()
     if not isinstance(cfg, ConfigsDict):
         cfg = ConfigsDict(cfg)
@@ -174,14 +207,25 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
         if not bucket:
             raise ValueError(
                 f'model_config[{role!r}] has no usable fields '
-                f'(expected at least one of: source, model, base_url, api_key, skip_auth)'
+                f'(expected at least one of: source, model, base_url, skip_auth)'
             )
         slot = role_slot_map[role]
-        role_dict = cfg.setdefault(role, {})
-        role_dict[slot] = bucket
-        # Hoist api_key to the role dict top level so _default_api_key() can read it
-        # without knowing the slot type ('chat' vs 'embed').
-        if (key := bucket.get('api_key')):
-            role_dict['api_key'] = key
+        cfg.setdefault(role, {})[slot] = bucket
+
+        # Store api_key in globals.config['{source}_api_key'] as a ConfigsDict
+        # keyed by role name.  _default_api_key() reads this via the stack-based
+        # lookup in _GlobalConfig.__getitem__, so each role gets its own key even
+        # when multiple roles share the same source.
+        #
+        # We write to globals['config'] directly (bypassing _GlobalConfig.__setitem__)
+        # because {source}_api_key may not yet be in _supported_configs at call time
+        # (it is added lazily when the supplier class is first registered).
+        if (api_key := role_cfg.get('api_key')) and (source := role_cfg.get('source')):
+            config_key = f'{source}_api_key'
+            existing = lazyllm.globals['config'].get(config_key)
+            if not isinstance(existing, ConfigsDict):
+                existing = ConfigsDict({'default': existing} if existing else {})
+            existing[role] = api_key
+            lazyllm.globals['config'][config_key] = existing
 
     lazyllm.globals['config']['dynamic_model_configs'] = cfg
