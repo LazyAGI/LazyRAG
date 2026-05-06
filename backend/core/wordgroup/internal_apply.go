@@ -159,7 +159,7 @@ func prepareApplyActions(items []ApplyWordGroupActionItem) (preparedApplyActions
 
 		switch action {
 		case wordGroupActionCreateNewGroup:
-			groupID := GenerateID()
+			groupID := common.GenerateID()
 			ref := messageIDsJSON
 			now := time.Now().UTC()
 			base := orm.WordBase{
@@ -174,7 +174,7 @@ func prepareApplyActions(items []ApplyWordGroupActionItem) (preparedApplyActions
 					kind = orm.WordKindTerm
 				}
 				prepared.Creates = append(prepared.Creates, orm.Word{
-					ID:            GenerateID(),
+					ID:            common.GenerateID(),
 					Word:          word,
 					WordKind:      kind,
 					GroupID:       groupID,
@@ -223,7 +223,7 @@ func prepareApplyActions(items []ApplyWordGroupActionItem) (preparedApplyActions
 			now := time.Now().UTC()
 			var firstID string
 			for _, word := range words {
-				rowID := GenerateID()
+				rowID := common.GenerateID()
 				if firstID == "" {
 					firstID = rowID
 				}
@@ -324,7 +324,7 @@ func runAddToGroupBatch(db *gorm.DB, items []preparedAddRow, responses []ApplyWo
 					continue
 				}
 				row := orm.Word{
-					ID:            GenerateID(),
+					ID:            common.GenerateID(),
 					Word:          rec.Word,
 					WordKind:      orm.WordKindAlias,
 					GroupID:       k.GroupID,
