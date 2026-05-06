@@ -1487,7 +1487,7 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
-			Path:        "/model_providers:check",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}:check",
 			Summary:     "Check model provider connectivity",
 			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.",
 			Tags:        []string{"model_providers"},
