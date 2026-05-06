@@ -9,6 +9,17 @@ const headerCss = `
   flex-direction: column;
   gap: 16px;
 }
+.common-detail-page-header .ant-breadcrumb {
+  max-width: 100%;
+}
+.detail-breadcrumb-item {
+  display: inline-block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .detail-page-title {
   display: flex;
   align-items: center;
@@ -23,7 +34,8 @@ const headerCss = `
 }
 .detail-title-text,
 .detail-page-description-text,
-.detail-breadcrumb-text {
+.detail-breadcrumb-text,
+.title-extra-text {
   display: inline-block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -37,14 +49,29 @@ const headerCss = `
   max-width: min(60vw, 960px);
 }
 .title-extra, .detail-page-description { font-size: 14px; color: #666; }
+.title-extra {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.title-extra-text {
+  max-width: 320px;
+}
 .detail-page-description-text {
   max-width: 100%;
 }
 .settings-menu { display: flex; align-items: center; gap: 4px; }
 .extra-content { display: flex; flex-wrap: wrap; gap: 8px 24px; }
-.extra-content-item { display: flex; align-items: center; gap: 8px; }
+.extra-content-item { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .extra-content-label { font-size: 12px; color: #666; }
-.extra-content-value { font-size: 12px; }
+.extra-content-value { font-size: 12px; min-width: 0; max-width: 100%; }
+.extra-content-value-text {
+  display: inline-block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 `;
 
 interface ContentItem {
@@ -80,37 +107,34 @@ export default function DetailPageHeader({
 }: DetailPageHeaderProps) {
   useStyles("detail-page-header-styles", headerCss);
   const normalizedBreadcrumbs = breadcrumbs?.map((item) => {
-    if (!item || typeof item.title !== "string" || !item.title.trim()) {
+    if (typeof item?.title !== "string" && typeof item?.title !== "number") {
       return item;
     }
-    const text = item.title;
+    const fullText = String(item.title);
     return {
       ...item,
       title: (
-        <Tooltip title={text} placement="topLeft">
-          <span className="detail-breadcrumb-text">{text}</span>
+        <Tooltip title={fullText}>
+          <span className="detail-breadcrumb-item">{fullText}</span>
         </Tooltip>
       ),
     };
   });
 
-  const resolvedTitle =
-    typeof title === "string" ? (
-      <Tooltip title={title} placement="topLeft">
-        <span className="detail-title-text">{title}</span>
+  const renderTextWithTooltip = (
+    value?: React.ReactNode | string,
+    className?: string,
+  ) => {
+    if (typeof value !== "string" && typeof value !== "number") {
+      return value;
+    }
+    const fullText = String(value);
+    return (
+      <Tooltip title={fullText}>
+        <span className={className}>{fullText}</span>
       </Tooltip>
-    ) : (
-      title
     );
-
-  const resolvedDescription =
-    typeof description === "string" ? (
-      <Tooltip title={description} placement="topLeft">
-        <span className="detail-page-description-text">{description}</span>
-      </Tooltip>
-    ) : (
-      description
-    );
+  };
 
   return (
     <div className={`common-detail-page-header ${className}`}>
@@ -126,9 +150,15 @@ export default function DetailPageHeader({
             onClick={() => (onBack ? onBack() : window.history.back())}
           />
         )}
-        <span className="detail-title">{resolvedTitle}</span>
+        <span className="detail-title">
+          {renderTextWithTooltip(title, "detail-title-text")}
+        </span>
         {settingsMenu && <div className="settings-menu">{settingsMenu}</div>}
-        {titleExtra && <div className="title-extra">{titleExtra}</div>}
+        {titleExtra && (
+          <div className="title-extra">
+            {renderTextWithTooltip(titleExtra, "title-extra-text")}
+          </div>
+        )}
       </div>
       {extraContent && extraContent.length > 0 && (
         <div className="extra-content">
@@ -140,12 +170,18 @@ export default function DetailPageHeader({
                   {item.label}
                   {extraSplitter}
                 </span>
-                <span className="extra-content-value">{item.value}</span>
+                <span className="extra-content-value">
+                  {renderTextWithTooltip(item.value, "extra-content-value-text")}
+                </span>
               </div>
             ))}
         </div>
       )}
-      {description && <div className="detail-page-description">{resolvedDescription}</div>}
+      {description && (
+        <div className="detail-page-description">
+          {renderTextWithTooltip(description, "detail-page-description-text")}
+        </div>
+      )}
     </div>
   );
 }

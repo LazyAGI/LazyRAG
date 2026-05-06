@@ -17,6 +17,11 @@ export function getOpenApiApis(cwdPath = process.cwd()) {
       input: path.resolve(localSpecsDir, "core.yaml"),
       output: path.resolve(outputDirname, "core-client"),
     },
+    {
+      name: "scan",
+      input: path.resolve(localSpecsDir, "scan.yaml"),
+      output: path.resolve(outputDirname, "scan-client"),
+    },
   ];
 }
 
@@ -29,4 +34,3 @@ export function hashFile(filePath) {
   const content = fs.readFileSync(filePath);
   return createHash("sha256").update(content).digest("hex");
 }
-

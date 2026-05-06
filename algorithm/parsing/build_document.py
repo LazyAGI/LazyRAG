@@ -8,7 +8,7 @@ from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
 from chat.pipelines.builders.get_models import get_automodel
 from chat.utils.load_config import get_retrieval_settings
-from parsing.transform import NodeParser, GeneralParser, LineSplitter
+from parsing.transform import GeneralParser, LineSplitter
 
 ALGO_ID = 'general_algo'
 
@@ -74,6 +74,8 @@ def _build_store_config(index_kwargs):
 def _build_pdf_reader():
     ocr_type = os.getenv('LAZYRAG_OCR_SERVER_TYPE', 'none')
     ocr_url = os.getenv('LAZYRAG_OCR_SERVER_URL', 'http://localhost:8000').rstrip('/')
+    patch_applied = _parse_bool_env('LAZYRAG_OCR_PATCH_APPLIED') or False
+    service_variant = os.getenv('LAZYRAG_OCR_SERVICE_VARIANT', 'online')
     if ocr_type in ('none', None, ''):
         return PDFReader()
     if ocr_type == 'mineru':
@@ -84,11 +86,17 @@ def _build_pdf_reader():
             url=ocr_url,
             backend=os.getenv('LAZYRAG_MINERU_BACKEND', 'pipeline'),
             upload_mode=upload_mode,
-            post_func=NodeParser(),
-            timeout=3600
+            timeout=3600,
+            patch_applied=patch_applied,
+            service_variant=service_variant,
+            image_cache_dir='/app/uploads/.image_cache'
         )
     if ocr_type == 'paddleocr':
-        return PaddleOCRPDFReader(url=ocr_url)
+        return PaddleOCRPDFReader(
+            url=ocr_url,
+            service_variant=service_variant,
+            images_dir='/app/uploads/.image_cache'
+        )
     raise ValueError(f'Unsupported LAZYRAG_OCR_SERVER_TYPE: {ocr_type!r}')
 
 

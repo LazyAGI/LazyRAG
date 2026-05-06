@@ -13,7 +13,6 @@ interface RegisterFormValues {
   email?: string;
   password: string;
   confirmPassword: string;
-  captcha: string;
 }
 
 const Register = () => {
@@ -30,8 +29,7 @@ const Register = () => {
         password: values.password,
         confirm_password: values.confirmPassword,
         email: values.email || undefined,
-        captcha: values.captcha,
-      } as any);
+      });
       message.success(t("auth.registerSuccess"));
       navigate("/login", { state: { username: values.username } });
     } catch (error: any) {
@@ -46,10 +44,10 @@ const Register = () => {
   return (
     <div className="signin-container">
       <div style={{ paddingBottom: '4px' }}>
-        <h2 style={{ 
-          fontSize: '18px', 
-          fontWeight: 600, 
-          color: '#1d2129', 
+        <h2 style={{
+          fontSize: '18px',
+          fontWeight: 600,
+          color: '#1d2129',
           textAlign: 'center',
           marginBottom: '20px'
         }}>
@@ -87,8 +85,8 @@ const Register = () => {
           label={t("auth.setPassword")}
           rules={passwordRules}
         >
-          <Input.Password 
-            placeholder={t("auth.pleaseInputPasswordSet")} 
+          <Input.Password
+            placeholder={t("auth.pleaseInputPasswordSet")}
             autoComplete="new-password"
           />
         </Form.Item>
@@ -109,21 +107,10 @@ const Register = () => {
             }),
           ]}
         >
-          <Input.Password 
-            placeholder={t("auth.pleaseInputConfirmPassword")} 
+          <Input.Password
+            placeholder={t("auth.pleaseInputConfirmPassword")}
             autoComplete="new-password"
           />
-        </Form.Item>
-
-        <Form.Item
-          name="captcha"
-          label={t("auth.captcha")}
-          rules={[{ required: true, message: t("auth.pleaseInputCaptcha") }]}
-        >
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Input placeholder={t("auth.pleaseInputCaptcha")} style={{ flex: 1 }} />
-            <Button style={{ width: '120px' }}>{t("auth.getCaptcha")}</Button>
-          </div>
         </Form.Item>
 
         <Form.Item style={{ marginTop: '16px', marginBottom: 0 }}>
