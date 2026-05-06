@@ -8,7 +8,7 @@ from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
 from chat.pipelines.builders.get_models import get_automodel
 from chat.utils.load_config import get_retrieval_settings
-from parsing.transform import NodeParser, GeneralParser, LineSplitter
+from parsing.transform import GeneralParser, LineSplitter
 
 ALGO_ID = 'general_algo'
 
