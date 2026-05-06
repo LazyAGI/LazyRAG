@@ -1,8 +1,10 @@
+from copy import deepcopy
 from typing import List, NamedTuple
 
 from lazyllm import Retriever, bind, pipeline, Document
 from lazyllm.tools.rag import TempDocRetriever
 
+from chat.components.process.score_aware_aggregator import ScoreAwareParentAggregator
 from chat.pipelines.builders.get_models import get_automodel
 from chat.utils.load_config import get_retrieval_settings
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
@@ -22,11 +24,28 @@ def get_remote_docment(url: str) -> Document:
     return Document(url=f'{url}/_call', name=name)
 
 
+def _build_kb_retriever(document: Document, cfg: dict):
+    """Build a single kb retriever step from a config dict.
+
+    If the config contains a 'target' key, the retriever is wrapped in a
+    ScoreAwareParentAggregator so that child-node hit density is preserved
+    when mapping to the parent group. Without this, lazyllm's internal
+    find_parent deduplicates via a set and discards hit-count signal.
+    """
+    cfg = deepcopy(cfg)
+    target = cfg.pop('target', None)
+    retriever = Retriever(document, **cfg)
+    if not target:
+        return retriever
+    aggregator = ScoreAwareParentAggregator(document=document, target_group=target)
+    return pipeline(retriever, aggregator)
+
+
 def get_retriever(url: str, retriever_configs: List[dict], *,
                   tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK
                   ) -> SearchRetrievalParts:
     document = get_remote_docment(url)
-    kb_retrievers = [Retriever(document, **cfg) for cfg in retriever_configs]
+    kb_retrievers = [_build_kb_retriever(document, cfg) for cfg in retriever_configs]
 
     settings = get_retrieval_settings()
     ref_docs_retriever = TempDocRetriever(embed=get_automodel(settings.temp_doc_embed_key))
