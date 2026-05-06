@@ -58,7 +58,7 @@ class GeneralParser(NodeTransform):
                     current_chunk = []
                     current_len = 0
                 for i in range(0, part_len, self._max_length):
-                    result_chunks.append(part[i:i+self._max_length])
+                    result_chunks.append(part[i:i + self._max_length])
                 continue
             add_sep = self._len_split if current_chunk else 0
             if current_len + part_len + add_sep > self._max_length:
