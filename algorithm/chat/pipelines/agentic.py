@@ -44,7 +44,7 @@ from chat.components.agentic.tool_stream import (  # noqa: E402
     _stream_frame,
     _tool_call_id,
 )
-from chat.pipelines.builders.get_models import get_automodel  # noqa: E402
+from lazyllm import AutoModel  # noqa: E402
 
 
 class _StreamingFunctionCall(FunctionCall):
@@ -168,7 +168,7 @@ def agentic_forward(
     if not isinstance(config, dict):
         config = {}
 
-    llm = get_automodel('llm')
+    llm = AutoModel(model='llm', config=True)
     available_tools = _filter_tools_for_request(
         _normalize_available_tools(config.get('available_tools')),
         config,

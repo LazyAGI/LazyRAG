@@ -233,6 +233,27 @@ def log_chat_request(query: str, session_id: str, filters: Optional[Dict[str, An
     )
 
 
+def _inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
+    if not model_config:
+        return
+    from lazyllm.module.llms.onlinemodule.dynamic_router import ConfigsDict
+    bucket = {k: v for k, v in {
+        'source': model_config.get('source'),
+        'model': model_config.get('name'),
+        'url': model_config.get('base_url'),
+        'skip_auth': model_config.get('skip_auth'),
+    }.items() if v is not None}
+    if not bucket:
+        return
+    cfg = lazyllm.globals['config'].get('dynamic_model_configs') or ConfigsDict()
+    if not isinstance(cfg, ConfigsDict):
+        cfg = ConfigsDict(cfg)
+    # _DynamicSourceRouterMixin._get_dynamic_bucket reads raw.get(slot),
+    # where slot is 'chat' for OnlineChatModule. Write directly at that key.
+    cfg['chat'] = bucket
+    lazyllm.globals['config']['dynamic_model_configs'] = cfg
+
+
 async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       session_id: str, filters: Optional[Dict[str, Any]],
                       files: Optional[List[str]], debug: Optional[bool], reasoning: Optional[bool],
@@ -241,7 +262,8 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       available_skills: Optional[List[str]], memory: Optional[str],
                       user_preference: Optional[str], use_memory: Optional[bool],
                       is_stream: bool, trace: bool = False,
-                      create_user_id: Optional[str] = None) -> Union[Dict[str, Any], StreamingResponse]:
+                      create_user_id: Optional[str] = None,
+                      model_config: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
 
@@ -281,6 +303,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             async with rag_sem:
                 lazyllm.globals._init_sid(sid=session_id)
                 lazyllm.locals._init_sid(sid=session_id)
+                _inject_model_config(model_config)
                 result, trace_id, local_trace = await _run_sync_ppl(
                     bool(reasoning), dataset, query_params, query, filters, priority,
                     session_id=session_id, trace_enabled=trace,
@@ -348,6 +371,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                 async with rag_sem:
                     lazyllm.globals._init_sid(sid=session_id)
                     lazyllm.locals._init_sid(sid=session_id)
+                    _inject_model_config(model_config)
                     async_result, trace_id, local_trace = await asyncio.to_thread(
                         _run_ppl_with_trace, ppl, args,
                         session_id=session_id, dataset=dataset,

@@ -1,21 +1,21 @@
 from typing import List
 import lazyllm
-from lazyllm import pipeline, bind, ifs
+from lazyllm import AutoModel, pipeline, bind, ifs
 
-from chat.pipelines.builders import get_ppl_search, get_ppl_generate, get_automodel
+from chat.pipelines.builders import get_ppl_search, get_ppl_generate
 from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewriter
-from chat.utils.load_config import get_retrieval_settings
+from chat.pipelines.builders.get_retriever import DEFAULT_RETRIEVER_CONFIGS
 
 
 def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
     if retriever_configs is None:
-        retriever_configs = get_retrieval_settings().retriever_configs
+        retriever_configs = DEFAULT_RETRIEVER_CONFIGS
 
     with lazyllm.save_pipeline_result():
         with pipeline() as rag_ppl:
             rag_ppl.rewriter = ifs(
                 lambda x: x.get('history'),
-                tpath=MultiturnQueryRewriter(llm=get_automodel('llm_instruct'))
+                tpath=MultiturnQueryRewriter(llm=AutoModel(model='llm_instruct', config=True))
                 | bind(
                     priority=rag_ppl.input['priority'],
                     has_appendix=bool(rag_ppl.input['image_files'])
