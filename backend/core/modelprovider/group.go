@@ -35,6 +35,7 @@ type groupListItem struct {
 	Name                string `json:"name"`
 	BaseURL             string `json:"base_url"`
 	APIKey              string `json:"api_key"`
+	IsVerified          bool   `json:"is_verified"`
 }
 
 type groupListResponse struct {
@@ -91,6 +92,7 @@ func ListGroups(w http.ResponseWriter, r *http.Request) {
 			Name:                g.Name,
 			BaseURL:             g.BaseURL,
 			APIKey:              g.APIKey,
+			IsVerified:          g.IsVerified,
 		})
 	}
 	common.ReplyOK(w, groupListResponse{Groups: out})
@@ -155,6 +157,7 @@ func CreateGroup(w http.ResponseWriter, r *http.Request) {
 		Name:                name,
 		BaseURL:             baseURL,
 		APIKey:              apiKey,
+		IsVerified:          false,
 		BaseModel: orm.BaseModel{
 			CreateUserID:   userID,
 			CreateUserName: userName,
@@ -248,8 +251,14 @@ func UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		"base_url":   baseURL,
 		"updated_at": now,
 	}
+	if baseURL != row.BaseURL {
+		updates["is_verified"] = false
+	}
 	if apiKey != "" {
 		updates["api_key"] = apiKey
+		if apiKey != row.APIKey {
+			updates["is_verified"] = false
+		}
 	}
 	if err := db.WithContext(r.Context()).Model(&row).Updates(updates).Error; err != nil {
 		common.ReplyErr(w, "update group failed", http.StatusInternalServerError)
