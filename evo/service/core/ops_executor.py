@@ -113,9 +113,15 @@ def _h_task_cancel_active(jm: JobManager, args: dict) -> OpResult:
 
 
 def _h_task_continue_latest(jm: JobManager, args: dict) -> OpResult:
-    tid = args.get('task_id') or _resolve_latest_resumable_task(jm, args)
+    tid = args.get('task_id') or _wait_latest_resumable_task(jm, args)
     row = jm.cont(tid)
     return _task_op_result('task.continue_latest', tid, 'continued', row)
+
+
+def _h_thread_retry(jm: JobManager, args: dict) -> OpResult:
+    tid = _wait_latest_resumable_task(jm, args)
+    jm.cont(tid)
+    return _start_result('thread.retry', tid)
 
 
 def _h_apply_start(jm: JobManager, args: dict) -> OpResult:
@@ -204,6 +210,7 @@ for _h in [
     _h_task_stop_active,
     _h_task_cancel_active,
     _h_task_continue_latest,
+    _h_thread_retry,
     _h_apply_start,
     _h_apply_stop,
     _h_apply_continue,
@@ -285,6 +292,17 @@ def _resolve_latest_resumable_task(jm: JobManager, args: dict[str, Any]) -> str:
                 break
             time.sleep(0.25)
     raise StateError('NO_RESUMABLE_TASK', f'no paused or transient failed task found for flow={flow!r}')
+
+
+def _wait_latest_resumable_task(jm: JobManager, args: dict[str, Any]) -> str:
+    deadline = time.monotonic() + 15.0
+    while True:
+        try:
+            return _resolve_latest_resumable_task(jm, args)
+        except StateError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
 
 
 def _latest_stopping_task(jm: JobManager, args: dict[str, Any]) -> dict | None:

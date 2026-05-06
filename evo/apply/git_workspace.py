@@ -8,6 +8,8 @@ from pathlib import Path
 from evo.apply.errors import ApplyError
 
 _IGNORE = ('__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '*.pyc', '*.pyo', '.DS_Store', '.git')
+_RUNTIME_CACHE_DIRS = frozenset({'__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache'})
+_RUNTIME_CACHE_SUFFIXES = ('.pyc', '.pyo')
 _GIT_USER = ['-c', 'user.email=evo@local', '-c', 'user.name=evo']
 
 
@@ -93,9 +95,35 @@ def _porcelain_rows(worktree: Path) -> list[tuple[str, bool]]:
     seen: dict[str, bool] = {}
     for p, u in out:
         pp = _norm_relpath(p)
+        if _is_runtime_cache(pp):
+            continue
         if pp not in seen or u:
             seen[pp] = u
     return [(k, seen[k]) for k in sorted(seen)]
+
+
+def _is_runtime_cache(path: str) -> bool:
+    p = _norm_relpath(path)
+    parts = p.split('/')
+    return any(part in _RUNTIME_CACHE_DIRS for part in parts) or p.endswith(_RUNTIME_CACHE_SUFFIXES)
+
+
+def _clean_runtime_caches(worktree: Path) -> None:
+    for root, dirs, files in os.walk(worktree):
+        root_path = Path(root)
+        if '.git' in root_path.parts:
+            dirs[:] = []
+            continue
+        for name in list(dirs):
+            if name in _RUNTIME_CACHE_DIRS:
+                shutil.rmtree(root_path / name, ignore_errors=True)
+                dirs.remove(name)
+        for name in files:
+            if name.endswith(_RUNTIME_CACHE_SUFFIXES):
+                try:
+                    (root_path / name).unlink()
+                except OSError:
+                    pass
 
 
 def _revert_outside(worktree: Path, outside: list[tuple[str, bool]]) -> None:
@@ -199,6 +227,7 @@ class GitWorkspace:
     def commit_allowlisted(
         self, worktree: Path, msg: str, allow_files: frozenset[str], new_roots: tuple[str, ...]
     ) -> tuple[str | None, list[str] | None]:
+        _clean_runtime_caches(worktree)
         rows = _porcelain_rows(worktree)
         outside = [(p, u) for (p, u) in rows if not path_allowed(p, allow_files, new_roots)]
         if outside:
