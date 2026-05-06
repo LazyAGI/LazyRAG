@@ -127,7 +127,6 @@ func AddGroupModel(w http.ResponseWriter, r *http.Request) {
 		UserModelProviderID:      parent.ID,
 		UserModelProviderGroupID: group.ID,
 		ProviderName:             parent.Name,
-		GroupName:                group.Name,
 		Name:                     name,
 		ModelType:                modelType,
 		BaseURL:                  group.BaseURL,
@@ -152,7 +151,7 @@ func AddGroupModel(w http.ResponseWriter, r *http.Request) {
 		Name:                     row.Name,
 		ModelType:                row.ModelType,
 		ProviderName:             row.ProviderName,
-		GroupName:                row.GroupName,
+		GroupName:                group.Name,
 		BaseURL:                  row.BaseURL,
 		IsDefault:                row.IsDefault,
 	})
@@ -226,7 +225,7 @@ func ListGroupModels(w http.ResponseWriter, r *http.Request) {
 			Name:                     m.Name,
 			ModelType:                m.ModelType,
 			ProviderName:             m.ProviderName,
-			GroupName:                m.GroupName,
+			GroupName:                group.Name,
 			BaseURL:                  m.BaseURL,
 			IsDefault:                m.IsDefault,
 		})
@@ -263,6 +262,30 @@ func ListUserModelsByModelType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	groupIDs := make([]string, 0)
+	seenGroup := make(map[string]struct{})
+	for i := range rows {
+		gid := rows[i].UserModelProviderGroupID
+		if _, ok := seenGroup[gid]; !ok {
+			seenGroup[gid] = struct{}{}
+			groupIDs = append(groupIDs, gid)
+		}
+	}
+
+	groupNameByID := make(map[string]string)
+	if len(groupIDs) > 0 {
+		var grps []orm.UserModelProviderGroup
+		if err := db.WithContext(r.Context()).
+			Where("id IN ? AND create_user_id = ? AND deleted_at IS NULL", groupIDs, userID).
+			Find(&grps).Error; err != nil {
+			common.ReplyErr(w, "list groups failed", http.StatusInternalServerError)
+			return
+		}
+		for i := range grps {
+			groupNameByID[grps[i].ID] = grps[i].Name
+		}
+	}
+
 	out := make([]groupModelListItem, 0, len(rows))
 	for i := range rows {
 		m := rows[i]
@@ -273,7 +296,7 @@ func ListUserModelsByModelType(w http.ResponseWriter, r *http.Request) {
 			Name:                     m.Name,
 			ModelType:                m.ModelType,
 			ProviderName:             m.ProviderName,
-			GroupName:                m.GroupName,
+			GroupName:                groupNameByID[m.UserModelProviderGroupID],
 			BaseURL:                  m.BaseURL,
 			IsDefault:                m.IsDefault,
 		})

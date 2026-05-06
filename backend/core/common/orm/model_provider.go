@@ -58,13 +58,12 @@ type UserModelProviderGroup struct {
 func (UserModelProviderGroup) TableName() string { return "user_model_provider_groups" }
 
 // UserModelProviderGroupModel is a user-scoped model row under a connection group (often seeded from DefaultModel).
-// ProviderName and GroupName are denormalized for list UIs without joining parent tables.
+// ProviderName denormalizes user_model_providers.name; connection group display name comes from user_model_provider_groups.
 type UserModelProviderGroupModel struct {
 	ID                       string `gorm:"column:id;type:varchar(64);primaryKey"`
 	UserModelProviderID      string `gorm:"column:user_model_provider_id;type:varchar(64);not null;index:idx_user_model_provider_group_models_provider"`
 	UserModelProviderGroupID string `gorm:"column:user_model_provider_group_id;type:varchar(64);not null;uniqueIndex:uk_user_model_provider_group_models_group_name,priority:1"`
 	ProviderName             string `gorm:"column:provider_name;type:varchar(255);not null;default:''"`
-	GroupName                string `gorm:"column:group_name;type:varchar(255);not null;default:''"`
 	Name                     string `gorm:"column:name;type:varchar(512);not null;uniqueIndex:uk_user_model_provider_group_models_group_name,priority:2"`
 	ModelType                string `gorm:"column:model_type;type:varchar(64);not null"`
 	BaseURL                  string `gorm:"column:base_url;type:varchar(1024);not null;default:''"`
