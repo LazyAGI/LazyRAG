@@ -59,7 +59,8 @@ def get_config_path() -> str:
         'online': _ONLINE_CONFIG_PATH,
         'dynamic': _DYNAMIC_CONFIG_PATH,
     }
-    raw = os.environ.get('LAZYRAG_MODEL_CONFIG_PATH', 'dynamic')
+    from config import config as _cfg
+    raw = _cfg['model_config_path']
     if raw in aliases:
         return str(aliases[raw])
     return raw

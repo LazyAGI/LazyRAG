@@ -1,7 +1,8 @@
-import os
 import sys
 
 import requests
+
+from config import config as _cfg
 
 ALGO_ID = 'general_algo'
 
@@ -12,8 +13,8 @@ def _ensure_ok(url: str) -> None:
 
 
 def main() -> int:
-    algo_port = int(os.getenv('LAZYRAG_ALGO_SERVER_PORT', os.getenv('LAZYRAG_DOCUMENT_SERVER_PORT', '8000')))
-    processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000').rstrip('/')
+    algo_port = _cfg['algo_server_port'] or _cfg['document_server_port']
+    processor_url = _cfg['document_processor_url'].rstrip('/')
 
     _ensure_ok(f'http://127.0.0.1:{algo_port}/docs')
     response = requests.get(f'{processor_url}/algo/list', timeout=3)

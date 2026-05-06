@@ -1,7 +1,6 @@
 from __future__ import annotations
 import asyncio
 import json
-import os
 import time
 from typing import Any, Dict, List, Optional, Union
 import lazyllm
@@ -56,8 +55,8 @@ def _flush_trace_exporter() -> None:
     if provider is None:
         return
     try:
-        timeout_ms = int(os.getenv('LANGFUSE_FORCE_FLUSH_TIMEOUT_MS', '5000'))
-        provider.force_flush(timeout_millis=timeout_ms)
+        from config import config as _cfg
+        provider.force_flush(timeout_millis=_cfg['langfuse_force_flush_timeout_ms'])
     except Exception as exc:
         LOG.warning(f'[ChatServer] [TRACE_FLUSH_FAILED] {exc}')
 

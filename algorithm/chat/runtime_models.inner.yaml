@@ -24,22 +24,3 @@ embed_main:
     name: bgem3_emb_dense_custom
     url: http://10.119.27.151:2269/embed
     skip_auth: true
-
-agentic:
-  kb_url: ${LAZYRAG_AGENTIC_KB_URL:-http://lazyllm-algo:8000}
-  core_api_url: ${LAZYRAG_CORE_API_URL:-http://core:8000}
-  kb_name: ${LAZYRAG_AGENTIC_KB_NAME:-general_algo}
-  skill_fs_url: ${LAZYRAG_SKILL_FS_URL:-remote://skills}
-  es_url: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
-  es_user: ${LAZYRAG_OPENSEARCH_USER:-admin}
-  es_password: ${LAZYRAG_OPENSEARCH_PASSWORD:-}
-  web_search_timeout: ${LAZYRAG_WEB_SEARCH_TIMEOUT:-10}
-  web_search_auto_sources: ${LAZYRAG_WEB_SEARCH_AUTO_SOURCES:-bocha,google,bing,wikipedia}
-  web_search_wikipedia_base_url: ${LAZYRAG_WEB_SEARCH_WIKIPEDIA_BASE_URL:-https://zh.wikipedia.org}
-  web_search_google_api_key: ${LAZYRAG_WEB_SEARCH_GOOGLE_API_KEY:-}
-  web_search_google_search_engine_id: ${LAZYRAG_WEB_SEARCH_GOOGLE_SEARCH_ENGINE_ID:-}
-  web_search_bing_subscription_key: ${LAZYRAG_WEB_SEARCH_BING_SUBSCRIPTION_KEY:-}
-  web_search_bing_endpoint: ${LAZYRAG_WEB_SEARCH_BING_ENDPOINT:-}
-  web_search_bocha_api_key: ${LAZYRAG_WEB_SEARCH_BOCHA_API_KEY:-}
-  web_search_bocha_base_url: ${LAZYRAG_WEB_SEARCH_BOCHA_BASE_URL:-https://api.bochaai.com}
-  arxiv_search_timeout: ${LAZYRAG_ARXIV_SEARCH_TIMEOUT:-15}

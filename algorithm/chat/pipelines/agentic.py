@@ -18,10 +18,11 @@ from lazyllm.tools.agent.functionCall import FunctionCall
 from lazyllm.tools.fs.client import FS
 from lazyllm.tools.sandbox.sandbox_base import create_sandbox  # noqa: F401
 
+from config import config as _cfg
+
 
 from chat.components.agentic.config import (  # noqa: E402
     _build_runtime_system_prompt,
-    _env_int,
     _filter_tools_for_request,
     _get_runtime_agent_defaults,
     _normalize_available_skills,
@@ -184,7 +185,7 @@ def agentic_forward(
     agent_kwargs = {
         'llm': llm,
         'tools': available_tools,
-        'max_retries': _env_int('LAZYRAG_MAX_RETRIES', 20),
+        'max_retries': _cfg['max_retries'],
         'return_trace': config.get('return_trace', False),
         'stream': bool(stream_event_callback),
         'prompt': runtime_prompt,
@@ -221,8 +222,8 @@ def agentic_forward(
         available_tools=available_tools,
         tool_turns=tool_turns,
         user_turns=user_turns,
-        memory_review_interval=_env_int('LAZYRAG_MEMORY_REVIEW_INTERVAL', 1),
-        skill_review_interval=_env_int('LAZYRAG_SKILL_REVIEW_INTERVAL', 5),
+        memory_review_interval=_cfg['memory_review_interval'],
+        skill_review_interval=_cfg['skill_review_interval'],
     )
     if review_mode is not None:
         _spawn_background_review(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import os
 import threading
 import time
 from collections import OrderedDict
@@ -12,6 +11,8 @@ from lazyllm import LOG
 import lazyllm.tracing.collect.configs  # noqa: F401
 from lazyllm.tracing.collect import runtime as tracing_runtime
 from lazyllm.tracing.datamodel.raw import RawSpanRecord, RawTracePayload, RawTraceRecord
+
+from config import config as _cfg
 
 try:
     from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
@@ -29,7 +30,7 @@ _DEFAULT_TTL_S = 3600
 
 
 def local_trace_enabled() -> bool:
-    return os.getenv('LAZYRAG_LOCAL_TRACE_SINK', '1').lower() in {'1', 'true', 'yes', 'on'}
+    return _cfg['local_trace_sink']
 
 
 def ensure_local_trace_sink() -> 'LocalTraceSink | None':
@@ -47,8 +48,8 @@ def ensure_local_trace_sink() -> 'LocalTraceSink | None':
         if provider is None:
             raise RuntimeError('LazyLLM tracing provider is not initialized; local trace sink cannot be installed')
         _SINK = LocalTraceSink(
-            max_traces=int(os.getenv('LAZYRAG_LOCAL_TRACE_MAX_TRACES', str(_DEFAULT_MAX_TRACES))),
-            ttl_s=float(os.getenv('LAZYRAG_LOCAL_TRACE_TTL_S', str(_DEFAULT_TTL_S))),
+            max_traces=_cfg['local_trace_max_traces'],
+            ttl_s=float(_cfg['local_trace_ttl_s']),
         )
         provider.add_span_processor(_SINK)
         LOG.info('[ChatServer] local trace sink installed')

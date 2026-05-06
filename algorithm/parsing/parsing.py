@@ -1,9 +1,9 @@
-import os
 import time
 import requests
 import urllib.error
 import urllib.request
 
+from config import config as _cfg
 from parsing.build_document import build_document, get_algo_server_port, ALGO_ID
 
 
@@ -39,9 +39,9 @@ def _wait_for_algorithm_registration(processor_url: str, algo_id: str, timeout: 
 
 
 def main() -> None:
-    processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000').rstrip('/')
-    retry_interval = float(os.getenv('LAZYRAG_STARTUP_RETRY_INTERVAL', '2'))
-    startup_timeout = float(os.getenv('LAZYRAG_STARTUP_TIMEOUT', '0'))
+    processor_url = _cfg['document_processor_url'].rstrip('/')
+    retry_interval = float(_cfg['startup_retry_interval'])
+    startup_timeout = float(_cfg['startup_timeout'])
 
     _wait_for_http_ok(f'{processor_url}/health', 'DocumentProcessor', startup_timeout, retry_interval)
 

@@ -1,7 +1,7 @@
-import os
-
 import httpx
 from fastapi import APIRouter
+
+from config import config as _cfg
 
 router = APIRouter()
 
@@ -9,7 +9,7 @@ router = APIRouter()
 @router.get('/health', summary='Health check')
 @router.get('/api/health', summary='Health check (API path)')
 async def health():
-    doc_url = os.getenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://localhost:8000')
+    doc_url = _cfg['document_server_url']
     check_url = doc_url.rstrip('/') + '/'
     status = {'document_server_url': doc_url, 'document_server_reachable': None}
     try:

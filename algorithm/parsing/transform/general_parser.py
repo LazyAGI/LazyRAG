@@ -8,8 +8,10 @@ from lazyllm import pipeline, LOG
 from lazyllm.tools.rag import NodeTransform
 from lazyllm.tools.rag.doc_node import DocNode
 
+from config import config as _cfg
 
-IMAGE_PREFIX = os.getenv('RAG_IMAGE_PATH_PREFIX', '/mnt/lustre/share_data/mineru/images/')
+
+IMAGE_PREFIX = _cfg['rag_image_path_prefix']
 IMAGE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
 

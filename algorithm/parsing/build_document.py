@@ -1,4 +1,3 @@
-import os
 from urllib.parse import urlparse
 
 from lazyllm.tools.rag import Document, MineruPDFReader, PDFReader
@@ -8,13 +7,13 @@ from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
 from chat.pipelines.builders.get_models import get_automodel
 from chat.utils.load_config import get_retrieval_settings
+from config import config as _cfg
 from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
 ALGO_ID = 'general_algo'
 
 
-def _parse_bool_env(name: str) -> bool | None:
-    value = os.getenv(name)
+def _parse_bool_config(value: str | None) -> bool | None:
     if value is None:
         return None
     value = value.strip().lower()
@@ -24,7 +23,7 @@ def _parse_bool_env(name: str) -> bool | None:
         return True
     if value in ('0', 'false', 'no', 'off'):
         return False
-    raise ValueError(f'{name} must be a boolean string, got: {value!r}')
+    raise ValueError(f'mineru_upload_mode must be a boolean string, got: {value!r}')
 
 
 def _default_mineru_upload_mode(ocr_url: str) -> bool:
@@ -34,19 +33,19 @@ def _default_mineru_upload_mode(ocr_url: str) -> bool:
 
 
 def get_algo_server_port() -> int:
-    return int(os.getenv('LAZYRAG_ALGO_SERVER_PORT', os.getenv('LAZYRAG_DOCUMENT_SERVER_PORT', '8000')))
-
-
-def _require_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise ValueError(f'{name} is required')
-    return value
+    port = _cfg['algo_server_port']
+    if port:
+        return port
+    return _cfg['document_server_port']
 
 
 def _build_store_config(index_kwargs):
-    milvus_uri = _require_env('LAZYRAG_MILVUS_URI')
-    opensearch_uri = _require_env('LAZYRAG_OPENSEARCH_URI')
+    milvus_uri = _cfg['milvus_uri']
+    if not milvus_uri:
+        raise ValueError('LAZYRAG_MILVUS_URI is required')
+    opensearch_uri = _cfg['opensearch_uri']
+    if not opensearch_uri:
+        raise ValueError('LAZYRAG_OPENSEARCH_URI is required')
     return {
         'vector_store': {
             'type': 'milvus',
@@ -63,8 +62,8 @@ def _build_store_config(index_kwargs):
                     'http_compress': True,
                     'use_ssl': True,
                     'verify_certs': False,
-                    'user': os.getenv('LAZYRAG_OPENSEARCH_USER', 'admin'),
-                    'password': os.getenv('LAZYRAG_OPENSEARCH_PASSWORD', 'LazyRAG_OpenSearch123!'),
+                    'user': _cfg['opensearch_user'],
+                    'password': _cfg['opensearch_password'] or 'LazyRAG_OpenSearch123!',
                 },
             },
         },
@@ -72,28 +71,28 @@ def _build_store_config(index_kwargs):
 
 
 def _build_pdf_reader():
-    ocr_type = os.getenv('LAZYRAG_OCR_SERVER_TYPE', 'none')
-    ocr_url = os.getenv('LAZYRAG_OCR_SERVER_URL', 'http://localhost:8000').rstrip('/')
+    ocr_type = _cfg['ocr_server_type']
+    ocr_url = _cfg['ocr_server_url'].rstrip('/')
     if ocr_type in ('none', None, ''):
         return PDFReader()
     if ocr_type == 'mineru':
-        upload_mode = _parse_bool_env('LAZYRAG_MINERU_UPLOAD_MODE')
+        upload_mode = _parse_bool_config(_cfg['mineru_upload_mode'])
         if upload_mode is None:
             upload_mode = _default_mineru_upload_mode(ocr_url)
         return MineruPDFReader(
             url=ocr_url,
-            backend=os.getenv('LAZYRAG_MINERU_BACKEND', 'pipeline'),
+            backend=_cfg['mineru_backend'],
             upload_mode=upload_mode,
             post_func=NodeParser(),
             timeout=3600
         )
     if ocr_type == 'paddleocr':
         return PaddleOCRPDFReader(url=ocr_url)
-    raise ValueError(f'Unsupported LAZYRAG_OCR_SERVER_TYPE: {ocr_type!r}')
+    raise ValueError(f'Unsupported OCR server type: {ocr_type!r}')
 
 
 def build_document() -> Document:
-    processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
+    processor_url = _cfg['document_processor_url']
     server_port = get_algo_server_port()
     settings = get_retrieval_settings()
     embed = {k: get_automodel(k) for k in settings.embed_keys}
