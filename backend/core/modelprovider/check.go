@@ -14,7 +14,7 @@ import (
 	"lazyrag/core/store"
 )
 
-const modelProviderCheckTimeout = 90 * time.Second
+const modelProviderCheckTimeout = 5 * time.Minute
 
 type checkModelProviderRequest struct {
 	ProviderName string `json:"provider_name"`
