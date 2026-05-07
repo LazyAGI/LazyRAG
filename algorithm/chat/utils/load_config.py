@@ -58,6 +58,19 @@ def _expand_env_placeholders(value: Any, config_path: str) -> Any:
     return expanded
 
 
+def _coerce_config_values(value: Any, key: str | None = None) -> Any:
+    if isinstance(value, dict):
+        return {k: _coerce_config_values(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_coerce_config_values(item) for item in value]
+    if key == 'timeout' and isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return float(value)
+    return value
+
+
 def get_config_path() -> Path:
     custom = os.getenv('LAZYRAG_MODEL_CONFIG_PATH')
     if custom:
@@ -82,7 +95,7 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
         raw = yaml.safe_load(f) or {}
     if not isinstance(raw, dict):
         raise ValueError(f'Model config `{resolved}` root must be a mapping.')
-    return _expand_env_placeholders(raw, str(resolved))
+    return _coerce_config_values(_expand_env_placeholders(raw, str(resolved)))
 
 
 _config_cache: Dict[str, Any] | None = None

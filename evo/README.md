@@ -58,15 +58,15 @@ export EVO_CHAT_SOURCE=/abs/path/to/algorithm/chat
 
 # Start API service.
 PYTHONPATH=LazyRAG python3 -m uvicorn evo.service.api:get_app \
-  --factory --host 0.0.0.0 --port 8047
+  --factory --host 0.0.0.0 --port 8048
 ```
 
 Local docs:
 
 ```bash
-open http://localhost:8047/docs
-open http://localhost:8047/redoc
-curl http://localhost:8047/openapi.json
+open http://localhost:8048/docs
+open http://localhost:8048/redoc
+curl http://localhost:8048/openapi.json
 ```
 
 Container commands:
@@ -91,7 +91,7 @@ PYTHONPATH=LazyRAG python3 -m evo.main thread decide --badcase-limit 50
 Set a base URL for examples:
 
 ```bash
-BASE=http://localhost:8047
+BASE=http://localhost:8048
 JSON='Content-Type: application/json'
 ```
 
@@ -603,7 +603,7 @@ Admin flow path names use store flow names plus `s`: `runs`, `applies`,
 ## End-to-End REST Example
 
 ```bash
-BASE=http://localhost:8047
+BASE=http://localhost:8048
 JSON='Content-Type: application/json'
 
 THREAD_ID=$(curl -sX POST "$BASE/v1/evo/threads" \

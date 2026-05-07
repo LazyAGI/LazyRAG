@@ -32,12 +32,11 @@ evo_embed:
         nlist: 128
 
 reranker:
-  source: qwen3rerank
+  source: qwen
   type: rerank
-  model: Qwen3-Reranker-8B
-  url: http://10.119.24.104:8331/v1/rerank
+  model: ${LAZYRAG_RERANK_MODEL:-qwen3-rerank}
   api_key: ${LAZYLLM_QWEN_API_KEY}
-  skip_auth: true
+  timeout: ${LAZYRAG_RERANK_TIMEOUT:-60}
 
 embeddings:
   embed_1:
@@ -45,6 +44,7 @@ embeddings:
     type: embed
     model: text-embedding-v3
     api_key: ${LAZYLLM_QWEN_API_KEY}
+    timeout: ${LAZYRAG_EMBED_TIMEOUT:-60}
     index_kwargs:
       index_type: IVF_FLAT
       metric_type: COSINE
@@ -56,6 +56,7 @@ embeddings:
     type: embed
     model: text-embedding-v2
     api_key: ${LAZYLLM_QWEN_API_KEY}
+    timeout: ${LAZYRAG_EMBED_TIMEOUT:-60}
 
 retrieval:
   temp_doc_embed_key: embed_1

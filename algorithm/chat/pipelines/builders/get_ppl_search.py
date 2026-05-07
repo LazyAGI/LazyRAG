@@ -13,7 +13,7 @@ def parse_query(query_params: dict) -> str:
     return get_vocab_manager(query_params.get('create_user_id', ''))(query_params['query'])
 
 
-def has_files(_, x: dict) -> bool:
+def has_files(x: dict) -> bool:
     return bool(x.get('files'))
 
 

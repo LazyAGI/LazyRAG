@@ -8,8 +8,8 @@ ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=300
-ARG PIP_RETRIES=10
+ARG PIP_DEFAULT_TIMEOUT=1200
+ARG PIP_RETRIES=20
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -135,5 +135,5 @@ COPY algorithm/vocab /app/vocab
 COPY algorithm/processor /app/processor
 RUN chmod +x /app/evo/service/entrypoint.sh
 
-EXPOSE 8047
+EXPOSE 8048
 ENTRYPOINT ["/app/evo/service/entrypoint.sh"]

@@ -46,7 +46,7 @@ class ThreadDriver:
             elog = EventLog(ws.events_path)
             self._execute_op(thread_id, ops[0], source, elog, ws)
             return self.runtime(thread_id)
-        self._write_runtime(ws, {'status': 'running'})
+        self._write_runtime(ws, {'status': 'running', 'active_task_id': None, 'pending_checkpoint': None})
         t = threading.Thread(
             target=self._run_ops, args=(thread_id, ops, source), daemon=True, name=f'evo-thread-driver-{thread_id}'
         )
@@ -97,6 +97,25 @@ class ThreadDriver:
         data['thread_id'] = thread_id
         return data
 
+    def reconcile_checkpoint(self, thread_id: str) -> dict:
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id)
+        elog = EventLog(ws.events_path)
+        runtime = self.runtime(thread_id)
+        if runtime.get('status') == 'running':
+            return runtime
+        if self._active_task(thread_id):
+            return runtime
+        task = _latest_checkpointable_task(self.jm.store, self.jm.config.storage.base_dir, thread_id)
+        if not task:
+            return self.runtime(thread_id)
+        checkpoint = ws.load_checkpoint()
+        checkpoint_task = _store.get(self.jm.store, checkpoint.get('completed_task_id')) if checkpoint else None
+        if checkpoint_task and float(checkpoint_task.get('created_at') or 0.0) >= float(task.get('created_at') or 0.0):
+            return self.runtime(thread_id)
+        next_op = _next_default_op(task, self.jm.store, ws)
+        _checkpoint_after(task, next_op, self.jm.store, ws, elog, self._write_runtime)
+        return self.runtime(thread_id)
+
     def _run_ops(self, thread_id: str, ops: list[dict[str, Any]], source: str) -> None:
         ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id)
         elog = EventLog(ws.events_path)
@@ -143,7 +162,7 @@ class ThreadDriver:
             if result.error:
                 if attempt < 3:
                     continue
-                self._fail_thread(ws, elog, RuntimeError(str(result.error)))
+                self._fail_thread(ws, elog, RuntimeError(str(result.error)), result.task_id)
                 return None
             if result.status == 'cancelled':
                 self._write_runtime(
@@ -177,7 +196,12 @@ class ThreadDriver:
             if _task_ends_thread(task):
                 return task
             if task and task.get('status') in {'failed_permanent', 'rejected'}:
-                self._fail_thread(ws, elog, RuntimeError(f"{op_name} failed with task status {task.get('status')}"))
+                self._fail_thread(
+                    ws,
+                    elog,
+                    RuntimeError(f"{op_name} failed with task status {task.get('status')}"),
+                    result.task_id,
+                )
                 return None
             if task and task.get('status') == 'paused':
                 self._write_runtime(ws, {'status': 'paused', 'active_task_id': result.task_id})
@@ -194,11 +218,19 @@ class ThreadDriver:
                 except Exception:
                     pass
                 if task and task.get('status') == 'failed_transient':
-                    self._fail_thread(ws, elog, RuntimeError(f"{op_name} failed with task status {task.get('status')}"))
+                    self._fail_thread(
+                        ws,
+                        elog,
+                        RuntimeError(f"{op_name} failed with task status {task.get('status')}"),
+                        result.task_id,
+                    )
                     return None
             if attempt == 3:
                 self._fail_thread(
-                    ws, elog, RuntimeError(f"{op_name} failed with task status {(task or {}).get('status')}")
+                    ws,
+                    elog,
+                    RuntimeError(f"{op_name} failed with task status {(task or {}).get('status')}"),
+                    result.task_id,
                 )
                 return None
         return None
@@ -267,7 +299,16 @@ class ThreadDriver:
         if 'status' in patch:
             _write_thread_meta_status(ws, str(patch['status']), data['updated_at'])
 
-    def _fail_thread(self, ws: ThreadWorkspace, elog: EventLog, exc: Exception) -> None:
+    def _fail_thread(self, ws: ThreadWorkspace, elog: EventLog, exc: Exception, task_id: str | None = None) -> None:
+        runtime = _read_json(_runtime_path(ws)) or {}
+        active_task_id = runtime.get('active_task_id')
+        if task_id and active_task_id and task_id != active_task_id:
+            elog.append_event(
+                'runtime.stale_task_failed',
+                task_id=task_id,
+                payload={'active_task_id': active_task_id, 'error': str(exc)},
+            )
+            return
         self._write_runtime(ws, {'status': 'failed', 'active_task_id': None, 'last_error': str(exc)})
 
 
@@ -308,6 +349,22 @@ def _thread_task_rows(base_dir: Path, thread_id: str) -> list[dict]:
         if row and row.get('thread_id') == thread_id:
             rows.append(row)
     return rows
+
+
+def _latest_checkpointable_task(store: _store.FsStateStore, base_dir: Path, thread_id: str) -> dict | None:
+    ws = ThreadWorkspace(base_dir, thread_id, create=False)
+    rows = [
+        row
+        for row in _thread_task_rows(base_dir, thread_id)
+        if row.get('flow') in MAIN_FLOWS and row.get('status') in OK
+    ]
+    rows.sort(key=lambda r: float(r.get('created_at') or 0.0), reverse=True)
+    for row in rows:
+        if row.get('flow') == 'abtest':
+            return row
+        if _next_default_op(row, store, ws):
+            return row
+    return None
 
 
 def _task_ends_thread(row: dict | None) -> bool:
@@ -521,7 +578,7 @@ def _latest_eval(store: _store.FsStateStore, thread_id: str) -> tuple[str | None
         payload = row.get('payload') or {}
         dataset_id = payload.get('dataset_id')
         if row.get('status') == 'succeeded' and dataset_id:
-            return (dataset_id, dataset_id, dict(payload.get('eval_options') or {}))
+            return (payload.get('eval_id') or dataset_id, dataset_id, dict(payload.get('eval_options') or {}))
     return (None, None, {})
 
 

@@ -29,6 +29,13 @@ def _default_model() -> str | None:
     return normalize_model(model)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 def normalize_model(model: str | None) -> str | None:
     provider = os.getenv('EVO_OPENCODE_PROVIDER') or os.getenv('OPENCODE_PROVIDER')
     if model and provider and ('/' not in model):
@@ -47,6 +54,7 @@ class OpencodeOptions:
     agent: str | None = None
     variant: str | None = None
     timeout_s: int = 600
+    skip_permissions: bool = _env_bool('EVO_OPENCODE_SKIP_PERMISSIONS', True)
     provider_config: OpencodeProviderConfig | None = None
 
 
@@ -125,6 +133,8 @@ def run_opencode(
 ) -> OpencodeOutcome:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     cmd: list[str] = [binary, 'run', '--format', 'json']
+    if options.skip_permissions:
+        cmd.append('--dangerously-skip-permissions')
     model = _option_model(options)
     for flag, value in (('--model', model), ('--agent', options.agent), ('--variant', options.variant)):
         if value:
@@ -143,12 +153,13 @@ def run_opencode(
     if (model or '').startswith('maas/'):
         _disable_proxy(env)
     log.info(
-        'opencode run: cwd=%s timeout_s=%d model=%s agent=%s variant=%s',
+        'opencode run: cwd=%s timeout_s=%d model=%s agent=%s variant=%s skip_permissions=%s',
         cwd,
         options.timeout_s,
         model,
         options.agent,
         options.variant,
+        options.skip_permissions,
     )
     proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     if on_proc:
@@ -249,6 +260,7 @@ def _ensure_project_provider_config(
             return None
         config = {
             '$schema': 'https://opencode.ai/config.json',
+            'permission': _non_interactive_permissions(),
             'provider': {
                 provider: {
                     'npm': '@ai-sdk/openai-compatible',
@@ -273,6 +285,7 @@ def _ensure_project_provider_config(
         base_url = os.getenv('MAAS_BASE_URL') or 'http://106.75.235.251:9000/v1/'
         config = {
             '$schema': 'https://opencode.ai/config.json',
+            'permission': _non_interactive_permissions(),
             'provider': {
                 'maas': {
                     'npm': '@ai-sdk/openai-compatible',
@@ -286,6 +299,7 @@ def _ensure_project_provider_config(
         return path
     config = {
         '$schema': 'https://opencode.ai/config.json',
+        'permission': _non_interactive_permissions(),
         'provider': {
             'deepseek': {
                 'npm': '@ai-sdk/openai-compatible',
@@ -301,6 +315,23 @@ def _ensure_project_provider_config(
     }
     path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
     return path
+
+
+def _non_interactive_permissions() -> dict[str, Any]:
+    return {
+        'read': 'allow',
+        'grep': 'allow',
+        'glob': 'allow',
+        'list': 'allow',
+        'bash': 'allow',
+        'edit': 'allow',
+        'external_directory': 'allow',
+        'question': 'deny',
+        'plan_enter': 'deny',
+        'plan_exit': 'deny',
+        'todowrite': 'deny',
+        'task': 'deny',
+    }
 
 
 def _cleanup_temp_config(path: Path | None) -> None:

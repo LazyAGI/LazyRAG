@@ -149,6 +149,8 @@ services:
       network: host
       context: ./backend
       dockerfile: auth-service/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     volumes:
       - ./api/backend:/openapi-export
     expose:
@@ -180,6 +182,8 @@ services:
       network: host
       context: ./backend
       dockerfile: office-convert-service/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     expose:
       - "8080"
     environment:
@@ -242,7 +246,7 @@ services:
         condition: service_healthy
 
   core-dev:
-    image: golang:1.24-alpine
+    image: golang:1.24
     working_dir: /app
     command: ["sleep", "infinity"]
     volumes:
@@ -288,6 +292,12 @@ services:
       network: host
       context: .
       dockerfile: backend/core/doc/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -410,6 +420,12 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -442,6 +458,12 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -480,8 +502,19 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     expose:
       - "8000"
+    volumes:
+      - ./algorithm/chat/runtime_models.yaml:/app/chat/runtime_models.yaml:ro
+      - ./algorithm/chat/runtime_models.inner.yaml:/app/chat/runtime_models.inner.yaml:ro
+      - ./algorithm/chat/utils/load_config.py:/app/chat/utils/load_config.py:ro
+      - ./algorithm/chat/pipelines/builders/get_ppl_search.py:/app/chat/pipelines/builders/get_ppl_search.py:ro
     healthcheck:
       test: ['CMD-SHELL', 'python parsing/healthcheck.py']
       interval: 15s
@@ -491,22 +524,22 @@ services:
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
       LAZYRAG_ALGO_SERVER_PORT: ${LAZYRAG_ALGO_SERVER_PORT:-8000}
-      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
+      # Inner yaml points at internal IPs; use runtime_models.yaml locally unless you override.
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.yaml}
+      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-false}
+      LAZYRAG_RERANK_TIMEOUT: ${LAZYRAG_RERANK_TIMEOUT:-60}
+      LAZYRAG_EMBED_TIMEOUT: ${LAZYRAG_EMBED_TIMEOUT:-60}
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
-      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
       LAZYRAG_OCR_PATCH_APPLIED: ${LAZYRAG_OCR_PATCH_APPLIED:-true}
       LAZYRAG_OCR_SERVICE_VARIANT: ${LAZYRAG_OCR_SERVICE_VARIANT:-offline}
-      LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-}
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-mineru}
-      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://host.docker.internal:20234}
+      # Default none: full stack works without MinerU on host. Use profile mineru + LAZYRAG_OCR_SERVER_TYPE=mineru when needed.
+      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
+      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
       LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-true}
       <<: *llm-api-keys
     command: ["python", "-m", "parsing.parsing"]
@@ -530,8 +563,8 @@ services:
         APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
         APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
-        PIP_RETRIES: ${PIP_RETRIES:-10}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
       secrets:
         - apt_http_proxy
         - apt_https_proxy
@@ -539,6 +572,10 @@ services:
       - "8046"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./algorithm/chat/runtime_models.yaml:/app/chat/runtime_models.yaml:ro
+      - ./algorithm/chat/runtime_models.inner.yaml:/app/chat/runtime_models.inner.yaml:ro
+      - ./algorithm/chat/utils/load_config.py:/app/chat/utils/load_config.py:ro
+      - ./algorithm/chat/pipelines/builders/get_ppl_search.py:/app/chat/pipelines/builders/get_ppl_search.py:ro
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s
@@ -546,11 +583,10 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-chat/runtime_models.inner.yaml}
       LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000,general_algo}
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
+      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-false}
       LAZYRAG_MAX_CONCURRENCY: ${LAZYRAG_MAX_CONCURRENCY:-10}
       LAZYRAG_LLM_PRIORITY: ${LAZYRAG_LLM_PRIORITY:-0}
       LAZYRAG_DEFAULT_CHAT_DATASET: ${LAZYRAG_DEFAULT_CHAT_DATASET:-algo}
@@ -560,7 +596,9 @@ services:
       LAZYRAG_MEMORY_REVIEW_INTERVAL: ${LAZYRAG_MEMORY_REVIEW_INTERVAL:-1}
       LAZYRAG_SKILL_REVIEW_INTERVAL: ${LAZYRAG_SKILL_REVIEW_INTERVAL:-5}
       LAZYRAG_SKILL_REVIEW_DEBUG: ${LAZYRAG_SKILL_REVIEW_DEBUG:-false}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.yaml}
+      LAZYRAG_RERANK_TIMEOUT: ${LAZYRAG_RERANK_TIMEOUT:-60}
+      LAZYRAG_EMBED_TIMEOUT: ${LAZYRAG_EMBED_TIMEOUT:-60}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
@@ -600,30 +638,35 @@ services:
         APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
         APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
-        PIP_RETRIES: ${PIP_RETRIES:-10}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
       secrets:
         - apt_http_proxy
         - apt_https_proxy
     expose:
-      - "8047"
+      - "8048"
     ports:
-      - "8048:8047"
+      - "8048:8048"
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
       OPENCODE_BIN: /usr/local/bin/opencode
+      DEEPSEEK_API_KEY: ${LAZYLLM_DEEPSEEK_API_KEY:-}
       EVO_OPENCODE_PROVIDER: ${EVO_OPENCODE_PROVIDER:-maas}
       EVO_OPENCODE_MODEL: ${EVO_OPENCODE_MODEL:-minimax-m27}
       EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-2400}
+      EVO_OPENCODE_SKIP_PERMISSIONS: ${EVO_OPENCODE_SKIP_PERMISSIONS:-true}
       EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
       EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
       EVO_EMBED_ROLE: ${EVO_EMBED_ROLE:-evo_embed}
-      EVO_KB_BASE_URL: http://172.17.0.1:8055
-      EVO_CHUNK_BASE_URL: http://172.17.0.1:8055
+      EVO_KB_BASE_URL: ${EVO_KB_BASE_URL:-http://doc-server:8000}
+      EVO_CHUNK_BASE_URL: ${EVO_CHUNK_BASE_URL:-http://doc-server:8000}
       EVO_TARGET_CHAT_URL: ${EVO_TARGET_CHAT_URL:-http://chat:8046/api/chat}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
+      EVO_EVAL_MAX_WORKERS: ${EVO_EVAL_MAX_WORKERS:-1}
+      EVO_RAG_MAX_RETRIES: ${EVO_RAG_MAX_RETRIES:-3}
+      EVO_RAG_RETRY_BACKOFF_S: ${EVO_RAG_RETRY_BACKOFF_S:-2}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.yaml}
+      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-false}
       MAAS_BASE_URL: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
       MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-minimax-m27}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
@@ -648,8 +691,13 @@ services:
       - /tmp/evo:/var/lib/lazyrag/evo
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}:ro
       - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
+      - ./evo/datagen/rag_client.py:/app/evo/datagen/rag_client.py:ro
+      - ./evo/datagen/evaluate.py:/app/evo/datagen/evaluate.py:ro
+      - ./evo/abtest/runner.py:/app/evo/abtest/runner.py:ro
+      - ./evo/service/threads/driver.py:/app/evo/service/threads/driver.py:ro
+      - ./evo/service/threads/hub.py:/app/evo/service/threads/hub.py:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8047/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8048/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
