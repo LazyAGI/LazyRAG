@@ -46,7 +46,13 @@ class OpsExecutor:
             args = dict(op.args)
             if thread_id:
                 args['thread_id'] = thread_id
-            args = _validate_args(op.op, args)
+            try:
+                args = _validate_args(op.op, args)
+            except ValueError as exc:
+                results.append(
+                    OpResult(op=op.op, status='rejected', error={'code': 'VALIDATION_ERROR', 'message': str(exc)})
+                )
+                continue
             handler = OP_HANDLERS.get(op.op)
             if handler is None:
                 results.append(

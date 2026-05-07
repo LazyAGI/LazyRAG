@@ -162,6 +162,7 @@ class ThreadDriver:
             if result.error:
                 if attempt < 3:
                     continue
+                _emit_op_failed(elog, op_name, result.error)
                 self._fail_thread(ws, elog, RuntimeError(str(result.error)), result.task_id)
                 return None
             if result.status == 'cancelled':
@@ -186,6 +187,11 @@ class ThreadDriver:
             if result.status != 'submitted':
                 return {}
             if not result.task_id:
+                _emit_op_failed(
+                    elog,
+                    op_name,
+                    {'code': 'TASK_ID_MISSING', 'message': f'{op_name} submitted no task_id'},
+                )
                 self._fail_thread(ws, elog, RuntimeError(f'{op_name} submitted no task_id'))
                 return None
             task = self._wait_task(result.task_id, elog, ws)
@@ -522,6 +528,23 @@ def _emit_flow_control(ws: ThreadWorkspace, row: dict | None, event: str) -> Non
         return
     EventLog(ws.events_path).append_event(
         tag, task_id=(row or {}).get('id'), payload={'status': (row or {}).get('status')}
+    )
+
+
+def _emit_op_failed(elog: EventLog, op_name: str, error: dict) -> None:
+    flow = op_name.split('.', 1)[0]
+    if flow not in MAIN_FLOWS:
+        return
+    elog.append_event(
+        f'{flow}.failed',
+        payload={
+            f'{flow}_id': None,
+            'status': 'failed',
+            'terminal_status': 'rejected',
+            'error_code': error.get('code'),
+            'error_kind': 'permanent',
+            'message': error.get('message'),
+        },
     )
 
 

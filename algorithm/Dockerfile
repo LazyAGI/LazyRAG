@@ -98,6 +98,7 @@ RUN pip install --no-cache-dir \
     --default-timeout="${PIP_DEFAULT_TIMEOUT}" \
     --retries="${PIP_RETRIES}" \
     -r requirements.txt
+RUN cd /opt/lazyllm && lazyllm install rag
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
 ENV PYTHONPATH=/app/lazyllm:/app

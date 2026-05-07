@@ -148,11 +148,12 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
         row = _store.transition(ctx.store, tid, action, error_code=code, error_kind=kind)
         if elog:
             elog.append_event(
-                'apply.finish',
+                'apply.failed',
                 task_id=tid,
                 payload={
                     'apply_id': tid,
-                    'status': result.status,
+                    'status': 'failed',
+                    'apply_status': result.status,
                     'terminal_status': row.get('status'),
                     'error_code': code,
                     'error_kind': kind,
