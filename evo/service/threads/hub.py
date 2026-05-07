@@ -133,6 +133,8 @@ class ThreadHub:
         ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id, create=False)
         if not ws.thread_meta_path.exists():
             raise HTTPException(404, f'thread {thread_id} not found')
+        self.driver.reconcile_checkpoint(thread_id)
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id, create=False)
         elog = EventLog(ws.events_path)
         _append_message(ws.messages_path, 'user', content)
         elog.append_event('message.user', payload={'content': content})
@@ -331,6 +333,8 @@ class ThreadHub:
         ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id, create=False)
         if not ws.thread_meta_path.exists():
             raise HTTPException(404, f'thread {thread_id} not found')
+        self.driver.reconcile_checkpoint(thread_id)
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id, create=False)
         elog = EventLog(ws.events_path)
         _append_message(ws.messages_path, 'user', content)
         elog.append_event('message.user', payload={'content': content})
@@ -389,6 +393,28 @@ class ThreadHub:
         name = op.get('op')
         args = op.get('args') or {}
         checkpoint = ws.load_checkpoint()
+        if name == 'checkpoint.rewind':
+            op_to_run = _rewind_op(self.jm, ws, args)
+            if checkpoint:
+                ws.clear_checkpoint()
+            elog.append_event(
+                'checkpoint.rewind',
+                payload={
+                    'checkpoint_id': (checkpoint or {}).get('checkpoint_id'),
+                    'to_stage': args.get('to_stage'),
+                    'input_patch': args.get('input_patch') or {},
+                    'op': op_to_run,
+                    'reason': args.get('reason'),
+                },
+            )
+            for row in _active_rows(self.jm, thread_id):
+                try:
+                    self.jm.cancel(row['id'])
+                except Exception:
+                    pass
+            self.driver._write_runtime(ws, {'status': 'running', 'active_task_id': None, 'pending_checkpoint': None})
+            self.driver.run_ops_async(thread_id, [op_to_run], source='checkpoint')
+            return
         if not checkpoint:
             return
         if name == 'checkpoint.answer':
@@ -410,6 +436,36 @@ class ThreadHub:
             next_op = checkpoint.get('next_op')
             if not next_op:
                 return
+            runtime = _thread_runtime(ws)
+            if runtime.get('status') == 'running':
+                elog.append_event(
+                    'checkpoint.continue_blocked',
+                    payload={
+                        'checkpoint_id': checkpoint.get('checkpoint_id'),
+                        'active_task_id': runtime.get('active_task_id'),
+                        'next_op': next_op,
+                        'reason': 'thread_running',
+                    },
+                )
+                return
+            active = _active_rows(self.jm, thread_id)
+            if active:
+                active.sort(key=lambda r: r.get('created_at', 0.0), reverse=True)
+                active_id = active[0].get('id')
+                elog.append_event(
+                    'checkpoint.continue_blocked',
+                    payload={
+                        'checkpoint_id': checkpoint.get('checkpoint_id'),
+                        'active_task_id': active_id,
+                        'next_op': next_op,
+                        'reason': 'active_task_running',
+                    },
+                )
+                self.driver._write_runtime(
+                    ws,
+                    {'status': 'running', 'active_task_id': active_id, 'pending_checkpoint': checkpoint},
+                )
+                return
             ws.clear_checkpoint()
             elog.append_event(
                 'checkpoint.continue',
@@ -422,26 +478,6 @@ class ThreadHub:
             self.driver._write_runtime(ws, {'status': 'running', 'active_task_id': None, 'pending_checkpoint': None})
             self.driver.run_ops_async(thread_id, [next_op], source='checkpoint')
             return
-        if name == 'checkpoint.rewind':
-            op_to_run = _rewind_op(self.jm, ws, args)
-            ws.clear_checkpoint()
-            elog.append_event(
-                'checkpoint.rewind',
-                payload={
-                    'checkpoint_id': checkpoint.get('checkpoint_id'),
-                    'to_stage': args.get('to_stage'),
-                    'input_patch': args.get('input_patch') or {},
-                    'op': op_to_run,
-                    'reason': args.get('reason'),
-                },
-            )
-            for row in _active_rows(self.jm, thread_id):
-                try:
-                    self.jm.cancel(row['id'])
-                except Exception:
-                    pass
-            self.driver._write_runtime(ws, {'status': 'running', 'active_task_id': None, 'pending_checkpoint': None})
-            self.driver.run_ops_async(thread_id, [op_to_run], source='checkpoint')
 
     def start(self, thread_id: str) -> dict:
         return self.driver.start(thread_id)
@@ -742,24 +778,26 @@ def _flow_status(
     runtime: dict, rows: list[dict], active_tasks: list[dict], checkpoint: dict | None, ended: bool
 ) -> str:
     runtime_status = runtime.get('status')
-    if runtime_status in {'failed', 'cancelled', 'paused'}:
+    if runtime_status in {'cancelled', 'paused'}:
         return str(runtime_status)
     if active_tasks:
         return 'running'
+    if runtime_status == 'failed':
+        return 'failed'
     if _is_terminal_checkpoint(checkpoint):
         return 'ended'
     if checkpoint:
         return 'waiting_checkpoint'
     if not rows:
         return 'running' if runtime_status == 'running' else 'idle'
+    if runtime_status == 'running':
+        return 'running'
     if terminal_status := _latest_terminal_status(rows):
         return terminal_status
     if ended:
         return 'ended'
     if runtime_status in {'ended', 'idle'}:
         return str(runtime_status)
-    if runtime_status == 'running':
-        return 'running'
     return 'idle'
 
 

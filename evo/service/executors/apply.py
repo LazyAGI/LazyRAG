@@ -4,6 +4,8 @@ import logging
 import os
 import shutil
 import subprocess
+import uuid
+import urllib.request
 from evo.apply import GitWorkspace
 from evo.apply.errors import classify
 from evo.apply.runner import ApplyOptions, RoundResult, execute_apply
@@ -58,6 +60,9 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
     def on_round(rr: RoundResult) -> None:
         _record_round(ctx, tid, rr)
 
+    def on_round_start(rr: RoundResult) -> None:
+        _record_round_start(ctx, tid, rr)
+
     def on_proc(proc: subprocess.Popen) -> None:
         ctx.register_proc(tid, proc)
 
@@ -70,6 +75,7 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
         options=opts,
         cancel_token=token,
         on_round=on_round,
+        on_round_start=on_round_start,
         on_proc=on_proc,
         resume=resume,
     )
@@ -100,6 +106,7 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
         candidate = None
         try:
             candidate = _launch_candidate_chat(ctx, tid, cur.get('thread_id'), workspace.worktree_path(tid))
+            _smoke_test_candidate_chat(ctx, cur.get('thread_id'), candidate)
             ctx.update_payload(
                 tid,
                 {
@@ -110,6 +117,8 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
                 },
             )
         except Exception as exc:
+            if candidate:
+                _discard_candidate_chat(ctx, candidate)
             ctx.update_payload(
                 tid,
                 {
@@ -155,6 +164,23 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
             )
 
 
+def _record_round_start(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
+    _store.append_round(ctx.store, tid, rr.index, phase='running')
+    _store.patch(ctx.store, tid, current_round=rr.index, current_step=f'round_{rr.index:03d}.opencode')
+    c = _store.get(ctx.store, tid) or {}
+    wid = c.get('thread_id')
+    if wid:
+        EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, wid).events_path).append_event(
+            'apply.round.diff',
+            task_id=tid,
+            payload={
+                'round': rr.index,
+                'phase': 'running',
+                'diff_summary': f'Round {rr.index}: opencode is running.',
+            },
+        )
+
+
 def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
     _store.append_round(ctx.store, tid, rr.index, phase='running')
     _store.update_round(
@@ -168,7 +194,7 @@ def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
         error_json=json.dumps(rr.error, ensure_ascii=False) if rr.error else None,
         finished_at=rr.finished_at,
     )
-    _store.patch(ctx.store, tid, current_round=rr.index)
+    _store.patch(ctx.store, tid, current_round=rr.index, current_step=f'round_{rr.index:03d}.completed')
     c = _store.get(ctx.store, tid) or {}
     wid = c.get('thread_id')
     if wid:
@@ -202,6 +228,91 @@ def _launch_candidate_chat(ctx: ExecCtx, apply_id: str, thread_id: str | None, w
     candidate = runner.launch(source_dir=worktree, label=f'apply-{apply_id[-6:]}', env=env, owner_thread_id=thread_id)
     ctx.chat_registry.register(candidate)
     return candidate
+
+
+def _discard_candidate_chat(ctx: ExecCtx, candidate: object) -> None:
+    chat_id = getattr(candidate, 'chat_id', '')
+    if not chat_id:
+        return
+    try:
+        ctx.chat_runner_factory().stop(chat_id)
+    except Exception:
+        pass
+    try:
+        ctx.chat_registry.purge(chat_id)
+    except Exception:
+        pass
+
+
+def _smoke_test_candidate_chat(ctx: ExecCtx, thread_id: str | None, candidate: object) -> None:
+    payload = _candidate_smoke_payload(ctx, thread_id)
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        f"{candidate.base_url.rstrip('/')}/api/chat",
+        data=data,
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
+    timeout_s = float(os.getenv('EVO_APPLY_SMOKE_TIMEOUT_S', '120'))
+    log.info('candidate smoke chat: url=%s query_len=%d', req.full_url, len(str(payload.get('query') or '')))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            raw = resp.read().decode('utf-8')
+    except Exception as exc:
+        raise RuntimeError(f'candidate smoke chat request failed: {exc}') from exc
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f'candidate smoke chat returned invalid JSON: {raw[:500]}') from exc
+    if not isinstance(result, dict):
+        raise RuntimeError(f'candidate smoke chat returned {type(result).__name__}')
+    code = result.get('code')
+    if code not in (None, 200):
+        message = result.get('msg') or result.get('message') or result
+        raise RuntimeError(f'candidate smoke chat failed: {message}')
+
+
+def _candidate_smoke_payload(ctx: ExecCtx, thread_id: str | None) -> dict:
+    inputs = _thread_inputs(ctx, thread_id)
+    case = _first_dataset_case(ctx, thread_id)
+    query = str(
+        case.get('question') or case.get('query') or inputs.get('smoke_query') or os.getenv('EVO_APPLY_SMOKE_QUERY', '你好')
+    ).strip()
+    payload = {'query': query, 'trace': False, 'session_id': f'evo-apply-smoke-{uuid.uuid4().hex}'}
+    dataset_name = inputs.get('dataset_name') or inputs.get('algo_id')
+    if dataset_name and not str(dataset_name).startswith('ds_'):
+        payload['dataset'] = dataset_name
+    kb_id = inputs.get('kb_id')
+    if kb_id:
+        payload['filters'] = {'kb_id': kb_id}
+    return payload
+
+
+def _thread_inputs(ctx: ExecCtx, thread_id: str | None) -> dict:
+    if not thread_id:
+        return {}
+    path = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id, create=False).thread_meta_path
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
+    return data.get('inputs') if isinstance(data.get('inputs'), dict) else {}
+
+
+def _first_dataset_case(ctx: ExecCtx, thread_id: str | None) -> dict:
+    if not thread_id:
+        return {}
+    ws = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id, create=False)
+    for dataset_id in reversed(ws.load_artifacts().get('dataset_ids') or []):
+        path = ctx.cfg.storage.base_dir / 'datasets' / dataset_id / 'eval_data.json'
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        cases = data.get('cases') if isinstance(data, dict) else None
+        if cases and isinstance(cases[0], dict):
+            return cases[0]
+    return {}
 
 
 def _candidate_payload(candidate) -> dict:

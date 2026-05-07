@@ -30,4 +30,4 @@ if [ "${EVO_BOOTSTRAP_PIP_INSTALL:-0}" = "1" ] && [ -f /app/evo/requirements.txt
   pip install -r /app/evo/requirements.txt
 fi
 
-exec uvicorn evo.service.api:get_app --factory --host 0.0.0.0 --port 8047
+exec uvicorn evo.service.api:get_app --factory --host 0.0.0.0 --port 8048

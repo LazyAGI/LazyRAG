@@ -277,6 +277,7 @@ def execute_apply(
     options: ApplyOptions | None = None,
     cancel_token: Any | None = None,
     on_round: Callable[[RoundResult], None] | None = None,
+    on_round_start: Callable[[RoundResult], None] | None = None,
     on_proc: Callable[[Any], None] | None = None,
     resume: bool = False,
 ) -> ApplyResult:
@@ -347,6 +348,8 @@ def execute_apply(
         rr = RoundResult(index=i, started_at=time.time())
         prompt = _build_prompt(options.instruction, plan, allow_lines, prior_failure)
         (round_dir / 'input' / 'prompt.txt').write_text(prompt, encoding='utf-8')
+        if on_round_start:
+            on_round_start(rr)
         try:
             outcome = oc.run_opencode(
                 prompt,

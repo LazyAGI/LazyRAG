@@ -42,7 +42,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 target_chat_url=target_chat_url or '',
                 cfg=ctx.cfg,
                 llm_factory=_eval_judge_llm_factory(ctx),
-                max_workers=(payload.get('eval_options') or {}).get('max_workers', 10),
+                max_workers=_eval_max_workers(payload),
                 dataset_name=(payload.get('eval_options') or {}).get('dataset_name', ''),
                 filters=(payload.get('eval_options') or {}).get('filters') or {},
                 persist_report=False,
@@ -114,3 +114,10 @@ def _eval_judge_llm_factory(ctx: ExecCtx):
         return call
 
     return factory
+
+
+def _eval_max_workers(payload: dict[str, Any]) -> int:
+    raw = (payload.get('eval_options') or {}).get('max_workers')
+    if raw is None:
+        raw = os.getenv('EVO_EVAL_MAX_WORKERS', '3')
+    return max(1, int(raw))

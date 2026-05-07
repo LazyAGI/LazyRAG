@@ -178,6 +178,8 @@ services:
       network: host
       context: ./backend
       dockerfile: auth-service/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     volumes:
       - ./api/backend:/openapi-export
     expose:
@@ -211,6 +213,8 @@ services:
       network: host
       context: ./backend
       dockerfile: office-convert-service/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
     expose:
       - "8080"
     environment:
@@ -266,7 +270,7 @@ services:
         condition: service_healthy
 
   core-dev:
-    image: golang:1.24-alpine
+    image: golang:1.24
     working_dir: /app
     command: ["sleep", "infinity"]
     volumes:
@@ -305,6 +309,12 @@ services:
       network: host
       context: .
       dockerfile: backend/core/doc/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -435,6 +445,12 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -467,6 +483,12 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -505,8 +527,19 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
+        PIP_RETRIES: ${PIP_RETRIES:-20}
     expose:
       - "8000"
+    volumes:
+      - ./algorithm/chat/runtime_models.yaml:/app/chat/runtime_models.yaml:ro
+      - ./algorithm/chat/runtime_models.inner.yaml:/app/chat/runtime_models.inner.yaml:ro
+      - ./algorithm/chat/utils/load_config.py:/app/chat/utils/load_config.py:ro
+      - ./algorithm/chat/pipelines/builders/get_ppl_search.py:/app/chat/pipelines/builders/get_ppl_search.py:ro
     healthcheck:
       test: ['CMD-SHELL', 'python parsing/healthcheck.py']
       interval: 15s
@@ -612,9 +645,9 @@ services:
         - apt_http_proxy
         - apt_https_proxy
     expose:
-      - "8047"
+      - "8048"
     ports:
-      - "8048:8047"
+      - "8048:8048"
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
@@ -636,8 +669,13 @@ services:
       - /tmp/evo:/var/lib/lazyrag/evo
       - ./data/core/uploads:/var/lib/lazyrag/uploads:ro
       - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
+      - ./evo/datagen/rag_client.py:/app/evo/datagen/rag_client.py:ro
+      - ./evo/datagen/evaluate.py:/app/evo/datagen/evaluate.py:ro
+      - ./evo/abtest/runner.py:/app/evo/abtest/runner.py:ro
+      - ./evo/service/threads/driver.py:/app/evo/service/threads/driver.py:ro
+      - ./evo/service/threads/hub.py:/app/evo/service/threads/hub.py:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8047/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8048/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3

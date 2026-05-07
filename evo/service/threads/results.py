@@ -84,14 +84,26 @@ def build_results_router(*, base_dir: Path, store: _store.FsStateStore) -> APIRo
     def diffs(thread_id: str) -> list[dict]:
         ws = _ws(base_dir, thread_id)
         out = []
-        for row in _store.list_flow_tasks_by_thread(store, 'apply', thread_id):
+        rows = sorted(
+            _store.list_flow_tasks_by_thread(store, 'apply', thread_id),
+            key=lambda r: r.get('created_at') or 0.0,
+            reverse=True,
+        )
+        for idx, row in enumerate(rows):
             apply_id = row['id']
             preview = _preview_index_path(base_dir, ws, apply_id)
             preview_data = _read_json(preview) or {}
+            payload = row.get('payload') or {}
+            result = payload.get('result') if isinstance(payload.get('result'), dict) else {}
             out.append(
                 {
                     'apply_id': apply_id,
                     'status': row.get('status'),
+                    'created_at': row.get('created_at'),
+                    'updated_at': row.get('updated_at'),
+                    'terminal_at': row.get('terminal_at'),
+                    'final_commit': row.get('final_commit') or result.get('final_commit'),
+                    'is_latest': idx == 0,
                     'preview_path': str(preview) if preview.is_file() else None,
                     'preview': preview_data or None,
                     'files': _diff_files(preview_data),
