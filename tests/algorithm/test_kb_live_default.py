@@ -117,5 +117,6 @@ def test_kb_get_parent_node_by_node_id(monkeypatch):
     assert result['items'][0]['text'] == 'parent text'
     assert [call['index'] for call in calls] == ['col_general_algo_block', 'col_general_algo_block']
 
+
 if __name__ == '__main__':
     test_kb_search_default_kb_branch()

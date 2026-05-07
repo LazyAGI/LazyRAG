@@ -18,10 +18,11 @@ from lazyllm.tools.agent.functionCall import FunctionCall
 from lazyllm.tools.fs.client import FS
 from lazyllm.tools.sandbox.sandbox_base import create_sandbox  # noqa: F401
 
+from config import config as _cfg
+
 
 from chat.components.agentic.config import (  # noqa: E402
     _build_runtime_system_prompt,
-    _env_int,
     _filter_tools_for_request,
     _get_runtime_agent_defaults,
     _normalize_available_skills,
@@ -44,7 +45,8 @@ from chat.components.agentic.tool_stream import (  # noqa: E402
     _stream_frame,
     _tool_call_id,
 )
-from chat.pipelines.builders.get_models import get_automodel  # noqa: E402
+from lazyllm import AutoModel  # noqa: E402
+from chat.utils.load_config import get_config_path  # noqa: E402
 
 
 class _StreamingFunctionCall(FunctionCall):
@@ -168,7 +170,7 @@ def agentic_forward(
     if not isinstance(config, dict):
         config = {}
 
-    llm = get_automodel('llm')
+    llm = AutoModel(model='llm', config=get_config_path())
     available_tools = _filter_tools_for_request(
         _normalize_available_tools(config.get('available_tools')),
         config,
@@ -184,7 +186,7 @@ def agentic_forward(
     agent_kwargs = {
         'llm': llm,
         'tools': available_tools,
-        'max_retries': _env_int('LAZYRAG_MAX_RETRIES', 20),
+        'max_retries': _cfg['max_retries'],
         'return_trace': config.get('return_trace', False),
         'stream': bool(stream_event_callback),
         'prompt': runtime_prompt,
@@ -221,8 +223,8 @@ def agentic_forward(
         available_tools=available_tools,
         tool_turns=tool_turns,
         user_turns=user_turns,
-        memory_review_interval=_env_int('LAZYRAG_MEMORY_REVIEW_INTERVAL', 1),
-        skill_review_interval=_env_int('LAZYRAG_SKILL_REVIEW_INTERVAL', 5),
+        memory_review_interval=_cfg['memory_review_interval'],
+        skill_review_interval=_cfg['skill_review_interval'],
     )
     if review_mode is not None:
         _spawn_background_review(

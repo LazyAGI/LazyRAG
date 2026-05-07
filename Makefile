@@ -4,11 +4,11 @@
 
 # Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
 # (which often times out in restricted networks). Override with: make up DOCKER_BUILDKIT=1
-export DOCKER_BUILDKIT ?= 0
+export DOCKER_BUILDKIT ?= 1
 PYTHON ?= python3
-PIP ?= pip
-GO ?= go
 PIP ?= $(PYTHON) -m pip
+GO ?= go
+comma := ,
 
 # ---------------------------------------------------------------------------
 # Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
@@ -52,117 +52,72 @@ export RAGSCAN_FILE_WATCHER_MODE RAGSCAN_WATCH_HOST_DIR RAGSCAN_WATCH_CONTAINER_
 export RAGSCAN_HOST_PATH_STYLE
 
 # ---------------------------------------------------------------------------
-# Environment variables (override via: make up LAZYRAG_OCR_SERVER_TYPE=mineru)
+# Environment variables (override via: make up VAR=value, or set in .env)
+# Only variables that users are likely to change are listed here.
+# Internal service URLs, version pins, and fixed paths are hardcoded in docker-compose.yml.
 # ---------------------------------------------------------------------------
-# Auth
+
+# Auth — credentials and secrets (change in production)
 LAZYRAG_DATABASE_URL ?= postgresql+psycopg://app:app@db:5432/app
 LAZYRAG_JWT_SECRET ?= dev-secret-change-me
-LAZYRAG_JWT_TTL_MINUTES ?= 60
-LAZYRAG_JWT_REFRESH_TTL_DAYS ?= 7
 LAZYRAG_BOOTSTRAP_ADMIN_USERNAME ?= admin
 LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD ?= admin
-LAZYRAG_AUTH_API_PERMISSIONS_FILE ?=
+LAZYRAG_RESET_ALGO_ON_STARTUP ?= false
 
-# Core / ACL
-ACL_DB_DRIVER ?= postgres
-ACL_DB_DSN ?= host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC
+# Core database
 LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/core
-# For docker-compose, core reaches chat via service DNS name.
-LAZYRAG_CHAT_SERVICE_URL ?= http://chat:8046
-LAZYRAG_CORE_SERVICE_URL ?= http://core:8000
-LAZYRAG_WORD_GROUP_APPLY_URL ?=
 
-# Processor
-LAZYRAG_DOCUMENT_PROCESSOR_PORT ?= 8000
-LAZYRAG_DOCUMENT_WORKER_PORT ?= 8001
-LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS ?= 1
-LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION ?= 300
-LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL ?= 60
-LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES ?=
-LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY ?= false
-LAZYRAG_DOCUMENT_WORKER_POLL_MODE ?= direct
-
-# Parsing / OCR (none=built-in PDFReader, mineru, paddleocr)
-LAZYRAG_DOCUMENT_PROCESSOR_URL ?= http://processor-server:8000
-LAZYRAG_DOCUMENT_SERVICE_URL ?= http://lazyllm-doc-server:8000
-LAZYRAG_PARSING_SERVICE_URL ?= http://lazyllm-parse-server:8000
-LAZYRAG_DOCUMENT_SERVER_PORT ?= 8000
+# OCR backend selection (none=built-in PDFReader, mineru, paddleocr)
+# Auto-derives LAZYRAG_OCR_SERVER_URL when not set.
 LAZYRAG_OCR_SERVER_TYPE ?= none
-LAZYRAG_MODEL_CONFIG_PATH ?=
-# Auto-derive URL from type when not set: mineru->http://mineru:8000, paddleocr->http://paddleocr:8080, none->placeholder
 LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
-LAZYRAG_MINERU_UPLOAD_MODE ?=
 
-# Vector / segment stores (required when using Processor/Worker). Default URIs use built-in services.
-# If user provides external URIs, milvus/opensearch are not deployed.
+# Vector / segment stores — override to use external services (skips built-in profile)
 LAZYRAG_MILVUS_URI ?= http://milvus:19530
 LAZYRAG_OPENSEARCH_URI ?= https://opensearch:9200
 LAZYRAG_OPENSEARCH_USER ?= admin
 LAZYRAG_OPENSEARCH_PASSWORD ?= LazyRAG_OpenSearch123!
+
+# Dashboard toggles (set to 1 to enable Attu / OpenSearch Dashboards)
 LAZYRAG_ENABLE_STORE_DASHBOARDS ?= 0
 LAZYRAG_ENABLE_MILVUS_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
 LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
 
-# MinerU
-LAZYRAG_MINERU_SERVER_PORT ?= 8000
-LAZYRAG_MINERU_VERSION ?= 2.7.1
-LAZYRAG_MINERU_PACKAGE_VARIANT ?= pipeline
-LAZYRAG_MINERU_PREINSTALL_CPU_TORCH ?= 1
-LAZYRAG_MINERU_TORCH_VERSION ?= 2.11.0
-LAZYRAG_MINERU_TORCHVISION_VERSION ?= 0.26.0
-LAZYRAG_MINERU_NUMPY_VERSION ?= 1.26.4
-LAZYRAG_MINERU_PYTORCH_INDEX_URL ?= https://download.pytorch.org/whl/cpu
-LAZYRAG_MINERU_PYPI_INDEX_URL ?= https://mirrors.aliyun.com/pypi/simple/
-LAZYRAG_MINERU_BACKEND ?= pipeline
-LAZYRAG_MINERU_CACHE_DIR ?= /app/.mineru-cache
-LAZYRAG_MINERU_IMAGE_SAVE_DIR ?= /app/.mineru-images
-
-# Chat
-LAZYRAG_DOCUMENT_SERVER_URL ?= http://parsing:8000
+# Chat tuning
 LAZYRAG_MAX_CONCURRENCY ?= 10
 LAZYRAG_LLM_PRIORITY ?= 0
-LAZYRAG_CHAT_PROMPT ?=
 
-# PaddleOCR (when LAZYRAG_OCR_SERVER_TYPE=paddleocr)
-PADDLEOCR_VLM_IMAGE_TAG ?= latest-nvidia-gpu
-PADDLEOCR_API_IMAGE_TAG ?= latest-nvidia-gpu
-PADDLEOCR_VLM_BACKEND ?= vllm
+# Tracing (set LAZYLLM_TRACE_ENABLED=0 to disable; requires LANGFUSE_* keys when enabled)
+LAZYLLM_TRACE_ENABLED ?= 1
+LAZYLLM_TRACE_BACKEND ?= langfuse
 
-# Milvus / OpenSearch (when using built-in profiles)
-MILVUS_IMAGE_TAG ?= v2.6.11
-OPENSEARCH_IMAGE_TAG ?= 2.18.0
-ATTU_IMAGE_TAG ?= v2.6.3
+# MinIO credentials (used by built-in Milvus profile)
 MINIO_ACCESS_KEY ?= minioadmin
 MINIO_SECRET_KEY ?= minioadmin
 
-# JuiceFS S3 Gateway
-JUICEFS_MINIO_USER ?= minioadmin
-JUICEFS_MINIO_PASSWORD ?= minioadmin
-JUICEFS_ACCESS_KEY ?= juicefs
-JUICEFS_SECRET_KEY ?= juicefs123
+# pip timeout
+PIP_DEFAULT_TIMEOUT ?= 2400
+PIP_RETRIES ?= 10
 
-export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET LAZYRAG_JWT_TTL_MINUTES LAZYRAG_JWT_REFRESH_TTL_DAYS
-export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD LAZYRAG_AUTH_API_PERMISSIONS_FILE
-export ACL_DB_DRIVER ACL_DB_DSN LAZYRAG_CORE_DATABASE_URL LAZYRAG_CHAT_SERVICE_URL
-export LAZYRAG_CORE_SERVICE_URL LAZYRAG_WORD_GROUP_APPLY_URL
-export LAZYRAG_DOCUMENT_PROCESSOR_PORT LAZYRAG_DOCUMENT_WORKER_PORT LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS
-export LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL
-export LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY
-export LAZYRAG_DOCUMENT_WORKER_POLL_MODE
-export LAZYRAG_DOCUMENT_PROCESSOR_URL LAZYRAG_DOCUMENT_SERVICE_URL LAZYRAG_PARSING_SERVICE_URL
-export LAZYRAG_DOCUMENT_SERVER_PORT LAZYRAG_OCR_SERVER_TYPE LAZYRAG_MODEL_CONFIG_PATH LAZYRAG_OCR_SERVER_URL
-export LAZYRAG_MINERU_UPLOAD_MODE
+# model config path
+LAZYRAG_MODEL_CONFIG_PATH ?= online
+
+# Frontend port (default 8090; override if the port is occupied, e.g. by Cursor)
+LAZYRAG_FRONTEND_PORT ?= 8090
+
+export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET
+export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD
+export LAZYRAG_CORE_DATABASE_URL
+export LAZYRAG_OCR_SERVER_TYPE LAZYRAG_OCR_SERVER_URL
 export LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG_OPENSEARCH_PASSWORD
 export LAZYRAG_ENABLE_STORE_DASHBOARDS LAZYRAG_ENABLE_MILVUS_DASHBOARD LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD
-export LAZYRAG_MINERU_SERVER_PORT LAZYRAG_MINERU_VERSION LAZYRAG_MINERU_PACKAGE_VARIANT
-export LAZYRAG_MINERU_PREINSTALL_CPU_TORCH LAZYRAG_MINERU_TORCH_VERSION LAZYRAG_MINERU_TORCHVISION_VERSION
-export LAZYRAG_MINERU_NUMPY_VERSION
-export LAZYRAG_MINERU_PYTORCH_INDEX_URL LAZYRAG_MINERU_PYPI_INDEX_URL LAZYRAG_MINERU_BACKEND
-export LAZYRAG_MINERU_CACHE_DIR LAZYRAG_MINERU_IMAGE_SAVE_DIR
-export LAZYRAG_DOCUMENT_SERVER_URL LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY LAZYRAG_CHAT_PROMPT
-export PADDLEOCR_VLM_IMAGE_TAG PADDLEOCR_API_IMAGE_TAG PADDLEOCR_VLM_BACKEND
-export MILVUS_IMAGE_TAG OPENSEARCH_IMAGE_TAG ATTU_IMAGE_TAG MINIO_ACCESS_KEY MINIO_SECRET_KEY
-export JUICEFS_MINIO_USER JUICEFS_MINIO_PASSWORD JUICEFS_ACCESS_KEY JUICEFS_SECRET_KEY
+export LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY
+export LAZYLLM_TRACE_ENABLED LAZYLLM_TRACE_BACKEND
+export MINIO_ACCESS_KEY MINIO_SECRET_KEY
+export PIP_DEFAULT_TIMEOUT PIP_RETRIES
+export LAZYRAG_MODEL_CONFIG_PATH
+export LAZYRAG_RESET_ALGO_ON_STARTUP
+export LAZYRAG_FRONTEND_PORT
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend evo
@@ -175,12 +130,16 @@ help:
 	@echo "  make up         - Start services in background (with derived profiles)"
 	@echo "                    file-watcher runs in compose by default"
 	@echo "                    Use RAGSCAN_FILE_WATCHER_MODE=host for host-process debugging"
+	@echo "                    Use SERVICES=svc1,svc2 to start specific services only"
 	@echo "  make up-build   - Build images and start services"
+	@echo "                    Use SERVICES=svc1,svc2 to target specific services"
 	@echo "  make down       - Stop services"
+	@echo "                    Use SERVICES=svc1,svc2 to stop specific services only"
 	@echo "  make build      - Build compose services (mineru profile only when needed)"
+	@echo "                    Use SERVICES=svc1,svc2 to build specific services"
+	@echo "                    Use LAZYRAG_ENABLE_STORE_DASHBOARDS=1 to add Attu/OpenSearch Dashboards for built-in stores"
 	@echo "  make file-watcher-start - Rebuild and start host file-watcher"
 	@echo "  make file-watcher-stop  - Stop host file-watcher started by Makefile"
-	@echo "                    Use LAZYRAG_ENABLE_STORE_DASHBOARDS=1 to add Attu/OpenSearch Dashboards for built-in stores"
 	@echo "  make lint       - Run Python flake8 and Go gofmt checks"
 	@echo "  make test       - Run project test script"
 	@echo "  make clear      - Stop services, remove volumes, clear Python cache"
@@ -230,6 +189,7 @@ _enable_milvus_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_
 _enable_opensearch_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD))
 _need_milvus_dashboard := $(and $(_need_milvus),$(_enable_milvus_dashboard))
 _need_opensearch_dashboard := $(and $(_need_opensearch),$(_enable_opensearch_dashboard))
+
 # Shared compose profile flags for up/down/up-build
 _COMPOSE_PROFILES := $(strip $(if $(_need_mineru),--profile mineru) $(if $(_need_paddleocr),--profile paddleocr) $(if $(_need_milvus),--profile milvus) $(if $(_need_opensearch),--profile opensearch) $(if $(_need_milvus_dashboard),--profile milvus-dashboard) $(if $(_need_opensearch_dashboard),--profile opensearch-dashboard))
 _COMPOSE_FILE_WATCHER_SCALE := $(if $(filter container,$(RAGSCAN_FILE_WATCHER_MODE)),,--scale file-watcher=0)
@@ -239,7 +199,8 @@ _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update -
 
 build:
 	$(_SUBMODULE_INIT)
-	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build
+	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 
 file-watcher-dirs:
 	@mkdir -p "$(RAGSCAN_BASE_ROOT_ABS)" "$(RAGSCAN_BASE_ROOT_ABS)/staging" "$(RAGSCAN_BASE_ROOT_ABS)/snapshots" "$(RAGSCAN_BASE_ROOT_ABS)/logs" "$(RAGSCAN_BASE_ROOT_ABS)/run" "$(RAGSCAN_WATCH_HOST_DIR)"
@@ -302,20 +263,21 @@ up:
 	else \
 		$(MAKE) --no-print-directory file-watcher-build; \
 	fi
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) up $(_COMPOSE_FILE_WATCHER_SCALE) -d
+	$(_SUBMODULE_INIT)
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up $(_COMPOSE_FILE_WATCHER_SCALE) -d \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
 		$(MAKE) --no-print-directory file-watcher-run; \
 	else \
 		echo "✅ file-watcher container enabled"; \
 	fi
-	$(_SUBMODULE_INIT)
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d
 
 down:
 	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
 		$(MAKE) --no-print-directory file-watcher-stop; \
 	fi
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) down
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 
 up-build:
 	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" = "container" ]; then \
@@ -325,7 +287,8 @@ up-build:
 		$(MAKE) --no-print-directory file-watcher-build; \
 	fi
 	$(_SUBMODULE_INIT)
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) up $(_COMPOSE_FILE_WATCHER_SCALE) --build -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up $(_COMPOSE_FILE_WATCHER_SCALE) --build -d \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
 		$(MAKE) --no-print-directory file-watcher-run; \
 	else \

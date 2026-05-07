@@ -17,7 +17,6 @@ ENV PYTHONUNBUFFERED=1 \
     OPENCODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
     EVO_BASE_DIR=/var/lib/lazyrag/evo \
     EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
-    LAZYRAG_USE_INNER_MODEL=true \
     LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
     PYTHONPATH=/app
 

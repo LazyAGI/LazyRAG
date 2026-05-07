@@ -240,3 +240,90 @@ def test_parser_code_hash_returns_sha256_string():
 
     assert isinstance(value, str)
     assert len(value) == 64
+
+
+# ---------------------------------------------------------------------------
+# GroupNodeParser._process_group — plain-text splitting path
+# ---------------------------------------------------------------------------
+
+def test_process_group_returns_single_group_when_total_fits():
+    nodes = [
+        DocNode(text='a' * 100, metadata={'file_name': 'a.pdf'}),
+        DocNode(text='b' * 100, metadata={'file_name': 'a.pdf'}),
+    ]
+    result = GroupNodeParser()._process_group(nodes, max_length=300)
+
+    assert result == [nodes]
+
+
+def test_process_group_splits_when_total_exceeds_max_length():
+    nodes = [
+        DocNode(text='a' * 60, metadata={'file_name': 'a.pdf'}),
+        DocNode(text='b' * 60, metadata={'file_name': 'a.pdf'}),
+        DocNode(text='c' * 60, metadata={'file_name': 'a.pdf'}),
+    ]
+    result = GroupNodeParser()._process_group(nodes, max_length=100)
+
+    assert len(result) >= 2
+    all_nodes = [n for group in result for n in group]
+    assert len(all_nodes) == 3
+
+
+def test_process_group_splits_oversized_single_node():
+    node = DocNode(
+        text='x' * 5000,
+        metadata={'file_name': 'a.pdf', 'type': 'text', 'page': 1, 'bbox': [0, 0, 1, 1]},
+    )
+    result = GroupNodeParser()._process_group([node], max_length=2048)
+
+    assert len(result) >= 2
+    for group in result:
+        assert len(group) == 1
+        assert len(group[0].text) <= 2048
+
+
+def test_process_group_preserves_metadata_on_split_nodes():
+    node = DocNode(
+        text='\n'.join(['line'] * 200),
+        metadata={'file_name': 'a.pdf', 'type': 'text', 'page': 3, 'bbox': [0, 0, 10, 10]},
+    )
+    result = GroupNodeParser()._process_group([node], max_length=200)
+
+    for group in result:
+        for n in group:
+            assert n.metadata['file_name'] == 'a.pdf'
+            assert n.metadata['page'] == 3
+
+
+# ---------------------------------------------------------------------------
+# NodeParser — real pipeline integration (no mock)
+# ---------------------------------------------------------------------------
+
+def test_node_parser_full_pipeline_cleans_and_merges():
+    nodes = [
+        DocNode(
+            text='ＡＢＣ正文内容',
+            metadata={'file_name': 'doc.pdf', 'type': 'text', 'page': 1, 'bbox': [0, 0, 10, 10]},
+        ),
+    ]
+    result = NodeParser().batch_forward(nodes, node_group='block')
+
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    assert result[0]._group == 'block'
+    assert result[0].metadata['index'] == 0
+    assert 'ABC正文内容' in result[0].text
+    assert 'text_type' not in result[0].metadata
+    assert 'table_caption' not in result[0].metadata
+
+
+def test_node_parser_drops_empty_nodes():
+    nodes = [
+        DocNode(text='', metadata={'file_name': 'doc.pdf', 'type': 'text'}),
+        DocNode(text='有效内容', metadata={'file_name': 'doc.pdf', 'type': 'text', 'page': 1, 'bbox': [0, 0, 5, 5]}),
+    ]
+    result = NodeParser().batch_forward(nodes, node_group='block')
+
+    texts = [n.text for n in result]
+    assert '' not in texts
+    assert any('有效内容' in t for t in texts)

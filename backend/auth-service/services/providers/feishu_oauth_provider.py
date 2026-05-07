@@ -41,7 +41,7 @@ def _post_json(url: str, payload: dict, timeout_seconds: int = 30) -> dict:
 def _safe_expires_at(seconds: int | None) -> datetime | None:
     if not seconds or seconds <= 0:
         return None
-    return datetime.now(timezone.utc) + timedelta(seconds=max(0, seconds-_REFRESH_BUFFER_SECONDS))
+    return datetime.now(timezone.utc) + timedelta(seconds=max(0, seconds - _REFRESH_BUFFER_SECONDS))
 
 
 class FeishuOAuthProvider(CloudOAuthProvider):

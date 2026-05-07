@@ -8,8 +8,10 @@ from lazyllm import pipeline, LOG
 from lazyllm.tools.rag import NodeTransform
 from lazyllm.tools.rag.doc_node import DocNode
 
+from config import config as _cfg
 
-IMAGE_PREFIX = os.getenv('RAG_IMAGE_PATH_PREFIX', '/mnt/lustre/share_data/mineru/images/')
+
+IMAGE_PREFIX = _cfg['rag_image_path_prefix']
 IMAGE_PATTERN = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
 
 
@@ -58,7 +60,7 @@ class GeneralParser(NodeTransform):
                     current_chunk = []
                     current_len = 0
                 for i in range(0, part_len, self._max_length):
-                    result_chunks.append(part[i:i+self._max_length])
+                    result_chunks.append(part[i:i + self._max_length])
                 continue
             add_sep = self._len_split if current_chunk else 0
             if current_len + part_len + add_sep > self._max_length:

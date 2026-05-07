@@ -1,62 +1,23 @@
-# Runtime model roles for LazyRAG.
-# Fill in your own online provider config here. Real API keys should come from env vars.
+# Runtime model roles for LazyRAG (online/cloud deployment).
+# All roles use source=dynamic: model config is injected per-request via globals.config.
+# No API keys or URLs here — they are provided by the frontend at runtime.
 
 llm:
-  source: qwen
+  source: dynamic
+  dynamic_auth: true
   type: llm
-  model: ${EVO_MODEL_NAME:-qwen3-max}
-  api_key: ${LAZYLLM_QWEN_API_KEY}
 
 llm_instruct:
-  source: qwen
+  source: dynamic
+  dynamic_auth: true
   type: llm
-  model: ${EVO_MODEL_NAME:-qwen3-max}
-  api_key: ${LAZYLLM_QWEN_API_KEY}
-
-evo_llm:
-  source: openai
-  type: llm
-  model: ${MAAS_MODEL_NAME:-minimax-m27}
-  url: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
-  api_key: ${LAZYRAG_MAAS_API_KEY}
-
-evo_embed:
-    source: qwen
-    type: embed
-    model: text-embedding-v3
-    api_key: ${LAZYLLM_QWEN_API_KEY}
-    index_kwargs:
-      index_type: IVF_FLAT
-      metric_type: COSINE
-      params:
-        nlist: 128
 
 reranker:
-  source: qwen3rerank
+  source: dynamic
+  dynamic_auth: true
   type: rerank
-  model: Qwen3-Reranker-8B
-  url: http://10.119.24.104:8331/v1/rerank
-  api_key: ${LAZYLLM_QWEN_API_KEY}
-  skip_auth: true
 
-embeddings:
-  embed_1:
-    source: qwen
-    type: embed
-    model: text-embedding-v3
-    api_key: ${LAZYLLM_QWEN_API_KEY}
-    index_kwargs:
-      index_type: IVF_FLAT
-      metric_type: COSINE
-      params:
-        nlist: 128
-
-  embed_2:
-    source: qwen
-    type: embed
-    model: text-embedding-v2
-    api_key: ${LAZYLLM_QWEN_API_KEY}
-
-retrieval:
-  temp_doc_embed_key: embed_1
-  file_search_embed_key: embed_1
+embed_main:
+  source: dynamic
+  dynamic_auth: true
+  type: embed

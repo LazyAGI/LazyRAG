@@ -20,11 +20,11 @@ def test_create_context_str_includes_order_and_filename():
 
     context = formatter._create_context_str(nodes)
 
-    assert '文档[[1]]' in context
-    assert '文档名：a.md' in context
+    assert 'Document[[1]]' in context
+    assert 'File name: a.md' in context
     assert 'first body' in context
-    assert '文档[[2]]' in context
-    assert '文档名：b.md' in context
+    assert 'Document[[2]]' in context
+    assert 'File name: b.md' in context
     assert 'second body' in context
 
 
@@ -35,9 +35,9 @@ def test_forward_uses_standard_template_when_nodes_exist():
     result = formatter.forward(nodes, query='what?', image_files=['x.png'])
 
     assert LLM_PROMPT_INSTRUCTIONS.strip() in result
-    assert '参考文档' in result
+    assert 'Reference documents' in result
     assert 'knowledge' in result
-    assert '用户问题：what?' in result
+    assert 'User question: what?' in result
 
 
 def test_forward_uses_multimodal_template_when_only_images():
@@ -46,8 +46,8 @@ def test_forward_uses_multimodal_template_when_only_images():
     result = formatter.forward([], query='image question', image_files=['x.png'])
 
     assert MULTIMODAL_PROMPT_INSTRUCTIONS.strip() in result
-    assert '用户问题：image question' in result
-    assert '参考文档' not in result
+    assert 'image question' in result
+    assert 'Reference documents' not in result
 
 
 def test_forward_falls_back_to_default_without_nodes_or_images():
@@ -55,8 +55,8 @@ def test_forward_falls_back_to_default_without_nodes_or_images():
 
     result = formatter.forward(None, query='fallback question')
 
-    assert '使用你的先验知识回答用户的问题' in result
-    assert '用户问题：fallback question' in result
+    assert 'prior knowledge' in result
+    assert 'fallback question' in result
 
 
 def test_create_context_str_handles_missing_filename_and_keeps_numbering():
@@ -69,8 +69,8 @@ def test_create_context_str_handles_missing_filename_and_keeps_numbering():
 
     context = formatter._create_context_str(nodes)
 
-    assert context.count('文档[[') == 3
-    assert '文档[[1]]' in context
-    assert '文档[[2]]' in context
-    assert '文档[[3]]' in context
-    assert '文档名：None' in context
+    assert context.count('Document[[') == 3
+    assert 'Document[[1]]' in context
+    assert 'Document[[2]]' in context
+    assert 'Document[[3]]' in context
+    assert 'File name: None' in context

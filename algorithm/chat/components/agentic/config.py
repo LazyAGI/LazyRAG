@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Any, Dict, Tuple
 
@@ -15,7 +14,6 @@ from chat.prompts.agentic import (
     _MEMORY_REVIEW_PROMPT,
     _SKILL_REVIEW_PROMPT,
 )
-from chat.utils.load_config import load_model_config
 
 DEFAULT_TOOLS = [
     'kb_search',
@@ -96,16 +94,6 @@ def _normalize_available_skills(skills: Any) -> list[str]:
     return [skill for skill in skills if isinstance(skill, str) and skill]
 
 
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw == '':
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
 def _parse_dataset_url(dataset_url: str) -> Tuple[str, str]:
     parts = [p.strip() for p in str(dataset_url).split(',', 1)]
     kb_url = parts[0] if parts else ''
@@ -183,6 +171,23 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
 
 @lru_cache(maxsize=1)
 def _get_runtime_agent_defaults() -> Dict[str, Any]:
-    config = load_model_config()
-    defaults = config.get('agentic', {})
-    return dict(defaults) if isinstance(defaults, dict) else {}
+    from config import config as _cfg
+    return {
+        'kb_url': _cfg['agentic_kb_url'],
+        'core_api_url': _cfg['core_api_url'],
+        'kb_name': _cfg['agentic_kb_name'],
+        'skill_fs_url': _cfg['skill_fs_url'],
+        'es_url': _cfg['opensearch_uri'],
+        'es_user': _cfg['opensearch_user'],
+        'es_password': _cfg['opensearch_password'],
+        'web_search_timeout': _cfg['web_search_timeout'],
+        'web_search_auto_sources': _cfg['web_search_auto_sources'],
+        'web_search_wikipedia_base_url': _cfg['web_search_wikipedia_base_url'],
+        'web_search_google_api_key': _cfg['web_search_google_api_key'],
+        'web_search_google_search_engine_id': _cfg['web_search_google_search_engine_id'],
+        'web_search_bing_subscription_key': _cfg['web_search_bing_subscription_key'],
+        'web_search_bing_endpoint': _cfg['web_search_bing_endpoint'],
+        'web_search_bocha_api_key': _cfg['web_search_bocha_api_key'],
+        'web_search_bocha_base_url': _cfg['web_search_bocha_base_url'],
+        'arxiv_search_timeout': _cfg['arxiv_search_timeout'],
+    }

@@ -1,26 +1,45 @@
 import lazyllm
-from lazyllm import pipeline, bind
+from lazyllm import AutoModel, pipeline, bind
+from lazyllm.module.servermodule import StreamCallHelper
 from chat.components.generate import AggregateComponent, RAGContextFormatter, CustomOutputParser
-from chat.pipelines.builders import get_automodel
 from chat.prompts.rag_answer import RAG_ANSWER_SYSTEM
 from chat.config import LLM_TYPE_THINK
 
-
-def _answer_llm():
-    wrapped = get_automodel('llm', wrap_simple_llm=True)
-    inner = wrapped.llm
-    if getattr(inner, '_prompt', None) is not None:
-        inner._prompt._set_model_configs(system=RAG_ANSWER_SYSTEM)
-    return wrapped
+_DEFAULT_LLM_KW = {
+    'temperature': 0.01,
+    'max_tokens': 4096,
+    'frequency_penalty': 0,
+}
 
 
 def get_ppl_generate(stream=False):
+    llm = AutoModel(model='llm', config=True).prompt(RAG_ANSWER_SYSTEM)
+
+    if stream:
+        def llm_caller(query, llm_chat_history=None, files=None, **kw):
+            shared = llm.share()
+            return StreamCallHelper(shared).astream(
+                query,
+                llm_chat_history=llm_chat_history or [],
+                lazyllm_files=files[:2] if files else None,
+                **{**_DEFAULT_LLM_KW, **kw},
+            )
+    else:
+        def llm_caller(query, llm_chat_history=None, files=None, **kw):
+            shared = llm.share()
+            return shared(
+                query,
+                stream_output=False,
+                llm_chat_history=llm_chat_history or [],
+                lazyllm_files=files[:2] if files else None,
+                **{**_DEFAULT_LLM_KW, **kw},
+            )
+
     with lazyllm.save_pipeline_result():
         with pipeline() as ppl:
             ppl.aggregate = AggregateComponent()
             ppl.formatter = RAGContextFormatter() | bind(query=ppl.kwargs['query'], nodes=ppl.aggregate)
-            ppl.answer = _answer_llm() | \
-                bind(stream=stream, llm_chat_history=[], files=[], priority=1)
+            ppl.answer = llm_caller | bind(llm_chat_history=[], files=[], priority=1)
             ppl.parser = CustomOutputParser(llm_type_think=LLM_TYPE_THINK) | bind(
                 stream=stream,
                 recall_result=ppl.input,

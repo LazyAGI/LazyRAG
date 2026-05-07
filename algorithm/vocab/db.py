@@ -13,7 +13,6 @@ Connection priority for vocab reads:
 """
 from __future__ import annotations
 
-import os
 import shlex
 import threading
 from datetime import datetime
@@ -24,12 +23,14 @@ from lazyllm import LOG
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Engine
 
+from config import config as _cfg
+
 VOCAB_SCHEMA = 'public'
 VOCAB_TABLE = 'words'
 VOCAB_TABLE_QUALIFIED = f'{VOCAB_SCHEMA}.{VOCAB_TABLE}'
 VOCAB_REFERENCE_COLUMN = 'reference_info'
 _DB_URL_ENV = 'LAZYRAG_DATABASE_URL'
-_CORE_DB_DSN_ENV = 'ACL_DB_DSN'
+_CORE_DB_DSN_ENV = 'LAZYRAG_ACL_DB_DSN'
 _CORE_DB_URL_ENV = 'LAZYRAG_CORE_DATABASE_URL'
 _VOCAB_DB_ENV_HINT = f'{_CORE_DB_URL_ENV}, {_CORE_DB_DSN_ENV}, or {_DB_URL_ENV}'
 
@@ -44,7 +45,7 @@ _engine_cache_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 
 def _get_db_url() -> Optional[str]:
-    value = os.getenv(_DB_URL_ENV)
+    value = _cfg['database_url']
     return value if value and value.strip() else None
 
 
@@ -109,12 +110,12 @@ def _get_engine(*, url: Optional[str] = None, dsn: Optional[str] = None) -> Engi
 
 
 def _get_core_db_dsn() -> Optional[str]:
-    value = os.getenv(_CORE_DB_DSN_ENV)
+    value = _cfg['acl_db_dsn']
     return value if value and value.strip() else None
 
 
 def _get_core_db_url() -> Optional[str]:
-    value = os.getenv(_CORE_DB_URL_ENV)
+    value = _cfg['core_database_url']
     return value if value and value.strip() else None
 
 

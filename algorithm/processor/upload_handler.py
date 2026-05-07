@@ -11,10 +11,12 @@ from lazyllm.thirdparty import fastapi
 from lazyllm.tools.rag.parsing_service.base import AddDocRequest, FileInfo
 from lazyllm.tools.rag.utils import BaseResponse, gen_docid
 
-UPLOAD_DIR = os.environ.get('LAZYRAG_UPLOAD_DIR', '/app/uploads')
-DEFAULT_ALGO_ID = os.environ.get('LAZYRAG_DEFAULT_ALGO_ID', 'general_algo')
-DEFAULT_GROUP = os.environ.get('LAZYRAG_DEFAULT_GROUP', 'block')
-PROCESSOR_PORT = os.environ.get('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '8000')
+from config import config as _cfg
+
+UPLOAD_DIR = _cfg['upload_dir']
+DEFAULT_ALGO_ID = _cfg['default_algo_id']
+DEFAULT_GROUP = _cfg['default_group']
+PROCESSOR_PORT = _cfg['document_processor_port']
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -92,4 +94,4 @@ def run_upload_server(port: int = 8001):
 
 
 if __name__ == '__main__':
-    run_upload_server(int(os.environ.get('LAZYRAG_UPLOAD_SERVER_PORT', '8001')))
+    run_upload_server(_cfg['upload_server_port'])

@@ -1,8 +1,8 @@
 """Helpers for converting the shared PostgreSQL URL into LazyLLM SqlManager db_config."""
-import os
 from typing import Any, Dict, Optional
 from urllib.parse import unquote, urlparse
 
+from config import config as _cfg
 
 SHARED_DB_ENV_KEY = 'LAZYRAG_DATABASE_URL'
 
@@ -32,7 +32,7 @@ def parse_db_url(url: Optional[str]) -> Optional[Dict[str, Any]]:
 
 def get_shared_database_url() -> Optional[str]:
     """Return the shared PostgreSQL URL configured by docker-compose."""
-    value = os.getenv(SHARED_DB_ENV_KEY)
+    value = _cfg['database_url']
     return value if value and value.strip() else None
 
 

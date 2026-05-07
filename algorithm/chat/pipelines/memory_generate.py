@@ -4,9 +4,9 @@ import json
 import re
 from typing import Any, Dict, List, Literal, Optional
 
-from chat.pipelines.builders.get_models import get_automodel
+from lazyllm import AutoModel
 from chat.tools.skill_manager import _validate_skill_content
-
+from chat.utils.load_config import get_config_path
 MemoryType = Literal['skill', 'memory', 'user_preference']
 
 _MAX_GENERATE_ATTEMPTS = 3
@@ -283,7 +283,7 @@ def _build_generate_prompt(
 
 class MemoryGeneratePipeline:
     def __init__(self) -> None:
-        self.llm = get_automodel('llm_instruct')
+        self.llm = AutoModel(model='llm_instruct', config=get_config_path())
 
     def generate(
         self,

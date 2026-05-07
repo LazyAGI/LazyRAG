@@ -1,11 +1,25 @@
 from typing import List, NamedTuple
 
-from lazyllm import Retriever, bind, pipeline, Document
+from lazyllm import AutoModel, Retriever, bind, pipeline, Document
 from lazyllm.tools.rag import TempDocRetriever
 
-from chat.pipelines.builders.get_models import get_automodel
-from chat.utils.load_config import get_retrieval_settings
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
+from chat.utils.load_config import get_embed_keys
+
+# Primary dense embed role name — always the first embed key in the config.
+EMBED_MAIN = 'embed_main'
+
+
+def _build_default_retriever_configs(topk: int = 20) -> List[dict]:
+    '''Build retriever configs from the active embed keys in the yaml config.
+
+    Mirrors the original _build_default_retriever_configs logic: each embed key
+    gets its own line-level and block-level group entry.  If embed_sparse is not
+    present in the config it is simply omitted — sparse retrieval is optional.
+    '''
+    embed_keys = get_embed_keys() or [EMBED_MAIN]
+    return [{'group_name': 'line', 'embed_keys': embed_keys, 'topk': topk, 'target': 'block'},
+            {'group_name': 'block', 'embed_keys': embed_keys, 'topk': topk}]
 
 
 class SearchRetrievalParts(NamedTuple):
@@ -22,14 +36,14 @@ def get_remote_docment(url: str) -> Document:
     return Document(url=f'{url}/_call', name=name)
 
 
-def get_retriever(url: str, retriever_configs: List[dict], *,
+def get_retriever(url: str, retriever_configs: List[dict] = None, *,
                   tmp_block_topk: int = DEFAULT_TMP_BLOCK_TOPK
                   ) -> SearchRetrievalParts:
+    retriever_configs = retriever_configs or _build_default_retriever_configs()
     document = get_remote_docment(url)
     kb_retrievers = [Retriever(document, **cfg) for cfg in retriever_configs]
 
-    settings = get_retrieval_settings()
-    ref_docs_retriever = TempDocRetriever(embed=get_automodel(settings.temp_doc_embed_key))
+    ref_docs_retriever = TempDocRetriever(embed=AutoModel(model=EMBED_MAIN, config=True))
     ref_docs_retriever.add_subretriever('block', topk=tmp_block_topk)
     with pipeline() as tmp_ppl:
         tmp_ppl.parse_input = lambda input, **kwargs: kwargs.get('files', [])
