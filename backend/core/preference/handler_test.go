@@ -129,6 +129,104 @@ func TestUpsertCreatesThenUpdatesPreference(t *testing.T) {
 	}
 }
 
+func TestInternalUpsertResolvesSessionUserAndClearsDraft(t *testing.T) {
+	db := newPreferenceTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	conversation := orm.Conversation{
+		ID:          "conv-preference-1",
+		DisplayName: "conversation",
+		ChannelID:   "default",
+		BaseModel: orm.BaseModel{
+			CreateUserID:   "u-session",
+			CreateUserName: "Session User",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}
+	if err := db.Create(&conversation).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := db.Create(&orm.ResourceSessionSnapshot{
+		ID:           "snapshot-preference-1",
+		SessionID:    "conv-preference-1-turn-1",
+		UserID:       "u-session",
+		ResourceType: evolution.ResourceTypeUserPreference,
+		ResourceKey:  evolution.SystemResourceKey(evolution.ResourceTypeUserPreference),
+		SnapshotHash: evolution.HashContent("old preference"),
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot: %v", err)
+	}
+	row := orm.SystemUserPreference{
+		ID:                 "preference-1",
+		UserID:             "u-session",
+		Content:            "old preference",
+		ContentHash:        evolution.HashContent("old preference"),
+		Version:            2,
+		DraftContent:       "stale draft",
+		DraftSourceVersion: 2,
+		DraftStatus:        "pending_confirm",
+		UpdatedBy:          "u-session",
+		UpdatedByName:      "Session User",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create preference: %v", err)
+	}
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/core/user_preference/internal-upsert",
+		strings.NewReader(`{"session_id":"conv-preference-1-turn-1","content":"新的正式偏好内容"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	InternalUpsert(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var updated orm.SystemUserPreference
+	if err := db.Where("user_id = ?", "u-session").Take(&updated).Error; err != nil {
+		t.Fatalf("query updated preference: %v", err)
+	}
+	if updated.Content != "新的正式偏好内容" {
+		t.Fatalf("unexpected updated content: %q", updated.Content)
+	}
+	if updated.Version != 3 {
+		t.Fatalf("expected version 3, got %d", updated.Version)
+	}
+	if updated.DraftStatus != "" || updated.DraftContent != "" || updated.DraftSourceVersion != 0 {
+		t.Fatalf("expected draft fields cleared, got %#v", updated)
+	}
+}
+
+func TestInternalUpsertRejectsOversizedContent(t *testing.T) {
+	db := newPreferenceTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/core/user_preference/internal-upsert",
+		strings.NewReader(fmt.Sprintf(`{"session_id":"sid-1","content":"%s"}`, strings.Repeat("a", 1501))),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	InternalUpsert(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDraftPreviewReturnsCurrentDraftAndDiff(t *testing.T) {
 	db := newPreferenceTestDB(t)
 	store.Init(db.DB, nil, nil)

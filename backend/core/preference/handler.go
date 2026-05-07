@@ -2,9 +2,11 @@ package preference
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 
@@ -30,12 +32,92 @@ type upsertRequest struct {
 	Content *string `json:"content"`
 }
 
+type internalUpsertRequest struct {
+	SessionID string  `json:"session_id"`
+	Content   *string `json:"content"`
+}
+
 type draftPreviewResponse struct {
 	DraftStatus        string `json:"draft_status"`
 	DraftSourceVersion int64  `json:"draft_source_version"`
 	CurrentContent     string `json:"current_content"`
 	DraftContent       string `json:"draft_content"`
 	Diff               string `json:"diff"`
+}
+
+const maxManagedContentChars = 1500
+
+func compactManagedContent(content string) string {
+	return strings.Join(strings.Fields(content), "")
+}
+
+func validateManagedContentLength(content string) error {
+	if utf8.RuneCountInString(compactManagedContent(content)) > maxManagedContentChars {
+		return errors.New("content exceeds 1500 characters after removing whitespace")
+	}
+	return nil
+}
+
+func upsertManagedPreferenceContent(r *http.Request, db *gorm.DB, userID, userName, content string, clearDraft bool) (*orm.SystemUserPreference, error) {
+	existing, err := evolution.LoadSystemUserPreference(r.Context(), db, userID)
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	now := time.Now()
+	if existing == nil {
+		row := orm.SystemUserPreference{
+			ID:            evolution.NewID(),
+			UserID:        userID,
+			Content:       content,
+			ContentHash:   evolution.HashContent(content),
+			Version:       1,
+			UpdatedBy:     userID,
+			UpdatedByName: userName,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		if err := db.WithContext(r.Context()).Create(&row).Error; err != nil {
+			return nil, err
+		}
+		return &row, nil
+	}
+
+	update := map[string]any{
+		"content":         content,
+		"content_hash":    evolution.HashContent(content),
+		"version":         existing.Version + 1,
+		"updated_by":      userID,
+		"updated_by_name": userName,
+		"updated_at":      now,
+	}
+	if clearDraft {
+		update["draft_content"] = ""
+		update["draft_source_version"] = 0
+		update["draft_status"] = ""
+		update["draft_updated_at"] = nil
+		update["ext"] = evolution.WithDraftSuggestionIDs(existing.Ext, nil)
+	}
+	if err := db.WithContext(r.Context()).
+		Model(&orm.SystemUserPreference{}).
+		Where("id = ? AND version = ?", existing.ID, existing.Version).
+		Updates(update).Error; err != nil {
+		return nil, err
+	}
+	existing.Content = content
+	existing.ContentHash = evolution.HashContent(content)
+	existing.Version++
+	existing.UpdatedBy = userID
+	existing.UpdatedByName = userName
+	existing.UpdatedAt = now
+	if clearDraft {
+		existing.DraftContent = ""
+		existing.DraftSourceVersion = 0
+		existing.DraftStatus = ""
+		existing.DraftUpdatedAt = nil
+		existing.Ext = evolution.WithDraftSuggestionIDs(existing.Ext, nil)
+	}
+	return existing, nil
 }
 
 func Upsert(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +142,11 @@ func Upsert(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "content required", http.StatusBadRequest)
 		return
 	}
+	content := *req.Content
+	if err := validateManagedContentLength(content); err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	existing, err := evolution.LoadSystemUserPreference(r.Context(), db, userID)
 	if err != nil && err != gorm.ErrRecordNotFound {
@@ -71,57 +158,67 @@ func Upsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
-	content := *req.Content
-	if existing == nil {
-		row := orm.SystemUserPreference{
-			ID:            evolution.NewID(),
-			UserID:        userID,
-			Content:       content,
-			ContentHash:   evolution.HashContent(content),
-			Version:       1,
-			UpdatedBy:     userID,
-			UpdatedByName: userName,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-		}
-		if err := db.WithContext(r.Context()).Create(&row).Error; err != nil {
-			common.ReplyErr(w, "create user_preference failed", http.StatusInternalServerError)
-			return
-		}
-		suggestionStatus, err := evolution.ManagedSuggestionStatusForResource(r.Context(), db, userID, evolution.ResourceTypeUserPreference)
-		if err != nil {
-			common.ReplyErr(w, "query user_preference failed", http.StatusInternalServerError)
-			return
-		}
-		common.ReplyOK(w, evolution.NewManagedStateItem(evolution.ResourceTypeUserPreference, &row, suggestionStatus))
-		return
-	}
-
-	update := map[string]any{
-		"content":         content,
-		"content_hash":    evolution.HashContent(content),
-		"version":         existing.Version + 1,
-		"updated_by":      userID,
-		"updated_by_name": userName,
-		"updated_at":      now,
-	}
-	if err := db.WithContext(r.Context()).Model(&orm.SystemUserPreference{}).Where("id = ? AND version = ?", existing.ID, existing.Version).Updates(update).Error; err != nil {
+	row, err := upsertManagedPreferenceContent(r, db, userID, userName, content, false)
+	if err != nil {
 		common.ReplyErr(w, "update user_preference failed", http.StatusInternalServerError)
 		return
 	}
-	existing.Content = content
-	existing.ContentHash = evolution.HashContent(content)
-	existing.Version++
-	existing.UpdatedBy = userID
-	existing.UpdatedByName = userName
-	existing.UpdatedAt = now
 	suggestionStatus, err := evolution.ManagedSuggestionStatusForResource(r.Context(), db, userID, evolution.ResourceTypeUserPreference)
 	if err != nil {
 		common.ReplyErr(w, "query user_preference failed", http.StatusInternalServerError)
 		return
 	}
-	common.ReplyOK(w, evolution.NewManagedStateItem(evolution.ResourceTypeUserPreference, existing, suggestionStatus))
+	common.ReplyOK(w, evolution.NewManagedStateItem(evolution.ResourceTypeUserPreference, row, suggestionStatus))
+}
+
+func InternalUpsert(w http.ResponseWriter, r *http.Request) {
+	db := store.DB()
+	if db == nil {
+		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
+		return
+	}
+	var req internalUpsertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	if req.SessionID == "" {
+		common.ReplyErr(w, "session_id required", http.StatusBadRequest)
+		return
+	}
+	if req.Content == nil {
+		common.ReplyErr(w, "content required", http.StatusBadRequest)
+		return
+	}
+	content := *req.Content
+	if err := validateManagedContentLength(content); err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	userID, userName, err := evolution.ResolveSessionUser(r.Context(), db, req.SessionID)
+	if err != nil || strings.TrimSpace(userID) == "" {
+		common.ReplyErr(w, "unable to resolve session user", http.StatusBadRequest)
+		return
+	}
+
+	row, err := upsertManagedPreferenceContent(r, db, userID, userName, content, true)
+	if err != nil {
+		common.ReplyErr(w, "update user_preference failed", http.StatusInternalServerError)
+		return
+	}
+	suggestionStatus, err := evolution.ManagedSuggestionStatusForResource(
+		r.Context(),
+		db,
+		userID,
+		evolution.ResourceTypeUserPreference,
+	)
+	if err != nil {
+		common.ReplyErr(w, "query user_preference failed", http.StatusInternalServerError)
+		return
+	}
+	common.ReplyOK(w, evolution.NewManagedStateItem(evolution.ResourceTypeUserPreference, row, suggestionStatus))
 }
 
 func DraftPreview(w http.ResponseWriter, r *http.Request) {

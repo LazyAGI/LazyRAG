@@ -207,7 +207,9 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "GET", "/remote-fs/exists", []string{}, skill.RemoteFSExists)
 	handleAPI(r, "GET", "/remote-fs/content", []string{}, skill.RemoteFSContent)
 	handleAPI(r, "POST", "/memory/suggestion", []string{}, memory.Suggestion)
+	handleAPI(r, "POST", "/memory/internal-upsert", []string{}, memory.InternalUpsert)
 	handleAPI(r, "POST", "/user_preference/suggestion", []string{}, preference.Suggestion)
+	handleAPI(r, "POST", "/user_preference/internal-upsert", []string{}, preference.InternalUpsert)
 
 	// ----- ACL（Knowledge basetextPermission） -----
 	handleAPI(r, "GET", "/kb/list", []string{"document.read"}, acl.ListKB)

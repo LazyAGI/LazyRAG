@@ -132,6 +132,104 @@ func TestUpsertCreatesThenUpdatesMemory(t *testing.T) {
 	}
 }
 
+func TestInternalUpsertResolvesSessionUserAndClearsDraft(t *testing.T) {
+	db := newMemoryTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	conversation := orm.Conversation{
+		ID:          "conv-memory-1",
+		DisplayName: "conversation",
+		ChannelID:   "default",
+		BaseModel: orm.BaseModel{
+			CreateUserID:   "u-session",
+			CreateUserName: "Session User",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}
+	if err := db.Create(&conversation).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if err := db.Create(&orm.ResourceSessionSnapshot{
+		ID:           "snapshot-memory-1",
+		SessionID:    "conv-memory-1-turn-1",
+		UserID:       "u-session",
+		ResourceType: evolution.ResourceTypeMemory,
+		ResourceKey:  evolution.SystemResourceKey(evolution.ResourceTypeMemory),
+		SnapshotHash: evolution.HashContent("old memory"),
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot: %v", err)
+	}
+	row := orm.SystemMemory{
+		ID:                 "memory-1",
+		UserID:             "u-session",
+		Content:            "old memory",
+		ContentHash:        evolution.HashContent("old memory"),
+		Version:            3,
+		DraftContent:       "stale draft",
+		DraftSourceVersion: 3,
+		DraftStatus:        "pending_confirm",
+		UpdatedBy:          "u-session",
+		UpdatedByName:      "Session User",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create memory: %v", err)
+	}
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/core/memory/internal-upsert",
+		strings.NewReader(`{"session_id":"conv-memory-1-turn-1","content":"新的正式记忆内容"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	InternalUpsert(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var updated orm.SystemMemory
+	if err := db.Where("user_id = ?", "u-session").Take(&updated).Error; err != nil {
+		t.Fatalf("query updated memory: %v", err)
+	}
+	if updated.Content != "新的正式记忆内容" {
+		t.Fatalf("unexpected updated content: %q", updated.Content)
+	}
+	if updated.Version != 4 {
+		t.Fatalf("expected version 4, got %d", updated.Version)
+	}
+	if updated.DraftStatus != "" || updated.DraftContent != "" || updated.DraftSourceVersion != 0 {
+		t.Fatalf("expected draft fields cleared, got %#v", updated)
+	}
+}
+
+func TestInternalUpsertRejectsOversizedContent(t *testing.T) {
+	db := newMemoryTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/core/memory/internal-upsert",
+		strings.NewReader(fmt.Sprintf(`{"session_id":"sid-1","content":"%s"}`, strings.Repeat("a", 1501))),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	InternalUpsert(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDraftPreviewReturnsCurrentDraftAndDiff(t *testing.T) {
 	db := newMemoryTestDB(t)
 	store.Init(db.DB, nil, nil)
