@@ -6,23 +6,18 @@ import parsing.build_document as build_document
 
 
 def test_parse_bool_env_accepts_common_values(monkeypatch):
-    monkeypatch.delenv('BOOL_ENV', raising=False)
-    assert build_document._parse_bool_env('BOOL_ENV') is None
-    monkeypatch.setenv('BOOL_ENV', '  ')
-    assert build_document._parse_bool_env('BOOL_ENV') is None
+    # _parse_bool_config takes a value string directly (not an env var name)
+    assert build_document._parse_bool_config(None) is None
+    assert build_document._parse_bool_config('  ') is None
     for value in ['1', 'true', 'yes', 'on']:
-        monkeypatch.setenv('BOOL_ENV', value)
-        assert build_document._parse_bool_env('BOOL_ENV') is True
+        assert build_document._parse_bool_config(value) is True
     for value in ['0', 'false', 'no', 'off']:
-        monkeypatch.setenv('BOOL_ENV', value)
-        assert build_document._parse_bool_env('BOOL_ENV') is False
+        assert build_document._parse_bool_config(value) is False
 
 
 def test_parse_bool_env_rejects_invalid_values(monkeypatch):
-    monkeypatch.setenv('BOOL_ENV', 'maybe')
-
-    with pytest.raises(ValueError, match='BOOL_ENV must be a boolean string'):
-        build_document._parse_bool_env('BOOL_ENV')
+    with pytest.raises(ValueError, match='mineru_upload_mode must be a boolean string'):
+        build_document._parse_bool_config('maybe')
 
 
 def test_default_mineru_upload_mode_only_disables_container_hostname(monkeypatch):
@@ -32,12 +27,13 @@ def test_default_mineru_upload_mode_only_disables_container_hostname(monkeypatch
 
 
 def test_get_algo_server_port_prefers_algo_port(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_ALGO_SERVER_PORT', raising=False)
-    monkeypatch.delenv('LAZYRAG_DOCUMENT_SERVER_PORT', raising=False)
-    assert build_document.get_algo_server_port() == 8000
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_SERVER_PORT', '18001')
+    # _cfg is read at call time, so we patch _impl directly
+    monkeypatch.setitem(build_document._cfg._impl, 'algo_server_port', 0)
+    monkeypatch.setitem(build_document._cfg._impl, 'document_server_port', 0)
+    assert build_document.get_algo_server_port() == 0
+    monkeypatch.setitem(build_document._cfg._impl, 'document_server_port', 18001)
     assert build_document.get_algo_server_port() == 18001
-    monkeypatch.setenv('LAZYRAG_ALGO_SERVER_PORT', '18002')
+    monkeypatch.setitem(build_document._cfg._impl, 'algo_server_port', 18002)
     assert build_document.get_algo_server_port() == 18002
 
 
@@ -56,11 +52,13 @@ def test_build_store_config_reads_required_and_optional_env(monkeypatch):
     assert config['segment_store']['kwargs']['client_kwargs']['password'] == 'pass'
 
 
-def test_require_env_raises_for_missing_value(monkeypatch):
-    monkeypatch.delenv('MISSING_REQUIRED_ENV', raising=False)
+def test_build_store_config_raises_for_missing_milvus_uri(monkeypatch):
+    # _require_env was removed; build_document now raises ValueError directly
+    # when required config values are missing.
+    monkeypatch.setitem(build_document._cfg._impl, 'milvus_uri', '')
 
-    with pytest.raises(ValueError, match='MISSING_REQUIRED_ENV is required'):
-        build_document._require_env('MISSING_REQUIRED_ENV')
+    with pytest.raises(ValueError, match='LAZYRAG_MILVUS_URI is required'):
+        build_document._build_store_config({})
 
 
 def test_build_pdf_reader_selects_plain_pdf_reader(monkeypatch):
@@ -68,7 +66,7 @@ def test_build_pdf_reader_selects_plain_pdf_reader(monkeypatch):
         pass
 
     monkeypatch.setattr(build_document, 'PDFReader', FakePDFReader)
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'none')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_type', 'none')
 
     assert isinstance(build_document._build_pdf_reader(), FakePDFReader)
 
@@ -81,9 +79,10 @@ def test_build_pdf_reader_selects_mineru_with_upload_mode(monkeypatch):
             seen.update(kwargs)
 
     monkeypatch.setattr(build_document, 'MineruPDFReader', FakeMineruPDFReader)
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'mineru')
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://mineru:8000/')
-    monkeypatch.delenv('LAZYRAG_MINERU_UPLOAD_MODE', raising=False)
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_type', 'mineru')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_url', 'http://mineru:8000/')
+    monkeypatch.setitem(build_document._cfg._impl, 'mineru_upload_mode', '')
+    monkeypatch.setitem(build_document._cfg._impl, 'mineru_backend', 'pipeline')
 
     reader = build_document._build_pdf_reader()
 
@@ -103,17 +102,17 @@ def test_build_pdf_reader_selects_paddleocr(monkeypatch):
             seen.update(kwargs)
 
     monkeypatch.setattr(build_document, 'PaddleOCRPDFReader', FakePaddleOCRPDFReader)
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'paddleocr')
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://paddle.test/')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_type', 'paddleocr')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_url', 'http://paddle.test/')
 
     assert isinstance(build_document._build_pdf_reader(), FakePaddleOCRPDFReader)
     assert seen == {'url': 'http://paddle.test'}
 
 
 def test_build_pdf_reader_rejects_unknown_ocr_type(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'unknown')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_type', 'unknown')
 
-    with pytest.raises(ValueError, match='Unsupported LAZYRAG_OCR_SERVER_TYPE'):
+    with pytest.raises(ValueError, match='Unsupported OCR server type'):
         build_document._build_pdf_reader()
 
 
@@ -141,12 +140,14 @@ def test_build_document_wires_readers_groups_and_embeddings(monkeypatch):
     settings = SimpleNamespace(embed_keys=['dense', 'sparse'], index_kwargs={'nlist': 16})
     monkeypatch.setattr(build_document, 'Document', FakeDocument)
     monkeypatch.setattr(build_document, 'DocumentProcessor', FakeDocumentProcessor)
-    monkeypatch.setattr(build_document, 'get_retrieval_settings', lambda: settings)
-    monkeypatch.setattr(build_document, 'get_automodel', lambda key: f'emb-{key}')
+    monkeypatch.setattr(build_document, 'get_embed_keys', lambda: ['dense', 'sparse'])
+    monkeypatch.setattr(build_document, 'get_embed_index_kwargs', lambda: {'nlist': 16})
+    monkeypatch.setattr(build_document, 'AutoModel', lambda model, config=False: f'emb-{model}')
     monkeypatch.setattr(build_document, '_build_store_config', lambda index_kwargs: {'index_kwargs': index_kwargs})
     monkeypatch.setattr(build_document, '_build_pdf_reader', lambda: 'pdf-reader')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://processor.test')
-    monkeypatch.setenv('LAZYRAG_ALGO_SERVER_PORT', '18003')
+    monkeypatch.setitem(build_document._cfg._impl, 'document_processor_url', 'http://processor.test')
+    monkeypatch.setitem(build_document._cfg._impl, 'algo_server_port', 18003)
+    monkeypatch.setitem(build_document._cfg._impl, 'document_server_port', 0)
 
     docs = build_document.build_document()
 
@@ -174,9 +175,10 @@ def test_build_pdf_reader_mineru_upload_mode_explicit_true(monkeypatch):
             seen.update(kwargs)
 
     monkeypatch.setattr(build_document, 'MineruPDFReader', FakeMineruPDFReader)
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'mineru')
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://mineru:8000/')
-    monkeypatch.setenv('LAZYRAG_MINERU_UPLOAD_MODE', 'true')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_type', 'mineru')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_url', 'http://mineru:8000/')
+    monkeypatch.setitem(build_document._cfg._impl, 'mineru_upload_mode', 'true')
+    monkeypatch.setitem(build_document._cfg._impl, 'mineru_backend', 'pipeline')
 
     build_document._build_pdf_reader()
 
@@ -191,9 +193,10 @@ def test_build_pdf_reader_mineru_upload_mode_explicit_false(monkeypatch):
             seen.update(kwargs)
 
     monkeypatch.setattr(build_document, 'MineruPDFReader', FakeMineruPDFReader)
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'mineru')
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://localhost:8000/')
-    monkeypatch.setenv('LAZYRAG_MINERU_UPLOAD_MODE', 'false')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_type', 'mineru')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_url', 'http://localhost:8000/')
+    monkeypatch.setitem(build_document._cfg._impl, 'mineru_upload_mode', 'false')
+    monkeypatch.setitem(build_document._cfg._impl, 'mineru_backend', 'pipeline')
 
     build_document._build_pdf_reader()
 
@@ -204,9 +207,9 @@ def test_build_pdf_reader_mineru_upload_mode_explicit_false(monkeypatch):
 def test_build_pdf_reader_mineru_upload_mode_invalid_raises(monkeypatch):
     import pytest
 
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'mineru')
-    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://mineru:8000/')
-    monkeypatch.setenv('LAZYRAG_MINERU_UPLOAD_MODE', 'maybe')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_type', 'mineru')
+    monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_url', 'http://mineru:8000/')
+    monkeypatch.setitem(build_document._cfg._impl, 'mineru_upload_mode', 'maybe')
 
     with pytest.raises(ValueError, match='mineru_upload_mode must be a boolean string'):
         build_document._build_pdf_reader()

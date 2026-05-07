@@ -7,8 +7,34 @@ import sys
 class _FakeDocumentProcessorWorker:
     instances = []
 
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
+    def __init__(
+        self,
+        db_config=None,
+        num_workers=1,
+        port=8001,
+        task_poller=None,
+        lease_duration=30.0,
+        lease_renew_interval=5.0,
+        high_priority_task_types=None,
+        high_priority_only=False,
+        poll_mode='queue',
+        callback_task_statuses=None,
+        callback_task_types=None,
+        launcher=None,
+        **kwargs,
+    ):
+        self.kwargs = {
+            k: v for k, v in {
+                'db_config': db_config,
+                'num_workers': num_workers,
+                'port': port,
+                'lease_duration': lease_duration,
+                'lease_renew_interval': lease_renew_interval,
+                'high_priority_task_types': high_priority_task_types,
+                'high_priority_only': high_priority_only,
+                'poll_mode': poll_mode,
+            }.items()
+        }
         self.started = False
         self.waited = False
         self.stopped = False
@@ -29,25 +55,29 @@ def _fresh_import_worker(monkeypatch):
     import processor.db
 
     _FakeDocumentProcessorWorker.instances = []
-    monkeypatch.setattr(parsing_service, 'DocumentProcessorWorker', _FakeDocumentProcessorWorker)
     monkeypatch.setattr(processor.db, 'require_shared_db_config', lambda service_name: {'service': service_name})
+    # Patch parsing_service AFTER capturing the real class so supported_params still works.
+    # We replace it with _FakeDocumentProcessorWorker which has the same explicit signature.
+    monkeypatch.setattr(parsing_service, 'DocumentProcessorWorker', _FakeDocumentProcessorWorker)
     sys.modules.pop('processor.worker', None)
     return importlib.import_module('processor.worker')
 
 
 def test_worker_constructs_document_processor_worker_from_env(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_PORT', '8124')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS', '3')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION', '12.5')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL', '2.5')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES', 'parse, index')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY', 'yes')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_POLL_MODE', 'queue')
+    from config import config as _cfg
+
+    monkeypatch.setitem(_cfg._impl, 'document_worker_port', 8124)
+    monkeypatch.setitem(_cfg._impl, 'document_worker_num_workers', 3)
+    monkeypatch.setitem(_cfg._impl, 'document_worker_lease_duration', '12.5')
+    monkeypatch.setitem(_cfg._impl, 'document_worker_lease_renew_interval', '2.5')
+    monkeypatch.setitem(_cfg._impl, 'document_worker_high_priority_task_types', 'parse, index')
+    monkeypatch.setitem(_cfg._impl, 'document_worker_high_priority_only', True)
+    monkeypatch.setitem(_cfg._impl, 'document_worker_poll_mode', 'queue')
 
     module = _fresh_import_worker(monkeypatch)
 
     assert module.db_config == {'service': 'DocumentProcessorWorker'}
-    assert module.doc_processor_worker is _FakeDocumentProcessorWorker.instances[0]
+    assert module.doc_processor_worker is _FakeDocumentProcessorWorker.instances[-1]
     assert module.doc_processor_worker.kwargs == {
         'port': 8124,
         'db_config': {'service': 'DocumentProcessorWorker'},

@@ -84,7 +84,7 @@ def fake_pipeline(monkeypatch):
     """Patch agentic's heavy external deps so it can run offline."""
     _FakeAgent.observations = []
 
-    monkeypatch.setattr(agentic, 'get_automodel', lambda *_a, **_kw: object())
+    monkeypatch.setattr(agentic, 'AutoModel', lambda *_a, **_kw: object())
     monkeypatch.setattr(agentic, 'create_sandbox', lambda **_kw: object())
     monkeypatch.setattr(agentic, '_ensure_tools_registered', lambda: None)
     monkeypatch.setattr(agentic, '_spawn_background_review', lambda **_kw: None)
@@ -304,7 +304,7 @@ def test_tool_stream_frame_serializes_tool_call_into_text_tags():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-3-1">正在运行技能的辅助脚本</tp>'
+            '<tp id="toolcall-3-1">Running skill helper script</tp>'
             '<tool_call>{"id":"toolcall-3-1","name":"run_script","arguments":{"name":"railway-foundation-bearing-capacity-review","rel_path":"scripts/list_files.sh"}}</tool_call>'
         ),
         'sources': [],
@@ -339,9 +339,9 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-1-1">正在知识库中查找全风化 软岩 风化岩分组 地基承载力 σ0 表相关资料</tp>'
+            '<tp id="toolcall-1-1">Searching knowledge base for 全风化 软岩 风化岩分组 地基承载力 σ0 表-related content</tp>'
             '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"全风化 软岩 风化岩分组 地基承载力 σ0 表","topk":15}}</tool_call>'
-            '<tp id="toolcall-1-2">正在展开相关片段</tp>'
+            '<tp id="toolcall-1-2">Expanding related segments</tp>'
             '<tool_call>{"id":"toolcall-1-2","name":"kb_get_window_nodes","arguments":{"docid":"doc_7e052315556b40323f5007c5b9f549ab","number":"36","group":"block"}}</tool_call>'
         ),
         'sources': [],
@@ -366,7 +366,7 @@ def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-2-1">已记录这条记忆</trp>'
+            '<trp id="toolcall-2-1">Memory recorded</trp>'
             '<tool_result>{"id":"toolcall-2-1","name":"memory","result":{"status":"success","message":"memory saved","path":"/tmp/memory.json"}}</tool_result>'
         ),
         'sources': [],
@@ -400,9 +400,9 @@ def test_builtin_file_tool_uses_natural_preview_templates():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-4-1">正在查看文件内容</tp>'
+            '<tp id="toolcall-4-1">Reading file content</tp>'
             '<tool_call>{"id":"toolcall-4-1","name":"read_file","arguments":{"path":"/tmp/demo.txt","start_line":1,"end_line":20}}</tool_call>'
-            '<trp id="toolcall-4-1">已读取文件内容</trp>'
+            '<trp id="toolcall-4-1">File content loaded</trp>'
             '<tool_result>{"id":"toolcall-4-1","name":"read_file","result":{"status":"ok","path":"/tmp/demo.txt","content":"hello world"}}</tool_result>'
         ),
         'sources': [],
@@ -449,7 +449,7 @@ def test_tool_result_preview_is_truncated_to_fifty_chars():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-5-1">已读取文件内容</trp>'
+            '<trp id="toolcall-5-1">File content loaded</trp>'
             '<tool_result>{"id":"toolcall-5-1","name":"read_file","result":{"status":"ok","path":"/tmp/long.txt","content":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}</tool_result>'
         ),
         'sources': [],
@@ -473,7 +473,7 @@ def test_tool_result_failure_uses_failure_preview_template():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-6-1">暂时没能读取文件内容：/tmp/missing.txt</trp>'
+            '<trp id="toolcall-6-1">Could not read file content</trp>'
             '<tool_result>{"id":"toolcall-6-1","name":"read_file","result":{"status":"missing","path":"/tmp/missing.txt"}}</tool_result>'
         ),
         'sources': [],
@@ -498,7 +498,7 @@ def test_tool_result_needs_approval_uses_approval_preview_template():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-7-1">删除文件前还需要进一步确认：Deleting files requires approval.</trp>'
+            '<trp id="toolcall-7-1">Confirmation required before deleting file</trp>'
             '<tool_result>{"id":"toolcall-7-1","name":"delete_file","result":{"status":"needs_approval","reason":"Deleting files requires approval.","path":"/tmp/demo.txt"}}</tool_result>'
         ),
         'sources': [],
@@ -537,11 +537,11 @@ def test_unknown_tool_fallback_preview_omits_value():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-8-1">正在处理请求</tp>'
+            '<tp id="toolcall-8-1">Processing request</tp>'
             '<tool_call>{"id":"toolcall-8-1","name":"unknown_tool","arguments":{"path":"/tmp/demo.txt"}}</tool_call>'
-            '<trp id="toolcall-8-1">已获得处理结果</trp>'
+            '<trp id="toolcall-8-1">Result received</trp>'
             '<tool_result>{"id":"toolcall-8-1","name":"unknown_tool","result":{"status":"ok","content":"done"}}</tool_result>'
-            '<trp id="toolcall-8-2">暂时没能完成这一步</trp>'
+            '<trp id="toolcall-8-2">Could not complete this step</trp>'
             '<tool_result>{"id":"toolcall-8-2","name":"unknown_tool","result":{"status":"failed","reason":"boom"}}</tool_result>'
         ),
         'sources': [],
@@ -554,7 +554,12 @@ def test_normalize_history_keeps_plain_chat_messages_unchanged():
         {'role': 'assistant', 'content': 'world'},
     ]
 
-    assert agentic._normalize_history_for_agent(history) == history
+    result = agentic._normalize_history_for_agent(history)
+    # Plain messages are preserved; assistant messages get reasoning_content added
+    assert result[0] == {'role': 'user', 'content': 'hello'}
+    assert result[1]['role'] == 'assistant'
+    assert result[1]['content'] == 'world'
+    assert result[1].get('reasoning_content') == ''
 
 
 def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
@@ -573,14 +578,16 @@ def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
         {
             'role': 'assistant',
             'content': '先看文件。',
-                'tool_calls': [{
-                    'id': 'toolcall-1-1',
-                    'function': {
-                        'name': 'read_file',
-                        'arguments': '{"path": "/tmp/demo.txt"}',
-                    },
-                }],
-            },
+            'reasoning_content': '',
+            'tool_calls': [{
+                'id': 'toolcall-1-1',
+                'type': 'function',
+                'function': {
+                    'name': 'read_file',
+                    'arguments': '{"path": "/tmp/demo.txt"}',
+                },
+            }],
+        },
         {
             'role': 'tool',
             'tool_call_id': 'toolcall-1-1',

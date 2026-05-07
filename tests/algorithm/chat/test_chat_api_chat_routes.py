@@ -59,4 +59,12 @@ def test_chat_route_forwards_parameters_and_stream_flag(monkeypatch):
         'dataset': 'algo',
         'priority': 9,
         'is_stream': True,
+        'available_tools': None,
+        'available_skills': None,
+        'memory': None,
+        'user_preference': None,
+        'use_memory': True,
+        'create_user_id': '',
+        'trace': False,
+        'model_config': None,
     }

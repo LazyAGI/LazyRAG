@@ -20,6 +20,7 @@ def _import_chat_server_module(monkeypatch, *, default_dataset='algo', url_map=N
     fake_config.URL_MAP = url_map
     fake_config.SENSITIVE_WORDS_PATH = '/tmp/sensitive.txt'
     fake_config.DEFAULT_CHAT_DATASET = default_dataset
+    fake_config.resolve_dataset_url = lambda dataset: url_map.get(dataset)
 
     fake_agentic = ModuleType('chat.pipelines.agentic')
     fake_agentic.agentic_rag = 'agentic-rag'
