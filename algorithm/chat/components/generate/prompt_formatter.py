@@ -84,9 +84,7 @@ class RAGContextFormatter(ModuleBase):
         query = kwargs.get('query')
         if len(nodes):
             context_str = self._create_context_str(nodes)
-            res = standard_rag_input_en.format(
-                instructions=LLM_PROMPT_INSTRUCTIONS, context=context_str, query=query
-            )
+            res = standard_rag_input_en.format(instructions=LLM_PROMPT_INSTRUCTIONS, context=context_str, query=query)
         elif image_files:
             res = image_rag_input_en.format(instructions=MULTIMODAL_PROMPT_INSTRUCTIONS, query=query)
         else:
