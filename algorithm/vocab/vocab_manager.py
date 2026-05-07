@@ -26,6 +26,12 @@ from lazyllm.tools.rag.query_enh_ac import QueryEnhACProcessor
 from .db import fetch_vocab_for_create_user_id
 
 
+def get_automodel(role: str):
+    from chat.pipelines.builders.get_models import get_automodel as _get_automodel
+
+    return _get_automodel(role)
+
+
 class VocabManager:
     """Single-user vocabulary manager: bound to one create_user_id, loads vocabulary from DB, supports hot-reload.
 
@@ -41,7 +47,7 @@ class VocabManager:
         actual_source = data_source if data_source is not None else self._load_from_db
         self._proc = QueryEnhACProcessor(
             data_source=actual_source,
-            discriminator=None,
+            discriminator=get_automodel('llm_instruct'),
         )
         LOG.info(f'[VocabManager] initialized for create_user_id={create_user_id!r}, vocab_size={self.vocab_size}')
 
@@ -53,6 +59,22 @@ class VocabManager:
         """Load vocabulary rows for the current user from core.public.words;
         field format matches QueryEnhACProcessor."""
         return fetch_vocab_for_create_user_id(self._create_user_id)
+
+    def _enhance_query(self, query: Union[str, list]) -> Union[str, list]:
+        try:
+            enhanced_query = self._proc(query)
+        except Exception as exc:
+            LOG.error(
+                f'[VocabManager] create_user_id={self._create_user_id} '
+                f'query_before={query} enhance_failed error={exc}'
+            )
+            return query
+
+        LOG.info(
+            f'[VocabManager] create_user_id={self._create_user_id} '
+            f'query_before={query} query_after={enhanced_query}'
+        )
+        return enhanced_query
 
     # ------------------------------------------------------------------
     # Public API
@@ -72,9 +94,9 @@ class VocabManager:
 
     def __call__(self, query: Union[str, list]) -> Union[str, list]:
         """Enhance the query using the vocabulary and return;
-        returns as-is when vocabulary is empty or discriminator=None."""
+        returns as-is when vocabulary is empty, no match survives filtering, or enhancement fails."""
         with self._lock:
-            return self._proc(query)
+            return self._enhance_query(query)
 
     @property
     def vocab_size(self) -> int:

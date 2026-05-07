@@ -27,15 +27,23 @@ import sys
 import threading
 from unittest.mock import MagicMock, patch
 
-import pytest
-from sqlalchemy import text
-
 # ---------------------------------------------------------------------------
-# Ensure algorithm/ is on sys.path
+# Ensure algorithm/ and local lazyllm source are on sys.path before importing lazyllm
 # ---------------------------------------------------------------------------
 _ALGO = _os.path.join(_os.path.dirname(__file__), '..', '..', 'algorithm')
+_LAZYLLM_ROOT = _os.path.join(_ALGO, 'lazyllm')
 if _ALGO not in sys.path:
     sys.path.insert(0, _ALGO)
+if _LAZYLLM_ROOT not in sys.path:
+    sys.path.insert(0, _LAZYLLM_ROOT)
+
+for _module_name in list(sys.modules):
+    if _module_name == 'lazyllm' or _module_name.startswith('lazyllm.'):
+        del sys.modules[_module_name]
+
+import pytest
+from sqlalchemy import text
+from lazyllm.module import LLMBase
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,6 +60,30 @@ _SAMPLE_ROWS_USER2 = [
     {'word': '民法',    'cluster_id': 'g1'},
     {'word': '民事法律','cluster_id': 'g1'},
 ]
+
+
+def _mock_llm_discriminator(*call_returns):
+    model = MagicMock(spec=LLMBase)
+    terminal = MagicMock()
+    if len(call_returns) == 1:
+        only = call_returns[0]
+        if isinstance(only, list) and only and all(isinstance(x, bool) for x in only):
+            terminal.return_value = only
+        elif isinstance(only, list):
+            terminal.side_effect = only
+        else:
+            terminal.return_value = only
+    else:
+        terminal.side_effect = list(call_returns)
+    model.share.return_value.prompt.return_value.formatter.return_value = terminal
+    return model, terminal
+
+
+@pytest.fixture(autouse=True)
+def _patch_vocab_discriminator():
+    model, _ = _mock_llm_discriminator([True])
+    with patch('vocab.vocab_manager.get_automodel', return_value=model):
+        yield
 
 
 def _make_manager(rows: list, create_user_id: str = 'test_user'):
@@ -128,17 +160,38 @@ class TestVocabManagerBasic:
         mgr = _make_manager([], create_user_id='alice')
         assert mgr.create_user_id == 'alice'
 
-    def test_call_with_string_no_discriminator(self):
-        """With discriminator=None, AC matches are skipped → query unchanged."""
+    def test_call_with_string_enhances_query(self):
         mgr = _make_manager(_SAMPLE_ROWS_USER2)
-        # discriminator=None means words are detected but enhancement is skipped
+
         result = mgr('关于民法的问题')
+
         assert isinstance(result, str)
+        assert result == '关于民法（民事法律）的问题'
 
     def test_call_with_list(self):
         mgr = _make_manager([])
         result = mgr(['query1', 'query2'])
         assert result == ['query1', 'query2']
+
+    def test_call_with_invalid_list_item_returns_original_query(self):
+        mgr = _make_manager([])
+        query = ['query1', 123]
+
+        with patch('vocab.vocab_manager.LOG') as mock_log:
+            result = mgr(query)
+
+        assert result is query
+        mock_log.error.assert_called_once()
+
+    def test_call_when_processor_raises_returns_original_query(self):
+        mgr = _make_manager([])
+
+        with patch.object(mgr, '_proc', side_effect=RuntimeError('boom')), \
+             patch('vocab.vocab_manager.LOG') as mock_log:
+            result = mgr('关于民法的问题')
+
+        assert result == '关于民法的问题'
+        mock_log.error.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
