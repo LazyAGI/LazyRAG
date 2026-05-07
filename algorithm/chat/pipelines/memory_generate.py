@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from lazyllm import AutoModel
 from chat.tools.skill_manager import _validate_skill_content
+from chat.utils.load_config import get_config_path
 from config import config as _cfg
 
 MemoryType = Literal['skill', 'memory', 'user_preference']
@@ -284,7 +285,7 @@ def _build_generate_prompt(
 
 class MemoryGeneratePipeline:
     def __init__(self) -> None:
-        self.llm = AutoModel(model='llm_instruct', config=_cfg['model_config_path'])
+        self.llm = AutoModel(model='llm_instruct', config=get_config_path())
 
     def generate(
         self,

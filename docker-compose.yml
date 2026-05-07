@@ -129,6 +129,8 @@ services:
       LAZYRAG_JWT_TTL_MINUTES: "60"
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
       LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: ${LAZYRAG_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD:-admin}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
@@ -222,7 +224,7 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8080:80"
+      - "${LAZYRAG_FRONTEND_PORT:-8080}:80"
     expose:
       - "80"
     depends_on:

@@ -78,9 +78,7 @@ def get_dynamic_role_slot_map(config_path: Optional[str] = None) -> Dict[str, st
         }
 
     When config_path is None, reads from _DYNAMIC_CONFIG_PATH (runtime_models.yaml).
-    This is intentionally independent of LAZYRAG_MODEL_CONFIG_PATH: the dynamic role
-    map describes which roles expect per-request key injection, and that is always
-    defined in the dynamic config file regardless of which config is active at runtime.
+    Pass get_config_path() to read from the currently active config file instead.
     '''
     raw = load_model_config(config_path or str(_DYNAMIC_CONFIG_PATH))
     result: Dict[str, str] = {}
@@ -173,7 +171,11 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     from lazyllm import LOG
     from lazyllm.module.llms.onlinemodule.dynamic_router import ConfigsDict
 
-    role_slot_map = get_dynamic_role_slot_map()
+    # Pass the active config path so get_dynamic_role_slot_map reads the correct
+    # file (e.g. runtime_models.online.yaml) instead of always falling back to
+    # _DYNAMIC_CONFIG_PATH (runtime_models.yaml), which has no dynamic roles when
+    # LAZYRAG_MODEL_CONFIG_PATH=online/inner.
+    role_slot_map = get_dynamic_role_slot_map(get_config_path())
 
     if not role_slot_map:
         return

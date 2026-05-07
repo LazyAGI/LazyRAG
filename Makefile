@@ -73,6 +73,9 @@ PIP_RETRIES ?= 10
 # model config path
 LAZYRAG_MODEL_CONFIG_PATH ?= online
 
+# Frontend port (default 8090; override if the port is occupied, e.g. by Cursor)
+LAZYRAG_FRONTEND_PORT ?= 8090
+
 export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET
 export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD
 export LAZYRAG_CORE_DATABASE_URL
@@ -85,6 +88,7 @@ export MINIO_ACCESS_KEY MINIO_SECRET_KEY
 export PIP_DEFAULT_TIMEOUT PIP_RETRIES
 export LAZYRAG_MODEL_CONFIG_PATH
 export LAZYRAG_RESET_ALGO_ON_STARTUP
+export LAZYRAG_FRONTEND_PORT
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend evo
@@ -95,9 +99,13 @@ GO_DIRS := backend/core
 help:
 	@echo "LazyRAG Make targets:"
 	@echo "  make up         - Start services in background (with derived profiles)"
+	@echo "                    Use SERVICES=svc1,svc2 to start specific services only"
 	@echo "  make up-build   - Build images and start services"
+	@echo "                    Use SERVICES=svc1,svc2 to target specific services"
 	@echo "  make down       - Stop services"
+	@echo "                    Use SERVICES=svc1,svc2 to stop specific services only"
 	@echo "  make build      - Build compose services (mineru profile only when needed)"
+	@echo "                    Use SERVICES=svc1,svc2 to build specific services"
 	@echo "                    Use LAZYRAG_ENABLE_STORE_DASHBOARDS=1 to add Attu/OpenSearch Dashboards for built-in stores"
 	@echo "  make lint       - Run Python flake8 and Go gofmt checks"
 	@echo "  make test       - Run project test script"
@@ -162,14 +170,17 @@ build:
 
 up:
 	$(_SUBMODULE_INIT)
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up -d \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 
 down:
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) down
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 
 up-build:
 	$(_SUBMODULE_INIT)
-	@$(_COMPOSE) $(_COMPOSE_PROFILES) up --build -d
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) up --build -d \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 
 clear:
 	@echo "🧹 Stopping containers and removing volumes (keeping built images/base cache)..."

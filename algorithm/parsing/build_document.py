@@ -6,7 +6,7 @@ from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
-from chat.utils.load_config import get_embed_keys, get_embed_index_kwargs
+from chat.utils.load_config import get_embed_keys, get_embed_index_kwargs, get_config_path
 from config import config as _cfg
 from parsing.transform import NodeParser, GeneralParser, LineSplitter
 
@@ -138,7 +138,13 @@ def build_document() -> Document:
     embed_keys = get_embed_keys()
     if not embed_keys:
         raise ValueError('At least one embed role must be configured in the model config.')
-    embed = {k: AutoModel(model=k, config=_cfg['model_config_path']) for k in embed_keys}
+    # get_config_path() resolves the 'inner'/'online'/'dynamic' alias to the actual
+    # file path that AutoModel's config-map loader (get_module_config_map) expects.
+    # Passing the raw alias string (e.g. 'online') causes the loader to treat it as a
+    # non-existent file path and return an empty map, so the embed model falls back to
+    # an unconfigured OnlineModule instead of the Qwen/BGE model in the yaml.
+    resolved_config_path = get_config_path()
+    embed = {k: AutoModel(model=k, config=resolved_config_path) for k in embed_keys}
 
     docs = Document(
         dataset_path=None,

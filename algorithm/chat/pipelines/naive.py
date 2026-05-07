@@ -4,6 +4,7 @@ from lazyllm import AutoModel, pipeline, bind, ifs
 
 from chat.pipelines.builders import get_ppl_search, get_ppl_generate
 from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewriter
+from chat.utils.load_config import get_config_path
 from config import config as _cfg
 
 
@@ -21,7 +22,7 @@ def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
         with pipeline() as rag_ppl:
             rag_ppl.rewriter = ifs(
                 has_history,
-                tpath=MultiturnQueryRewriter(llm=AutoModel(model='llm_instruct', config=_cfg['model_config_path']))
+                tpath=MultiturnQueryRewriter(llm=AutoModel(model='llm_instruct', config=get_config_path()))
                 | bind(
                     priority=rag_ppl.input['priority'],
                     has_appendix=bool(rag_ppl.input['image_files'])
