@@ -5,19 +5,15 @@
 llm:
   - source: qwen
     name: qwen-plus
-    api_key: ${LAZYLLM_QWEN_API_KEY}
 
 llm_instruct:
   - source: qwen
     name: qwen-plus
-    api_key: ${LAZYLLM_QWEN_API_KEY}
 
 reranker:
   - source: qwen
     name: gte-rerank-v2
-    api_key: ${LAZYLLM_QWEN_API_KEY}
 
 embed_main:
   - source: qwen
     name: text-embedding-v3
-    api_key: ${LAZYLLM_QWEN_API_KEY}

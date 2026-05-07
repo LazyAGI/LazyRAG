@@ -71,6 +71,7 @@ config.add('algo_server_port', int, 8000, 'ALGO_SERVER_PORT', description='Algor
 config.add('document_server_port', int, 8000, 'DOCUMENT_SERVER_PORT', description='Document server port (fallback for algo_server_port).')
 config.add('startup_retry_interval', str, '2', 'STARTUP_RETRY_INTERVAL', description='Startup retry interval in seconds.')
 config.add('startup_timeout', str, '0', 'STARTUP_TIMEOUT', description='Startup wait timeout in seconds (0 = no timeout).')
+config.add('reset_algo_on_startup', bool, False, 'RESET_ALGO_ON_STARTUP', description='Drop all vector/segment data and algorithm registration on startup, then rebuild from scratch.')
 config.add('rag_image_path_prefix', str, '/mnt/lustre/share_data/mineru/images/', 'RAG_IMAGE_PATH_PREFIX', description='Image path prefix for RAG documents.')
 
 # ---------------------------------------------------------------------------

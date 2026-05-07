@@ -387,6 +387,34 @@
         ],
         "type": "object"
       },
+      "ConversationBatchDeleteRequest": {
+        "properties": {
+          "conversation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "conversation_ids"
+        ],
+        "type": "object"
+      },
+      "ConversationBatchDeleteResponse": {
+        "properties": {
+          "deleted_count": {
+            "type": "integer"
+          },
+          "deleted_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ConversationChatStatusResponse": {
         "properties": {
           "is_generating": {
@@ -690,6 +718,9 @@
           "is_empty": {
             "type": "boolean"
           },
+          "is_owner": {
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
           },
@@ -739,6 +770,7 @@
           "document_count",
           "document_size",
           "is_empty",
+          "is_owner",
           "name",
           "segment_count",
           "share_type",
@@ -984,6 +1016,52 @@
           },
           "message": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ExportConversationsRequest": {
+        "properties": {
+          "conversation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "create_user_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "end_time": {
+            "type": "string"
+          },
+          "feed_back": {
+            "type": "integer"
+          },
+          "file_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "start_time": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ExportConversationsResponse": {
+        "properties": {
+          "uris": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1386,6 +1464,12 @@
           "keyword": {
             "type": "string"
           },
+          "keyword_list": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "order_by": {
             "type": "string"
           },
@@ -1487,6 +1571,9 @@
       },
       "StartTaskResult": {
         "properties": {
+          "detail": {
+            "type": "string"
+          },
           "display_name": {
             "type": "string"
           },
@@ -1658,6 +1745,9 @@
               "$ref": "#/components/schemas/TaskFile"
             },
             "type": "array"
+          },
+          "relative_path": {
+            "type": "string"
           },
           "reparse_groups": {
             "items": {
@@ -1928,7 +2018,10 @@
       },
       "UserInfo": {
         "properties": {
-          "display_name": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
             "type": "string"
           }
         },
@@ -1937,7 +2030,7 @@
     }
   },
   "info": {
-    "description": "LazyRAG Go backend core API - proxies to algorithm services. 经 Kong 暴露时前缀为 /api/core。",
+    "description": "LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。",
     "title": "Backend Core API",
     "version": "0.1.0"
   },
@@ -2069,6 +2162,67 @@
         "summary": "Chat with knowledge base (streaming)"
       }
     },
+    "/api/core/conversation:export": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportConversationsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportConversationsResponse"
+                }
+              }
+            },
+            "description": "Export conversation files"
+          }
+        },
+        "summary": "Export conversations",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/core/conversation:export/files/{file_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Exported conversation file"
+          }
+        },
+        "summary": "Download exported conversation file",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
     "/api/core/conversation:switchStatus": {
       "get": {
         "responses": {
@@ -2080,10 +2234,10 @@
                 }
               }
             },
-            "description": "多答案开关状态"
+            "description": "Multi-answer switch status"
           }
         },
-        "summary": "获取多答案开关状态"
+        "summary": "Get multi-answer switch status"
       },
       "post": {
         "requestBody": {
@@ -2106,10 +2260,10 @@
                 }
               }
             },
-            "description": "设置后的多答案开关状态"
+            "description": "SettextMulti-answer switch status"
           }
         },
-        "summary": "设置多答案开关状态"
+        "summary": "SetMulti-answer switch status"
       }
     },
     "/api/core/conversations": {
@@ -2149,10 +2303,10 @@
                 }
               }
             },
-            "description": "会话列表"
+            "description": "Conversation list"
           }
         },
-        "summary": "会话列表"
+        "summary": "Conversation list"
       }
     },
     "/api/core/conversations/{conversation_id}:status": {
@@ -2176,10 +2330,10 @@
                 }
               }
             },
-            "description": "对话状态"
+            "description": "Conversation status"
           }
         },
-        "summary": "获取对话状态"
+        "summary": "Get conversation status"
       }
     },
     "/api/core/conversations/{name}": {
@@ -2203,10 +2357,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除会话"
+        "summary": "Delete conversation"
       },
       "get": {
         "parameters": [
@@ -2228,10 +2382,10 @@
                 }
               }
             },
-            "description": "会话详情"
+            "description": "Conversationtext"
           }
         },
-        "summary": "获取会话"
+        "summary": "Get conversation"
       }
     },
     "/api/core/conversations/{name}:detail": {
@@ -2255,15 +2409,42 @@
                 }
               }
             },
-            "description": "会话详情与历史"
+            "description": "Conversation details and history"
           }
         },
-        "summary": "获取会话详情"
+        "summary": "Get conversationtext"
+      }
+    },
+    "/api/core/conversations:batchDelete": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationBatchDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationBatchDeleteResponse"
+                }
+              }
+            },
+            "description": "Batch deleted conversations"
+          }
+        },
+        "summary": "Batch delete conversations"
       }
     },
     "/api/core/conversations:chat": {
       "post": {
-        "description": "发起或继续会话对话",
+        "description": "textConversationtext",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2278,7 +2459,7 @@
             "description": "Chat response"
           }
         },
-        "summary": "会话对话 (requires qa.read)"
+        "summary": "Conversationtext (requires qa.read)"
       }
     },
     "/api/core/conversations:feedBackChatHistory": {
@@ -2290,19 +2471,19 @@
                 "$ref": "#/components/schemas/ConversationFeedbackRequest",
                 "properties": {
                   "expected_answer": {
-                    "description": "期望答案",
+                    "description": "text",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "历史记录 ID",
+                    "description": "text ID",
                     "type": "string"
                   },
                   "reason": {
-                    "description": "反馈原因",
+                    "description": "text",
                     "type": "string"
                   },
                   "type": {
-                    "description": "反馈类型",
+                    "description": "text",
                     "format": "int32",
                     "type": "integer"
                   }
@@ -2326,15 +2507,15 @@
                 }
               }
             },
-            "description": "反馈成功"
+            "description": "Feedback succeeded"
           }
         },
-        "summary": "反馈会话历史"
+        "summary": "Feedback conversation history"
       }
     },
     "/api/core/conversations:resumeChat": {
       "post": {
-        "description": "恢复正在进行的对话流式输出",
+        "description": "Resumetext",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2342,11 +2523,11 @@
                 "$ref": "#/components/schemas/ConversationResumeRequest",
                 "properties": {
                   "conversation_id": {
-                    "description": "会话 ID",
+                    "description": "Conversation ID",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "可选，指定恢复的历史消息 ID",
+                    "description": "text，textResumetext ID",
                     "type": "string"
                   }
                 },
@@ -2368,10 +2549,10 @@
                 }
               }
             },
-            "description": "SSE 流式响应数据项为 result 包裹的 ChatChunkResponse"
+            "description": "SSE streaming response item is ChatChunkResponse wrapped by result"
           }
         },
-        "summary": "恢复对话流"
+        "summary": "Resume conversation stream"
       }
     },
     "/api/core/conversations:setChatHistory": {
@@ -2383,11 +2564,11 @@
                 "$ref": "#/components/schemas/ConversationSetHistoryRequest",
                 "properties": {
                   "deleted_history_id": {
-                    "description": "要删除的历史记录 ID",
+                    "description": "textDeletetext ID",
                     "type": "string"
                   },
                   "set_history_id": {
-                    "description": "保留的历史记录 ID",
+                    "description": "text ID",
                     "type": "string"
                   }
                 },
@@ -2410,15 +2591,15 @@
                 }
               }
             },
-            "description": "设置结果"
+            "description": "Set result"
           }
         },
-        "summary": "设置会话历史"
+        "summary": "Set conversation history"
       }
     },
     "/api/core/conversations:stopChatGeneration": {
       "post": {
-        "description": "停止当前会话的流式生成",
+        "description": "textConversationtext",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2426,11 +2607,11 @@
                 "$ref": "#/components/schemas/ConversationStopRequest",
                 "properties": {
                   "conversation_id": {
-                    "description": "会话 ID",
+                    "description": "Conversation ID",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "可选，指定要停止的历史消息 ID",
+                    "description": "text，text ID",
                     "type": "string"
                   }
                 },
@@ -2452,10 +2633,10 @@
                 }
               }
             },
-            "description": "停止成功"
+            "description": "Stopped successfully"
           }
         },
-        "summary": "停止对话生成"
+        "summary": "Stop conversation generation"
       }
     },
     "/api/core/dataset/algos": {
@@ -2469,10 +2650,10 @@
                 }
               }
             },
-            "description": "算法列表"
+            "description": "Algorithm list"
           }
         },
-        "summary": "数据集算法列表"
+        "summary": "Dataset algorithm list"
       }
     },
     "/api/core/dataset/tags": {
@@ -2504,10 +2685,10 @@
                 }
               }
             },
-            "description": "数据集标签"
+            "description": "Dataset tags"
           }
         },
-        "summary": "数据集标签"
+        "summary": "Dataset tags"
       }
     },
     "/api/core/datasets": {
@@ -2566,10 +2747,10 @@
                 }
               }
             },
-            "description": "数据集列表"
+            "description": "Dataset list"
           }
         },
-        "summary": "数据集列表",
+        "summary": "Dataset list",
         "tags": [
           "datasets"
         ]
@@ -2605,10 +2786,10 @@
                 }
               }
             },
-            "description": "创建后的数据集"
+            "description": "Created dataset"
           }
         },
-        "summary": "创建数据集",
+        "summary": "Create dataset",
         "tags": [
           "datasets"
         ]
@@ -2635,10 +2816,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除数据集",
+        "summary": "Delete dataset",
         "tags": [
           "datasets"
         ]
@@ -2663,10 +2844,10 @@
                 }
               }
             },
-            "description": "数据集详情"
+            "description": "Dataset details"
           }
         },
-        "summary": "获取数据集",
+        "summary": "Get dataset",
         "tags": [
           "datasets"
         ]
@@ -2702,10 +2883,10 @@
                 }
               }
             },
-            "description": "更新后的数据集"
+            "description": "Updated dataset"
           }
         },
-        "summary": "更新数据集",
+        "summary": "Update dataset",
         "tags": [
           "datasets"
         ]
@@ -2748,10 +2929,10 @@
                 }
               }
             },
-            "description": "文档列表"
+            "description": "Document list"
           }
         },
-        "summary": "文档列表",
+        "summary": "Document list",
         "tags": [
           "documents"
         ]
@@ -2786,10 +2967,10 @@
                 }
               }
             },
-            "description": "创建后的文档"
+            "description": "Created document"
           }
         },
-        "summary": "创建文档",
+        "summary": "Create document",
         "tags": [
           "documents"
         ]
@@ -2824,10 +3005,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除文档",
+        "summary": "Delete document",
         "tags": [
           "documents"
         ]
@@ -2860,10 +3041,10 @@
                 }
               }
             },
-            "description": "文档详情"
+            "description": "Document details"
           }
         },
-        "summary": "获取文档",
+        "summary": "Get document",
         "tags": [
           "documents"
         ]
@@ -2906,10 +3087,10 @@
                 }
               }
             },
-            "description": "更新后的文档"
+            "description": "Updated document"
           }
         },
-        "summary": "更新文档",
+        "summary": "Update document",
         "tags": [
           "documents"
         ]
@@ -2979,6 +3160,34 @@
         "summary": "GET /datasets/{dataset}/documents/{document}/segments/{segment}"
       }
     },
+    "/api/core/datasets/{dataset}/documents/{document}/segments:search": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /datasets/{dataset}/documents/{document}/segments:search"
+      }
+    },
     "/api/core/datasets/{dataset}/documents/{document}:content": {
       "get": {
         "parameters": [
@@ -3009,10 +3218,10 @@
                 }
               }
             },
-            "description": "文档二进制内容"
+            "description": "Document binary content"
           }
         },
-        "summary": "预览文档内容"
+        "summary": "Preview document content"
       }
     },
     "/api/core/datasets/{dataset}/documents/{document}:download": {
@@ -3045,10 +3254,30 @@
                 }
               }
             },
-            "description": "文档下载内容"
+            "description": "Document download content"
           }
         },
-        "summary": "下载文档"
+        "summary": "Download document"
+      }
+    },
+    "/api/core/datasets/{dataset}/documents:batchUpdateTags": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /datasets/{dataset}/documents:batchUpdateTags"
       }
     },
     "/api/core/datasets/{dataset}/documents:search": {
@@ -3082,10 +3311,10 @@
                 }
               }
             },
-            "description": "文档搜索结果"
+            "description": "Document search results"
           }
         },
-        "summary": "搜索文档",
+        "summary": "Search documents",
         "tags": [
           "documents"
         ]
@@ -3112,10 +3341,88 @@
                 }
               }
             },
-            "description": "成员列表"
+            "description": "Member list"
           }
         },
-        "summary": "数据集成员列表"
+        "summary": "Dataset member list"
+      }
+    },
+    "/api/core/datasets/{dataset}/members/groups/{group_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyObject"
+                }
+              }
+            },
+            "description": "Deleted successfully"
+          }
+        },
+        "summary": "Delete dataset group member"
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDatasetMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetMember"
+                }
+              }
+            },
+            "description": "Updated member"
+          }
+        },
+        "summary": "Update dataset group member"
       }
     },
     "/api/core/datasets/{dataset}/members/{user_id}": {
@@ -3147,10 +3454,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "按用户 ID 删除数据集成员"
+        "summary": "textUser ID Delete datasetMember"
       },
       "get": {
         "parameters": [
@@ -3180,10 +3487,10 @@
                 }
               }
             },
-            "description": "成员详情"
+            "description": "Member details"
           }
         },
-        "summary": "按用户 ID 获取数据集成员"
+        "summary": "textUser ID Get datasetMember"
       },
       "patch": {
         "parameters": [
@@ -3223,10 +3530,10 @@
                 }
               }
             },
-            "description": "更新后的成员"
+            "description": "Updated member"
           }
         },
-        "summary": "按用户 ID 更新数据集成员"
+        "summary": "textUser ID Update datasetMember"
       }
     },
     "/api/core/datasets/{dataset}/members:search": {
@@ -3260,10 +3567,10 @@
                 }
               }
             },
-            "description": "成员搜索结果"
+            "description": "Member search results"
           }
         },
-        "summary": "搜索数据集成员"
+        "summary": "Search dataset members"
       }
     },
     "/api/core/datasets/{dataset}/tasks": {
@@ -3335,10 +3642,10 @@
                 }
               }
             },
-            "description": "任务列表"
+            "description": "Task list"
           }
         },
-        "summary": "任务列表",
+        "summary": "Task list",
         "tags": [
           "tasks"
         ]
@@ -3373,10 +3680,10 @@
                 }
               }
             },
-            "description": "创建的任务"
+            "description": "Created task"
           }
         },
-        "summary": "创建任务",
+        "summary": "Create task",
         "tags": [
           "tasks"
         ]
@@ -3411,10 +3718,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除任务",
+        "summary": "Delete task",
         "tags": [
           "tasks"
         ]
@@ -3447,10 +3754,10 @@
                 }
               }
             },
-            "description": "任务详情"
+            "description": "Task details"
           }
         },
-        "summary": "获取任务",
+        "summary": "Get task",
         "tags": [
           "tasks"
         ]
@@ -3495,10 +3802,10 @@
                 }
               }
             },
-            "description": "恢复结果"
+            "description": "Resume result"
           }
         },
-        "summary": "恢复任务",
+        "summary": "Resume task",
         "tags": [
           "tasks"
         ]
@@ -3543,10 +3850,10 @@
                 }
               }
             },
-            "description": "暂停成功"
+            "description": "Suspended successfully"
           }
         },
-        "summary": "暂停任务",
+        "summary": "Suspend task",
         "tags": [
           "tasks"
         ]
@@ -3601,10 +3908,10 @@
                 }
               }
             },
-            "description": "创建的任务列表"
+            "description": "CreatetextTask list"
           }
         },
-        "summary": "批量上传并创建任务"
+        "summary": "BatchUploadtextCreate task"
       }
     },
     "/api/core/datasets/{dataset}/tasks:search": {
@@ -3638,10 +3945,10 @@
                 }
               }
             },
-            "description": "任务搜索结果"
+            "description": "Task search results"
           }
         },
-        "summary": "按任务 ID 搜索任务",
+        "summary": "Search tasks by task ID",
         "tags": [
           "tasks"
         ]
@@ -3678,10 +3985,10 @@
                 }
               }
             },
-            "description": "启动结果"
+            "description": "Start result"
           }
         },
-        "summary": "启动任务",
+        "summary": "Start task",
         "tags": [
           "tasks"
         ]
@@ -3736,10 +4043,10 @@
                 }
               }
             },
-            "description": "上传文件结果"
+            "description": "Upload filetext"
           }
         },
-        "summary": "上传文件"
+        "summary": "Upload file"
       }
     },
     "/api/core/datasets/{dataset}/uploads/{upload_file_id}:content": {
@@ -3772,10 +4079,10 @@
                 }
               }
             },
-            "description": "已上传文件二进制内容"
+            "description": "textUpload filetext"
           }
         },
-        "summary": "预览已上传文件"
+        "summary": "PreviewtextUpload file"
       }
     },
     "/api/core/datasets/{dataset}/uploads/{upload_file_id}:download": {
@@ -3808,10 +4115,10 @@
                 }
               }
             },
-            "description": "已上传文件下载内容"
+            "description": "textUpload fileDownloadtext"
           }
         },
-        "summary": "下载已上传文件"
+        "summary": "DownloadtextUpload file"
       }
     },
     "/api/core/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}": {
@@ -3862,10 +4169,10 @@
                 }
               }
             },
-            "description": "分片上传结果"
+            "description": "Part upload result"
           }
         },
-        "summary": "上传数据集分片",
+        "summary": "UploadDatasettext",
         "tags": [
           "tasks"
         ]
@@ -3910,10 +4217,10 @@
                 }
               }
             },
-            "description": "中止上传结果"
+            "description": "Abort uploadtext"
           }
         },
-        "summary": "中止上传",
+        "summary": "Abort upload",
         "tags": [
           "tasks"
         ]
@@ -3958,10 +4265,10 @@
                 }
               }
             },
-            "description": "完成上传结果"
+            "description": "Complete uploadtext"
           }
         },
-        "summary": "完成上传",
+        "summary": "Complete upload",
         "tags": [
           "tasks"
         ]
@@ -3998,10 +4305,10 @@
                 }
               }
             },
-            "description": "上传初始化结果"
+            "description": "Upload initialization result"
           }
         },
-        "summary": "初始化数据集上传",
+        "summary": "Initialize dataset upload",
         "tags": [
           "tasks"
         ]
@@ -4038,10 +4345,10 @@
                 }
               }
             },
-            "description": "添加后的成员"
+            "description": "Added members"
           }
         },
-        "summary": "批量添加数据集成员"
+        "summary": "Batch add dataset members"
       }
     },
     "/api/core/datasets/{dataset}:batchDelete": {
@@ -4075,10 +4382,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "批量删除文档",
+        "summary": "BatchDelete document",
         "tags": [
           "documents"
         ]
@@ -4115,10 +4422,10 @@
                 }
               }
             },
-            "description": "设置成功"
+            "description": "Set successfully"
           }
         },
-        "summary": "设为默认数据集",
+        "summary": "Set as default dataset",
         "tags": [
           "datasets"
         ]
@@ -4155,10 +4462,10 @@
                 }
               }
             },
-            "description": "取消成功"
+            "description": "Unset successfully"
           }
         },
-        "summary": "取消默认数据集",
+        "summary": "Unset default dataset",
         "tags": [
           "datasets"
         ]
@@ -4175,10 +4482,10 @@
                 }
               }
             },
-            "description": "创建者列表"
+            "description": "Creator list"
           }
         },
-        "summary": "文档创建者列表"
+        "summary": "Document creator list"
       }
     },
     "/api/core/document/tags": {
@@ -4192,10 +4499,10 @@
                 }
               }
             },
-            "description": "文档标签列表"
+            "description": "Document tag list"
           }
         },
-        "summary": "文档标签列表"
+        "summary": "Document tag list"
       }
     },
     "/api/core/documents:search": {
@@ -4219,10 +4526,10 @@
                 }
               }
             },
-            "description": "全局文档搜索结果"
+            "description": "textDocument search results"
           }
         },
-        "summary": "全局搜索文档",
+        "summary": "textSearch documents",
         "tags": [
           "documents"
         ]
@@ -4274,7 +4581,7 @@
             "description": "OK"
           }
         },
-        "summary": "获取可授权主体"
+        "summary": "Get grantable principals"
       }
     },
     "/api/core/kb/list": {
@@ -4337,7 +4644,7 @@
             "description": "OK"
           }
         },
-        "summary": "知识库列表"
+        "summary": "Knowledge base list"
       }
     },
     "/api/core/kb/permission/batch": {
@@ -4379,7 +4686,7 @@
             "description": "OK"
           }
         },
-        "summary": "批量查询知识库权限"
+        "summary": "Batch query knowledge base permissions"
       }
     },
     "/api/core/kb/{kb_id}/acl": {
@@ -4418,7 +4725,7 @@
             "description": "OK"
           }
         },
-        "summary": "ACL 列表"
+        "summary": "ACL list"
       },
       "post": {
         "parameters": [
@@ -4466,7 +4773,7 @@
             "description": "OK"
           }
         },
-        "summary": "添加 ACL"
+        "summary": "Add ACL"
       }
     },
     "/api/core/kb/{kb_id}/acl/batch": {
@@ -4515,7 +4822,7 @@
             "description": "OK"
           }
         },
-        "summary": "批量添加 ACL"
+        "summary": "BatchAdd ACL"
       }
     },
     "/api/core/kb/{kb_id}/acl/{acl_id}": {
@@ -4562,7 +4869,7 @@
             "description": "OK"
           }
         },
-        "summary": "删除 ACL"
+        "summary": "Delete ACL"
       },
       "put": {
         "parameters": [
@@ -4617,7 +4924,7 @@
             "description": "OK"
           }
         },
-        "summary": "更新 ACL"
+        "summary": "Update ACL"
       }
     },
     "/api/core/kb/{kb_id}/authorization": {
@@ -4656,7 +4963,7 @@
             "description": "OK"
           }
         },
-        "summary": "获取知识库授权信息"
+        "summary": "Get knowledge base authorization"
       },
       "post": {
         "parameters": [
@@ -4703,7 +5010,7 @@
             "description": "OK"
           }
         },
-        "summary": "设置知识库授权信息"
+        "summary": "Set knowledge base authorization"
       }
     },
     "/api/core/kb/{kb_id}/can": {
@@ -4742,7 +5049,7 @@
             "description": "OK"
           }
         },
-        "summary": "检查知识库操作权限"
+        "summary": "Check knowledge base operation permission"
       }
     },
     "/api/core/kb/{kb_id}/permission": {
@@ -4781,7 +5088,7 @@
             "description": "OK"
           }
         },
-        "summary": "查询知识库权限"
+        "summary": "Query knowledge base permissions"
       }
     },
     "/api/core/list_files": {
@@ -4891,10 +5198,10 @@
                 }
               }
             },
-            "description": "提示词列表"
+            "description": "Prompt list"
           }
         },
-        "summary": "提示词列表"
+        "summary": "Prompt list"
       },
       "post": {
         "requestBody": {
@@ -4917,10 +5224,10 @@
                 }
               }
             },
-            "description": "创建后的提示词"
+            "description": "Created prompt"
           }
         },
-        "summary": "创建提示词"
+        "summary": "Create prompt"
       }
     },
     "/api/core/prompts/{name}": {
@@ -4944,10 +5251,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除提示词"
+        "summary": "Delete prompt"
       },
       "get": {
         "parameters": [
@@ -4969,10 +5276,10 @@
                 }
               }
             },
-            "description": "提示词详情"
+            "description": "Prompt details"
           }
         },
-        "summary": "获取提示词"
+        "summary": "Get prompt"
       },
       "patch": {
         "parameters": [
@@ -5005,10 +5312,10 @@
                 }
               }
             },
-            "description": "更新后的提示词"
+            "description": "Updated prompt"
           }
         },
-        "summary": "更新提示词"
+        "summary": "Update prompt"
       }
     },
     "/api/core/prompts/{name}:setDefault": {
@@ -5032,10 +5339,10 @@
                 }
               }
             },
-            "description": "设置成功"
+            "description": "Set successfully"
           }
         },
-        "summary": "设为默认提示词"
+        "summary": "Set as default prompt"
       }
     },
     "/api/core/prompts/{name}:unsetDefault": {
@@ -5059,10 +5366,10 @@
                 }
               }
             },
-            "description": "取消成功"
+            "description": "Unset successfully"
           }
         },
-        "summary": "取消默认提示词"
+        "summary": "Unset default prompt"
       }
     },
     "/api/core/static-files/{path:.*}": {
@@ -5115,10 +5422,10 @@
                 }
               }
             },
-            "description": "上传文件结果"
+            "description": "Upload filetext"
           }
         },
-        "summary": "上传临时文件"
+        "summary": "Upload temp file"
       }
     },
     "/api/core/temp/uploads/{upload_id}/parts/{part_number}": {
@@ -5161,10 +5468,10 @@
                 }
               }
             },
-            "description": "分片上传结果"
+            "description": "Part upload result"
           }
         },
-        "summary": "上传临时文件分片",
+        "summary": "Upload temp filetext",
         "tags": [
           "uploads"
         ]
@@ -5201,10 +5508,10 @@
                 }
               }
             },
-            "description": "中止上传结果"
+            "description": "Abort uploadtext"
           }
         },
-        "summary": "中止临时文件上传",
+        "summary": "AborttextUpload",
         "tags": [
           "uploads"
         ]
@@ -5241,10 +5548,10 @@
                 }
               }
             },
-            "description": "完成上传结果"
+            "description": "Complete uploadtext"
           }
         },
-        "summary": "完成临时文件上传",
+        "summary": "textUpload",
         "tags": [
           "uploads"
         ]
@@ -5271,10 +5578,10 @@
                 }
               }
             },
-            "description": "上传初始化结果"
+            "description": "Upload initialization result"
           }
         },
-        "summary": "初始化临时文件分片上传",
+        "summary": "Initialize temp multipart upload",
         "tags": [
           "uploads"
         ]

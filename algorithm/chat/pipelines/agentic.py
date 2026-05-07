@@ -169,7 +169,7 @@ def agentic_forward(
     if not isinstance(config, dict):
         config = {}
 
-    llm = AutoModel(model='llm', config=True)
+    llm = AutoModel(model='llm', config=_cfg['model_config_path'])
     available_tools = _filter_tools_for_request(
         _normalize_available_tools(config.get('available_tools')),
         config,

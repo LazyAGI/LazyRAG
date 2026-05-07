@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import lazyllm
 import yaml
 
 _CHAT_DIR = Path(__file__).resolve().parents[1]
@@ -54,14 +55,10 @@ def get_config_path() -> str:
 def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     '''Load and return the raw model config dict (yaml parsed, no env expansion).
 
-    When config_path is None, falls back to the path set by
-    LAZYLLM_AUTO_MODEL_CONFIG_MAP_PATH (same env var AutoModel uses with config=True).
+    When config_path is None, falls back to the path resolved by get_config_path()
+    (controlled by LAZYRAG_MODEL_CONFIG_PATH).
     '''
-    if config_path is None:
-        import lazyllm
-        config_path = lazyllm.config['auto_model_config_map_path'] or get_config_path()
-    path = Path(config_path)
-    with path.open(encoding='utf-8') as f:
+    with Path(config_path or get_config_path()).open(encoding='utf-8') as f:
         return yaml.safe_load(f) or {}
 
 

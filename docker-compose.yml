@@ -253,6 +253,7 @@ services:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: ${LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL:-http://doc-server:8000/v1/internal/callbacks/tasks}
       LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
       LAZYRAG_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "backend/core/doc/doc_server.py"]

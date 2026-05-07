@@ -91,13 +91,54 @@ def _build_pdf_reader():
     raise ValueError(f'Unsupported OCR server type: {ocr_type!r}')
 
 
+def reset_document() -> None:
+    '''Drop all vector/segment data and the algorithm registration record.
+
+    Called when LAZYRAG_RESET_ALGO_ON_STARTUP=true so that a fresh rebuild
+    starts from a clean state (e.g. after changing the embed model or node groups).
+    Operates directly on the underlying stores — does NOT require a started Document.
+    TODO(wangzhihong): move it to lazyllm.Document
+    '''
+    import re
+    from lazyllm import LOG
+    from lazyllm.tools.rag.store import MilvusStore, OpenSearchStore
+
+    LOG.warning(f'[build_document] RESET_ALGO_ON_STARTUP is set — dropping all data for algo "{ALGO_ID}"')
+
+    # Mirrors _DocumentStore._gen_collection_name: col_{algo}_{group}, lowercased.
+    _pat = re.compile(r'[^a-z0-9_]+')
+    def _col(group: str) -> str:
+        return _pat.sub('_', f'col_{ALGO_ID}_{group}'.lower()).strip('_')
+
+    activated_groups = ['block', 'line', '__lazyllm_root__', '__lazyllm_image__']
+    store_conf = _build_store_config(get_embed_index_kwargs())
+
+    milvus_cfg = (store_conf.get('vector_store') or {}).get('kwargs', {})
+    opensearch_cfg = (store_conf.get('segment_store') or {}).get('kwargs', {})
+
+    if milvus_cfg.get('uri'):
+        milvus = MilvusStore(**{k: v for k, v in milvus_cfg.items() if k != 'index_kwargs'})
+        for group in activated_groups:
+            milvus.delete(_col(group))
+        LOG.warning(f'[build_document] Milvus collections dropped for algo "{ALGO_ID}"')
+
+    if opensearch_cfg.get('uris'):
+        opensearch = OpenSearchStore(**opensearch_cfg)
+        for group in activated_groups:
+            opensearch.delete(_col(group))
+        LOG.warning(f'[build_document] OpenSearch indices dropped for algo "{ALGO_ID}"')
+
+    DocumentProcessor(url=_cfg['document_processor_url']).drop_algorithm(ALGO_ID)
+    LOG.warning(f'[build_document] Reset complete for algo "{ALGO_ID}"')
+
+
 def build_document() -> Document:
     processor_url = _cfg['document_processor_url']
     server_port = get_algo_server_port()
     embed_keys = get_embed_keys()
     if not embed_keys:
         raise ValueError('At least one embed role must be configured in the model config.')
-    embed = {k: AutoModel(model=k, config=True) for k in embed_keys}
+    embed = {k: AutoModel(model=k, config=_cfg['model_config_path']) for k in embed_keys}
 
     docs = Document(
         dataset_path=None,

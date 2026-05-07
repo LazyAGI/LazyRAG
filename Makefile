@@ -4,9 +4,10 @@
 
 # Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
 # (which often times out in restricted networks). Override with: make up DOCKER_BUILDKIT=1
-export DOCKER_BUILDKIT ?= 0
+export DOCKER_BUILDKIT ?= 1
 PYTHON ?= python3
 PIP ?= $(PYTHON) -m pip
+comma := ,
 
 # ---------------------------------------------------------------------------
 # Compose project (optional). Pass -p only when COMPOSE_PROJECT is set.
@@ -32,6 +33,7 @@ LAZYRAG_DATABASE_URL ?= postgresql+psycopg://app:app@db:5432/app
 LAZYRAG_JWT_SECRET ?= dev-secret-change-me
 LAZYRAG_BOOTSTRAP_ADMIN_USERNAME ?= admin
 LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD ?= admin
+LAZYRAG_RESET_ALGO_ON_STARTUP ?= false
 
 # Core database
 LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/core
@@ -64,6 +66,13 @@ LAZYLLM_TRACE_BACKEND ?= langfuse
 MINIO_ACCESS_KEY ?= minioadmin
 MINIO_SECRET_KEY ?= minioadmin
 
+# pip timeout
+PIP_DEFAULT_TIMEOUT ?= 2400
+PIP_RETRIES ?= 10
+
+# model config path
+LAZYRAG_MODEL_CONFIG_PATH ?= online
+
 export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET
 export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD
 export LAZYRAG_CORE_DATABASE_URL
@@ -73,6 +82,9 @@ export LAZYRAG_ENABLE_STORE_DASHBOARDS LAZYRAG_ENABLE_MILVUS_DASHBOARD LAZYRAG_E
 export LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY
 export LAZYLLM_TRACE_ENABLED LAZYLLM_TRACE_BACKEND
 export MINIO_ACCESS_KEY MINIO_SECRET_KEY
+export PIP_DEFAULT_TIMEOUT PIP_RETRIES
+export LAZYRAG_MODEL_CONFIG_PATH
+export LAZYRAG_RESET_ALGO_ON_STARTUP
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend evo
@@ -145,7 +157,8 @@ _SUBMODULE_INIT = @git submodule status | grep -q '^-' && git submodule update -
 
 build:
 	$(_SUBMODULE_INIT)
-	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build
+	@$(_COMPOSE) $(strip $(if $(_need_mineru),--profile mineru)) build \
+		$(if $(SERVICES),$(subst $(comma), ,$(SERVICES)),)
 
 up:
 	$(_SUBMODULE_INIT)
