@@ -150,6 +150,7 @@ import {
   parseMemoryTab,
   serializeExperienceAsset,
   serializeStructuredAsset,
+  SKILL_TAG_MAX_COUNT,
   skillUploadAccept,
 } from "./shared";
 
@@ -180,11 +181,17 @@ export default function MemoryManagement() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabRouteMatch = useMatch(`${MEMORY_BASE_PATH}/:tab`);
+  const skillDetailMatch = useMatch(`${MEMORY_BASE_PATH}/skills/:itemId`);
+  const experienceDetailMatch = useMatch(`${MEMORY_BASE_PATH}/experience/:itemId`);
   const glossaryDetailMatch = useMatch(`${MEMORY_BASE_PATH}/glossary/:itemId`);
   const reviewRouteMatch = useMatch(`${MEMORY_BASE_PATH}/review/:tab/:itemId`);
   const routeListTab = parseMemoryTab(tabRouteMatch?.params.tab);
   const initialRouteTab =
-    (glossaryDetailMatch?.params.itemId
+    (skillDetailMatch?.params.itemId
+      ? "skills"
+      : experienceDetailMatch?.params.itemId
+      ? "experience"
+      : glossaryDetailMatch?.params.itemId
       ? "glossary"
       : parseChangeProposalTab(reviewRouteMatch?.params.tab) ||
         routeListTab ||
@@ -232,9 +239,6 @@ export default function MemoryManagement() {
   >("");
   const [selectedGlossaryAssetIds, setSelectedGlossaryAssetIds] = useState<string[]>([]);
   const [pendingGlossaryMergeSourceIds, setPendingGlossaryMergeSourceIds] = useState<string[]>(
-    [],
-  );
-  const [selectedGlossaryProposalIds, setSelectedGlossaryProposalIds] = useState<string[]>(
     [],
   );
   const [glossaryDetailTarget, setGlossaryDetailTarget] =
@@ -429,6 +433,22 @@ export default function MemoryManagement() {
     (itemId: string) => {
       navigate({
         pathname: `${MEMORY_BASE_PATH}/glossary/${itemId}`,
+      });
+    },
+    [navigate],
+  );
+  const navigateToSkillDetail = useCallback(
+    (itemId: string) => {
+      navigate({
+        pathname: `${MEMORY_BASE_PATH}/skills/${encodeURIComponent(itemId)}`,
+      });
+    },
+    [navigate],
+  );
+  const navigateToExperienceDetail = useCallback(
+    (itemId: string) => {
+      navigate({
+        pathname: `${MEMORY_BASE_PATH}/experience/${encodeURIComponent(itemId)}`,
       });
     },
     [navigate],
@@ -912,6 +932,8 @@ export default function MemoryManagement() {
   }, [glossaryInboxOpen, refreshGlossaryConflicts]);
 
   const glossaryRouteItemId = glossaryDetailMatch?.params.itemId;
+  const skillRouteItemId = skillDetailMatch?.params.itemId;
+  const experienceRouteItemId = experienceDetailMatch?.params.itemId;
   const reviewRouteTab = parseChangeProposalTab(reviewRouteMatch?.params.tab);
   const reviewRouteItemId = reviewRouteMatch?.params.itemId;
 
@@ -950,7 +972,11 @@ export default function MemoryManagement() {
 
   useEffect(() => {
     const queryTab = parseMemoryTab(searchParams.get("tab"));
-    const nextTab = glossaryRouteItemId
+    const nextTab = skillRouteItemId
+      ? "skills"
+      : experienceRouteItemId
+      ? "experience"
+      : glossaryRouteItemId
       ? "glossary"
       : reviewRouteTab || routeListTab || queryTab || "skills";
 
@@ -960,7 +986,15 @@ export default function MemoryManagement() {
     }
 
     setActiveTab((previous) => (previous === nextTab ? previous : nextTab));
-  }, [developerActive, glossaryRouteItemId, reviewRouteTab, routeListTab, searchParams]);
+  }, [
+    developerActive,
+    experienceRouteItemId,
+    glossaryRouteItemId,
+    reviewRouteTab,
+    routeListTab,
+    searchParams,
+    skillRouteItemId,
+  ]);
 
   useEffect(() => {
     let ignore = false;
@@ -2389,8 +2423,10 @@ export default function MemoryManagement() {
           : approvedBackendSuggestionIds;
 
       if (decision === "accept") {
+        setActiveReviewStep(1);
+        setBackendDraftLoading(true);
         await approveEvolutionSuggestion(suggestionId);
-        message.success(t("admin.memoryDiffApproveSuccess"));
+        message.success(t("admin.memoryDiffBatchApproveSuccess", { count: 1 }));
         markBackendSuggestionApproved(suggestionId);
       } else {
         await rejectEvolutionSuggestion(suggestionId);
@@ -2413,6 +2449,10 @@ export default function MemoryManagement() {
       }
     } catch (error) {
       console.error("Submit backend suggestion decision failed:", error);
+      if (decision === "accept") {
+        setActiveReviewStep(0);
+        setBackendDraftLoading(false);
+      }
       message.error(
         getLocalizedErrorMessage(error, t("admin.memoryExperienceSaveFailed")) ||
           t("admin.memoryExperienceSaveFailed"),
@@ -2460,6 +2500,8 @@ export default function MemoryManagement() {
           : approvedBackendSuggestionIds;
 
       if (decision === "accept") {
+        setActiveReviewStep(1);
+        setBackendDraftLoading(true);
         await batchApproveEvolutionSuggestions(suggestionIds);
         message.success(
           t("admin.memoryDiffBatchApproveSuccess", { count: suggestionIds.length }),
@@ -2489,6 +2531,10 @@ export default function MemoryManagement() {
       }
     } catch (error) {
       console.error("Submit backend suggestion batch decision failed:", error);
+      if (decision === "accept") {
+        setActiveReviewStep(0);
+        setBackendDraftLoading(false);
+      }
       message.error(
         getLocalizedErrorMessage(error, t("admin.memoryExperienceSaveFailed")) ||
           t("admin.memoryExperienceSaveFailed"),
@@ -2521,6 +2567,7 @@ export default function MemoryManagement() {
     }
 
     setBackendDraftLoading(true);
+    setActiveReviewStep(1);
     try {
       const userInstruct = shouldOmitSuggestionIds
         ? extraInstruction.trim()
@@ -2542,7 +2589,6 @@ export default function MemoryManagement() {
               return previewManagedPreferenceDraft(backendDraftKind);
             })();
       setBackendDraftPreview(preview);
-      setActiveReviewStep(1);
       return true;
     } catch (error) {
       console.error("Load managed draft preview failed:", error);
@@ -3041,9 +3087,6 @@ export default function MemoryManagement() {
       setGlossaryChangeProposals((previous) =>
         previous.filter((proposal) => !relatedProposalSet.has(proposal.id)),
       );
-      setSelectedGlossaryProposalIds((previous) =>
-        previous.filter((id) => !relatedProposalSet.has(id)),
-      );
     },
     [glossaryChangeProposals],
   );
@@ -3344,8 +3387,13 @@ export default function MemoryManagement() {
 
       return;
     } else if (activeTab === "experience") {
-      if (!draft.title.trim() || !draft.content.trim()) {
+      if (!draft.title.trim()) {
         message.warning(`${t("common.pleaseInput")}${t("admin.memoryTitle")}`);
+        return;
+      }
+
+      if (!draft.content.trim()) {
+        message.warning(`${t("common.pleaseInput")}${t("admin.memoryContent")}`);
         return;
       }
 
@@ -3387,12 +3435,28 @@ export default function MemoryManagement() {
       return;
     } else {
       const isChildSkill = activeTab === "skills" && Boolean(draft.parentId);
-      if (
-        !draft.name.trim() ||
-        !draft.content.trim() ||
-        (!isChildSkill && !draft.description.trim())
-      ) {
+      if (!draft.name.trim()) {
         message.warning(`${t("common.pleaseInput")}${t("admin.memoryName")}`);
+        return;
+      }
+      if (!isChildSkill && !draft.description.trim()) {
+        message.warning(`${t("common.pleaseInput")}${t("admin.memoryDescription")}`);
+        return;
+      }
+      if (!draft.content.trim()) {
+        message.warning(`${t("common.pleaseInput")}${t("admin.memoryMarkdown")}`);
+        return;
+      }
+
+      const normalizedSkillTags = isChildSkill
+        ? []
+        : normalizeTagValues(draft.tags);
+      if (activeTab === "skills" && normalizedSkillTags.length > SKILL_TAG_MAX_COUNT) {
+        message.warning(
+          t("admin.memorySkillTagMaxCount", {
+            count: SKILL_TAG_MAX_COUNT,
+          }),
+        );
         return;
       }
 
@@ -3401,7 +3465,7 @@ export default function MemoryManagement() {
         name: draft.name.trim(),
         description: isChildSkill ? "" : draft.description.trim(),
         category: isChildSkill ? "" : draft.category.trim(),
-        tags: isChildSkill ? [] : draft.tags,
+        tags: normalizedSkillTags,
         parentId: activeTab === "skills" ? draft.parentId || undefined : undefined,
         content: draft.content.trim(),
         protect: draft.protect,
@@ -3523,25 +3587,6 @@ export default function MemoryManagement() {
 
     setModalOpen(false);
     message.success(t(saveSuccessMessageKey));
-  };
-
-  const handleCopyShareLink = async (
-    tab: ShareableTab,
-    item: StructuredAsset | ExperienceAsset,
-  ) => {
-    const shareUrl = new URL(
-      `${window.location.origin}${window.BASENAME || ""}${buildMemoryTabPath(tab)}`,
-    );
-
-    shareUrl.searchParams.set("item", item.id);
-
-    try {
-      await navigator.clipboard.writeText(shareUrl.toString());
-      message.success(t("admin.memoryShareCopied"));
-    } catch (error) {
-      console.error("Copy share link failed:", error);
-      message.error(t("admin.memoryShareCopyFailed"));
-    }
   };
 
   const handleConfirmShare = async () => {
@@ -3670,29 +3715,6 @@ export default function MemoryManagement() {
     user: "blue",
     ai: "purple",
   };
-  const glossaryProposalIds = useMemo(
-    () => glossaryChangeProposals.map((item) => item.id),
-    [glossaryChangeProposals],
-  );
-  const isAllGlossaryProposalsSelected = useMemo(
-    () =>
-      glossaryProposalIds.length > 0 &&
-      selectedGlossaryProposalIds.length === glossaryProposalIds.length,
-    [glossaryProposalIds, selectedGlossaryProposalIds],
-  );
-  const isPartialGlossaryProposalSelected = useMemo(
-    () =>
-      selectedGlossaryProposalIds.length > 0 &&
-      selectedGlossaryProposalIds.length < glossaryProposalIds.length,
-    [glossaryProposalIds.length, selectedGlossaryProposalIds.length],
-  );
-
-  useEffect(() => {
-    setSelectedGlossaryProposalIds((previous) =>
-      previous.filter((id) => glossaryProposalIds.includes(id)),
-    );
-  }, [glossaryProposalIds]);
-
   const openGlossaryDetail = (item: GlossaryAsset) => {
     setGlossaryDetailTarget(cloneGlossaryAsset(item));
     navigateToGlossaryDetail(item.id);
@@ -3814,9 +3836,6 @@ export default function MemoryManagement() {
           (proposal) => !proposals.some((selected) => selected.id === proposal.id),
         ),
       );
-      setSelectedGlossaryProposalIds((previous) =>
-        previous.filter((id) => !proposals.some((proposal) => proposal.id === id)),
-      );
       message.success(t("admin.memoryGlossaryInboxAcceptSuccess"));
     } catch (error) {
       console.error("Accept glossary conflicts failed:", error);
@@ -3851,9 +3870,6 @@ export default function MemoryManagement() {
           (proposal) => !proposals.some((selected) => selected.id === proposal.id),
         ),
       );
-      setSelectedGlossaryProposalIds((previous) =>
-        previous.filter((id) => !proposals.some((proposal) => proposal.id === id)),
-      );
       message.success(t("admin.memoryGlossaryInboxRejectSuccess"));
     } catch (error) {
       console.error("Reject glossary conflicts failed:", error);
@@ -3864,12 +3880,6 @@ export default function MemoryManagement() {
     } finally {
       setGlossaryInboxSubmitting("");
     }
-  };
-  const rejectSelectedGlossaryProposals = () => {
-    const selected = glossaryChangeProposals.filter((proposal) =>
-      selectedGlossaryProposalIds.includes(proposal.id),
-    );
-    void rejectGlossaryProposals(selected);
   };
   const structuredInfoColumns: ColumnsType<StructuredAsset> = [
     {
@@ -3890,7 +3900,17 @@ export default function MemoryManagement() {
         return (
           <div className="memory-table-main">
             <div className="memory-table-main-title">
-              <span>{record.name}</span>
+              {activeTab === "skills" ? (
+                <button
+                  type="button"
+                  className="memory-term-link"
+                  onClick={() => navigateToSkillDetail(record.id)}
+                >
+                  {record.name}
+                </button>
+              ) : (
+                <span>{record.name}</span>
+              )}
               {showPendingTag ? (
                 <Tag color="orange">{t("admin.memoryDiffPendingTag")}</Tag>
               ) : null}
@@ -3964,13 +3984,15 @@ export default function MemoryManagement() {
 
         return (
           <Space size={4}>
-            <Tooltip title={t("admin.memoryViewItem")}>
-              <Button
-                type="text"
-                icon={<EyeOutlined />}
-                onClick={() => openModal("view", record)}
-              />
-            </Tooltip>
+            {activeTab !== "skills" ? (
+              <Tooltip title={t("admin.memoryViewItem")}>
+                <Button
+                  type="text"
+                  icon={<EyeOutlined />}
+                  onClick={() => openModal("view", record)}
+                />
+              </Tooltip>
+            ) : null}
             {activeTab !== "tools" ? (
               <>
                 <Tooltip title={reviewTooltip}>
@@ -4054,7 +4076,13 @@ export default function MemoryManagement() {
         return (
           <div className="memory-table-main">
             <div className="memory-table-main-title">
-              <span>{record.title}</span>
+              <button
+                type="button"
+                className="memory-term-link"
+                onClick={() => navigateToExperienceDetail(record.id)}
+              >
+                {record.title}
+              </button>
               {showPendingTag ? (
                 <Tag color="orange">{t("admin.memoryDiffPendingTag")}</Tag>
               ) : null}
@@ -4096,13 +4124,6 @@ export default function MemoryManagement() {
 
         return (
           <Space size={4}>
-            <Tooltip title={t("admin.memoryViewItem")}>
-              <Button
-                type="text"
-                icon={<EyeOutlined />}
-                onClick={() => openModal("view", record)}
-              />
-            </Tooltip>
             <Tooltip title={reviewTooltip}>
               <Button
                 type="text"
@@ -4266,6 +4287,8 @@ export default function MemoryManagement() {
     glossaryLoadError,
     refreshGlossaryAssets,
     glossaryRouteItemId,
+    skillRouteItemId,
+    experienceRouteItemId,
     glossaryDetailTarget,
     glossaryDetailExists,
     closeGlossaryDetail,
@@ -4274,6 +4297,8 @@ export default function MemoryManagement() {
     glossarySourceLabelMap,
     resetFilters,
     navigateToMemoryList,
+    navigateToSkillDetail,
+    navigateToExperienceDetail,
     setGlossaryDetailTarget,
     setGlossaryInboxOpen,
     experienceFeatureEnabled,
@@ -4296,13 +4321,16 @@ export default function MemoryManagement() {
     handleBatchMergeGlossary,
     handleBatchDeleteGlossary,
     filteredExperienceItems,
+    experienceAssets,
     experienceLoading,
+    experienceInitialized,
     experienceColumns,
     filteredGlossaryItems,
     glossaryColumns,
     selectedGlossaryAssetIds,
     setSelectedGlossaryAssetIds,
     skillLoading,
+    skillsInitialized,
     skillAssets,
     filteredSkillTree,
     filteredStructuredItems,
@@ -4384,17 +4412,11 @@ export default function MemoryManagement() {
         t={t}
         glossaryInboxOpen={glossaryInboxOpen}
         setGlossaryInboxOpen={setGlossaryInboxOpen}
-        rejectSelectedGlossaryProposals={rejectSelectedGlossaryProposals}
         glossaryChangeProposals={glossaryChangeProposals}
         glossaryInboxLoading={glossaryInboxLoading}
         glossaryInboxError={glossaryInboxError}
         glossaryInboxSubmitting={glossaryInboxSubmitting}
         refreshGlossaryConflicts={refreshGlossaryConflicts}
-        isAllGlossaryProposalsSelected={isAllGlossaryProposalsSelected}
-        isPartialGlossaryProposalSelected={isPartialGlossaryProposalSelected}
-        setSelectedGlossaryProposalIds={setSelectedGlossaryProposalIds}
-        glossaryProposalIds={glossaryProposalIds}
-        selectedGlossaryProposalIds={selectedGlossaryProposalIds}
         glossarySourceColorMap={glossarySourceColorMap}
         glossarySourceLabelMap={glossarySourceLabelMap}
         rejectGlossaryProposals={rejectGlossaryProposals}
@@ -4460,14 +4482,8 @@ export default function MemoryManagement() {
         shareStatusLoading={shareStatusLoading}
         shareStatusError={shareStatusError}
         shareStatusRecords={shareStatusRecords}
-        refreshShareStatus={() =>
-          shareTarget?.tab === "skills"
-            ? refreshShareStatus(shareTarget.item.id, { showErrorToast: true })
-            : Promise.resolve()
-        }
         getSkillShareStatusMeta={getSkillShareStatusMeta}
         formatDateTime={formatDateTime}
-        handleCopyShareLink={handleCopyShareLink}
       />
     </div>
   );

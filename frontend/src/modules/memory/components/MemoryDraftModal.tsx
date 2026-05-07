@@ -5,6 +5,7 @@ import {
   GLOSSARY_ALIAS_MAX_LENGTH,
   GLOSSARY_CONTENT_MAX_LENGTH,
   GLOSSARY_TERM_MAX_LENGTH,
+  SKILL_TAG_MAX_COUNT,
 } from "../shared";
 
 interface MemoryDraftModalProps {
@@ -154,6 +155,7 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
               searchValue={glossaryAliasInput}
               value={draft.aliases}
               disabled={isReadOnly}
+              open={false}
               placeholder={t("admin.memoryGlossaryAliasesPlaceholder")}
               onChange={handleGlossaryAliasesChange}
               onSearch={(value) =>
@@ -278,12 +280,20 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
                   value={draft.tags}
                   disabled={isReadOnly}
                   placeholder={t("admin.memoryTagsPlaceholder")}
-                  onChange={(value) =>
+                  onChange={(value) => {
+                    const normalizedTags = normalizeTagValues(value);
+                    if (normalizedTags.length > SKILL_TAG_MAX_COUNT) {
+                      message.warning(
+                        t("admin.memorySkillTagMaxCount", {
+                          count: SKILL_TAG_MAX_COUNT,
+                        }),
+                      );
+                    }
                     setDraft((previous: any) => ({
                       ...previous,
-                      tags: normalizeTagValues(value),
-                    }))
-                  }
+                      tags: normalizedTags.slice(0, SKILL_TAG_MAX_COUNT),
+                    }));
+                  }}
                   options={tagOptions}
                 />
                 <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>

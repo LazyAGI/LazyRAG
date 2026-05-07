@@ -8,12 +8,11 @@ import {
   useMemo,
 } from "react";
 import { RcFile } from "antd/es/upload";
-import { Button, Input, Tooltip, message } from "antd";
+import { Button, Input, message } from "antd";
 import { debounce } from "lodash";
 import AttachmentIcon from "../../assets/icons/attachment_icon.svg?react";
 import SendIcon from "../../assets/icons/send_icon.svg?react";
 import AddIcon from "../../assets/icons/add.svg?react";
-import BatchChatIcon from "../../assets/icons/batch_chat.svg?react";
 
 import ImageUpload, {
   allowedImageTypes,
@@ -32,7 +31,6 @@ import { ChatConfig } from "../ChatConfigs";
 import ChatSelector from "../ChatSelector";
 import PromptModal, { PromptImperativeProps } from "../PromptModal";
 import BatchChatComponent, { BatchChatImperativeProps } from "../BatchChat";
-import ModelSelector from "../ModelSelector";
 import ShowChatFileList from "../ShowChatFileList";
 import { formatFileSize } from "@/modules/chat/utils";
 import { useChatThinkStore } from "@/modules/chat/store/chatThink";
@@ -151,7 +149,8 @@ const SendButton: React.FC<SendIconProps> = ({ disabled, onClick }) => {
   return (
     <div
       className={`send-button ${disabled ? "disabled" : ""}`}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      aria-disabled={disabled}
     >
       <SendIcon />
     </div>
@@ -368,9 +367,10 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
         preprocessUpload(newFiles, currentFiles, hasKB, t),
       [hasKB, t],
     );
+    const isSendDisabled = !value?.length || isUploading || isStreaming;
 
     const handleSend = () => {
-      if (!value?.length || isUploading) {
+      if (isSendDisabled) {
         return;
       }
       setNewMessage(false);
@@ -489,10 +489,12 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                 onChange={(e) => handleInputChange(e.target.value)}
                 onPaste={handlePaste}
                 onKeyUp={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !isUploading) {
+                  if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    handleSend();
-                    setNewMessage(false);
+                    if (!isSendDisabled) {
+                      handleSend();
+                      setNewMessage(false);
+                    }
                   }
                 }}
               />
@@ -548,7 +550,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                   </div>
                   <div className="input-bottom-actions-right-item">
                     <SendButton
-                      disabled={!value?.length || isUploading}
+                      disabled={isSendDisabled}
                       onClick={handleSend}
                     />
                   </div>
@@ -563,7 +565,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
         />
         <BatchChatComponent
           ref={batchChatRef}
-          cancelFn={(bool) => {
+          cancelFn={() => {
 
           }}
         />

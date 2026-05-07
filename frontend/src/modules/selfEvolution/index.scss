@@ -4,14 +4,17 @@
   --self-evolution-muted: #627890;
   --self-evolution-panel-border: rgba(163, 188, 220, 0.48);
   --self-evolution-panel-shadow: 0 24px 52px rgba(35, 76, 128, 0.13);
-  min-height: 100%;
-  height: 100%;
+  min-height: 100vh;
+  height: 100vh;
   box-sizing: border-box;
   padding: 20px 28px 24px;
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   font-family:
     "Alibaba PuHuiTi 3.0",
     "HarmonyOS Sans SC",
@@ -22,6 +25,13 @@
     radial-gradient(circle at 8% 10%, rgba(47, 133, 255, 0.15), transparent 35%),
     radial-gradient(circle at 92% 18%, rgba(10, 189, 184, 0.14), transparent 37%),
     linear-gradient(180deg, #f4f8ff 0%, #f8fbff 40%, #ffffff 100%);
+}
+
+@supports (height: 100dvh) {
+  .self-evolution-chatlike-page {
+    min-height: 100dvh;
+    height: 100dvh;
+  }
 }
 
 .self-evolution-chatlike-page::before,
@@ -115,7 +125,7 @@
   z-index: 1;
   width: min(1320px, 100%);
   margin: 12px auto 0;
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 0;
   display: flex;
   opacity: 0;
@@ -126,6 +136,7 @@
 .self-evolution-welcome-shell {
   width: 100%;
   min-height: 0;
+  height: fit-content;
   display: flex;
   flex-direction: column;
   padding: 18px 18px 20px;
@@ -152,9 +163,9 @@
 
 .self-evolution-welcome-visual-image {
   display: block;
-  width: min(100%, 1296px);
+  width: 100%;
   height: auto;
-  max-height: clamp(250px, 34vh, 540px);
+  max-height: clamp(180px, 30vh, 430px);
   object-fit: contain;
   object-position: center top;
   border-radius: 14px;
@@ -318,7 +329,7 @@
 
 .self-evolution-launch-compact-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -597,12 +608,12 @@
 }
 
 @media (max-width: 1320px) {
-  .self-evolution-launch-compact-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .self-evolution-chatlike-page {
+    padding: 18px 22px 22px;
   }
 
   .self-evolution-welcome-visual-image {
-    max-height: 520px;
+    max-height: clamp(170px, 27vh, 340px);
   }
 
   .self-evolution-welcome-step-node {
@@ -616,6 +627,34 @@
 
   .self-evolution-welcome-step-connector {
     top: 65px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .self-evolution-chatlike-page {
+    padding: 16px 18px 20px;
+  }
+
+  .self-evolution-welcome-container {
+    margin-top: 10px;
+  }
+
+  .self-evolution-welcome-shell {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .self-evolution-welcome-visual {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .self-evolution-welcome-visual-image {
+    max-height: clamp(150px, 24vh, 280px);
+  }
+
+  .self-evolution-chatlike-launchpad-content {
+    padding: 12px;
   }
 }
 
@@ -1179,8 +1218,8 @@
 }
 
 .self-evolution-session-page {
-  height: calc(100vh - 16px);
-  min-height: calc(100vh - 16px);
+  height: 100vh;
+  min-height: 0;
   box-sizing: border-box;
   padding: 8px;
   display: flex;
@@ -1201,8 +1240,7 @@
 
 @supports (height: 100dvh) {
   .self-evolution-session-page {
-    height: calc(100dvh - 16px);
-    min-height: calc(100dvh - 16px);
+    height: 100dvh;
   }
 }
 
@@ -1212,7 +1250,7 @@
   min-height: 0;
   display: grid;
   gap: 0;
-  grid-template-columns: minmax(530px, 1fr) minmax(330px, 0.72fr);
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 0.72fr);
 }
 
 .self-evolution-workflow-panel,
@@ -1358,6 +1396,11 @@
   background: linear-gradient(180deg, #fffafa 0%, #fff1f0 100%);
 }
 
+.self-evolution-step-card.is-failed {
+  border-color: #ffccc7;
+  background: linear-gradient(180deg, #fffafa 0%, #fff1f0 100%);
+}
+
 .self-evolution-step-main {
   flex: 1;
   min-width: 0;
@@ -1411,6 +1454,11 @@
     background: #fff1f0;
     color: #cf1322;
   }
+
+  &.is-failed {
+    background: #fff1f0;
+    color: #cf1322;
+  }
 }
 
 .self-evolution-step-desc.ant-typography {
@@ -1425,6 +1473,60 @@
   display: flex;
   flex-direction: column;
   gap: 7px;
+}
+
+.self-evolution-step-progress-phases {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.self-evolution-step-progress-phase {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #d7e7fb;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(250, 253, 255, 0.96) 0%, rgba(245, 249, 255, 0.9) 100%);
+}
+
+.self-evolution-step-progress-phase-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+
+  > span {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  strong {
+    flex: 0 0 auto;
+    color: #1760b8;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.25;
+  }
+}
+
+.self-evolution-step-progress-phase-title.ant-typography {
+  color: #234566;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.self-evolution-step-progress-phase-desc.ant-typography {
+  color: #7188a3;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.self-evolution-step-progress-phase .self-evolution-step-progress-meta {
+  margin-top: 8px;
 }
 
 .self-evolution-step-progress-meta {
@@ -1456,6 +1558,14 @@
     border-radius: inherit;
     background: linear-gradient(90deg, #1e6dde 0%, #22a06b 100%);
     transition: width 0.24s ease;
+  }
+
+  &.is-rag span {
+    background: linear-gradient(90deg, #1e6dde 0%, #2b8af7 100%);
+  }
+
+  &.is-judge span {
+    background: linear-gradient(90deg, #6d5dfc 0%, #22a06b 100%);
   }
 }
 
@@ -1527,6 +1637,7 @@
 }
 
 .self-evolution-inline-status.is-canceled,
+.self-evolution-inline-status.is-failed,
 .self-evolution-inline-tag.is-refuted {
   color: #bf4b58;
   border-color: #f4c6cc;
@@ -3208,6 +3319,33 @@
   box-shadow: 0 8px 18px rgba(176, 117, 28, 0.1);
 }
 
+.self-evolution-checkpoint-wait.is-failure {
+  border-color: #f2a2a2;
+  background: linear-gradient(180deg, #fff7f7 0%, #ffecec 100%);
+  box-shadow: 0 8px 18px rgba(203, 56, 56, 0.12);
+
+  .self-evolution-checkpoint-wait-icon {
+    color: #c92a2a;
+    background: #fff0f0;
+    border-color: #ffc9c9;
+  }
+
+  .self-evolution-checkpoint-wait-message.ant-typography {
+    color: #7a2525;
+  }
+
+  .self-evolution-checkpoint-wait-command {
+    border-color: #c92a2a;
+    background: linear-gradient(180deg, #e03131 0%, #c92a2a 100%);
+    box-shadow: 0 8px 14px rgba(201, 42, 42, 0.22);
+
+    &:hover,
+    &:focus-visible {
+      box-shadow: 0 10px 18px rgba(201, 42, 42, 0.28);
+    }
+  }
+}
+
 .self-evolution-checkpoint-wait-icon {
   width: 32px;
   height: 32px;
@@ -3591,6 +3729,32 @@
   }
 }
 
+@media (max-width: 1180px) {
+  .self-evolution-session-page {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .self-evolution-workbench {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(360px, 1fr) minmax(360px, 0.92fr);
+    gap: 10px;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  .self-evolution-workflow-panel,
+  .self-evolution-chat-panel {
+    border-radius: 14px;
+    border-right: 1px solid #d7e4f7;
+  }
+
+  .self-evolution-workflow-panel {
+    padding: 14px 12px;
+  }
+}
+
 @media (max-width: 900px) {
   .self-evolution-chatlike-page {
     padding: 18px;
@@ -3678,18 +3842,25 @@
   }
 
   .self-evolution-session-page {
+    height: auto;
+    min-height: 100vh;
     padding: 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .self-evolution-workbench {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;
     gap: 10px;
+    height: auto;
+    overflow: visible;
   }
 
   .self-evolution-workflow-panel,
   .self-evolution-chat-panel {
     min-height: 420px;
+    height: auto;
     border-radius: 14px;
     border-right: 1px solid #d7e4f7;
   }

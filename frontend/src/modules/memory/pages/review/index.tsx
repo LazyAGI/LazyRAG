@@ -172,7 +172,7 @@ export default function MemoryReviewPage() {
                 <Button
                   type="primary"
                   loading={backendDraftSubmitting === "confirm"}
-                  disabled={backendDraftSubmitting === "discard"}
+                  disabled={backendDraftSubmitting === "discard" || backendDraftLoading}
                   onClick={() => void confirmBackendDraft()}
                 >
                   {t("admin.memoryPreferenceDraftConfirm")}
@@ -365,7 +365,12 @@ export default function MemoryReviewPage() {
               <div className="memory-review-column memory-review-column-full">
                 <div className="memory-diff-preview-body">
                   <div className="memory-diff-unified">
-                    {backendDraftDiffLines.length ? (
+                    {backendDraftLoading ? (
+                      <div className="memory-diff-generating-state" aria-live="polite">
+                        <Spin />
+                        <span>{t("admin.memoryDiffPreviewGenerating")}</span>
+                      </div>
+                    ) : backendDraftDiffLines.length ? (
                       backendDraftDiffLines.map((line: any, index: number) => (
                         <div
                           key={`backend-diff-${index}`}
