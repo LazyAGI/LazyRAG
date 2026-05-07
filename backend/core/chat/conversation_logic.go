@@ -26,6 +26,10 @@ const (
 	defaultTopK                      = 3
 )
 
+func shouldEmitStreamFrame(delta string, sources []any) bool {
+	return delta != "" || len(sources) > 0
+}
+
 func marshalRetrievalResult(sources []any) json.RawMessage {
 	payload, err := json.Marshal(map[string]any{"sources": sources})
 	if err != nil {
@@ -173,7 +177,7 @@ func buildHistoryMessages(histories []orm.ChatHistory) []map[string]string {
 	out := make([]map[string]string, 0, len(histories)*2)
 	for _, h := range histories {
 		out = append(out, map[string]string{"role": "user", "content": h.RawContent})
-		out = append(out, map[string]string{"role": "assistant", "content": h.Result})
+		out = append(out, map[string]string{"role": "assistant", "content": buildAssistantHistoryContent(h)})
 	}
 	return out
 }
@@ -416,22 +420,33 @@ func handleNonStreamChat(
 	}
 	_ = json.Unmarshal(respBytes, &pyResp)
 	answer := ""
+	rawAnswer := ""
 	var sources []any
 	if pyResp.Code == 200 && len(pyResp.Data) > 0 {
 		var data struct {
 			Text    string `json:"text"`
+			Think   string `json:"think"`
 			Sources []any  `json:"sources"`
 		}
 		if json.Unmarshal(pyResp.Data, &data) == nil {
-			answer = strings.TrimSpace(data.Text)
+			if data.Think != "" {
+				rawAnswer = "<think>" + strings.TrimSpace(data.Think) + "</think>" + strings.TrimSpace(data.Text)
+			} else {
+				rawAnswer = strings.TrimSpace(data.Text)
+			}
+			answer = strings.TrimSpace(stripToolTags(data.Text))
 			sources = data.Sources
 		}
+		if rawAnswer == "" {
+			rawAnswer = strings.TrimSpace(string(pyResp.Data))
+		}
 		if answer == "" {
-			answer = strings.TrimSpace(string(pyResp.Data))
+			answer = strings.TrimSpace(stripToolTags(rawAnswer))
 		}
 	}
 	if pyResp.Code != 200 {
 		answer = "error: " + pyResp.Msg
+		rawAnswer = answer
 	}
 	historyID := target.HistoryID
 	if historyID == "" {
@@ -446,7 +461,7 @@ func handleNonStreamChat(
 		RawContent:      query,
 		RetrievalResult: retrievalResult,
 		Content:         query,
-		Result:          answer,
+		Result:          rawAnswer,
 		FeedBack:        0,
 		Reason:          "",
 		ExpectedAnswer:  "",
@@ -459,7 +474,7 @@ func handleNonStreamChat(
 			"seq":              target.Seq,
 			"raw_content":      query,
 			"content":          query,
-			"result":           answer,
+			"result":           rawAnswer,
 			"retrieval_result": retrievalResult,
 			"feed_back":        0,
 			"reason":           "",
@@ -580,9 +595,9 @@ func streamSingleAnswer(
 		return
 	}
 	var fullText string
-	var fullReasoning string
+	var pendingThink string
+	var fullResult string
 	var sources []any
-	thinkingDone := false
 	thinkStart := time.Now()
 	// text：textConversation/text，finish_reason text UNSPECIFIED
 	writeSSEChunk(w, flusher, &ChatChunkResponse{
@@ -598,21 +613,22 @@ func streamSingleAnswer(
 		ThinkingDurationS: 0,
 	})
 	for d := range ch {
+		if d.ReasoningText != "" {
+			pendingThink += d.ReasoningText
+			continue
+		}
+		if pendingThink != "" {
+			fullResult += "<think>" + pendingThink + "</think>"
+			pendingThink = ""
+		}
 		fullText += d.Text
-		fullReasoning += d.ReasoningText
+		fullResult += d.Text
 		if len(d.Sources) > 0 {
 			sources = d.Sources
 		}
-		if d.Text != "" && !thinkingDone {
-			thinkingDone = true
-		}
-		thinkingDurationS := int64(0)
-		if thinkingDone {
-			thinkingDurationS = int64(time.Since(thinkStart).Seconds())
-		}
-		deltaToSend := d.Text
-		if !thinkingDone {
-			deltaToSend = ""
+		deltaToSend := stripToolTags(d.Text)
+		if !shouldEmitStreamFrame(deltaToSend, d.Sources) {
+			continue
 		}
 		chunk := &ChatChunkResponse{
 			ConversationID:    convID,
@@ -623,8 +639,8 @@ func streamSingleAnswer(
 			HistoryID:         historyID,
 			Sources:           sources,
 			PromptQuestions:   []string{},
-			ReasoningContent:  d.ReasoningText,
-			ThinkingDurationS: thinkingDurationS,
+			ReasoningContent:  "",
+			ThinkingDurationS: int64(time.Since(thinkStart).Seconds()),
 		}
 		if reqCtx.Err() == nil {
 			writeSSEChunk(w, flusher, chunk)
@@ -635,20 +651,20 @@ func streamSingleAnswer(
 	}
 	now := time.Now()
 	retrievalResult := marshalRetrievalResult(sources)
-	extPayload, _ := json.Marshal(map[string]any{
-		"reasoning_content": fullReasoning,
-	})
+	if pendingThink != "" {
+		fullResult += "<think>" + pendingThink + "</think>"
+	}
 	if target.IsRegeneration && target.Existing != nil {
 		_ = db.Model(&orm.ChatHistory{}).Where("id = ?", historyID).Updates(map[string]any{
 			"seq":              seq,
 			"raw_content":      query,
 			"content":          query,
-			"result":           fullText,
+			"result":           fullResult,
 			"retrieval_result": retrievalResult,
 			"feed_back":        0,
 			"reason":           "",
 			"expected_answer":  "",
-			"ext":              extPayload,
+			"ext":              nil,
 			"update_time":      now,
 		}).Error
 	} else {
@@ -659,13 +675,13 @@ func streamSingleAnswer(
 			RawContent:      query,
 			RetrievalResult: retrievalResult,
 			Content:         query,
-			Result:          fullText,
-			Ext:             extPayload,
+			Result:          fullResult,
+			Ext:             nil,
 			TimeMixin:       orm.TimeMixin{CreateTime: now, UpdateTime: now},
 		}).Error
 	}
 	if rdb != nil {
-		_ = setChatStatus(context.Background(), rdb, convID, historyID, "completed", fullText)
+		_ = setChatStatus(context.Background(), rdb, convID, historyID, "completed", stripToolTags(fullText))
 	}
 	db.Model(&orm.Conversation{}).Where("id = ?", convID).Update("updated_at", now)
 	if !target.IsRegeneration {
@@ -676,7 +692,7 @@ func streamSingleAnswer(
 		writeSSEChunk(w, flusher, &ChatChunkResponse{
 			ConversationID:  convID,
 			Seq:             int32(seq),
-			Message:         fullText,
+			Message:         stripToolTags(fullText),
 			Delta:           "",
 			FinishReason:    "FINISH_REASON_STOP",
 			HistoryID:       historyID,
@@ -729,41 +745,69 @@ func streamDualAnswer(
 	writeSSEChunk(w, flusher, map[string]any{"conversation_id": convID, "seq": seq, "delta": "", "history_id": historyID})
 	writeSSEChunk(w, flusher, map[string]any{"conversation_id": convID, "seq": seq, "delta": "", "history_id": secondaryHistoryID})
 
+	var primaryText, secondaryText string
 	var primaryResult, secondaryResult string
+	var primaryPendingThink, secondaryPendingThink string
 	primaryDone := primaryCh == nil
 	secondaryDone := secondaryCh == nil
 	var writeMu sync.Mutex
 	appendPrimary := func(delta, reasoning string, sources []any) {
+		if reasoning != "" {
+			primaryPendingThink += reasoning
+			return
+		}
+		if primaryPendingThink != "" {
+			primaryResult += "<think>" + primaryPendingThink + "</think>"
+			primaryPendingThink = ""
+		}
+		primaryText += delta
 		primaryResult += delta
+		delta = stripToolTags(delta)
+		if !shouldEmitStreamFrame(delta, sources) {
+			return
+		}
 		if reqCtx.Err() == nil {
 			writeMu.Lock()
 			writeSSEChunk(w, flusher, map[string]any{
 				"conversation_id": convID, "seq": seq, "delta": delta, "history_id": historyID,
-				"reasoning_content": reasoning, "sources": sources,
+				"sources": sources,
 			})
 			writeMu.Unlock()
 		}
 		if rdb != nil {
 			_ = appendChatChunk(chatCtx, rdb, convID, historyID, &ChatChunkResponse{
 				ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: historyID,
-				ReasoningContent: reasoning, Sources: sources,
+				ReasoningContent: "", Sources: sources,
 			})
 		}
 	}
 	appendSecondary := func(delta, reasoning string, sources []any) {
+		if reasoning != "" {
+			secondaryPendingThink += reasoning
+			return
+		}
+		if secondaryPendingThink != "" {
+			secondaryResult += "<think>" + secondaryPendingThink + "</think>"
+			secondaryPendingThink = ""
+		}
+		secondaryText += delta
 		secondaryResult += delta
+		delta = stripToolTags(delta)
+		if !shouldEmitStreamFrame(delta, sources) {
+			return
+		}
 		if reqCtx.Err() == nil {
 			writeMu.Lock()
 			writeSSEChunk(w, flusher, map[string]any{
 				"conversation_id": convID, "seq": seq, "delta": delta, "history_id": secondaryHistoryID,
-				"reasoning_content": reasoning, "sources": sources,
+				"sources": sources,
 			})
 			writeMu.Unlock()
 		}
 		if rdb != nil {
 			_ = appendChatChunk(chatCtx, rdb, convID, secondaryHistoryID, &ChatChunkResponse{
 				ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: secondaryHistoryID,
-				ReasoningContent: reasoning, Sources: sources,
+				ReasoningContent: "", Sources: sources,
 			})
 		}
 	}
@@ -790,11 +834,24 @@ func streamDualAnswer(
 						primaryDone = true
 						primaryCh = nil
 					} else {
+						if d.ReasoningText != "" {
+							primaryPendingThink += d.ReasoningText
+							continue
+						}
+						if primaryPendingThink != "" {
+							primaryResult += "<think>" + primaryPendingThink + "</think>"
+							primaryPendingThink = ""
+						}
+						primaryText += d.Text
 						primaryResult += d.Text
+						delta := stripToolTags(d.Text)
+						if !shouldEmitStreamFrame(delta, d.Sources) {
+							continue
+						}
 						if rdb != nil {
 							_ = appendChatChunk(bg, rdb, convID, historyID, &ChatChunkResponse{
-								ConversationID: convID, Seq: int32(seq), Delta: d.Text, HistoryID: historyID,
-								ReasoningContent: d.ReasoningText, Sources: d.Sources,
+								ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: historyID,
+								ReasoningContent: "", Sources: d.Sources,
 							})
 						}
 					}
@@ -803,11 +860,24 @@ func streamDualAnswer(
 						secondaryDone = true
 						secondaryCh = nil
 					} else {
+						if d.ReasoningText != "" {
+							secondaryPendingThink += d.ReasoningText
+							continue
+						}
+						if secondaryPendingThink != "" {
+							secondaryResult += "<think>" + secondaryPendingThink + "</think>"
+							secondaryPendingThink = ""
+						}
+						secondaryText += d.Text
 						secondaryResult += d.Text
+						delta := stripToolTags(d.Text)
+						if !shouldEmitStreamFrame(delta, d.Sources) {
+							continue
+						}
 						if rdb != nil {
 							_ = appendChatChunk(bg, rdb, convID, secondaryHistoryID, &ChatChunkResponse{
-								ConversationID: convID, Seq: int32(seq), Delta: d.Text, HistoryID: secondaryHistoryID,
-								ReasoningContent: d.ReasoningText, Sources: d.Sources,
+								ConversationID: convID, Seq: int32(seq), Delta: delta, HistoryID: secondaryHistoryID,
+								ReasoningContent: "", Sources: d.Sources,
 							})
 						}
 					}
@@ -818,17 +888,25 @@ func streamDualAnswer(
 	}
 dualPersist:
 	now := time.Now()
+	if primaryPendingThink != "" {
+		primaryResult += "<think>" + primaryPendingThink + "</think>"
+	}
+	if secondaryPendingThink != "" {
+		secondaryResult += "<think>" + secondaryPendingThink + "</think>"
+	}
 	_ = db.Create(&orm.MultiAnswersChatHistory{
 		ID: historyID, Seq: seq, ConversationID: convID, RawContent: query, Content: query, Result: primaryResult,
+		Ext:       nil,
 		TimeMixin: orm.TimeMixin{CreateTime: now, UpdateTime: now},
 	}).Error
 	_ = db.Create(&orm.MultiAnswersChatHistory{
 		ID: secondaryHistoryID, Seq: seq, ConversationID: convID, RawContent: query, Content: query, Result: secondaryResult,
+		Ext:       nil,
 		TimeMixin: orm.TimeMixin{CreateTime: now, UpdateTime: now},
 	}).Error
 	if rdb != nil {
-		_ = setChatStatus(context.Background(), rdb, convID, historyID, "completed", primaryResult)
-		_ = setChatStatus(context.Background(), rdb, convID, secondaryHistoryID, "completed", secondaryResult)
+		_ = setChatStatus(context.Background(), rdb, convID, historyID, "completed", stripToolTags(primaryText))
+		_ = setChatStatus(context.Background(), rdb, convID, secondaryHistoryID, "completed", stripToolTags(secondaryText))
 	}
 	db.Model(&orm.Conversation{}).Where("id = ?", convID).Update("updated_at", now)
 	if !target.IsRegeneration {

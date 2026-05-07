@@ -239,3 +239,22 @@ func TestBuildLazyChatRequestDefaultsReasoningTrue(t *testing.T) {
 		t.Fatalf("expected reasoning default true")
 	}
 }
+
+func TestShouldEmitStreamFrame(t *testing.T) {
+	tests := []struct {
+		name    string
+		delta   string
+		sources []any
+		want    bool
+	}{
+		{name: "text chunk", delta: "answer", sources: nil, want: true},
+		{name: "source-only chunk", delta: "", sources: []any{map[string]any{"index": 1}}, want: true},
+		{name: "empty chunk", delta: "", sources: nil, want: false},
+	}
+
+	for _, tt := range tests {
+		if got := shouldEmitStreamFrame(tt.delta, tt.sources); got != tt.want {
+			t.Fatalf("%s: got %v want %v", tt.name, got, tt.want)
+		}
+	}
+}
