@@ -622,8 +622,8 @@ services:
       EVO_OPENCODE_ANTHROPIC_KEY: ""
       EVO_LLM_ROLE: evo_llm
       EVO_EMBED_ROLE: evo_embed
-      EVO_KB_BASE_URL: http://172.17.0.1:8055
-      EVO_CHUNK_BASE_URL: http://172.17.0.1:8055
+      EVO_KB_BASE_URL: http://doc-server:8000
+      EVO_CHUNK_BASE_URL: http://doc-server:8000
       EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
       MAAS_BASE_URL: http://106.75.235.251:9000/v1/
@@ -641,6 +641,8 @@ services:
       start_period: 10s
     depends_on:
       chat:
+        condition: service_healthy
+      lazyllm-doc-server:
         condition: service_healthy
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------
