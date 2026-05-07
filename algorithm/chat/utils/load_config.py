@@ -12,6 +12,8 @@ _CHAT_DIR = Path(__file__).resolve().parents[1]
 _INNER_CONFIG_PATH = _CHAT_DIR / 'runtime_models.inner.yaml'
 _EXTERNAL_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
 _ENV_PATTERN = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
+_FS_PROTOCOL_PATTERN = re.compile(r'^([a-zA-Z][a-zA-Z0-9+\-.]*)(@[^:/]+)?:/')
+_DEFAULT_BUILTIN_SKILLS_PATH = '.agentic/skills'
 
 _NON_MODEL_KEYS = frozenset({'embeddings', 'retrieval', 'roles'})
 
@@ -71,6 +73,44 @@ def get_config_path() -> Path:
     return _INNER_CONFIG_PATH if use_inner else _EXTERNAL_CONFIG_PATH
 
 
+def extract_skill_fs_source(path: Any) -> str:
+    raw = str(path or '').strip()
+    if not raw:
+        return 'file'
+    match = _FS_PROTOCOL_PATTERN.match(raw)
+    return match.group(1).lower() if match else 'file'
+
+
+def normalize_skill_fs_url(value: Any, builtin_path: str = _DEFAULT_BUILTIN_SKILLS_PATH) -> str:
+    items: list[str] = []
+    if isinstance(value, str):
+        items.extend(part.strip() for part in value.split(','))
+    elif isinstance(value, (list, tuple)):
+        items.extend(str(part).strip() for part in value)
+    elif value:
+        items.append(str(value).strip())
+
+    if builtin_path:
+        items.append(str(builtin_path).strip())
+
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        normalized.append(item)
+    return ','.join(normalized)
+
+
+def normalize_agentic_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    normalized = deepcopy(config)
+    normalized['skill_fs_url'] = normalize_skill_fs_url(normalized.get('skill_fs_url'))
+    return normalized
+
+
 def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     resolved = Path(config_path) if config_path else get_config_path()
     if not resolved.exists():
@@ -82,7 +122,10 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
         raw = yaml.safe_load(f) or {}
     if not isinstance(raw, dict):
         raise ValueError(f'Model config `{resolved}` root must be a mapping.')
-    return _expand_env_placeholders(raw, str(resolved))
+    expanded = _expand_env_placeholders(raw, str(resolved))
+    if isinstance(expanded.get('agentic'), dict):
+        expanded['agentic'] = normalize_agentic_config(expanded['agentic'])
+    return expanded
 
 
 _config_cache: Dict[str, Any] | None = None

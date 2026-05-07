@@ -157,11 +157,13 @@ def test_skill_manager_lists_remote_skills_from_mock_server(monkeypatch, mock_re
             'name': 'example',
             'category': 'writing',
             'path': 'remote://skills/writing/example',
+            'source': 'remote',
         },
         'ops/deploy-checklist': {
             'name': 'deploy-checklist',
             'category': 'ops',
             'path': 'remote://skills/ops/deploy-checklist',
+            'source': 'remote',
         },
     }
 
@@ -178,6 +180,7 @@ def test_skill_manager_reads_reference_from_remote_mock_server(monkeypatch, mock
 
     assert skill_doc['status'] == 'ok'
     assert 'Example Skill' in skill_doc['content']
+    assert '(source: remote,' in manager.build_prompt('use example')
     assert reference_doc == {
         'status': 'ok',
         'path': 'remote://skills/writing/example/references/examples/daily-update.md',

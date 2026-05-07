@@ -1,19 +1,13 @@
 from functools import wraps
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 import lazyllm
 import requests
 from lazyllm import fc_register
-from typing_extensions import TypedDict
 
 
-MAX_SUGGESTIONS_PER_CALL = 5
+MAX_CONTENT_CHARS = 1500
 DEFAULT_CORE_API_TIMEOUT = 30
-
-_TARGET_FILENAMES: Dict[str, str] = {
-    'memory': 'memory.jsonl',
-    'user': 'user.jsonl',
-}
 
 
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
@@ -34,21 +28,6 @@ def _handle_tool_errors(func):
             return _tool_failure(func.__name__, exc)
 
     return wrapper
-
-
-class Suggestion(TypedDict, total=False):
-    """Natural-language edit suggestion shared by skill / memory / user_preference.
-
-    Fields:
-        title (str, required): short label summarising the proposed change.
-        content (str, required): natural-language description of the
-            modification; the downstream reviewer applies it.
-        reason (str, optional): why the change is worth making.
-    """
-
-    title: str
-    content: str
-    reason: str
 
 
 def _agentic_config() -> Dict[str, Any]:
@@ -104,61 +83,55 @@ def _post_core_api(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _compact_content(text: str) -> str:
+    return ''.join(str(text).split())
+
+
 @fc_register('tool', execute_in_sandbox=False)
 @_handle_tool_errors
 def memory(
     target: Literal['memory', 'user'],
-    suggestions: List[Suggestion],
+    content: str,
 ) -> Dict[str, Any]:
-    """Record natural-language edit suggestions for the user's long-term
-    memory (``target='memory'``) or user profile / preference
-    (``target='user'``).
+    """Directly overwrite the user's long-term memory or user_preference.
 
-    Call this tool when, while handling the current query, you learn
-    something that should persist **across future sessions** — e.g. stable
-    facts about the user, their preferences, or durable working-memory
-    items the agent should remember next time. Each call accepts a batch
-    of at most 5 suggestions; every suggestion describes ONE change in
-    natural language and will be reviewed before being merged.
+    Provide the COMPLETE new full text in ``content``. Do not send patch
+    instructions, suggestions, or partial diffs. The tool writes the final
+    content directly to the backend for the current session user.
 
-    Do **not** use this tool for one-off conversational notes, for
-    answering the current query, or to echo the final response back to
-    the user.
+    Use ``target='memory'`` for reusable experience, conclusions, and
+    durable working knowledge. Use ``target='user'`` for long-term stable
+    user preferences such as tone, language, structure, taboos, and default
+    workflow conventions.
+
+    Writing requirements:
+    - ``content`` must be the full new text after your update.
+    - Keep it structured and easy to scan.
+    - Excluding whitespace and line breaks, the total length must not exceed
+      1500 characters.
+    - Do not use this tool for one-off conversation notes or transient logs.
 
     Args:
-        target: Which buffer the suggestions belong to. ``'memory'`` is the
-            agent's own long-term working memory; ``'user'`` is the user
-            profile / preference text.
-        suggestions: Ordered list of suggestions (max 5 per call). Each
-            item is a dict with the following fields:
-
-            - ``title`` (str, required): short label summarising the change.
-            - ``content`` (str, required): natural-language description of
-              the modification.
-            - ``reason`` (str, optional): rationale for the change.
-
-    Returns:
-        A structured result with success status.
-
-        - success: ``{'success': True, 'result': {...}}``
-        - failure: ``{'success': False, 'reason': '...'}``
+        target: ``'memory'`` updates managed memory; ``'user'`` updates
+            managed user_preference.
+        content: The new full text to persist.
     """
-    def _ok(result: Dict[str, Any]) -> Dict[str, Any]:
-        return {'success': True, 'result': result}
+    def _ok(normalized_target: str) -> Dict[str, Any]:
+        return {'success': True, 'target': normalized_target}
 
     def _fail(reason: str) -> Dict[str, Any]:
         return {'success': False, 'reason': reason}
 
-    if target not in _TARGET_FILENAMES:
+    if target not in {'memory', 'user'}:
         return _fail(
             f"Unknown target {target!r}; expected one of 'memory', 'user'."
         )
-    if not suggestions:
-        return _fail("'suggestions' must be a non-empty list.")
-    if len(suggestions) > MAX_SUGGESTIONS_PER_CALL:
+    if not isinstance(content, str) or not content.strip():
+        return _fail("'content' must be a non-empty string.")
+    if len(_compact_content(content)) > MAX_CONTENT_CHARS:
         return _fail(
-            f'At most {MAX_SUGGESTIONS_PER_CALL} suggestions are allowed per '
-            f'call; got {len(suggestions)}.'
+            f"'content' exceeds the {MAX_CONTENT_CHARS}-character limit "
+            'after removing whitespace.'
         )
 
     agentic_config = _agentic_config()
@@ -167,23 +140,18 @@ def memory(
         return _fail("'session_id' is required in agentic_config.")
 
     endpoint = (
-        '/memory/suggestion'
+        '/memory/internal-upsert'
         if target == 'memory'
-        else '/user_preference/suggestion'
+        else '/user_preference/internal-upsert'
     )
     payload = {
         'session_id': session_id,
-        'suggestions': [dict(s) for s in suggestions],
-    }
-
-    result: Dict[str, Any] = {
-        'target': target,
-        'appended_suggestions': len(suggestions),
+        'content': content,
     }
     try:
-        result.update(_post_core_api(endpoint, payload))
+        _post_core_api(endpoint, payload)
     except (requests.RequestException, RuntimeError) as exc:
-        lazyllm.LOG.error(f'Failed to submit memory suggestions: {exc}')
-        return _fail(f'Failed to submit memory suggestions: {exc}')
+        lazyllm.LOG.error(f'Failed to update managed memory: {exc}')
+        return _fail(f'Failed to update managed memory: {exc}')
 
-    return _ok(result)
+    return _ok(target)

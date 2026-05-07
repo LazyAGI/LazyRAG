@@ -5,14 +5,14 @@ from chat.tools import skill_manager as skill_manager_mod
 def test_core_api_endpoint_uses_internal_core_base_url():
     assert (
         memory_mod._core_api_endpoint(
-            '/memory/suggestion',
+            '/memory/internal-upsert',
             {'core_api_url': 'http://core:8000'},
         )
-        == 'http://core:8000/memory/suggestion'
+        == 'http://core:8000/memory/internal-upsert'
     )
 
 
-def test_memory_submits_core_api_suggestion_paths(monkeypatch):
+def test_memory_submits_core_api_upsert_paths(monkeypatch):
     calls = []
 
     def fake_post_core_api(path, payload):
@@ -26,16 +26,16 @@ def test_memory_submits_core_api_suggestion_paths(monkeypatch):
     )
     monkeypatch.setattr(memory_mod, '_post_core_api', fake_post_core_api)
 
-    suggestion = {'title': 'Keep preference', 'content': 'Remember the preference.'}
+    content = '## Preferences\n- Prefer concise answers.\n- Keep examples practical.'
 
-    memory_result = memory_mod.memory('memory', [suggestion])
-    user_result = memory_mod.memory('user', [suggestion])
+    memory_result = memory_mod.memory('memory', content)
+    user_result = memory_mod.memory('user', content)
 
     assert memory_result['success'] is True
     assert user_result['success'] is True
     assert calls == [
-        ('/memory/suggestion', {'session_id': 'sid-1', 'suggestions': [suggestion]}),
-        ('/user_preference/suggestion', {'session_id': 'sid-1', 'suggestions': [suggestion]}),
+        ('/memory/internal-upsert', {'session_id': 'sid-1', 'content': content}),
+        ('/user_preference/internal-upsert', {'session_id': 'sid-1', 'content': content}),
     ]
 
 
@@ -45,12 +45,23 @@ def test_memory_requires_session_id(monkeypatch):
 
     result = memory_mod.memory(
         'memory',
-        [{'title': 'Keep preference', 'content': 'Remember the preference.'}],
+        'Remember this as the new full memory content.',
     )
 
     assert result == {
         'success': False,
         'reason': "'session_id' is required in agentic_config.",
+    }
+
+
+def test_memory_rejects_content_exceeding_limit(monkeypatch):
+    monkeypatch.setattr(memory_mod, '_agentic_config', lambda: {'session_id': 'sid-1'})
+
+    result = memory_mod.memory('memory', 'a' * 1501)
+
+    assert result == {
+        'success': False,
+        'reason': "'content' exceeds the 1500-character limit after removing whitespace.",
     }
 
 
@@ -75,6 +86,7 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
                 'name': 'existing',
                 'category': 'writing',
                 'path': '/tmp/skills/writing/existing',
+                'source': 'remote',
             }
         },
     )
@@ -154,3 +166,40 @@ def test_skill_manage_rejects_missing_skill_without_post(monkeypatch):
         'reason': "Skill 'missing' does not exist in category 'writing'; use action='create' to add a new skill.",
     }
     assert calls == []
+
+
+def test_skill_manage_rejects_writes_to_non_remote_skills(monkeypatch):
+    monkeypatch.setattr(
+        skill_manager_mod,
+        '_agentic_config',
+        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'remote://skills,.agentic/skills'},
+    )
+    monkeypatch.setattr(
+        skill_manager_mod,
+        'list_all_skill_entries',
+        lambda _base_dir: {
+            'writing/builtin': {
+                'name': 'builtin',
+                'category': 'writing',
+                'path': '.agentic/skills/writing/builtin',
+                'source': 'file',
+            }
+        },
+    )
+
+    modify_result = skill_manager_mod.skill_manage(
+        'builtin',
+        'modify',
+        category='writing',
+        suggestions=[{'title': 'Update instructions', 'content': 'Tighten the wording.'}],
+    )
+    remove_result = skill_manager_mod.skill_manage('builtin', 'remove', category='writing')
+
+    assert modify_result == {
+        'success': False,
+        'reason': "Skill 'builtin' in category 'writing' has read-only source 'file'; skill_manage can only modify remote skills.",
+    }
+    assert remove_result == {
+        'success': False,
+        'reason': "Skill 'builtin' in category 'writing' has read-only source 'file'; skill_manage can only remove remote skills.",
+    }

@@ -5,7 +5,12 @@ import pytest
 import yaml
 
 from chat.components.tmp.local_models import BgeM3Embed, Qwen3Rerank
-from chat.utils.load_config import load_model_config, get_retrieval_settings
+from chat.utils.load_config import (
+    extract_skill_fs_source,
+    get_retrieval_settings,
+    load_model_config,
+    normalize_skill_fs_url,
+)
 import chat.pipelines.builders.get_models as get_models_mod
 
 
@@ -200,8 +205,18 @@ def test_inner_model_config_defaults_skill_fs_url_to_remote_skills(monkeypatch):
 
     assert (
         config['agentic']['skill_fs_url']
-        == 'remote://skills,/home/mnt/dengyuang/workspace/tyy/LazyRAG/algorithm/.agentic_rag/skills'
+        == 'remote://skills,.agentic/skills'
     )
+
+
+def test_skill_fs_url_normalization_appends_builtin_path():
+    assert normalize_skill_fs_url('remote://skills') == 'remote://skills,.agentic/skills'
+    assert normalize_skill_fs_url('remote://skills,.agentic/skills') == 'remote://skills,.agentic/skills'
+
+
+def test_extract_skill_fs_source_uses_prefix_or_file():
+    assert extract_skill_fs_source('remote://skills/writing/demo') == 'remote'
+    assert extract_skill_fs_source('.agentic/skills/writing/demo') == 'file'
 
 
 def test_build_auto_model_uses_local_bgem3_embed():
