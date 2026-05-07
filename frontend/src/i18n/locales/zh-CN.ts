@@ -1116,6 +1116,7 @@ const zhCN = {
     memoryDiffBackendBatchAccept: "接受选中并预览",
     memoryDiffBatchApproveSuccess: "已接受 {{count}} 条建议，正在生成预览",
     memoryDiffBatchRejectSuccess: "已不接受 {{count}} 条建议",
+    memoryDiffPreviewGeneratingTitle: "技能内容修改中",
     memoryDiffSelectedCount: "已选 {{selected}} 条",
     memoryDiffSelectAll: "全选",
     memoryDiffSelectFieldFirst: "请先勾选至少一条建议",

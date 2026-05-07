@@ -1175,6 +1175,7 @@ const enUS = {
     memoryDiffBatchApproveSuccess:
       "Accepted {{count}} suggestions and generating the preview",
     memoryDiffBatchRejectSuccess: "Rejected {{count}} suggestions",
+    memoryDiffPreviewGeneratingTitle: "Updating skill content",
     memoryDiffSelectedCount: "{{selected}} selected",
     memoryDiffSelectAll: "Select All",
     memoryDiffSelectFieldFirst: "Please select at least one suggestion first",

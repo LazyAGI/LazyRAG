@@ -2389,6 +2389,7 @@ export default function MemoryManagement() {
           : approvedBackendSuggestionIds;
 
       if (decision === "accept") {
+        startBackendDraftPreviewLoading();
         await approveEvolutionSuggestion(suggestionId);
         message.success(t("admin.memoryDiffApproveSuccess"));
         markBackendSuggestionApproved(suggestionId);
@@ -2460,6 +2461,7 @@ export default function MemoryManagement() {
           : approvedBackendSuggestionIds;
 
       if (decision === "accept") {
+        startBackendDraftPreviewLoading();
         await batchApproveEvolutionSuggestions(suggestionIds);
         message.success(
           t("admin.memoryDiffBatchApproveSuccess", { count: suggestionIds.length }),
@@ -2508,6 +2510,11 @@ export default function MemoryManagement() {
     ].filter(Boolean);
     return instructions.join("\n");
   };
+  const startBackendDraftPreviewLoading = () => {
+    setIsPreviewContentEditing(false);
+    setBackendDraftPreview(null);
+    setActiveReviewStep(1);
+  };
   const loadBackendDraftPreview = async (
     suggestionIds: string[],
     extraInstruction = "",
@@ -2520,6 +2527,7 @@ export default function MemoryManagement() {
       return false;
     }
 
+    startBackendDraftPreviewLoading();
     setBackendDraftLoading(true);
     try {
       const userInstruct = shouldOmitSuggestionIds
@@ -2542,7 +2550,6 @@ export default function MemoryManagement() {
               return previewManagedPreferenceDraft(backendDraftKind);
             })();
       setBackendDraftPreview(preview);
-      setActiveReviewStep(1);
       return true;
     } catch (error) {
       console.error("Load managed draft preview failed:", error);
@@ -2778,23 +2785,22 @@ export default function MemoryManagement() {
       return;
     }
 
+    setQaQuestionDraft("");
+
     if (
       activeProposal?.backendSuggestions &&
-      activeReviewStep === 1 &&
-      backendDraftPreview
+      activeReviewStep === 1
     ) {
       const updated = await loadBackendDraftPreview(approvedBackendSuggestionIds, text, {
         omitSuggestionIds: true,
       });
       if (updated) {
         message.success(t("admin.memoryDiffQaSendSuccess"));
-        setQaQuestionDraft("");
       }
       return;
     }
 
     message.success(t("admin.memoryDiffQaSendSuccess"));
-    setQaQuestionDraft("");
   };
 
   const handleReviewQuestionKeyDown = (
@@ -4048,8 +4054,7 @@ export default function MemoryManagement() {
       width: 320,
       render: (_value, record) => {
         const pendingProposal = getPendingProposal("experience", record.id);
-        const showPendingTag =
-          Boolean(pendingProposal) || Boolean(record.hasPendingReviewSuggestions);
+        const showPendingTag = Boolean(pendingProposal);
 
         return (
           <div className="memory-table-main">
@@ -4084,16 +4089,8 @@ export default function MemoryManagement() {
     {
       title: t("admin.memoryOperations"),
       key: "actions",
-      width: 210,
+      width: 150,
       render: (_value, record) => {
-        const pendingProposal = getPendingProposal("experience", record.id);
-        const hasBackendPendingReview = Boolean(record.hasPendingReviewSuggestions);
-        const canReviewChange =
-          Boolean(pendingProposal) || hasBackendPendingReview;
-        const reviewTooltip = canReviewChange
-          ? t("admin.memoryDiffReviewAction")
-          : t("admin.memoryDiffNoPending");
-
         return (
           <Space size={4}>
             <Tooltip title={t("admin.memoryViewItem")}>
@@ -4101,15 +4098,6 @@ export default function MemoryManagement() {
                 type="text"
                 icon={<EyeOutlined />}
                 onClick={() => openModal("view", record)}
-              />
-            </Tooltip>
-            <Tooltip title={reviewTooltip}>
-              <Button
-                type="text"
-                icon={<HistoryOutlined />}
-                loading={reviewSuggestionLoadingId === record.id}
-                disabled={!canReviewChange}
-                onClick={() => void openChangeReview("experience", record.id)}
               />
             </Tooltip>
             <Tooltip title={t("admin.memoryEditItem")}>
