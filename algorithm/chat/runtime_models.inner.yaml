@@ -42,11 +42,10 @@ evo_embed:
 # Reranker.
 # Previously aligned with: qwen3_reranker_custom
 reranker:
-  source: qwen3rerank
+  source: qwen
   type: rerank
-  model: Qwen3-Reranker-8B
-  url: http://10.119.24.104:8331/v1/rerank
-  skip_auth: true
+  model: qwen3-rerank
+  api_key: ${LAZYLLM_QWEN_API_KEY}
 
 embeddings:
   # Dense vector embedding.

@@ -441,7 +441,8 @@ class JobManager:
         if cur is None or cur['status'] not in ('running', 'stopping'):
             return
         action = 'fail_permanent' if kind == 'permanent' else 'fail_transient'
-        store.transition(self._store, tid, action, error_code=code, error_kind=kind)
+        row = store.transition(self._store, tid, action, error_code=code, error_kind=kind)
+        self._append_failed_event(row, code=code, kind=kind, message=str(exc))
 
     def _on_success(self, tid: str, final_action: str = 'finish') -> None:
         cur = store.get(self._store, tid)
@@ -450,6 +451,24 @@ class JobManager:
         status = cur['status']
         if status in ('running', 'stopping'):
             store.transition(self._store, tid, final_action, error_code=None, error_kind=None)
+
+    def _append_failed_event(self, row: dict, *, code: str, kind: str, message: str) -> None:
+        flow = row.get('flow')
+        thread_id = row.get('thread_id')
+        if flow not in store.FLOWS or not thread_id:
+            return
+        EventLog(ThreadWorkspace(self._cfg.storage.base_dir, thread_id).events_path).append_event(
+            f'{flow}.failed',
+            task_id=row.get('id'),
+            payload={
+                f'{flow}_id': row.get('id'),
+                'status': 'failed',
+                'terminal_status': row.get('status'),
+                'error_code': code,
+                'error_kind': kind,
+                'message': message,
+            },
+        )
 
 
 def build_manager(config: EvoConfig) -> JobManager:
