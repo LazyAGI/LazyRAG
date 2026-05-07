@@ -10,20 +10,26 @@ import types
 
 
 def _stub_vocab_and_chat_pipelines():
-    """Stub out modules that cause circular imports at collection time."""
-    # vocab stubs
+    """Stub out modules that cause circular imports at collection time.
+
+    vocab.evolution is NOT stubbed here because the circular import
+    (vocab.evolution → chat.pipelines.builders) has been resolved with lazy
+    imports inside the class constructors.  Stubbing vocab.evolution would
+    leave an empty module object in sys.modules and break any later test that
+    imports real symbols from it (e.g. ActionPlanningModule).
+    """
+    # vocab stubs — only inject if not already loaded
     vocab_pkg = types.ModuleType('vocab')
     sys.modules.setdefault('vocab', vocab_pkg)
 
-    vm_stub = types.ModuleType('vocab.vocab_manager')
-    vm_stub.get_vocab_manager = lambda user_id: (lambda q: q)
-    sys.modules['vocab.vocab_manager'] = vm_stub
+    if 'vocab.vocab_manager' not in sys.modules:
+        vm_stub = types.ModuleType('vocab.vocab_manager')
+        vm_stub.get_vocab_manager = lambda user_id: (lambda q: q)
+        sys.modules['vocab.vocab_manager'] = vm_stub
 
-    evo_stub = types.ModuleType('vocab.evolution')
-    sys.modules['vocab.evolution'] = evo_stub
-
-    db_stub = types.ModuleType('vocab.db')
-    sys.modules['vocab.db'] = db_stub
+    if 'vocab.db' not in sys.modules:
+        db_stub = types.ModuleType('vocab.db')
+        sys.modules['vocab.db'] = db_stub
 
 
 _stub_vocab_and_chat_pipelines()

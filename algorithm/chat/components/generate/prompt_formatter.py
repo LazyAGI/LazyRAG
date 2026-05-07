@@ -61,6 +61,28 @@ default_rag_input_en = """
 User question: {query}
 """
 
+standard_rag_input_cn = """
+{instructions}
+
+## 参考文档：
+{context}
+
+## 请根据参考文档和上传的图片（如有），严格遵循回答规则回答问题：
+用户问题：{query}
+"""
+
+image_rag_input_cn = """
+{instructions}
+
+## 阅读图像后回答，请严格遵循上述规则回答问题：
+用户问题：{query}
+"""
+
+default_rag_input_cn = """
+## 严格遵循系统规则，利用先验知识回答用户问题：
+用户问题：{query}
+"""
+
 
 class RAGContextFormatter(ModuleBase):
     def __init__(self, return_trace: bool = False, **kwargs) -> None:
@@ -71,7 +93,7 @@ class RAGContextFormatter(ModuleBase):
         for index, node in enumerate(nodes):
             file_name = node.metadata.get('file_name')
             node_str = (
-                f'Document[[{index + 1}]]:\nFile name: {file_name}\n{node.text}\n'
+                f'文档[[{index + 1}]]：\n文件名：{file_name}\n{node.text}\n'
             )
             node_str_list.append(node_str)
 
@@ -84,9 +106,11 @@ class RAGContextFormatter(ModuleBase):
         query = kwargs.get('query')
         if len(nodes):
             context_str = self._create_context_str(nodes)
-            res = standard_rag_input_en.format(instructions=LLM_PROMPT_INSTRUCTIONS, context=context_str, query=query)
+            res = standard_rag_input_cn.format(
+                instructions=LLM_PROMPT_INSTRUCTIONS, context=context_str, query=query
+            )
         elif image_files:
-            res = image_rag_input_en.format(instructions=MULTIMODAL_PROMPT_INSTRUCTIONS, query=query)
+            res = image_rag_input_cn.format(instructions=MULTIMODAL_PROMPT_INSTRUCTIONS, query=query)
         else:
-            res = default_rag_input_en.format(query=query)
+            res = default_rag_input_cn.format(query=query)
         return res

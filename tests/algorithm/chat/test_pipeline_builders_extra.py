@@ -14,19 +14,25 @@ from types import SimpleNamespace
 
 
 def _stub_vocab():
-    """Inject a minimal vocab.vocab_manager stub to prevent circular import."""
-    stub = types.ModuleType('vocab.vocab_manager')
-    stub.get_vocab_manager = lambda user_id: (lambda q: q)
-    sys.modules.setdefault('vocab', types.ModuleType('vocab'))
-    sys.modules['vocab.vocab_manager'] = stub
+    """Inject a minimal vocab.vocab_manager stub to prevent circular import.
 
-    # Also stub vocab.evolution so vocab/__init__ doesn't pull in the real one
-    evo_stub = types.ModuleType('vocab.evolution')
-    sys.modules['vocab.evolution'] = evo_stub
+    Only stubs modules that haven't been loaded yet.  vocab.evolution is NOT
+    stubbed here because the circular import (vocab.evolution →
+    chat.pipelines.builders) has been resolved with a lazy import inside the
+    class constructors.  Stubbing vocab.evolution would leave an empty module
+    object in sys.modules and break any later test that imports real symbols
+    from it (e.g. ActionPlanningModule).
+    """
+    if 'vocab.vocab_manager' not in sys.modules:
+        stub = types.ModuleType('vocab.vocab_manager')
+        stub.get_vocab_manager = lambda user_id: (lambda q: q)
+        sys.modules.setdefault('vocab', types.ModuleType('vocab'))
+        sys.modules['vocab.vocab_manager'] = stub
 
     # Stub vocab.db to avoid psycopg2 / sqlalchemy at import time
-    db_stub = types.ModuleType('vocab.db')
-    sys.modules['vocab.db'] = db_stub
+    if 'vocab.db' not in sys.modules:
+        db_stub = types.ModuleType('vocab.db')
+        sys.modules['vocab.db'] = db_stub
 
 
 _stub_vocab()
