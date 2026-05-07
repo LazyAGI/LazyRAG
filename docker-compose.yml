@@ -247,7 +247,7 @@ services:
       LAZYRAG_DOCUMENT_SERVICE_URL: http://lazyllm-doc-server:8000
       LAZYRAG_PARSING_SERVICE_URL: http://lazyllm-parse-server:8000
       LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
-      LAZYRAG_EVO_SERVICE_URL: http://evo-api:8048
+      LAZYRAG_EVO_SERVICE_URL: http://evo-api:8047
       LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
       LAZYRAG_OFFICE_CONVERT_WORKERS: "4"
     healthcheck:
