@@ -1,3 +1,34 @@
+x-trace-config: &trace-config
+  LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+  LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+  TRACE_ENABLED: ${TRACE_ENABLED:-1}
+  TRACE_BACKEND: langfuse
+  LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
+  LAZYLLM_TRACE_BACKEND: langfuse
+  OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-60}
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: ${OTEL_EXPORTER_OTLP_TRACES_TIMEOUT:-60}
+  LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: ${LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS:-70000}
+
+x-proxy-env: &proxy-env
+  http_proxy: ${http_proxy:-}
+  https_proxy: ${https_proxy:-}
+  HTTP_PROXY: ${HTTP_PROXY:-}
+  HTTPS_PROXY: ${HTTPS_PROXY:-}
+  no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+
+x-core-env: &core-env
+  ACL_DB_DRIVER: postgres
+  ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+  LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
+  LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+  LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
+  LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
+  LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
+  LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
+
 x-llm-api-keys: &llm-api-keys
   LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
   LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
@@ -142,16 +173,8 @@ services:
     expose:
       - "8000"
     environment:
-      ACL_DB_DRIVER: postgres
-      ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+      <<: *core-env
       MIGRATIONS_DIR: /migrations
-      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-      LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
-      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
-      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
-      LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
-      LAZYRAG_OFFICE_CONVERT_WORKERS: "4"
       LAZYRAG_ALGO_SERVICE_URL: http://lazyllm-doc-server:8000
       LAZYRAG_READONLY_VALIDATE: "0"
       LAZYRAG_READONLY_DB_DRIVER: postgres
@@ -162,6 +185,7 @@ services:
       LAZYRAG_PARSING_SERVICE_URL: http://lazyllm-parse-server:8000
       LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
       LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYRAG_OFFICE_CONVERT_WORKERS: "4"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -185,14 +209,7 @@ services:
       - ./backend/core:/app
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
-      ACL_DB_DRIVER: postgres
-      ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
-      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-      LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
-      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
-      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
-      LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
+      <<: *core-env
     depends_on:
       db:
         condition: service_healthy
@@ -501,26 +518,9 @@ services:
       LAZYRAG_SKILL_REVIEW_INTERVAL: ${LAZYRAG_SKILL_REVIEW_INTERVAL:-5}
       LAZYRAG_SKILL_REVIEW_DEBUG: ${LAZYRAG_SKILL_REVIEW_DEBUG:-false}
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
-      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      TRACE_ENABLED: ${TRACE_ENABLED:-1}
-      TRACE_BACKEND: langfuse
-      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
-      LAZYLLM_TRACE_BACKEND: langfuse
-      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-60}
-      OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: ${OTEL_EXPORTER_OTLP_TRACES_TIMEOUT:-60}
-      LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: ${LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS:-70000}
-      http_proxy: ${http_proxy:-}
-      https_proxy: ${https_proxy:-}
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ${LAZYRAG_WORD_GROUP_APPLY_URL:-}
-      <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
+      <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
       lazyllm-algo:
@@ -565,24 +565,7 @@ services:
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
       MAAS_BASE_URL: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
       MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-minimax-m27}
-      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
-      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      TRACE_ENABLED: ${TRACE_ENABLED:-1}
-      TRACE_BACKEND: langfuse
-      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
-      LAZYLLM_TRACE_BACKEND: langfuse
-      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-60}
-      OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: ${OTEL_EXPORTER_OTLP_TRACES_TIMEOUT:-60}
-      LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: ${LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS:-70000}
-      http_proxy: ${http_proxy:-}
-      https_proxy: ${https_proxy:-}
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      <<: *llm-api-keys
+      <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazyrag/evo
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}:ro
