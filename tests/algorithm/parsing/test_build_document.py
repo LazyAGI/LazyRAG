@@ -160,3 +160,53 @@ def test_build_document_wires_readers_groups_and_embeddings(monkeypatch):
     assert 'parent' not in docs.node_groups[0]
     assert docs.node_groups[1]['parent'] == 'block'
     assert docs.activated == [('block', ['dense', 'sparse']), ('line', ['dense', 'sparse'])]
+
+
+# ---------------------------------------------------------------------------
+# _build_pdf_reader — explicit LAZYRAG_MINERU_UPLOAD_MODE override
+# ---------------------------------------------------------------------------
+
+def test_build_pdf_reader_mineru_upload_mode_explicit_true(monkeypatch):
+    seen = {}
+
+    class FakeMineruPDFReader:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    monkeypatch.setattr(build_document, 'MineruPDFReader', FakeMineruPDFReader)
+    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'mineru')
+    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://mineru:8000/')
+    monkeypatch.setenv('LAZYRAG_MINERU_UPLOAD_MODE', 'true')
+
+    build_document._build_pdf_reader()
+
+    assert seen['upload_mode'] is True
+
+
+def test_build_pdf_reader_mineru_upload_mode_explicit_false(monkeypatch):
+    seen = {}
+
+    class FakeMineruPDFReader:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    monkeypatch.setattr(build_document, 'MineruPDFReader', FakeMineruPDFReader)
+    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'mineru')
+    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://localhost:8000/')
+    monkeypatch.setenv('LAZYRAG_MINERU_UPLOAD_MODE', 'false')
+
+    build_document._build_pdf_reader()
+
+    # explicit 'false' overrides the default (which would be True for localhost)
+    assert seen['upload_mode'] is False
+
+
+def test_build_pdf_reader_mineru_upload_mode_invalid_raises(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv('LAZYRAG_OCR_SERVER_TYPE', 'mineru')
+    monkeypatch.setenv('LAZYRAG_OCR_SERVER_URL', 'http://mineru:8000/')
+    monkeypatch.setenv('LAZYRAG_MINERU_UPLOAD_MODE', 'maybe')
+
+    with pytest.raises(ValueError, match='mineru_upload_mode must be a boolean string'):
+        build_document._build_pdf_reader()
