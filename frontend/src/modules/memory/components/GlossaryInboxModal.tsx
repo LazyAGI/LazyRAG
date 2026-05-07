@@ -1,7 +1,6 @@
 import { Alert, Button, Checkbox, Empty, Modal, Space, Spin, Tag } from "antd";
 import type { TFunction } from "i18next";
-import { useEffect, useMemo, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, useState } from "react";
 import type {
   GlossaryChangeProposal,
   GlossaryConflictResolution,
@@ -12,17 +11,11 @@ interface GlossaryInboxModalProps {
   t: TFunction;
   glossaryInboxOpen: boolean;
   setGlossaryInboxOpen: (open: boolean) => void;
-  rejectSelectedGlossaryProposals: () => void;
   glossaryChangeProposals: GlossaryChangeProposal[];
   glossaryInboxLoading: boolean;
   glossaryInboxError: string;
   glossaryInboxSubmitting: "" | "accept" | "reject";
   refreshGlossaryConflicts: (options?: { showErrorToast?: boolean; silent?: boolean }) => void;
-  isAllGlossaryProposalsSelected: boolean;
-  isPartialGlossaryProposalSelected: boolean;
-  setSelectedGlossaryProposalIds: Dispatch<SetStateAction<string[]>>;
-  glossaryProposalIds: string[];
-  selectedGlossaryProposalIds: string[];
   glossarySourceColorMap: Record<GlossarySource, string>;
   glossarySourceLabelMap: Record<GlossarySource, string>;
   rejectGlossaryProposals: (proposals: GlossaryChangeProposal[]) => void;
@@ -46,17 +39,11 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
     t,
     glossaryInboxOpen,
     setGlossaryInboxOpen,
-    rejectSelectedGlossaryProposals,
     glossaryChangeProposals,
     glossaryInboxLoading,
     glossaryInboxError,
     glossaryInboxSubmitting,
     refreshGlossaryConflicts,
-    isAllGlossaryProposalsSelected,
-    isPartialGlossaryProposalSelected,
-    setSelectedGlossaryProposalIds,
-    glossaryProposalIds,
-    selectedGlossaryProposalIds,
     glossarySourceColorMap,
     glossarySourceLabelMap,
     rejectGlossaryProposals,
@@ -85,15 +72,7 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
     });
   }, [glossaryChangeProposals]);
 
-  const hasSelection = selectedGlossaryProposalIds.length > 0;
   const isSubmitting = Boolean(glossaryInboxSubmitting);
-  const selectedGlossaryProposals = useMemo(
-    () =>
-      glossaryChangeProposals.filter((proposal) =>
-        selectedGlossaryProposalIds.includes(proposal.id),
-      ),
-    [glossaryChangeProposals, selectedGlossaryProposalIds],
-  );
   const buildResolutionWithMode = (
     proposal: GlossaryChangeProposal,
     mode: GlossaryConflictResolution["mode"],
@@ -117,21 +96,6 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
 
     return resolution.selectedGroupIds.length > 0;
   };
-  const buildSelectedResolutionMapWithMode = (
-    mode: GlossaryConflictResolution["mode"],
-  ): Record<string, GlossaryConflictResolution> =>
-    selectedGlossaryProposals.reduce<Record<string, GlossaryConflictResolution>>(
-      (result, proposal) => {
-        result[proposal.id] = buildResolutionWithMode(proposal, mode);
-        return result;
-      },
-      {},
-    );
-  const canApplySelectedWithMode = (mode: GlossaryConflictResolution["mode"]) =>
-    selectedGlossaryProposals.length > 0 &&
-    selectedGlossaryProposals.every((proposal) =>
-      isResolutionValidForMode(proposal, mode),
-    );
   const applyProposalWithMode = (
     proposal: GlossaryChangeProposal,
     mode: GlossaryConflictResolution["mode"],
@@ -166,41 +130,6 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
         <Button key="close" disabled={isSubmitting} onClick={() => setGlossaryInboxOpen(false)}>
           {t("common.close")}
         </Button>,
-        <Button
-          key="reject"
-          disabled={!hasSelection || glossaryInboxLoading || isSubmitting}
-          loading={glossaryInboxSubmitting === "reject"}
-          onClick={rejectSelectedGlossaryProposals}
-        >
-          {t("admin.memoryGlossaryInboxReject")}
-        </Button>,
-        <Button
-          key="separate"
-          type="primary"
-          disabled={!hasSelection || !canApplySelectedWithMode("separate") || glossaryInboxLoading || isSubmitting}
-          loading={glossaryInboxSubmitting === "accept"}
-          onClick={() =>
-            applyGlossaryProposals(
-              selectedGlossaryProposals,
-              buildSelectedResolutionMapWithMode("separate"),
-            )
-          }
-        >
-          {t("admin.memoryGlossaryInboxWriteSeparately")}
-        </Button>,
-        <Button
-          key="create"
-          disabled={!hasSelection || !canApplySelectedWithMode("create") || glossaryInboxLoading || isSubmitting}
-          loading={glossaryInboxSubmitting === "accept"}
-          onClick={() =>
-            applyGlossaryProposals(
-              selectedGlossaryProposals,
-              buildSelectedResolutionMapWithMode("create"),
-            )
-          }
-        >
-          {t("admin.memoryGlossaryInboxCreateAndWrite")}
-        </Button>,
       ]}
     >
       {glossaryInboxError ? (
@@ -228,29 +157,8 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
         </div>
       ) : glossaryChangeProposals.length ? (
         <div className="memory-glossary-inbox">
-          <div className="memory-glossary-inbox-toolbar">
-            <Checkbox
-              checked={isAllGlossaryProposalsSelected}
-              indeterminate={isPartialGlossaryProposalSelected}
-              disabled={isSubmitting}
-              onChange={(event) =>
-                setSelectedGlossaryProposalIds(
-                  event.target.checked ? [...glossaryProposalIds] : [],
-                )
-              }
-            >
-              {t("admin.memoryGlossaryInboxSelectAll")}
-            </Checkbox>
-            <span>
-              {t("admin.memoryGlossaryInboxStats", {
-                selected: selectedGlossaryProposalIds.length,
-                total: glossaryChangeProposals.length,
-              })}
-            </span>
-          </div>
           <div className="memory-glossary-inbox-list">
             {glossaryChangeProposals.map((proposal) => {
-              const checked = selectedGlossaryProposalIds.includes(proposal.id);
               const isMergeProposal = Boolean(proposal.mergeFrom?.length);
               const targetGroups = proposal.backendConflictGroups || [];
               const resolution = resolutionMap[proposal.id] || getDefaultResolution(proposal);
@@ -264,19 +172,7 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
               return (
                 <div key={proposal.id} className="memory-glossary-inbox-card">
                   <div className="memory-glossary-inbox-card-head">
-                    <Checkbox
-                      checked={checked}
-                      disabled={isSubmitting}
-                      onChange={(event) =>
-                        setSelectedGlossaryProposalIds((previous: string[]) =>
-                          event.target.checked
-                            ? [...previous, proposal.id]
-                            : previous.filter((id) => id !== proposal.id),
-                        )
-                      }
-                    >
-                      {proposal.after.term}
-                    </Checkbox>
+                    <strong>{proposal.after.term}</strong>
                     <Space size={8}>
                       <Tag color="blue">{proposalTypeText}</Tag>
                       <Tag color={glossarySourceColorMap[proposal.after.source]}>
@@ -326,10 +222,9 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
                                   >
                                     <Checkbox value={group.id} disabled={isSubmitting} />
                                     <span className="memory-glossary-target-main">
-                                      <strong>{group.term || group.id}</strong>
-                                      <span className="memory-glossary-target-id">
-                                        {group.id}
-                                      </span>
+                                      <strong>
+                                        {group.term || t("admin.memoryGlossaryGroupUnassigned")}
+                                      </strong>
                                       <span className="memory-tag-group memory-tag-group-scroll">
                                         {group.aliases.length ? (
                                           group.aliases.map((alias) => (
@@ -355,10 +250,7 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
                     <Button
                       size="small"
                       disabled={isSubmitting}
-                      loading={
-                        glossaryInboxSubmitting === "reject" &&
-                        selectedGlossaryProposalIds.includes(proposal.id)
-                      }
+                      loading={glossaryInboxSubmitting === "reject"}
                       onClick={() => rejectGlossaryProposals([proposal])}
                     >
                       {t("admin.memoryGlossaryInboxReject")}
@@ -367,10 +259,7 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
                       size="small"
                       type="primary"
                       disabled={isSubmitting || !isResolutionValidForMode(proposal, "separate")}
-                      loading={
-                        glossaryInboxSubmitting === "accept" &&
-                        selectedGlossaryProposalIds.includes(proposal.id)
-                      }
+                      loading={glossaryInboxSubmitting === "accept"}
                       onClick={() => applyProposalWithMode(proposal, "separate")}
                     >
                       {t("admin.memoryGlossaryInboxWriteSeparately")}
@@ -378,10 +267,7 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
                     <Button
                       size="small"
                       disabled={isSubmitting || !isResolutionValidForMode(proposal, "merge")}
-                      loading={
-                        glossaryInboxSubmitting === "accept" &&
-                        selectedGlossaryProposalIds.includes(proposal.id)
-                      }
+                      loading={glossaryInboxSubmitting === "accept"}
                       onClick={() => applyProposalWithMode(proposal, "merge")}
                     >
                       {t("admin.memoryGlossaryInboxMergeAndWrite")}
@@ -389,10 +275,7 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
                     <Button
                       size="small"
                       disabled={isSubmitting || !isResolutionValidForMode(proposal, "create")}
-                      loading={
-                        glossaryInboxSubmitting === "accept" &&
-                        selectedGlossaryProposalIds.includes(proposal.id)
-                      }
+                      loading={glossaryInboxSubmitting === "accept"}
                       onClick={() => applyProposalWithMode(proposal, "create")}
                     >
                       {t("admin.memoryGlossaryInboxCreateAndWrite")}

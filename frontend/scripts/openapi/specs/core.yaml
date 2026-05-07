@@ -330,6 +330,13 @@ components:
                     format: int64
                     type: integer
             type: object
+        CheckModelProviderData:
+            properties:
+                success:
+                    type: boolean
+            required:
+                - success
+            type: object
         CheckWordsExistRequest:
             properties:
                 aliases:
@@ -1687,6 +1694,47 @@ components:
                 - updated_at
                 - word
             type: object
+        addModelProviderGroupModelOpenAPIRequest:
+            properties:
+                model_type:
+                    type: string
+                name:
+                    type: string
+            required:
+                - model_type
+                - name
+            type: object
+        addModelProviderGroupModelOpenAPIResponse:
+            properties:
+                base_url:
+                    type: string
+                group_name:
+                    type: string
+                id:
+                    type: string
+                is_default:
+                    type: boolean
+                model_type:
+                    type: string
+                name:
+                    type: string
+                provider_name:
+                    type: string
+                user_model_provider_group_id:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - group_name
+                - id
+                - is_default
+                - model_type
+                - name
+                - provider_name
+                - user_model_provider_group_id
+                - user_model_provider_id
+            type: object
         agentFileContentOpenAPIRequest:
             properties:
                 path:
@@ -1749,6 +1797,61 @@ components:
                 - thread_id
                 - updated_at
             type: object
+        checkModelProviderOpenAPIRequest:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                provider_name:
+                    type: string
+            required:
+                - api_key
+                - base_url
+                - provider_name
+            type: object
+        createModelProviderGroupOpenAPIRequest:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                name:
+                    type: string
+            required:
+                - base_url
+                - name
+            type: object
+        createModelProviderGroupOpenAPIResponse:
+            properties:
+                base_url:
+                    type: string
+                id:
+                    type: string
+                name:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - id
+                - name
+                - user_model_provider_id
+            type: object
+        deleteModelProviderGroupModelOpenAPIResponse:
+            properties:
+                id:
+                    type: string
+            required:
+                - id
+            type: object
+        deleteModelProviderGroupOpenAPIResponse:
+            properties:
+                id:
+                    type: string
+            required:
+                - id
+            type: object
         internalSkillCreateOpenAPIRequest:
             properties:
                 category:
@@ -1794,6 +1897,84 @@ components:
                 - category
                 - session_id
                 - skill_name
+            type: object
+        listModelProviderGroupModelsOpenAPIItem:
+            properties:
+                base_url:
+                    type: string
+                group_name:
+                    type: string
+                id:
+                    type: string
+                is_default:
+                    type: boolean
+                model_type:
+                    type: string
+                name:
+                    type: string
+                provider_name:
+                    type: string
+                user_model_provider_group_id:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - group_name
+                - id
+                - is_default
+                - model_type
+                - name
+                - provider_name
+                - user_model_provider_group_id
+                - user_model_provider_id
+            type: object
+        listModelProviderGroupModelsOpenAPIResponse:
+            properties:
+                models:
+                    items:
+                        $ref: '#/components/schemas/listModelProviderGroupModelsOpenAPIItem'
+                    type: array
+            type: object
+        listModelProviderGroupsOpenAPIItem:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                id:
+                    type: string
+                name:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - api_key
+                - base_url
+                - id
+                - name
+                - user_model_provider_id
+            type: object
+        listModelProviderGroupsOpenAPIResponse:
+            properties:
+                groups:
+                    items:
+                        $ref: '#/components/schemas/listModelProviderGroupsOpenAPIItem'
+                    type: array
+            type: object
+        listSelectedModelsOpenAPIResponse:
+            properties:
+                selections:
+                    items:
+                        $ref: '#/components/schemas/selectedModelOpenAPIItem'
+                    type: array
+            type: object
+        listUserModelProvidersOpenAPIResponse:
+            properties:
+                providers:
+                    items:
+                        $ref: '#/components/schemas/userModelProviderOpenAPIItem'
+                    type: array
             type: object
         managedStateListOpenAPIResponse:
             properties:
@@ -1866,6 +2047,51 @@ components:
             required:
                 - id
                 - status
+            type: object
+        selectedModelOpenAPIItem:
+            properties:
+                base_url:
+                    type: string
+                group_name:
+                    type: string
+                model_id:
+                    type: string
+                model_type:
+                    type: string
+                name:
+                    type: string
+                provider_name:
+                    type: string
+                user_model_provider_group_id:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - group_name
+                - model_id
+                - model_type
+                - name
+                - provider_name
+                - user_model_provider_group_id
+                - user_model_provider_id
+            type: object
+        setSelectedModelOpenAPIItem:
+            properties:
+                model_id:
+                    type: string
+                model_type:
+                    type: string
+            required:
+                - model_id
+                - model_type
+            type: object
+        setSelectedModelsOpenAPIRequest:
+            properties:
+                selections:
+                    items:
+                        $ref: '#/components/schemas/setSelectedModelOpenAPIItem'
+                    type: array
             type: object
         shareSkillOpenAPIRequest:
             properties:
@@ -2608,6 +2834,37 @@ components:
                     type: array
             required:
                 - session_id
+            type: object
+        updateModelProviderGroupOpenAPIRequest:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                name:
+                    type: string
+            required:
+                - base_url
+                - name
+            type: object
+        userModelProviderOpenAPIItem:
+            properties:
+                base_url:
+                    type: string
+                default_model_provider_id:
+                    type: string
+                description:
+                    type: string
+                id:
+                    type: string
+                name:
+                    type: string
+            required:
+                - base_url
+                - default_model_provider_id
+                - description
+                - id
+                - name
             type: object
 info:
     description: LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。
@@ -5002,6 +5259,296 @@ paths:
             summary: Generate memory draft
             tags:
                 - memory
+    /api/core/model_providers:
+        get:
+            description: Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).
+            parameters:
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listUserModelProvidersOpenAPIResponse'
+                    description: User model provider list
+            summary: List user model providers
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups:
+        get:
+            description: Lists non-deleted groups for the user model provider. model_provider_id is the id from GET /model_providers. Each item includes api_key.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listModelProviderGroupsOpenAPIResponse'
+                    description: Group list
+            summary: List model provider connection groups
+            tags:
+                - model_providers
+        post:
+            description: Creates a group (name, base_url, optional api_key) under the given user model provider. model_provider_id is the id from GET /model_providers. The api_key is not returned in the response body.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/createModelProviderGroupOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/createModelProviderGroupOpenAPIResponse'
+                    description: Created group
+            summary: Create model provider connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}:
+        delete:
+            description: Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/deleteModelProviderGroupOpenAPIResponse'
+                    description: Deleted group
+            summary: Delete model provider connection group
+            tags:
+                - model_providers
+        patch:
+            description: Updates name, base_url, and optionally api_key for a group. The group is selected by path group_id. Omit api_key or send an empty string to keep the existing API key (e.g. when the UI shows a mask). The api_key is not returned in the response body.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/updateModelProviderGroupOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/createModelProviderGroupOpenAPIResponse'
+                    description: Updated group
+            summary: Update model provider connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}/models:
+        get:
+            description: Lists non-deleted user_model_provider_group_models for the group. Each item includes is_default (true when copied from default_models seeding; false for user-added models).
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listModelProviderGroupModelsOpenAPIResponse'
+                    description: Group models list
+            summary: List models under a connection group
+            tags:
+                - model_providers
+        post:
+            description: Creates a user_model_provider_group_models row with is_default false (custom model name and model_type). Name must be unique within the group among active rows. provider_name and base_url are taken from the user provider and group. Response group_name is user_model_provider_groups.name (not stored on the model row).
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/addModelProviderGroupModelOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/addModelProviderGroupModelOpenAPIResponse'
+                    description: Created group model
+            summary: Add custom model under a connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}:
+        delete:
+            description: Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: model_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/deleteModelProviderGroupModelOpenAPIResponse'
+                    description: Deleted group model
+            summary: Delete model under a connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}:check:
+        post:
+            description: Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/checkModelProviderOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CheckModelProviderData'
+                    description: data contains only success (bool), mapped from algorithm /api/model/check
+            summary: Check model provider connectivity
+            tags:
+                - model_providers
+    /api/core/model_providers/models:
+        get:
+            description: Requires query model_type (e.g. llm, embedding). Returns all non-deleted user_model_provider_group_models for the current user with that model_type across all providers and groups. Ordered by user_model_provider_id, group id, then name. Same items as GET .../groups/{group_id}/models.
+            parameters:
+                - in: query
+                  name: model_type
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listModelProviderGroupModelsOpenAPIResponse'
+                    description: Models list
+            summary: List current user's models by model_type
+            tags:
+                - model_providers
+    /api/core/model_providers/selected_models:
+        get:
+            description: Returns the current user's selected model for each model_type.
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listSelectedModelsOpenAPIResponse'
+                    description: Selected models
+            summary: Get selected models by model_type
+            tags:
+                - model_providers
+        put:
+            description: Upserts selected model rows for the current user. Each selection requires model_type and model_id. model_id must belong to the current user and model_type must match the model row.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/setSelectedModelsOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listSelectedModelsOpenAPIResponse'
+                    description: Saved selected models
+            summary: Save selected models by model_type
+            tags:
+                - model_providers
+    /api/core/model_providers:with_groups:
+        get:
+            description: Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listUserModelProvidersOpenAPIResponse'
+                    description: User model providers with groups
+            summary: List user model providers that have groups
+            tags:
+                - model_providers
     /api/core/personalization-items:
         get:
             responses:

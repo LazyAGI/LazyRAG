@@ -382,6 +382,8 @@ export const normalizeTagValues = (values: string[]) =>
     ),
   );
 
+export const SKILL_TAG_MAX_COUNT = 10;
+
 export const normalizeTextValues = (values: string[]) =>
   Array.from(
     new Set(
@@ -827,7 +829,7 @@ export const initialGlossaryChangeProposals: GlossaryChangeProposal[] = (() => {
   ];
 })();
 
-export const memoryTabOrder: MemoryTab[] = ["glossary", "skills", "experience", "tools"];
+export const memoryTabOrder: MemoryTab[] = ["skills", "experience", "glossary", "tools"];
 export const MEMORY_BASE_PATH = "/memory-management";
 
 export const parseMemoryTab = (value?: string | null): MemoryTab | null => {

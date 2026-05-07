@@ -1,4 +1,4 @@
-import { Alert, Button, Input, Modal, Select, Skeleton, Tag } from "antd";
+import { Alert, Input, Modal, Select, Skeleton, Tag } from "antd";
 import type { SkillShareRecord, SkillShareStatus } from "../skillApi";
 
 interface ShareModalProps {
@@ -19,12 +19,10 @@ interface ShareModalProps {
   shareStatusLoading: boolean;
   shareStatusError: string;
   shareStatusRecords: SkillShareRecord[];
-  refreshShareStatus: () => Promise<void>;
   getSkillShareStatusMeta: (
     status: SkillShareStatus,
   ) => { color: string; text: string };
   formatDateTime: (value?: string) => string;
-  handleCopyShareLink: (tab: "skills" | "experience", item: any) => Promise<void>;
 }
 
 export default function ShareModal(props: ShareModalProps) {
@@ -42,10 +40,8 @@ export default function ShareModal(props: ShareModalProps) {
     shareStatusLoading,
     shareStatusError,
     shareStatusRecords,
-    refreshShareStatus,
     getSkillShareStatusMeta,
     formatDateTime,
-    handleCopyShareLink,
   } = props;
 
   return (
@@ -172,9 +168,6 @@ export default function ShareModal(props: ShareModalProps) {
                     {t("admin.memoryShareSyncedRecipientsHint")}
                   </div>
                 </div>
-                <Button size="small" onClick={() => void refreshShareStatus()}>
-                  {t("admin.memorySkillShareRefresh")}
-                </Button>
               </div>
 
               {shareStatusLoading ? (
@@ -184,11 +177,6 @@ export default function ShareModal(props: ShareModalProps) {
                   type="error"
                   showIcon
                   message={shareStatusError}
-                  action={
-                    <Button size="small" onClick={() => void refreshShareStatus()}>
-                      {t("common.retry")}
-                    </Button>
-                  }
                 />
               ) : shareStatusRecords.length ? (
                 <div className="memory-share-status-list">
@@ -235,14 +223,6 @@ export default function ShareModal(props: ShareModalProps) {
               )}
             </div>
           ) : null}
-
-          <div className="memory-share-actions">
-            <Button
-              onClick={() => handleCopyShareLink(shareTarget.tab, shareTarget.item)}
-            >
-              {t("admin.memoryShareCopyLink")}
-            </Button>
-          </div>
         </div>
       ) : null}
     </Modal>
