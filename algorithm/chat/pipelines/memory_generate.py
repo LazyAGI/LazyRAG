@@ -7,8 +7,6 @@ from typing import Any, Dict, List, Literal, Optional
 from lazyllm import AutoModel
 from chat.tools.skill_manager import _validate_skill_content
 from chat.utils.load_config import get_config_path
-from config import config as _cfg
-
 MemoryType = Literal['skill', 'memory', 'user_preference']
 
 _MAX_GENERATE_ATTEMPTS = 3

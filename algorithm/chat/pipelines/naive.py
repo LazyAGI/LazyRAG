@@ -5,7 +5,6 @@ from lazyllm import AutoModel, pipeline, bind, ifs
 from chat.pipelines.builders import get_ppl_search, get_ppl_generate
 from chat.components.process.multiturn_query_rewriter import MultiturnQueryRewriter
 from chat.utils.load_config import get_config_path
-from config import config as _cfg
 
 
 def has_history(query_params=None, *_, **__) -> bool:

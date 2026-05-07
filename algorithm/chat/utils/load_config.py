@@ -2,7 +2,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import lazyllm
 import yaml
 
 _CHAT_DIR = Path(__file__).resolve().parents[1]

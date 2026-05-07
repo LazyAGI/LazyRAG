@@ -151,6 +151,10 @@
   overflow-y: auto;
 }
 
+.admin-layout-body-full {
+  padding: 0;
+}
+
 .admin-layout-panel {
   min-height: calc(100% - 40px);
   padding: 20px 24px 24px;

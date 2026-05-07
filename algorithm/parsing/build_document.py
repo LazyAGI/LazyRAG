@@ -8,7 +8,7 @@ from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
 from chat.utils.load_config import get_embed_keys, get_embed_index_kwargs, get_config_path
 from config import config as _cfg
-from parsing.transform import NodeParser, GeneralParser, LineSplitter
+from parsing.transform import GeneralParser, LineSplitter
 
 ALGO_ID = 'general_algo'
 
@@ -73,6 +73,8 @@ def _build_store_config(index_kwargs):
 def _build_pdf_reader():
     ocr_type = _cfg['ocr_server_type']
     ocr_url = _cfg['ocr_server_url'].rstrip('/')
+    patch_applied = _cfg['ocr_patch_applied']
+    service_variant = _cfg['ocr_service_variant']
     if ocr_type in ('none', None, ''):
         return PDFReader()
     if ocr_type == 'mineru':
@@ -83,11 +85,17 @@ def _build_pdf_reader():
             url=ocr_url,
             backend=_cfg['mineru_backend'],
             upload_mode=upload_mode,
-            post_func=NodeParser(),
-            timeout=3600
+            timeout=3600,
+            patch_applied=patch_applied,
+            service_variant=service_variant,
+            image_cache_dir='/app/uploads/.image_cache'
         )
     if ocr_type == 'paddleocr':
-        return PaddleOCRPDFReader(url=ocr_url)
+        return PaddleOCRPDFReader(
+            url=ocr_url,
+            service_variant=service_variant,
+            images_dir='/app/uploads/.image_cache'
+        )
     raise ValueError(f'Unsupported OCR server type: {ocr_type!r}')
 
 
@@ -107,6 +115,7 @@ def reset_document() -> None:
 
     # Mirrors _DocumentStore._gen_collection_name: col_{algo}_{group}, lowercased.
     _pat = re.compile(r'[^a-z0-9_]+')
+
     def _col(group: str) -> str:
         return _pat.sub('_', f'col_{ALGO_ID}_{group}'.lower()).strip('_')
 

@@ -73,6 +73,8 @@ config.add('startup_retry_interval', str, '2', 'STARTUP_RETRY_INTERVAL', descrip
 config.add('startup_timeout', str, '0', 'STARTUP_TIMEOUT', description='Startup wait timeout in seconds (0 = no timeout).')
 config.add('reset_algo_on_startup', bool, False, 'RESET_ALGO_ON_STARTUP', description='Drop all vector/segment data and algorithm registration on startup, then rebuild from scratch.')
 config.add('rag_image_path_prefix', str, '/mnt/lustre/share_data/mineru/images/', 'RAG_IMAGE_PATH_PREFIX', description='Image path prefix for RAG documents.')
+config.add('ocr_patch_applied', bool, False, 'OCR_PATCH_APPLIED', description='Whether the OCR service patch has been applied.')
+config.add('ocr_service_variant', str, 'online', 'OCR_SERVICE_VARIANT', description='OCR service variant (online/offline).')
 
 # ---------------------------------------------------------------------------
 # Processor

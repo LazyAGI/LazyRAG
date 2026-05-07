@@ -342,32 +342,6 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
-  /api/authservice/user/{user_id}/groups/internal:
-    get:
-      tags:
-      - user
-      summary: List User Groups Internal
-      operationId: list_user_groups_internal_api_authservice_user__user_id__groups_internal_get
-      parameters:
-      - name: user_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: User Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserGroupListResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/authservice/user/{user_id}:
     get:
       tags:
@@ -1338,11 +1312,6 @@ components:
           - type: string
           - type: 'null'
           title: Email
-        remark:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Remark
         status:
           type: string
           title: Status
@@ -1596,11 +1565,6 @@ components:
           - type: string
           - type: 'null'
           title: Phone
-        remark:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Remark
         status:
           type: string
           title: Status
@@ -1615,10 +1579,6 @@ components:
         role_name:
           type: string
           title: Role Name
-        is_bootstrap_admin:
-          type: boolean
-          title: Is Bootstrap Admin
-          default: false
       type: object
       required:
       - user_id
@@ -1628,39 +1588,6 @@ components:
       - role_name
       title: UserDetailResponse
       description: User details
-    UserGroupItem:
-      properties:
-        user_id:
-          type: string
-          title: User Id
-        group_id:
-          type: string
-          title: Group Id
-        group_name:
-          type: string
-          title: Group Name
-        tenant_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Tenant Id
-      type: object
-      required:
-      - user_id
-      - group_id
-      - group_name
-      title: UserGroupItem
-    UserGroupListResponse:
-      properties:
-        groups:
-          items:
-            $ref: '#/components/schemas/UserGroupItem'
-          type: array
-          title: Groups
-      type: object
-      required:
-      - groups
-      title: UserGroupListResponse
     UserItem:
       properties:
         user_id:
@@ -1697,10 +1624,6 @@ components:
         role_name:
           type: string
           title: Role Name
-        is_bootstrap_admin:
-          type: boolean
-          title: Is Bootstrap Admin
-          default: false
       type: object
       required:
       - user_id
