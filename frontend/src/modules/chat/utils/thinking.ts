@@ -55,12 +55,10 @@ export function splitThinkingContent(
  * The streamed reasoning text comes as a sequence of inline tags, e.g.:
  *   <tp id="...">step1</tp><trp id="...">result1</trp><tp id="...">step2</tp>
  *
- * MarkdownViewer pipes through rehype-sanitize, which strips the unknown
- * <tp>/<trp> tags and leaves the inner text concatenated on one line.
- * To make each step render on its own line we replace each tag pair with
- * its inner text surrounded by blank lines (markdown paragraph breaks),
- * and replace any orphan/unclosed tag (which can show up mid-stream) with
- * a paragraph break too.
+ * We strip all tp/trp tags and let \n\n paragraph breaks drive markdown
+ * paragraph creation, so react-markdown creates <p> elements naturally.
+ * This lets markdown formatting inside thinking blocks be parsed and lets
+ * CSS control paragraph spacing precisely.
  */
 export function formatThinkingForDisplay(rawText?: string): string {
   if (!rawText) {
@@ -73,15 +71,9 @@ export function formatThinkingForDisplay(rawText?: string): string {
   // markdown does not merge "...content</tp><trp>Found..." into one line.
   result = result.replace(THINKING_BLOCK_BREAK_RE, "\n\n");
 
-  // Closed <tp>/<trp> pairs -> real block elements for stable rendering.
-  result = result.replace(TP_PAIR_RE, (_match, content: string) => {
-    const normalized = content.trim();
-    return normalized ? `<p>${normalized}</p>` : "";
-  });
-  result = result.replace(TRP_PAIR_RE, (_match, content: string) => {
-    const normalized = content.trim();
-    return normalized ? `<p>${normalized}</p>` : "";
-  });
+  // Closed <tp>/<trp> pairs -> extract inner content.
+  result = result.replace(TP_PAIR_RE, (_match, content: string) => content.trim());
+  result = result.replace(TRP_PAIR_RE, (_match, content: string) => content.trim());
 
   // Any leftover opening/closing tag (typical during streaming when the
   // closing tag has not arrived yet) becomes a paragraph break.
