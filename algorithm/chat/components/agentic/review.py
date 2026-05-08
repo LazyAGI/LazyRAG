@@ -99,10 +99,10 @@ def _build_existing_state_context(config: dict, review_mode: str) -> str:
                 'You MUST read it carefully before deciding what to change.'
             )
             parts.append(
-                'When updating, merge new findings INTO this existing content '
-                'rather than replacing it wholesale. '
-                'Retain still-valid entries; add new entries; correct or remove '
-                'only what is outdated or wrong. Do NOT simply rewrite from scratch.'
+                'When proposing updates, base the suggestions on this existing '
+                'content rather than replacing it wholesale. Retain still-valid '
+                'entries; add new entries; correct or remove only what is '
+                'outdated or wrong. Do NOT simply rewrite from scratch.'
             )
             if memory_content:
                 parts.append(f'\n## Current memory (target=memory)\n{memory_content}')

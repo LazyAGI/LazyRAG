@@ -5,14 +5,14 @@ from chat.tools import skill_manager as skill_manager_mod
 def test_core_api_endpoint_uses_internal_core_base_url():
     assert (
         memory_mod._core_api_endpoint(
-            '/memory/internal-upsert',
+            '/memory/suggestion',
             {'core_api_url': 'http://core:8000'},
         )
-        == 'http://core:8000/memory/internal-upsert'
+        == 'http://core:8000/memory/suggestion'
     )
 
 
-def test_memory_submits_core_api_upsert_paths(monkeypatch):
+def test_memory_submits_core_api_suggestion_paths(monkeypatch):
     calls = []
 
     def fake_post_core_api(path, payload):
@@ -26,16 +26,22 @@ def test_memory_submits_core_api_upsert_paths(monkeypatch):
     )
     monkeypatch.setattr(memory_mod, '_post_core_api', fake_post_core_api)
 
-    content = '## Preferences\n- Prefer concise answers.\n- Keep examples practical.'
+    suggestions = [
+        {
+            'title': 'Keep replies concise',
+            'content': 'The user consistently prefers concise answers.',
+            'reason': 'Observed across the session.',
+        }
+    ]
 
-    memory_result = memory_mod.memory('memory', content)
-    user_result = memory_mod.memory('user', content)
+    memory_result = memory_mod.memory('memory', suggestions)
+    user_result = memory_mod.memory('user', suggestions)
 
     assert memory_result['success'] is True
     assert user_result['success'] is True
     assert calls == [
-        ('/memory/internal-upsert', {'session_id': 'sid-1', 'content': content}),
-        ('/user_preference/internal-upsert', {'session_id': 'sid-1', 'content': content}),
+        ('/memory/suggestion', {'session_id': 'sid-1', 'suggestions': suggestions}),
+        ('/user_preference/suggestion', {'session_id': 'sid-1', 'suggestions': suggestions}),
     ]
 
 
@@ -45,7 +51,7 @@ def test_memory_requires_session_id(monkeypatch):
 
     result = memory_mod.memory(
         'memory',
-        'Remember this as the new full memory content.',
+        [{'title': 'Remember this', 'content': 'Store as a durable suggestion.'}],
     )
 
     assert result == {
@@ -54,14 +60,17 @@ def test_memory_requires_session_id(monkeypatch):
     }
 
 
-def test_memory_rejects_content_exceeding_limit(monkeypatch):
+def test_memory_rejects_too_many_suggestions(monkeypatch):
     monkeypatch.setattr(memory_mod, '_agentic_config', lambda: {'session_id': 'sid-1'})
 
-    result = memory_mod.memory('memory', 'a' * 1501)
+    result = memory_mod.memory(
+        'memory',
+        [{'title': f'item-{i}', 'content': 'x'} for i in range(6)],
+    )
 
     assert result == {
         'success': False,
-        'reason': "'content' exceeds the 1500-character limit after removing whitespace.",
+        'reason': 'At most 5 suggestions are allowed per call; got 6.',
     }
 
 

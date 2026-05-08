@@ -249,6 +249,7 @@ def skill_manage(
     category: Optional[str],
     content: Optional[str] = None,
     suggestions: Optional[List[Suggestion]] = None,
+    reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Manage skills by creating, modifying, or removing a skill entry.
 
@@ -260,6 +261,7 @@ def skill_manage(
             Do NOT pass for action='modify' or 'remove'.
         suggestions: List of {title, content} objects. ONLY for action='modify'.
             Do NOT pass for action='create' or 'remove'.
+        reason: Why the skill should be removed. ONLY for action='remove'.
     """
     def _ok(result: Dict[str, Any]) -> Dict[str, Any]:
         return {'success': True, 'result': result}
@@ -399,11 +401,13 @@ def skill_manage(
             'name': name,
             'action': action,
             'category': normalized_category,
+            'reason': reason,
         }
         payload = {
             'session_id': session_id,
             'skill_name': name,
             'category': normalized_category,
+            'reason': reason or '',
         }
         try:
             result.update(_post_core_api('/skill/remove', payload))
