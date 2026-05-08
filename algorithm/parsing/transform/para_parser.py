@@ -97,8 +97,16 @@ class NormalLineSplitter(NodeTransform):
         nodes = document if isinstance(document, list) else [document]
         for node in nodes:
             metadata = node.metadata
+            global_metadata = node.global_metadata
             split_text = self._split_text(node.text)
-            result.extend([DocNode(text=text, metadata=copy.deepcopy(metadata)) for text in split_text])
+            result.extend([
+                DocNode(
+                    text=text,
+                    metadata=copy.deepcopy(metadata),
+                    global_metadata=copy.deepcopy(global_metadata),
+                )
+                for text in split_text
+            ])
         return result
 
 
@@ -404,11 +412,13 @@ class MineruLineSplitter(NodeTransform):
         nodes = document if isinstance(document, list) else [document]
         for node in nodes:
             _metadata = copy.deepcopy(node.metadata)
+            global_metadata = copy.deepcopy(node.global_metadata)
             lines = _metadata.pop('lines', [])
             for line in lines:
                 metadata = {'type': line.get('type', 'text'), 'page': line.get('page', 0), 'bbox': line.get('bbox', [])}
                 result.append(DocNode(text=line.get('content', ''),
-                                      metadata=_metadata | metadata))
+                                      metadata=_metadata | metadata,
+                                      global_metadata=copy.deepcopy(global_metadata)))
         return result
 
 
@@ -423,7 +433,7 @@ class LineSplitter(NodeTransform):
         nodes = document if isinstance(document, list) else [document]
         for node in nodes:
             file_type = Path(node.global_metadata.get('file_name', '')).suffix
-            if file_type.lower() == '.pdf':
+            if file_type.lower() == '.pdf' and node.metadata.get('lines'):
                 result.extend(self._mineru_spliter(node))
             else:
                 result.extend(self._normal_spliter(node))

@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.auth import router as auth_router
 from api.authorization import router as authorization_router
+from api.cloud_oauth import router as cloud_oauth_router
 from api.group import router as group_router
 from api.role import router as role_router
 from api.user import router as user_router
@@ -277,6 +278,7 @@ def openapi_yaml():
 
 app.include_router(auth_router, prefix=_API_PREFIX)
 app.include_router(authorization_router, prefix=_API_PREFIX)
+app.include_router(cloud_oauth_router, prefix=_API_PREFIX)
 app.include_router(user_router, prefix=_API_PREFIX)
 app.include_router(role_router, prefix=_API_PREFIX)
 app.include_router(group_router, prefix=_API_PREFIX)

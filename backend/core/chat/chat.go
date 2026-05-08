@@ -36,13 +36,19 @@ type DatasetFilters struct {
 }
 
 type LazyChatRequest struct {
-	Query          string          `json:"query"`
-	History        []ChatMessage   `json:"history,omitempty"`
-	SessionID      string          `json:"session_id"`
-	Files          []string        `json:"files,omitempty"`
-	Filters        *DatasetFilters `json:"filters"`
-	Databases      []any           `json:"databases,omitempty"`
-	EnableThinking bool            `json:"enable_thinking,omitempty"`
+	Query           string          `json:"query"`
+	History         []ChatMessage   `json:"history,omitempty"`
+	SessionID       string          `json:"session_id"`
+	Files           []string        `json:"files,omitempty"`
+	Filters         *DatasetFilters `json:"filters"`
+	Reasoning       bool            `json:"reasoning"`
+	Databases       []any           `json:"databases,omitempty"`
+	EnableThinking  bool            `json:"enable_thinking,omitempty"`
+	AvailableTools  []string        `json:"available_tools,omitempty"`
+	AvailableSkills []string        `json:"available_skills,omitempty"`
+	Memory          string          `json:"memory,omitempty"`
+	UserPreference  string          `json:"user_preference,omitempty"`
+	UseMemory       bool            `json:"use_memory"`
 }
 
 // LazyChatData text data text。
@@ -210,7 +216,9 @@ type upstreamStreamLine struct {
 }
 
 func buildLazyChatRequest(body map[string]any) *LazyChatRequest {
-	req := &LazyChatRequest{}
+	req := &LazyChatRequest{
+		Reasoning: true,
+	}
 	if q, ok := body["query"].(string); ok {
 		req.Query = q
 	}
@@ -220,11 +228,25 @@ func buildLazyChatRequest(body map[string]any) *LazyChatRequest {
 	req.History = chatMessagesFromAny(body["history"])
 	req.Filters = datasetFiltersFromAny(body["filters"])
 	req.Files = stringSlice(body["files"])
+	if reasoning, ok := body["reasoning"].(bool); ok {
+		req.Reasoning = reasoning
+	}
 	if databases, ok := body["databases"].([]any); ok {
 		req.Databases = databases
 	}
 	if enableThinking, ok := body["enable_thinking"].(bool); ok {
 		req.EnableThinking = enableThinking
+	}
+	req.AvailableTools = stringSlice(body["available_tools"])
+	req.AvailableSkills = stringSlice(body["available_skills"])
+	if memory, ok := body["memory"].(string); ok {
+		req.Memory = memory
+	}
+	if preference, ok := body["user_preference"].(string); ok {
+		req.UserPreference = preference
+	}
+	if useMemory, ok := body["use_memory"].(bool); ok {
+		req.UseMemory = useMemory
 	}
 	return req
 }

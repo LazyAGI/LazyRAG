@@ -49,7 +49,7 @@ Run from the repository root (`LazyRAG/`):
 python3 -m pip install --user -r LazyRAG/evo/requirements.txt
 
 # Configure model access.
-export LAZYRAG_USE_INNER_MODEL=true
+export LAZYRAG_MODEL_CONFIG_PATH=inner
 export LAZYRAG_MAAS_API_KEY=...
 
 # Optional but usually needed for apply.
@@ -697,8 +697,7 @@ Environment variables read by `load_config()`:
 | `EVO_EVAL_MOCK_PATH` | empty |
 | `EVO_PROFILE` | `dev` |
 | `EVO_ADMIN_TOKEN` | required for global stop/cancel |
-| `LAZYRAG_MODEL_CONFIG_PATH` | chat model config path |
-| `LAZYRAG_USE_INNER_MODEL` | `false` |
+| `LAZYRAG_MODEL_CONFIG_PATH` | chat model config path (`inner` / `online` / `dynamic` or an explicit file path, default: `inner`) |
 
 ## Operations
 

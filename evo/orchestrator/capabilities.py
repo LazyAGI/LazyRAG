@@ -30,7 +30,7 @@ _add(
         'run.start',
         'run',
         '启动一次诊断分析',
-        params_schema={'optional': ['extra_context', 'eval_id', 'badcase_limit', 'score_field']},
+        params_schema={'optional': ['extra_context', 'eval_id', 'badcase_limit', 'score_field', 'extra_instructions']},
         blocking=True,
         safety='long_running',
     )
@@ -86,6 +86,15 @@ _add(
         'task',
         '续跑当前 thread 中最近的暂停或瞬时失败任务',
         params_schema={'optional': ['flow', 'task_id']},
+        blocking=True,
+        safety='long_running',
+    )
+)
+_add(
+    Capability(
+        'thread.retry',
+        'thread',
+        '重试或续跑当前整个 thread 最近可恢复任务',
         blocking=True,
         safety='long_running',
     )

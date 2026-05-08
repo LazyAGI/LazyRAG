@@ -268,6 +268,8 @@ def _phase_run_eval(c: _Ctx) -> None:
         max_workers=c.inputs.eval_options.get('max_workers', 10),
         dataset_name=c.inputs.eval_options.get('dataset_name', ''),
         filters=c.inputs.eval_options.get('filters') or {},
+        require_trace=False,
+        persist_report=False,
         on_progress=lambda current, total: c.log.append_event(
             'abtest.progress',
             task_id=c.inputs.abtest_id,
@@ -281,11 +283,18 @@ def _phase_run_eval(c: _Ctx) -> None:
 
 
 def _phase_compare(c: _Ctx) -> None:
-    base = load_report(c.inputs.baseline_eval_id, c.cfg.storage.base_dir)
+    base = _load_baseline_report(c)
     new = json.loads(c.ws.eval_path(c.state['new_eval_id']).read_text(encoding='utf-8'))
     diff = compare_evals(base, new, primary_metric=c.inputs.policy.primary_metric)
     diff.update(judge_verdict(diff, c.inputs.policy))
     c.state['summary'] = diff
+
+
+def _load_baseline_report(c: _Ctx) -> dict:
+    thread_eval = c.ws.eval_path(c.inputs.baseline_eval_id)
+    if thread_eval.exists():
+        return json.loads(thread_eval.read_text(encoding='utf-8'))
+    return load_report(c.inputs.baseline_eval_id, c.cfg.storage.base_dir)
 
 
 def _phase_persist(c: _Ctx) -> None:

@@ -1,0 +1,60 @@
+package skill
+
+type childSkillInput struct {
+	Name     string `json:"name"`
+	Content  string `json:"content"`
+	FileExt  string `json:"file_ext"`
+	IsLocked bool   `json:"is_locked"`
+}
+
+type createSkillRequest struct {
+	Name            string            `json:"name"`
+	Description     string            `json:"description"`
+	Category        string            `json:"category"`
+	ParentSkillName string            `json:"parent_skill_name"`
+	Tags            []string          `json:"tags"`
+	Content         string            `json:"content"`
+	FileExt         string            `json:"file_ext"`
+	IsLocked        bool              `json:"is_locked"`
+	IsEnabled       *bool             `json:"is_enabled"`
+	Children        []childSkillInput `json:"children"`
+}
+
+type updateSkillRequest struct {
+	Name        *string   `json:"name"`
+	Description *string   `json:"description"`
+	Category    *string   `json:"category"`
+	Tags        *[]string `json:"tags"`
+	Content     *string   `json:"content"`
+	FileExt     *string   `json:"file_ext"`
+	IsLocked    *bool     `json:"is_locked"`
+	IsEnabled   *bool     `json:"is_enabled"`
+}
+
+type generateSkillRequest struct {
+	SuggestionIDs []string `json:"suggestion_ids"`
+	UserInstruct  string   `json:"user_instruct"`
+}
+
+type generateSkillResponse struct {
+	DraftStatus        string `json:"draft_status"`
+	DraftSourceVersion int64  `json:"draft_source_version"`
+	DraftPath          string `json:"draft_path"`
+	Outdated           bool   `json:"outdated"`
+}
+
+type draftPreviewResponse struct {
+	SkillID            string `json:"skill_id"`
+	DraftStatus        string `json:"draft_status"`
+	DraftSourceVersion int64  `json:"draft_source_version"`
+	CurrentContent     string `json:"current_content"`
+	DraftContent       string `json:"draft_content"`
+	Diff               string `json:"diff"`
+	Outdated           bool   `json:"outdated"`
+}
+
+type shareSkillRequest struct {
+	TargetUserIDs  []string `json:"target_user_ids"`
+	TargetGroupIDs []string `json:"target_group_ids"`
+	Message        string   `json:"message"`
+}

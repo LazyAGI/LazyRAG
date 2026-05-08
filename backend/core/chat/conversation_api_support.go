@@ -3,7 +3,6 @@ package chat
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -12,10 +11,7 @@ import (
 )
 
 func chatServiceURL() string {
-	if u := os.Getenv("LAZYRAG_CHAT_SERVICE_URL"); u != "" {
-		return u
-	}
-	return "http://chat:8046"
+	return common.ChatServiceEndpoint()
 }
 
 func extractMessageForACL(r *http.Request, body []byte) (userID string, items []common.ACLCheckItem) {

@@ -55,14 +55,21 @@ def generate_multi_hop_from_chunks(chunks: list[dict], *, count: int, max_worker
         return {'qa': qa}
 
     results: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        futures = [executor.submit(one, p) for p in pairs]
+    executor = ThreadPoolExecutor(max_workers=max(1, max_workers))
+    futures = [executor.submit(one, p) for p in pairs]
+    try:
         for f in as_completed(futures):
             if len(results) >= count:
                 break
             item = f.result()
             if item:
                 results.append(item)
+            if len(results) >= count:
+                break
+    finally:
+        for pending in futures:
+            pending.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
     _log.info('multi-hop generation done: %s/%s', len(results), count)
     return results
 

@@ -76,6 +76,11 @@ def default_auth_dir() -> Path:
 
 def preflight(binary: str | None, *, auth_dir: Path | None = None, options: OpencodeOptions | None = None) -> str:
     resolved = resolve_binary(binary)
+    if not shutil.which('rg'):
+        raise ApplyError(
+            'OPENCODE_SEARCH_TOOL_MISSING',
+            'ripgrep (rg) is required for opencode global search tools',
+        )
     try:
         r = subprocess.run([resolved, '--version'], capture_output=True, text=True, timeout=15, check=False)
     except FileNotFoundError as exc:
@@ -164,6 +169,7 @@ def run_opencode(
     stderr_path = artifact_dir / 'stderr.log'
     events_path = artifact_dir / 'events.jsonl'
     summary_path = artifact_dir / 'text_summary.md'
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     stdout_path.write_text(stdout or '', encoding='utf-8')
     stderr_path.write_text(stderr or '', encoding='utf-8')
     events, text_chunks, last_error = _parse_event_stream(stdout or '')

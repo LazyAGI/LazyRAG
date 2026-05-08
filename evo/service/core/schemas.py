@@ -16,11 +16,13 @@ class RunCreate(BaseModel):
     eval_id: str | None = None
     badcase_limit: int | None = None
     score_field: str | None = None
+    extra_instructions: str | None = None
 
 
 class ApplyCreate(BaseModel):
     thread_id: str | None = None
     report_id: str | None = None
+    extra_instructions: str | None = None
 
 
 class DatasetGenCreate(BaseModel):
@@ -79,9 +81,22 @@ class CheckpointCancel(BaseModel):
 
 class ThreadFlowStatus(BaseModel):
     thread_id: str
-    status: Literal['not_found', 'running', 'waiting_checkpoint', 'ended', 'failed', 'cancelled', 'paused']
+    status: Literal['not_found', 'idle', 'running', 'waiting_checkpoint', 'ended', 'failed', 'cancelled', 'paused']
     active_task_ids: list[str] = Field(default_factory=list)
     latest_abtest_id: str | None = None
     latest_abtest_status: str | None = None
     report_ready: bool = False
     pending_checkpoint: dict[str, Any] | None = None
+
+
+class ThreadStatusItem(ThreadFlowStatus):
+    title: str = ''
+    mode: str = 'interactive'
+    created_at: float | None = None
+    updated_at: float | None = None
+
+
+class ThreadStatusList(BaseModel):
+    total: int
+    counts: dict[str, int] = Field(default_factory=dict)
+    threads: list[ThreadStatusItem] = Field(default_factory=list)

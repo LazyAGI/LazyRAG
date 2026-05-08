@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 import random
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_generate_single_hop
 from evo.datagen.validate import normalize_qa_json
@@ -62,11 +62,12 @@ def generate_single_hop(
             _log.error('generate single hop error: %s', exc)
             return None
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         while len(result_list) < count and retry_count < max_retries and (not no_doc_flag):
             tasks = min(max_workers, count - len(result_list))
             futures = [executor.submit(run_single) for _ in range(tasks)]
-            for f in futures:
+            for f in as_completed(futures):
                 res = f.result()
                 with lock:
                     if no_doc_flag:
@@ -87,6 +88,8 @@ def generate_single_hop(
             with lock:
                 if no_doc_flag:
                     break
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
     _log.info('single-hop done: %s items', len(result_list))
     return result_list
 
@@ -120,9 +123,10 @@ def generate_single_hop_from_chunks(
         qa_json['reference_chunk_ids'] = [chunk.get('chunk_id', '')]
         return {'qa': qa_json}
 
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        futures = [executor.submit(run_one, c) for c in rows[: max(count * 3, count)]]
-        for f in futures:
+    executor = ThreadPoolExecutor(max_workers=max(1, max_workers))
+    futures = [executor.submit(run_one, c) for c in rows[: max(count * 3, count)]]
+    try:
+        for f in as_completed(futures):
             item = f.result()
             if not item:
                 continue
@@ -131,5 +135,9 @@ def generate_single_hop_from_chunks(
                     result_list.append(item)
             if len(result_list) >= count:
                 break
+    finally:
+        for pending in futures:
+            pending.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
     _log.info('single-hop from chunks done: %s/%s', len(result_list), count)
     return result_list

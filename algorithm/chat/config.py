@@ -1,34 +1,30 @@
-import os
 from typing import Dict
 
 from dotenv import load_dotenv
 
+from config import config
+
 load_dotenv()
 
-MOUNT_BASE_DIR: str = os.getenv('LAZYLLM_MOUNT_DIR', '/data')
-SENSITIVE_WORDS_PATH: str = os.getenv('SENSITIVE_WORDS_PATH', 'data/sensitive_words.txt')
+MOUNT_BASE_DIR: str = config['mount_base_dir']
+SENSITIVE_WORDS_PATH: str = config['sensitive_words_path']
 
-_LAZYRAG_LLM_PRIORITY_ENV = os.getenv('LAZYRAG_LLM_PRIORITY')
-LAZYRAG_LLM_PRIORITY = (
-    int(_LAZYRAG_LLM_PRIORITY_ENV)
-    if _LAZYRAG_LLM_PRIORITY_ENV is not None and _LAZYRAG_LLM_PRIORITY_ENV.isdigit()
-    else 0
-)
+LAZYRAG_LLM_PRIORITY: int = config['llm_priority']
 USE_MULTIMODAL = False
 LLM_TYPE_THINK = False
 
-MAX_CONCURRENCY = int(os.getenv('LAZYRAG_MAX_CONCURRENCY', 10))
-RAG_MODE = os.getenv('RAG_MODE', 'True').lower() == 'true'
-MULTIMODAL_MODE = os.getenv('MULTIMODAL_MODE', 'True').lower() == 'true'
+MAX_CONCURRENCY: int = config['max_concurrency']
+RAG_MODE: bool = config['rag_mode']
+MULTIMODAL_MODE: bool = config['multimodal_mode']
 
 SENSITIVE_FILTER_RESPONSE_TEXT = 'Sorry, I have not learned how to answer this question yet. If you have other questions, I am happy to help.'  # noqa: E501
 
 IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg')
 DEFAULT_TMP_BLOCK_TOPK = 20
 
-DEFAULT_ALGO_SERVICE_URL = os.getenv('LAZYRAG_ALGO_SERVICE_URL', 'http://lazyllm-algo:8000').rstrip('/')
-DEFAULT_ALGO_DATASET_NAME = os.getenv('LAZYRAG_ALGO_DATASET_NAME', 'general_algo')
-DEFAULT_CHAT_DATASET = os.getenv('LAZYRAG_DEFAULT_CHAT_DATASET', 'algo')
+DEFAULT_ALGO_SERVICE_URL: str = config['algo_service_url'].rstrip('/')
+DEFAULT_ALGO_DATASET_NAME: str = config['algo_dataset_name']
+DEFAULT_CHAT_DATASET: str = config['default_chat_dataset']
 
 URL_MAP: Dict[str, str] = {
     'algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',

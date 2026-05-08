@@ -37,6 +37,10 @@ SELECT 'CREATE DATABASE app OWNER app'
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'app')
 \gexec
 
+SELECT 'CREATE DATABASE scan_control_plane'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'scan_control_plane')
+\gexec
+
 ALTER DATABASE app OWNER TO app;
 GRANT ALL PRIVILEGES ON DATABASE app TO app;
 SQL

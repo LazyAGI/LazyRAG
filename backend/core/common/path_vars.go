@@ -31,11 +31,20 @@ func isActionSuffix(s string) bool {
 	if s == "" {
 		return false
 	}
-	for _, r := range s {
+	prevHyphen := false
+	for i, r := range s {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			prevHyphen = false
+			continue
+		}
+		if r == '-' {
+			if i == 0 || i == len(s)-1 || prevHyphen {
+				return false
+			}
+			prevHyphen = true
 			continue
 		}
 		return false
 	}
-	return true
+	return !prevHyphen
 }

@@ -8,16 +8,16 @@ from chat.prompts.rewrite import MULTITURN_QUERY_REWRITE_PROMPT
 
 def test_format_prompt_templates_only_use_expected_variables():
     templates = {
-        'standard_rag_input_cn': (
-            formatter_mod.standard_rag_input_cn,
+        'standard_rag_input_en': (
+            formatter_mod.standard_rag_input_en,
             {'instructions', 'context', 'query'},
         ),
-        'image_rag_input_cn': (
-            formatter_mod.image_rag_input_cn,
+        'image_rag_input_en': (
+            formatter_mod.image_rag_input_en,
             {'instructions', 'query'},
         ),
-        'default_rag_input_cn': (
-            formatter_mod.default_rag_input_cn,
+        'default_rag_input_en': (
+            formatter_mod.default_rag_input_en,
             {'query'},
         ),
     }

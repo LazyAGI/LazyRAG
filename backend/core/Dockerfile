@@ -1,7 +1,7 @@
 FROM golang:1.24.6 AS build
 WORKDIR /app
 
-# 配置国内源
+# Configure Go module mirrors.
 ENV GOPROXY=https://goproxy.cn,direct
 ENV GOSUMDB=sum.golang.google.cn
 

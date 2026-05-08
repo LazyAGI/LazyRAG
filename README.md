@@ -116,7 +116,7 @@ Frontend
 
 ## Runtime Model Config
 
-- The default runtime config file is `algorithm/chat/runtime_models.yaml`. Set `LAZYRAG_USE_INNER_MODEL=true` to use the internal deployment config (`runtime_models.inner.yaml`) instead.
+- Use `LAZYRAG_MODEL_CONFIG_PATH` to select the config file. Three shorthand values are supported: `inner` (intranet/on-prem, default), `online` (public cloud API), `dynamic` (fully dynamic, key injected per request). An explicit file path is also accepted.
 - Configure `llm`, `llm_instruct`, `reranker`, and `embed_1~embed_3` directly with `source/api_key/model/type/url`.
 - Keep real secrets out of git. Prefer env placeholders such as `${LAZYLLM_SILICONFLOW_API_KEY}`.
 - For local debugging with a temporary config file, set `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`; `docker-compose.yml` mounts the repository `tmp/` directory into `/app/tmp` inside the containers.

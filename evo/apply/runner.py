@@ -96,7 +96,34 @@ def _filter_actions(report: dict) -> list[dict]:
     actions = report.get('actions') or []
     if not isinstance(actions, list):
         raise ApplyError('REPORT_INVALID', 'report.actions must be a list', {'actual_type': type(actions).__name__})
-    return [a for a in actions if isinstance(a, dict) and a.get('code_map_in_scope') and a.get('code_map_target')]
+    in_scope = [a for a in actions if isinstance(a, dict) and a.get('code_map_in_scope') and a.get('code_map_target')]
+    min_confidence = float(os.getenv('EVO_APPLY_MIN_ACTION_CONFIDENCE', '0.5'))
+    min_validity = float(os.getenv('EVO_APPLY_MIN_ACTION_VALIDITY', '0.5'))
+    ready = [
+        a
+        for a in in_scope
+        if float(a.get('confidence') or 0.0) >= min_confidence
+        and float(a.get('validity_score') or 0.0) >= min_validity
+    ]
+    if in_scope and not ready:
+        raise ApplyError(
+            'REPORT_ACTIONS_NOT_READY',
+            'report actions are below apply confidence/validity thresholds',
+            {
+                'min_confidence': min_confidence,
+                'min_validity': min_validity,
+                'actions': [
+                    {
+                        'id': a.get('id'),
+                        'confidence': a.get('confidence'),
+                        'validity_score': a.get('validity_score'),
+                        'title': a.get('title'),
+                    }
+                    for a in in_scope
+                ],
+            },
+        )
+    return ready
 
 
 def _rel_under_chat(key: str, base: Path) -> str:
@@ -155,6 +182,10 @@ def _build_modification_plan(actions: list[dict], chat_source: Path) -> list[dic
             'rationale': str(a.get('rationale', '')),
             'suggested_changes': _sanitize_path_text(str(a.get('suggested_changes', '')), chat_source),
             'priority': str(a.get('priority', '')),
+            'confidence': a.get('confidence'),
+            'validity_score': a.get('validity_score'),
+            'verifier_notes': a.get('verifier_notes') or [],
+            'contradicting_evidence': a.get('contradicting_evidence') or [],
             'files': [_rel_under_chat(str(a.get('code_map_target', '')), chat_source)],
         }
         for a in actions

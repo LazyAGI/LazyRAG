@@ -1,9 +1,13 @@
 from __future__ import annotations
 import json
+import asyncio
+import logging
+import queue
 import threading
 import time
-from typing import TYPE_CHECKING
-from fastapi import APIRouter, Body, HTTPException, Query
+import uuid
+from typing import TYPE_CHECKING, Callable
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 from evo.service.core import schemas as api_schemas
 from evo.service.core import store as _store
@@ -17,6 +21,8 @@ if TYPE_CHECKING:
     from evo.service.core.manager import JobManager
     from evo.service.threads.workspace import EventLog
 
+log = logging.getLogger('evo.service.threads.hub')
+
 
 class ThreadHub:
     def __init__(self, *, jm: 'JobManager', planner: Planner, intent_store: IntentStore, ops: OpsExecutor) -> None:
@@ -26,12 +32,34 @@ class ThreadHub:
         self.ops = ops
         self.driver = ThreadDriver(jm=jm, ops=ops)
         self._auto_threads: dict[str, threading.Event] = {}
+        self._message_cancels: dict[str, threading.Event] = {}
+        self._message_lock = threading.Lock()
 
     def list_threads(self) -> list[dict]:
         base = self.intents._base_dir.parent / 'threads'
         if not base.exists():
             return []
         return [__import__('json').loads(p.read_text(encoding='utf-8')) for p in sorted(base.glob('*/thread.json'))]
+
+    def list_thread_statuses(self) -> dict:
+        threads = []
+        counts: dict[str, int] = {}
+        for meta in self.list_threads():
+            thread_id = str(meta.get('id') or '')
+            if not thread_id:
+                continue
+            status = self.flow_status(thread_id)
+            item = {
+                **status,
+                'title': meta.get('title') or '',
+                'mode': meta.get('mode') or 'interactive',
+                'created_at': meta.get('created_at'),
+                'updated_at': meta.get('updated_at'),
+            }
+            threads.append(item)
+            counts[item['status']] = counts.get(item['status'], 0) + 1
+        threads.sort(key=lambda row: row.get('updated_at') or row.get('created_at') or 0.0, reverse=True)
+        return {'total': len(threads), 'counts': counts, 'threads': threads}
 
     def create_thread(self, payload: dict) -> dict:
         mode = payload.get('mode', 'interactive')
@@ -56,6 +84,9 @@ class ThreadHub:
         from evo.runtime.fs import atomic_write_json
 
         atomic_write_json(ws.thread_meta_path, meta)
+        if mode == 'auto' and payload.get('start_auto', True):
+            self.start(tid)
+            self.auto_start(tid)
         return meta
 
     def get_thread(self, thread_id: str) -> dict:
@@ -84,15 +115,7 @@ class ThreadHub:
         latest_apply = _latest_flow(rows, 'apply')
         checkpoint = ws.load_checkpoint()
         report_ready = _abtest_report_ready(ws, latest_abtest)
-        last_user_ts = _latest_user_message_ts(ws.messages_path)
-        ended = (
-            latest_abtest is not None
-            and latest_abtest.get('status') == 'succeeded'
-            and report_ready
-            and ((latest_abtest.get('terminal_at') or 0.0) >= last_user_ts)
-            and (not active_tasks)
-            or (_task_ends_thread(latest_apply) and (not active_tasks))
-        )
+        ended = _thread_has_ended(rows, active_tasks, latest_abtest, latest_apply, report_ready)
         status = _flow_status(runtime, rows, active_tasks, checkpoint, ended)
         return {
             'thread_id': thread_id,
@@ -147,7 +170,217 @@ class ThreadHub:
             'thinking': intent.thinking,
             'requires_confirm': False,
             'preview': [
-                {'op': p.op, 'humanized': p.humanized, 'safety': p.safety} for p in intent.suggested_ops_preview
+                {'op': p.op, 'humanized': p.humanized, 'safety': p.safety, 'params_summary': p.params_summary}
+                for p in intent.suggested_ops_preview
+            ],
+            'warnings': plan.warnings,
+        }
+
+    async def post_message_stream(self, thread_id: str, content: str):
+        message_id = f'msg_{thread_id}_{uuid.uuid4().hex[:8]}'
+        cancel = threading.Event()
+        async for event in self._stream_message_with_cancel(thread_id, content, message_id, cancel):
+            yield event
+
+    async def _stream_message_with_cancel(
+        self, thread_id: str, content: str, message_id: str, cancel: threading.Event
+    ):
+        self._register_message_cancel(thread_id, message_id, cancel)
+        yield _sse('intent_start', {'thread_id': thread_id, 'message_id': message_id})
+        yield _sse('thinking_delta', {'delta': '正在理解你的请求并规划下一步。', 'message_id': message_id})
+        try:
+            async for event in self._post_message_stream_events(thread_id, content, message_id, cancel):
+                yield event
+        except asyncio.CancelledError:
+            cancel.set()
+            raise
+        finally:
+            self._clear_message_cancel(thread_id, message_id)
+
+    async def auto_start_stream(self, thread_id: str, interval_s: float = 5.0):
+        from evo.service.threads.workspace import ThreadWorkspace
+
+        if thread_id in self._auto_threads and (not self._auto_threads[thread_id].is_set()):
+            yield _sse('error', {'code': 'AUTO_ALREADY_RUNNING', 'message': 'auto loop is already running'})
+            return
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id, create=False)
+        if not ws.thread_meta_path.exists():
+            yield _sse('error', {'code': 404, 'message': f'thread {thread_id} not found'})
+            return
+        meta = json.loads(ws.thread_meta_path.read_text(encoding='utf-8'))
+        if meta.get('mode') != 'auto':
+            yield _sse('error', {'code': 400, 'message': 'auto_start requires thread mode auto'})
+            return
+        stop = threading.Event()
+        self._auto_threads[thread_id] = stop
+        client_cancelled = False
+        yield _sse('auto_start', {'thread_id': thread_id, 'interval_s': interval_s})
+        try:
+            while not stop.is_set():
+                ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id, create=False)
+                message = _auto_message(self.jm, thread_id, ws)
+                if not message:
+                    yield _sse('auto_wait', {'thread_id': thread_id})
+                    await asyncio.to_thread(stop.wait, interval_s)
+                    continue
+                yield _sse('auto_message', {'thread_id': thread_id, 'content': message})
+                message_id = f'msg_{thread_id}_{uuid.uuid4().hex[:8]}'
+                cancel = threading.Event()
+                linker = asyncio.create_task(_cancel_when_stopped(stop, cancel))
+                try:
+                    async for event in self._stream_message_with_cancel(thread_id, message, message_id, cancel):
+                        yield event
+                finally:
+                    linker.cancel()
+                await asyncio.to_thread(stop.wait, interval_s)
+        except asyncio.CancelledError:
+            client_cancelled = True
+            stop.set()
+            raise
+        finally:
+            stop.set()
+            if self._auto_threads.get(thread_id) is stop:
+                self._auto_threads.pop(thread_id, None)
+        if not client_cancelled:
+            yield _sse('auto_stop', {'thread_id': thread_id})
+
+    async def _post_message_stream_events(
+        self, thread_id: str, content: str, message_id: str, cancel: threading.Event
+    ):
+        deltas: queue.Queue[str | None] = queue.Queue()
+        try:
+            task = asyncio.create_task(
+                asyncio.to_thread(self._post_message_stream_result, thread_id, content, cancel, deltas.put)
+            )
+            task.add_done_callback(_consume_task_exception)
+            while not task.done():
+                if cancel.is_set():
+                    yield _sse(
+                        'error',
+                        {'code': 'MESSAGE_CANCELLED', 'message': 'message generation cancelled', 'message_id': message_id},  # noqa: E501
+                    )
+                    return
+                try:
+                    delta = await asyncio.to_thread(deltas.get, True, 0.1)
+                except queue.Empty:
+                    continue
+                if delta:
+                    yield _sse('answer_delta', {'delta': delta, 'message_id': message_id})
+                    await asyncio.sleep(0)
+            while not deltas.empty():
+                delta = deltas.get_nowait()
+                if delta:
+                    yield _sse('answer_delta', {'delta': delta, 'message_id': message_id})
+                    await asyncio.sleep(0)
+            result = await task
+        except HTTPException as exc:
+            yield _sse('error', {'code': exc.status_code, 'message': str(exc.detail), 'message_id': message_id})
+            return
+        except Exception as exc:
+            code = 'MESSAGE_CANCELLED' if cancel.is_set() or str(exc) == 'MESSAGE_CANCELLED' else 'MESSAGE_FAILED'
+            yield _sse('error', {'code': code, 'message': str(exc), 'message_id': message_id})
+            return
+        actions = [
+            {
+                'op': item.get('op'),
+                'args': item.get('params_summary') or {},
+                'humanized': item.get('humanized'),
+                'safety': item.get('safety'),
+            }
+            for item in (result.get('preview') or [])
+        ]
+        yield _sse(
+            'plan_ready',
+            {
+                'message_id': message_id,
+                'intent_id': result.get('intent_id'),
+                'actions': actions,
+                'warnings': result.get('warnings') or [],
+            },
+        )
+        for item in actions:
+            yield _sse(
+                'action',
+                {
+                    'message_id': message_id,
+                    'intent_id': result.get('intent_id'),
+                    'op': item.get('op'),
+                    'args': item.get('args') or {},
+                    'humanized': item.get('humanized'),
+                    'safety': item.get('safety'),
+                },
+            )
+            await asyncio.sleep(0)
+        yield _sse(
+            'done',
+            {
+                'message_id': message_id,
+                'intent_id': result.get('intent_id'),
+                'status': 'ok',
+                'requires_confirm': result.get('requires_confirm', False),
+                'warnings': result.get('warnings') or [],
+                'action_count': len(actions),
+            },
+        )
+
+    def _post_message_stream_result(
+        self, thread_id: str, content: str, cancel: threading.Event, on_reply_delta: Callable[[str], None]
+    ) -> dict:
+        from evo.service.threads.workspace import EventLog, ThreadWorkspace
+
+        ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id, create=False)
+        if not ws.thread_meta_path.exists():
+            raise HTTPException(404, f'thread {thread_id} not found')
+        elog = EventLog(ws.events_path)
+        _append_message(ws.messages_path, 'user', content)
+        elog.append_event('message.user', payload={'content': content})
+        ctx = self._plan_context(thread_id, ws)
+        intent = None
+        for event in self.planner.draft_stream(content, ctx, cancel.is_set):
+            if cancel.is_set():
+                raise RuntimeError('MESSAGE_CANCELLED')
+            if event.get('type') == 'reply_delta':
+                on_reply_delta(str(event.get('delta') or ''))
+                continue
+            if event.get('type') == 'final':
+                intent = event['intent']
+        if intent is None:
+            raise RuntimeError('planner did not produce an intent')
+        self.intents.save(intent)
+        plan = self.planner.materialize(intent, ctx)
+        _append_message(ws.messages_path, 'assistant', intent.reply)
+        draft_trace = intent.trace or {}
+        planned_ops = [{'op': op.get('op'), 'args': op.get('args', {})} for op in plan.ops]
+        elog.append_event(
+            'intent.thought',
+            payload={
+                'intent_id': intent.intent_id,
+                'decision_summary': intent.thinking or _intent_summary(intent, plan),
+                'identified_intent': [p.op for p in intent.suggested_ops_preview],
+                'planned_ops': planned_ops,
+                'source': draft_trace.get('source'),
+                'warnings': plan.warnings,
+            },
+        )
+        elog.append_event('message.assistant', payload={'content': intent.reply})
+        elog.append_event(
+            'intent.reply', payload={'intent_id': intent.intent_id, 'content': intent.reply, 'planned_ops': planned_ops}
+        )
+        if not intent.requires_confirm:
+            self.intents.transition(intent.intent_id, 'confirm')
+            self.intents.transition(intent.intent_id, 'materialize')
+            if _is_checkpoint_plan(plan.ops):
+                self._execute_checkpoint_plan(thread_id, ws, elog, plan.ops[0])
+            else:
+                self.driver.run_ops_async(thread_id, plan.ops, source='user')
+        return {
+            'intent_id': intent.intent_id,
+            'reply': intent.reply,
+            'thinking': intent.thinking,
+            'requires_confirm': False,
+            'preview': [
+                {'op': p.op, 'humanized': p.humanized, 'safety': p.safety, 'params_summary': p.params_summary}
+                for p in intent.suggested_ops_preview
             ],
             'warnings': plan.warnings,
         }
@@ -170,7 +403,8 @@ class ThreadHub:
                 'checkpoint.cancel',
                 payload={'checkpoint_id': checkpoint.get('checkpoint_id'), 'reason': args.get('reason')},
             )
-            self.driver._write_runtime(ws, {'status': 'idle', 'active_task_id': None, 'pending_checkpoint': None})
+            runtime_status = _checkpoint_cancel_runtime_status(checkpoint, _thread_runtime(ws))
+            self.driver._write_runtime(ws, {'status': runtime_status, 'active_task_id': None, 'pending_checkpoint': None})  # noqa: E501
             return
         if name == 'checkpoint.continue':
             next_op = checkpoint.get('next_op')
@@ -185,6 +419,7 @@ class ThreadHub:
                     'reason': args.get('reason'),
                 },
             )
+            self.driver._write_runtime(ws, {'status': 'running', 'active_task_id': None, 'pending_checkpoint': None})
             self.driver.run_ops_async(thread_id, [next_op], source='checkpoint')
             return
         if name == 'checkpoint.rewind':
@@ -205,6 +440,7 @@ class ThreadHub:
                     self.jm.cancel(row['id'])
                 except Exception:
                     pass
+            self.driver._write_runtime(ws, {'status': 'running', 'active_task_id': None, 'pending_checkpoint': None})
             self.driver.run_ops_async(thread_id, [op_to_run], source='checkpoint')
 
     def start(self, thread_id: str) -> dict:
@@ -284,8 +520,8 @@ class ThreadHub:
             while not stop.is_set():
                 try:
                     self.auto_step(thread_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning('auto_step failed for %s: %s', thread_id, exc)
                 stop.wait(interval_s)
 
         threading.Thread(target=_loop, name=f'evo-auto-{thread_id}', daemon=True).start()
@@ -307,6 +543,29 @@ class ThreadHub:
         ws = ThreadWorkspace(self.jm.config.storage.base_dir, thread_id)
         EventLog(ws.events_path).append('intent', 'intent.cancelled', {'intent_id': intent_id})
         return row
+
+    def cancel_message(self, thread_id: str, message_id: str | None = None) -> dict:
+        key_prefix = f'{thread_id}:'
+        with self._message_lock:
+            if message_id:
+                key = f'{thread_id}:{message_id}'
+                ev = self._message_cancels.get(key)
+                if ev is None:
+                    raise HTTPException(404, f'message generation {message_id} not found')
+                ev.set()
+                return {'status': 'cancel_requested', 'thread_id': thread_id, 'message_id': message_id}
+            matches = [(key, ev) for key, ev in self._message_cancels.items() if key.startswith(key_prefix)]
+            for _, ev in matches:
+                ev.set()
+            return {'status': 'cancel_requested', 'thread_id': thread_id, 'count': len(matches)}
+
+    def _register_message_cancel(self, thread_id: str, message_id: str, ev: threading.Event) -> None:
+        with self._message_lock:
+            self._message_cancels[f'{thread_id}:{message_id}'] = ev
+
+    def _clear_message_cancel(self, thread_id: str, message_id: str) -> None:
+        with self._message_lock:
+            self._message_cancels.pop(f'{thread_id}:{message_id}', None)
 
     def _plan_context(self, thread_id: str, ws) -> PlanContext:
         snapshot = _thread_state_snapshot(self.jm, thread_id, ws.load_artifacts())
@@ -332,6 +591,9 @@ def _format_artifacts(artifacts: dict) -> str:
 
 def _thread_state_summary(snapshot: dict) -> str:
     parts = [_format_artifacts(snapshot.get('artifacts') or {})]
+    inputs = snapshot.get('inputs') or {}
+    if inputs:
+        parts.append('thread_inputs: ' + json.dumps(inputs, ensure_ascii=False)[:2000])
     latest = snapshot.get('latest_tasks') or {}
     if latest:
         parts.append(
@@ -378,8 +640,10 @@ def _thread_state_snapshot(jm, thread_id: str, artifacts: dict) -> dict:
             latest[flow] = rows[-1]
     from evo.service.threads.workspace import ThreadWorkspace
 
-    checkpoint = ThreadWorkspace(jm.config.storage.base_dir, thread_id, create=False).load_checkpoint()
+    ws = ThreadWorkspace(jm.config.storage.base_dir, thread_id, create=False)
+    checkpoint = ws.load_checkpoint()
     return {
+        'inputs': _thread_inputs(ws),
         'artifacts': artifacts,
         'active_tasks': active,
         'latest_tasks': latest,
@@ -430,21 +694,73 @@ def _thread_runtime(ws) -> dict:
         return {}
 
 
+def _thread_has_ended(
+    rows: list[dict],
+    active_tasks: list[dict],
+    latest_abtest: dict | None,
+    latest_apply: dict | None,
+    report_ready: bool,
+) -> bool:
+    if active_tasks:
+        return False
+    if (
+        latest_abtest
+        and latest_abtest.get('status') == 'succeeded'
+        and report_ready
+        and _is_latest_flow_task(latest_abtest, rows)
+    ):
+        return True
+    return bool(_task_ends_thread(latest_apply) and _is_latest_flow_task(latest_apply, rows))
+
+
+def _is_latest_flow_task(row: dict | None, rows: list[dict]) -> bool:
+    if not row:
+        return False
+    row_created = float(row.get('created_at') or 0.0)
+    row_id = row.get('id')
+    for other in rows:
+        if other.get('id') == row_id:
+            continue
+        if other.get('flow') not in _store.FLOWS:
+            continue
+        if float(other.get('created_at') or 0.0) > row_created:
+            return False
+    return True
+
+
+def _checkpoint_cancel_runtime_status(checkpoint: dict, runtime: dict) -> str:
+    if runtime.get('status') == 'ended' or _is_terminal_checkpoint(checkpoint):
+        return 'ended'
+    return 'idle'
+
+
+def _is_terminal_checkpoint(checkpoint: dict | None) -> bool:
+    return bool(checkpoint and checkpoint.get('stage') == 'abtest' and not checkpoint.get('next_op'))
+
+
 def _flow_status(
     runtime: dict, rows: list[dict], active_tasks: list[dict], checkpoint: dict | None, ended: bool
 ) -> str:
-    if active_tasks:
-        return 'running'
-    if checkpoint:
-        return 'waiting_checkpoint'
     runtime_status = runtime.get('status')
     if runtime_status in {'failed', 'cancelled', 'paused'}:
         return str(runtime_status)
+    if active_tasks:
+        return 'running'
+    if _is_terminal_checkpoint(checkpoint):
+        return 'ended'
+    if checkpoint:
+        return 'waiting_checkpoint'
+    if not rows:
+        return 'running' if runtime_status == 'running' else 'idle'
     if terminal_status := _latest_terminal_status(rows):
         return terminal_status
     if ended:
         return 'ended'
-    return 'running'
+    if runtime_status in {'ended', 'idle'}:
+        return str(runtime_status)
+    if runtime_status == 'running':
+        return 'running'
+    return 'idle'
 
 
 def _latest_terminal_status(rows: list[dict]) -> str | None:
@@ -508,12 +824,18 @@ def _rewind_op(jm, ws, args: dict) -> dict:
         eval_id = patch.get('eval_id') or _latest_eval_id(jm, ws.thread_id)
         if not eval_id:
             raise HTTPException(400, 'no eval_id available for run rewind')
-        return {'op': 'run.start', 'args': {'eval_id': eval_id}}
+        args_out = {'eval_id': eval_id}
+        if patch.get('extra_instructions'):
+            args_out['extra_instructions'] = patch['extra_instructions']
+        return {'op': 'run.start', 'args': args_out}
     if stage == 'apply':
         report_id = patch.get('report_id') or _latest_report_id(jm, ws.thread_id)
         if not report_id:
             raise HTTPException(400, 'no report_id available for apply rewind')
-        return {'op': 'apply.start', 'args': {'report_id': report_id}}
+        args_out = {'report_id': report_id}
+        if patch.get('extra_instructions'):
+            args_out['extra_instructions'] = patch['extra_instructions']
+        return {'op': 'apply.start', 'args': args_out}
     if stage == 'abtest':
         apply_row = _latest_succeeded(jm, ws.thread_id, 'apply')
         eval_id, dataset_id, eval_options = _latest_eval_for_abtest(jm, ws.thread_id)
@@ -583,7 +905,8 @@ def _latest_eval_for_abtest(jm, thread_id: str) -> tuple[str | None, str | None,
     row = _latest_succeeded(jm, thread_id, 'eval')
     payload = (row or {}).get('payload') or {}
     dataset_id = payload.get('dataset_id')
-    return (dataset_id, dataset_id, dict(payload.get('eval_options') or {}))
+    eval_id = payload.get('eval_id') or dataset_id
+    return (eval_id, dataset_id, dict(payload.get('eval_options') or {}))
 
 
 def _regen_name(name: str) -> str:
@@ -600,20 +923,6 @@ def _abtest_report_ready(ws, row: dict | None) -> bool:
     return (out_dir / 'summary.md').exists() and (out_dir / 'summary.json').exists()
 
 
-def _latest_user_message_ts(path) -> float:
-    last = 0.0
-    if not path.exists():
-        return last
-    for line in path.read_text(encoding='utf-8').splitlines():
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if obj.get('role') == 'user':
-            last = max(last, float(obj.get('ts') or 0.0))
-    return last
-
-
 def _intent_summary(intent, plan) -> str:
     ops = [op.get('op') for op in plan.ops]
     if ops:
@@ -628,12 +937,28 @@ def _auto_message(jm, thread_id: str, ws) -> str | None:
     for row in snap.get('active_tasks') or []:
         if row.get('status') == 'running':
             return None
+    checkpoint = snap.get('pending_checkpoint') or {}
+    if checkpoint:
+        return _auto_checkpoint_message(ws, checkpoint)
     latest = snap.get('latest_tasks') or {}
     for flow in ('run', 'eval', 'dataset_gen', 'apply', 'abtest'):
         row = latest.get(flow) or {}
         if row.get('status') in ('failed_transient', 'paused'):
             return f"自动检查发现 {flow} 任务 {row.get('id')} 状态为 {row.get('status')}，请重试/续跑。"
     return None
+
+
+def _auto_checkpoint_message(ws, checkpoint: dict) -> str:
+    stage = checkpoint.get('stage') or checkpoint.get('completed_flow') or ''
+    inputs = _thread_inputs(ws)
+    artifacts = checkpoint.get('artifacts') or {}
+    if stage == 'run' and artifacts.get('apply_ready') is False:
+        return '当前分析报告的自动修改建议证据不足，请回退到 run 重新分析并补充证据。'
+    if stage == 'apply' and inputs.get('auto_apply_feedback'):
+        return f"回退到 apply 重新修改代码，要求：{inputs['auto_apply_feedback']}"
+    if stage in {'dataset_gen', 'eval', 'run', 'apply', 'abtest'}:
+        return f'继续执行 {stage} 后的下一步。'
+    return '继续执行。'
 
 
 def _append_message(path, role: str, content: str) -> None:
@@ -656,16 +981,42 @@ def _read_recent_messages(path, limit: int = 20) -> list[tuple[str, str]]:
     return rows
 
 
+def _chunks(text: str, size: int = 64) -> list[str]:
+    return [text[i: i + size] for i in range(0, len(text), size)] or ['']
+
+
+def _sse(event: str, payload: dict) -> dict:
+    return {'event': event, 'data': json.dumps({'type': event, **payload}, ensure_ascii=False, default=str)}
+
+
+def _consume_task_exception(task) -> None:
+    try:
+        task.exception()
+    except (asyncio.CancelledError, Exception):
+        pass
+
+
+async def _cancel_when_stopped(stop: threading.Event, cancel: threading.Event) -> None:
+    while not stop.is_set() and not cancel.is_set():
+        await asyncio.sleep(0.1)
+    if stop.is_set():
+        cancel.set()
+
+
 def build_router(hub: ThreadHub) -> APIRouter:
     router = APIRouter(prefix='/v1/evo')
 
     @router.post('/threads')
     async def create_thread(req: dict = Body(...)) -> dict:  # noqa: B008
-        return hub.create_thread(req)
+        return await asyncio.to_thread(hub.create_thread, req)
 
     @router.get('/threads')
     async def list_threads() -> list[dict]:
         return hub.list_threads()
+
+    @router.get('/threads/statuses', response_model=api_schemas.ThreadStatusList)
+    async def list_thread_statuses() -> dict:
+        return await asyncio.to_thread(hub.list_thread_statuses)
 
     @router.get('/threads/{thread_id}')
     async def get_thread(thread_id: str) -> dict:
@@ -676,24 +1027,50 @@ def build_router(hub: ThreadHub) -> APIRouter:
         return hub.flow_status(thread_id)
 
     @router.post('/threads/{thread_id}/messages')
-    async def post_message(thread_id: str, body: dict = Body(...)) -> dict:  # noqa: B008
-        return hub.post_message(thread_id, body.get('content', ''))
+    async def post_message(thread_id: str, request: Request, body: dict = Body(...)):  # noqa: B008
+        content = body.get('content', '')
+        if 'text/event-stream' in request.headers.get('accept', ''):
+            return EventSourceResponse(hub.post_message_stream(thread_id, content))
+        return await asyncio.to_thread(hub.post_message, thread_id, content)
+
+    @router.post('/threads/{thread_id}/messages:cancel')
+    async def cancel_active_message(thread_id: str) -> dict:
+        return hub.cancel_message(thread_id)
+
+    @router.post('/threads/{thread_id}/messages/{message_id}/cancel')
+    async def cancel_message(thread_id: str, message_id: str) -> dict:
+        return hub.cancel_message(thread_id, message_id)
 
     @router.post('/threads/{thread_id}/start')
     async def start_thread(thread_id: str) -> dict:
-        return hub.start(thread_id)
+        return await asyncio.to_thread(hub.start, thread_id)
 
     @router.post('/threads/{thread_id}/pause')
     async def pause_thread(thread_id: str) -> dict:
-        return hub.pause(thread_id)
+        return await asyncio.to_thread(hub.pause, thread_id)
 
     @router.post('/threads/{thread_id}/cancel')
     async def cancel_thread(thread_id: str) -> dict:
-        return hub.cancel(thread_id)
+        return await asyncio.to_thread(hub.cancel, thread_id)
 
     @router.post('/threads/{thread_id}/retry')
     async def retry_thread(thread_id: str) -> dict:
-        return hub.retry(thread_id)
+        return await asyncio.to_thread(hub.retry, thread_id)
+
+    @router.post('/threads/{thread_id}/auto/step')
+    async def auto_step(thread_id: str) -> dict:
+        return await asyncio.to_thread(hub.auto_step, thread_id)
+
+    @router.post('/threads/{thread_id}/auto/start')
+    async def auto_start(thread_id: str, request: Request, body: dict = Body(default_factory=dict)):  # noqa: B008
+        interval_s = float(body.get('interval_s', 5.0))
+        if 'text/event-stream' in request.headers.get('accept', ''):
+            return EventSourceResponse(hub.auto_start_stream(thread_id, interval_s=interval_s))
+        return await asyncio.to_thread(hub.auto_start, thread_id, interval_s=interval_s)
+
+    @router.post('/threads/{thread_id}/auto/stop')
+    async def auto_stop(thread_id: str) -> dict:
+        return await asyncio.to_thread(hub.auto_stop, thread_id)
 
     @router.get('/threads/{thread_id}/events')
     async def tail_events(thread_id: str, since: int = Query(0, ge=0)) -> EventSourceResponse:  # noqa: B008

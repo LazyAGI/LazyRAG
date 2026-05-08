@@ -19,6 +19,7 @@ def get_eval_queue(
     target_chat_url: str = '',
     max_workers: int = 8,
     filters: dict[str, Any] | None = None,
+    require_trace: bool = True,
     on_progress=None,
 ) -> dict[str, Any]:
     base = Path(base_dir) / 'datasets' / eval_name
@@ -41,7 +42,14 @@ def get_eval_queue(
     total = len(cases)
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(_build_eval_item, {**case, '_order': i}, target_chat_url, dataset_name, filters or {}): case
+            executor.submit(
+                _build_eval_item,
+                {**case, '_order': i},
+                target_chat_url,
+                dataset_name,
+                filters or {},
+                require_trace,
+            ): case
             for (i, case) in enumerate(cases)
         }
         for future in as_completed(futures):
@@ -60,10 +68,16 @@ def get_eval_queue(
     }
 
 
-def _build_eval_item(case: dict, target_chat_url: str, dataset_name: str, filters: dict[str, Any]) -> dict:
+def _build_eval_item(
+    case: dict,
+    target_chat_url: str,
+    dataset_name: str,
+    filters: dict[str, Any],
+    require_trace: bool,
+) -> dict:
     question = case['question']
     ground_truth = case['ground_truth']
-    rag_result = call_rag_chat(question, target_chat_url, dataset_name, filters)
+    rag_result = call_rag_chat(question, target_chat_url, dataset_name, filters, require_trace=require_trace)
     metrics = _calculate_metrics(
         case.get('reference_chunk_ids', []),
         case.get('reference_doc_ids', []),

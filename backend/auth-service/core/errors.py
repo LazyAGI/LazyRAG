@@ -46,6 +46,15 @@ class ErrorCodes:
     REDIS_AUTH_FAILED: ErrorTuple = (500, 1000601, 'Redis authentication failed')
     REDIS_UNAVAILABLE: ErrorTuple = (500, 1000602, 'Redis is unavailable')
 
+    CLOUD_PROVIDER_UNSUPPORTED: ErrorTuple = (400, 1000701, 'cloud provider is not supported')
+    CLOUD_CONNECTION_NOT_FOUND: ErrorTuple = (404, 1000702, 'cloud auth connection not found')
+    CLOUD_OAUTH_STATE_INVALID: ErrorTuple = (400, 1000703, 'oauth state is invalid or expired')
+    CLOUD_OAUTH_CODE_REQUIRED: ErrorTuple = (400, 1000704, 'oauth code is required')
+    CLOUD_AUTH_MODE_INVALID: ErrorTuple = (400, 1000705, 'auth_mode is invalid')
+    CLOUD_CREDENTIAL_INVALID: ErrorTuple = (400, 1000706, 'cloud credential is invalid')
+    CLOUD_TOKEN_UNAVAILABLE: ErrorTuple = (502, 1000707, 'cloud access token is unavailable')
+    CLOUD_CRYPTO_UNAVAILABLE: ErrorTuple = (500, 1000708, 'cloud oauth encryption key is not configured')
+
 
 @dataclass
 class AppException(Exception):

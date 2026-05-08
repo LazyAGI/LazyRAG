@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from pathlib import Path
 from typing import Any
 from evo.harness.plan import StopRequested
@@ -56,6 +57,7 @@ def _run_pipeline(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = 
     payload = cur.get('payload') or {}
     eval_id = payload.get('eval_id')
     judge_path, trace_path = _resolve_corpus_paths(ctx, thread_id, eval_id)
+    _write_revise_feedback(ctx, tid, payload.get('extra_instructions'))
     elog = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path) if thread_id else None
     if elog:
         elog.append_event(
@@ -103,6 +105,14 @@ def _invalidate_step_caches(steps_dir: Path, step_names: tuple[str, ...]) -> Non
         pkl = steps_dir / f'{name}.pickle'
         if pkl.is_file():
             pkl.unlink()
+
+
+def _write_revise_feedback(ctx: ExecCtx, tid: str, feedback: str | None) -> None:
+    if not feedback:
+        return
+    path = ctx.cfg.storage.runs_dir / tid / 'revise_feedback.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({'feedback': feedback}, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 def _resolve_corpus_paths(ctx: ExecCtx, thread_id: str | None, eval_id: str | None) -> tuple[Path | None, Path | None]:
