@@ -4,6 +4,7 @@ from lazyllm.module.servermodule import StreamCallHelper
 from chat.components.generate import AggregateComponent, RAGContextFormatter, CustomOutputParser
 from chat.prompts.rag_answer import RAG_ANSWER_SYSTEM
 from chat.config import LLM_TYPE_THINK
+from chat.utils.load_config import get_config_path
 
 _DEFAULT_LLM_KW = {
     'temperature': 0.01,
@@ -13,7 +14,7 @@ _DEFAULT_LLM_KW = {
 
 
 def get_ppl_generate(stream=False):
-    llm = AutoModel(model='llm', config=True).prompt(RAG_ANSWER_SYSTEM)
+    llm = AutoModel(model='llm', config=get_config_path()).prompt(RAG_ANSWER_SYSTEM)
 
     if stream:
         def llm_caller(query, llm_chat_history=None, files=None, **kw):

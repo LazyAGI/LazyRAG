@@ -238,7 +238,7 @@ def test_lazyllm_queue_db_path_is_path_like(monkeypatch):
 
 
 def test_agentic_forward_uses_automodel(monkeypatch):
-    # Verify agentic_forward calls AutoModel(model='llm', config=True).
+    # Verify agentic_forward calls AutoModel(model='llm', config=get_config_path()).
     # We use the fake-lazyllm module to isolate the test.
     module = _import_agentic_module(monkeypatch)
 

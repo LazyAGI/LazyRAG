@@ -4,7 +4,7 @@ from lazyllm import AutoModel, Retriever, bind, pipeline, Document
 from lazyllm.tools.rag import TempDocRetriever
 
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
-from chat.utils.load_config import get_embed_keys
+from chat.utils.load_config import get_embed_keys, get_config_path
 
 # Primary dense embed role name — always the first embed key in the config.
 EMBED_MAIN = 'embed_main'
@@ -43,7 +43,7 @@ def get_retriever(url: str, retriever_configs: List[dict] = None, *,
     document = get_remote_docment(url)
     kb_retrievers = [Retriever(document, **cfg) for cfg in retriever_configs]
 
-    ref_docs_retriever = TempDocRetriever(embed=AutoModel(model=EMBED_MAIN, config=True))
+    ref_docs_retriever = TempDocRetriever(embed=AutoModel(model=EMBED_MAIN, config=get_config_path()))
     ref_docs_retriever.add_subretriever('block', topk=tmp_block_topk)
     with pipeline() as tmp_ppl:
         tmp_ppl.parse_input = lambda input, **kwargs: kwargs.get('files', [])

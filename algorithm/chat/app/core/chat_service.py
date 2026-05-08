@@ -152,27 +152,18 @@ def _attach_trace_info(data: Any, trace_id: Optional[str], local_trace: Optional
     return out
 
 
-def _build_ppl_call(reasoning: bool, dataset: str, query_params: Dict[str, Any], query: str,
-                    filters: Optional[Dict[str, Any]], priority: Any, stream: bool) -> tuple:
+def _build_ppl_call(reasoning: bool, dataset: str, query_params: Dict[str, Any],
+                    stream: bool) -> tuple:
     if reasoning:
         dataset_url = resolve_dataset_url(dataset)
         if dataset_url is None:
             raise KeyError(f'dataset `{dataset}` not found in URL_MAP')
-        return (
-            chat_server.query_ppl_reasoning,
-            {'query': query},
-            {
-                'kb_search': {
-                    'filters': filters,
-                    'files': [],
-                    'stream': stream,
-                    'priority': priority,
-                    'document_url': dataset_url,
-                }
-            },
-            stream,
-        )
-    return (chat_server.get_query_pipeline(dataset, stream=stream), query_params)
+        ppl = chat_server.query_ppl_reasoning
+        params = {**query_params, 'document_url': dataset_url, 'stream': stream}
+    else:
+        ppl = chat_server.get_query_pipeline(dataset, stream=stream)
+        params = query_params
+    return (ppl, params)
 
 
 async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
@@ -216,9 +207,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         try:
             async with rag_sem:
                 _init_session()
-                ppl_call = _build_ppl_call(
-                    bool(reasoning), dataset, query_params, query, filters, priority, stream=False
-                )
+                ppl_call = _build_ppl_call(bool(reasoning), dataset, query_params, stream=False)
                 result, trace_id, local_trace = await asyncio.to_thread(
                     _run_ppl_with_trace, ppl_call[0], ppl_call[1:],
                     session_id=session_id, dataset=dataset,
@@ -248,9 +237,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
         first_frame_logged = False
         collected_chunks: List[str] = []
-        ppl_call = _build_ppl_call(
-            bool(reasoning), dataset, query_params, query, filters, priority, stream=True
-        )
+        ppl_call = _build_ppl_call(bool(reasoning), dataset, query_params, stream=True)
 
         async def event_stream(ppl, *args) -> Any:
             nonlocal first_frame_logged

@@ -166,7 +166,8 @@ def agentic_forward(
     history: list[dict[str, Any]],
     stream_event_callback=None,
 ) -> Any:
-    config = lazyllm.globals.get('agentic_config') or {}
+    config = lazyllm.globals['agentic_config'] or {}
+    lazyllm.LOG.warning(f'config: {config}')
     if not isinstance(config, dict):
         config = {}
 
@@ -393,6 +394,8 @@ def agentic_rag(
     runtime_params = _get_runtime_agent_defaults()
     runtime_params.update(global_params or {})
     runtime_params.update(kwargs)
+    # stream can be passed either as a function arg or inside global_params dict
+    stream = stream or bool(runtime_params.get('stream', False))
     runtime_params['stream'] = stream
     _sync_request_context(runtime_params)
     _reset_citation_state(runtime_params)
