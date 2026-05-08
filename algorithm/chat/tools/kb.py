@@ -160,11 +160,27 @@ def _resolve_kb_id(config: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _resolve_algo_name(config: Dict[str, Any]) -> str:
+    """Return the algo name bound to this dataset.
+
+    After the node-group refactor the collection name no longer includes the
+    algo name, but lazyllm.Document still needs 'name' (= algo_id) to connect
+    to the correct algorithm instance.  We read 'algo_id' from agentic_config
+    and fall back to 'kb_name' (= agentic_kb_name = 'general_algo').
+    """
+    algo_id = (config.get('algo_id') or '').strip()
+    if algo_id:
+        return algo_id
+    return _resolve_kb_name(config)
+
+
 def _resolve_index(config: Dict[str, Any], group: str) -> str:
+    # Post node-group refactor: collection name is col_{group}; kb_id is used as
+    # a document-level filter inside OpenSearch so multi-KB isolation is preserved.
     group = (group or 'block').strip()
     if group not in ('block', 'line'):
         raise ValueError("group must be either 'block' or 'line'")
-    return f'col_{_resolve_kb_name(config)}_{group}'
+    return f'col_{group}'
 
 
 def _term_filter(field: str, value: Any) -> Dict[str, Any]:
@@ -547,7 +563,7 @@ def kb_get_window_nodes(
 
     doc = lazyllm.tools.rag.Document(
         url=config.get('kb_url') or _DEFAULT_KB_URL,
-        name=_resolve_kb_name(config),
+        name=_resolve_algo_name(config),
     )
 
     nodes = doc.get_nodes(

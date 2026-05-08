@@ -38,6 +38,10 @@ async def upload_and_add(
         algo_id = request.query_params.get('algo_id', DEFAULT_ALGO_ID)
     if override is None:
         override = request.query_params.get('override', 'true').lower() in ('1', 'true', 'yes')
+    # algo_id is kept for backward compat with callers but is no longer forwarded to
+    # AddDocRequest (removed in the node-group refactor).  Log it for audit purposes.
+    if algo_id:
+        LOG.warning(f'upload_and_add: algo_id={algo_id!r} received but ignored (deprecated)')
     if not files:
         raise fastapi.HTTPException(status_code=400, detail='files is required')
     saved_paths = []
@@ -54,8 +58,9 @@ async def upload_and_add(
                 out.write(content)
             doc_id = gen_docid(dest_path)
             saved_paths.append(dest_path)
-            file_infos.append(FileInfo(file_path=dest_path, doc_id=doc_id, metadata={'kb_id': group_name}))
-        req = AddDocRequest(algo_id=algo_id, file_infos=file_infos)
+            # group_name is the dataset/KB id used as kb_id in AddDocRequest.
+            file_infos.append(FileInfo(file_path=dest_path, doc_id=doc_id))
+        req = AddDocRequest(kb_id=group_name, file_infos=file_infos)
         processor_url = f'http://127.0.0.1:{PROCESSOR_PORT}'
         async with httpx.AsyncClient() as client:
             r = await client.post(f'{processor_url}/doc/add', json=req.model_dump(mode='json'), timeout=60.0)

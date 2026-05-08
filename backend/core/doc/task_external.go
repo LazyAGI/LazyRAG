@@ -27,7 +27,6 @@ type addFileItem struct {
 type addRequest struct {
 	Items          []addFileItem `json:"items"`
 	KbID           string        `json:"kb_id,omitempty"`
-	AlgoID         string        `json:"algo_id,omitempty"`
 	SourceType     string        `json:"source_type,omitempty"`
 	IdempotencyKey string        `json:"idempotency_key,omitempty"`
 }
@@ -35,18 +34,17 @@ type addRequest struct {
 type reparseRequest struct {
 	DocIDs         []string `json:"doc_ids"`
 	KbID           string   `json:"kb_id,omitempty"`
-	AlgoID         string   `json:"algo_id,omitempty"`
 	IdempotencyKey string   `json:"idempotency_key,omitempty"`
 }
 
+// transferItem no longer carries source/target algo IDs after the node-group
+// refactor; DocServer validates that both sides bind the same algo set.
 type transferItem struct {
-	DocID        string `json:"doc_id"`
-	TargetDocID  string `json:"target_doc_id,omitempty"`
-	SourceKbID   string `json:"source_kb_id,omitempty"`
-	SourceAlgoID string `json:"source_algo_id,omitempty"`
-	TargetKbID   string `json:"target_kb_id,omitempty"`
-	TargetAlgoID string `json:"target_algo_id,omitempty"`
-	Mode         string `json:"mode,omitempty"`
+	DocID       string `json:"doc_id"`
+	TargetDocID string `json:"target_doc_id,omitempty"`
+	SourceKbID  string `json:"source_kb_id,omitempty"`
+	TargetKbID  string `json:"target_kb_id,omitempty"`
+	Mode        string `json:"mode,omitempty"`
 }
 
 type transferRequest struct {
