@@ -3027,27 +3027,46 @@ export function getPendingCheckpointWaitPrompt(events: NormalizedThreadEvent[]) 
   }
 
   const nextStage = latestCheckpointEvent.checkpointWait.nextStage;
-  const hasContinued =
-    Boolean(nextStage) &&
-    events.some((event) => {
-      if (event.stage !== nextStage) {
-        return false;
-      }
-      if (
-        typeof latestCheckpointEvent.sequence === "number" &&
-        typeof event.sequence === "number"
-      ) {
-        return event.sequence > latestCheckpointEvent.sequence;
-      }
-      if (latestCheckpointEvent.timestamp && event.timestamp) {
-        const checkpointTime = new Date(latestCheckpointEvent.timestamp).getTime();
-        const eventTime = new Date(event.timestamp).getTime();
-        return !Number.isNaN(checkpointTime) && !Number.isNaN(eventTime) && eventTime > checkpointTime;
-      }
-      return compareNormalizedThreadEvents(latestCheckpointEvent, event) < 0;
-    });
+  const hasContinued = events.some((event) => {
+    const isLaterEvent = isThreadEventAfter(latestCheckpointEvent, event);
+    if (!isLaterEvent) {
+      return false;
+    }
+    if (
+      event.type === "checkpoint.continue" ||
+      event.type === "checkpoint.rewind" ||
+      event.type === "checkpoint.cancel"
+    ) {
+      return true;
+    }
+    if (nextStage && event.stage === nextStage) {
+      return true;
+    }
+    return Boolean(event.stage);
+  });
 
   return hasContinued ? undefined : latestCheckpointEvent.checkpointWait;
+}
+
+export function isThreadEventAfter(
+  baseEvent: Pick<NormalizedThreadEvent, "sequence" | "timestamp" | "key">,
+  candidateEvent: Pick<NormalizedThreadEvent, "sequence" | "timestamp" | "key">,
+) {
+  if (
+    typeof baseEvent.sequence === "number" &&
+    typeof candidateEvent.sequence === "number" &&
+    baseEvent.sequence !== candidateEvent.sequence
+  ) {
+    return candidateEvent.sequence > baseEvent.sequence;
+  }
+  if (baseEvent.timestamp && candidateEvent.timestamp) {
+    const baseTime = new Date(baseEvent.timestamp).getTime();
+    const candidateTime = new Date(candidateEvent.timestamp).getTime();
+    if (!Number.isNaN(baseTime) && !Number.isNaN(candidateTime) && baseTime !== candidateTime) {
+      return candidateTime > baseTime;
+    }
+  }
+  return compareNormalizedThreadEvents(baseEvent as NormalizedThreadEvent, candidateEvent as NormalizedThreadEvent) < 0;
 }
 
 export function reduceWorkflowRuntimeState(

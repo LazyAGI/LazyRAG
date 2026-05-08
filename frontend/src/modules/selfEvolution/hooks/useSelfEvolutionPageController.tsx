@@ -122,11 +122,13 @@ import {
   getChatStreamDeltaKind,
   isTerminalThreadEvent,
   normalizeThreadEvent,
+  compareNormalizedThreadEvents,
   dedupeNormalizedEvents,
   buildVisibleWorkflowSteps,
   buildAnalysisRunSummary,
   buildApplyRunSummary,
   getPendingCheckpointWaitPrompt,
+  isThreadEventAfter,
   reduceWorkflowRuntimeState,
   getThreadTitleFromPayload,
   getThreadKnowledgeBaseId,
@@ -504,10 +506,7 @@ export function SelfEvolutionPageController({
         return 0;
       });
   }, [activeMessages, threadDialogueMessages]);
-  const displayedCheckpointWaitPrompt =
-    isAutoInteractionActive && pendingCheckpointWaitPrompt?.kind !== "failure"
-      ? undefined
-      : pendingCheckpointWaitPrompt;
+  const displayedCheckpointWaitPrompt = isAutoInteractionActive ? undefined : pendingCheckpointWaitPrompt;
   const datasetResultDownloadUrl = useMemo(
     () => buildCoreDownloadUrl(getResultDownloadPath(workflowResults.datasets.data)),
     [workflowResults.datasets.data],
@@ -1028,10 +1027,30 @@ export function SelfEvolutionPageController({
         if (!prev) {
           return prev;
         }
-        if (event.type === "checkpoint.continue") {
+        if (
+          prev.kind === "failure" &&
+          (event.type === "message.user" ||
+            event.type === "message.assistant" ||
+            event.type === "intent.reply" ||
+            event.type === "intent.thought")
+        ) {
+          return undefined;
+        }
+        if (
+          event.type === "checkpoint.continue" ||
+          event.type === "checkpoint.rewind" ||
+          event.type === "checkpoint.cancel"
+        ) {
           return undefined;
         }
         if (prev.nextStage && event.stage === prev.nextStage) {
+          return undefined;
+        }
+        const latestCheckpointEvent = threadEventsRef.current
+          .filter((item) => item.type === "checkpoint.wait" && item.checkpointWait)
+          .sort(compareNormalizedThreadEvents)
+          .at(-1);
+        if (latestCheckpointEvent && event.stage && isThreadEventAfter(latestCheckpointEvent, event)) {
           return undefined;
         }
         return prev;

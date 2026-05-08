@@ -9,11 +9,16 @@ import {
 const { Paragraph, Text } = Typography;
 
 type ChatMessageStreamProps = {
+  isAutoInteractionActive: boolean;
   messages: SelfEvolutionChatMessage[];
   streamRef: Ref<HTMLDivElement>;
 };
 
-export function ChatMessageStream({ messages, streamRef }: ChatMessageStreamProps) {
+export function ChatMessageStream({
+  isAutoInteractionActive,
+  messages,
+  streamRef,
+}: ChatMessageStreamProps) {
   return (
     <div
       ref={streamRef}
@@ -33,16 +38,26 @@ export function ChatMessageStream({ messages, streamRef }: ChatMessageStreamProp
         ))
       ) : (
         <Paragraph className="self-evolution-chat-empty">
-          当前会话暂无消息，请在底部输入指令开始。
+          {isAutoInteractionActive
+            ? "自动处理已启动，过程消息会展示在这里。"
+            : "当前会话暂无消息，请在底部输入指令开始。"}
         </Paragraph>
       )}
     </div>
   );
 }
 
+export function AutoInteractionStatus() {
+  return (
+    <div className="self-evolution-auto-interaction-status" role="status" aria-live="polite">
+      <MessageOutlined />
+      <Text>自动处理进行中，系统会按流程推进并在上方展示过程消息。</Text>
+    </div>
+  );
+}
+
 type ChatComposerProps = {
   activeStepText: string;
-  isAutoInteractionActive: boolean;
   isSendingMessage: boolean;
   pendingCheckpointWaitPrompt?: SelfEvolutionCheckpointPrompt;
   prompt: string;
@@ -54,7 +69,6 @@ type ChatComposerProps = {
 
 export function ChatComposer({
   activeStepText,
-  isAutoInteractionActive,
   isSendingMessage,
   pendingCheckpointWaitPrompt,
   prompt,
@@ -79,7 +93,7 @@ export function ChatComposer({
   const isCheckpointWaiting = Boolean(pendingCheckpointWaitPrompt);
 
   return (
-    <div className={`self-evolution-chat-composer${isAutoInteractionActive ? " is-auto" : ""}`}>
+    <div className="self-evolution-chat-composer">
       {pendingCheckpointWaitPrompt && (
         <div
           className={`self-evolution-checkpoint-wait${
@@ -111,37 +125,30 @@ export function ChatComposer({
         </div>
       )}
 
-      {isAutoInteractionActive && !isCheckpointWaiting ? (
-        <div className="self-evolution-auto-interaction-status" role="status" aria-live="polite">
-          <MessageOutlined />
-          <Text>自动交互进行中，模拟用户与回复 Agent 的消息会展示在上方对话流。</Text>
-        </div>
-      ) : (
-        <>
-          <Input.TextArea
-            value={prompt}
-            onChange={onInputChange}
-            autoSize={{ minRows: 2, maxRows: 4 }}
-            className="self-evolution-chatlike-input"
-            placeholder="继续输入指令，例如：请先扩展数据集样本，再进入评测阶段。"
-            aria-label="继续输入自进化指令"
-            onPressEnter={onInputPressEnter}
-          />
-
-          <div className="self-evolution-chat-composer-footer">
-            <div className="self-evolution-chat-composer-left">
-              {renderKnowledgeAndModeTools()}
-            </div>
-
-            <div className="self-evolution-chatlike-actions">
-              <Text className="self-evolution-chatlike-helper">
-                {isSendingMessage ? "消息发送中" : activeStepText}
-              </Text>
-              {renderSendButton()}
-            </div>
-          </div>
-        </>
+      {!isCheckpointWaiting && (
+        <Input.TextArea
+          value={prompt}
+          onChange={onInputChange}
+          autoSize={{ minRows: 2, maxRows: 4 }}
+          className="self-evolution-chatlike-input"
+          placeholder="继续输入指令，例如：请先扩展数据集样本，再进入评测阶段。"
+          aria-label="继续输入自进化指令"
+          onPressEnter={onInputPressEnter}
+        />
       )}
+
+      <div className="self-evolution-chat-composer-footer">
+        <div className="self-evolution-chat-composer-left">
+          {renderKnowledgeAndModeTools()}
+        </div>
+
+        <div className="self-evolution-chatlike-actions">
+          <Text className="self-evolution-chatlike-helper">
+            {isSendingMessage ? "消息发送中" : activeStepText}
+          </Text>
+          {renderSendButton()}
+        </div>
+      </div>
     </div>
   );
 }

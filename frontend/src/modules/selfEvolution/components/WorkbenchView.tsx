@@ -7,6 +7,7 @@ import {
   PlusOutlined,
 } from "@ant-design/icons";
 import {
+  AutoInteractionStatus,
   ChatComposer,
   ChatMessageStream,
   HistorySessionModal,
@@ -224,19 +225,26 @@ export function SelfEvolutionWorkbenchView({
             </div>
           </div>
 
-          <ChatMessageStream messages={displayedMessages} streamRef={chatStreamRef} />
-
-          <ChatComposer
-            activeStepText={activeStepText}
+          <ChatMessageStream
             isAutoInteractionActive={isAutoInteractionActive}
-            isSendingMessage={isSendingMessage}
-            pendingCheckpointWaitPrompt={displayedCheckpointWaitPrompt}
-            prompt={prompt}
-            onPromptChange={onPromptChange}
-            onSend={onSend}
-            renderKnowledgeAndModeTools={renderKnowledgeAndModeTools}
-            renderSendButton={renderSendButton}
+            messages={displayedMessages}
+            streamRef={chatStreamRef}
           />
+
+          {isAutoInteractionActive ? (
+            <AutoInteractionStatus />
+          ) : (
+            <ChatComposer
+              activeStepText={activeStepText}
+              isSendingMessage={isSendingMessage}
+              pendingCheckpointWaitPrompt={displayedCheckpointWaitPrompt}
+              prompt={prompt}
+              onPromptChange={onPromptChange}
+              onSend={onSend}
+              renderKnowledgeAndModeTools={renderKnowledgeAndModeTools}
+              renderSendButton={renderSendButton}
+            />
+          )}
         </section>
 
         <HistorySessionModal

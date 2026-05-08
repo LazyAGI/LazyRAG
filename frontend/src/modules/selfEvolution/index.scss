@@ -1355,9 +1355,11 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .self-evolution-step-card {
+  min-width: 0;
   opacity: 0;
   transform: translateY(10px);
   animation: selfEvolutionCardRise 0.45s ease forwards;
@@ -1795,10 +1797,18 @@
 
 .self-evolution-dataset-collapse-label {
   width: 100%;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+
+  > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .self-evolution-dataset-download-link {
@@ -1843,6 +1853,7 @@
 }
 
 .self-evolution-dataset-collapse.ant-collapse {
+  min-width: 0;
   margin-top: 10px;
   border: 1px dashed #c9dcf7;
   border-radius: 10px;
@@ -1853,13 +1864,23 @@
   }
 
   .ant-collapse-header {
+    min-width: 0;
     padding: 8px 10px !important;
     color: #24507a !important;
     font-size: 13px;
     font-weight: 600;
   }
 
+  .ant-collapse-expand-icon {
+    flex: 0 0 auto;
+  }
+
+  .ant-collapse-header-text {
+    min-width: 0;
+  }
+
   .ant-collapse-content > .ant-collapse-content-box {
+    min-width: 0;
     padding: 0;
   }
 }
@@ -2447,6 +2468,9 @@
 
 .self-evolution-ab-report {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   box-sizing: border-box;
   border-radius: 14px;
   border: 1px solid #d7e7fb;
@@ -2475,10 +2499,15 @@
 
 .self-evolution-ab-summary-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
 }
 
 .self-evolution-ab-summary-report {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   border-radius: 10px;
   border: 1px solid #deebfb;
   background: #fff;
@@ -2486,6 +2515,7 @@
 }
 
 .self-evolution-ab-summary-head {
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -2500,6 +2530,7 @@
 }
 
 .self-evolution-ab-summary-meta {
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -2510,12 +2541,16 @@
 
 .self-evolution-ab-summary-chart-scroller {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .self-evolution-ab-summary-chart {
-  width: 100%;
-  min-width: 620px;
+  display: block;
+  width: max(100%, 620px);
   min-height: 280px;
 }
 
@@ -2541,6 +2576,7 @@
 }
 
 .self-evolution-ab-markdown-body {
+  min-width: 0;
   max-height: 360px;
   overflow: auto;
   border-radius: 10px;
@@ -2577,6 +2613,9 @@
 }
 
 .self-evolution-ab-chart-shell {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   margin-top: 10px;
   border-radius: 10px;
   border: 1px solid #deebfb;
@@ -2586,10 +2625,15 @@
 
 .self-evolution-ab-chart-wrap {
   width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .self-evolution-ab-single-chart {
-  width: 100%;
+  display: block;
+  width: max(100%, 620px);
   min-height: 280px;
 }
 
@@ -2647,6 +2691,7 @@
 }
 
 .self-evolution-ab-facet-card {
+  min-width: 0;
   border: 1px solid #dae8fb;
   border-radius: 10px;
   background: #fff;
@@ -2661,11 +2706,15 @@
 }
 
 .self-evolution-ab-facet-scroller {
+  min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .self-evolution-ab-facet-chart {
-  width: 100%;
+  display: block;
+  width: max(100%, 360px);
   min-height: 210px;
 }
 
