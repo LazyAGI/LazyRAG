@@ -7,7 +7,7 @@ backend/core/core
 __pycache__
 
 # python files
-__pycache__
+*__pycache__*
 *.pyc
 
 # temp files

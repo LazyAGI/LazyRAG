@@ -73,7 +73,7 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     site_packages="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"; \
     printf '/opt/lazyllm\n' > "${site_packages}/lazyllm-main.pth"; \
     printf '%s\n' '#!/usr/bin/env sh' \
-      'PYTHONPATH="/opt/lazyllm:${PYTHONPATH:-}" exec python -m lazyllm.cli.main "$@"' \
+      'PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}/opt/lazyllm" exec python -m lazyllm.cli.main "$@"' \
       > /usr/local/bin/lazyllm; \
     chmod 0755 /usr/local/bin/lazyllm; \
     cd /opt/lazyllm; \
@@ -92,7 +92,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/app:/opt/lazyllm
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
 ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
 ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
@@ -140,5 +140,5 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/app:/opt/lazyllm
 CMD ["python", "parsing/mineru.py"]

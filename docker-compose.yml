@@ -504,10 +504,6 @@ services:
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-mineru}
-      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://host.docker.internal:20234}
-      LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-true}
       <<: *llm-api-keys
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
@@ -539,6 +535,7 @@ services:
       - "8046"
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./algorithm:/app
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s
@@ -546,7 +543,6 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-chat/runtime_models.inner.yaml}
       LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000,general_algo}
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
@@ -581,7 +577,7 @@ services:
       LAZYRAG_CORE_SERVICE_URL: ${LAZYRAG_CORE_SERVICE_URL:-http://core:8000}
       LAZYRAG_WORD_GROUP_APPLY_URL: ${LAZYRAG_WORD_GROUP_APPLY_URL:-}
       <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
-    command: ["python", "-m", "chat.app.chat", "--port", "8046"]
+    command: ["sleep", "infinity"]
     depends_on:
       lazyllm-algo:
         condition: service_healthy
