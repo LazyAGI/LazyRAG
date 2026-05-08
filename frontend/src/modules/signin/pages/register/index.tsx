@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { registerByPassword } from "@/modules/signin/utils/request";
 import {
   passwordRules,
+  USERNAME_MAX_LENGTH,
   usernameRules,
 } from "@/modules/signin/utils/formRules";
 import { useTranslation } from "react-i18next";
@@ -67,7 +68,12 @@ const Register = () => {
           label={t("auth.username")}
           rules={usernameRules}
         >
-          <Input placeholder={t("auth.pleaseInputUsername")} autoComplete="username" />
+          <Input
+            placeholder={t("auth.pleaseInputUsername")}
+            autoComplete="username"
+            maxLength={USERNAME_MAX_LENGTH}
+            showCount
+          />
         </Form.Item>
 
         <Form.Item
