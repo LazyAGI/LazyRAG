@@ -93,7 +93,7 @@ export const AgentAppsAuth = {
   },
 
   clearUserInfo() {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.clear();
   },
 
   getAuthHeaders(): Record<string, string> {

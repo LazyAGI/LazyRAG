@@ -10,6 +10,7 @@ import {
   TeamOutlined,
   GlobalOutlined,
   DatabaseOutlined,
+  ApiOutlined,
   LeftOutlined,
   RightOutlined,
 } from "@ant-design/icons";
@@ -34,6 +35,14 @@ import "./index.scss";
 const { Content, Sider } = Layout;
 const MAINLAND_CHINA_PHONE_REGEX = /^1[3-9]\d{9}$/;
 const MAIN_MENU_COLLAPSED_STORAGE_KEY = "lazyrag:main-menu-collapsed";
+
+function readStoredMainMenuCollapsed() {
+  try {
+    return localStorage.getItem(MAIN_MENU_COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 type MenuItem = Required<MenuProps>["items"][number];
 
@@ -80,7 +89,7 @@ export default function MainLayout() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [isMenuCollapsed, setIsMenuCollapsed] = useState(false);
+  const [isMenuCollapsed, setIsMenuCollapsed] = useState(readStoredMainMenuCollapsed);
   const [developerActive, setDeveloperActive] = useState(isDeveloperModeActive);
   const [profileDetail, setProfileDetail] = useState<UserDetailResponse | null>(null);
   const aiEvolutionMenuChildren: MenuItem[] = [
@@ -105,6 +114,7 @@ export default function MainLayout() {
       children: [
         { key: "/lib/knowledge", label: t("layout.knowledgeBase"), icon: <AppstoreOutlined /> },
         { key: "/data-sources", label: t("layout.dataSourceManagement"), icon: <DatabaseOutlined /> },
+        { key: "/model-providers", label: t("layout.modelProviderManagement"), icon: <ApiOutlined /> },
       ],
     },
     {
@@ -144,6 +154,8 @@ export default function MainLayout() {
       key = "/lib/knowledge";
     } else if (pathname.startsWith("/data-sources")) {
       key = "/data-sources";
+    } else if (pathname.startsWith("/model-providers")) {
+      key = "/model-providers";
     } else if (pathname.startsWith("/memory-management")) {
       key = "/memory-management";
     } else if (pathname.startsWith("/self-evolution")) {
@@ -159,12 +171,7 @@ export default function MainLayout() {
   }, [pathname, isAdminUser, developerActive, navigate]);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(MAIN_MENU_COLLAPSED_STORAGE_KEY);
-      setIsMenuCollapsed(stored === "1");
-    } catch {
-      setIsMenuCollapsed(false);
-    }
+    setIsMenuCollapsed(readStoredMainMenuCollapsed());
   }, []);
 
   useEffect(() => {

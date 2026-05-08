@@ -111,6 +111,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     const batchChatTask = localStorage.getItem("batchChatTask");
     const isMouseScrollingRef = useRef(false);
     const sseRef = useRef<any>(null);
+    const activeStreamRef = useRef(false);
     const imageRef = useRef<ImageUploadImperativeProps | null>(null);
     const fileRef = useRef<ImageUploadImperativeProps | null>(null);
     const promptRef = useRef<PromptImperativeProps | null>(null);
@@ -264,7 +265,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     }
 
     function sendMessage(text: string, clearInput = true) {
-      if (loading || !canChat || !text) {
+      if (activeStreamRef.current || loading || !canChat || !text) {
         return;
       }
 
@@ -328,6 +329,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       input: any[],
       action: ChatConversationsRequestActionEnum,
     ) => {
+      activeStreamRef.current = true;
       setLoading(true);
       const callbacks: Record<string, (e: CustomEvent) => void> = {
         message: (e) => onMessage(e),
@@ -352,6 +354,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
 
     function closeSSE() {
       sseRef.current = null;
+      activeStreamRef.current = false;
       setLoading(false);
     }
 
@@ -703,6 +706,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       streamManager.setActiveConversation(id || null);
 
       if (id && streamManager.hasActiveStream(id)) {
+        activeStreamRef.current = true;
         const callbacks: Record<string, (event: CustomEvent) => void> = {
           message: (event) => onMessage(event),
           error: (event) => onError(event),
