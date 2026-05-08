@@ -26,7 +26,12 @@ type SkillResource struct {
 	DraftSourceVersion int64           `gorm:"column:draft_source_version;not null;default:0"`
 	DraftStatus        string          `gorm:"column:draft_status;type:varchar(32);not null;default:''"`
 	DraftUpdatedAt     *time.Time      `gorm:"column:draft_updated_at"`
-	IsLocked           bool            `gorm:"column:is_locked;not null;default:false"`
+	AutoEvo            bool            `gorm:"column:auto_evo;not null;default:false"` // 自动进化
+	AutoEvoApplyStatus string          `gorm:"column:auto_evo_apply_status;type:varchar(32);not null;default:'idle'"`
+	AutoEvoGeneration  int64           `gorm:"column:auto_evo_generation;not null;default:0"`
+	AutoEvoStartedAt   *time.Time      `gorm:"column:auto_evo_started_at"`
+	AutoEvoFinishedAt  *time.Time      `gorm:"column:auto_evo_finished_at"`
+	AutoEvoError       string          `gorm:"column:auto_evo_error;type:text;not null;default:''"`
 	IsEnabled          bool            `gorm:"column:is_enabled;not null;default:true;index:idx_skill_resources_owner_node_enabled,priority:3"`
 	UpdateStatus       string          `gorm:"column:update_status;type:varchar(32);not null;default:'up_to_date'"`
 	Ext                json.RawMessage `gorm:"column:ext;type:json"`
