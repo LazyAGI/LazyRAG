@@ -21,6 +21,9 @@ class _DummyPipe:
     def __or__(self, other):
         return self
 
+    def __ror__(self, other):
+        return self
+
 
 class _DummyBind:
     def __init__(self, kwargs):
@@ -83,7 +86,7 @@ def test_get_remote_document_parses_custom_name(monkeypatch):
 def test_get_retriever_builds_parts(monkeypatch):
     retriever_calls = []
     bind_calls = []
-    automodel_keys = []
+    automodel_calls = []
     temp_calls = {'init': None, 'sub': None}
 
     class _FakeRetriever:
@@ -106,13 +109,15 @@ def test_get_retriever_builds_parts(monkeypatch):
 
     fake_document = object()
     fake_pipeline = _FakePipeline()
-    settings = SimpleNamespace(temp_doc_embed_key='embed_a')
 
     monkeypatch.setattr(retriever_mod, 'Retriever', _FakeRetriever)
     monkeypatch.setattr(retriever_mod, 'TempDocRetriever', _FakeTempDocRetriever)
     monkeypatch.setattr(retriever_mod, 'get_remote_docment', lambda url: fake_document)
-    monkeypatch.setattr(retriever_mod, 'get_retrieval_settings', lambda: settings)
-    monkeypatch.setattr(retriever_mod, 'get_automodel', lambda key: automodel_keys.append(key) or 'embed-model')
+    monkeypatch.setattr(
+        retriever_mod,
+        'AutoModel',
+        lambda model, config=False: automodel_calls.append(model) or 'embed-model',
+    )
     monkeypatch.setattr(retriever_mod, 'pipeline', lambda: fake_pipeline)
     monkeypatch.setattr(retriever_mod, 'bind', lambda **kwargs: bind_calls.append(kwargs) or _DummyPipe())
 
@@ -125,7 +130,7 @@ def test_get_retriever_builds_parts(monkeypatch):
     assert len(parts.kb_retrievers) == 1
     assert parts.tmp_retriever_pipeline is fake_pipeline
     assert retriever_calls == [(fake_document, {'group_name': 'line', 'topk': 5})]
-    assert automodel_keys == ['embed_a']
+    assert automodel_calls == [retriever_mod.EMBED_MAIN]
     assert temp_calls == {'init': 'embed-model', 'sub': ('block', 3)}
     assert bind_calls == [{'query': 'pipeline-input'}]
 
@@ -137,19 +142,42 @@ def test_adaptive_get_token_len_uses_text_length():
 
 
 def test_answer_llm_sets_system_prompt(monkeypatch):
-    seen = {}
+    # _answer_llm() was inlined into get_ppl_generate(); verify that AutoModel.prompt()
+    # is called with RAG_ANSWER_SYSTEM when building the generate pipeline.
+    prompt_calls = []
 
-    class _FakePrompt:
-        def _set_model_configs(self, **kwargs):
-            seen.update(kwargs)
+    class _FakeLLM:
+        def prompt(self, system):
+            prompt_calls.append(system)
+            return self
 
-    wrapped = SimpleNamespace(llm=SimpleNamespace(_prompt=_FakePrompt()))
-    monkeypatch.setattr(ppl_generate_mod, 'get_automodel', lambda *args, **kwargs: wrapped)
+        def share(self):
+            return self
 
-    result = ppl_generate_mod._answer_llm()
+        def __call__(self, *args, **kwargs):
+            return ''
 
-    assert result is wrapped
-    assert seen['system'] == ppl_generate_mod.RAG_ANSWER_SYSTEM
+    fake_ppl = _FakePipeline(
+        input_value=['node-a'],
+        kwargs={'query': 'q', 'debug': False},
+    )
+
+    monkeypatch.setattr(
+        ppl_generate_mod,
+        'AutoModel',
+        lambda model, config=False: _FakeLLM(),
+    )
+    monkeypatch.setattr(ppl_generate_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
+    monkeypatch.setattr(ppl_generate_mod, 'pipeline', lambda: fake_ppl)
+    monkeypatch.setattr(ppl_generate_mod, 'bind', lambda **kwargs: _DummyPipe())
+    monkeypatch.setattr(ppl_generate_mod, 'AggregateComponent', lambda: _DummyPipe())
+    monkeypatch.setattr(ppl_generate_mod, 'RAGContextFormatter', lambda: _DummyPipe())
+    monkeypatch.setattr(ppl_generate_mod, 'CustomOutputParser', lambda **kwargs: _DummyPipe())
+
+    ppl_generate_mod.get_ppl_generate(stream=False)
+
+    assert len(prompt_calls) == 1
+    assert prompt_calls[0] == ppl_generate_mod.RAG_ANSWER_SYSTEM
 
 
 def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
@@ -169,7 +197,7 @@ def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
         ),
     )
     monkeypatch.setattr(ppl_search_mod, 'get_remote_docment', lambda url: 'document')
-    monkeypatch.setattr(ppl_search_mod, 'get_automodel', lambda key: f'model:{key}')
+    monkeypatch.setattr(ppl_search_mod, 'AutoModel', lambda model, config=False: f'model:{model}')
     monkeypatch.setattr(ppl_search_mod, 'bind', lambda **kwargs: _DummyBind(kwargs))
     monkeypatch.setattr(ppl_search_mod, 'parallel', lambda *items: ('parallel', items))
     monkeypatch.setattr(
@@ -257,7 +285,7 @@ def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch
         ),
     )
     monkeypatch.setattr(ppl_search_mod, 'get_remote_docment', lambda url: 'document')
-    monkeypatch.setattr(ppl_search_mod, 'get_automodel', lambda key: f'model:{key}')
+    monkeypatch.setattr(ppl_search_mod, 'AutoModel', lambda model, config=False: f'model:{model}')
     monkeypatch.setattr(ppl_search_mod, 'bind', lambda **kwargs: _DummyBind(kwargs))
     monkeypatch.setattr(ppl_search_mod, 'parallel', lambda *items: ('parallel', items))
     monkeypatch.setattr(
@@ -285,10 +313,20 @@ def test_get_ppl_generate_keeps_expected_stage_order(monkeypatch):
     )
     recorded = {}
 
+    class _FakeLLM:
+        def prompt(self, system):
+            return self
+
+        def share(self):
+            return self
+
+        def __call__(self, *args, **kwargs):
+            return ''
+
+    monkeypatch.setattr(ppl_generate_mod, 'AutoModel', lambda model, config=False: _FakeLLM())
     monkeypatch.setattr(ppl_generate_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
     monkeypatch.setattr(ppl_generate_mod, 'pipeline', lambda: generate_ppl)
-    monkeypatch.setattr(ppl_generate_mod, 'bind', lambda **kwargs: ('bind', kwargs))
-    monkeypatch.setattr(ppl_generate_mod, '_answer_llm', lambda: _DummyPipe('answer'))
+    monkeypatch.setattr(ppl_generate_mod, 'bind', lambda **kwargs: _DummyPipe())
 
     class _FakeAggregateComponent:
         def __init__(self):

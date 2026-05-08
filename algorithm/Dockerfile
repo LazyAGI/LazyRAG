@@ -92,7 +92,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/app/lazyllm:/app
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
 ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
 ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
@@ -105,7 +105,6 @@ ENV LAZYRAG_REVIEW_MAX_RETRIES=5
 ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
 ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
 ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
-ENV LAZYRAG_USE_INNER_MODEL=true
 ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]

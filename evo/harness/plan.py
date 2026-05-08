@@ -9,7 +9,8 @@ from evo.runtime.session import AnalysisSession
 
 
 class CancelTokenProto(Protocol):
-    def requested(self) -> bool: ...
+    def requested(self) -> bool:
+        ...
 
 
 class StopRequested(Exception):

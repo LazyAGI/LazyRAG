@@ -1,13 +1,14 @@
 from __future__ import annotations
-import os
 from typing import Any, Dict, Optional
 from fastapi import FastAPI
 from lazyllm import LOG, once_wrapper
 
+import chat.components.tmp  # noqa: F401 — registers BgeM3Embed / Qwen3Rerank into lazyllm.online
 from chat.config import SENSITIVE_WORDS_PATH, DEFAULT_CHAT_DATASET, resolve_dataset_url
 from chat.pipelines.agentic import agentic_rag
 from chat.pipelines.naive import get_ppl_naive
 from chat.components.process.sensitive_filter import SensitiveFilter
+from config import config as _cfg
 
 
 def create_app() -> FastAPI:
@@ -55,7 +56,7 @@ class ChatServer:
             else:
                 LOG.warning('[ChatServer] [SENSITIVE_FILTER] Failed to load, filter disabled')
 
-            if os.getenv('LAZYRAG_SKIP_STARTUP_PIPELINE', '').lower() in {'1', 'true', 'yes'}:
+            if _cfg['skip_startup_pipeline']:
                 self.startup_validated = True
             elif resolve_dataset_url(DEFAULT_CHAT_DATASET):
                 self.get_query_pipeline(DEFAULT_CHAT_DATASET)

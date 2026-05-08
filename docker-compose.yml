@@ -1,3 +1,32 @@
+x-trace-config: &trace-config
+  LANGFUSE_HOST: ""
+  LANGFUSE_BASE_URL: ""
+  LANGFUSE_PUBLIC_KEY: ""
+  LANGFUSE_SECRET_KEY: ""
+  LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
+  LAZYLLM_TRACE_BACKEND: ${LAZYLLM_TRACE_BACKEND:-langfuse}
+  OTEL_EXPORTER_OTLP_TIMEOUT: 60
+  OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: 60
+  LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: 70000
+
+x-proxy-env: &proxy-env
+  http_proxy: ${http_proxy:-}
+  https_proxy: ${https_proxy:-}
+  HTTP_PROXY: ${HTTP_PROXY:-}
+  HTTPS_PROXY: ${HTTPS_PROXY:-}
+  no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+
+x-core-env: &core-env
+  ACL_DB_DRIVER: postgres
+  ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+  LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
+  LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+  LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
+  LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
+  LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
+  LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
+
 x-llm-api-keys: &llm-api-keys
   LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
   LAZYLLM_GLM_API_KEY: ${LAZYLLM_GLM_API_KEY:-}
@@ -37,7 +66,7 @@ services:
       - ./kong.yml:/kong/kong.yml
       - ./kong/plugins/rbac-auth:/usr/local/share/lua/5.1/kong/plugins/rbac-auth
     ports:
-      - "8001:8000"
+      - "8000:8000"
     depends_on:
       auth-service:
         condition: service_healthy
@@ -162,6 +191,8 @@ services:
       LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
       RAGSCAN_SECRET_KEY: dev-ragscan-secret-key-change-me
       LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: ${LAZYRAG_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD:-admin}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
@@ -205,27 +236,20 @@ services:
     expose:
       - "8000"
     environment:
-      ACL_DB_DRIVER: postgres
-      ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
+      <<: *core-env
       MIGRATIONS_DIR: /migrations
-      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-      LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
-      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
-      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
-      LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
-      LAZYRAG_OFFICE_CONVERT_WORKERS: "4"
       LAZYRAG_ALGO_SERVICE_URL: http://lazyllm-doc-server:8000
       LAZYRAG_READONLY_VALIDATE: "0"
       LAZYRAG_READONLY_DB_DRIVER: postgres
       LAZYRAG_READONLY_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
       LAZYRAG_READONLY_SCHEMA: public
       LAZYRAG_READONLY_TABLES: "public.lazyllm_documents,public.lazyllm_doc_service_tasks,public.lazyllm_kb_documents"
-      LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://lazyllm-doc-server:8000}
-      LAZYRAG_PARSING_SERVICE_URL: ${LAZYRAG_PARSING_SERVICE_URL:-http://lazyllm-parse-server:8000}
-      LAZYRAG_CHAT_SERVICE_URL: ${LAZYRAG_CHAT_SERVICE_URL:-http://chat:8046}
-      LAZYRAG_EVO_SERVICE_URL: ${LAZYRAG_EVO_SERVICE_URL:-http://evo-api:8048}
+      LAZYRAG_DOCUMENT_SERVICE_URL: http://lazyllm-doc-server:8000
+      LAZYRAG_PARSING_SERVICE_URL: http://lazyllm-parse-server:8000
+      LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
+      LAZYRAG_EVO_SERVICE_URL: http://evo-api:8047
       LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYRAG_OFFICE_CONVERT_WORKERS: "4"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -249,14 +273,7 @@ services:
       - ./backend/core:/app
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
-      ACL_DB_DRIVER: postgres
-      ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
-      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-      LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
-      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
-      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
-      LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
+      <<: *core-env
     depends_on:
       db:
         condition: service_healthy
@@ -271,7 +288,7 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8090:80"
+      - "${LAZYRAG_FRONTEND_PORT:-8080}:80"
     expose:
       - "80"
     depends_on:
@@ -280,8 +297,8 @@ services:
       core:
         condition: service_healthy
     environment:
-      FRONTEND_API_PROXY_PASS: ${FRONTEND_API_PROXY_PASS:-http://kong:8000}
-      FRONTEND_API_DOCS_PROXY_PASS: ${FRONTEND_API_DOCS_PROXY_PASS:-http://kong:8000}
+      FRONTEND_API_PROXY_PASS: http://kong:8000
+      FRONTEND_API_DOCS_PROXY_PASS: http://kong:8000
 
   lazyllm-doc-server:
     build:
@@ -297,9 +314,10 @@ services:
     environment:
       <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
-      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
-      LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: ${LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL:-http://doc-server:8000/v1/internal/callbacks/tasks}
+      LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
+      LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: http://doc-server:8000/v1/internal/callbacks/tasks
       LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
       LAZYRAG_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "backend/core/doc/doc_server.py"]
@@ -319,6 +337,9 @@ services:
       default:
         aliases:
           - doc-server
+
+  # ---------- Algorithm stack: MinerU/PaddleOCR -> Processor (server + worker) <-> Parsing (Document) <- Chat ----------
+  # Base image (lazyllm[rag]==0.7.6a0) is shared; mineru extra/backend are configured by env.
   mineru:
     profiles:
       - mineru
@@ -328,14 +349,14 @@ services:
       dockerfile: Dockerfile
       target: mineru
       args:
-        MINERU_VERSION: ${LAZYRAG_MINERU_VERSION:-2.7.1}
-        MINERU_PACKAGE_VARIANT: ${LAZYRAG_MINERU_PACKAGE_VARIANT:-pipeline}
-        MINERU_PREINSTALL_CPU_TORCH: ${LAZYRAG_MINERU_PREINSTALL_CPU_TORCH:-1}
-        MINERU_TORCH_VERSION: ${LAZYRAG_MINERU_TORCH_VERSION:-2.11.0}
-        MINERU_TORCHVISION_VERSION: ${LAZYRAG_MINERU_TORCHVISION_VERSION:-0.26.0}
-        MINERU_NUMPY_VERSION: ${LAZYRAG_MINERU_NUMPY_VERSION:-1.26.4}
-        MINERU_PYTORCH_INDEX_URL: ${LAZYRAG_MINERU_PYTORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
-        MINERU_PYPI_INDEX_URL: ${LAZYRAG_MINERU_PYPI_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+        MINERU_VERSION: 2.7.1
+        MINERU_PACKAGE_VARIANT: pipeline
+        MINERU_PREINSTALL_CPU_TORCH: "1"
+        MINERU_TORCH_VERSION: 2.11.0
+        MINERU_TORCHVISION_VERSION: 0.26.0
+        MINERU_NUMPY_VERSION: 1.26.4
+        MINERU_PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
+        MINERU_PYPI_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
     expose:
       - "8000"
     volumes:
@@ -347,14 +368,17 @@ services:
       <<: *llm-api-keys
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
       LAZYRAG_MINERU_SERVER_PORT: "8000"
-      LAZYRAG_MINERU_BACKEND: ${LAZYRAG_MINERU_BACKEND:-pipeline}
-      LAZYRAG_MINERU_CACHE_DIR: ${LAZYRAG_MINERU_CACHE_DIR:-/app/.mineru-cache}
-      LAZYRAG_MINERU_IMAGE_SAVE_DIR: ${LAZYRAG_MINERU_IMAGE_SAVE_DIR:-/app/.mineru-images}
+      LAZYRAG_MINERU_BACKEND: pipeline
+      LAZYRAG_MINERU_CACHE_DIR: /app/.mineru-cache
+      LAZYRAG_MINERU_IMAGE_SAVE_DIR: /app/.mineru-images
     command: ["python", "parsing/mineru.py"]
+
+  # PaddleOCR-VL document parsing service (official images).
+  # See: https://www.paddleocr.ai/main/version3.x/pipeline_usage/PaddleOCR-VL.html Section 4
   paddleocr-vlm-server:
     profiles:
       - paddleocr
-    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:${PADDLEOCR_VLM_IMAGE_TAG:-latest-nvidia-gpu}
+    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-genai-vllm-server:latest-nvidia-gpu
     deploy:
       resources:
         reservations:
@@ -381,7 +405,7 @@ services:
   paddleocr:
     profiles:
       - paddleocr
-    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl:${PADDLEOCR_API_IMAGE_TAG:-latest-nvidia-gpu}
+    image: ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlepaddle/paddleocr-vl:latest-nvidia-gpu
     expose:
       - '8080'
     depends_on:
@@ -395,7 +419,7 @@ services:
               device_ids: ['0']
               capabilities: [gpu]
     environment:
-      - VLM_BACKEND=${PADDLEOCR_VLM_BACKEND:-vllm}
+      - VLM_BACKEND=vllm
       - VL_REC_SERVER_URL=http://paddleocr-vlm-server:8118/v1
     command:
       - /bin/bash
@@ -417,7 +441,7 @@ services:
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
-      LAZYRAG_DOCUMENT_PROCESSOR_PORT: ${LAZYRAG_DOCUMENT_PROCESSOR_PORT:-8000}
+      LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
       <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/server.py"]
@@ -447,13 +471,13 @@ services:
     volumes:
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
     environment:
-      LAZYRAG_DOCUMENT_WORKER_PORT: ${LAZYRAG_DOCUMENT_WORKER_PORT:-8001}
-      LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: ${LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS:-1}
-      LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION: ${LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION:-300}
-      LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL: ${LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL:-60}
-      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ${LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES:-}
-      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: ${LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY:-false}
-      LAZYRAG_DOCUMENT_WORKER_POLL_MODE: ${LAZYRAG_DOCUMENT_WORKER_POLL_MODE:-direct}
+      LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
+      LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: "1"
+      LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION: "300"
+      LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL: "60"
+      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ""
+      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: "false"
+      LAZYRAG_DOCUMENT_WORKER_POLL_MODE: direct
       <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/worker.py"]
@@ -489,25 +513,21 @@ services:
       retries: 10
       start_period: 120s
     environment:
-      LAZYRAG_DOCUMENT_PROCESSOR_URL: ${LAZYRAG_DOCUMENT_PROCESSOR_URL:-http://processor-server:8000}
-      LAZYRAG_ALGO_SERVER_PORT: ${LAZYRAG_ALGO_SERVER_PORT:-8000}
+      LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
+      LAZYRAG_ALGO_SERVER_PORT: "8000"
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
       LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
-      LAZYRAG_OCR_PATCH_APPLIED: ${LAZYRAG_OCR_PATCH_APPLIED:-true}
-      LAZYRAG_OCR_SERVICE_VARIANT: ${LAZYRAG_OCR_SERVICE_VARIANT:-offline}
-      LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-}
+      LAZYRAG_MINERU_UPLOAD_MODE: ""
+      LAZYRAG_OCR_PATCH_APPLIED: "true"
+      LAZYRAG_OCR_SERVICE_VARIANT: offline
+      LAZYRAG_USE_INNER_MODEL: "true"
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-mineru}
-      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://host.docker.internal:20234}
-      LAZYRAG_MINERU_UPLOAD_MODE: ${LAZYRAG_MINERU_UPLOAD_MODE:-true}
       <<: *llm-api-keys
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
@@ -527,9 +547,9 @@ services:
       dockerfile: Dockerfile
       target: default
       args:
-        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
-        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        APT_MIRROR: http://mirrors.aliyun.com/debian
+        APT_SECURITY_MIRROR: http://mirrors.aliyun.com/debian-security
+        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple
         PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
         PIP_RETRIES: ${PIP_RETRIES:-10}
       secrets:
@@ -546,41 +566,24 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-chat/runtime_models.inner.yaml}
-      LAZYRAG_DOCUMENT_SERVER_URL: ${LAZYRAG_DOCUMENT_SERVER_URL:-http://parsing:8000,general_algo}
+      LAZYRAG_DOCUMENT_SERVER_URL: http://parsing:8000,general_algo
       LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYLLM_MOUNT_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
+      LAZYRAG_MOUNT_BASE_DIR: /var/lib/lazyrag/uploads
+      LAZYLLM_MOUNT_DIR: /var/lib/lazyrag/uploads
+      LAZYRAG_USE_INNER_MODEL: "true"
       LAZYRAG_MAX_CONCURRENCY: ${LAZYRAG_MAX_CONCURRENCY:-10}
       LAZYRAG_LLM_PRIORITY: ${LAZYRAG_LLM_PRIORITY:-0}
-      LAZYRAG_DEFAULT_CHAT_DATASET: ${LAZYRAG_DEFAULT_CHAT_DATASET:-algo}
-      LAZYRAG_CORE_API_URL: ${LAZYRAG_CORE_API_URL:-http://core:8000}
-      LAZYRAG_MAX_RETRIES: ${LAZYRAG_MAX_RETRIES:-20}
-      LAZYRAG_REVIEW_MAX_RETRIES: ${LAZYRAG_REVIEW_MAX_RETRIES:-5}
-      LAZYRAG_MEMORY_REVIEW_INTERVAL: ${LAZYRAG_MEMORY_REVIEW_INTERVAL:-1}
-      LAZYRAG_SKILL_REVIEW_INTERVAL: ${LAZYRAG_SKILL_REVIEW_INTERVAL:-5}
-      LAZYRAG_SKILL_REVIEW_DEBUG: ${LAZYRAG_SKILL_REVIEW_DEBUG:-false}
+      LAZYRAG_DEFAULT_CHAT_DATASET: algo
+      LAZYRAG_CORE_API_URL: http://core:8000
+      LAZYRAG_MAX_RETRIES: "20"
+      LAZYRAG_REVIEW_MAX_RETRIES: "5"
+      LAZYRAG_MEMORY_REVIEW_INTERVAL: "1"
+      LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
+      LAZYRAG_SKILL_REVIEW_DEBUG: "false"
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
-      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
-      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      TRACE_ENABLED: ${TRACE_ENABLED:-1}
-      TRACE_BACKEND: langfuse
-      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
-      LAZYLLM_TRACE_BACKEND: langfuse
-      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-60}
-      OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: ${OTEL_EXPORTER_OTLP_TRACES_TIMEOUT:-60}
-      LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: ${LANGFUSE_FORCE_FLUSH_TIMEOUT_MS:-70000}
-      http_proxy: ${http_proxy:-}
-      https_proxy: ${https_proxy:-}
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      LAZYRAG_CORE_SERVICE_URL: ${LAZYRAG_CORE_SERVICE_URL:-http://core:8000}
-      LAZYRAG_WORD_GROUP_APPLY_URL: ${LAZYRAG_WORD_GROUP_APPLY_URL:-}
-      <<: [*db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
+      LAZYRAG_CORE_SERVICE_URL: http://core:8000
+      LAZYRAG_WORD_GROUP_APPLY_URL: ""
+      <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
       lazyllm-algo:
@@ -597,9 +600,9 @@ services:
       dockerfile: evo/Dockerfile
       args:
         OPENCODE_VERSION: 1.14.28
-        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
-        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        APT_MIRROR: http://mirrors.aliyun.com/debian
+        APT_SECURITY_MIRROR: http://mirrors.aliyun.com/debian-security
+        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple
         PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
         PIP_RETRIES: ${PIP_RETRIES:-10}
       secrets:
@@ -613,37 +616,19 @@ services:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
       OPENCODE_BIN: /usr/local/bin/opencode
-      EVO_OPENCODE_PROVIDER: ${EVO_OPENCODE_PROVIDER:-maas}
-      EVO_OPENCODE_MODEL: ${EVO_OPENCODE_MODEL:-minimax-m27}
-      EVO_OPENCODE_TIMEOUT_S: ${EVO_OPENCODE_TIMEOUT_S:-2400}
-      EVO_OPENCODE_ANTHROPIC_KEY: ${EVO_OPENCODE_ANTHROPIC_KEY:-}
-      EVO_LLM_ROLE: ${EVO_LLM_ROLE:-evo_llm}
-      EVO_EMBED_ROLE: ${EVO_EMBED_ROLE:-evo_embed}
-      EVO_KB_BASE_URL: http://172.17.0.1:8055
-      EVO_CHUNK_BASE_URL: http://172.17.0.1:8055
-      EVO_TARGET_CHAT_URL: ${EVO_TARGET_CHAT_URL:-http://chat:8046/api/chat}
+      EVO_OPENCODE_PROVIDER: maas
+      EVO_OPENCODE_MODEL: minimax-m27
+      EVO_OPENCODE_TIMEOUT_S: "2400"
+      EVO_OPENCODE_ANTHROPIC_KEY: ""
+      EVO_LLM_ROLE: evo_llm
+      EVO_EMBED_ROLE: evo_embed
+      EVO_KB_BASE_URL: http://doc-server:8000
+      EVO_CHUNK_BASE_URL: http://doc-server:8000
+      EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
-      LAZYRAG_USE_INNER_MODEL: ${LAZYRAG_USE_INNER_MODEL:-true}
-      MAAS_BASE_URL: ${MAAS_BASE_URL:-http://106.75.235.251:9000/v1/}
-      MAAS_MODEL_NAME: ${MAAS_MODEL_NAME:-minimax-m27}
-      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
-      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      TRACE_ENABLED: ${TRACE_ENABLED:-1}
-      TRACE_BACKEND: langfuse
-      LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
-      LAZYLLM_TRACE_BACKEND: langfuse
-      OTEL_EXPORTER_OTLP_TIMEOUT: ${OTEL_EXPORTER_OTLP_TIMEOUT:-60}
-      OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: ${OTEL_EXPORTER_OTLP_TRACES_TIMEOUT:-60}
-      LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: ${LANGFUSE_FORCE_FLUSH_TIMEOUT_MS:-70000}
-      http_proxy: ${http_proxy:-}
-      https_proxy: ${https_proxy:-}
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      no_proxy: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-      <<: *llm-api-keys
+      MAAS_BASE_URL: http://106.75.235.251:9000/v1/
+      MAAS_MODEL_NAME: minimax-m27
+      <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazyrag/evo
       - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}:ro
@@ -656,6 +641,8 @@ services:
       start_period: 10s
     depends_on:
       chat:
+        condition: service_healthy
+      lazyllm-doc-server:
         condition: service_healthy
 
   # ---------- Vector store: Milvus standalone (profile: milvus) ----------
@@ -687,12 +674,14 @@ services:
     volumes:
       - milvus-minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
+    # Healthcheck disabled: newer MinIO images lack curl; use service_started in milvus depends_on
 
   milvus:
     profiles:
       - milvus
-    image: milvusdb/milvus:${MILVUS_IMAGE_TAG:-v2.6.11}
+    image: milvusdb/milvus:v2.6.11
     command: ['sh', '-c', 'sleep 15 && exec milvus run standalone']
+    # seccomp:unconfined removed for security; add back if Milvus fails on your platform
     environment:
       MINIO_REGION: us-east-1
       ETCD_ENDPOINTS: milvus-etcd:2379
@@ -714,10 +703,24 @@ services:
         condition: service_healthy
       milvus-minio:
         condition: service_started
+
+  attu:
+    profiles:
+      - milvus-dashboard
+    image: zilliz/attu:v2.6.3
+    ports:
+      - '127.0.0.1:3000:3000'
+    environment:
+      MILVUS_URL: milvus:19530
+    depends_on:
+      milvus:
+        condition: service_healthy
+
+  # ---------- Segment store: OpenSearch single-node (profile: opensearch) ----------
   opensearch:
     profiles:
       - opensearch
-    image: opensearchproject/opensearch:${OPENSEARCH_IMAGE_TAG:-2.18.0}
+    image: opensearchproject/opensearch:2.18.0
     container_name: opensearch
     environment:
       - cluster.name=opensearch-cluster
@@ -747,7 +750,7 @@ services:
   opensearch-dashboards:
     profiles:
       - opensearch-dashboard
-    image: opensearchproject/opensearch-dashboards:${OPENSEARCH_IMAGE_TAG:-2.18.0}
+    image: opensearchproject/opensearch-dashboards:2.18.0
     ports:
       - '127.0.0.1:5601:5601'
     expose:

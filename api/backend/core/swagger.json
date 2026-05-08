@@ -100,6 +100,61 @@
         ],
         "type": "object"
       },
+      "AddWordGroupConflictToGroupsRequest": {
+        "properties": {
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "word"
+        ],
+        "type": "object"
+      },
+      "AddWordGroupConflictToGroupsResponse": {
+        "properties": {
+          "added_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "deleted_conflict_rows": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "skipped_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted_conflict_rows",
+          "word"
+        ],
+        "type": "object"
+      },
       "Algo": {
         "properties": {
           "algo_id": {
@@ -128,6 +183,97 @@
             "type": "array"
           }
         },
+        "type": "object"
+      },
+      "ApplyWordGroupActionBatchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyWordGroupActionResponse"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ApplyWordGroupActionItem": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "create_user_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "group_ids": {
+            "type": "string"
+          },
+          "message_ids": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "words": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "action",
+          "create_user_id",
+          "description",
+          "group_ids",
+          "message_ids",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "ApplyWordGroupActionRequest": {
+        "properties": {
+          "action_list": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyWordGroupActionItem"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ApplyWordGroupActionResponse": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "added_words": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "conflict_id": {
+            "type": "string"
+          },
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "skipped_words": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "action"
+        ],
         "type": "object"
       },
       "AuthorizationSubjectGrant": {
@@ -262,6 +408,35 @@
         ],
         "type": "object"
       },
+      "BatchDeleteWordGroupsRequest": {
+        "properties": {
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "BatchDeleteWordGroupsResponse": {
+        "properties": {
+          "deleted_rows": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deleted_rows"
+        ],
+        "type": "object"
+      },
       "BatchUploadTasksResponse": {
         "properties": {
           "tasks": {
@@ -320,6 +495,34 @@
           "thinking_duration_s": {
             "format": "int64",
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CheckWordsExistRequest": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "term": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "term"
+        ],
+        "type": "object"
+      },
+      "CheckWordsExistResponse": {
+        "properties": {
+          "existing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -385,6 +588,34 @@
           "stored_path",
           "upload_id"
         ],
+        "type": "object"
+      },
+      "ConversationBatchDeleteRequest": {
+        "properties": {
+          "conversation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "conversation_ids"
+        ],
+        "type": "object"
+      },
+      "ConversationBatchDeleteResponse": {
+        "properties": {
+          "deleted_count": {
+            "type": "integer"
+          },
+          "deleted_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "ConversationChatStatusResponse": {
@@ -646,6 +877,95 @@
         },
         "type": "object"
       },
+      "CreateWordGroupRequest": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "conflict": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lock": {
+            "type": "boolean"
+          },
+          "term": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conflict",
+          "description",
+          "id",
+          "lock",
+          "term"
+        ],
+        "type": "object"
+      },
+      "CreateWordGroupResponse": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/CreatedAlias"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "lock": {
+            "type": "boolean"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "term": {
+            "type": "string"
+          },
+          "term_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "group_id",
+          "lock",
+          "reference",
+          "source",
+          "term",
+          "term_id"
+        ],
+        "type": "object"
+      },
+      "CreatedAlias": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "word"
+        ],
+        "type": "object"
+      },
       "Dataset": {
         "properties": {
           "acl": {
@@ -688,6 +1008,9 @@
             "type": "integer"
           },
           "is_empty": {
+            "type": "boolean"
+          },
+          "is_owner": {
             "type": "boolean"
           },
           "name": {
@@ -739,6 +1062,7 @@
           "document_count",
           "document_size",
           "is_empty",
+          "is_owner",
           "name",
           "segment_count",
           "share_type",
@@ -787,6 +1111,38 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "DeleteWordGroupConflictResponse": {
+        "properties": {
+          "deleted_rows": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted_rows",
+          "id"
+        ],
+        "type": "object"
+      },
+      "DeleteWordGroupResponse": {
+        "properties": {
+          "deleted_rows": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted_rows",
+          "group_id"
+        ],
         "type": "object"
       },
       "Doc": {
@@ -984,6 +1340,52 @@
           },
           "message": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ExportConversationsRequest": {
+        "properties": {
+          "conversation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "create_user_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "end_time": {
+            "type": "string"
+          },
+          "feed_back": {
+            "type": "integer"
+          },
+          "file_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "start_time": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ExportConversationsResponse": {
+        "properties": {
+          "uris": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1221,6 +1623,80 @@
         },
         "type": "object"
       },
+      "ListWordGroupConflictsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WordGroupConflictResponse"
+            },
+            "type": "array"
+          },
+          "next_page_token": {
+            "type": "string"
+          },
+          "total_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "next_page_token",
+          "total_size"
+        ],
+        "type": "object"
+      },
+      "ListWordGroupsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CreateWordGroupResponse"
+            },
+            "type": "array"
+          },
+          "next_page_token": {
+            "type": "string"
+          },
+          "total_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "next_page_token",
+          "total_size"
+        ],
+        "type": "object"
+      },
+      "MergeAndAddWordRequest": {
+        "properties": {
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "word"
+        ],
+        "type": "object"
+      },
+      "MergeWordGroupsRequest": {
+        "properties": {
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "ParserConfig": {
         "properties": {
           "name": {
@@ -1386,6 +1862,12 @@
           "keyword": {
             "type": "string"
           },
+          "keyword_list": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "order_by": {
             "type": "string"
           },
@@ -1421,6 +1903,29 @@
         },
         "required": [
           "task_ids"
+        ],
+        "type": "object"
+      },
+      "SearchWordGroupsRequest": {
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyword",
+          "page_size",
+          "page_token",
+          "source"
         ],
         "type": "object"
       },
@@ -1487,6 +1992,9 @@
       },
       "StartTaskResult": {
         "properties": {
+          "detail": {
+            "type": "string"
+          },
           "display_name": {
             "type": "string"
           },
@@ -1658,6 +2166,9 @@
               "$ref": "#/components/schemas/TaskFile"
             },
             "type": "array"
+          },
+          "relative_path": {
+            "type": "string"
           },
           "reparse_groups": {
             "items": {
@@ -1837,6 +2348,35 @@
         },
         "type": "object"
       },
+      "UpdateWordGroupRequest": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "lock": {
+            "type": "boolean"
+          },
+          "term": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "group_id",
+          "lock",
+          "term"
+        ],
+        "type": "object"
+      },
       "UploadFileResponse": {
         "properties": {
           "content_type": {
@@ -1928,16 +2468,1385 @@
       },
       "UserInfo": {
         "properties": {
-          "display_name": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "WordGroupConflictResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "word": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "description",
+          "id",
+          "reason",
+          "updated_at",
+          "word"
+        ],
+        "type": "object"
+      },
+      "agentFileContentOpenAPIRequest": {
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "agentFileContentOpenAPIResponse": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "file_size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "file_size",
+          "filename",
+          "path"
+        ],
+        "type": "object"
+      },
+      "agentThreadListOpenAPIResponse": {
+        "properties": {
+          "next_page_token": {
+            "type": "string"
+          },
+          "threads": {
+            "items": {
+              "$ref": "#/components/schemas/agentThreadOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "total_size": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "next_page_token",
+          "total_size"
+        ],
+        "type": "object"
+      },
+      "agentThreadOpenAPIResponse": {
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "current_task_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "thread_payload": {
+            "additionalProperties": {
+              "properties": {},
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "status",
+          "thread_id",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "internalSkillCreateOpenAPIRequest": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "skill_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "content",
+          "session_id",
+          "skill_name"
+        ],
+        "type": "object"
+      },
+      "internalSkillRemoveOpenAPIRequest": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "skill_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "session_id",
+          "skill_name"
+        ],
+        "type": "object"
+      },
+      "internalSkillSuggestionOpenAPIRequest": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "skill_name": {
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/suggestionPayloadOpenAPIRequest"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "session_id",
+          "skill_name"
+        ],
+        "type": "object"
+      },
+      "managedStateListOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/managedStateOpenAPIResponse"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "managedStateOpenAPIResponse": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "content_summary": {
+            "type": "string"
+          },
+          "has_pending_review_suggestions": {
+            "type": "boolean"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "resource_type": {
+            "type": "string"
+          },
+          "suggestion_status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "content_summary",
+          "has_pending_review_suggestions",
+          "resource_id",
+          "resource_type",
+          "suggestion_status",
+          "title"
+        ],
+        "type": "object"
+      },
+      "managedStateUpsertOpenAPIRequest": {
+        "properties": {
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "type": "object"
+      },
+      "personalizationSettingOpenAPIRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "personalizationSettingOpenAPIResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "recordedSuggestionListOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/recordedSuggestionOpenAPIResponse"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "recordedSuggestionOpenAPIResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "invalid_reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "shareSkillOpenAPIRequest": {
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "target_group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "skillChildCreateOpenAPIRequest": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "file_ext": {
+            "type": "string"
+          },
+          "is_locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "name"
+        ],
+        "type": "object"
+      },
+      "skillCreateManagedOpenAPIRequest": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/skillChildCreateOpenAPIRequest"
+            },
+            "type": "array"
+          },
+          "content": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "file_ext": {
+            "type": "string"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "is_locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_skill_name": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "content",
+          "name"
+        ],
+        "type": "object"
+      },
+      "skillDeleteOpenAPIResponse": {
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "skillDetailChildOpenAPIResponse": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "file_ext": {
+            "type": "string"
+          },
+          "has_pending_review_suggestions": {
+            "type": "boolean"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "is_locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string"
+          },
+          "parent_skill_name": {
+            "type": "string"
+          },
+          "skill_id": {
+            "type": "string"
+          },
+          "suggestion_status": {
+            "type": "string"
+          },
+          "update_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "description",
+          "file_ext",
+          "has_pending_review_suggestions",
+          "is_enabled",
+          "is_locked",
+          "name",
+          "node_type",
+          "parent_skill_name",
+          "skill_id",
+          "suggestion_status",
+          "update_status"
+        ],
+        "type": "object"
+      },
+      "skillDetailOpenAPIResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/skillDetailChildOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "content": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "file_ext": {
+            "type": "string"
+          },
+          "has_pending_review_suggestions": {
+            "type": "boolean"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "is_locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string"
+          },
+          "parent_skill_name": {
+            "type": "string"
+          },
+          "skill_id": {
+            "type": "string"
+          },
+          "suggestion_status": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "update_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "content",
+          "description",
+          "file_ext",
+          "has_pending_review_suggestions",
+          "is_enabled",
+          "is_locked",
+          "name",
+          "node_type",
+          "parent_skill_name",
+          "skill_id",
+          "suggestion_status",
+          "update_status"
+        ],
+        "type": "object"
+      },
+      "skillDiscardOpenAPIResponse": {
+        "properties": {
+          "discarded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "discarded"
+        ],
+        "type": "object"
+      },
+      "skillDraftPreviewOpenAPIResponse": {
+        "properties": {
+          "current_content": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "draft_content": {
+            "type": "string"
+          },
+          "draft_source_version": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "draft_status": {
+            "type": "string"
+          },
+          "outdated": {
+            "type": "boolean"
+          },
+          "skill_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_content",
+          "diff",
+          "draft_content",
+          "draft_source_version",
+          "draft_status",
+          "outdated",
+          "skill_id"
+        ],
+        "type": "object"
+      },
+      "skillGenerateOpenAPIRequest": {
+        "properties": {
+          "suggestion_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user_instruct": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_instruct"
+        ],
+        "type": "object"
+      },
+      "skillGenerateOpenAPIResponse": {
+        "properties": {
+          "draft_path": {
+            "type": "string"
+          },
+          "draft_source_version": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "draft_status": {
+            "type": "string"
+          },
+          "outdated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "draft_path",
+          "draft_source_version",
+          "draft_status",
+          "outdated"
+        ],
+        "type": "object"
+      },
+      "skillListChildOpenAPIResponse": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "file_ext": {
+            "type": "string"
+          },
+          "has_pending_review_suggestions": {
+            "type": "boolean"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "is_locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string"
+          },
+          "skill_id": {
+            "type": "string"
+          },
+          "suggestion_status": {
+            "type": "string"
+          },
+          "update_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "file_ext",
+          "has_pending_review_suggestions",
+          "is_enabled",
+          "is_locked",
+          "name",
+          "node_type",
+          "skill_id",
+          "suggestion_status",
+          "update_status"
+        ],
+        "type": "object"
+      },
+      "skillListItemOpenAPIResponse": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/skillListChildOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "has_pending_review_suggestions": {
+            "type": "boolean"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "is_locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string"
+          },
+          "skill_id": {
+            "type": "string"
+          },
+          "suggestion_status": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "update_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "description",
+          "has_pending_review_suggestions",
+          "is_enabled",
+          "is_locked",
+          "name",
+          "node_type",
+          "skill_id",
+          "suggestion_status",
+          "update_status"
+        ],
+        "type": "object"
+      },
+      "skillListOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/skillListItemOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "page_size",
+          "total"
+        ],
+        "type": "object"
+      },
+      "skillShareAcceptOpenAPIResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "target_root_skill_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accepted",
+          "target_root_skill_id"
+        ],
+        "type": "object"
+      },
+      "skillShareCreateItemOpenAPIResponse": {
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "rejected_at": {
+            "type": "string"
+          },
+          "share_task_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target_relative_root": {
+            "type": "string"
+          },
+          "target_root_skill_id": {
+            "type": "string"
+          },
+          "target_user_id": {
+            "type": "string"
+          },
+          "target_user_name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id",
+          "share_task_id",
+          "status",
+          "target_user_id",
+          "target_user_name",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "skillShareCreateOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/skillShareCreateItemOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "share_task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "share_task_id"
+        ],
+        "type": "object"
+      },
+      "skillShareDetailOpenAPIResponse": {
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "share_item_id": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "share_item_id",
+          "source",
+          "status"
+        ],
+        "type": "object"
+      },
+      "skillShareListItemOpenAPIResponse": {
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "rejected_at": {
+            "type": "string"
+          },
+          "share_item_id": {
+            "type": "string"
+          },
+          "share_task_id": {
+            "type": "string"
+          },
+          "source_category": {
+            "type": "string"
+          },
+          "source_parent_skill_name": {
+            "type": "string"
+          },
+          "source_skill_id": {
+            "type": "string"
+          },
+          "source_user_id": {
+            "type": "string"
+          },
+          "source_user_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target_root_skill_id": {
+            "type": "string"
+          },
+          "target_user_id": {
+            "type": "string"
+          },
+          "target_user_name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "message",
+          "share_item_id",
+          "share_task_id",
+          "source_category",
+          "source_parent_skill_name",
+          "source_skill_id",
+          "source_user_id",
+          "source_user_name",
+          "status",
+          "target_user_id",
+          "target_user_name",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "skillShareListOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/skillShareListItemOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "page_size",
+          "total"
+        ],
+        "type": "object"
+      },
+      "skillShareRejectOpenAPIResponse": {
+        "properties": {
+          "rejected": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rejected"
+        ],
+        "type": "object"
+      },
+      "skillShareTargetItemOpenAPIResponse": {
+        "properties": {
+          "accepted_at": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "rejected_at": {
+            "type": "string"
+          },
+          "share_item_id": {
+            "type": "string"
+          },
+          "share_task_id": {
+            "type": "string"
+          },
+          "shared_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target_root_skill_id": {
+            "type": "string"
+          },
+          "target_user_id": {
+            "type": "string"
+          },
+          "target_user_name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "share_item_id",
+          "share_task_id",
+          "shared_at",
+          "status",
+          "target_user_id",
+          "target_user_name",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "skillShareTargetStatusSummaryOpenAPIResponse": {
+        "properties": {
+          "completed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "failed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pending_accept": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rejected": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completed",
+          "failed",
+          "pending_accept",
+          "rejected"
+        ],
+        "type": "object"
+      },
+      "skillShareTargetsOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/skillShareTargetItemOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "skill_id": {
+            "type": "string"
+          },
+          "status_summary": {
+            "$ref": "#/components/schemas/skillShareTargetStatusSummaryOpenAPIResponse"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "page_size",
+          "skill_id",
+          "status_summary",
+          "total"
+        ],
+        "type": "object"
+      },
+      "skillUpdateManagedOpenAPIRequest": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "file_ext": {
+            "type": "string"
+          },
+          "is_enabled": {
+            "type": "boolean"
+          },
+          "is_locked": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "suggestionBatchReviewOpenAPIRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "suggestionBatchReviewOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "suggestionItemOpenAPIResponse": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "file_ext": {
+            "type": "string"
+          },
+          "full_content": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "invalid_reason": {
+            "type": "string"
+          },
+          "outdated": {
+            "type": "boolean"
+          },
+          "parent_skill_name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "relative_path": {
+            "type": "string"
+          },
+          "resource_key": {
+            "type": "string"
+          },
+          "resource_type": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "type": "string"
+          },
+          "reviewer_id": {
+            "type": "string"
+          },
+          "reviewer_name": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "skill_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "category",
+          "content",
+          "created_at",
+          "file_ext",
+          "full_content",
+          "id",
+          "invalid_reason",
+          "outdated",
+          "parent_skill_name",
+          "reason",
+          "relative_path",
+          "resource_key",
+          "resource_type",
+          "reviewer_id",
+          "reviewer_name",
+          "session_id",
+          "skill_name",
+          "status",
+          "title",
+          "updated_at",
+          "user_id"
+        ],
+        "type": "object"
+      },
+      "suggestionListOpenAPIResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "page_size",
+          "total"
+        ],
+        "type": "object"
+      },
+      "suggestionPayloadOpenAPIRequest": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "title"
+        ],
+        "type": "object"
+      },
+      "systemConfirmOpenAPIResponse": {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "content",
+          "version"
+        ],
+        "type": "object"
+      },
+      "systemDiscardOpenAPIResponse": {
+        "properties": {
+          "discarded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "discarded"
+        ],
+        "type": "object"
+      },
+      "systemDraftPreviewOpenAPIResponse": {
+        "properties": {
+          "current_content": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "draft_content": {
+            "type": "string"
+          },
+          "draft_source_version": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "draft_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_content",
+          "diff",
+          "draft_content",
+          "draft_source_version",
+          "draft_status"
+        ],
+        "type": "object"
+      },
+      "systemGenerateOpenAPIResponse": {
+        "properties": {
+          "draft_content": {
+            "type": "string"
+          },
+          "draft_source_version": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "draft_status": {
+            "type": "string"
+          },
+          "suggestion_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "draft_content",
+          "draft_source_version",
+          "draft_status"
+        ],
+        "type": "object"
+      },
+      "systemSuggestionOpenAPIRequest": {
+        "properties": {
+          "session_id": {
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/suggestionPayloadOpenAPIRequest"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
         "type": "object"
       }
     }
   },
   "info": {
-    "description": "LazyRAG Go backend core API - proxies to algorithm services. 经 Kong 暴露时前缀为 /api/core。",
+    "description": "LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。",
     "title": "Backend Core API",
     "version": "0.1.0"
   },
@@ -1998,6 +3907,452 @@
           }
         },
         "summary": "Admin (requires document.write)"
+      }
+    },
+    "/api/core/agent/diffs/{apply_id}/{filename:.*}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "apply_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "filename:.*",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/diffs/{apply_id}/{filename:.*}"
+      }
+    },
+    "/api/core/agent/files:content": {
+      "post": {
+        "description": "Read a local agent result file by path and return its text content. Use JSON body to avoid URL path escaping issues.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/agentFileContentOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/agentFileContentOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Agent result file content"
+          }
+        },
+        "summary": "Read agent result file content",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/core/agent/reports/{report_id}:content": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/reports/{report_id}:content"
+      }
+    },
+    "/api/core/agent/threads": {
+      "get": {
+        "description": "List the current user's agent threads. Use thread_id from this response to load thread details or history.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/agentThreadListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Agent thread list"
+          }
+        },
+        "summary": "List agent threads",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /agent/threads"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/history": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/history"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/records": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/records"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/results/abtests": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/results/abtests"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/results/analysis-reports": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/results/analysis-reports"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/results/datasets": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/results/datasets"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/results/diffs": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/results/diffs"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/results/eval-reports": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/results/eval-reports"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}/rounds": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}/rounds"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}:cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /agent/threads/{thread_id}:cancel"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}:events": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /agent/threads/{thread_id}:events"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}:history": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "DELETE /agent/threads/{thread_id}:history"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}:messages": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /agent/threads/{thread_id}:messages"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}:pause": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /agent/threads/{thread_id}:pause"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}:retry": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /agent/threads/{thread_id}:retry"
+      }
+    },
+    "/api/core/agent/threads/{thread_id}:start": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /agent/threads/{thread_id}:start"
       }
     },
     "/api/core/chat": {
@@ -2069,6 +4424,67 @@
         "summary": "Chat with knowledge base (streaming)"
       }
     },
+    "/api/core/conversation:export": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportConversationsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportConversationsResponse"
+                }
+              }
+            },
+            "description": "Export conversation files"
+          }
+        },
+        "summary": "Export conversations",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/core/conversation:export/files/{file_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Exported conversation file"
+          }
+        },
+        "summary": "Download exported conversation file",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
     "/api/core/conversation:switchStatus": {
       "get": {
         "responses": {
@@ -2080,10 +4496,10 @@
                 }
               }
             },
-            "description": "多答案开关状态"
+            "description": "Multi-answer switch status"
           }
         },
-        "summary": "获取多答案开关状态"
+        "summary": "Get multi-answer switch status"
       },
       "post": {
         "requestBody": {
@@ -2106,10 +4522,10 @@
                 }
               }
             },
-            "description": "设置后的多答案开关状态"
+            "description": "SettextMulti-answer switch status"
           }
         },
-        "summary": "设置多答案开关状态"
+        "summary": "SetMulti-answer switch status"
       }
     },
     "/api/core/conversations": {
@@ -2149,10 +4565,10 @@
                 }
               }
             },
-            "description": "会话列表"
+            "description": "Conversation list"
           }
         },
-        "summary": "会话列表"
+        "summary": "Conversation list"
       }
     },
     "/api/core/conversations/{conversation_id}:status": {
@@ -2176,10 +4592,10 @@
                 }
               }
             },
-            "description": "对话状态"
+            "description": "Conversation status"
           }
         },
-        "summary": "获取对话状态"
+        "summary": "Get conversation status"
       }
     },
     "/api/core/conversations/{name}": {
@@ -2203,10 +4619,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除会话"
+        "summary": "Delete conversation"
       },
       "get": {
         "parameters": [
@@ -2228,10 +4644,10 @@
                 }
               }
             },
-            "description": "会话详情"
+            "description": "Conversationtext"
           }
         },
-        "summary": "获取会话"
+        "summary": "Get conversation"
       }
     },
     "/api/core/conversations/{name}:detail": {
@@ -2255,15 +4671,42 @@
                 }
               }
             },
-            "description": "会话详情与历史"
+            "description": "Conversation details and history"
           }
         },
-        "summary": "获取会话详情"
+        "summary": "Get conversationtext"
+      }
+    },
+    "/api/core/conversations:batchDelete": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationBatchDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationBatchDeleteResponse"
+                }
+              }
+            },
+            "description": "Batch deleted conversations"
+          }
+        },
+        "summary": "Batch delete conversations"
       }
     },
     "/api/core/conversations:chat": {
       "post": {
-        "description": "发起或继续会话对话",
+        "description": "textConversationtext",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2278,7 +4721,7 @@
             "description": "Chat response"
           }
         },
-        "summary": "会话对话 (requires qa.read)"
+        "summary": "Conversationtext (requires qa.read)"
       }
     },
     "/api/core/conversations:feedBackChatHistory": {
@@ -2290,19 +4733,19 @@
                 "$ref": "#/components/schemas/ConversationFeedbackRequest",
                 "properties": {
                   "expected_answer": {
-                    "description": "期望答案",
+                    "description": "text",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "历史记录 ID",
+                    "description": "text ID",
                     "type": "string"
                   },
                   "reason": {
-                    "description": "反馈原因",
+                    "description": "text",
                     "type": "string"
                   },
                   "type": {
-                    "description": "反馈类型",
+                    "description": "text",
                     "format": "int32",
                     "type": "integer"
                   }
@@ -2326,15 +4769,15 @@
                 }
               }
             },
-            "description": "反馈成功"
+            "description": "Feedback succeeded"
           }
         },
-        "summary": "反馈会话历史"
+        "summary": "Feedback conversation history"
       }
     },
     "/api/core/conversations:resumeChat": {
       "post": {
-        "description": "恢复正在进行的对话流式输出",
+        "description": "Resumetext",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2342,11 +4785,11 @@
                 "$ref": "#/components/schemas/ConversationResumeRequest",
                 "properties": {
                   "conversation_id": {
-                    "description": "会话 ID",
+                    "description": "Conversation ID",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "可选，指定恢复的历史消息 ID",
+                    "description": "text，textResumetext ID",
                     "type": "string"
                   }
                 },
@@ -2368,10 +4811,10 @@
                 }
               }
             },
-            "description": "SSE 流式响应数据项为 result 包裹的 ChatChunkResponse"
+            "description": "SSE streaming response item is ChatChunkResponse wrapped by result"
           }
         },
-        "summary": "恢复对话流"
+        "summary": "Resume conversation stream"
       }
     },
     "/api/core/conversations:setChatHistory": {
@@ -2383,11 +4826,11 @@
                 "$ref": "#/components/schemas/ConversationSetHistoryRequest",
                 "properties": {
                   "deleted_history_id": {
-                    "description": "要删除的历史记录 ID",
+                    "description": "textDeletetext ID",
                     "type": "string"
                   },
                   "set_history_id": {
-                    "description": "保留的历史记录 ID",
+                    "description": "text ID",
                     "type": "string"
                   }
                 },
@@ -2410,15 +4853,15 @@
                 }
               }
             },
-            "description": "设置结果"
+            "description": "Set result"
           }
         },
-        "summary": "设置会话历史"
+        "summary": "Set conversation history"
       }
     },
     "/api/core/conversations:stopChatGeneration": {
       "post": {
-        "description": "停止当前会话的流式生成",
+        "description": "textConversationtext",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2426,11 +4869,11 @@
                 "$ref": "#/components/schemas/ConversationStopRequest",
                 "properties": {
                   "conversation_id": {
-                    "description": "会话 ID",
+                    "description": "Conversation ID",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "可选，指定要停止的历史消息 ID",
+                    "description": "text，text ID",
                     "type": "string"
                   }
                 },
@@ -2452,10 +4895,10 @@
                 }
               }
             },
-            "description": "停止成功"
+            "description": "Stopped successfully"
           }
         },
-        "summary": "停止对话生成"
+        "summary": "Stop conversation generation"
       }
     },
     "/api/core/dataset/algos": {
@@ -2469,10 +4912,10 @@
                 }
               }
             },
-            "description": "算法列表"
+            "description": "Algorithm list"
           }
         },
-        "summary": "数据集算法列表"
+        "summary": "Dataset algorithm list"
       }
     },
     "/api/core/dataset/tags": {
@@ -2504,10 +4947,10 @@
                 }
               }
             },
-            "description": "数据集标签"
+            "description": "Dataset tags"
           }
         },
-        "summary": "数据集标签"
+        "summary": "Dataset tags"
       }
     },
     "/api/core/datasets": {
@@ -2566,10 +5009,10 @@
                 }
               }
             },
-            "description": "数据集列表"
+            "description": "Dataset list"
           }
         },
-        "summary": "数据集列表",
+        "summary": "Dataset list",
         "tags": [
           "datasets"
         ]
@@ -2605,10 +5048,10 @@
                 }
               }
             },
-            "description": "创建后的数据集"
+            "description": "Created dataset"
           }
         },
-        "summary": "创建数据集",
+        "summary": "Create dataset",
         "tags": [
           "datasets"
         ]
@@ -2635,10 +5078,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除数据集",
+        "summary": "Delete dataset",
         "tags": [
           "datasets"
         ]
@@ -2663,10 +5106,10 @@
                 }
               }
             },
-            "description": "数据集详情"
+            "description": "Dataset details"
           }
         },
-        "summary": "获取数据集",
+        "summary": "Get dataset",
         "tags": [
           "datasets"
         ]
@@ -2702,10 +5145,10 @@
                 }
               }
             },
-            "description": "更新后的数据集"
+            "description": "Updated dataset"
           }
         },
-        "summary": "更新数据集",
+        "summary": "Update dataset",
         "tags": [
           "datasets"
         ]
@@ -2748,10 +5191,10 @@
                 }
               }
             },
-            "description": "文档列表"
+            "description": "Document list"
           }
         },
-        "summary": "文档列表",
+        "summary": "Document list",
         "tags": [
           "documents"
         ]
@@ -2786,10 +5229,10 @@
                 }
               }
             },
-            "description": "创建后的文档"
+            "description": "Created document"
           }
         },
-        "summary": "创建文档",
+        "summary": "Create document",
         "tags": [
           "documents"
         ]
@@ -2824,10 +5267,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除文档",
+        "summary": "Delete document",
         "tags": [
           "documents"
         ]
@@ -2860,10 +5303,10 @@
                 }
               }
             },
-            "description": "文档详情"
+            "description": "Document details"
           }
         },
-        "summary": "获取文档",
+        "summary": "Get document",
         "tags": [
           "documents"
         ]
@@ -2906,10 +5349,10 @@
                 }
               }
             },
-            "description": "更新后的文档"
+            "description": "Updated document"
           }
         },
-        "summary": "更新文档",
+        "summary": "Update document",
         "tags": [
           "documents"
         ]
@@ -2979,6 +5422,34 @@
         "summary": "GET /datasets/{dataset}/documents/{document}/segments/{segment}"
       }
     },
+    "/api/core/datasets/{dataset}/documents/{document}/segments:search": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /datasets/{dataset}/documents/{document}/segments:search"
+      }
+    },
     "/api/core/datasets/{dataset}/documents/{document}:content": {
       "get": {
         "parameters": [
@@ -3009,10 +5480,10 @@
                 }
               }
             },
-            "description": "文档二进制内容"
+            "description": "Document binary content"
           }
         },
-        "summary": "预览文档内容"
+        "summary": "Preview document content"
       }
     },
     "/api/core/datasets/{dataset}/documents/{document}:download": {
@@ -3045,10 +5516,30 @@
                 }
               }
             },
-            "description": "文档下载内容"
+            "description": "Document download content"
           }
         },
-        "summary": "下载文档"
+        "summary": "Download document"
+      }
+    },
+    "/api/core/datasets/{dataset}/documents:batchUpdateTags": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /datasets/{dataset}/documents:batchUpdateTags"
       }
     },
     "/api/core/datasets/{dataset}/documents:search": {
@@ -3082,10 +5573,10 @@
                 }
               }
             },
-            "description": "文档搜索结果"
+            "description": "Document search results"
           }
         },
-        "summary": "搜索文档",
+        "summary": "Search documents",
         "tags": [
           "documents"
         ]
@@ -3112,10 +5603,88 @@
                 }
               }
             },
-            "description": "成员列表"
+            "description": "Member list"
           }
         },
-        "summary": "数据集成员列表"
+        "summary": "Dataset member list"
+      }
+    },
+    "/api/core/datasets/{dataset}/members/groups/{group_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyObject"
+                }
+              }
+            },
+            "description": "Deleted successfully"
+          }
+        },
+        "summary": "Delete dataset group member"
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDatasetMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetMember"
+                }
+              }
+            },
+            "description": "Updated member"
+          }
+        },
+        "summary": "Update dataset group member"
       }
     },
     "/api/core/datasets/{dataset}/members/{user_id}": {
@@ -3147,10 +5716,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "按用户 ID 删除数据集成员"
+        "summary": "textUser ID Delete datasetMember"
       },
       "get": {
         "parameters": [
@@ -3180,10 +5749,10 @@
                 }
               }
             },
-            "description": "成员详情"
+            "description": "Member details"
           }
         },
-        "summary": "按用户 ID 获取数据集成员"
+        "summary": "textUser ID Get datasetMember"
       },
       "patch": {
         "parameters": [
@@ -3223,10 +5792,10 @@
                 }
               }
             },
-            "description": "更新后的成员"
+            "description": "Updated member"
           }
         },
-        "summary": "按用户 ID 更新数据集成员"
+        "summary": "textUser ID Update datasetMember"
       }
     },
     "/api/core/datasets/{dataset}/members:search": {
@@ -3260,10 +5829,10 @@
                 }
               }
             },
-            "description": "成员搜索结果"
+            "description": "Member search results"
           }
         },
-        "summary": "搜索数据集成员"
+        "summary": "Search dataset members"
       }
     },
     "/api/core/datasets/{dataset}/tasks": {
@@ -3335,10 +5904,10 @@
                 }
               }
             },
-            "description": "任务列表"
+            "description": "Task list"
           }
         },
-        "summary": "任务列表",
+        "summary": "Task list",
         "tags": [
           "tasks"
         ]
@@ -3373,10 +5942,10 @@
                 }
               }
             },
-            "description": "创建的任务"
+            "description": "Created task"
           }
         },
-        "summary": "创建任务",
+        "summary": "Create task",
         "tags": [
           "tasks"
         ]
@@ -3411,10 +5980,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除任务",
+        "summary": "Delete task",
         "tags": [
           "tasks"
         ]
@@ -3447,10 +6016,10 @@
                 }
               }
             },
-            "description": "任务详情"
+            "description": "Task details"
           }
         },
-        "summary": "获取任务",
+        "summary": "Get task",
         "tags": [
           "tasks"
         ]
@@ -3495,10 +6064,10 @@
                 }
               }
             },
-            "description": "恢复结果"
+            "description": "Resume result"
           }
         },
-        "summary": "恢复任务",
+        "summary": "Resume task",
         "tags": [
           "tasks"
         ]
@@ -3543,10 +6112,10 @@
                 }
               }
             },
-            "description": "暂停成功"
+            "description": "Suspended successfully"
           }
         },
-        "summary": "暂停任务",
+        "summary": "Suspend task",
         "tags": [
           "tasks"
         ]
@@ -3601,10 +6170,10 @@
                 }
               }
             },
-            "description": "创建的任务列表"
+            "description": "CreatetextTask list"
           }
         },
-        "summary": "批量上传并创建任务"
+        "summary": "BatchUploadtextCreate task"
       }
     },
     "/api/core/datasets/{dataset}/tasks:search": {
@@ -3638,10 +6207,10 @@
                 }
               }
             },
-            "description": "任务搜索结果"
+            "description": "Task search results"
           }
         },
-        "summary": "按任务 ID 搜索任务",
+        "summary": "Search tasks by task ID",
         "tags": [
           "tasks"
         ]
@@ -3678,10 +6247,10 @@
                 }
               }
             },
-            "description": "启动结果"
+            "description": "Start result"
           }
         },
-        "summary": "启动任务",
+        "summary": "Start task",
         "tags": [
           "tasks"
         ]
@@ -3736,10 +6305,10 @@
                 }
               }
             },
-            "description": "上传文件结果"
+            "description": "Upload filetext"
           }
         },
-        "summary": "上传文件"
+        "summary": "Upload file"
       }
     },
     "/api/core/datasets/{dataset}/uploads/{upload_file_id}:content": {
@@ -3772,10 +6341,10 @@
                 }
               }
             },
-            "description": "已上传文件二进制内容"
+            "description": "textUpload filetext"
           }
         },
-        "summary": "预览已上传文件"
+        "summary": "PreviewtextUpload file"
       }
     },
     "/api/core/datasets/{dataset}/uploads/{upload_file_id}:download": {
@@ -3808,10 +6377,10 @@
                 }
               }
             },
-            "description": "已上传文件下载内容"
+            "description": "textUpload fileDownloadtext"
           }
         },
-        "summary": "下载已上传文件"
+        "summary": "DownloadtextUpload file"
       }
     },
     "/api/core/datasets/{dataset}/uploads/{upload_id}/parts/{part_number}": {
@@ -3862,10 +6431,10 @@
                 }
               }
             },
-            "description": "分片上传结果"
+            "description": "Part upload result"
           }
         },
-        "summary": "上传数据集分片",
+        "summary": "UploadDatasettext",
         "tags": [
           "tasks"
         ]
@@ -3910,10 +6479,10 @@
                 }
               }
             },
-            "description": "中止上传结果"
+            "description": "Abort uploadtext"
           }
         },
-        "summary": "中止上传",
+        "summary": "Abort upload",
         "tags": [
           "tasks"
         ]
@@ -3958,10 +6527,10 @@
                 }
               }
             },
-            "description": "完成上传结果"
+            "description": "Complete uploadtext"
           }
         },
-        "summary": "完成上传",
+        "summary": "Complete upload",
         "tags": [
           "tasks"
         ]
@@ -3998,10 +6567,10 @@
                 }
               }
             },
-            "description": "上传初始化结果"
+            "description": "Upload initialization result"
           }
         },
-        "summary": "初始化数据集上传",
+        "summary": "Initialize dataset upload",
         "tags": [
           "tasks"
         ]
@@ -4038,10 +6607,10 @@
                 }
               }
             },
-            "description": "添加后的成员"
+            "description": "Added members"
           }
         },
-        "summary": "批量添加数据集成员"
+        "summary": "Batch add dataset members"
       }
     },
     "/api/core/datasets/{dataset}:batchDelete": {
@@ -4075,10 +6644,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "批量删除文档",
+        "summary": "BatchDelete document",
         "tags": [
           "documents"
         ]
@@ -4115,10 +6684,10 @@
                 }
               }
             },
-            "description": "设置成功"
+            "description": "Set successfully"
           }
         },
-        "summary": "设为默认数据集",
+        "summary": "Set as default dataset",
         "tags": [
           "datasets"
         ]
@@ -4155,10 +6724,10 @@
                 }
               }
             },
-            "description": "取消成功"
+            "description": "Unset successfully"
           }
         },
-        "summary": "取消默认数据集",
+        "summary": "Unset default dataset",
         "tags": [
           "datasets"
         ]
@@ -4175,10 +6744,10 @@
                 }
               }
             },
-            "description": "创建者列表"
+            "description": "Creator list"
           }
         },
-        "summary": "文档创建者列表"
+        "summary": "Document creator list"
       }
     },
     "/api/core/document/tags": {
@@ -4192,10 +6761,10 @@
                 }
               }
             },
-            "description": "文档标签列表"
+            "description": "Document tag list"
           }
         },
-        "summary": "文档标签列表"
+        "summary": "Document tag list"
       }
     },
     "/api/core/documents:search": {
@@ -4219,12 +6788,235 @@
                 }
               }
             },
-            "description": "全局文档搜索结果"
+            "description": "textDocument search results"
           }
         },
-        "summary": "全局搜索文档",
+        "summary": "textSearch documents",
         "tags": [
           "documents"
+        ]
+      }
+    },
+    "/api/core/evolution/suggestions": {
+      "get": {
+        "description": "Use evolution_id=\u003cresource_type\u003e:\u003cresource_id\u003e for a single-parameter resource filter. resource_type and resource_key remain available as optional compatibility filters.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "evolution_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/suggestionListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Suggestion list"
+          }
+        },
+        "summary": "List evolution suggestions",
+        "tags": [
+          "evolution"
+        ]
+      }
+    },
+    "/api/core/evolution/suggestions/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Suggestion details"
+          }
+        },
+        "summary": "Get evolution suggestion",
+        "tags": [
+          "evolution"
+        ]
+      }
+    },
+    "/api/core/evolution/suggestions/{id}:approve": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Approved suggestion"
+          }
+        },
+        "summary": "Approve evolution suggestion",
+        "tags": [
+          "evolution"
+        ]
+      }
+    },
+    "/api/core/evolution/suggestions/{id}:reject": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Rejected suggestion"
+          }
+        },
+        "summary": "Reject evolution suggestion",
+        "tags": [
+          "evolution"
+        ]
+      }
+    },
+    "/api/core/evolution/suggestions:batchApprove": {
+      "post": {
+        "description": "Sets every listed suggestion to accepted regardless of its current status, as long as the suggestion exists.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Approved suggestions"
+          }
+        },
+        "summary": "Batch approve evolution suggestions",
+        "tags": [
+          "evolution"
+        ]
+      }
+    },
+    "/api/core/evolution/suggestions:batchReject": {
+      "post": {
+        "description": "Sets every listed suggestion to rejected regardless of its current status, as long as the suggestion exists.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Rejected suggestions"
+          }
+        },
+        "summary": "Batch reject evolution suggestions",
+        "tags": [
+          "evolution"
         ]
       }
     },
@@ -4246,6 +7038,36 @@
           }
         },
         "summary": "Hello (requires user.read)"
+      }
+    },
+    "/api/core/inner/word_group:apply": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyWordGroupActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyWordGroupActionBatchResponse"
+                }
+              }
+            },
+            "description": "Per-item apply results"
+          }
+        },
+        "summary": "Internal: apply word-group actions in batch (algorithm → core)",
+        "tags": [
+          "word_group"
+        ]
       }
     },
     "/api/core/kb/grant-principals": {
@@ -4274,7 +7096,7 @@
             "description": "OK"
           }
         },
-        "summary": "获取可授权主体"
+        "summary": "Get grantable principals"
       }
     },
     "/api/core/kb/list": {
@@ -4337,7 +7159,7 @@
             "description": "OK"
           }
         },
-        "summary": "知识库列表"
+        "summary": "Knowledge base list"
       }
     },
     "/api/core/kb/permission/batch": {
@@ -4379,7 +7201,7 @@
             "description": "OK"
           }
         },
-        "summary": "批量查询知识库权限"
+        "summary": "Batch query knowledge base permissions"
       }
     },
     "/api/core/kb/{kb_id}/acl": {
@@ -4418,7 +7240,7 @@
             "description": "OK"
           }
         },
-        "summary": "ACL 列表"
+        "summary": "ACL list"
       },
       "post": {
         "parameters": [
@@ -4466,7 +7288,7 @@
             "description": "OK"
           }
         },
-        "summary": "添加 ACL"
+        "summary": "Add ACL"
       }
     },
     "/api/core/kb/{kb_id}/acl/batch": {
@@ -4515,7 +7337,7 @@
             "description": "OK"
           }
         },
-        "summary": "批量添加 ACL"
+        "summary": "BatchAdd ACL"
       }
     },
     "/api/core/kb/{kb_id}/acl/{acl_id}": {
@@ -4562,7 +7384,7 @@
             "description": "OK"
           }
         },
-        "summary": "删除 ACL"
+        "summary": "Delete ACL"
       },
       "put": {
         "parameters": [
@@ -4617,7 +7439,7 @@
             "description": "OK"
           }
         },
-        "summary": "更新 ACL"
+        "summary": "Update ACL"
       }
     },
     "/api/core/kb/{kb_id}/authorization": {
@@ -4656,7 +7478,7 @@
             "description": "OK"
           }
         },
-        "summary": "获取知识库授权信息"
+        "summary": "Get knowledge base authorization"
       },
       "post": {
         "parameters": [
@@ -4703,7 +7525,7 @@
             "description": "OK"
           }
         },
-        "summary": "设置知识库授权信息"
+        "summary": "Set knowledge base authorization"
       }
     },
     "/api/core/kb/{kb_id}/can": {
@@ -4742,7 +7564,7 @@
             "description": "OK"
           }
         },
-        "summary": "检查知识库操作权限"
+        "summary": "Check knowledge base operation permission"
       }
     },
     "/api/core/kb/{kb_id}/permission": {
@@ -4781,7 +7603,7 @@
             "description": "OK"
           }
         },
-        "summary": "查询知识库权限"
+        "summary": "Query knowledge base permissions"
       }
     },
     "/api/core/list_files": {
@@ -4862,6 +7684,224 @@
         "summary": "List knowledge base groups"
       }
     },
+    "/api/core/memory": {
+      "put": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/managedStateUpsertOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/managedStateOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Managed memory item"
+          }
+        },
+        "summary": "Upsert managed memory",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/core/memory/suggestion": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/systemSuggestionOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/recordedSuggestionListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Created memory suggestions"
+          }
+        },
+        "summary": "Create memory suggestions",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/core/memory:confirm": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemConfirmOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Confirmed memory draft"
+          }
+        },
+        "summary": "Confirm memory draft",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/core/memory:discard": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemDiscardOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Discarded memory draft"
+          }
+        },
+        "summary": "Discard memory draft",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/core/memory:draft-preview": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemDraftPreviewOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Memory draft preview"
+          }
+        },
+        "summary": "Preview memory draft diff",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/core/memory:generate": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/skillGenerateOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemGenerateOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Generated memory draft"
+          }
+        },
+        "summary": "Generate memory draft",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/core/personalization-items": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/managedStateListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Managed personalization items"
+          }
+        },
+        "summary": "List managed memory and preference items",
+        "tags": [
+          "personalization"
+        ]
+      }
+    },
+    "/api/core/personalization-setting": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/personalizationSettingOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Personalization setting"
+          }
+        },
+        "summary": "Get personalization setting",
+        "tags": [
+          "personalization"
+        ]
+      },
+      "put": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/personalizationSettingOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/personalizationSettingOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Updated personalization setting"
+          }
+        },
+        "summary": "Set personalization setting",
+        "tags": [
+          "personalization"
+        ]
+      }
+    },
     "/api/core/prompts": {
       "get": {
         "parameters": [
@@ -4891,10 +7931,10 @@
                 }
               }
             },
-            "description": "提示词列表"
+            "description": "Prompt list"
           }
         },
-        "summary": "提示词列表"
+        "summary": "Prompt list"
       },
       "post": {
         "requestBody": {
@@ -4917,10 +7957,10 @@
                 }
               }
             },
-            "description": "创建后的提示词"
+            "description": "Created prompt"
           }
         },
-        "summary": "创建提示词"
+        "summary": "Create prompt"
       }
     },
     "/api/core/prompts/{name}": {
@@ -4944,10 +7984,10 @@
                 }
               }
             },
-            "description": "删除成功"
+            "description": "Deleted successfully"
           }
         },
-        "summary": "删除提示词"
+        "summary": "Delete prompt"
       },
       "get": {
         "parameters": [
@@ -4969,10 +8009,10 @@
                 }
               }
             },
-            "description": "提示词详情"
+            "description": "Prompt details"
           }
         },
-        "summary": "获取提示词"
+        "summary": "Get prompt"
       },
       "patch": {
         "parameters": [
@@ -5005,10 +8045,10 @@
                 }
               }
             },
-            "description": "更新后的提示词"
+            "description": "Updated prompt"
           }
         },
-        "summary": "更新提示词"
+        "summary": "Update prompt"
       }
     },
     "/api/core/prompts/{name}:setDefault": {
@@ -5032,10 +8072,10 @@
                 }
               }
             },
-            "description": "设置成功"
+            "description": "Set successfully"
           }
         },
-        "summary": "设为默认提示词"
+        "summary": "Set as default prompt"
       }
     },
     "/api/core/prompts/{name}:unsetDefault": {
@@ -5059,10 +8099,735 @@
                 }
               }
             },
-            "description": "取消成功"
+            "description": "Unset successfully"
           }
         },
-        "summary": "取消默认提示词"
+        "summary": "Unset default prompt"
+      }
+    },
+    "/api/core/remote-fs/content": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /remote-fs/content"
+      }
+    },
+    "/api/core/remote-fs/exists": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /remote-fs/exists"
+      }
+    },
+    "/api/core/remote-fs/info": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /remote-fs/info"
+      }
+    },
+    "/api/core/remote-fs/list": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "GET /remote-fs/list"
+      }
+    },
+    "/api/core/skill-shares/incoming": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillShareListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Incoming share list"
+          }
+        },
+        "summary": "List incoming skill shares",
+        "tags": [
+          "skill-shares"
+        ]
+      }
+    },
+    "/api/core/skill-shares/outgoing": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillShareListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Outgoing share list"
+          }
+        },
+        "summary": "List outgoing skill shares",
+        "tags": [
+          "skill-shares"
+        ]
+      }
+    },
+    "/api/core/skill-shares/{share_item_id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_item_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillShareDetailOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Skill share detail"
+          }
+        },
+        "summary": "Get skill share item",
+        "tags": [
+          "skill-shares"
+        ]
+      }
+    },
+    "/api/core/skill-shares/{share_item_id}:accept": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_item_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillShareAcceptOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Accepted share"
+          }
+        },
+        "summary": "Accept skill share",
+        "tags": [
+          "skill-shares"
+        ]
+      }
+    },
+    "/api/core/skill-shares/{share_item_id}:reject": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_item_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillShareRejectOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Rejected share"
+          }
+        },
+        "summary": "Reject skill share",
+        "tags": [
+          "skill-shares"
+        ]
+      }
+    },
+    "/api/core/skill/create": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/internalSkillCreateOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Created skill"
+          }
+        },
+        "summary": "Create skill directly from internal request",
+        "tags": [
+          "skill-evolution"
+        ]
+      }
+    },
+    "/api/core/skill/remove": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/internalSkillRemoveOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDeleteOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Deleted skill"
+          }
+        },
+        "summary": "Delete skill directly from internal request",
+        "tags": [
+          "skill-evolution"
+        ]
+      }
+    },
+    "/api/core/skill/suggestion": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/internalSkillSuggestionOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/recordedSuggestionListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Created skill suggestions"
+          }
+        },
+        "summary": "Create skill suggestions",
+        "tags": [
+          "skill-evolution"
+        ]
+      }
+    },
+    "/api/core/skills": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Skill list"
+          }
+        },
+        "summary": "List skills",
+        "tags": [
+          "skills"
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/skillCreateManagedOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Created skill"
+          }
+        },
+        "summary": "Create managed skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/core/skills/{skill_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDeleteOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Deleted skill"
+          }
+        },
+        "summary": "Delete managed skill",
+        "tags": [
+          "skills"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Skill details"
+          }
+        },
+        "summary": "Get skill details",
+        "tags": [
+          "skills"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/skillUpdateManagedOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Updated skill"
+          }
+        },
+        "summary": "Update managed skill",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/core/skills/{skill_id}:confirm": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Confirmed skill"
+          }
+        },
+        "summary": "Confirm skill draft",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/core/skills/{skill_id}:discard": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDiscardOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Discarded skill draft"
+          }
+        },
+        "summary": "Discard skill draft",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/core/skills/{skill_id}:draft-preview": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillDraftPreviewOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Skill draft preview"
+          }
+        },
+        "summary": "Preview skill draft diff",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/core/skills/{skill_id}:generate": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/skillGenerateOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillGenerateOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Generated skill draft"
+          }
+        },
+        "summary": "Generate skill draft",
+        "tags": [
+          "skills"
+        ]
+      }
+    },
+    "/api/core/skills/{skill_id}:share": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/shareSkillOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillShareCreateOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Created share task"
+          }
+        },
+        "summary": "Share skill",
+        "tags": [
+          "skill-shares"
+        ]
+      }
+    },
+    "/api/core/skills/{skill_id}:shares": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/skillShareTargetsOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Skill share targets"
+          }
+        },
+        "summary": "List latest skill share status by target user",
+        "tags": [
+          "skill-shares"
+        ]
       }
     },
     "/api/core/static-files/{path:.*}": {
@@ -5115,10 +8880,10 @@
                 }
               }
             },
-            "description": "上传文件结果"
+            "description": "Upload filetext"
           }
         },
-        "summary": "上传临时文件"
+        "summary": "Upload temp file"
       }
     },
     "/api/core/temp/uploads/{upload_id}/parts/{part_number}": {
@@ -5161,10 +8926,10 @@
                 }
               }
             },
-            "description": "分片上传结果"
+            "description": "Part upload result"
           }
         },
-        "summary": "上传临时文件分片",
+        "summary": "Upload temp filetext",
         "tags": [
           "uploads"
         ]
@@ -5201,10 +8966,10 @@
                 }
               }
             },
-            "description": "中止上传结果"
+            "description": "Abort uploadtext"
           }
         },
-        "summary": "中止临时文件上传",
+        "summary": "AborttextUpload",
         "tags": [
           "uploads"
         ]
@@ -5241,10 +9006,10 @@
                 }
               }
             },
-            "description": "完成上传结果"
+            "description": "Complete uploadtext"
           }
         },
-        "summary": "完成临时文件上传",
+        "summary": "textUpload",
         "tags": [
           "uploads"
         ]
@@ -5271,10 +9036,10 @@
                 }
               }
             },
-            "description": "上传初始化结果"
+            "description": "Upload initialization result"
           }
         },
-        "summary": "初始化临时文件分片上传",
+        "summary": "Initialize temp multipart upload",
         "tags": [
           "uploads"
         ]
@@ -5331,6 +9096,558 @@
           }
         },
         "summary": "Upload files to knowledge base"
+      }
+    },
+    "/api/core/user-preference": {
+      "put": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/managedStateUpsertOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/managedStateOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Managed user preference item"
+          }
+        },
+        "summary": "Upsert managed user preference",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/api/core/user-preference:confirm": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemConfirmOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Confirmed user preference draft"
+          }
+        },
+        "summary": "Confirm user preference draft",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/api/core/user-preference:discard": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemDiscardOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Discarded user preference draft"
+          }
+        },
+        "summary": "Discard user preference draft",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/api/core/user-preference:draft-preview": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemDraftPreviewOpenAPIResponse"
+                }
+              }
+            },
+            "description": "User preference draft preview"
+          }
+        },
+        "summary": "Preview user preference draft diff",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/api/core/user-preference:generate": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/skillGenerateOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/systemGenerateOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Generated user preference draft"
+          }
+        },
+        "summary": "Generate user preference draft",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/api/core/user_preference/suggestion": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/systemSuggestionOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/recordedSuggestionListOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Created user preference suggestions"
+          }
+        },
+        "summary": "Create user preference suggestions",
+        "tags": [
+          "preferences"
+        ]
+      }
+    },
+    "/api/core/word_group": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page_token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWordGroupsResponse"
+                }
+              }
+            },
+            "description": "Word group list"
+          }
+        },
+        "summary": "List word groups (term row updated_at DESC)",
+        "tags": [
+          "word_group"
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWordGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWordGroupResponse"
+                }
+              }
+            },
+            "description": "Created word group"
+          }
+        },
+        "summary": "Create word group",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group/{group_id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteWordGroupResponse"
+                }
+              }
+            },
+            "description": "Deleted word group"
+          }
+        },
+        "summary": "Delete word group by group_id",
+        "tags": [
+          "word_group"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWordGroupResponse"
+                }
+              }
+            },
+            "description": "Word group detail"
+          }
+        },
+        "summary": "Get word group detail by group_id",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group:batchDelete": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeleteWordGroupsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchDeleteWordGroupsResponse"
+                }
+              }
+            },
+            "description": "Batch deleted word groups"
+          }
+        },
+        "summary": "Batch soft-delete word groups by group_ids",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group:checkExists": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckWordsExistRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckWordsExistResponse"
+                }
+              }
+            },
+            "description": "Existing words among term and aliases"
+          }
+        },
+        "summary": "Check which words already exist",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group:merge": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeWordGroupsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWordGroupResponse"
+                }
+              }
+            },
+            "description": "Merged word group"
+          }
+        },
+        "summary": "Merge word groups into the first group_id (first term kept; others become aliases)",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group:mergeAndAddWord": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeAndAddWordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWordGroupResponse"
+                }
+              }
+            },
+            "description": "Merged word group with added word"
+          }
+        },
+        "summary": "Merge word groups then add one word into merged group as alias",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group:search": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchWordGroupsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWordGroupsResponse"
+                }
+              }
+            },
+            "description": "Word group search results"
+          }
+        },
+        "summary": "Search word groups by keyword and optional source (paginated list)",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group:update": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWordGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWordGroupResponse"
+                }
+              }
+            },
+            "description": "Updated word group"
+          }
+        },
+        "summary": "Update word group (term, description, lock, replace aliases)",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group_conflict": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page_token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListWordGroupConflictsResponse"
+                }
+              }
+            },
+            "description": "Word group conflict list"
+          }
+        },
+        "summary": "List pending word group conflicts (updated_at DESC)",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group_conflict/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteWordGroupConflictResponse"
+                }
+              }
+            },
+            "description": "Deleted word group conflict"
+          }
+        },
+        "summary": "Soft-delete a word group conflict by id",
+        "tags": [
+          "word_group"
+        ]
+      }
+    },
+    "/api/core/word_group_conflict:addToGroup": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddWordGroupConflictToGroupsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddWordGroupConflictToGroupsResponse"
+                }
+              }
+            },
+            "description": "Conflict word add-to-group result"
+          }
+        },
+        "summary": "Add conflict word to selected groups",
+        "tags": [
+          "word_group"
+        ]
       }
     }
   },

@@ -18,8 +18,8 @@ def is_path_like(s):
         """Check whether the string looks like a Windows path (drive letter or UNC)."""
         return _windows_drive.match(s) is not None or s.startswith('\\\\')
     return (
-        _looks_like_windows_path(s) or
-        s.startswith(('/', './', '../'))
+        _looks_like_windows_path(s)
+        or s.startswith(('/', './', '../'))
     )
 
 

@@ -1,271 +1,155 @@
+"""Tests for load_config.py — environment variable expansion and config path selection."""
 import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
 
-from chat.components.tmp.local_models import BgeM3Embed, Qwen3Rerank
-from chat.utils.load_config import load_model_config, get_retrieval_settings
-import chat.pipelines.builders.get_models as get_models_mod
+from chat.utils.load_config import load_model_config, get_config_path
 
 
-@pytest.fixture(autouse=True)
-def clear_caches():
-    get_retrieval_settings.cache_clear()
-    yield
-    get_retrieval_settings.cache_clear()
-
-
-def write_config(tmp_path, content: str):
+def write_config(tmp_path: Path, content: str) -> Path:
     config_path = tmp_path / 'runtime_models.yaml'
     config_path.write_text(textwrap.dedent(content), encoding='utf-8')
     return config_path
 
 
-def test_model_config_resolves_env_and_single_embed(monkeypatch, tmp_path):
+def test_load_model_config_expands_env_var(monkeypatch, tmp_path):
     config_path = write_config(
         tmp_path,
         """
         llm:
-          source: siliconflow
-          type: llm
-          model: foo-chat
-          api_key: ${TEST_API_KEY}
-        reranker:
-          source: siliconflow
-          type: rerank
-          model: foo-rerank
-          api_key: ${TEST_API_KEY}
-        embeddings:
-          embed_1:
-            source: siliconflow
-            type: embed
-            model: foo-embed
+          - source: openai
+            name: my-model
             api_key: ${TEST_API_KEY}
         """,
     )
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
 
     config = load_model_config(str(config_path))
-    settings = get_retrieval_settings(str(config_path))
 
-    assert config['llm']['api_key'] == 'secret-key'
-    assert settings.embed_keys == ['embed_1']
-    assert settings.temp_doc_embed_key == 'embed_1'
-    assert settings.file_search_embed_key == 'embed_1'
-    assert [item['embed_key'] for item in settings.index_kwargs] == ['embed_1']
-    assert settings.retriever_configs == [
-        {'group_name': 'line', 'embed_keys': ['embed_1'], 'topk': 20, 'target': 'block'},
-        {'group_name': 'block', 'embed_keys': ['embed_1'], 'topk': 20},
-    ]
+    # load_model_config returns raw yaml without env expansion
+    assert config['llm'][0]['api_key'] == '${TEST_API_KEY}'
 
 
-def test_model_config_supports_multiple_embeds(monkeypatch, tmp_path):
+def test_load_model_config_uses_default_when_env_missing(monkeypatch, tmp_path):
     config_path = write_config(
         tmp_path,
         """
         llm:
-          source: siliconflow
-          type: llm
-          model: foo-chat
-          api_key: ${TEST_API_KEY}
-        reranker:
-          source: siliconflow
-          type: rerank
-          model: foo-rerank
-          api_key: ${TEST_API_KEY}
-        embeddings:
-          embed_1:
-            source: siliconflow
-            type: embed
-            model: dense-model
-            api_key: ${TEST_API_KEY}
-          embed_2:
-            source: siliconflow
-            type: embed
-            model: sparse-model
-            api_key: ${TEST_API_KEY}
-            index_kwargs:
-              index_type: SPARSE_INVERTED_INDEX
-              metric_type: IP
+          - source: openai
+            api_key: ${MISSING_KEY:-fallback-value}
         """,
     )
-    monkeypatch.setenv('TEST_API_KEY', 'secret-key')
+    monkeypatch.delenv('MISSING_KEY', raising=False)
 
-    settings = get_retrieval_settings(str(config_path))
+    config = load_model_config(str(config_path))
 
-    assert settings.embed_keys == ['embed_1', 'embed_2']
-    assert settings.file_search_embed_key == 'embed_2'
-    assert [item['embed_key'] for item in settings.index_kwargs] == ['embed_1', 'embed_2']
-    assert settings.retriever_configs[0]['embed_keys'] == ['embed_1']
-    assert settings.retriever_configs[1]['embed_keys'] == ['embed_2']
+    # load_model_config returns raw yaml without env expansion
+    assert config['llm'][0]['api_key'] == '${MISSING_KEY:-fallback-value}'
 
 
-def test_model_config_rejects_unknown_retrieval_embed_key(monkeypatch, tmp_path):
+def test_load_model_config_leaves_unset_placeholder_intact(monkeypatch, tmp_path):
     config_path = write_config(
         tmp_path,
         """
         llm:
-          source: siliconflow
-          type: llm
-          model: foo-chat
-          api_key: ${TEST_API_KEY}
-        reranker:
-          source: siliconflow
-          type: rerank
-          model: foo-rerank
-          api_key: ${TEST_API_KEY}
-        embeddings:
-          embed_1:
-            source: siliconflow
-            type: embed
-            model: foo-embed
-            api_key: ${TEST_API_KEY}
-        retrieval:
-          file_search_embed_key: embed_2
+          - source: openai
+            api_key: ${UNSET_KEY}
         """,
     )
-    monkeypatch.setenv('TEST_API_KEY', 'secret-key')
+    monkeypatch.delenv('UNSET_KEY', raising=False)
 
-    with pytest.raises(ValueError, match='embed_2'):
-        get_retrieval_settings(str(config_path))
+    config = load_model_config(str(config_path))
+
+    assert config['llm'][0]['api_key'] == '${UNSET_KEY}'
 
 
-def test_model_config_requires_env_when_placeholder_has_no_default(tmp_path):
+def test_load_model_config_dynamic_role(tmp_path):
     config_path = write_config(
         tmp_path,
         """
         llm:
-          source: siliconflow
+          source: dynamic
+          dynamic_auth: true
           type: llm
-          model: foo-chat
-          api_key: ${TEST_API_KEY}
-        reranker:
-          source: siliconflow
-          type: rerank
-          model: foo-rerank
-          api_key: ${TEST_API_KEY}
-        embeddings:
-          embed_1:
-            source: siliconflow
-            type: embed
-            model: foo-embed
-            api_key: ${TEST_API_KEY}
         """,
     )
 
-    with pytest.raises(ValueError, match='TEST_API_KEY'):
-        load_model_config(str(config_path))
+    config = load_model_config(str(config_path))
+
+    assert config['llm']['source'] == 'dynamic'
+    assert config['llm']['dynamic_auth'] is True
 
 
-def test_model_config_uses_env_override_path(monkeypatch, tmp_path):
+def test_load_model_config_preserves_agentic_section(tmp_path):
     config_path = write_config(
         tmp_path,
         """
         llm:
-          source: siliconflow
+          source: dynamic
           type: llm
-          model: foo-chat
-          api_key: ${TEST_API_KEY}
-        reranker:
-          source: siliconflow
-          type: rerank
-          model: foo-rerank
-          api_key: ${TEST_API_KEY}
-        embeddings:
-          embed_1:
-            source: siliconflow
-            type: embed
-            model: foo-embed
-            api_key: ${TEST_API_KEY}
+        agentic:
+          kb_url: http://kb:8000
+          timeout: 10
         """,
     )
-    monkeypatch.setenv('TEST_API_KEY', 'secret-key')
-    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', str(config_path))
 
-    config = load_model_config()
-    settings = get_retrieval_settings()
+    config = load_model_config(str(config_path))
 
-    assert config['llm']['model'] == 'foo-chat'
-    assert settings.embed_keys == ['embed_1']
+    assert config['agentic']['kb_url'] == 'http://kb:8000'
+    assert config['agentic']['timeout'] == 10
 
 
-def test_inner_model_config_defaults_skill_fs_url_to_remote_skills(monkeypatch):
+def test_get_config_path_returns_dynamic_by_default(monkeypatch):
     monkeypatch.delenv('LAZYRAG_MODEL_CONFIG_PATH', raising=False)
-    monkeypatch.delenv('LAZYRAG_USE_INNER_MODEL', raising=False)
-    monkeypatch.delenv('LAZYRAG_SKILL_FS_URL', raising=False)
-    monkeypatch.setenv('LAZYLLM_MINIMAX_API_KEY', 'secret-key')
+    path = get_config_path()
+    assert path.endswith('runtime_models.yaml')
+    assert 'inner' not in path
+    assert 'online' not in path
 
-    config = load_model_config()
 
-    assert (
-        config['agentic']['skill_fs_url']
-        == 'remote://skills,/home/mnt/dengyuang/workspace/tyy/LazyRAG/algorithm/.agentic_rag/skills'
+def test_get_config_path_alias_online(monkeypatch):
+    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', 'online')
+    path = get_config_path()
+    assert path.endswith('runtime_models.online.yaml')
+
+
+def test_get_config_path_alias_dynamic(monkeypatch):
+    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', 'dynamic')
+    path = get_config_path()
+    assert path.endswith('runtime_models.yaml')
+    assert 'inner' not in path
+    assert 'online' not in path
+
+
+def test_get_config_path_alias_inner(monkeypatch):
+    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', 'inner')
+    path = get_config_path()
+    assert 'inner' in path
+
+
+def test_get_config_path_custom_override(monkeypatch, tmp_path):
+    custom = str(tmp_path / 'custom.yaml')
+    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', custom)
+    path = get_config_path()
+    assert path == custom
+
+
+def test_load_model_config_expands_nested_env_vars(monkeypatch, tmp_path):
+    config_path = write_config(
+        tmp_path,
+        """
+        embed_main:
+          - source: bgem3embed
+            url: ${EMBED_URL:-http://localhost:8080}
+            name: ${EMBED_MODEL:-default-model}
+        """,
     )
+    monkeypatch.setenv('EMBED_URL', 'http://prod-embed:9000')
+    monkeypatch.delenv('EMBED_MODEL', raising=False)
 
+    config = load_model_config(str(config_path))
 
-def test_build_auto_model_uses_local_bgem3_embed():
-    result = get_models_mod._build_auto_model('bgem3_emb_dense_custom', {
-        'source': 'bgem3embed',
-        'type': 'embed',
-        'url': 'http://127.0.0.1:2269/embed',
-        'skip_auth': True,
-    })
-
-    assert isinstance(result, BgeM3Embed)
-    assert result._embed_model_name == 'bgem3_emb_dense_custom'
-    assert result._embed_url == 'http://127.0.0.1:2269/embed'
-
-
-def test_build_auto_model_uses_local_qwen3_rerank():
-    result = get_models_mod._build_auto_model('Qwen3-Reranker-8B', {
-        'source': 'qwen3rerank',
-        'type': 'rerank',
-        'url': 'http://127.0.0.1:8331/v1/rerank',
-        'skip_auth': True,
-    })
-
-    assert isinstance(result, Qwen3Rerank)
-    assert result._embed_model_name == 'Qwen3-Reranker-8B'
-    assert result._url == 'http://127.0.0.1:8331/v1/rerank'
-
-
-def test_build_auto_model_writes_config_file_for_standard_sources(monkeypatch):
-    captured = {}
-
-    def fake_auto_model(*, model, config, **kwargs):
-        captured['model'] = model
-        captured['config'] = config
-        return 'fake-model'
-
-    monkeypatch.setattr(get_models_mod, 'AutoModel', fake_auto_model)
-
-    result = get_models_mod._build_auto_model('BAAI/bge-reranker-v2-m3', {
-        'source': 'siliconflow',
-        'type': 'rerank',
-        'api_key': 'secret-key',
-    })
-
-    assert result == 'fake-model'
-    assert captured['model'] == 'BAAI/bge-reranker-v2-m3'
-    generated = yaml.safe_load(Path(captured['config']).read_text(encoding='utf-8'))
-    assert generated == {
-        'BAAI/bge-reranker-v2-m3': [{
-            'source': 'siliconflow',
-            'type': 'rerank',
-            'model': 'BAAI/bge-reranker-v2-m3',
-            'api_key': 'secret-key',
-        }]
-    }
-
-
-def test_runtime_auto_model_dir_cleanup_removes_generated_files(tmp_path, monkeypatch):
-    runtime_dir = tmp_path / 'runtime-auto-model'
-    runtime_dir.mkdir()
-    generated = runtime_dir / 'foo.yaml'
-    generated.write_text('foo: bar\n', encoding='utf-8')
-    monkeypatch.setattr(get_models_mod, '_RUNTIME_AUTO_MODEL_DIR', runtime_dir)
-
-    get_models_mod._cleanup_runtime_auto_model_dir()
-
-    assert not runtime_dir.exists()
+    # load_model_config returns raw yaml without env expansion
+    assert config['embed_main'][0]['url'] == '${EMBED_URL:-http://localhost:8080}'
+    assert config['embed_main'][0]['name'] == '${EMBED_MODEL:-default-model}'

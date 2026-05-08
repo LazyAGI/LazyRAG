@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 import traceback
 from typing import Any
@@ -8,9 +7,10 @@ from typing import Any
 import lazyllm
 from lazyllm.tools.fs.client import FS
 
-from chat.components.agentic.config import REVIEW_PROMPTS, REVIEW_TOOLS, _env_int
+from chat.components.agentic.config import REVIEW_PROMPTS, REVIEW_TOOLS
 from chat.prompts.agentic import _COMBINED_REVIEW_PROMPT, _MEMORY_FLUSH_MESSAGES
 from chat.tools.skill_manager import list_all_skills_with_category
+from config import config as _cfg
 
 
 def _decide_review_mode(
@@ -20,7 +20,7 @@ def _decide_review_mode(
     memory_review_interval: int,
     skill_review_interval: int,
 ) -> str | None:
-    if os.getenv('LAZYRAG_SKILL_REVIEW_DEBUG', '').lower() in ('1', 'true', 'yes'):
+    if _cfg['skill_review_debug']:
         return 'combined'
 
     memory_due = (
@@ -73,7 +73,7 @@ def _spawn_background_review(
             review_agent = lazyllm.tools.agent.ReactAgent(
                 llm=llm,
                 tools=review_tools,
-                max_retries=_env_int('LAZYRAG_REVIEW_MAX_RETRIES', 5),
+                max_retries=_cfg['review_max_retries'],
                 return_trace=False,
                 prompt=review_prompt,
                 skills=review_skills,
@@ -93,7 +93,7 @@ def _spawn_background_review(
             lazyllm.locals.clear()
             print(f'[bg-review:{review_mode}] EXIT thread={tname}')
 
-    if os.getenv('LAZYRAG_REVIEW_DEBUG', '').lower() in ('1', 'true', 'yes'):
+    if _cfg['review_debug']:
         _worker()
     else:
         thread = threading.Thread(target=_worker, daemon=True)

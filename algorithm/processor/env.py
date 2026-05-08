@@ -1,25 +1,33 @@
+"""Helpers for reading typed values from environment variables."""
+from __future__ import annotations
+
 import os
+from typing import List, Optional
 
 
 def env_int(name: str, default: int) -> int:
-    value = os.environ.get(name)
-    return int(value) if value and value.strip() else default
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return default
+    return int(raw)
 
 
 def env_float(name: str, default: float) -> float:
-    value = os.environ.get(name)
-    return float(value) if value and value.strip() else default
+    raw = os.environ.get(name, '').strip()
+    if not raw:
+        return default
+    return float(raw)
 
 
 def env_bool(name: str, default: bool) -> bool:
-    value = os.environ.get(name)
-    if value is None:
+    if name not in os.environ:
         return default
-    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    raw = os.environ[name].strip().lower()
+    return raw in ('1', 'true', 'yes', 'on')
 
 
-def env_list(name: str) -> list[str] | None:
-    value = os.environ.get(name)
-    if value is None or not value.strip():
+def env_list(name: str, sep: str = ',') -> Optional[List[str]]:
+    raw = os.environ.get(name, '').strip()
+    if not raw:
         return None
-    return [item.strip() for item in value.split(',') if item.strip()]
+    return [item.strip() for item in raw.split(sep) if item.strip()]
