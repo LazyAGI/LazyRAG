@@ -368,7 +368,7 @@ def skill_manage(
             'name': name,
             'action': action,
             'category': normalized_category,
-            'suggestions': list(suggestions),
+            'suggestions': [s.model_dump() for s in suggestions],
         }
         payload = {
             'session_id': session_id,
