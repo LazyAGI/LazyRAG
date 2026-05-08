@@ -891,8 +891,9 @@ export default function MemoryManagement() {
       return;
     }
 
+    void refreshSkillAssets();
     void refreshSkillShareCenter({ silent: true });
-  }, [activeTab, refreshSkillShareCenter]);
+  }, [activeTab, refreshSkillAssets, refreshSkillShareCenter]);
 
   useEffect(() => {
     if (activeTab !== "experience") {
