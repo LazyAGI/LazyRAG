@@ -20,7 +20,14 @@ MEMORY_GUIDANCE = (
     "Use the memory tool for durable cross-session knowledge only. "
     "Save stable user preferences or habits to target='user', and reusable environment facts, "
     "workflow conventions, or lessons learned to target='memory'. "
-    "Do not store one-off task state or prompt-like instructions."
+    "Do not store one-off task state or prompt-like instructions. "
+    "Do not use memory for explicit user-specific vocabulary or terminology mappings; use vocab_manage instead."
+)
+VOCAB_GUIDANCE = (
+    "Use vocab_manage for explicit user-specific vocabulary or terminology mappings. "
+    "When the user asks to remember a mapping in a vocabulary, glossary, domain terminology, synonym list, "
+    "or says that one term means / equals / is another term in a domain, prefer vocab_manage over memory. "
+    "Pass each mapping as one suggestion with word, synonym, description, and reason."
 )
 SKILLS_GUIDANCE = (
     "Use skill_manage to curate reusable skills. It has three actions:\n"
@@ -113,14 +120,12 @@ _MEMORY_REVIEW_PROMPT = (
     "If nothing is worth saving, reply exactly: Nothing to save."
 )
 _COMBINED_REVIEW_PROMPT = (
-    "Review the conversation above and consider both memory and skill updates.\n\n"
-    "Save durable preferences or environment facts with the memory tool. "
-    "Save reusable multi-step workflows or troubleshooting procedures as skills with skill_manage. "
-    "Prefer updating an existing skill if one already covers the task. "
-    "For existing skills, identify the target by both `category` and `name`; "
-    "the `category` is the directory immediately above the skill directory in the skill path, "
-    "ignoring any UUID-like user-id directory under `/skills/`. "
-    "Do not save ephemeral task state.\n"
+    "Review the conversation above and decide whether exactly one durable update should be saved.\n\n"
+    "You have exactly three tool choices, and you must call at most one of them:\n"
+    "- memory: save durable user preferences or reusable environment / workflow facts.\n"
+    "- skill_manage: save a reusable multi-step workflow or troubleshooting SOP. Prefer updating an existing skill if one already covers the task. For existing skills, identify the target by both `category` and `name`; the `category` is the directory immediately above the skill directory in the skill path, ignoring any UUID-like user-id directory under `/skills/`.\n"
+    "- vocab_manage: save a clear, user-specific vocabulary mapping only when the conversation explicitly establishes that one term should be remembered as another for this user. Use it for stable terminology, not for vague paraphrases, temporary nicknames, or general world-knowledge synonyms.\n\n"
+    "Choose the single best tool for this conversation. Do not call multiple tools in the same review. Do not save ephemeral task state.\n"
     "If nothing is worth saving, reply exactly: Nothing to save."
 )
 _MEMORY_FLUSH_MESSAGES = {

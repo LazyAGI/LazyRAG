@@ -367,3 +367,40 @@ def fetch_chat_histories_for_create_user_id(
         }
         for row in rows
     ]
+
+
+def resolve_create_user_id_for_session(
+    session_id: str,
+    *,
+    db_dsn: Optional[str] = None,
+    db_url: Optional[str] = None,
+) -> str:
+    session_id = str(session_id or '').strip()
+    if not session_id:
+        return ''
+
+    session_ids = [session_id]
+    if '_' in session_id:
+        conversation_id = session_id.rsplit('_', 1)[0].strip()
+        if conversation_id and conversation_id not in session_ids:
+            session_ids.append(conversation_id)
+
+    sql = """
+        SELECT create_user_id
+        FROM conversations
+        WHERE id = :session_id
+          AND deleted_at IS NULL
+        LIMIT 1
+    """
+    try:
+        engine = _get_core_conn(db_dsn=db_dsn, db_url=db_url)
+        with engine.connect() as conn:
+            for candidate_session_id in session_ids:
+                value = conn.execute(text(sql), {'session_id': candidate_session_id}).scalar()
+                if value:
+                    return str(value or '').strip()
+    except Exception as exc:
+        LOG.error(f'[VocabDB] resolve_create_user_id_for_session({session_id!r}) failed: {exc}')
+        return ''
+
+    return ''

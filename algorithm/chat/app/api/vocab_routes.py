@@ -18,7 +18,6 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
 from lazyllm import LOG
 from pydantic import BaseModel
 
-from vocab import run_vocab_evolution
 from vocab.vocab_manager import get_vocab_manager
 
 router = APIRouter()
@@ -36,13 +35,9 @@ def _target_label(request: dict | None) -> str:
 
 def _run_vocab_evolution_task(request: dict | None) -> None:
     target_label = _target_label(request)
-    LOG.info(f'[VocabRoutes] extract started create_user_id={target_label!r}')
-    try:
-        actions = run_vocab_evolution(request)
-    except Exception as exc:
-        LOG.error(f'[VocabRoutes] extract failed create_user_id={target_label!r} error={exc}')
-        return
-    LOG.info(f'[VocabRoutes] extract finished create_user_id={target_label!r} action_count={len(actions)}')
+    # Deprecated: vocab evolution is now driven by the review-agent vocab tool.
+    # Keep this endpoint for compatibility, but intentionally no-op when called.
+    LOG.info(f'[VocabRoutes] extract deprecated and ignored create_user_id={target_label!r}')
 
 
 @router.post('/api/vocab/reload', summary='Hot-reload vocabulary for the specified user')

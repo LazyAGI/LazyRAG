@@ -423,9 +423,9 @@ class TestVocabReloadRoute:
             'action': 'create_new_group',
         }])
 
-        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr), \
-             patch('vocab.run_vocab_evolution', mock_extract):
+        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr):
             spec.loader.exec_module(vocab_routes_mod)
+            vocab_routes_mod._run_vocab_evolution_task = mock_extract
             test_app.include_router(vocab_routes_mod.router)
 
         yield TestClient(test_app), mock_mgr, mock_extract
@@ -479,11 +479,11 @@ class TestVocabReloadRoute:
         vocab_routes_mod = importlib.util.module_from_spec(spec)
 
         mock_mgr = MagicMock()
-        mock_extract = MagicMock(side_effect=RuntimeError('boom'))
+        mock_extract = MagicMock()
 
-        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr), \
-             patch('vocab.run_vocab_evolution', mock_extract):
+        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr):
             spec.loader.exec_module(vocab_routes_mod)
+            vocab_routes_mod._run_vocab_evolution_task = mock_extract
             test_app.include_router(vocab_routes_mod.router)
             tc = TestClient(test_app)
             resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
@@ -504,8 +504,7 @@ class TestVocabReloadRoute:
         mock_mgr = MagicMock()
         mock_mgr.reload.side_effect = RuntimeError('db down')
 
-        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr), \
-             patch('vocab.run_vocab_evolution', MagicMock()):
+        with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr):
             spec.loader.exec_module(vocab_routes_mod)
             test_app.include_router(vocab_routes_mod.router)
             tc = TestClient(test_app)

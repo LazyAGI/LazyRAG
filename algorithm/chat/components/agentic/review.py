@@ -32,12 +32,8 @@ def _decide_review_mode(
         and tool_turns > skill_review_interval
         and user_turns > 1
     )
-    if memory_due and skill_due:
+    if memory_due or skill_due:
         return 'combined'
-    if memory_due:
-        return 'memory'
-    if skill_due:
-        return 'skill'
     return None
 
 
@@ -53,6 +49,8 @@ def _spawn_background_review(
     review_prompt = REVIEW_PROMPTS.get(review_mode, _COMBINED_REVIEW_PROMPT)
     if not review_tools:
         return
+
+    from chat.tools import vocab as _review_vocab_tool  # noqa: F401
 
     snapshot = list(history_snapshot)
     skills_dir = config.get('skill_fs_url') or ''
