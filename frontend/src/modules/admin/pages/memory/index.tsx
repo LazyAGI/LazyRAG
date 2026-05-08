@@ -4,6 +4,7 @@ import {
   Button,
   Modal,
   Space,
+  Switch,
   Tag,
   Tooltip,
   Upload,
@@ -19,7 +20,6 @@ import {
   EyeOutlined,
   HistoryOutlined,
   LinkOutlined,
-  LockOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
 import { getLocalizedErrorMessage } from "@/components/request";
@@ -156,6 +156,21 @@ import {
 import "./index.scss";
 
 const backendSuggestionPageSize = 20;
+const reviewSuggestionStatuses = ["pending_review"];
+const isPendingReviewSuggestionStatus = (status?: string) =>
+  String(status || "").trim().toLowerCase() === "pending_review";
+const normalizeAutoEvoApplyStatus = (status?: string) =>
+  String(status || "").trim().toLowerCase();
+const getAutoEvoStatusMeta = (status?: string) => {
+  const normalizedStatus = normalizeAutoEvoApplyStatus(status);
+  if (normalizedStatus === "running") {
+    return { color: "blue" as const, text: "正在自动进化" };
+  }
+  if (normalizedStatus === "failed") {
+    return { color: "red" as const, text: "自动进化执行失败" };
+  }
+  return { color: "blue" as const, text: "等待进化建议" };
+};
 
 const mergeEvolutionSuggestionRecords = (
   current: EvolutionSuggestionRecord[],
@@ -207,15 +222,18 @@ export default function MemoryManagement() {
   const [toolAssets] = useState<StructuredAsset[]>(initialTools);
   const [skillAssets, setSkillAssets] = useState<StructuredAsset[]>(initialSkills);
   const [skillLoading, setSkillLoading] = useState(false);
+  const [skillAutoEvoLoading, setSkillAutoEvoLoading] = useState<Set<string>>(new Set());
   const [skillsInitialized, setSkillsInitialized] = useState(false);
   const [experienceAssets, setExperienceAssets] = useState<ExperienceAsset[]>([]);
   const [experienceFeatureEnabled, setExperienceFeatureEnabled] = useState(true);
   const [experienceLoading, setExperienceLoading] = useState(false);
+  const [experienceAutoEvoLoading, setExperienceAutoEvoLoading] = useState<Set<string>>(new Set());
   const [experienceInitialized, setExperienceInitialized] = useState(false);
   const [experienceSaving, setExperienceSaving] = useState(false);
   const [experienceSettingSaving, setExperienceSettingSaving] = useState(false);
   const [glossaryAssets, setGlossaryAssets] = useState<GlossaryAsset[]>([]);
   const [glossaryLoading, setGlossaryLoading] = useState(false);
+  const [glossaryAutoEvoLoading, setGlossaryAutoEvoLoading] = useState<Set<string>>(new Set());
   const [glossaryInitialized, setGlossaryInitialized] = useState(false);
   const [glossaryLoadError, setGlossaryLoadError] = useState("");
   const [glossarySaving, setGlossarySaving] = useState(false);
@@ -473,7 +491,10 @@ export default function MemoryManagement() {
             title: item.title,
             content: item.content,
             hasPendingReviewSuggestions: item.hasPendingReviewSuggestions,
-            protect: item.protect,
+            autoEvo: item.autoEvo,
+            autoEvoApplyStatus: item.autoEvoApplyStatus,
+            autoEvoGeneration: item.autoEvoGeneration,
+            autoEvoError: item.autoEvoError,
             resourceType: item.resourceType,
             suggestionStatus: item.suggestionStatus,
           })),
@@ -565,7 +586,10 @@ export default function MemoryManagement() {
           tags: item.tags,
           content: item.content,
           parentId: item.parentId,
-          protect: item.protect,
+          autoEvo: item.autoEvo,
+          autoEvoApplyStatus: item.autoEvoApplyStatus,
+          autoEvoGeneration: item.autoEvoGeneration,
+          autoEvoError: item.autoEvoError,
           fileExt: item.fileExt,
           isEnabled: item.isEnabled,
           hasPendingReviewSuggestions: item.hasPendingReviewSuggestions,
@@ -660,7 +684,7 @@ export default function MemoryManagement() {
         aliases: conflict.word ? [conflict.word] : [],
         source: "user",
         content: conflict.description,
-        protect: false,
+        autoEvo: false,
       },
       reason: conflict.reason || t("admin.memoryGlossaryInboxConflictDefaultReason"),
       backendConflictId: conflict.id,
@@ -696,7 +720,7 @@ export default function MemoryManagement() {
             aliases: [],
             source: "user" as GlossarySource,
             content: "",
-            protect: false,
+            autoEvo: false,
           };
         }),
       );
@@ -1118,7 +1142,7 @@ export default function MemoryManagement() {
     }
 
     const commonLabels = {
-      protect: t("admin.memoryProtect"),
+      autoEvo: t("admin.memoryAutoEvo"),
       content: t("admin.memoryContent"),
       yes: t("admin.memoryDiffBoolYes"),
       no: t("admin.memoryDiffBoolNo"),
@@ -1210,14 +1234,14 @@ export default function MemoryManagement() {
                 fieldSuggestionIds.content || activeProposal.backendSuggestionId,
             }
           : null,
-        Boolean(activeProposal.before.protect) !== Boolean(activeProposal.after.protect)
+        Boolean(activeProposal.before.autoEvo) !== Boolean(activeProposal.after.autoEvo)
           ? {
-              key: "protect",
-              label: t("admin.memoryProtect"),
-              before: toBoolText(Boolean(activeProposal.before.protect)),
-              after: toBoolText(Boolean(activeProposal.after.protect)),
+              key: "autoEvo",
+              label: t("admin.memoryAutoEvo"),
+              before: toBoolText(Boolean(activeProposal.before.autoEvo)),
+              after: toBoolText(Boolean(activeProposal.after.autoEvo)),
               backendSuggestionId:
-                fieldSuggestionIds.protect || activeProposal.backendSuggestionId,
+                fieldSuggestionIds.autoEvo || activeProposal.backendSuggestionId,
             }
           : null,
       ];
@@ -1247,14 +1271,14 @@ export default function MemoryManagement() {
               fieldSuggestionIds.content || activeProposal.backendSuggestionId,
           }
         : null,
-      Boolean(activeProposal.before.protect) !== Boolean(activeProposal.after.protect)
+      Boolean(activeProposal.before.autoEvo) !== Boolean(activeProposal.after.autoEvo)
         ? {
-            key: "protect",
-            label: t("admin.memoryProtect"),
-            before: toBoolText(Boolean(activeProposal.before.protect)),
-            after: toBoolText(Boolean(activeProposal.after.protect)),
+            key: "autoEvo",
+            label: t("admin.memoryAutoEvo"),
+            before: toBoolText(Boolean(activeProposal.before.autoEvo)),
+            after: toBoolText(Boolean(activeProposal.after.autoEvo)),
             backendSuggestionId:
-              fieldSuggestionIds.protect || activeProposal.backendSuggestionId,
+              fieldSuggestionIds.autoEvo || activeProposal.backendSuggestionId,
         }
       : null,
     ];
@@ -1381,8 +1405,8 @@ export default function MemoryManagement() {
       if (useAfterValue("content")) {
         merged.content = activeProposal.after.content;
       }
-      if (useAfterValue("protect")) {
-        merged.protect = Boolean(activeProposal.after.protect);
+      if (useAfterValue("autoEvo")) {
+        merged.autoEvo = Boolean(activeProposal.after.autoEvo);
       }
 
       return merged;
@@ -1395,8 +1419,8 @@ export default function MemoryManagement() {
     if (useAfterValue("content")) {
       merged.content = activeProposal.after.content;
     }
-    if (useAfterValue("protect")) {
-      merged.protect = Boolean(activeProposal.after.protect);
+    if (useAfterValue("autoEvo")) {
+      merged.autoEvo = Boolean(activeProposal.after.autoEvo);
     }
     return merged;
   }, [activeProposal, activeProposalFieldChanges, proposalFieldDecisions]);
@@ -1419,7 +1443,7 @@ export default function MemoryManagement() {
         activeProposal.before.category !== merged.category ||
         activeProposal.before.tags.join(",") !== merged.tags.join(",") ||
         activeProposal.before.content !== merged.content ||
-        Boolean(activeProposal.before.protect) !== Boolean(merged.protect)
+        Boolean(activeProposal.before.autoEvo) !== Boolean(merged.autoEvo)
       );
     }
 
@@ -1427,7 +1451,7 @@ export default function MemoryManagement() {
     return (
       activeProposal.before.title !== merged.title ||
       activeProposal.before.content !== merged.content ||
-      Boolean(activeProposal.before.protect) !== Boolean(merged.protect)
+      Boolean(activeProposal.before.autoEvo) !== Boolean(merged.autoEvo)
     );
   }, [activeProposal, effectiveProposalMerged]);
 
@@ -1437,7 +1461,7 @@ export default function MemoryManagement() {
     }
 
     const commonLabels = {
-      protect: t("admin.memoryProtect"),
+      autoEvo: t("admin.memoryAutoEvo"),
       content: t("admin.memoryContent"),
       yes: t("admin.memoryDiffBoolYes"),
       no: t("admin.memoryDiffBoolNo"),
@@ -1535,6 +1559,7 @@ export default function MemoryManagement() {
   );
 
   const filteredExperienceItems = experienceAssets;
+
   const filteredGlossaryItems = glossaryAssets.filter((item) => {
     const matchesSource = !glossarySource || item.source === glossarySource;
     if (!matchesSource) {
@@ -1818,7 +1843,7 @@ export default function MemoryManagement() {
         aliases: [],
         source: "user",
         content: item.content,
-        protect: Boolean(item.protect),
+        autoEvo: Boolean(item.autoEvo),
       });
     } else if ("term" in item) {
       setDraft({
@@ -1835,7 +1860,7 @@ export default function MemoryManagement() {
         aliases: [...item.aliases],
         source: item.source,
         content: item.content,
-        protect: Boolean(item.protect),
+        autoEvo: Boolean(item.autoEvo),
       });
     } else {
       setDraft(
@@ -1866,7 +1891,7 @@ export default function MemoryManagement() {
                   tags: detail.tags,
                   content: detail.content,
                   parentId: detail.parentId,
-                  protect: detail.protect,
+                  autoEvo: detail.autoEvo,
                 },
                 { stripFrontMatter: true },
               );
@@ -1928,7 +1953,7 @@ export default function MemoryManagement() {
     category: share.category,
     tags: share.tags,
     content: share.skillContent || share.message || "",
-    protect: false,
+    autoEvo: false,
   });
 
   const previewSkillShare = async (share: SkillShareRecord) => {
@@ -1995,10 +2020,12 @@ export default function MemoryManagement() {
     try {
       const enabled = await updatePersonalizationSetting(checked);
       setExperienceFeatureEnabled(enabled);
+      await refreshExperienceSection({ silent: true });
       message.success(t("admin.memoryExperienceSettingSaveSuccess"));
     } catch (error) {
       console.error("Update preference setting failed:", error);
       setExperienceFeatureEnabled(previousValue);
+      await refreshExperienceSection({ silent: true });
       message.error(
         getLocalizedErrorMessage(error, t("admin.memoryExperienceSettingSaveFailed")) ||
           t("admin.memoryExperienceSettingSaveFailed"),
@@ -2011,10 +2038,14 @@ export default function MemoryManagement() {
   const loadExperienceChangeProposal = async (
     item: ExperienceAsset,
   ): Promise<ExperienceChangeProposal | null> => {
+    if (item.autoEvo) {
+      return null;
+    }
     const resourceParam = getPreferenceSuggestionResourceParam(item);
     const suggestionPage = await listEvolutionSuggestions({
       page: 1,
       pageSize: backendSuggestionPageSize,
+      statuses: reviewSuggestionStatuses,
       ...resourceParam,
     });
     if (!suggestionPage.items.length) {
@@ -2027,6 +2058,9 @@ export default function MemoryManagement() {
   const loadSkillChangeProposal = async (
     item: StructuredAsset,
   ): Promise<ChangeProposal | null> => {
+    if (item.autoEvo) {
+      return null;
+    }
     const [detail, suggestionPage] = await Promise.all([
       getSkillAssetDetail(item.id).catch((error) => {
         console.error("Load skill detail for review failed:", error);
@@ -2035,6 +2069,7 @@ export default function MemoryManagement() {
       listEvolutionSuggestions({
         page: 1,
         pageSize: backendSuggestionPageSize,
+        statuses: reviewSuggestionStatuses,
         ...getSkillSuggestionResourceParam(item),
       }),
     ]);
@@ -2052,7 +2087,7 @@ export default function MemoryManagement() {
           tags: detail.tags,
           content: detail.content,
           parentId: detail.parentId,
-          protect: detail.protect,
+          autoEvo: detail.autoEvo,
           fileExt: detail.fileExt,
           isEnabled: detail.isEnabled,
           hasPendingReviewSuggestions:
@@ -2076,8 +2111,12 @@ export default function MemoryManagement() {
     if (!proposal) {
       if (tab === "skills") {
         const matchedSkill = skillAssets.find((item) => item.id === itemId);
-        const hasBackendPendingReview = Boolean(
-          matchedSkill?.hasPendingReviewSuggestions,
+        if (matchedSkill?.autoEvo) {
+          message.info(t("admin.memoryDiffNoPending"));
+          return false;
+        }
+        const hasBackendPendingReview = isPendingReviewSuggestionStatus(
+          matchedSkill?.suggestionStatus,
         );
 
         if (isSkillUpdatePending(skillUpdateStatus) || hasBackendPendingReview) {
@@ -2122,12 +2161,19 @@ export default function MemoryManagement() {
       if (
         tab === "experience" &&
         experienceAssets.some(
-          (item) => item.id === itemId && item.hasPendingReviewSuggestions,
+          (item) =>
+            item.id === itemId &&
+            !item.autoEvo &&
+            isPendingReviewSuggestionStatus(item.suggestionStatus),
         )
       ) {
         const matchedExperience = experienceAssets.find((item) => item.id === itemId);
         if (!matchedExperience) {
           message.warning(t("admin.memoryDiffTargetMissing"));
+          return false;
+        }
+        if (matchedExperience.autoEvo) {
+          message.info(t("admin.memoryDiffNoPending"));
           return false;
         }
 
@@ -2746,6 +2792,7 @@ export default function MemoryManagement() {
       const suggestionPage = await listEvolutionSuggestions({
         page: activeBackendSuggestionPage + 1,
         pageSize: activeBackendSuggestionPageSize,
+        statuses: reviewSuggestionStatuses,
         ...(activeProposal.tab === "skills"
           ? getSkillSuggestionResourceParam(activeProposal.before)
           : getPreferenceSuggestionResourceParam(activeProposal.before)),
@@ -2929,7 +2976,7 @@ export default function MemoryManagement() {
             await upsertPreferenceAsset({
               title: (effectiveProposalMerged as ExperienceAsset).title,
               content: (effectiveProposalMerged as ExperienceAsset).content,
-              protect: Boolean((effectiveProposalMerged as ExperienceAsset).protect),
+              autoEvo: Boolean((effectiveProposalMerged as ExperienceAsset).autoEvo),
               resourceType: (effectiveProposalMerged as ExperienceAsset).resourceType,
             });
           }
@@ -3261,7 +3308,7 @@ export default function MemoryManagement() {
         aliases: normalizedAliases,
         source: draft.source,
         content: normalizedContent,
-        protect: draft.protect,
+        autoEvo: draft.autoEvo,
       };
       const mergeSourceIdSet = new Set(pendingGlossaryMergeSourceIds);
       const hasPendingMerge = mergeSourceIdSet.size > 0;
@@ -3366,7 +3413,7 @@ export default function MemoryManagement() {
         await upsertPreferenceAsset({
           title: draft.title.trim(),
           content: draft.content.trim(),
-          protect: draft.protect,
+          autoEvo: draft.autoEvo,
           resourceType: currentExperienceItem?.resourceType,
         });
         if (modalMode === "edit" && draft.id) {
@@ -3410,7 +3457,7 @@ export default function MemoryManagement() {
         tags: isChildSkill ? [] : draft.tags,
         parentId: activeTab === "skills" ? draft.parentId || undefined : undefined,
         content: draft.content.trim(),
-        protect: draft.protect,
+        autoEvo: draft.autoEvo,
       };
 
       if (activeTab === "skills") {
@@ -3434,7 +3481,7 @@ export default function MemoryManagement() {
         }
 
         if (payload.parentId && parentSkill) {
-          payload.protect = Boolean(parentSkill.protect);
+          payload.autoEvo = Boolean(parentSkill.autoEvo);
         }
 
         try {
@@ -3447,7 +3494,7 @@ export default function MemoryManagement() {
             const patchPayload: Record<string, unknown> = {
               name: payload.name,
               content: payload.content,
-              is_locked: Boolean(payload.protect),
+              auto_evo: Boolean(payload.autoEvo),
             };
 
             if (payload.parentId) {
@@ -3478,7 +3525,7 @@ export default function MemoryManagement() {
               parent_skill_name: parentSkill.name,
               content: payload.content,
               file_ext: payload.fileExt || inferSkillFileExt(undefined, payload.content),
-              is_locked: Boolean(payload.protect),
+              auto_evo: Boolean(payload.autoEvo),
               is_enabled: true,
             });
           } else {
@@ -3498,7 +3545,7 @@ export default function MemoryManagement() {
                 name: child.name.trim(),
                 content: child.content.trim(),
                 file_ext: inferSkillFileExt(undefined, child.content),
-                is_locked: Boolean(payload.protect),
+                auto_evo: Boolean(payload.autoEvo),
               }));
             }
 
@@ -3509,7 +3556,7 @@ export default function MemoryManagement() {
               tags: payload.tags,
               content: payload.content,
               file_ext: "md",
-              is_locked: Boolean(payload.protect),
+              auto_evo: Boolean(payload.autoEvo),
               is_enabled: true,
               children: childPayloads,
             });
@@ -3887,24 +3934,27 @@ export default function MemoryManagement() {
         const pendingProposal =
           activeTab === "skills" ? getPendingProposal("skills", record.id) : undefined;
         const hasBackendPendingReview =
-          activeTab === "skills" && Boolean(record.hasPendingReviewSuggestions);
+          activeTab === "skills" &&
+          !record.autoEvo &&
+          isPendingReviewSuggestionStatus(record.suggestionStatus);
         const showPendingTag =
-          Boolean(pendingProposal) ||
-          isSkillUpdatePending(record.updateStatus) ||
-          hasBackendPendingReview;
+          !record.autoEvo &&
+          (Boolean(pendingProposal) ||
+            isSkillUpdatePending(record.updateStatus) ||
+            hasBackendPendingReview);
+        const autoEvoStatusMeta = record.autoEvo
+          ? getAutoEvoStatusMeta(record.autoEvoApplyStatus)
+          : null;
 
         return (
           <div className="memory-table-main">
             <div className="memory-table-main-title">
               <span>{record.name}</span>
+              {autoEvoStatusMeta ? (
+                <Tag color={autoEvoStatusMeta.color}>{autoEvoStatusMeta.text}</Tag>
+              ) : null}
               {showPendingTag ? (
                 <Tag color="orange">{t("admin.memoryDiffPendingTag")}</Tag>
-              ) : null}
-              {record.protect ? (
-                <Tag className="memory-protect-tag" bordered={false}>
-                  <LockOutlined />
-                  <span>{t("admin.memoryProtect")}</span>
-                </Tag>
               ) : null}
             </div>
             {!record.parentId ? (
@@ -3957,14 +4007,18 @@ export default function MemoryManagement() {
         const pendingProposal =
           activeTab === "skills" ? getPendingProposal("skills", record.id) : undefined;
         const hasBackendPendingReview =
-          activeTab === "skills" && Boolean(record.hasPendingReviewSuggestions);
+          activeTab === "skills" &&
+          !record.autoEvo &&
+          isPendingReviewSuggestionStatus(record.suggestionStatus);
         const canReviewChange =
-          Boolean(pendingProposal) ||
-          isSkillUpdatePending(record.updateStatus) ||
-          hasBackendPendingReview;
-        const reviewTooltip = pendingProposal
+          !record.autoEvo &&
+          (Boolean(pendingProposal) ||
+            isSkillUpdatePending(record.updateStatus) ||
+            hasBackendPendingReview);
+        const reviewTooltip = !record.autoEvo && pendingProposal
           ? t("admin.memoryDiffReviewAction")
-          : isSkillUpdatePending(record.updateStatus) || hasBackendPendingReview
+          : !record.autoEvo &&
+              (isSkillUpdatePending(record.updateStatus) || hasBackendPendingReview)
             ? t("admin.memorySkillUpdateReviewAction")
             : t("admin.memoryDiffNoPending");
 
@@ -4020,6 +4074,39 @@ export default function MemoryManagement() {
         );
       },
     },
+    {
+      title: t("admin.memoryAutoEvo"),
+      key: "autoEvo",
+      width: 90,
+      render: (_value, record) => (
+        <Switch
+          checked={record.autoEvo}
+          loading={skillAutoEvoLoading.has(record.id)}
+          onChange={(checked) => {
+            void (async () => {
+              setSkillAutoEvoLoading((prev) => new Set(prev).add(record.id));
+              try {
+                await patchSkillAsset(record.id, { auto_evo: checked });
+                await refreshSkillAssets({ preserveChangeProposals: true });
+              } catch (error) {
+                console.error("Toggle auto_evo failed:", error);
+                await refreshSkillAssets({ preserveChangeProposals: true });
+                message.error(
+                  getLocalizedErrorMessage(error, t("admin.memoryAutoEvoToggleFailed")) ||
+                    t("admin.memoryAutoEvoToggleFailed"),
+                );
+              } finally {
+                setSkillAutoEvoLoading((prev) => {
+                  const next = new Set(prev);
+                  next.delete(record.id);
+                  return next;
+                });
+              }
+            })();
+          }}
+        />
+      ),
+    },
   ];
 
   const toolColumns: ColumnsType<StructuredAsset> = [
@@ -4054,20 +4141,23 @@ export default function MemoryManagement() {
       width: 320,
       render: (_value, record) => {
         const pendingProposal = getPendingProposal("experience", record.id);
-        const showPendingTag = Boolean(pendingProposal);
+        const hasBackendPendingReview =
+          !record.autoEvo && isPendingReviewSuggestionStatus(record.suggestionStatus);
+        const showPendingTag =
+          !record.autoEvo && (Boolean(pendingProposal) || hasBackendPendingReview);
+        const autoEvoStatusMeta = record.autoEvo
+          ? getAutoEvoStatusMeta(record.autoEvoApplyStatus)
+          : null;
 
         return (
           <div className="memory-table-main">
             <div className="memory-table-main-title">
               <span>{record.title}</span>
+              {autoEvoStatusMeta ? (
+                <Tag color={autoEvoStatusMeta.color}>{autoEvoStatusMeta.text}</Tag>
+              ) : null}
               {showPendingTag ? (
                 <Tag color="orange">{t("admin.memoryDiffPendingTag")}</Tag>
-              ) : null}
-              {record.protect ? (
-                <Tag className="memory-protect-tag" bordered={false}>
-                  <LockOutlined />
-                  <span>{t("admin.memoryProtect")}</span>
-                </Tag>
               ) : null}
             </div>
           </div>
@@ -4089,8 +4179,17 @@ export default function MemoryManagement() {
     {
       title: t("admin.memoryOperations"),
       key: "actions",
-      width: 150,
+      width: 200,
       render: (_value, record) => {
+        const pendingProposal = getPendingProposal("experience", record.id);
+        const hasBackendPendingReview =
+          !record.autoEvo && isPendingReviewSuggestionStatus(record.suggestionStatus);
+        const canReviewChange =
+          !record.autoEvo && (Boolean(pendingProposal) || hasBackendPendingReview);
+        const reviewTooltip = canReviewChange
+          ? t("admin.memoryDiffReviewAction")
+          : t("admin.memoryDiffNoPending");
+
         return (
           <Space size={4}>
             <Tooltip title={t("admin.memoryViewItem")}>
@@ -4098,6 +4197,15 @@ export default function MemoryManagement() {
                 type="text"
                 icon={<EyeOutlined />}
                 onClick={() => openModal("view", record)}
+              />
+            </Tooltip>
+            <Tooltip title={reviewTooltip}>
+              <Button
+                type="text"
+                icon={<HistoryOutlined />}
+                loading={reviewSuggestionLoadingId === record.id}
+                disabled={!canReviewChange}
+                onClick={() => void openChangeReview("experience", record.id)}
               />
             </Tooltip>
             <Tooltip title={t("admin.memoryEditItem")}>
@@ -4110,6 +4218,44 @@ export default function MemoryManagement() {
           </Space>
         );
       },
+    },
+    {
+      title: t("admin.memoryAutoEvo"),
+      key: "autoEvo",
+      width: 90,
+      render: (_value, record) => (
+        <Switch
+          checked={record.autoEvo}
+          loading={experienceAutoEvoLoading.has(record.id)}
+          onChange={(checked) => {
+            void (async () => {
+              setExperienceAutoEvoLoading((prev) => new Set(prev).add(record.id));
+              try {
+                await upsertPreferenceAsset({
+                  title: record.title,
+                  content: record.content,
+                  autoEvo: checked,
+                  resourceType: record.resourceType,
+                });
+                await refreshExperienceSection({ silent: true });
+              } catch (error) {
+                console.error("Toggle auto_evo failed:", error);
+                await refreshExperienceSection({ silent: true });
+                message.error(
+                  getLocalizedErrorMessage(error, t("admin.memoryAutoEvoToggleFailed")) ||
+                    t("admin.memoryAutoEvoToggleFailed"),
+                );
+              } finally {
+                setExperienceAutoEvoLoading((prev) => {
+                  const next = new Set(prev);
+                  next.delete(record.id);
+                  return next;
+                });
+              }
+            })();
+          }}
+        />
+      ),
     },
   ];
   const glossaryColumns: ColumnsType<GlossaryAsset> = [
@@ -4128,12 +4274,6 @@ export default function MemoryManagement() {
             >
               {record.term}
             </button>
-            {record.protect ? (
-              <Tag className="memory-protect-tag" bordered={false}>
-                <LockOutlined />
-                <span>{t("admin.memoryProtect")}</span>
-              </Tag>
-            ) : null}
           </div>
           <div className="memory-tag-group memory-tag-group-scroll">
             {record.aliases.length ? (
@@ -4196,6 +4336,45 @@ export default function MemoryManagement() {
             />
           </Tooltip>
         </Space>
+      ),
+    },
+    {
+      title: t("admin.memoryAutoEvo"),
+      key: "autoEvo",
+      width: 90,
+      render: (_value, record) => (
+        <Switch
+          checked={record.autoEvo}
+          loading={glossaryAutoEvoLoading.has(record.id)}
+          onChange={(checked) => {
+            void (async () => {
+              setGlossaryAutoEvoLoading((prev) => new Set(prev).add(record.id));
+              try {
+                await updateGlossaryAsset({
+                  ...record,
+                  autoEvo: checked,
+                });
+                await refreshGlossaryAssets({
+                  keyword: query,
+                  source: glossarySource,
+                  silent: true,
+                });
+              } catch (error) {
+                console.error("Toggle auto_evo failed:", error);
+                message.error(
+                  getLocalizedErrorMessage(error, t("admin.memoryAutoEvoToggleFailed")) ||
+                    t("admin.memoryAutoEvoToggleFailed"),
+                );
+              } finally {
+                setGlossaryAutoEvoLoading((prev) => {
+                  const next = new Set(prev);
+                  next.delete(record.id);
+                  return next;
+                });
+              }
+            })();
+          }}
+        />
       ),
     },
   ];
@@ -4267,6 +4446,8 @@ export default function MemoryManagement() {
     experienceFeatureEnabled,
     experienceSettingSaving,
     handleExperienceFeatureToggle,
+    refreshSkillAssets,
+    refreshExperienceSection,
     searchInput,
     setSearchInput,
     query,

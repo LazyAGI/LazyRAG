@@ -33,6 +33,8 @@ export default function MemoryManagementListPage() {
     experienceFeatureEnabled,
     experienceSettingSaving,
     handleExperienceFeatureToggle,
+    refreshSkillAssets,
+    refreshExperienceSection,
     searchInput,
     setSearchInput,
     query,
@@ -133,6 +135,19 @@ export default function MemoryManagementListPage() {
                 }
                 resetFilters();
                 navigateToMemoryList(tabKey);
+                void (async () => {
+                  if (tabKey === "skills") {
+                    await refreshSkillAssets();
+                    return;
+                  }
+                  if (tabKey === "experience") {
+                    await refreshExperienceSection({ silent: true });
+                    return;
+                  }
+                  if (tabKey === "glossary") {
+                    await refreshGlossaryAssets({ silent: true });
+                  }
+                })();
               }}
             >
               <span className="memory-tab-icon">{tabItem.icon}</span>

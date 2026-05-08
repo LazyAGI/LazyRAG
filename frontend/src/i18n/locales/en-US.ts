@@ -1203,7 +1203,8 @@ const enUS = {
       "Skills are best shared with collaborating teams so SOPs and operating standards stay aligned.",
     memoryShareExperienceHint:
       "Experience memory is best shared with specific collaborators to sync preferences, tone, and accumulated know-how.",
-    memoryProtect: "Protected (Lock)",
+    memoryAutoEvo: "Auto Evolution",
+    memoryAutoEvoToggleFailed: "Auto evolution toggle failed",
     memorySkillParent: "Primary Skill",
     memorySkillChild: "Subskill",
     memoryParentSkill: "Primary Skill",
