@@ -704,7 +704,7 @@ export interface ShareSkillOpenAPIRequest {
 export interface SkillChildCreateOpenAPIRequest {
     'content': string;
     'file_ext'?: string;
-    'is_locked'?: boolean;
+    'auto_evo'?: boolean;
     'name': string;
 }
 export interface SkillCreateManagedOpenAPIRequest {
@@ -714,7 +714,7 @@ export interface SkillCreateManagedOpenAPIRequest {
     'description'?: string;
     'file_ext'?: string;
     'is_enabled'?: boolean;
-    'is_locked'?: boolean;
+    'auto_evo'?: boolean;
     'name': string;
     'parent_skill_name'?: string;
     'tags'?: Array<string>;
@@ -728,7 +728,7 @@ export interface SkillDetailChildOpenAPIResponse {
     'file_ext': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'is_locked': boolean;
+    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'parent_skill_name': string;
@@ -744,7 +744,7 @@ export interface SkillDetailOpenAPIResponse {
     'file_ext': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'is_locked': boolean;
+    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'parent_skill_name': string;
@@ -780,7 +780,7 @@ export interface SkillListChildOpenAPIResponse {
     'file_ext': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'is_locked': boolean;
+    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'skill_id': string;
@@ -793,7 +793,7 @@ export interface SkillListItemOpenAPIResponse {
     'description': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'is_locked': boolean;
+    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'skill_id': string;
@@ -897,7 +897,7 @@ export interface SkillUpdateManagedOpenAPIRequest {
     'description'?: string;
     'file_ext'?: string;
     'is_enabled'?: boolean;
-    'is_locked'?: boolean;
+    'auto_evo'?: boolean;
     'name'?: string;
     'tags'?: Array<string>;
 }

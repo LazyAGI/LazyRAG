@@ -1882,12 +1882,12 @@ components:
             type: object
         skillChildCreateOpenAPIRequest:
             properties:
+                auto_evo:
+                    type: boolean
                 content:
                     type: string
                 file_ext:
                     type: string
-                is_locked:
-                    type: boolean
                 name:
                     type: string
             required:
@@ -1896,6 +1896,8 @@ components:
             type: object
         skillCreateManagedOpenAPIRequest:
             properties:
+                auto_evo:
+                    type: boolean
                 category:
                     type: string
                 children:
@@ -1909,8 +1911,6 @@ components:
                 file_ext:
                     type: string
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -1934,6 +1934,8 @@ components:
             type: object
         skillDetailChildOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
                 content:
                     type: string
                 description:
@@ -1943,8 +1945,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -1959,12 +1959,12 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
                 - content
                 - description
                 - file_ext
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - parent_skill_name
@@ -1974,6 +1974,8 @@ components:
             type: object
         skillDetailOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
                 category:
                     type: string
                 children:
@@ -1989,8 +1991,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2009,13 +2009,13 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
                 - category
                 - content
                 - description
                 - file_ext
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - parent_skill_name
@@ -2086,6 +2086,8 @@ components:
             type: object
         skillListChildOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
                 description:
                     type: string
                 file_ext:
@@ -2093,8 +2095,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2107,11 +2107,11 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
                 - description
                 - file_ext
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - skill_id
@@ -2120,6 +2120,8 @@ components:
             type: object
         skillListItemOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
                 category:
                     type: string
                 children:
@@ -2131,8 +2133,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2149,11 +2149,11 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
                 - category
                 - description
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - skill_id
@@ -2407,6 +2407,8 @@ components:
             type: object
         skillUpdateManagedOpenAPIRequest:
             properties:
+                auto_evo:
+                    type: boolean
                 category:
                     type: string
                 content:
@@ -2416,8 +2418,6 @@ components:
                 file_ext:
                     type: string
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -4930,12 +4930,6 @@ paths:
             summary: Upsert managed memory
             tags:
                 - memory
-    /api/core/memory/internal-upsert:
-        post:
-            responses:
-                "200":
-                    description: OK
-            summary: POST /memory/internal-upsert
     /api/core/memory/suggestion:
         post:
             requestBody:
@@ -5843,12 +5837,6 @@ paths:
             summary: Generate user preference draft
             tags:
                 - preferences
-    /api/core/user_preference/internal-upsert:
-        post:
-            responses:
-                "200":
-                    description: OK
-            summary: POST /user_preference/internal-upsert
     /api/core/user_preference/suggestion:
         post:
             requestBody:
