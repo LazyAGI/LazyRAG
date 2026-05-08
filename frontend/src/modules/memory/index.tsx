@@ -2033,10 +2033,13 @@ export default function MemoryManagement() {
       openModal(
         "view",
         detail || buildStructuredAssetFromSkillShare(share),
+        { skipSkillDetailLoad: true },
       );
     } catch (error) {
       console.error("Load skill detail failed:", error);
-      openModal("view", buildStructuredAssetFromSkillShare(share));
+      openModal("view", buildStructuredAssetFromSkillShare(share), {
+        skipSkillDetailLoad: true,
+      });
     } finally {
       setSkillShareAction(share.id);
     }
