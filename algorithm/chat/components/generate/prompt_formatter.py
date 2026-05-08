@@ -66,12 +66,67 @@ class RAGContextFormatter(ModuleBase):
     def __init__(self, return_trace: bool = False, **kwargs) -> None:
         super().__init__(return_trace=return_trace, **kwargs)
 
+    def _format_node_content(self, node, index: int) -> str:
+        '''Render a node into the prompt-friendly content block.
+
+        Handles three multimodal node shapes in addition to plain text:
+          - video_audio_text : transcript with start/end timestamps
+          - video_audio_frame: extracted video frame (Markdown image)
+          - pure image       : ImageDocNode-style images (Markdown image)
+        '''
+        metadata = getattr(node, 'metadata', None) or {}
+        multimodal_type = metadata.get('multimodal_type')
+
+        if multimodal_type == 'video_audio_text':
+            node_text = getattr(node, 'text', '') or ''
+            start_time = metadata.get('start_time')
+            end_time = metadata.get('end_time')
+            original_path = metadata.get('video_file_path') or metadata.get('audio_file_path') or ''
+            return (
+                f'Source path: {original_path}\n'
+                f'Transcript: {node_text}\n'
+                f'Start time: {start_time}\n'
+                f'End time: {end_time}'
+            )
+
+        if multimodal_type == 'video_audio_frame':
+            image_path = (
+                metadata.get('frame_path')
+                or metadata.get('source_path')
+                or metadata.get('normalized_source_path')
+                or getattr(node, 'image_path', '')
+                or getattr(node, 'text', '')
+            )
+            file_name = metadata.get('file_name') or f'image_{index + 1}'
+            video_source_path = metadata.get('video_source_path') or metadata.get('video_file_path') or ''
+            frame_timestamp = metadata.get('frame_timestamp')
+            return (
+                f'Video source path: {video_source_path}\n'
+                f'Frame timestamp: {frame_timestamp}\n'
+                f'Image path: {image_path}\n'
+                f'Image markdown: ![{file_name}]({image_path})'
+            )
+
+        if hasattr(node, 'image_path') or metadata.get('is_pure_image'):
+            image_path = (
+                metadata.get('source_path')
+                or metadata.get('normalized_source_path')
+                or getattr(node, 'image_path', '')
+                or getattr(node, 'text', '')
+            )
+            file_name = metadata.get('file_name') or f'image_{index + 1}'
+            return f'Image path: {image_path}\nImage markdown: ![{file_name}]({image_path})'
+
+        return getattr(node, 'text', '') or ''
+
     def _create_context_str(self, nodes: dict) -> str:
         node_str_list = []
         for index, node in enumerate(nodes):
-            file_name = node.metadata.get('file_name')
+            metadata = getattr(node, 'metadata', None) or {}
+            file_name = metadata.get('file_name')
+            node_content = self._format_node_content(node, index)
             node_str = (
-                f'Document[[{index + 1}]]:\nFile name: {file_name}\n{node.text}\n'
+                f'Document[[{index + 1}]]:\nFile name: {file_name}\n{node_content}\n'
             )
             node_str_list.append(node_str)
 

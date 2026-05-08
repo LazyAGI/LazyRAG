@@ -251,6 +251,48 @@ def get_embed_keys(config_path: Optional[str] = None) -> list:
     return [role for role in raw if role.startswith(_EMBED_KEY_PREFIX)]
 
 
+def _first_entry_type(entries: Any) -> str:
+    '''Return the lower-cased ``type`` field from the first entry.
+
+    Supports both yaml shapes:
+      - static (inner/online): ``role: [{type: ...}, ...]``
+      - dynamic              : ``role: {type: ...}``
+    '''
+    if isinstance(entries, list) and entries:
+        entry = entries[0]
+    elif isinstance(entries, dict):
+        entry = entries
+    else:
+        return ''
+    if not isinstance(entry, dict):
+        return ''
+    return (entry.get('type') or '').lower()
+
+
+@lru_cache(maxsize=1)
+def get_image_embed_key(config_path: Optional[str] = None) -> Optional[str]:
+    '''Return the embed role name marked as cross-modal (image) embed.
+
+    A role is treated as the image embed when its yaml entry uses
+    ``type: cross_modal_embed``.  Returns None when no such role exists,
+    in which case callers should skip the image retrieval branch.
+    '''
+    raw = load_model_config(config_path)
+    for role, entries in raw.items():
+        if not role.startswith(_EMBED_KEY_PREFIX):
+            continue
+        if _first_entry_type(entries) == 'cross_modal_embed':
+            return role
+    return None
+
+
+@lru_cache(maxsize=1)
+def get_text_embed_keys(config_path: Optional[str] = None) -> list:
+    '''Return embed role names excluding the cross-modal image embed.'''
+    image_key = get_image_embed_key(config_path)
+    return [k for k in get_embed_keys(config_path) if k != image_key]
+
+
 _DEFAULT_DENSE_INDEX_KWARGS = {
     'index_type': 'IVF_FLAT',
     'metric_type': 'COSINE',

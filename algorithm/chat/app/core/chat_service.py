@@ -105,7 +105,8 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        memory: Optional[str],
                        user_preference: Optional[str],
                        use_memory: Optional[bool],
-                       create_user_id: Optional[str] = None) -> Dict[str, Any]:
+                       create_user_id: Optional[str] = None,
+                       query_images: Optional[List[str]] = None) -> Dict[str, Any]:
     hist = [
         {
             'role': str(h.get('role', 'assistant')),
@@ -114,9 +115,15 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         for h in (history or [])
         if isinstance(h, dict)
     ]
+    normalized_query_images = (
+        [str(p).strip() for p in (query_images or []) if str(p).strip()]
+        if MULTIMODAL_MODE
+        else []
+    )
     return {
         'query': query, 'history': hist, 'filters': filters if RAG_MODE and filters else {},
         'files': other_files, 'image_files': image_files if MULTIMODAL_MODE and image_files else [],
+        'query_images': normalized_query_images,
         'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority,
         'dataset': dataset,
         'session_id': session_id,
@@ -175,6 +182,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       user_preference: Optional[str], use_memory: Optional[bool],
                       is_stream: bool, trace: bool = False,
                       create_user_id: Optional[str] = None,
+                      query_images: Optional[List[str]] = None,
                       model_config: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
@@ -192,7 +200,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         query, history, filters, other_files, databases,
         debug or False, image_files, priority, dataset, session_id,
         available_tools, available_skills, memory, user_preference,
-        use_memory, create_user_id,
+        use_memory, create_user_id, query_images,
     )
 
     def _init_session():

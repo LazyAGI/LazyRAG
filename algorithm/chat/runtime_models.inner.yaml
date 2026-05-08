@@ -30,3 +30,11 @@ embed_sparse:
     name: bgem3_emb_sparse_custom
     url: http://10.119.27.151:2269/sparse_embed
     skip_auth: true
+
+# Cross-modal (image) embed shared by image nodes and image-only retrieval branch.
+embed_image:
+  - source: openai
+    type: cross_modal_embed
+    name: siglip
+    url: http://10.119.21.178:34335/embeddings
+    skip_auth: true

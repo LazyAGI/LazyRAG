@@ -1,23 +1,27 @@
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Optional
 
 from lazyllm import AutoModel, Retriever, bind, pipeline, Document
 from lazyllm.tools.rag import TempDocRetriever
 
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
-from chat.utils.load_config import get_embed_keys, get_config_path
+from chat.utils.load_config import (
+    get_config_path,
+    get_image_embed_key,
+    get_text_embed_keys,
+)
+from config import config as _cfg
 
-# Primary dense embed role name — always the first embed key in the config.
+# Primary dense embed role name — always the first text embed key in the config.
 EMBED_MAIN = 'embed_main'
 
 
 def _build_default_retriever_configs(topk: int = 20) -> List[dict]:
-    '''Build retriever configs from the active embed keys in the yaml config.
+    '''Build retriever configs from the active text embed keys in the yaml config.
 
-    Mirrors the original _build_default_retriever_configs logic: each embed key
-    gets its own line-level and block-level group entry.  If embed_sparse is not
-    present in the config it is simply omitted — sparse retrieval is optional.
+    Image embed (cross_modal_embed) is excluded — image retrieval is handled
+    separately via the dedicated image_retriever returned by get_retriever().
     '''
-    embed_keys = get_embed_keys() or [EMBED_MAIN]
+    embed_keys = get_text_embed_keys() or [EMBED_MAIN]
     return [{'group_name': 'line', 'embed_keys': embed_keys, 'topk': topk, 'target': 'block'},
             {'group_name': 'block', 'embed_keys': embed_keys, 'topk': topk}]
 
@@ -25,6 +29,7 @@ def _build_default_retriever_configs(topk: int = 20) -> List[dict]:
 class SearchRetrievalParts(NamedTuple):
     kb_retrievers: List[Retriever]
     tmp_retriever_pipeline: object
+    image_retriever: Optional[Retriever]
 
 
 def get_remote_docment(url: str) -> Document:
@@ -43,6 +48,16 @@ def get_retriever(url: str, retriever_configs: List[dict] = None, *,
     document = get_remote_docment(url)
     kb_retrievers = [Retriever(document, **cfg) for cfg in retriever_configs]
 
+    image_retriever: Optional[Retriever] = None
+    image_embed_key = get_image_embed_key()
+    if image_embed_key:
+        image_retriever = Retriever(
+            document,
+            group_name='image',
+            embed_keys=[image_embed_key],
+            topk=int(_cfg['image_topk']),
+        )
+
     ref_docs_retriever = TempDocRetriever(embed=AutoModel(model=EMBED_MAIN, config=get_config_path()))
     ref_docs_retriever.add_subretriever('block', topk=tmp_block_topk)
     with pipeline() as tmp_ppl:
@@ -52,4 +67,5 @@ def get_retriever(url: str, retriever_configs: List[dict] = None, *,
     return SearchRetrievalParts(
         kb_retrievers=kb_retrievers,
         tmp_retriever_pipeline=tmp_ppl,
+        image_retriever=image_retriever,
     )

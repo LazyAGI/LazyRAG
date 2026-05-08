@@ -1,5 +1,6 @@
 from typing import AsyncIterator, AsyncGenerator, Dict, List, Tuple
 from lazyllm import ModuleBase
+from lazyllm.tools.rag.doc_node import DocNode
 from processor.table_image_map import normalize_table_image_map
 
 from chat.utils.stream_scanner import BasePlugin, CitationPlugin, ImagePlugin, IncrementalScanner
@@ -29,6 +30,16 @@ class CustomOutputParser(ModuleBase):
     def create_source_node(self, index: int, node) -> Dict[str, str]:
         gm = node.global_metadata
         metadata = node.metadata
+        # ImageDocNode has text=None; fall back to its image path so downstream consumers
+        # always see a non-empty `content` field.
+        content = getattr(node, 'text', None)
+        if content is None and (getattr(node, 'image_path', None) or metadata.get('is_pure_image')):
+            content = (
+                metadata.get('source_path')
+                or metadata.get('normalized_source_path')
+                or getattr(node, 'image_path', '')
+            )
+        content = content or ''
         return {
             'index': index,
             'segment_number': metadata.get('store_num') or metadata.get('lazyllm_store_num') or -1,
@@ -38,7 +49,7 @@ class CustomOutputParser(ModuleBase):
             'dataset_id': gm.get('kb_id', 'kb_id_example'),
             'file_name': gm.get('file_name', 'title_example'),
             'segement_id': node._uid,
-            'content': node.text,
+            'content': content,
             'group_name': node._group
         }
 
@@ -104,6 +115,7 @@ class CustomOutputParser(ModuleBase):
             output = self._extract_citations(input, nodes, image_files)
             debug = kwargs.get('debug') or False
             recall_nodes = kwargs.get('recall_result') or []
+            recall_nodes = [n for n in recall_nodes if isinstance(n, DocNode)]
             recall_nodes = [self.create_source_node(index, node) for index, node in enumerate(recall_nodes)]
             return (output | {'recall': recall_nodes}) if debug else output
 
