@@ -10,7 +10,7 @@ import (
 
 const (
 	vocabExtractPath             = "/api/vocab/extract"
-	vocabExtractScheduleInterval = 7 * 24 * time.Hour
+	vocabExtractScheduleInterval = 12 * time.Hour
 	vocabExtractHTTPTimeout      = 10 * time.Minute
 )
 

@@ -192,8 +192,10 @@ func registerAllRoutes(r *mux.Router) {
 	// ----- Model provider -----
 	handleAPI(r, "GET", "/model_providers", []string{}, modelprovider.ListUserProviders)
 	handleAPI(r, "GET", "/model_providers:with_groups", []string{}, modelprovider.ListUserProvidersWithGroups)
-	handleAPI(r, "POST", "/model_providers:check", []string{}, modelprovider.CheckModelProvider)
+	handleAPI(r, "POST", "/model_providers/{model_provider_id}/groups/{group_id}:check", []string{}, modelprovider.CheckGroup)
 	handleAPI(r, "GET", "/model_providers/models", []string{}, modelprovider.ListUserModelsByModelType)
+	handleAPI(r, "GET", "/model_providers/selected_models", []string{}, modelprovider.GetSelectedModels)
+	handleAPI(r, "PUT", "/model_providers/selected_models", []string{}, modelprovider.SetSelectedModels)
 	handleAPI(r, "GET", "/model_providers/{model_provider_id}/groups", []string{}, modelprovider.ListGroups)
 	handleAPI(r, "POST", "/model_providers/{model_provider_id}/groups", []string{}, modelprovider.CreateGroup)
 	handleAPI(r, "PATCH", "/model_providers/{model_provider_id}/groups/{group_id}", []string{}, modelprovider.UpdateGroup)

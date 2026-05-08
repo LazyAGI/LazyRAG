@@ -537,6 +537,30 @@ type listUserModelsByModelTypeQueryParams struct {
 	ModelType string `query:"model_type"`
 }
 
+type selectedModelOpenAPIItem struct {
+	ModelType                string `json:"model_type"`
+	ModelID                  string `json:"model_id"`
+	UserModelProviderID      string `json:"user_model_provider_id"`
+	UserModelProviderGroupID string `json:"user_model_provider_group_id"`
+	Name                     string `json:"name"`
+	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
+	BaseURL                  string `json:"base_url"`
+}
+
+type listSelectedModelsOpenAPIResponse struct {
+	Selections []selectedModelOpenAPIItem `json:"selections"`
+}
+
+type setSelectedModelOpenAPIItem struct {
+	ModelType string `json:"model_type"`
+	ModelID   string `json:"model_id"`
+}
+
+type setSelectedModelsOpenAPIRequest struct {
+	Selections []setSelectedModelOpenAPIItem `json:"selections"`
+}
+
 type modelProviderGroupModelPathParams struct {
 	ModelProviderID string `path:"model_provider_id"`
 	GroupID         string `path:"group_id"`
@@ -1486,7 +1510,7 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
-			Path:        "/model_providers:check",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}:check",
 			Summary:     "Check model provider connectivity",
 			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.",
 			Tags:        []string{"model_providers"},
@@ -1501,6 +1525,23 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"model_providers"},
 			QueryParams: listUserModelsByModelTypeQueryParams{},
 			Responses:   map[int]openAPIResponse{200: resp("Models list", listModelProviderGroupModelsOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers/selected_models",
+			Summary:     "Get selected models by model_type",
+			Description: "Returns the current user's selected model for each model_type.",
+			Tags:        []string{"model_providers"},
+			Responses:   map[int]openAPIResponse{200: resp("Selected models", listSelectedModelsOpenAPIResponse{})},
+		},
+		{
+			Method:      "PUT",
+			Path:        "/model_providers/selected_models",
+			Summary:     "Save selected models by model_type",
+			Description: "Upserts selected model rows for the current user. Each selection requires model_type and model_id. model_id must belong to the current user and model_type must match the model row.",
+			Tags:        []string{"model_providers"},
+			RequestBody: jsonBodyOf(setSelectedModelsOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Saved selected models", listSelectedModelsOpenAPIResponse{})},
 		},
 		{
 			Method:      "GET",
