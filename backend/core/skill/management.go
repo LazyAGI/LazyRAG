@@ -718,6 +718,15 @@ func createParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, userName string, req createSkillRequest, fullContent, description string) error {
 	relPath := parentRelativePath(req.Category, req.Name)
 	var count int64
+	if err := db.WithContext(ctx).
+		Model(&orm.SkillResource{}).
+		Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", userID, evolution.SkillNodeTypeParent, req.Name).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return gorm.ErrDuplicatedKey
+	}
 	if err := db.WithContext(ctx).Model(&orm.SkillResource{}).Where("owner_user_id = ? AND relative_path = ?", userID, relPath).Count(&count).Error; err != nil {
 		return err
 	}
@@ -897,6 +906,9 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 	if strings.TrimSpace(row.DraftStatus) == "pending_confirm" {
 		return errors.New("parent skill has pending_confirm draft")
 	}
+	if req.ParentSkillName != nil && strings.TrimSpace(*req.ParentSkillName) != "" {
+		return errors.New("parent skill cannot be converted to child skill")
+	}
 	currentContent, err := storedSkillContent(*row)
 	if err != nil {
 		return err
@@ -936,6 +948,17 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 	newDescription = resolvedDescription
 	if oldCategory != newCategory || oldName != newName {
 		var count int64
+		if oldName != newName {
+			if err := db.WithContext(ctx).
+				Model(&orm.SkillResource{}).
+				Where("owner_user_id = ? AND node_type = ? AND skill_name = ? AND id <> ?", userID, evolution.SkillNodeTypeParent, newName, row.ID).
+				Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return gorm.ErrDuplicatedKey
+			}
+		}
 		newRelativePath := parentRelativePath(newCategory, newName)
 		if err := db.WithContext(ctx).
 			Model(&orm.SkillResource{}).
@@ -1000,15 +1023,28 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 }
 
 func updateChildSkill(ctx context.Context, db *gorm.DB, userID string, row *orm.SkillResource, req updateSkillRequest) error {
-	if req.Name != nil {
-		return errors.New("child skill name is immutable")
+	if req.Category != nil && strings.TrimSpace(*req.Category) != strings.TrimSpace(row.Category) {
+		return errors.New("child skill category is immutable")
 	}
-	if req.Category != nil || req.Tags != nil || req.IsEnabled != nil || req.Description != nil {
-		return errors.New("child skill only supports content/file_ext/is_locked updates")
+	if req.ParentSkillName != nil && strings.TrimSpace(*req.ParentSkillName) != strings.TrimSpace(row.ParentSkillName) {
+		return errors.New("child skill parent is immutable")
+	}
+	if req.Tags != nil && len(compactStrings(*req.Tags)) > 0 {
+		return errors.New("child skill tags are not supported")
+	}
+	if req.IsEnabled != nil && *req.IsEnabled != row.IsEnabled {
+		return errors.New("child skill enabled state is immutable")
 	}
 	currentContent, err := storedSkillContent(*row)
 	if err != nil {
 		return err
+	}
+	newName := row.SkillName
+	if req.Name != nil {
+		newName = strings.TrimSpace(*req.Name)
+		if err := validatePathSegment(newName); err != nil {
+			return err
+		}
 	}
 	newContent := currentContent
 	if req.Content != nil {
@@ -1019,10 +1055,21 @@ func updateChildSkill(ctx context.Context, db *gorm.DB, userID string, row *orm.
 		newExt = normalizeExt(*req.FileExt)
 	}
 	newRelative := row.RelativePath
-	if newExt != row.FileExt {
-		newRelative = childRelativePath(row.Category, row.ParentSkillName, row.SkillName, newExt)
+	if newName != row.SkillName || newExt != row.FileExt {
+		newRelative = childRelativePath(row.Category, row.ParentSkillName, newName, newExt)
+		var count int64
+		if err := db.WithContext(ctx).
+			Model(&orm.SkillResource{}).
+			Where("owner_user_id = ? AND relative_path = ? AND id <> ?", userID, newRelative, row.ID).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return gorm.ErrDuplicatedKey
+		}
 	}
 	update := map[string]any{
+		"skill_name":    newName,
 		"file_ext":      newExt,
 		"relative_path": newRelative,
 		"content":       newContent,
@@ -1030,6 +1077,9 @@ func updateChildSkill(ctx context.Context, db *gorm.DB, userID string, row *orm.
 		"mime_type":     mimeTypeForExt(newExt),
 		"content_hash":  evolution.HashContent(newContent),
 		"updated_at":    time.Now(),
+	}
+	if req.Description != nil {
+		update["description"] = strings.TrimSpace(*req.Description)
 	}
 	if req.IsLocked != nil {
 		update["is_locked"] = *req.IsLocked
@@ -1238,7 +1288,7 @@ func replySkillError(w http.ResponseWriter, err error) {
 	default:
 		message := strings.TrimSpace(err.Error())
 		status := http.StatusBadRequest
-		if strings.Contains(message, "failed") || strings.Contains(message, "invalid") || strings.Contains(message, "required") || strings.Contains(message, "immutable") || strings.Contains(message, "supports") || strings.Contains(message, "pending_confirm") {
+		if strings.Contains(message, "failed") || strings.Contains(message, "invalid") || strings.Contains(message, "required") || strings.Contains(message, "immutable") || strings.Contains(message, "supports") || strings.Contains(message, "pending_confirm") || strings.Contains(message, "cannot") {
 			status = http.StatusBadRequest
 		} else {
 			status = http.StatusInternalServerError

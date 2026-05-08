@@ -124,6 +124,17 @@ def test_add_group_users_defaults_role_to_member(monkeypatch):
     assert calls == [(group_id, [user_id], 'member', operator.id)]
 
 
+def test_list_group_users_internal_delegates_to_service(monkeypatch):
+    group_id = uuid.uuid4()
+    calls = []
+    monkeypatch.setattr(group_api.group_service, 'list_group_users', lambda gid: calls.append(gid) or ['u1'])
+
+    result = _call(group_api.list_group_users_internal, str(group_id), None)
+
+    assert result == {'users': ['u1']}
+    assert calls == [group_id]
+
+
 def test_update_group_passes_none_when_group_name_is_missing(monkeypatch):
     group_id = uuid.uuid4()
     calls = []

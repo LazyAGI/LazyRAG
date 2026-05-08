@@ -38,6 +38,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	docQuery := s.db.WithContext(ctx).
 		Model(&documentEntity{}).
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID)
+	docQuery = applyTransientPathFilter(docQuery, "source_object_id")
 
 	keyword := strings.TrimSpace(req.Keyword)
 	if keyword != "" {
@@ -133,6 +134,9 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		Table("documents").
 		Select("source_object_id, parse_status, desired_version_id, current_version_id, updated_at").
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			return applyTransientPathFilter(db, "source_object_id")
+		}).
 		Scan(&summaryDocs).Error; err != nil {
 		return resp, err
 	}
@@ -438,6 +442,9 @@ func (s *Store) createPreviewSnapshotAndDiff(ctx context.Context, src sourceEnti
 		if path == "" || path == "." {
 			continue
 		}
+		if isTransientSourceFilePath(path, false) {
+			continue
+		}
 		if _, ok := seen[path]; ok {
 			continue
 		}
@@ -517,11 +524,16 @@ func (s *Store) createPreviewSnapshotAndDiff(ctx context.Context, src sourceEnti
 	if len(scopeRoots) > 0 {
 		filtered := make(map[string]sourceFileSnapshotItemEntity, len(baseItems))
 		for path, item := range baseItems {
+			if isTransientSourceFilePath(path, item.IsDir) {
+				continue
+			}
 			if pathInScope(path, scopeRoots) {
 				filtered[path] = item
 			}
 		}
 		baseItems = filtered
+	} else {
+		baseItems = filterTransientSnapshotItems(baseItems)
 	}
 	currentMap := make(map[string]sourceFileSnapshotItemEntity, len(currentItems))
 	for _, item := range currentItems {
@@ -603,19 +615,7 @@ func snapshotItemChanged(base, current sourceFileSnapshotItemEntity) bool {
 }
 
 func (s *Store) snapshotItemsByPath(ctx context.Context, snapshotID string) (map[string]sourceFileSnapshotItemEntity, error) {
-	itemsMap := make(map[string]sourceFileSnapshotItemEntity)
-	snapshotID = strings.TrimSpace(snapshotID)
-	if snapshotID == "" {
-		return itemsMap, nil
-	}
-	var items []sourceFileSnapshotItemEntity
-	if err := s.db.WithContext(ctx).Where("snapshot_id = ?", snapshotID).Find(&items).Error; err != nil {
-		return nil, err
-	}
-	for _, item := range items {
-		itemsMap[item.Path] = item
-	}
-	return itemsMap, nil
+	return s.snapshotItemsByPathDB(s.db.WithContext(ctx), snapshotID)
 }
 
 func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req model.GenerateTasksRequest) (resp model.GenerateTasksResponse, retErr error) {
@@ -746,13 +746,26 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 			paths = filtered
 		}
 	}
+	consumeSelectedPreview := func(tx *gorm.DB) error {
+		if selectedPreview == nil {
+			return nil
+		}
+		if src.WatchEnabled {
+			return s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now)
+		}
+		_, residualBaseID, err := s.promoteSelectedPreviewPathsToCommittedTx(tx, src.ID, *selectedPreview, paths, diffByPath, now)
+		if err != nil {
+			return err
+		}
+		if err := s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now); err != nil {
+			return err
+		}
+		return s.createResidualPreviewFromSelectionTx(tx, src.ID, *selectedPreview, residualBaseID, now)
+	}
 	if len(paths) == 0 {
 		if selectedPreview != nil {
 			if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-				if err := s.promotePreviewSnapshotToCommittedTx(tx, src.ID, selectedPreview.SnapshotID, now); err != nil {
-					return err
-				}
-				return s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now)
+				return consumeSelectedPreview(tx)
 			}); err != nil {
 				return resp, err
 			}
@@ -770,6 +783,23 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 			}
 		}
 	} else {
+		previewCurrentPaths := map[string]struct{}{}
+		if src.WatchEnabled && selectedPreview != nil {
+			previewItems, err := s.snapshotItemsByPath(ctx, selectedPreview.SnapshotID)
+			if err != nil {
+				return resp, err
+			}
+			for rawPath, item := range previewItems {
+				if item.IsDir {
+					continue
+				}
+				path := filepath.Clean(strings.TrimSpace(rawPath))
+				if path == "" || path == "." {
+					continue
+				}
+				previewCurrentPaths[path] = struct{}{}
+			}
+		}
 		var rows []struct {
 			SourceObjectID string
 			ParseStatus    string
@@ -783,7 +813,11 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 		}
 		for _, row := range rows {
 			if strings.EqualFold(strings.TrimSpace(row.ParseStatus), "DELETED") {
-				pathEventType[filepath.Clean(strings.TrimSpace(row.SourceObjectID))] = "deleted"
+				path := filepath.Clean(strings.TrimSpace(row.SourceObjectID))
+				if _, existsNow := previewCurrentPaths[path]; existsNow {
+					continue
+				}
+				pathEventType[path] = "deleted"
 			}
 		}
 	}
@@ -811,13 +845,8 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 				return err
 			}
 		}
-		if selectedPreview != nil {
-			if err := s.promotePreviewSnapshotToCommittedTx(tx, src.ID, selectedPreview.SnapshotID, now); err != nil {
-				return err
-			}
-			if err := s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now); err != nil {
-				return err
-			}
+		if err := consumeSelectedPreview(tx); err != nil {
+			return err
 		}
 		if err := enqueueSourceCommand(tx, src.AgentID, model.CommandSnapshotSource, model.SourcePayload{
 			SourceID: src.ID,
@@ -1092,7 +1121,7 @@ func (s *Store) ExpediteTasksByPaths(ctx context.Context, sourceID string, req m
 
 func (s *Store) RequeueEnabledSourcesOnStartup(ctx context.Context) (int, error) {
 	var enabled []sourceEntity
-	if err := s.db.WithContext(ctx).Where("status = ? AND watch_enabled = ?", string(model.SourceStatusEnabled), true).Find(&enabled).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("status IN ? AND watch_enabled = ?", []string{string(model.SourceStatusEnabled), string(model.SourceStatusDegraded)}, true).Find(&enabled).Error; err != nil {
 		return 0, err
 	}
 	queued := 0

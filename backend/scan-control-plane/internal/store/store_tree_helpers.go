@@ -25,6 +25,9 @@ func collectTreeFilePaths(items []model.TreeNode) []string {
 			if p == "" {
 				continue
 			}
+			if isTransientSourceFilePath(p, false) {
+				continue
+			}
 			if _, ok := seen[p]; ok {
 				continue
 			}
@@ -621,6 +624,7 @@ func (s *Store) deletedDocumentPaths(ctx context.Context, sourceID string, scope
 		Table("documents").
 		Select("source_object_id").
 		Where("source_id = ? AND parse_status = ?", sourceID, "DELETED")
+	query = applyTransientPathFilter(query, "source_object_id")
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
 	}

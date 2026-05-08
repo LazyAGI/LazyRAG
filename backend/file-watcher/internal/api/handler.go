@@ -82,11 +82,14 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 
 	resp := internal.BrowseResponse{Path: h.mapper.ToPublic(runtimePath), Entries: make([]internal.BrowseEntry, 0, len(entries))}
 	for _, e := range entries {
+		childRuntimePath := filepath.Join(runtimePath, e.Name())
+		if fs.IsTransientFile(childRuntimePath, e.IsDir()) {
+			continue
+		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		childRuntimePath := filepath.Join(runtimePath, e.Name())
 		resp.Entries = append(resp.Entries, internal.BrowseEntry{
 			Name:    e.Name(),
 			Path:    h.mapper.ToPublic(childRuntimePath),
@@ -229,6 +232,9 @@ func (h *Handler) buildTreeNode(runtimePath, publicPath string, maxDepth int, in
 		childRuntimePath := filepath.Join(runtimePath, entry.Name())
 		childPublicPath := h.mapper.ToPublic(childRuntimePath)
 		if err := h.validator.EnsureAllowed(childRuntimePath); err != nil {
+			continue
+		}
+		if fs.IsTransientFile(childRuntimePath, entry.IsDir()) {
 			continue
 		}
 		if entry.IsDir() {

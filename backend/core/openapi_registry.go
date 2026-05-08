@@ -711,14 +711,15 @@ type skillCreateManagedOpenAPIRequest struct {
 }
 
 type skillUpdateManagedOpenAPIRequest struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Category    *string  `json:"category,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Content     *string  `json:"content,omitempty"`
-	FileExt     *string  `json:"file_ext,omitempty"`
-	IsLocked    *bool    `json:"is_locked,omitempty"`
-	IsEnabled   *bool    `json:"is_enabled,omitempty"`
+	Name            *string  `json:"name,omitempty"`
+	Description     *string  `json:"description,omitempty"`
+	Category        *string  `json:"category,omitempty"`
+	ParentSkillName *string  `json:"parent_skill_name,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+	Content         *string  `json:"content,omitempty"`
+	FileExt         *string  `json:"file_ext,omitempty"`
+	IsLocked        *bool    `json:"is_locked,omitempty"`
+	IsEnabled       *bool    `json:"is_enabled,omitempty"`
 }
 
 type skillListChildOpenAPIResponse struct {
@@ -967,9 +968,7 @@ type internalSkillCreateOpenAPIRequest struct {
 }
 
 type internalSkillRemoveOpenAPIRequest struct {
-	SessionID string `json:"session_id"`
-	Category  string `json:"category"`
-	SkillName string `json:"skill_name"`
+	ID string `json:"id"`
 }
 
 func registeredCoreOperations() []openAPIOperation {
@@ -1455,7 +1454,7 @@ func registeredCoreOperations() []openAPIOperation {
 		{
 			Method:      "POST",
 			Path:        "/skill/remove",
-			Summary:     "Delete skill directly from internal request",
+			Summary:     "Delete skill by ID",
 			Tags:        []string{"skill-evolution"},
 			RequestBody: jsonBodyOf(internalSkillRemoveOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Deleted skill", skillDeleteOpenAPIResponse{})},

@@ -50,6 +50,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 	var (
 		skippedIsDir          int
 		skippedEmptyPath      int
+		skippedTransient      int
 		skippedMissingSource  int
 		skippedSourceNotFound int
 	)
@@ -70,6 +71,16 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			s.log.Debug("event skipped",
 				zap.String("reason", "empty_path"),
 				zap.String("source_id", strings.TrimSpace(ev.SourceID)),
+				zap.String("event_type", normalizeEventType(ev.EventType)),
+			)
+			continue
+		}
+		if isTransientSourceFilePath(path, false) {
+			skippedTransient++
+			s.log.Debug("event skipped",
+				zap.String("reason", "transient_file"),
+				zap.String("source_id", strings.TrimSpace(ev.SourceID)),
+				zap.String("path", path),
 				zap.String("event_type", normalizeEventType(ev.EventType)),
 			)
 			continue
@@ -134,6 +145,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			zap.Int("mutations", len(mutations)),
 			zap.Int("skipped_is_dir", skippedIsDir),
 			zap.Int("skipped_empty_path", skippedEmptyPath),
+			zap.Int("skipped_transient", skippedTransient),
 			zap.Int("skipped_missing_source", skippedMissingSource),
 			zap.Int("skipped_source_not_found", skippedSourceNotFound),
 		)

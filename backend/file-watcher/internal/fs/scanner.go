@@ -80,6 +80,9 @@ func (s *scanner) shouldInclude(path string, isDir bool) bool {
 	if isDir {
 		return true
 	}
+	if isTransientFile(path, isDir) {
+		return false
+	}
 	ext := strings.ToLower(filepath.Ext(path))
 	if s.includeExts != nil {
 		_, ok := s.includeExts[ext]
@@ -120,7 +123,7 @@ func (s *scanner) FullScan(ctx context.Context, sourceID string, root string) er
 
 		// File type filtering.
 		if !s.shouldInclude(path, d.IsDir()) {
-			s.log.Debug("skipped by extension filter", zap.String("path", path))
+			s.log.Debug("skipped by scan filter", zap.String("path", path))
 			return nil
 		}
 

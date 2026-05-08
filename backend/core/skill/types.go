@@ -21,14 +21,15 @@ type createSkillRequest struct {
 }
 
 type updateSkillRequest struct {
-	Name        *string   `json:"name"`
-	Description *string   `json:"description"`
-	Category    *string   `json:"category"`
-	Tags        *[]string `json:"tags"`
-	Content     *string   `json:"content"`
-	FileExt     *string   `json:"file_ext"`
-	IsLocked    *bool     `json:"is_locked"`
-	IsEnabled   *bool     `json:"is_enabled"`
+	Name            *string   `json:"name"`
+	Description     *string   `json:"description"`
+	Category        *string   `json:"category"`
+	ParentSkillName *string   `json:"parent_skill_name"`
+	Tags            *[]string `json:"tags"`
+	Content         *string   `json:"content"`
+	FileExt         *string   `json:"file_ext"`
+	IsLocked        *bool     `json:"is_locked"`
+	IsEnabled       *bool     `json:"is_enabled"`
 }
 
 type generateSkillRequest struct {

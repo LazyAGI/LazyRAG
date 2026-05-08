@@ -2,7 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from core.deps import current_user
+from core.deps import current_user, require_internal_service_token
 from core.errors import ErrorCodes, raise_error
 from core.rbac import permission_required
 from models import User
@@ -113,6 +113,16 @@ def delete_group(group_id: str, _: User = Depends(current_user)):  # noqa: B008
 @router.get('/{group_id}/user', response_model=GroupUserListResponse)
 @permission_required('user.admin')
 def list_group_users(group_id: str, _: User = Depends(current_user)):  # noqa: B008
+    gid = _parse_group_id(group_id)
+    users = group_service.list_group_users(gid)
+    return {'users': users}
+
+
+@router.get('/{group_id}/user/internal', response_model=GroupUserListResponse)
+def list_group_users_internal(
+    group_id: str,
+    _internal: None = Depends(require_internal_service_token),  # noqa: B008
+):
     gid = _parse_group_id(group_id)
     users = group_service.list_group_users(gid)
     return {'users': users}

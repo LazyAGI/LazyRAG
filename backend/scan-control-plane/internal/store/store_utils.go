@@ -315,6 +315,10 @@ func normalizePathsUnderRoot(paths []string, root string) ([]string, int) {
 			skipped++
 			continue
 		}
+		if isTransientSourceFilePath(p, false) {
+			skipped++
+			continue
+		}
 		if _, ok := unique[p]; ok {
 			continue
 		}
@@ -322,6 +326,24 @@ func normalizePathsUnderRoot(paths []string, root string) ([]string, int) {
 		out = append(out, p)
 	}
 	return out, skipped
+}
+
+func applyTransientPathFilter(db *gorm.DB, column string) *gorm.DB {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		return db
+	}
+	lowerColumn := "LOWER(" + column + ")"
+	for ext := range transientSourceFileExtensions {
+		db = db.Where(lowerColumn+" NOT LIKE ?", "%"+ext)
+	}
+	db = db.Where(lowerColumn+" NOT LIKE ?", "%/~$%")
+	db = db.Where(lowerColumn+" NOT LIKE ?", `%\~$%`)
+	db = db.Where(lowerColumn+" NOT LIKE ?", "%/.#%")
+	db = db.Where(lowerColumn+" NOT LIKE ?", `%\.#%`)
+	db = db.Where(lowerColumn+" NOT LIKE ?", "%/#%#")
+	db = db.Where(lowerColumn+" NOT LIKE ?", `%\#%#`)
+	return db
 }
 
 func normalizeEventType(v string) string {

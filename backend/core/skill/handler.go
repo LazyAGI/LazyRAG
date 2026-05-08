@@ -29,9 +29,7 @@ type createRequest struct {
 }
 
 type removeRequest struct {
-	SessionID string `json:"session_id"`
-	Category  string `json:"category"`
-	SkillName string `json:"skill_name"`
+	ID string `json:"id"`
 }
 
 func payloadForLog(v any) string {
@@ -274,100 +272,47 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
 		return
 	}
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
+		return
+	}
 
 	var req removeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
 		return
 	}
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	req.Category = strings.TrimSpace(req.Category)
-	req.SkillName = strings.TrimSpace(req.SkillName)
+	req.ID = strings.TrimSpace(req.ID)
 	appLog.Logger.Info().
 		Str("route", "/skill/remove").
-		Str("session_id", req.SessionID).
-		Str("category", req.Category).
-		Str("skill_name", req.SkillName).
+		Str("user_id", userID).
+		Str("skill_id", req.ID).
 		Str("payload", payloadForLog(req)).
-		Msg("internal skill remove request received")
-	if req.SessionID == "" || req.Category == "" || req.SkillName == "" {
+		Msg("skill remove request received")
+	if req.ID == "" {
 		appLog.Logger.Warn().
 			Str("route", "/skill/remove").
-			Str("session_id", req.SessionID).
-			Str("category", req.Category).
-			Str("skill_name", req.SkillName).
-			Msg("internal skill remove request rejected: missing required fields")
-		common.ReplyErr(w, "session_id/category/skill_name required", http.StatusBadRequest)
-		return
-	}
-
-	userID, _, err := evolution.ResolveSessionUser(r.Context(), db, req.SessionID)
-	if err != nil || strings.TrimSpace(userID) == "" {
-		appLog.Logger.Warn().
-			Err(err).
-			Str("route", "/skill/remove").
-			Str("session_id", req.SessionID).
-			Msg("internal skill remove request rejected: unable to resolve session user")
-		common.ReplyErr(w, "unable to resolve session user", http.StatusBadRequest)
-		return
-	}
-
-	state, err := evolution.LoadParentSkillState(r.Context(), db, userID, req.Category, req.SkillName)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			common.ReplyErr(w, "skill not found", http.StatusNotFound)
-			return
-		}
-		common.ReplyErr(w, "query skill failed", http.StatusInternalServerError)
-		return
-	}
-	snapshot, err := evolution.FindSnapshot(r.Context(), db, req.SessionID, evolution.ResourceTypeSkill, state.RelativePath)
-	if err != nil {
-		appLog.Logger.Warn().
-			Err(err).
-			Str("route", "/skill/remove").
-			Str("session_id", req.SessionID).
 			Str("user_id", userID).
-			Str("category", req.Category).
-			Str("skill_name", req.SkillName).
-			Msg("internal skill remove request rejected: session snapshot not found")
-		common.ReplyErr(w, "session snapshot not found", http.StatusNotFound)
+			Msg("skill remove request rejected: missing id")
+		common.ReplyErr(w, "id required", http.StatusBadRequest)
 		return
 	}
-	if state.ContentHash != snapshot.SnapshotHash {
-		appLog.Logger.Warn().
-			Str("route", "/skill/remove").
-			Str("session_id", req.SessionID).
-			Str("user_id", userID).
-			Str("category", req.Category).
-			Str("skill_name", req.SkillName).
-			Str("current_hash", state.ContentHash).
-			Str("snapshot_hash", snapshot.SnapshotHash).
-			Msg("internal skill remove request rejected: snapshot hash mismatch")
-		common.ReplyErr(w, "skill snapshot hash mismatch", http.StatusConflict)
-		return
-	}
-	if err := deleteSkill(r.Context(), db, userID, state.Resource.ID); err != nil {
+	if err := deleteSkill(r.Context(), db, userID, req.ID); err != nil {
 		appLog.Logger.Error().
 			Err(err).
 			Str("route", "/skill/remove").
-			Str("session_id", req.SessionID).
 			Str("user_id", userID).
-			Str("category", req.Category).
-			Str("skill_name", req.SkillName).
-			Str("skill_id", state.Resource.ID).
-			Msg("internal skill remove request failed to delete skill directly")
+			Str("skill_id", req.ID).
+			Msg("skill remove request failed to delete skill directly")
 		replySkillError(w, err)
 		return
 	}
 	appLog.Logger.Info().
 		Str("route", "/skill/remove").
-		Str("session_id", req.SessionID).
 		Str("user_id", userID).
-		Str("category", req.Category).
-		Str("skill_name", req.SkillName).
-		Str("skill_id", state.Resource.ID).
-		Msg("internal skill remove request deleted skill directly")
+		Str("skill_id", req.ID).
+		Msg("skill remove request deleted skill directly")
 	common.ReplyOK(w, map[string]any{"deleted": true})
 }
 

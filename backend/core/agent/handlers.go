@@ -1219,8 +1219,10 @@ func streamMessageRecords(
 	session *activeMessageStream,
 ) {
 	lastSent := afterID
+	replayRoundID := ""
 	var sub *messageStreamSubscription
 	if session != nil {
+		replayRoundID = session.roundID
 		sub = session.subscribe()
 		defer session.unsubscribe(sub)
 	}
@@ -1230,7 +1232,7 @@ func streamMessageRecords(
 			if r.Context().Err() != nil {
 				return false
 			}
-			records, err := listRecords(db, threadID, streamKindMessage, "", lastSent, 200)
+			records, err := listRecords(db, threadID, streamKindMessage, replayRoundID, lastSent, 200)
 			if err != nil {
 				log.Logger.Warn().Err(err).Str("thread_id", threadID).Str("stream_kind", streamKindMessage).Msg("load stored stream records failed")
 				time.Sleep(500 * time.Millisecond)
