@@ -10,6 +10,7 @@ from chat.tools.skill_manager import _validate_skill_content
 MemoryType = Literal['skill', 'memory', 'user_preference']
 
 _MAX_GENERATE_ATTEMPTS = 3
+_MAX_MANAGED_CONTENT_CHARS = 1500
 _JSON_BLOCK_RE = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
 _THINK_BLOCK_RE = re.compile(r'<think>.*?</think\s*>', re.DOTALL | re.IGNORECASE)
 
@@ -99,6 +100,17 @@ def _validate_generated_content(memory_type: MemoryType, content: Any) -> str:
         if validation_error:
             raise UnprocessableContentError(
                 f'Generated SKILL.md is invalid: {validation_error}'
+            )
+    elif memory_type in ('memory', 'user_preference'):
+        compact_content = ''.join(content.split())
+        content_length = len(compact_content)
+        if content_length > _MAX_MANAGED_CONTENT_CHARS:
+            raise UnprocessableContentError(
+                f'Generated content exceeds {_MAX_MANAGED_CONTENT_CHARS} characters '
+                f'after removing whitespace; current length is {content_length}. '
+                f'Reduce the content length to {_MAX_MANAGED_CONTENT_CHARS} characters '
+                'or less after removing whitespace, keeping only the most important '
+                'concise entries.'
             )
     return content
 
@@ -217,8 +229,12 @@ def _build_memory_prompt(
         '[Writing and merging rules]\n'
         '- Output as plain text full content.\n'
         '- When merging, deduplicate and consolidate: combine same or similar experiences into a more accurate statement; do not stack duplicates.\n'  # noqa: E501
+        '- Prefer minimal necessary edits based on the current content; preserve original valid wording and structure where possible, and do not fully rewrite unless explicitly required.\n'  # noqa: E501
         '- Retain existing valid experiences; experiences explicitly corrected or overridden by suggestions/user_instruct must be updated or deleted.\n'  # noqa: E501
         '- Keep language concise and objective; one experience per line or short paragraph for easy incremental maintenance.\n'  # noqa: E501
+        '\n'
+        '[Length control]\n'
+        f'- The final content must be within {_MAX_MANAGED_CONTENT_CHARS} characters after removing all whitespace; if needed, reduce low-value details and keep only the most important concise entries.\n'  # noqa: E501
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'
@@ -246,8 +262,12 @@ def _build_user_preference_prompt(
         '[Writing and merging rules]\n'
         '- Output as plain text full content (simple markdown grouping/lists are allowed); no YAML frontmatter.\n'
         '- When merging, update rather than append for the same profile dimension: new preferences override old ones; when conflicting, user_instruct takes precedence.\n'  # noqa: E501
+        '- Prefer minimal necessary edits based on the current content; preserve original valid wording and structure where possible, and do not fully rewrite unless explicitly required.\n'  # noqa: E501
         '- Group by dimension if needed (e.g. identity / output preferences / language & tone / taboos / other conventions).\n'  # noqa: E501
         '- Keep language concise and neutral; no anthropomorphic comments; only state factual user profile entries.\n'
+        '\n'
+        '[Length control]\n'
+        f'- The final content must be within {_MAX_MANAGED_CONTENT_CHARS} characters after removing all whitespace; if needed, reduce low-value details and keep only the most important concise entries.\n'  # noqa: E501
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'
