@@ -1827,6 +1827,7 @@ export default function MemoryManagement() {
   const openModal = (
     mode: ModalMode,
     item?: StructuredAsset | ExperienceAsset | GlossaryAsset,
+    options?: { skipSkillDetailLoad?: boolean },
   ) => {
     setPendingGlossaryMergeSourceIds([]);
     setModalMode(mode);
@@ -1878,7 +1879,7 @@ export default function MemoryManagement() {
         }),
       );
 
-      if (activeTab === "skills" && mode !== "add") {
+      if (activeTab === "skills" && mode !== "add" && !options?.skipSkillDetailLoad) {
         void (async () => {
           try {
             const detail = await getSkillAssetDetail(item.id);
@@ -1973,10 +1974,13 @@ export default function MemoryManagement() {
       openModal(
         "view",
         buildStructuredAssetFromSkillShare(detail || share),
+        { skipSkillDetailLoad: true },
       );
     } catch (error) {
       console.error("Load skill share detail failed:", error);
-      openModal("view", buildStructuredAssetFromSkillShare(share));
+      openModal("view", buildStructuredAssetFromSkillShare(share), {
+        skipSkillDetailLoad: true,
+      });
     } finally {
       setSkillShareAction(share.id);
     }
