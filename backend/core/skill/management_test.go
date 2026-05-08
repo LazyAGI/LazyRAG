@@ -1154,7 +1154,7 @@ func TestCreateParentSkillBuildsFrontmatterFromBodyOnlyContent(t *testing.T) {
 		Description: "Git workflow for postman test",
 		Category:    "coding",
 		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
-		IsLocked:    true,
+		AutoEvo:    true,
 	}
 	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", req); err != nil {
 		t.Fatalf("create parent skill: %v", err)
@@ -1240,7 +1240,7 @@ func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T
 				Name:     "rules",
 				Content:  "1. Create a feature branch.\n2. Rebase before merging.",
 				FileExt:  "md",
-				IsLocked: true,
+				AutoEvo: true,
 			},
 		},
 	}

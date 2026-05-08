@@ -30,11 +30,7 @@ type generateRequest struct {
 
 type upsertRequest struct {
 	Content *string `json:"content"`
-}
-
-type internalUpsertRequest struct {
-	SessionID string  `json:"session_id"`
-	Content   *string `json:"content"`
+	AutoEvo *bool   `json:"auto_evo"`
 }
 
 type draftPreviewResponse struct {
@@ -58,13 +54,17 @@ func validateManagedContentLength(content string) error {
 	return nil
 }
 
-func upsertManagedMemoryContent(r *http.Request, db *gorm.DB, userID, userName, content string, clearDraft bool) (*orm.SystemMemory, error) {
+func upsertManagedMemoryContent(r *http.Request, db *gorm.DB, userID, userName, content string, autoEvo *bool, clearDraft bool) (*orm.SystemMemory, error) {
 	existing, err := evolution.LoadSystemMemory(r.Context(), db, userID)
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
 
 	now := time.Now()
+	resolvedAutoEvo := true
+	if autoEvo != nil {
+		resolvedAutoEvo = *autoEvo
+	}
 	if existing == nil {
 		row := orm.SystemMemory{
 			ID:            evolution.NewID(),
@@ -72,6 +72,7 @@ func upsertManagedMemoryContent(r *http.Request, db *gorm.DB, userID, userName, 
 			Content:       content,
 			ContentHash:   evolution.HashContent(content),
 			Version:       1,
+			AutoEvo:       resolvedAutoEvo,
 			UpdatedBy:     userID,
 			UpdatedByName: userName,
 			CreatedAt:     now,
@@ -87,9 +88,21 @@ func upsertManagedMemoryContent(r *http.Request, db *gorm.DB, userID, userName, 
 		"content":         content,
 		"content_hash":    evolution.HashContent(content),
 		"version":         existing.Version + 1,
+		"auto_evo":        resolvedAutoEvo,
 		"updated_by":      userID,
 		"updated_by_name": userName,
 		"updated_at":      now,
+	}
+	if autoEvo != nil {
+		update["auto_evo_generation"] = gorm.Expr("auto_evo_generation + 1")
+		update["auto_evo_apply_status"] = evolution.AutoEvoApplyStatusIdle
+		update["auto_evo_error"] = ""
+		if resolvedAutoEvo {
+			update["auto_evo_finished_at"] = nil
+		} else {
+			update["auto_evo_started_at"] = nil
+			update["auto_evo_finished_at"] = now
+		}
 	}
 	if clearDraft {
 		update["draft_content"] = ""
@@ -107,6 +120,12 @@ func upsertManagedMemoryContent(r *http.Request, db *gorm.DB, userID, userName, 
 	existing.Content = content
 	existing.ContentHash = evolution.HashContent(content)
 	existing.Version++
+	existing.AutoEvo = resolvedAutoEvo
+	if autoEvo != nil {
+		existing.AutoEvoGeneration++
+		existing.AutoEvoApplyStatus = evolution.AutoEvoApplyStatusIdle
+		existing.AutoEvoError = ""
+	}
 	existing.UpdatedBy = userID
 	existing.UpdatedByName = userName
 	existing.UpdatedAt = now
@@ -159,63 +178,19 @@ func Upsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row, err := upsertManagedMemoryContent(r, db, userID, userName, content, false)
+	row, err := upsertManagedMemoryContent(r, db, userID, userName, content, req.AutoEvo, false)
 	if err != nil {
 		common.ReplyErr(w, "update memory failed", http.StatusInternalServerError)
 		return
 	}
+
+	if req.AutoEvo != nil && *req.AutoEvo {
+		if err := evolution.EnsureManagedMemoryAutoEvolutionScheduled(*row); err != nil {
+			appLog.Logger.Warn().Err(err).Str("route", "/memory").Msg("auto_evo schedule on upsert failed")
+		}
+	}
+
 	suggestionStatus, err := evolution.ManagedSuggestionStatusForResource(r.Context(), db, userID, evolution.ResourceTypeMemory)
-	if err != nil {
-		common.ReplyErr(w, "query memory failed", http.StatusInternalServerError)
-		return
-	}
-	common.ReplyOK(w, evolution.NewManagedStateItem(evolution.ResourceTypeMemory, row, suggestionStatus))
-}
-
-func InternalUpsert(w http.ResponseWriter, r *http.Request) {
-	db := store.DB()
-	if db == nil {
-		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
-		return
-	}
-
-	var req internalUpsertRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		common.ReplyErr(w, "invalid body", http.StatusBadRequest)
-		return
-	}
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	if req.SessionID == "" {
-		common.ReplyErr(w, "session_id required", http.StatusBadRequest)
-		return
-	}
-	if req.Content == nil {
-		common.ReplyErr(w, "content required", http.StatusBadRequest)
-		return
-	}
-	content := *req.Content
-	if err := validateManagedContentLength(content); err != nil {
-		common.ReplyErr(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	userID, userName, err := evolution.ResolveSessionUser(r.Context(), db, req.SessionID)
-	if err != nil || strings.TrimSpace(userID) == "" {
-		common.ReplyErr(w, "unable to resolve session user", http.StatusBadRequest)
-		return
-	}
-
-	row, err := upsertManagedMemoryContent(r, db, userID, userName, content, true)
-	if err != nil {
-		common.ReplyErr(w, "update memory failed", http.StatusInternalServerError)
-		return
-	}
-	suggestionStatus, err := evolution.ManagedSuggestionStatusForResource(
-		r.Context(),
-		db,
-		userID,
-		evolution.ResourceTypeMemory,
-	)
 	if err != nil {
 		common.ReplyErr(w, "query memory failed", http.StatusInternalServerError)
 		return
@@ -360,6 +335,17 @@ func Suggestion(w http.ResponseWriter, r *http.Request) {
 		Str("user_id", userID).
 		Int("created_count", len(rows)).
 		Msg("internal memory suggestion request persisted")
+
+	if resource.AutoEvo && status != evolution.SuggestionStatusInvalid {
+		if err := evolution.EnsureManagedMemoryAutoEvolutionScheduled(*resource); err != nil {
+			appLog.Logger.Warn().
+				Err(err).
+				Str("route", "/memory/suggestion").
+				Str("session_id", req.SessionID).
+				Str("user_id", userID).
+				Msg("auto_evo schedule failed, suggestions kept for manual review")
+		}
+	}
 	common.ReplyOK(w, map[string]any{"items": resp})
 }
 

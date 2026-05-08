@@ -580,7 +580,7 @@ type skillChildCreateOpenAPIRequest struct {
 	Name     string `json:"name"`
 	Content  string `json:"content"`
 	FileExt  string `json:"file_ext,omitempty"`
-	IsLocked *bool  `json:"is_locked,omitempty"`
+	AutoEvo *bool  `json:"auto_evo,omitempty"`
 }
 
 type skillCreateManagedOpenAPIRequest struct {
@@ -591,7 +591,7 @@ type skillCreateManagedOpenAPIRequest struct {
 	Tags            []string                         `json:"tags,omitempty"`
 	Content         string                           `json:"content"`
 	FileExt         string                           `json:"file_ext,omitempty"`
-	IsLocked        *bool                            `json:"is_locked,omitempty"`
+	AutoEvo        *bool                            `json:"auto_evo,omitempty"`
 	IsEnabled       *bool                            `json:"is_enabled,omitempty"`
 	Children        []skillChildCreateOpenAPIRequest `json:"children,omitempty"`
 }
@@ -603,7 +603,7 @@ type skillUpdateManagedOpenAPIRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 	Content     *string  `json:"content,omitempty"`
 	FileExt     *string  `json:"file_ext,omitempty"`
-	IsLocked    *bool    `json:"is_locked,omitempty"`
+	AutoEvo    *bool    `json:"auto_evo,omitempty"`
 	IsEnabled   *bool    `json:"is_enabled,omitempty"`
 }
 
@@ -612,7 +612,7 @@ type skillListChildOpenAPIResponse struct {
 	Name                        string `json:"name"`
 	Description                 string `json:"description"`
 	FileExt                     string `json:"file_ext"`
-	IsLocked                    bool   `json:"is_locked"`
+	AutoEvo                    bool   `json:"auto_evo"`
 	IsEnabled                   bool   `json:"is_enabled"`
 	UpdateStatus                string `json:"update_status"`
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
@@ -626,7 +626,7 @@ type skillListItemOpenAPIResponse struct {
 	Description                 string                          `json:"description"`
 	Category                    string                          `json:"category"`
 	Tags                        []string                        `json:"tags"`
-	IsLocked                    bool                            `json:"is_locked"`
+	AutoEvo                    bool                            `json:"auto_evo"`
 	IsEnabled                   bool                            `json:"is_enabled"`
 	UpdateStatus                string                          `json:"update_status"`
 	HasPendingReviewSuggestions bool                            `json:"has_pending_review_suggestions"`
@@ -647,7 +647,7 @@ type skillDetailChildOpenAPIResponse struct {
 	Name                        string `json:"name"`
 	Description                 string `json:"description"`
 	FileExt                     string `json:"file_ext"`
-	IsLocked                    bool   `json:"is_locked"`
+	AutoEvo                    bool   `json:"auto_evo"`
 	IsEnabled                   bool   `json:"is_enabled"`
 	UpdateStatus                string `json:"update_status"`
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
@@ -663,7 +663,7 @@ type skillDetailOpenAPIResponse struct {
 	Description                 string                            `json:"description"`
 	Category                    string                            `json:"category"`
 	Tags                        []string                          `json:"tags"`
-	IsLocked                    bool                              `json:"is_locked"`
+	AutoEvo                    bool                              `json:"auto_evo"`
 	IsEnabled                   bool                              `json:"is_enabled"`
 	UpdateStatus                string                            `json:"update_status"`
 	HasPendingReviewSuggestions bool                              `json:"has_pending_review_suggestions"`
