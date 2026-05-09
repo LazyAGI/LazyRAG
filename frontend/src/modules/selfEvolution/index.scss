@@ -3083,6 +3083,27 @@
     border-color: #92bbed;
     box-shadow: 0 10px 20px rgba(70, 110, 166, 0.12);
   }
+
+  &.is-current {
+    position: relative;
+    border-color: #8bbcff;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 10px 24px rgba(47, 125, 246, 0.12);
+
+    &::before {
+      content: "";
+      position: absolute;
+      inset: 8px auto 8px 8px;
+      width: 3px;
+      border-radius: 999px;
+      background: #2f7df6;
+    }
+
+    &:hover {
+      transform: none;
+      border-color: #8bbcff;
+    }
+  }
 }
 
 .self-evolution-history-modal-item-select {
@@ -3101,6 +3122,11 @@
   &:disabled {
     cursor: not-allowed;
     opacity: 0.62;
+  }
+
+  &[aria-current="true"]:disabled {
+    cursor: default;
+    opacity: 1;
   }
 }
 
@@ -3175,6 +3201,29 @@
     background: #f3f7fb;
     border: 1px solid #d8e3ef;
   }
+}
+
+.self-evolution-history-modal-current-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid #b7d4ff;
+  background: #f4f8ff;
+  color: #1e5fbf;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.self-evolution-history-modal-current-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #2f7df6;
+  box-shadow: 0 0 0 3px rgba(47, 125, 246, 0.12);
 }
 
 .self-evolution-history-modal-item-meta,

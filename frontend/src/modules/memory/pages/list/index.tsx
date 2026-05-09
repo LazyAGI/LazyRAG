@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -10,11 +11,18 @@ import {
   Tooltip,
 } from "antd";
 import { QuestionCircleOutlined } from "@ant-design/icons";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import { useMemoryManagementOutletContext } from "../../context";
 import type { ExperienceAsset, StructuredAsset } from "../../shared";
 import GlossaryListSection from "../../components/GlossaryListSection";
 
+const defaultMemoryListPageSize = 6;
+const memoryListPageSizeOptions = [6, 12, 20, 50];
+
 export default function MemoryManagementListPage() {
+  const memoryTableScrollY = "clamp(360px, 42vh, 520px)";
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(defaultMemoryListPageSize);
   const {
     t,
     activeTab,
@@ -70,8 +78,57 @@ export default function MemoryManagementListPage() {
     toolColumns,
   } = useMemoryManagementOutletContext();
 
+  const activeListTotal = useMemo(() => {
+    if (activeTab === "experience") {
+      return filteredExperienceItems.length;
+    }
+    if (activeTab === "skills") {
+      return filteredSkillTree.length;
+    }
+    if (activeTab === "tools") {
+      return filteredStructuredItems.length;
+    }
+    return 0;
+  }, [
+    activeTab,
+    filteredExperienceItems.length,
+    filteredSkillTree.length,
+    filteredStructuredItems.length,
+  ]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, query, category, tag]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(activeListTotal / pageSize));
+    if (currentPage > maxPage) {
+      setCurrentPage(maxPage);
+    }
+  }, [activeListTotal, currentPage, pageSize]);
+
+  const memoryListPagination = getLocalizedTablePagination(
+    {
+      current: currentPage,
+      pageSize,
+      total: activeListTotal,
+      showSizeChanger: true,
+      pageSizeOptions: memoryListPageSizeOptions,
+      showTotal: (total) => t("common.totalItems", { total }),
+      onChange: (page, nextPageSize) => {
+        setCurrentPage(page);
+        setPageSize(nextPageSize);
+      },
+      onShowSizeChange: (_current, nextPageSize) => {
+        setCurrentPage(1);
+        setPageSize(nextPageSize);
+      },
+    },
+    t,
+  );
+
   return (
-    <>
+    <div className="memory-list-page">
       <div className="memory-page-header">
         <div>
           <div className="memory-page-title-row">
@@ -269,8 +326,7 @@ export default function MemoryManagementListPage() {
           dataSource={filteredExperienceItems}
           columns={experienceColumns}
           tableLayout="fixed"
-          pagination={{ pageSize: 6, showSizeChanger: false }}
-          scroll={{ x: 1180 }}
+          pagination={memoryListPagination}
           locale={{
             emptyText: (
               <Empty
@@ -279,6 +335,7 @@ export default function MemoryManagementListPage() {
               />
             ),
           }}
+          scroll={{ x: 980, y: memoryTableScrollY }}
         />
       ) : activeTab === "glossary" ? (
         <GlossaryListSection
@@ -313,7 +370,7 @@ export default function MemoryManagementListPage() {
                 }
               : undefined
           }
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={memoryListPagination}
           locale={{
             emptyText: (
               <Empty
@@ -322,9 +379,12 @@ export default function MemoryManagementListPage() {
               />
             ),
           }}
-          scroll={activeTab === "tools" ? { x: 980, y: 420 } : { x: 1200 }}
+          scroll={{
+            x: 980,
+            y: memoryTableScrollY,
+          }}
         />
       )}
-    </>
+    </div>
   );
 }

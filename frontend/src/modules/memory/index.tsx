@@ -42,7 +42,6 @@ import {
   createSkillAsset,
   discardSkillDraft,
   generateSkillDraft,
-  getSkillShareDetail,
   getSkillAssetDetail,
   listIncomingSkillShares,
   listOutgoingSkillShares,
@@ -2030,17 +2029,14 @@ export default function MemoryManagement() {
     setSkillShareAction(share.id, "preview");
 
     try {
-      const detail = await getSkillShareDetail(share.id);
+      const detail = await getSkillAssetDetail(share.skillId || share.id);
       openModal(
         "view",
-        buildStructuredAssetFromSkillShare(detail || share),
-        { skipSkillDetailLoad: true },
+        detail || buildStructuredAssetFromSkillShare(share),
       );
     } catch (error) {
-      console.error("Load skill share detail failed:", error);
-      openModal("view", buildStructuredAssetFromSkillShare(share), {
-        skipSkillDetailLoad: true,
-      });
+      console.error("Load skill detail failed:", error);
+      openModal("view", buildStructuredAssetFromSkillShare(share));
     } finally {
       setSkillShareAction(share.id);
     }

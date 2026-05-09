@@ -41,7 +41,6 @@ import {
   createSkillAsset,
   discardSkillDraft,
   generateSkillDraft,
-  getSkillShareDetail,
   getSkillAssetDetail,
   listIncomingSkillShares,
   listOutgoingSkillShares,
@@ -194,6 +193,7 @@ export default function MemoryManagement() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const reviewRouteReloadKeyRef = useRef("");
   const tabRouteMatch = useMatch(`${MEMORY_BASE_PATH}/:tab`);
   const glossaryDetailMatch = useMatch(`${MEMORY_BASE_PATH}/glossary/:itemId`);
   const reviewRouteMatch = useMatch(`${MEMORY_BASE_PATH}/review/:tab/:itemId`);
@@ -1050,6 +1050,7 @@ export default function MemoryManagement() {
   useEffect(() => {
     if (!reviewRouteTab || !reviewRouteItemId) {
       setActiveProposalId(undefined);
+      reviewRouteReloadKeyRef.current = "";
       return;
     }
 
@@ -1061,12 +1062,20 @@ export default function MemoryManagement() {
       return;
     }
 
+    const reviewRouteReloadKey = `${reviewRouteTab}:${reviewRouteItemId}`;
+    if (reviewRouteReloadKeyRef.current === reviewRouteReloadKey) {
+      return;
+    }
+    reviewRouteReloadKeyRef.current = reviewRouteReloadKey;
+
     void (async () => {
       const opened = await openChangeReview(reviewRouteTab, reviewRouteItemId, undefined, {
+        forceReload: true,
         syncRoute: false,
       });
 
       if (!opened) {
+        reviewRouteReloadKeyRef.current = "";
         navigateToMemoryList(reviewRouteTab, { replace: true });
       }
     })();
@@ -1960,13 +1969,13 @@ export default function MemoryManagement() {
     setSkillShareAction(share.id, "preview");
 
     try {
-      const detail = await getSkillShareDetail(share.id);
+      const detail = await getSkillAssetDetail(share.skillId || share.id);
       openModal(
         "view",
-        buildStructuredAssetFromSkillShare(detail || share),
+        detail || buildStructuredAssetFromSkillShare(share),
       );
     } catch (error) {
-      console.error("Load skill share detail failed:", error);
+      console.error("Load skill detail failed:", error);
       openModal("view", buildStructuredAssetFromSkillShare(share));
     } finally {
       setSkillShareAction(share.id);
@@ -2105,10 +2114,10 @@ export default function MemoryManagement() {
     tab: ChangeProposalTab,
     itemId: string,
     skillUpdateStatus?: string,
-    options?: { syncRoute?: boolean },
+    options?: { forceReload?: boolean; syncRoute?: boolean },
   ): Promise<boolean> => {
     const proposal = getPendingProposal(tab, itemId);
-    if (!proposal) {
+    if (!proposal || options?.forceReload) {
       if (tab === "skills") {
         const matchedSkill = skillAssets.find((item) => item.id === itemId);
         if (matchedSkill?.autoEvo) {
@@ -2119,7 +2128,11 @@ export default function MemoryManagement() {
           matchedSkill?.suggestionStatus,
         );
 
-        if (isSkillUpdatePending(skillUpdateStatus) || hasBackendPendingReview) {
+        if (
+          options?.forceReload ||
+          isSkillUpdatePending(skillUpdateStatus) ||
+          hasBackendPendingReview
+        ) {
           if (!matchedSkill) {
             message.warning(t("admin.memoryDiffTargetMissing"));
             return false;
@@ -2142,6 +2155,7 @@ export default function MemoryManagement() {
             });
             setActiveProposalId(backendProposal.id);
             if (options?.syncRoute !== false) {
+              reviewRouteReloadKeyRef.current = `${tab}:${itemId}`;
               navigateToChangeReview(tab, itemId);
             }
           } catch (error) {
@@ -2197,6 +2211,7 @@ export default function MemoryManagement() {
           });
           setActiveProposalId(backendProposal.id);
           if (options?.syncRoute !== false) {
+            reviewRouteReloadKeyRef.current = `${tab}:${itemId}`;
             navigateToChangeReview(tab, itemId);
           }
         } catch (error) {
@@ -2231,6 +2246,7 @@ export default function MemoryManagement() {
 
     setActiveProposalId(proposal.id);
     if (options?.syncRoute !== false) {
+      reviewRouteReloadKeyRef.current = `${tab}:${itemId}`;
       navigateToChangeReview(tab, itemId);
     }
     return true;
@@ -4040,7 +4056,9 @@ export default function MemoryManagement() {
                     loading={reviewSuggestionLoadingId === record.id}
                     disabled={!canReviewChange}
                     onClick={() =>
-                      void openChangeReview("skills", record.id, record.updateStatus)
+                      void openChangeReview("skills", record.id, record.updateStatus, {
+                        forceReload: true,
+                      })
                     }
                   />
                 </Tooltip>
@@ -4205,7 +4223,11 @@ export default function MemoryManagement() {
                 icon={<HistoryOutlined />}
                 loading={reviewSuggestionLoadingId === record.id}
                 disabled={!canReviewChange}
-                onClick={() => void openChangeReview("experience", record.id)}
+                onClick={() =>
+                  void openChangeReview("experience", record.id, undefined, {
+                    forceReload: true,
+                  })
+                }
               />
             </Tooltip>
             <Tooltip title={t("admin.memoryEditItem")}>

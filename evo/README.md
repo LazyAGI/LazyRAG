@@ -40,6 +40,13 @@ State is stored under `./data/evo`.
 roots. Empty directories are safe to delete, but they will be recreated on
 service startup.
 
+## Related Docs
+
+evo runs as part of the LazyRAG stack. Before starting evo, make sure the core services (auth-service, core, parsing, chat) are up. For the full service dependency graph, environment variables, request auth chain, and optional service configuration, see:
+
+- [Architecture Reference](../docs/architecture.md) — service dependencies, env vars, Kong/RBAC auth chain, optional services (Milvus, OpenSearch, OCR)
+- [Quick Start](../docs/quick_start.md) — how to bring up the full stack with `make up`
+
 ## Start Commands
 
 Run from the repository root (`LazyRAG/`):
