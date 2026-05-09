@@ -12,8 +12,8 @@ Usage:
     enhanced = get_vocab_manager('user_001')('user query text')
 
 Environment variables:
-    LAZYRAG_CORE_DATABASE_URL / ACL_DB_DSN  core database connection
-    LAZYRAG_DATABASE_URL                     fallback connection
+    LAZYRAG_CORE_DATABASE_URL / LAZYRAG_ACL_DB_DSN  core database connection
+    LAZYRAG_DATABASE_URL                             fallback connection
 """
 from __future__ import annotations
 

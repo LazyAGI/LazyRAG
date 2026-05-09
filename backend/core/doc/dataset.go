@@ -739,9 +739,6 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	algoID := strings.TrimSpace(body.Algo.AlgoID)
-	if algoID == "" {
-		algoID = "__default__"
-	}
 
 	// 1) text POST /v1/kbs Create KB
 	const createKBPath = "/v1/kbs"
@@ -751,7 +748,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		KbID:        datasetID,
 		DisplayName: displayName,
 		OwnerID:     userID,
-		AlgoID:      algoID,
+		AlgoID:      algoID, // omitempty: not sent when empty; DocServer will not bind any algo
 		Meta:        map[string]any{"tags": body.Tags},
 	}
 	if desc != "" {
@@ -1051,12 +1048,11 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		newCover = ds.CoverImage
 	}
 
-	// Update ext: tags / algo (text algo_id，text body.algo.algo_id text)
+	// Update ext: tags / algo
 	algo := parseDatasetAlgo(ds.Ext)
-	algoID := strings.TrimSpace(body.Algo.AlgoID)
-	if algoID == "" {
-		algoID = algo.AlgoID
-	}
+	// newAlgoID is only non-empty when the caller explicitly requests an algo change.
+	newAlgoID := strings.TrimSpace(body.Algo.AlgoID)
+	algoID := firstNonEmpty(newAlgoID, algo.AlgoID)
 	algoName := strings.TrimSpace(body.Algo.DisplayName)
 	if algoName == "" {
 		algoName = algo.DisplayName
@@ -1085,8 +1081,10 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		OwnerID:     &userID,
 		Meta:        extMeta,
 	}
-	if algoID != "" {
-		req.AlgoID = &algoID
+	// Only forward algo_id to DocServer when the caller explicitly changes it;
+	// this avoids re-binding an algo that was already bound.
+	if newAlgoID != "" {
+		req.AlgoID = &newAlgoID
 	}
 	kbTimeout := 10 * time.Second
 	kbStart := time.Now()

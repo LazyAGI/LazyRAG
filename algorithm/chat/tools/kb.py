@@ -1,5 +1,4 @@
 import json
-import os
 from functools import wraps
 from typing import Any, Dict, List, Optional
 
@@ -9,13 +8,14 @@ import requests
 from lazyllm import fc_register
 
 from chat.pipelines.builders.get_ppl_search import get_ppl_search
+from config import config as _cfg
 
 _MAX_TEXT_LEN = 1200
 _MAX_RESULT_ITEMS = 50
-_DEFAULT_KB_URL = os.getenv('LAZYRAG_AGENTIC_KB_URL', 'http://lazyllm-algo:8000')
-_DEFAULT_ES_URL = os.getenv('LAZYRAG_OPENSEARCH_URI', 'https://opensearch:9200')
-_DEFAULT_ES_USER = os.getenv('LAZYRAG_OPENSEARCH_USER', 'admin')
-_DEFAULT_ES_PASSWORD = os.getenv('LAZYRAG_OPENSEARCH_PASSWORD', '')
+_DEFAULT_KB_URL = _cfg['agentic_kb_url']
+_DEFAULT_ES_URL = _cfg['opensearch_uri'] or 'https://opensearch:9200'
+_DEFAULT_ES_USER = _cfg['opensearch_user']
+_DEFAULT_ES_PASSWORD = _cfg['opensearch_password']
 _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
@@ -160,11 +160,27 @@ def _resolve_kb_id(config: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _resolve_algo_name(config: Dict[str, Any]) -> str:
+    """Return the algo name bound to this dataset.
+
+    After the node-group refactor the collection name no longer includes the
+    algo name, but lazyllm.Document still needs 'name' (= algo_id) to connect
+    to the correct algorithm instance.  We read 'algo_id' from agentic_config
+    and fall back to 'kb_name' (= agentic_kb_name = 'general_algo').
+    """
+    algo_id = (config.get('algo_id') or '').strip()
+    if algo_id:
+        return algo_id
+    return _resolve_kb_name(config)
+
+
 def _resolve_index(config: Dict[str, Any], group: str) -> str:
+    # Post node-group refactor: collection name is col_{group}; kb_id is used as
+    # a document-level filter inside OpenSearch so multi-KB isolation is preserved.
     group = (group or 'block').strip()
     if group not in ('block', 'line'):
         raise ValueError("group must be either 'block' or 'line'")
-    return f'col_{_resolve_kb_name(config)}_{group}'
+    return f'col_{group}'
 
 
 def _term_filter(field: str, value: Any) -> Dict[str, Any]:
@@ -547,7 +563,7 @@ def kb_get_window_nodes(
 
     doc = lazyllm.tools.rag.Document(
         url=config.get('kb_url') or _DEFAULT_KB_URL,
-        name=_resolve_kb_name(config),
+        name=_resolve_algo_name(config),
     )
 
     nodes = doc.get_nodes(

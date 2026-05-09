@@ -15,6 +15,20 @@ import (
 	"lazyrag/core/store"
 )
 
+// Allowed keys match frontend modelTypeMap (selection slot types).
+var allowedSelectionModelTypes = map[string]struct{}{
+	"llm-evo":              {},
+	"llm-chat":             {},
+	"VLM":                  {},
+	"text2image":           {},
+	"embedding":            {},
+	"tts":                  {},
+	"image_editing":        {},
+	"stt":                  {},
+	"rerank":               {},
+	"multimodal_embedding": {},
+}
+
 type selectedModelUpsertItem struct {
 	ModelType string `json:"model_type"`
 	ModelID   string `json:"model_id"`
@@ -93,6 +107,10 @@ func SetSelectedModels(w http.ResponseWriter, r *http.Request) {
 			common.ReplyErr(w, "model_type and model_id are required", http.StatusBadRequest)
 			return
 		}
+		if _, ok := allowedSelectionModelTypes[modelType]; !ok {
+			common.ReplyErr(w, "invalid model_type", http.StatusBadRequest)
+			return
+		}
 		if _, exists := selectionByType[modelType]; exists {
 			common.ReplyErr(w, "duplicate model_type in selections", http.StatusBadRequest)
 			return
@@ -115,14 +133,9 @@ func SetSelectedModels(w http.ResponseWriter, r *http.Request) {
 	for _, m := range models {
 		modelByID[m.ID] = m
 	}
-	for modelType, modelID := range selectionByType {
-		m, ok := modelByID[modelID]
-		if !ok {
+	for _, modelID := range selectionByType {
+		if _, ok := modelByID[modelID]; !ok {
 			common.ReplyErr(w, "model not found", http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(m.ModelType) != modelType {
-			common.ReplyErr(w, "model_type does not match model_id", http.StatusBadRequest)
 			return
 		}
 	}

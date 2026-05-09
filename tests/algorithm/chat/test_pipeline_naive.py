@@ -65,7 +65,7 @@ def test_get_ppl_naive_uses_default_retriever_configs(monkeypatch):
     monkeypatch.setattr(naive_mod, 'ifs', lambda *args, **kwargs: 'rewriter')
     monkeypatch.setattr(naive_mod, 'bind', lambda **kwargs: _DummyPipe())
     monkeypatch.setattr(naive_mod, 'MultiturnQueryRewriter', lambda **kwargs: _DummyPipe())
-    monkeypatch.setattr(naive_mod, 'get_automodel', lambda key: f'model:{key}')
+    monkeypatch.setattr(naive_mod, 'AutoModel', lambda model, config=False: f'model:{model}')
     monkeypatch.setattr(
         naive_mod,
         'get_ppl_search',
@@ -75,13 +75,8 @@ def test_get_ppl_naive_uses_default_retriever_configs(monkeypatch):
         )[1],
     )
     monkeypatch.setattr(naive_mod, 'get_ppl_generate', lambda stream=False: fake_generate)
-    monkeypatch.setattr(
-        naive_mod,
-        'get_retrieval_settings',
-        lambda: SimpleNamespace(retriever_configs=expected_configs),
-    )
 
-    result = naive_mod.get_ppl_naive('http://kb-service', retriever_configs=None, stream=True)
+    result = naive_mod.get_ppl_naive('http://kb-service', retriever_configs=expected_configs, stream=True)
 
     assert result is fake_rag_pipeline
     assert naive_mod.search_args == ('http://kb-service', expected_configs)
@@ -103,7 +98,7 @@ def test_get_ppl_naive_keeps_expected_stage_order(monkeypatch):
     monkeypatch.setattr(naive_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
     monkeypatch.setattr(naive_mod, 'pipeline', lambda: _DummyContextWithValue(fake_rag_pipeline))
     monkeypatch.setattr(naive_mod, 'bind', lambda **kwargs: ('bind', kwargs))
-    monkeypatch.setattr(naive_mod, 'get_automodel', lambda key: f'model:{key}')
+    monkeypatch.setattr(naive_mod, 'AutoModel', lambda model, config=False: f'model:{model}')
     monkeypatch.setattr(naive_mod, 'get_ppl_search', lambda url, retriever_configs: _DummyPipe('search'))
     monkeypatch.setattr(
         naive_mod,
@@ -134,7 +129,7 @@ def test_get_ppl_naive_keeps_expected_stage_order(monkeypatch):
     assert recorded['rewriter_init'] == {'llm': 'model:llm_instruct'}
     assert recorded['ifs']['cond'](
         {'history': [{'role': 'user', 'content': 'hi'}]}
-    ) == [{'role': 'user', 'content': 'hi'}]
-    assert recorded['ifs']['cond']({'history': []}) == []
+    ) is True
+    assert recorded['ifs']['cond']({'history': []}) is False
     assert recorded['ifs']['fpath']('x') == 'x'
     assert recorded['stream'] is True

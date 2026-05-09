@@ -6,10 +6,6 @@ import sys
 
 import pytest
 
-_ALGO = _os.path.join(_os.path.dirname(__file__), '..', '..', 'algorithm')
-if _ALGO not in sys.path:
-    sys.path.insert(0, _ALGO)
-
 from vocab.evolution import (  # noqa: E402
     ActionPlanningModule,
     ChatHistoryRecord,

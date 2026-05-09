@@ -11,7 +11,6 @@ This module keeps only the algorithm-side extraction flow:
 from __future__ import annotations
 
 import json
-import os
 import re
 import threading
 from collections import defaultdict
@@ -26,7 +25,7 @@ from lazyllm.components import ChatPrompter
 from lazyllm.components.formatter import JsonFormatter
 from lazyllm.module import ModuleBase
 
-from chat.pipelines.builders import get_automodel
+from config import config as _cfg
 from .db import (
     fetch_chat_histories_for_create_user_id,
     fetch_vocab_groups_for_create_user_id,
@@ -231,11 +230,11 @@ def _wrap_backend_action_payload(actions: Sequence[Dict[str, Any]]) -> Dict[str,
 
 
 def _resolve_word_group_apply_url(apply_url: Optional[str] = None) -> str:
-    resolved_url = (_norm_text(apply_url) or _norm_text(os.getenv(_WORD_GROUP_APPLY_URL_ENV))).rstrip('/')
+    resolved_url = (_norm_text(apply_url) or _norm_text(_cfg['word_group_apply_url'])).rstrip('/')
     if resolved_url:
         return resolved_url
 
-    core_service_url = _norm_text(os.getenv(_CORE_SERVICE_URL_ENV)).rstrip('/')
+    core_service_url = _norm_text(_cfg['core_service_url']).rstrip('/')
     if core_service_url:
         if (
             core_service_url.endswith(_WORD_GROUP_APPLY_PATH)
@@ -432,7 +431,10 @@ class HistoryChunker(ModuleBase):
 class SynonymExtractionModule(ModuleBase):
     def __init__(self, llm: Optional[Any] = None, *, return_trace: bool = False) -> None:
         super().__init__(return_trace=return_trace)
-        base_llm = llm or get_automodel('llm_instruct')
+        if llm is None:
+            from chat.pipelines.builders import get_automodel
+            llm = get_automodel('llm_instruct')
+        base_llm = llm
         self._llm = base_llm.share(
             prompt=ChatPrompter(instruction=_EXTRACTION_PROMPT),
             format=JsonFormatter(),
@@ -541,7 +543,10 @@ class ActionPlanningModule(ModuleBase):
         return_trace: bool = False,
     ) -> None:
         super().__init__(return_trace=return_trace)
-        base_llm = llm or get_automodel('llm_instruct')
+        if llm is None:
+            from chat.pipelines.builders import get_automodel
+            llm = get_automodel('llm_instruct')
+        base_llm = llm
         self._llm = base_llm.share(
             prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),
             format=JsonFormatter(),

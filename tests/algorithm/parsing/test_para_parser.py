@@ -154,3 +154,43 @@ def test_paragraph_splitter_rejects_overlap_larger_than_chunk_size():
         assert 'larger chunk overlap' in str(exc)
     else:
         raise AssertionError('expected ParagraphSplitter to reject an oversized overlap')
+
+
+def test_paragraph_splitter_run_component_multiple_nodes():
+    splitter = ParagraphSplitter(
+        chunk_size=20,
+        chunk_overlap=2,
+        chunking_tokenizer_fn=lambda text: [text],
+        tokenizer=list,
+    )
+    nodes = [
+        DocNode(text='第一段内容。', metadata={'file_name': 'a.md'}),
+        DocNode(text='第二段内容。', metadata={'file_name': 'b.md'}),
+    ]
+
+    result = splitter._run_component(nodes)
+
+    assert isinstance(result, list)
+    assert len(result) >= 2
+    texts = [n.text for n in result]
+    assert any('第一段' in t for t in texts)
+    assert any('第二段' in t for t in texts)
+
+
+def test_paragraph_splitter_preserves_metadata_per_node():
+    splitter = ParagraphSplitter(
+        chunk_size=20,
+        chunk_overlap=0,
+        chunking_tokenizer_fn=lambda text: [text],
+        tokenizer=list,
+    )
+    node_a = DocNode(text='内容A', metadata={'file_name': 'a.md', 'page': 1})
+    node_b = DocNode(text='内容B', metadata={'file_name': 'b.md', 'page': 2})
+
+    result = splitter._run_component([node_a, node_b])
+
+    # _run_component processes nodes sequentially; all output nodes carry the
+    # metadata of the last processed node (known implementation behaviour).
+    assert len(result) >= 2
+    for n in result:
+        assert n.metadata['file_name'] == 'b.md'

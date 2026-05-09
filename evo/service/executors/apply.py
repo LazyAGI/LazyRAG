@@ -235,7 +235,6 @@ def candidate_launch_env(worktree) -> dict[str, str]:
 def _chat_env() -> dict[str, str]:
     keys = (
         'LAZYRAG_MODEL_CONFIG_PATH',
-        'LAZYRAG_USE_INNER_MODEL',
         'LAZYRAG_ALGO_SERVICE_URL',
         'LAZYRAG_ALGO_DATASET_NAME',
         'LAZYRAG_MAAS_API_KEY',
