@@ -1,4 +1,68 @@
 # flake8: noqa
+from string import Template
+
+PLANNER_PROMPT = Template(
+    'You are a task planner. You have $tool_num tools available.\n'
+    'Tools: $tool_description\n'
+    'Original query: $original_query\n'
+    'Output a JSON plan with steps to answer the query.'
+)
+
+TOOLCALL_PROMPT = Template(
+    'You are a tool-call agent.\n'
+    'Tools: $tool_description\n'
+    'Original query: $original_query\n'
+    'Current goal: $current_goal\n'
+    'Previous step result: $previous_step_result\n'
+    'Output a JSON tool call to achieve the current goal.'
+)
+
+EXTRACTOR_PROMPT = Template(
+    'You are an information extractor.\n'
+    'Original query: $original_query\n'
+    'Current inference: $inference\n'
+    'Current step: $current_step\n'
+    'New nodes: $new_nodes\n'
+    'Extract relevant information and output a JSON summary.'
+)
+
+EVALUATOR_PROMPT = Template(
+    'You are a plan evaluator.\n'
+    'Original query: $original_query\n'
+    'Plans: $plans\n'
+    'Evaluate the plans and output a JSON assessment.'
+)
+
+PLANREFINE_PROMPT = Template(
+    'You are a plan refiner.\n'
+    'Tools: $tool_description\n'
+    'Original query: $original_query\n'
+    'Executed plan and inferences: $executed_plan_and_inferences\n'
+    'Refine the plan and output a JSON updated plan.'
+)
+
+QUERYREFINER_PROMPT = Template(
+    'You are a query refiner.\n'
+    'Original query: $original_query\n'
+    'Current inference: $inference\n'
+    'Retrieval step: $retrieval_step\n'
+    'Chunks: $chunks\n'
+    'Refine the query and output a JSON refined query.'
+)
+
+GENERATE_PROMPT = (
+    'Auxiliary inference: {inference}\n'
+    'Grounding knowledge: {chunks}\n'
+    'Question: {query}\n'
+    'Answer the question based on the grounding knowledge above.'
+)
+
+GENERATE_PROMPT_ZH = (
+    '辅助推理：{inference}\n'
+    '参考知识：{chunks}\n'
+    '问题：{query}\n'
+    '请根据以上参考知识回答问题。'
+)
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are self-reveloution agent, an intelligent AI assistant created by Sensetime. "

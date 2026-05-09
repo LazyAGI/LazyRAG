@@ -7,7 +7,7 @@ ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG LAZYLLM_GITHUB_REF=main
 ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=300
+ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
 
 RUN --mount=type=secret,id=apt_http_proxy,required=false \
@@ -92,7 +92,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/app/lazyllm:/app
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
 ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
 ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
@@ -105,7 +105,6 @@ ENV LAZYRAG_REVIEW_MAX_RETRIES=5
 ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
 ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
 ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
-ENV LAZYRAG_USE_INNER_MODEL=true
 ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]

@@ -1,0 +1,19 @@
+# Runtime model config for online/cloud deployment using Qwen (Alibaba DashScope).
+# All model roles are statically configured; API key is read from the environment.
+# yaml key = AutoModel(model=...) lookup name; name field = actual model name sent to the API.
+
+llm:
+  - source: qwen
+    name: qwen-plus
+
+llm_instruct:
+  - source: qwen
+    name: qwen-plus
+
+reranker:
+  - source: qwen
+    name: gte-rerank-v2
+
+embed_main:
+  - source: qwen
+    name: text-embedding-v3

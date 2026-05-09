@@ -21,7 +21,6 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
     const { t } = useTranslation();
     const [visible, setVisible] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [algoLoading, setAlgoLoading] = useState(false);
     const [data, setData] = useState<Dataset>();
     const [tags, setTags] = useState<string[]>([]);
     const [algorithm, setAlgorithm] = useState<Algo[]>([]);
@@ -43,8 +42,7 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
     }, [algorithm, visible, form]);
 
     function getAlgorithm(sourceData?: Dataset) {
-      setAlgoLoading(true);
-      KnowledgeBaseServiceApi()
+      return KnowledgeBaseServiceApi()
         .datasetServiceListAlgos()
         .then((res) => {
           const list = res.data.algos;
@@ -58,8 +56,8 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
             form.setFieldsValue({ algo_id: sourceAlgoId });
           }
         })
-        .finally(() => {
-          setAlgoLoading(false);
+        .catch((err) => {
+          console.error('Failed to load algorithm list:', err);
         });
     }
 
@@ -73,7 +71,6 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
 
     function onOpen(sourceData: Dataset | undefined) {
       getTags();
-      getAlgorithm(sourceData);
       setData(sourceData);
       if (sourceData) {
         form.setFieldsValue({
@@ -82,7 +79,12 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
           industry: sourceData?.industry,
         });
       }
-      setVisible(true);
+      // Show the modal only after the algo list is loaded so the selector
+      // visibility (algorithm.length !== 1) is evaluated with real data,
+      // not with the initial empty array.
+      getAlgorithm(sourceData).finally(() => {
+        setVisible(true);
+      });
     }
 
     function onCancel() {
@@ -162,7 +164,7 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
               autoSize={{ minRows: 2, maxRows: 6 }}
             />
           </Form.Item>
-          {(algoLoading || algorithm.length !== 1) && (
+          {algorithm.length !== 1 && (
             <Form.Item
               name="algo_id"
               label={t("knowledge.parseAlgorithm")}
@@ -170,7 +172,6 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
               rules={[{ required: true, message: t("knowledge.selectParseAlgorithm") }]}
             >
               <Select
-                loading={algoLoading}
                 options={algorithm.map((item) => ({
                   label: item.display_name,
                   value: item.algo_id,

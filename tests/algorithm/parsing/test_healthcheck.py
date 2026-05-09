@@ -52,8 +52,8 @@ def test_main_uses_document_server_port_fallback(monkeypatch):
         seen_urls.append(url)
         return _Response({'data': [{'algo_id': healthcheck.ALGO_ID}]})
 
-    monkeypatch.delenv('LAZYRAG_ALGO_SERVER_PORT', raising=False)
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_SERVER_PORT', '18001')
+    monkeypatch.setitem(healthcheck._cfg._impl, 'algo_server_port', 0)
+    monkeypatch.setitem(healthcheck._cfg._impl, 'document_server_port', 18001)
     monkeypatch.setattr(healthcheck.requests, 'get', fake_get)
 
     assert healthcheck.main() == 0

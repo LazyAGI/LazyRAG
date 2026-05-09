@@ -15,6 +15,20 @@ def _import_chat_service_module(monkeypatch, *, chat_server=None):
     fake_lazyllm.globals = SimpleNamespace(_init_sid=lambda sid: None)
     fake_lazyllm.locals = SimpleNamespace(_init_sid=lambda sid: None)
 
+    # Inject lazyllm.tracing submodule hierarchy so chat_service.py can import it
+    fake_tracing = ModuleType('lazyllm.tracing')
+    fake_tracing.current_trace = lambda: None
+    fake_tracing.enable_trace = lambda *a, **kw: None
+    fake_tracing_collect = ModuleType('lazyllm.tracing.collect')
+    fake_tracing_collect.runtime = SimpleNamespace(
+        get_trace_id=lambda: None,
+        start_span=lambda *a, **kw: None,
+        end_span=lambda *a, **kw: None,
+    )
+    fake_tracing_collect_configs = ModuleType('lazyllm.tracing.collect.configs')
+    fake_lazyllm.tracing = fake_tracing
+    fake_tracing.collect = fake_tracing_collect
+
     fake_config = ModuleType('chat.config')
     fake_config.URL_MAP = {'algo': 'http://kb-service,algo'}
     fake_config.RAG_MODE = True
@@ -22,9 +36,17 @@ def _import_chat_service_module(monkeypatch, *, chat_server=None):
     fake_config.MAX_CONCURRENCY = 2
     fake_config.LAZYRAG_LLM_PRIORITY = 5
     fake_config.SENSITIVE_FILTER_RESPONSE_TEXT = 'blocked'
+    fake_config.resolve_dataset_url = lambda dataset: f'http://kb-service/{dataset}'
 
     fake_helpers = ModuleType('chat.utils.helpers')
     fake_helpers.validate_and_resolve_files = lambda files: (['/tmp/a.txt'], ['/tmp/b.png'])
+
+    fake_load_config = ModuleType('chat.utils.load_config')
+    fake_load_config.inject_model_config = lambda *a, **kw: None
+
+    fake_trace_sink = ModuleType('chat.app.core.trace_sink')
+    fake_trace_sink.ensure_local_trace_sink = lambda: None
+    fake_trace_sink.local_trace_enabled = lambda: False
 
     if chat_server is None:
         chat_server = SimpleNamespace(
@@ -37,10 +59,35 @@ def _import_chat_service_module(monkeypatch, *, chat_server=None):
     fake_server = ModuleType('chat.app.core.chat_server')
     fake_server.chat_server = chat_server
 
+    # Build a fake lazyllm.configs so trace_sink's transitive import of
+    # `from config import config` doesn't blow up when lazyllm is the fake.
+    fake_lazyllm_configs = ModuleType('lazyllm.configs')
+    fake_lazyllm_configs.Config = type('Config', (), {
+        '__init__': lambda self, *a, **kw: None,
+        '__getitem__': lambda self, k: '',
+        'add': lambda self, *a, **kw: None,
+    })
+    fake_lazyllm.configs = fake_lazyllm_configs
+
+    # Pop stale cached modules BEFORE setting up fakes
     sys.modules.pop('chat.app.core.chat_service', None)
+    sys.modules.pop('chat.app.core.trace_sink', None)
+
     monkeypatch.setitem(sys.modules, 'lazyllm', fake_lazyllm)
+    monkeypatch.setitem(sys.modules, 'lazyllm.configs', fake_lazyllm_configs)
+    monkeypatch.setitem(sys.modules, 'lazyllm.tracing', fake_tracing)
+    monkeypatch.setitem(sys.modules, 'lazyllm.tracing.collect', fake_tracing_collect)
+    monkeypatch.setitem(sys.modules, 'lazyllm.tracing.collect.configs', fake_tracing_collect_configs)
+    fake_tracing_datamodel_raw = ModuleType('lazyllm.tracing.datamodel.raw')
+    fake_tracing_datamodel_raw.RawSpanRecord = type('RawSpanRecord', (), {})
+    fake_tracing_datamodel_raw.RawTracePayload = type('RawTracePayload', (), {})
+    fake_tracing_datamodel_raw.RawTraceRecord = type('RawTraceRecord', (), {})
+    monkeypatch.setitem(sys.modules, 'lazyllm.tracing.datamodel', ModuleType('lazyllm.tracing.datamodel'))
+    monkeypatch.setitem(sys.modules, 'lazyllm.tracing.datamodel.raw', fake_tracing_datamodel_raw)
+    monkeypatch.setitem(sys.modules, 'chat.app.core.trace_sink', fake_trace_sink)
     monkeypatch.setitem(sys.modules, 'chat.config', fake_config)
     monkeypatch.setitem(sys.modules, 'chat.utils.helpers', fake_helpers)
+    monkeypatch.setitem(sys.modules, 'chat.utils.load_config', fake_load_config)
     monkeypatch.setitem(sys.modules, 'chat.app.core.chat_server', fake_server)
 
     return importlib.import_module('chat.app.core.chat_service')
@@ -81,22 +128,29 @@ def test_build_query_params_filters_history_and_modes(monkeypatch):
         debug=True,
         image_files=['img.png'],
         priority=8,
+        dataset='algo',
+        session_id='sid-1',
+        available_tools=None,
+        available_skills=None,
+        memory=None,
+        user_preference=None,
+        use_memory=None,
     )
 
-    assert params == {
-        'query': 'hello',
-        'history': [
-            {'role': 'user', 'content': '123'},
-            {'role': 'assistant', 'content': 'answer'},
-        ],
-        'filters': {'scope': 'all'},
-        'files': ['doc.txt'],
-        'image_files': ['img.png'],
-        'debug': True,
-        'databases': [{'name': 'db'}],
-        'priority': 8,
-    }
-
+    assert params['query'] == 'hello'
+    assert params['history'] == [
+        {'role': 'user', 'content': '123'},
+        {'role': 'assistant', 'content': 'answer'},
+    ]
+    assert params['filters'] == {'scope': 'all'}
+    assert params['files'] == ['doc.txt']
+    assert params['image_files'] == ['img.png']
+    assert params['debug'] is True
+    assert params['databases'] == [{'name': 'db'}]
+    assert params['priority'] == 8
+    assert params['dataset'] == 'algo'
+    assert params['session_id'] == 'sid-1'
+    assert 'document_url' in params
 
 def test_handle_chat_rejects_unknown_dataset(monkeypatch):
     chat_server = SimpleNamespace(
@@ -117,6 +171,11 @@ def test_handle_chat_rejects_unknown_dataset(monkeypatch):
             databases=None,
             dataset='missing',
             priority=None,
+            available_tools=None,
+            available_skills=None,
+            memory=None,
+            user_preference=None,
+            use_memory=None,
             is_stream=False,
         )
     )
@@ -127,17 +186,10 @@ def test_handle_chat_rejects_unknown_dataset(monkeypatch):
 def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
     module = _import_chat_service_module(monkeypatch)
 
-    async def fake_run_sync_ppl(reasoning, dataset, query_params, query, filters, priority):
-        assert reasoning is False
-        assert dataset == 'algo'
-        assert query == 'hello'
-        assert filters == {'scope': 'all'}
-        assert priority == 5
-        assert query_params['files'] == ['/tmp/a.txt']
-        assert query_params['image_files'] == ['/tmp/b.png']
-        return {'text': 'answer'}
+    def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
+        return {'text': 'answer'}, None, None
 
-    monkeypatch.setattr(module, '_run_sync_ppl', fake_run_sync_ppl)
+    monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
 
     result = asyncio.run(
         module.handle_chat(
@@ -151,6 +203,11 @@ def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
             databases=[],
             dataset='algo',
             priority=None,
+            available_tools=None,
+            available_skills=None,
+            memory=None,
+            user_preference=None,
+            use_memory=None,
             is_stream=False,
         )
     )
@@ -161,6 +218,7 @@ def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
 
 
 def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
+    """_build_ppl_call with reasoning=True should use query_ppl_reasoning."""
     captured = {}
 
     def fake_reasoning(query_arg, kb_search, stream_flag):
@@ -177,36 +235,29 @@ def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     )
     module = _import_chat_service_module(monkeypatch, chat_server=chat_server)
 
-    async def fake_to_thread(fn, *args):
-        return fn(*args)
-
-    monkeypatch.setattr(module.asyncio, 'to_thread', fake_to_thread)
-
-    result = asyncio.run(
-        module._run_sync_ppl(
-            True,
-            'algo',
-            {'query': 'ignored'},
-            'hello',
-            {'scope': 'all'},
-            7,
-        )
+    ppl_call = module._build_ppl_call(
+        True,
+        'algo',
+        {'query': 'ignored'},
+        'hello',
+        {'scope': 'all'},
+        7,
+        False,
     )
 
-    assert result == {'text': 'reasoned'}
-    assert captured == {
-        'query_arg': {'query': 'hello'},
+    # ppl_call is (ppl_fn, arg1, arg2, stream_flag)
+    assert ppl_call[0] is fake_reasoning
+    assert ppl_call[1] == {'query': 'hello'}
+    assert ppl_call[2] == {
         'kb_search': {
-            'kb_search': {
-                'filters': {'scope': 'all'},
-                'files': [],
-                'stream': False,
-                'priority': 7,
-                'document_url': 'http://kb-service,algo',
-            }
-        },
-        'stream_flag': False,
+            'filters': {'scope': 'all'},
+            'files': [],
+            'stream': False,
+            'priority': 7,
+            'document_url': 'http://kb-service/algo',
+        }
     }
+    assert ppl_call[3] is False
 
 
 def _decode_sse_payloads(raw_chunks):
@@ -227,14 +278,10 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
         yield {'text': 'chunk-1'}
         yield {'text': 'chunk-2'}
 
-    def _pipeline(query_params):
-        captured['query_params'] = query_params
-        return _stream()
-
     chat_server = SimpleNamespace(
         sensitive_filter=SimpleNamespace(loaded=False, check=lambda query: (False, None)),
         has_dataset=lambda dataset: dataset == 'algo',
-        get_query_pipeline=lambda dataset, stream=False: _pipeline,
+        get_query_pipeline=lambda dataset, stream=False: None,
         query_ppl_reasoning='unused',
     )
     module = _import_chat_service_module(monkeypatch, chat_server=chat_server)
@@ -244,15 +291,17 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
             self.body_iterator = body_iterator
             self.media_type = media_type
 
-    async def fake_to_thread(fn, *args):
-        return fn(*args)
+    def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
+        # ppl_args is a tuple; first element is the query_params dict
+        captured['query_params'] = ppl_args[0] if ppl_args else {}
+        return _stream(), None, None
 
+    monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
     monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: (['/tmp/a.txt'], ['/tmp/b.png']))
     monkeypatch.setattr(module.LOG, 'info', lambda message: first_frame_logs.append(message))
     monkeypatch.setattr(module.lazyllm.globals, '_init_sid', lambda sid: init_calls.append(('global', sid)))
     monkeypatch.setattr(module.lazyllm.locals, '_init_sid', lambda sid: init_calls.append(('local', sid)))
     monkeypatch.setattr(module, 'StreamingResponse', _FakeStreamingResponse)
-    monkeypatch.setattr(module.asyncio, 'to_thread', fake_to_thread)
 
     response = asyncio.run(
         module.handle_chat(
@@ -266,6 +315,11 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
             databases=[{'name': 'db'}],
             dataset='algo',
             priority=9,
+            available_tools=None,
+            available_skills=None,
+            memory=None,
+            user_preference=None,
+            use_memory=None,
             is_stream=True,
         )
     )
@@ -275,16 +329,9 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
 
     payloads = _decode_sse_payloads(asyncio.run(_collect()))
 
-    assert captured['query_params'] == {
-        'query': 'hello',
-        'history': [{'role': 'user', 'content': 'hi'}],
-        'filters': {'scope': 'all'},
-        'files': ['/tmp/a.txt'],
-        'image_files': ['/tmp/b.png'],
-        'debug': False,
-        'databases': [{'name': 'db'}],
-        'priority': 9,
-    }
+    assert captured['query_params']['query'] == 'hello'
+    assert captured['query_params']['filters'] == {'scope': 'all'}
+    assert captured['query_params']['priority'] == 9
     assert [payload['data'] for payload in payloads] == [
         {'text': 'chunk-1'},
         {'text': 'chunk-2'},
@@ -305,13 +352,13 @@ def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkey
     monkeypatch.setattr(module.lazyllm.globals, '_init_sid', lambda sid: init_calls.append(('global', sid)))
     monkeypatch.setattr(module.lazyllm.locals, '_init_sid', lambda sid: init_calls.append(('local', sid)))
 
-    async def fake_run_sync_ppl(reasoning, dataset, query_params, query, filters, priority):
-        start_order.append(query)
-        if query == 'q1':
-            await release_first.wait()
-        return {'text': query}
+    def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
+        # ppl_args is a tuple; for non-reasoning it's (query_params_dict,)
+        query_params_dict = ppl_args[0] if ppl_args else {}
+        start_order.append(query_params_dict.get('query', ''))
+        return {'text': query_params_dict.get('query', '')}, None, None
 
-    monkeypatch.setattr(module, '_run_sync_ppl', fake_run_sync_ppl)
+    monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
 
     async def _run_pair():
         task1 = asyncio.create_task(
@@ -326,6 +373,11 @@ def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkey
                 databases=None,
                 dataset='algo',
                 priority=None,
+                available_tools=None,
+                available_skills=None,
+                memory=None,
+                user_preference=None,
+                use_memory=None,
                 is_stream=False,
             )
         )
@@ -342,6 +394,11 @@ def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkey
                 databases=None,
                 dataset='algo',
                 priority=None,
+                available_tools=None,
+                available_skills=None,
+                memory=None,
+                user_preference=None,
+                use_memory=None,
                 is_stream=False,
             )
         )

@@ -1,13 +1,13 @@
-import os
-
 from lazyllm.tools.servers.mineru.mineru_server_module import MineruServer
+
+from config import config as _cfg
 
 if __name__ == '__main__':
     server = MineruServer(
-        port=int(os.getenv('LAZYRAG_MINERU_SERVER_PORT', '8000')),
-        default_backend=os.getenv('LAZYRAG_MINERU_BACKEND', 'pipeline'),
-        cache_dir=os.getenv('LAZYRAG_MINERU_CACHE_DIR'),
-        image_save_dir=os.getenv('LAZYRAG_MINERU_IMAGE_SAVE_DIR'),
+        port=_cfg['mineru_server_port'],
+        default_backend=_cfg['mineru_backend'],
+        cache_dir=_cfg['mineru_cache_dir'],
+        image_save_dir=_cfg['mineru_image_save_dir'],
     )
     server.start()
     server.wait()

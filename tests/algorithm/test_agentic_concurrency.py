@@ -84,7 +84,7 @@ def fake_pipeline(monkeypatch):
     """Patch agentic's heavy external deps so it can run offline."""
     _FakeAgent.observations = []
 
-    monkeypatch.setattr(agentic, 'get_automodel', lambda *_a, **_kw: object())
+    monkeypatch.setattr(agentic, 'AutoModel', lambda *_a, **_kw: object())
     monkeypatch.setattr(agentic, 'create_sandbox', lambda **_kw: object())
     monkeypatch.setattr(agentic, '_ensure_tools_registered', lambda: None)
     monkeypatch.setattr(agentic, '_spawn_background_review', lambda **_kw: None)

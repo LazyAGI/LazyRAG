@@ -8,7 +8,7 @@ ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=300
+ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
 
 ENV PYTHONUNBUFFERED=1 \
@@ -17,7 +17,6 @@ ENV PYTHONUNBUFFERED=1 \
     OPENCODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
     EVO_BASE_DIR=/var/lib/lazyrag/evo \
     EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
-    LAZYRAG_USE_INNER_MODEL=true \
     LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
     PYTHONPATH=/app
 
