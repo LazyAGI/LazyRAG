@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import json
+from html import escape
 from typing import Any, Optional
+
+_TOOL_PREVIEW_TAG = 'tp'
+_TOOL_RESULT_PREVIEW_TAG = 'trp'
+_TOOL_CALL_TAG = 'tool_call'
+_TOOL_RESULT_TAG = 'tool_result'
 
 _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'kb_search': 'query',
@@ -388,15 +394,35 @@ def _tool_result_preview(tool_name: str, result: Any) -> str:
 
 
 def _tool_call_frame_text(tool_call: dict[str, Any]) -> str:
+    tool_call_id = str(tool_call.get('id') or '')
     tool_name = str(tool_call.get('name', ''))
     arguments = tool_call.get('arguments', {})
-    return _tool_call_preview(tool_name, arguments)
+    payload = {
+        'id': tool_call_id,
+        'name': tool_name,
+        'arguments': arguments if isinstance(arguments, dict) else {},
+    }
+    preview = _tool_call_preview(tool_name, arguments)
+    return (
+        f'<{_TOOL_PREVIEW_TAG} id="{escape(tool_call_id, quote=True)}">{preview}</{_TOOL_PREVIEW_TAG}>'
+        f'<{_TOOL_CALL_TAG}>{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}</{_TOOL_CALL_TAG}>'
+    )
 
 
 def _tool_result_frame_text(tool_result: dict[str, Any]) -> str:
+    tool_call_id = str(tool_result.get('id') or '')
     tool_name = str(tool_result.get('tool_name', ''))
     result = tool_result.get('result')
-    return _tool_result_preview(tool_name, result)
+    payload = {
+        'id': tool_call_id,
+        'name': tool_name,
+        'result': result,
+    }
+    preview = _tool_result_preview(tool_name, result)
+    return (
+        f'<{_TOOL_RESULT_PREVIEW_TAG} id="{escape(tool_call_id, quote=True)}">{preview}</{_TOOL_RESULT_PREVIEW_TAG}>'
+        f'<{_TOOL_RESULT_TAG}>{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}</{_TOOL_RESULT_TAG}>'
+    )
 
 
 def _stream_frame(
@@ -429,7 +455,7 @@ def _format_tool_stream_frame(tool_event: dict[str, Any]) -> Optional[dict[str, 
     for tool_result in tool_results:
         if isinstance(tool_result, dict):
             frame_parts.append(_tool_result_frame_text(tool_result))
-    return _stream_frame(text='\n\n'.join(frame_parts))
+    return _stream_frame(text=''.join(frame_parts))
 
 
 def _iter_text_chunks(text: str, chunk_size: int = _STREAM_CHUNK_SIZE):
