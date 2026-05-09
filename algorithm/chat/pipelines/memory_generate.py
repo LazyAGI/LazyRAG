@@ -168,6 +168,34 @@ def _format_retry_note(previous_error: Optional[str]) -> str:
     return f'\nPrevious output was invalid, error: {previous_error}\nPlease correct and regenerate.\n'
 
 
+def _compact_len(text: Any) -> int:
+    return len(''.join(str(text).split()))
+
+
+def _managed_content_governance_note(
+    content: str,
+    suggestions: List[Dict[str, Any]],
+    limit: int,
+) -> str:
+    suggestions_length = sum(
+        _compact_len(item.get('title', ''))
+        + _compact_len(item.get('content', ''))
+        + _compact_len(item.get('reason', ''))
+        for item in suggestions
+    )
+    current_length = _compact_len(content)
+    remaining = limit - current_length
+    return (
+        f'- Current content length after removing whitespace: {current_length} characters.\n'
+        f'- Suggestions total length after removing whitespace: {suggestions_length} characters.\n'
+        f'- Remaining budget before merging suggestions: {remaining} characters.\n'
+        '- Treat existing content as a bounded, continuously maintained store, not an append-only log.\n'  # noqa: E501
+        '- Outdated=TRUE is only one stale signal; also remove or rewrite existing content that is proven outdated, wrong, conflicting, redundant, overly specific, or low-value based on the new suggestions, user_instruct, or current context.\n'  # noqa: E501
+        '- Even when the limit is not exceeded, proactively compress, consolidate, or delete stale information instead of preserving it by default.\n'  # noqa: E501
+        '- Add new information only after resolving stale or conflicting old information; keep the final content concise and useful.\n'  # noqa: E501
+    )
+
+
 def _build_skill_prompt(
     content: str,
     suggestions: List[Dict[str, Any]],
@@ -202,6 +230,7 @@ def _build_skill_prompt(
         '\n'
         '[Length control]\n'
         '- Total length of SKILL.md (including frontmatter) must be within 2000 characters; keep it concise.\n'
+        f'{_managed_content_governance_note(content, suggestions, 2000)}'
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'
@@ -235,6 +264,7 @@ def _build_memory_prompt(
         '\n'
         '[Length control]\n'
         f'- The final content must be within {_MAX_MANAGED_CONTENT_CHARS} characters after removing all whitespace; if needed, reduce low-value details and keep only the most important concise entries.\n'  # noqa: E501
+        f'{_managed_content_governance_note(content, suggestions, _MAX_MANAGED_CONTENT_CHARS)}'
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'
@@ -268,6 +298,7 @@ def _build_user_preference_prompt(
         '\n'
         '[Length control]\n'
         f'- The final content must be within {_MAX_MANAGED_CONTENT_CHARS} characters after removing all whitespace; if needed, reduce low-value details and keep only the most important concise entries.\n'  # noqa: E501
+        f'{_managed_content_governance_note(content, suggestions, _MAX_MANAGED_CONTENT_CHARS)}'
         '\n'
         f'{_format_retry_note(previous_error)}'
         f'{_format_inputs_block(content, suggestions, user_instruct)}'
