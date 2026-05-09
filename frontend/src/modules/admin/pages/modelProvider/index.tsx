@@ -295,7 +295,8 @@ const getAlgorithmProviderConfig = (
 enum ModelProviderModelType {
   VLM = "VLM",
   LLM = "llm",
-  LLM2 = "llm2",
+  LLMChat = "llm-chat",
+  LLMEvolution = "llm-evo",
   Embedding = "embedding",
   MultimodalEmbedding = "multimodal_embedding",
   TextToImage = "text2image",
@@ -320,7 +321,15 @@ const modelTypeByCapability: Record<ModelCapability, ModelProviderModelType> = {
 
 const selectedModelTypeByCapability: Record<ModelCapability, ModelProviderModelType> = {
   ...modelTypeByCapability,
-  LLM_SELF_EVOLUTION: ModelProviderModelType.LLM2,
+  LLM_CHAT: ModelProviderModelType.LLMChat,
+  LLM_SELF_EVOLUTION: ModelProviderModelType.LLMEvolution,
+};
+
+const selectedCapabilityByModelType: Record<string, ModelCapability> = {
+  [ModelProviderModelType.LLMChat]: "LLM_CHAT",
+  [ModelProviderModelType.LLMEvolution]: "LLM_SELF_EVOLUTION",
+  llm: "LLM_CHAT",
+  llm2: "LLM_SELF_EVOLUTION",
 };
 
 function normalizeProviderKey(value: string) {
@@ -373,6 +382,10 @@ function mapModelTypeToCapability(modelType?: string): ModelCapability {
 
 function getCapabilityByModelType(modelType?: string): ModelCapability | undefined {
   const normalized = (modelType || "").toLowerCase();
+  const selectedCapability = selectedCapabilityByModelType[normalized];
+  if (selectedCapability) {
+    return selectedCapability;
+  }
   return moduleConfigs.find((module) => selectedModelTypeByCapability[module.key].toLowerCase() === normalized)?.key;
 }
 
