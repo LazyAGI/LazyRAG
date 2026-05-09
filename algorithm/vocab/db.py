@@ -369,6 +369,59 @@ def fetch_chat_histories_for_create_user_id(
     ]
 
 
+def fetch_chat_histories_for_session(
+    session_id: str,
+    *,
+    db_dsn: Optional[str] = None,
+    db_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return chat histories for the conversation identified by a session id."""
+    session_id = str(session_id or '').strip()
+    if not session_id:
+        return []
+
+    conversation_id = session_id.rsplit('_', 1)[0].strip() if '_' in session_id else session_id
+    if not conversation_id:
+        return []
+
+    sql = """
+        SELECT c.create_user_id,
+               c.id AS conversation_id,
+               h.id AS message_id,
+               h.seq,
+               COALESCE(h.raw_content, '') AS raw_content,
+               COALESCE(h.content, '') AS content,
+               COALESCE(h.result, '') AS result,
+               h.create_time
+        FROM conversations c
+        JOIN chat_histories h ON h.conversation_id = c.id
+        WHERE c.id = :conversation_id
+          AND c.deleted_at IS NULL
+        ORDER BY h.create_time ASC, h.seq ASC, h.id ASC
+    """
+    try:
+        engine = _get_core_conn(db_dsn=db_dsn, db_url=db_url)
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), {'conversation_id': conversation_id}).mappings().all()
+    except Exception as exc:
+        LOG.error(f'[VocabDB] fetch_chat_histories_for_session({session_id!r}) failed: {exc}')
+        return []
+
+    return [
+        {
+            'create_user_id': row['create_user_id'],
+            'conversation_id': row['conversation_id'],
+            'message_id': row['message_id'],
+            'seq': row['seq'],
+            'raw_content': row['raw_content'],
+            'content': row['content'],
+            'result': row['result'],
+            'create_time': row['create_time'],
+        }
+        for row in rows
+    ]
+
+
 def resolve_create_user_id_for_session(
     session_id: str,
     *,

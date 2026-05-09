@@ -162,6 +162,45 @@ def test_action_planner_creates_new_group_when_vocab_is_empty():
     }]
 
 
+def test_action_planner_creates_new_group_when_single_anchor_group_has_different_description():
+    planner = ActionPlanningModule(
+        llm=FakeLLM([]),
+        fetch_vocab_groups_fn=lambda create_user_id, **kwargs: {
+            'g-med': {
+                'group_id': 'g-med',
+                'description': '医学领域术语',
+                'words': ['变白质'],
+                'references': ['["m-old"]'],
+            },
+        },
+    )
+    payload = {
+        'request': VocabEvolutionRequest(),
+        'create_user_id': 'u1',
+        'histories': [_history('m1', '请记住变白质在体育领域就是铅球垫子。')],
+        'candidates': [
+            SynonymCandidate(
+                create_user_id='u1',
+                word='变白质',
+                synonym='铅球垫子',
+                description='体育领域术语',
+                reason='用户明确指定体育领域映射',
+                message_ids=['m1'],
+            )
+        ],
+    }
+    result = planner.forward(payload)
+    assert result['actions'] == [{
+        'reason': '用户明确指定体育领域映射',
+        'words': ['变白质', '铅球垫子'],
+        'description': '体育领域术语',
+        'group_ids': [],
+        'create_user_id': 'u1',
+        'message_ids': ['m1'],
+        'action': 'create_new_group',
+    }]
+
+
 def test_action_planner_splits_add_and_conflict_for_multi_group_anchor():
     groups = {
         'g1': {'group_id': 'g1', 'description': '词族1', 'words': ['B', 'C', 'D'], 'references': []},
