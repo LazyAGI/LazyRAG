@@ -102,6 +102,7 @@ export interface SkillSharePrincipal {
 export interface SkillShareRecord {
   id: string;
   skillId: string;
+  sourceSkillId: string;
   skillName: string;
   skillDescription: string;
   skillContent: string;
@@ -735,13 +736,15 @@ const normalizeSkillShareRecord = (raw: RawObject): SkillShareRecord | null => {
   ]);
 
   const id = getFirstString([shareNode], ["share_item_id", "shareItemId", "item_id", "itemId", "id"]);
+  const sourceSkillId = getFirstString([shareNode, skillNode], [
+    "source_skill_id",
+    "sourceSkillId",
+  ]);
   const skillId = getFirstString([shareNode, skillNode], [
     "skill_id",
     "skillId",
-    "source_skill_id",
-    "sourceSkillId",
     "id",
-  ]);
+  ]) || sourceSkillId;
   const skillName = getFirstString([shareNode, skillNode], [
     "skill_name",
     "skillName",
@@ -769,6 +772,7 @@ const normalizeSkillShareRecord = (raw: RawObject): SkillShareRecord | null => {
   return {
     id: id || skillId || skillName,
     skillId: skillId || skillName,
+    sourceSkillId,
     skillName: skillName || skillId || id,
     skillDescription: getFirstString([shareNode, skillNode], [
       "skill_description",

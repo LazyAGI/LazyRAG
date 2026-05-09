@@ -1956,7 +1956,7 @@ export default function MemoryManagement() {
   const buildStructuredAssetFromSkillShare = (
     share: SkillShareRecord,
   ): StructuredAsset => ({
-    id: share.skillId || share.id,
+    id: share.sourceSkillId || share.skillId || share.id,
     name: share.skillName || t("admin.memorySkillShareUnknownSkill"),
     description: share.skillDescription,
     category: share.category,
@@ -1969,7 +1969,7 @@ export default function MemoryManagement() {
     setSkillShareAction(share.id, "preview");
 
     try {
-      const detail = await getSkillAssetDetail(share.skillId || share.id);
+      const detail = await getSkillAssetDetail(share.sourceSkillId || share.skillId || share.id);
       openModal(
         "view",
         detail || buildStructuredAssetFromSkillShare(share),
