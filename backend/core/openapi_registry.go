@@ -8,6 +8,7 @@ import (
 
 	"lazyrag/core/chat"
 	"lazyrag/core/doc"
+	"lazyrag/core/modelprovider"
 	"lazyrag/core/wordgroup"
 )
 
@@ -455,6 +456,143 @@ type listDocumentsQueryParams struct {
 type listWordGroupsQueryParams struct {
 	PageToken string `query:"page_token"`
 	PageSize  int32  `query:"page_size"`
+}
+
+type listUserModelProvidersQueryParams struct {
+	Keyword string `query:"keyword"`
+}
+
+type checkModelProviderOpenAPIRequest struct {
+	ProviderName string `json:"provider_name"`
+	BaseURL      string `json:"base_url"`
+	APIKey       string `json:"api_key"`
+}
+
+type modelProviderGroupPathParams struct {
+	ModelProviderID string `path:"model_provider_id"`
+}
+
+type modelProviderGroupByIDPathParams struct {
+	ModelProviderID string `path:"model_provider_id"`
+	GroupID         string `path:"group_id"`
+}
+
+type updateModelProviderGroupOpenAPIRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
+type createModelProviderGroupOpenAPIRequest struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
+type createModelProviderGroupOpenAPIResponse struct {
+	ID                  string `json:"id"`
+	UserModelProviderID string `json:"user_model_provider_id"`
+	Name                string `json:"name"`
+	BaseURL             string `json:"base_url"`
+}
+
+type deleteModelProviderGroupOpenAPIResponse struct {
+	ID string `json:"id"`
+}
+
+type addModelProviderGroupModelOpenAPIRequest struct {
+	Name      string `json:"name"`
+	ModelType string `json:"model_type"`
+}
+
+type addModelProviderGroupModelOpenAPIResponse struct {
+	ID                       string `json:"id"`
+	UserModelProviderID      string `json:"user_model_provider_id"`
+	UserModelProviderGroupID string `json:"user_model_provider_group_id"`
+	Name                     string `json:"name"`
+	ModelType                string `json:"model_type"`
+	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
+	BaseURL                  string `json:"base_url"`
+	IsDefault                bool   `json:"is_default"`
+}
+
+type listModelProviderGroupModelsOpenAPIItem struct {
+	ID                       string `json:"id"`
+	UserModelProviderID      string `json:"user_model_provider_id"`
+	UserModelProviderGroupID string `json:"user_model_provider_group_id"`
+	Name                     string `json:"name"`
+	ModelType                string `json:"model_type"`
+	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
+	BaseURL                  string `json:"base_url"`
+	IsDefault                bool   `json:"is_default"`
+}
+
+type listModelProviderGroupModelsOpenAPIResponse struct {
+	Models []listModelProviderGroupModelsOpenAPIItem `json:"models"`
+}
+
+type listUserModelsByModelTypeQueryParams struct {
+	ModelType string `query:"model_type"`
+}
+
+type selectedModelOpenAPIItem struct {
+	ModelType                string `json:"model_type"`
+	ModelID                  string `json:"model_id"`
+	UserModelProviderID      string `json:"user_model_provider_id"`
+	UserModelProviderGroupID string `json:"user_model_provider_group_id"`
+	Name                     string `json:"name"`
+	ProviderName             string `json:"provider_name"`
+	GroupName                string `json:"group_name"`
+	BaseURL                  string `json:"base_url"`
+}
+
+type listSelectedModelsOpenAPIResponse struct {
+	Selections []selectedModelOpenAPIItem `json:"selections"`
+}
+
+type setSelectedModelOpenAPIItem struct {
+	ModelType string `json:"model_type"`
+	ModelID   string `json:"model_id"`
+}
+
+type setSelectedModelsOpenAPIRequest struct {
+	Selections []setSelectedModelOpenAPIItem `json:"selections"`
+}
+
+type modelProviderGroupModelPathParams struct {
+	ModelProviderID string `path:"model_provider_id"`
+	GroupID         string `path:"group_id"`
+	ModelID         string `path:"model_id"`
+}
+
+type deleteModelProviderGroupModelOpenAPIResponse struct {
+	ID string `json:"id"`
+}
+
+type userModelProviderOpenAPIItem struct {
+	ID                     string `json:"id"`
+	DefaultModelProviderID string `json:"default_model_provider_id"`
+	Name                   string `json:"name"`
+	Description            string `json:"description"`
+	BaseURL                string `json:"base_url"`
+}
+
+type listUserModelProvidersOpenAPIResponse struct {
+	Providers []userModelProviderOpenAPIItem `json:"providers"`
+}
+
+type listModelProviderGroupsOpenAPIItem struct {
+	ID                  string `json:"id"`
+	UserModelProviderID string `json:"user_model_provider_id"`
+	Name                string `json:"name"`
+	BaseURL             string `json:"base_url"`
+	APIKey              string `json:"api_key"`
+}
+
+type listModelProviderGroupsOpenAPIResponse struct {
+	Groups []listModelProviderGroupsOpenAPIItem `json:"groups"`
 }
 
 type listTasksQueryParams struct {
@@ -1353,6 +1491,124 @@ func registeredCoreOperations() []openAPIOperation {
 			Tags:        []string{"memory"},
 			RequestBody: jsonBodyOf(systemSuggestionOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Created memory suggestions", recordedSuggestionListOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers",
+			Summary:     "List user model providers",
+			Description: "Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).",
+			Tags:        []string{"model_providers"},
+			QueryParams: listUserModelProvidersQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("User model provider list", listUserModelProvidersOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers:with_groups",
+			Summary:     "List user model providers that have groups",
+			Description: "Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.",
+			Tags:        []string{"model_providers"},
+			Responses:   map[int]openAPIResponse{200: resp("User model providers with groups", listUserModelProvidersOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}:check",
+			Summary:     "Check model provider connectivity",
+			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.",
+			Tags:        []string{"model_providers"},
+			RequestBody: jsonBodyOf(checkModelProviderOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("data contains only success (bool), mapped from algorithm /api/model/check", modelprovider.CheckModelProviderData{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers/models",
+			Summary:     "List current user's models by model_type",
+			Description: "Requires query model_type (e.g. llm, embedding). Returns all non-deleted user_model_provider_group_models for the current user with that model_type across all providers and groups. Ordered by user_model_provider_id, group id, then name. Same items as GET .../groups/{group_id}/models.",
+			Tags:        []string{"model_providers"},
+			QueryParams: listUserModelsByModelTypeQueryParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Models list", listModelProviderGroupModelsOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers/selected_models",
+			Summary:     "Get selected models by model_type",
+			Description: "Returns the current user's selected model for each model_type.",
+			Tags:        []string{"model_providers"},
+			Responses:   map[int]openAPIResponse{200: resp("Selected models", listSelectedModelsOpenAPIResponse{})},
+		},
+		{
+			Method:      "PUT",
+			Path:        "/model_providers/selected_models",
+			Summary:     "Save selected models by model_type",
+			Description: "Upserts selected model rows for the current user. Each selection requires model_type and model_id. model_id must belong to the current user and model_type must match the model row.",
+			Tags:        []string{"model_providers"},
+			RequestBody: jsonBodyOf(setSelectedModelsOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Saved selected models", listSelectedModelsOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers/{model_provider_id}/groups",
+			Summary:     "List model provider connection groups",
+			Description: "Lists non-deleted groups for the user model provider. model_provider_id is the id from GET /model_providers. Each item includes api_key.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupPathParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Group list", listModelProviderGroupsOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/model_providers/{model_provider_id}/groups",
+			Summary:     "Create model provider connection group",
+			Description: "Creates a group (name, base_url, optional api_key) under the given user model provider. model_provider_id is the id from GET /model_providers. The api_key is not returned in the response body.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupPathParams{},
+			RequestBody: jsonBodyOf(createModelProviderGroupOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created group", createModelProviderGroupOpenAPIResponse{})},
+		},
+		{
+			Method:      "PATCH",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}",
+			Summary:     "Update model provider connection group",
+			Description: "Updates name, base_url, and optionally api_key for a group. The group is selected by path group_id. Omit api_key or send an empty string to keep the existing API key (e.g. when the UI shows a mask). The api_key is not returned in the response body.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupByIDPathParams{},
+			RequestBody: jsonBodyOf(updateModelProviderGroupOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Updated group", createModelProviderGroupOpenAPIResponse{})},
+		},
+		{
+			Method:      "DELETE",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}",
+			Summary:     "Delete model provider connection group",
+			Description: "Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupByIDPathParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Deleted group", deleteModelProviderGroupOpenAPIResponse{})},
+		},
+		{
+			Method:      "GET",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models",
+			Summary:     "List models under a connection group",
+			Description: "Lists non-deleted user_model_provider_group_models for the group. Each item includes is_default (true when copied from default_models seeding; false for user-added models).",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupByIDPathParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Group models list", listModelProviderGroupModelsOpenAPIResponse{})},
+		},
+		{
+			Method:      "POST",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models",
+			Summary:     "Add custom model under a connection group",
+			Description: "Creates a user_model_provider_group_models row with is_default false (custom model name and model_type). Name must be unique within the group among active rows. provider_name and base_url are taken from the user provider and group. Response group_name is user_model_provider_groups.name (not stored on the model row).",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupByIDPathParams{},
+			RequestBody: jsonBodyOf(addModelProviderGroupModelOpenAPIRequest{}, true),
+			Responses:   map[int]openAPIResponse{200: resp("Created group model", addModelProviderGroupModelOpenAPIResponse{})},
+		},
+		{
+			Method:      "DELETE",
+			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}",
+			Summary:     "Delete model under a connection group",
+			Description: "Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.",
+			Tags:        []string{"model_providers"},
+			PathParams:  modelProviderGroupModelPathParams{},
+			Responses:   map[int]openAPIResponse{200: resp("Deleted group model", deleteModelProviderGroupModelOpenAPIResponse{})},
 		},
 		{
 			Method:    "GET",

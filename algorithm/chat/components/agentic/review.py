@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import threading
 import traceback
 from typing import Any
+import os
 
 import lazyllm
 from lazyllm.tools.fs.client import FS
@@ -11,6 +11,7 @@ from lazyllm.tools.fs.client import FS
 from chat.components.agentic.config import REVIEW_PROMPTS, REVIEW_TOOLS, _env_int
 from chat.prompts.agentic import _COMBINED_REVIEW_PROMPT
 from chat.tools.skill_manager import list_all_skills_with_category
+from config import config as _cfg
 
 
 def _env_enabled(name: str) -> bool:
@@ -161,7 +162,7 @@ def _spawn_background_review(
             review_agent = lazyllm.tools.agent.ReactAgent(
                 llm=llm,
                 tools=review_tools,
-                max_retries=_env_int('LAZYRAG_REVIEW_MAX_RETRIES', 5),
+                max_retries=_cfg['review_max_retries'],
                 return_trace=False,
                 prompt=" ",
                 skills=review_skills,

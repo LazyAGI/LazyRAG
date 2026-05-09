@@ -8,6 +8,7 @@ import (
 	"lazyrag/core/evolution"
 	"lazyrag/core/file"
 	"lazyrag/core/memory"
+	"lazyrag/core/modelprovider"
 	"lazyrag/core/preference"
 	"lazyrag/core/skill"
 	"lazyrag/core/wordgroup"
@@ -187,6 +188,21 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "DELETE", "/word_group_conflict/{id}", []string{}, wordgroup.DeleteWordGroupConflict)
 	// Internal endpoint for algorithm service. Uses create_user_id in payload, no request auth headers.
 	handleAPI(r, "POST", "/inner/word_group:apply", []string{}, wordgroup.ApplyWordGroupAction)
+
+	// ----- Model provider -----
+	handleAPI(r, "GET", "/model_providers", []string{}, modelprovider.ListUserProviders)
+	handleAPI(r, "GET", "/model_providers:with_groups", []string{}, modelprovider.ListUserProvidersWithGroups)
+	handleAPI(r, "POST", "/model_providers/{model_provider_id}/groups/{group_id}:check", []string{}, modelprovider.CheckGroup)
+	handleAPI(r, "GET", "/model_providers/models", []string{}, modelprovider.ListUserModelsByModelType)
+	handleAPI(r, "GET", "/model_providers/selected_models", []string{}, modelprovider.GetSelectedModels)
+	handleAPI(r, "PUT", "/model_providers/selected_models", []string{}, modelprovider.SetSelectedModels)
+	handleAPI(r, "GET", "/model_providers/{model_provider_id}/groups", []string{}, modelprovider.ListGroups)
+	handleAPI(r, "POST", "/model_providers/{model_provider_id}/groups", []string{}, modelprovider.CreateGroup)
+	handleAPI(r, "PATCH", "/model_providers/{model_provider_id}/groups/{group_id}", []string{}, modelprovider.UpdateGroup)
+	handleAPI(r, "DELETE", "/model_providers/{model_provider_id}/groups/{group_id}", []string{}, modelprovider.DeleteGroup)
+	handleAPI(r, "GET", "/model_providers/{model_provider_id}/groups/{group_id}/models", []string{}, modelprovider.ListGroupModels)
+	handleAPI(r, "POST", "/model_providers/{model_provider_id}/groups/{group_id}/models", []string{}, modelprovider.AddGroupModel)
+	handleAPI(r, "DELETE", "/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}", []string{}, modelprovider.DeleteGroupModel)
 
 	// ----- Prompttext -----
 	handleAPI(r, "POST", "/prompts", []string{"document.write"}, chat.CreatePrompt)

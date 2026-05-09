@@ -157,6 +157,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       useChatMessageStore();
     const isMouseScrollingRef = useRef(false);
     const sseRef = useRef<any>(null);
+    const activeStreamRef = useRef(false);
     const fileRef = useRef<any>(null);
     const chatContentRef = useRef<HTMLDivElement>(null);
     const currentConversationIdRef = useRef<string>("");
@@ -231,7 +232,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
 
     function sendMessage(params: SendMessageParams) {
       const { text, clearInput = true, create_time } = params;
-      if (loading || !canChat || !text) {
+      if (activeStreamRef.current || loading || !canChat || !text) {
         return;
       }
 
@@ -320,6 +321,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       input: any[],
       action: ChatConversationsRequestActionEnum,
     ) => {
+      activeStreamRef.current = true;
       setLoading(true);
       setIS_STREAMING(true);
 
@@ -372,6 +374,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       if (!onOpenResumeSSE) {
         return;
       }
+      activeStreamRef.current = true;
       setLoading(true);
       setIS_STREAMING(true);
       currentConversationIdRef.current = conversationId;
@@ -394,6 +397,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
 
     function closeSSE() {
       sseRef.current = null;
+      activeStreamRef.current = false;
       setLoading(false);
       setIS_STREAMING(false);
     }
@@ -813,6 +817,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       streamManager.setActiveConversation(id || null);
 
       if (id && streamManager.hasActiveStream(id)) {
+        activeStreamRef.current = true;
         const callbacks: Record<string, (event: CustomEvent) => void> = {
           message: (event) => onMessage(event),
           error: (event) => onError(event),

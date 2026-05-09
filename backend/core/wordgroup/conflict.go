@@ -239,7 +239,7 @@ func AddWordGroupConflictToGroups(w http.ResponseWriter, r *http.Request) {
 			}
 
 			row := orm.Word{
-				ID:            GenerateID(),
+				ID:            common.GenerateID(),
 				Word:          word,
 				WordKind:      orm.WordKindAlias,
 				GroupID:       groupID,
