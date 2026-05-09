@@ -396,6 +396,15 @@ const normalizePrincipal = (
     typeHint === "group"
       ? getFirstString([raw], ["group_name", "groupName", "name"])
       : getFirstString([raw], [
+          "display_name_zh",
+          "displayNameZh",
+          "display_name_cn",
+          "displayNameCn",
+          "name_zh",
+          "nameZh",
+          "nickname",
+          "nick_name",
+          "nickName",
           "display_name",
           "displayName",
           "username",
@@ -450,7 +459,24 @@ const dedupePrincipals = (principals: SkillSharePrincipal[]): SkillSharePrincipa
       return;
     }
 
-    deduped.set(`${principal.type}:${principal.id || principal.name}`, principal);
+    const key = `${principal.type}:${principal.id || principal.name}`;
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, principal);
+      return;
+    }
+
+    const existingHasDisplayName = existing.name && existing.name !== existing.id;
+    const nextHasDisplayName = principal.name && principal.name !== principal.id;
+    deduped.set(key, {
+      ...existing,
+      id: existing.id || principal.id,
+      name: existingHasDisplayName
+        ? existing.name
+        : nextHasDisplayName
+          ? principal.name
+          : existing.name || principal.name,
+    });
   });
 
   return Array.from(deduped.values());
@@ -654,8 +680,6 @@ const normalizeSkillShareRecord = (raw: RawObject): SkillShareRecord | null => {
         "receiver",
         "receiver_user",
         "receiverUser",
-        "target_user_id",
-        "targetUserId",
       ],
     ),
     ...extractPrincipals(
@@ -691,8 +715,6 @@ const normalizeSkillShareRecord = (raw: RawObject): SkillShareRecord | null => {
         "targetGroup",
         "receiver_group",
         "receiverGroup",
-        "target_group_id",
-        "targetGroupId",
       ],
     ),
   ]);

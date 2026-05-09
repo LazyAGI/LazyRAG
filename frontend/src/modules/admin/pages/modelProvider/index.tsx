@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Empty, Form, Input, Modal, Popconfirm, Select, Tag, Tooltip, message } from "antd";
 import {
   CheckCircleFilled,
@@ -6,6 +6,7 @@ import {
   DownOutlined,
   EditOutlined,
   KeyOutlined,
+  LoadingOutlined,
   PlusCircleOutlined,
   QuestionCircleOutlined,
   SearchOutlined,
@@ -294,6 +295,7 @@ const getAlgorithmProviderConfig = (
 enum ModelProviderModelType {
   VLM = "VLM",
   LLM = "llm",
+  LLM2 = "llm2",
   Embedding = "embedding",
   MultimodalEmbedding = "multimodal_embedding",
   TextToImage = "text2image",
@@ -314,6 +316,11 @@ const modelTypeByCapability: Record<ModelCapability, ModelProviderModelType> = {
   MULTIMODAL_EMBEDDING: ModelProviderModelType.MultimodalEmbedding,
   IMAGE_EDITING: ModelProviderModelType.ImageEditing,
   LLM_SELF_EVOLUTION: ModelProviderModelType.LLM,
+};
+
+const selectedModelTypeByCapability: Record<ModelCapability, ModelProviderModelType> = {
+  ...modelTypeByCapability,
+  LLM_SELF_EVOLUTION: ModelProviderModelType.LLM2,
 };
 
 function normalizeProviderKey(value: string) {
@@ -366,7 +373,7 @@ function mapModelTypeToCapability(modelType?: string): ModelCapability {
 
 function getCapabilityByModelType(modelType?: string): ModelCapability | undefined {
   const normalized = (modelType || "").toLowerCase();
-  return moduleConfigs.find((module) => modelTypeByCapability[module.key].toLowerCase() === normalized)?.key;
+  return moduleConfigs.find((module) => selectedModelTypeByCapability[module.key].toLowerCase() === normalized)?.key;
 }
 
 interface ApiEnvelope<T> {
@@ -389,6 +396,10 @@ interface ApiGroup {
   api_key?: string;
   is_verified?: boolean;
   user_model_provider_id: string;
+}
+
+interface CheckModelProviderResult {
+  success: boolean;
 }
 
 interface ApiModel {
@@ -543,6 +554,14 @@ function isDefaultProviderBaseUrl(provider: Pick<ProviderOption, "baseUrl">, bas
   return normalizeFormText(baseUrl) === normalizeFormText(provider.baseUrl);
 }
 
+function getModelProvidersPath(keyword?: string) {
+  const normalizedKeyword = keyword?.trim();
+  if (!normalizedKeyword) {
+    return "/model_providers";
+  }
+  return `/model_providers?${new URLSearchParams({ keyword: normalizedKeyword }).toString()}`;
+}
+
 export default function ModelProviderPage() {
   const [providerConfigForm] = Form.useForm<ProviderConfigFormValues>();
   const [customModelForm] = Form.useForm<CustomModelFormValues>();
@@ -554,6 +573,7 @@ export default function ModelProviderPage() {
   const [expandedProviderIds, setExpandedProviderIds] = useState<Record<string, boolean>>({});
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [providerSearchLoading, setProviderSearchLoading] = useState(false);
   const [providerConfigSaving, setProviderConfigSaving] = useState(false);
   const [verifyingGroupIds, setVerifyingGroupIds] = useState<Record<string, boolean>>({});
   const [expandedGroupIds, setExpandedGroupIds] = useState<Record<string, boolean>>({});
@@ -562,6 +582,8 @@ export default function ModelProviderPage() {
   const [moduleModelOptions, setModuleModelOptions] = useState<Partial<Record<ModelCapability, ModelOptionItem[]>>>({});
   const [moduleModelLoading, setModuleModelLoading] = useState<Partial<Record<ModelCapability, boolean>>>({});
   const watchedProviderBaseUrl = Form.useWatch("baseUrl", providerConfigForm);
+  const providerSearchRequestIdRef = useRef(0);
+  const initialProvidersLoadedRef = useRef(false);
   const configProvider = configModal?.provider || null;
   const baseUrlChanged = configProvider
     ? !isDefaultProviderBaseUrl(
@@ -571,11 +593,42 @@ export default function ModelProviderPage() {
     : false;
   const apiKeyRequired = !!configProvider && !baseUrlChanged;
 
+  const fetchProviderOptions = useCallback(async (searchKeyword = "") => {
+    const providerData = await modelProviderRequest<{ providers?: ApiProvider[] }>(
+      "GET",
+      getModelProvidersPath(searchKeyword)
+    );
+    return (providerData.providers || []).map(mapApiProvider);
+  }, []);
+
+  const searchProviderOptions = useCallback(
+    async (searchKeyword: string) => {
+      const requestId = providerSearchRequestIdRef.current + 1;
+      providerSearchRequestIdRef.current = requestId;
+      setProviderSearchLoading(true);
+
+      try {
+        const providers = await fetchProviderOptions(searchKeyword);
+        if (providerSearchRequestIdRef.current === requestId) {
+          setProviderOptions(providers);
+        }
+      } catch (error) {
+        if (providerSearchRequestIdRef.current === requestId) {
+          message.error(getLocalizedErrorMessage(error, "模型供应商搜索失败"));
+        }
+      } finally {
+        if (providerSearchRequestIdRef.current === requestId) {
+          setProviderSearchLoading(false);
+        }
+      }
+    },
+    [fetchProviderOptions]
+  );
+
   const loadModelProviders = async () => {
     setLoading(true);
     try {
-      const providerData = await modelProviderRequest<{ providers?: ApiProvider[] }>("GET", "/model_providers");
-      const providers = (providerData.providers || []).map(mapApiProvider);
+      const providers = await fetchProviderOptions();
       setProviderOptions(providers);
 
       const withGroupsData = await modelProviderRequest<{ providers?: ApiProvider[] }>("GET", "/model_providers:with_groups");
@@ -649,6 +702,7 @@ export default function ModelProviderPage() {
     } catch (error) {
       message.error(getLocalizedErrorMessage(error, "模型供应商加载失败"));
     } finally {
+      initialProvidersLoadedRef.current = true;
       setLoading(false);
     }
   };
@@ -657,24 +711,24 @@ export default function ModelProviderPage() {
     void loadModelProviders();
   }, []);
 
+  useEffect(() => {
+    if (!initialProvidersLoadedRef.current) {
+      return;
+    }
+
+    const debounceTimer = window.setTimeout(() => {
+      void searchProviderOptions(keyword);
+    }, 300);
+
+    return () => window.clearTimeout(debounceTimer);
+  }, [keyword, searchProviderOptions]);
+
   const addedProviderIds = useMemo(
     () => new Set(addedProviderList.map((provider) => provider.id)),
     [addedProviderList]
   );
 
-  const visibleProviders = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-
-    return providerOptions.filter((provider) => {
-      const matchesKeyword =
-        !normalizedKeyword ||
-        provider.name.toLowerCase().includes(normalizedKeyword) ||
-        provider.headline.toLowerCase().includes(normalizedKeyword) ||
-        provider.models.some((model) => model.name.toLowerCase().includes(normalizedKeyword));
-
-      return matchesKeyword;
-    });
-  }, [keyword, providerOptions]);
+  const visibleProviders = providerOptions;
 
   const loadModuleModels = async (capability: ModelCapability, force = false) => {
     if (!force && moduleModelOptions[capability]) {
@@ -763,7 +817,7 @@ export default function ModelProviderPage() {
     setConfigModal({ provider: providerDraft, group });
     providerConfigForm.setFieldsValue({
       name: groupDraft.name,
-      apiKey: groupDraft.apiKeyConfigured ? "********" : "",
+      apiKey: "",
       baseUrl: groupDraft.baseUrl || providerDraft.baseUrl,
     });
   };
@@ -792,7 +846,7 @@ export default function ModelProviderPage() {
       ? existingProvider?.groups.find((group) => group.id === activeConfigModal.group?.id)
       : undefined;
 
-    if (!isCustomBaseUrl && (!apiKey || (!existingGroup && apiKey === "********"))) {
+    if (!isCustomBaseUrl && !apiKey && !existingGroup?.apiKeyConfigured) {
       providerConfigForm.setFields([{ name: "apiKey", errors: ["请输入 API Key"] }]);
       return;
     }
@@ -802,7 +856,7 @@ export default function ModelProviderPage() {
       const payload = {
         name: groupName || configProvider.name,
         base_url: baseUrl,
-        ...(apiKey && apiKey !== "********" ? { api_key: apiKey } : {}),
+        ...(apiKey ? { api_key: apiKey } : {}),
       };
       const savedGroup = activeConfigModal.group
         ? await modelProviderRequest<ApiGroup>(
@@ -815,7 +869,7 @@ export default function ModelProviderPage() {
             `/model_providers/${encodeURIComponent(configProvider.id)}/groups`,
             payload
           );
-      const nextGroup = mapApiGroup(configProvider, { ...savedGroup, api_key: apiKey === "********" ? existingGroup?.apiKey : apiKey }, existingGroup?.models || []);
+      const nextGroup = mapApiGroup(configProvider, { ...savedGroup, api_key: apiKey || existingGroup?.apiKey }, existingGroup?.models || []);
 
       setAddedProviderList((current) =>
         current.some((provider) => provider.id === configProvider.id)
@@ -883,7 +937,7 @@ export default function ModelProviderPage() {
         return;
       }
 
-      await modelProviderRequest<unknown>(
+      const checkResult = await modelProviderRequest<CheckModelProviderResult>(
         "POST",
         `/model_providers/${encodeURIComponent(provider.id)}/groups/${encodeURIComponent(group.id)}:check`,
         {
@@ -893,6 +947,7 @@ export default function ModelProviderPage() {
         },
         { timeout: 3 * 60 * 1000 }
       );
+      const isVerified = checkResult?.success === true;
       setAddedProviderList((current) =>
         current.map((provider) =>
           provider.id === providerId
@@ -902,7 +957,7 @@ export default function ModelProviderPage() {
                   group.id === groupId
                     ? {
                         ...group,
-                        verified: true,
+                        verified: isVerified,
                       }
                     : group
                 ),
@@ -910,7 +965,21 @@ export default function ModelProviderPage() {
             : provider
         )
       );
-      message.success("分组验证通过，已可用于模型配置");
+      if (isVerified) {
+        message.success("分组验证通过，已可用于模型配置");
+        return;
+      }
+      setSelectedModels((current) => {
+        const next = { ...current };
+        Object.entries(next).forEach(([capability, value]) => {
+          const parsed = parseModelValue(value);
+          if (parsed.providerId === providerId && parsed.groupId === groupId) {
+            delete next[capability as ModelCapability];
+          }
+        });
+        return next;
+      });
+      message.error("分组验证未通过，请检查 Base URL 和 API Key 后重试");
     } catch (error) {
       message.error(getLocalizedErrorMessage(error, "验证失败，请检查连接配置后重试"));
     } finally {
@@ -1165,17 +1234,16 @@ export default function ModelProviderPage() {
   };
 
   const saveSelectedModel = async (capability: ModelCapability, value?: string) => {
-    if (!value) {
-      return;
-    }
-    const { modelId } = parseModelValue(value);
+    const modelType = selectedModelTypeByCapability[capability];
+    const selections = [
+      {
+        model_type: modelType,
+        model_id: value ? parseModelValue(value).modelId : "",
+      },
+    ];
+
     await modelProviderRequest<{ selections?: SelectedModelApiItem[] }>("PUT", "/model_providers/selected_models", {
-      selections: [
-        {
-          model_type: modelTypeByCapability[capability],
-          model_id: modelId,
-        },
-      ],
+      selections,
     });
   };
 
@@ -1492,7 +1560,7 @@ export default function ModelProviderPage() {
             disabled={loading}
             placeholder="搜索供应商或模型"
             size="large"
-            suffix={<SearchOutlined />}
+            suffix={providerSearchLoading ? <LoadingOutlined /> : <SearchOutlined />}
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />

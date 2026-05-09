@@ -12,6 +12,7 @@ __pycache__
 
 # temp files
 test/
+node_modules/
 dist/
 tmp/
 build
