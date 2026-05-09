@@ -2,7 +2,7 @@ import argparse
 import json
 import re
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -48,7 +48,7 @@ def run_case_list(
     批量执行 case 列表，并将每个 case 的结果单独落盘。
     """
     case_id_list = list(case_ids)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     base_dir = Path(output_dir) / timestamp
     base_dir.mkdir(parents=True, exist_ok=True)
 

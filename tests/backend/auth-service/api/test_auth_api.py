@@ -108,7 +108,7 @@ def test_login_invalid(client: TestClient):
 
 def test_validate_no_token(client: TestClient):
     r = client.post(f'{API_PREFIX}/validate')
-    assert r.status_code in {401, 403}
+    assert r.status_code == 401
 
 
 def test_validate_with_token(client: TestClient):

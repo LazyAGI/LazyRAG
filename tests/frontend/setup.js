@@ -14,6 +14,6 @@ export const routerSource = readFrontendFile('src/router/index.tsx');
 export const formRulesSource = readFrontendFile('src/modules/signin/utils/formRules.ts');
 
 export const routePaths = Array.from(
-  routerSource.matchAll(/<Route\s+path="([^"]+)"/g),
+  routerSource.matchAll(/<Route\s+[^>]*path=["']([^"']+)["']/g),
   (match) => match[1],
 );
