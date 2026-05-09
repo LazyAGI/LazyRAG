@@ -263,6 +263,11 @@ func (h *Handler) createSource(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	req.CreateUserID = strings.TrimSpace(r.Header.Get("X-User-Id"))
+	if req.CreateUserID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_CURRENT_USER", "missing X-User-Id")
+		return
+	}
 	req.DatasetID = strings.TrimSpace(req.DatasetID)
 	if h.core != nil && h.core.Enabled() {
 		// In core-task mode each source should have a concrete dataset binding.
@@ -326,14 +331,45 @@ func (h *Handler) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) listSources(w http.ResponseWriter, r *http.Request) {
 	tenantID := strings.TrimSpace(r.URL.Query().Get("tenant_id"))
-	sources, err := h.store.ListSources(r.Context(), tenantID)
+	currentUserID := strings.TrimSpace(r.Header.Get("X-User-Id"))
+	if currentUserID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_CURRENT_USER", "missing X-User-Id")
+		return
+	}
+	sources, err := h.store.ListSources(r.Context(), tenantID, currentUserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "LIST_SOURCES_FAILED", err.Error())
 		return
 	}
+
+	sourceIDs := make([]string, 0, len(sources))
+	for _, src := range sources {
+		sourceIDs = append(sourceIDs, src.ID)
+	}
+	bindings, err := h.store.ListCloudSourceBindingsBySourceIDs(r.Context(), sourceIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "LIST_SOURCE_BINDINGS_FAILED", err.Error())
+		return
+	}
+	documentOverviews, err := h.store.ListSourceDocumentOverviews(r.Context(), sources)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "LIST_SOURCE_DOCUMENTS_FAILED", err.Error())
+		return
+	}
+
 	items := make([]model.Source, 0, len(sources))
 	for _, src := range sources {
-		items = append(items, publicSourceModel(src))
+		item := publicSourceModel(src)
+		if binding, ok := bindings[src.ID]; ok {
+			binding := binding
+			item.CloudBinding = &binding
+		}
+		if docs, ok := documentOverviews[src.ID]; ok {
+			docs := docs
+			docs.Source.RootPath = item.RootPath
+			item.Documents = &docs
+		}
+		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

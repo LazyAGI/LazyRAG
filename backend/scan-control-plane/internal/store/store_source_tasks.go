@@ -198,6 +198,188 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	return resp, nil
 }
 
+func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model.Source) (map[string]model.SourceDocumentsResponse, error) {
+	sourceByID := make(map[string]model.Source, len(sources))
+	sourceIDsRaw := make([]string, 0, len(sources))
+	agentIDsRaw := make([]string, 0, len(sources))
+	for _, src := range sources {
+		src.ID = strings.TrimSpace(src.ID)
+		if src.ID == "" {
+			continue
+		}
+		if _, exists := sourceByID[src.ID]; exists {
+			continue
+		}
+		sourceByID[src.ID] = src
+		sourceIDsRaw = append(sourceIDsRaw, src.ID)
+		if agentID := strings.TrimSpace(src.AgentID); agentID != "" {
+			agentIDsRaw = append(agentIDsRaw, agentID)
+		}
+	}
+
+	sourceIDs := uniqueTrimmedStrings(sourceIDsRaw)
+	result := make(map[string]model.SourceDocumentsResponse, len(sourceIDs))
+	if len(sourceIDs) == 0 {
+		return result, nil
+	}
+
+	agentOnlineByID := make(map[string]bool)
+	if agentIDs := uniqueTrimmedStrings(agentIDsRaw); len(agentIDs) > 0 {
+		var agents []agentEntity
+		if err := s.db.WithContext(ctx).Where("agent_id IN ?", agentIDs).Find(&agents).Error; err != nil {
+			return nil, err
+		}
+		for _, agent := range agents {
+			agentOnlineByID[agent.AgentID] = strings.ToUpper(strings.TrimSpace(agent.Status)) != "OFFLINE"
+		}
+	}
+
+	for _, sourceID := range sourceIDs {
+		src := sourceByID[sourceID]
+		agentID := strings.TrimSpace(src.AgentID)
+		result[sourceID] = model.SourceDocumentsResponse{
+			Source: model.SourceDocumentsSource{
+				ID:                      sourceID,
+				Name:                    src.Name,
+				RootPath:                src.RootPath,
+				WatchEnabled:            src.WatchEnabled,
+				AgentID:                 src.AgentID,
+				AgentOnline:             agentOnlineByID[agentID],
+				UpdateTrackingSupported: true,
+			},
+			Items:    []model.SourceDocumentItem{},
+			Page:     1,
+			PageSize: 1,
+		}
+	}
+
+	type sourceDocumentOverviewSummaryRow struct {
+		SourceID            string `gorm:"column:source_id"`
+		TotalDocumentCount  int64  `gorm:"column:total_document_count"`
+		ParsedDocumentCount int64  `gorm:"column:parsed_document_count"`
+		NewCount            int64  `gorm:"column:new_count"`
+		ModifiedCount       int64  `gorm:"column:modified_count"`
+		DeletedCount        int64  `gorm:"column:deleted_count"`
+	}
+	var summaryRows []sourceDocumentOverviewSummaryRow
+	summaryQuery := s.db.WithContext(ctx).
+		Table("documents").
+		Select(`
+			source_id,
+			COUNT(*) AS total_document_count,
+			SUM(CASE WHEN COALESCE(current_version_id, '') <> '' AND UPPER(COALESCE(parse_status, '')) <> 'DELETED' THEN 1 ELSE 0 END) AS parsed_document_count,
+			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') = '' THEN 1 ELSE 0 END) AS new_count,
+			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') <> '' AND desired_version_id <> current_version_id THEN 1 ELSE 0 END) AS modified_count,
+			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) = 'DELETED' THEN 1 ELSE 0 END) AS deleted_count`).
+		Where("source_id IN ?", sourceIDs).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			return applyTransientPathFilter(db, "source_object_id")
+		}).
+		Group("source_id")
+	if err := summaryQuery.Scan(&summaryRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range summaryRows {
+		resp := result[row.SourceID]
+		resp.Total = row.TotalDocumentCount
+		resp.Summary = model.SourceDocumentsSummary{
+			ParsedDocumentCount: row.ParsedDocumentCount,
+			StorageBytes:        0,
+			TotalDocumentCount:  row.TotalDocumentCount,
+			NewCount:            row.NewCount,
+			ModifiedCount:       row.ModifiedCount,
+			DeletedCount:        row.DeletedCount,
+			PendingPullCount:    row.NewCount + row.ModifiedCount + row.DeletedCount,
+		}
+		result[row.SourceID] = resp
+	}
+
+	type sourceDocumentOverviewDocRow struct {
+		ID               int64     `gorm:"column:id"`
+		TenantID         string    `gorm:"column:tenant_id"`
+		SourceID         string    `gorm:"column:source_id"`
+		SourceObjectID   string    `gorm:"column:source_object_id"`
+		CurrentVersionID string    `gorm:"column:current_version_id"`
+		DesiredVersionID string    `gorm:"column:desired_version_id"`
+		ParseStatus      string    `gorm:"column:parse_status"`
+		UpdatedAt        time.Time `gorm:"column:updated_at"`
+	}
+	docSubquery := s.db.WithContext(ctx).
+		Model(&documentEntity{}).
+		Select(`
+			documents.id,
+			documents.tenant_id,
+			documents.source_id,
+			documents.source_object_id,
+			documents.current_version_id,
+			documents.desired_version_id,
+			documents.parse_status,
+			documents.updated_at,
+			ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY updated_at DESC, id DESC) AS rn`).
+		Where("source_id IN ?", sourceIDs)
+	docSubquery = applyTransientPathFilter(docSubquery, "source_object_id")
+
+	var docRows []sourceDocumentOverviewDocRow
+	if err := s.db.WithContext(ctx).
+		Table("(?) AS ranked_documents", docSubquery).
+		Where("rn = ?", 1).
+		Scan(&docRows).Error; err != nil {
+		return nil, err
+	}
+
+	docIDs := make([]int64, 0, len(docRows))
+	for _, doc := range docRows {
+		docIDs = append(docIDs, doc.ID)
+	}
+	latestTasksByDocID, err := s.latestParseTasksByDocumentIDs(ctx, docIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, doc := range docRows {
+		resp := result[doc.SourceID]
+		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		var hasUpdate *bool
+		switch update {
+		case "NEW", "MODIFIED", "DELETED":
+			v := true
+			hasUpdate = &v
+		case "UNCHANGED":
+			v := false
+			hasUpdate = &v
+		}
+		lastSyncedAt := doc.UpdatedAt
+		latestTask := latestTasksByDocID[doc.ID]
+		resp.Source.LastSyncedAt = &lastSyncedAt
+		resp.Items = []model.SourceDocumentItem{
+			{
+				DocumentID:              doc.ID,
+				Name:                    filepath.Base(doc.SourceObjectID),
+				Path:                    doc.SourceObjectID,
+				Directory:               filepath.Base(filepath.Dir(doc.SourceObjectID)),
+				HasUpdate:               hasUpdate,
+				UpdateType:              update,
+				UpdateDesc:              updateTypeDescription(update),
+				ParseState:              effectiveSourceDocumentParseState(doc.ParseStatus, doc.DesiredVersionID, latestTask),
+				FileType:                fileTypeFromPath(doc.SourceObjectID),
+				SizeBytes:               0,
+				LastSyncedAt:            &lastSyncedAt,
+				CoreDatasetID:           latestTask.CoreDatasetID,
+				CoreTaskID:              latestTask.CoreTaskID,
+				ScanOrchestrationStatus: latestTask.ScanOrchestrationStatus,
+				DesiredVersionID:        doc.DesiredVersionID,
+				CurrentVersionID:        doc.CurrentVersionID,
+				ParseTaskID:             latestTask.TaskID,
+				ParseTaskAction:         latestTask.TaskAction,
+				ParseTaskTargetVersion:  latestTask.TargetVersionID,
+			},
+		}
+		result[doc.SourceID] = resp
+	}
+
+	return result, nil
+}
+
 func effectiveSourceDocumentParseState(documentStatus, desiredVersion string, latestTask parseTaskDocJoin) string {
 	documentState := strings.ToUpper(strings.TrimSpace(documentStatus))
 	if documentState == "" {

@@ -534,6 +534,55 @@ func TestCreateSourceReusesSameRootPath(t *testing.T) {
 	}
 }
 
+func TestListSourcesFiltersByCreateUserID(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	baseReq := model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-user-1",
+		RootPath:          "/tmp/shared-watch",
+		AgentID:           "agent-1",
+		CreateUserID:      "user-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	}
+	userOneSource, err := st.CreateSource(ctx, baseReq)
+	if err != nil {
+		t.Fatalf("create user-1 source failed: %v", err)
+	}
+	if userOneSource.CreateUserID != "user-1" {
+		t.Fatalf("expected user-1 source create_user_id, got %q", userOneSource.CreateUserID)
+	}
+
+	baseReq.Name = "src-user-2"
+	baseReq.CreateUserID = "user-2"
+	userTwoSource, err := st.CreateSource(ctx, baseReq)
+	if err != nil {
+		t.Fatalf("create user-2 source failed: %v", err)
+	}
+	if userOneSource.ID == userTwoSource.ID {
+		t.Fatalf("expected separate sources for different creators sharing a root path")
+	}
+
+	userOneSources, err := st.ListSources(ctx, "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("list user-1 sources failed: %v", err)
+	}
+	if len(userOneSources) != 1 || userOneSources[0].ID != userOneSource.ID {
+		t.Fatalf("expected only user-1 source, got %+v", userOneSources)
+	}
+
+	userTwoSources, err := st.ListSources(ctx, "tenant-1", "user-2")
+	if err != nil {
+		t.Fatalf("list user-2 sources failed: %v", err)
+	}
+	if len(userTwoSources) != 1 || userTwoSources[0].ID != userTwoSource.ID {
+		t.Fatalf("expected only user-2 source, got %+v", userTwoSources)
+	}
+}
+
 func TestCreateCloudSourceAutoRootPath(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1425,6 +1474,30 @@ func TestCloudBindingUsesStoreDefaultScheduleTZ(t *testing.T) {
 	}
 	if binding.ScheduleTZ != "UTC" {
 		t.Fatalf("expected schedule_tz to fallback to store default UTC, got %s", binding.ScheduleTZ)
+	}
+}
+
+func TestCloudBindingAcceptsScheduleExprWithSeconds(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+
+	binding, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_seconds_001",
+		ScheduleExpr:     "daily@02:00:00",
+		ScheduleTZ:       "Asia/Shanghai",
+	})
+	if err != nil {
+		t.Fatalf("upsert cloud binding with seconds failed: %v", err)
+	}
+	if binding.ScheduleExpr != "daily@02:00:00" {
+		t.Fatalf("expected schedule_expr to be preserved, got %s", binding.ScheduleExpr)
+	}
+	if binding.NextSyncAt == nil {
+		t.Fatalf("expected next_sync_at to be computed")
 	}
 }
 

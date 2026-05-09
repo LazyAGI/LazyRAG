@@ -78,12 +78,13 @@ func FetchGroupUserIDsFromAuthService(r *http.Request, groupIDs []string) []stri
 	out := []string{}
 	for _, groupID := range compactNonEmptyStrings(groupIDs) {
 		groupPath := "/group/" + url.PathEscape(groupID) + "/user"
+		groupQuery := "?active_only=true"
 		endpoints := []struct {
 			path    string
 			headers map[string]string
 		}{
-			{path: groupPath, headers: authServiceRequestHeaders(r)},
-			{path: groupPath + "/internal", headers: authServiceInternalRequestHeaders(r)},
+			{path: groupPath + groupQuery, headers: authServiceRequestHeaders(r)},
+			{path: groupPath + "/internal" + groupQuery, headers: authServiceInternalRequestHeaders(r)},
 		}
 		users := []authServiceGroupUserItem{}
 		for _, endpoint := range endpoints {

@@ -23,6 +23,7 @@ class GroupService:
         tenant_id: str | None = None,
         current_user_id: uuid.UUID | None = None,
         is_system_admin: bool = False,
+        active_members_only: bool = False,
     ) -> tuple[list[dict], int]:
         """Paginated group list. Returns (items, total).
 
@@ -31,7 +32,14 @@ class GroupService:
         """
         with SessionLocal() as db:
             if is_system_admin:
-                groups, total = GroupRepository.list_paginated(db, page, page_size, search, tenant_id)
+                groups, total = GroupRepository.list_paginated(
+                    db,
+                    page,
+                    page_size,
+                    search,
+                    tenant_id,
+                    active_members_only=active_members_only,
+                )
                 items = [
                     {
                         'group_id': str(g.id),
@@ -146,10 +154,10 @@ class GroupService:
                 raise_error(ErrorCodes.GROUP_NOT_FOUND)
             GroupRepository.delete(db, g)
 
-    def list_group_users(self, group_id: uuid.UUID) -> list[dict]:
+    def list_group_users(self, group_id: uuid.UUID, active_only: bool = False) -> list[dict]:
         """List members in a group."""
         with SessionLocal() as db:
-            rows = UserGroupRepository.list_by_group_id(db, group_id)
+            rows = UserGroupRepository.list_by_group_id(db, group_id, active_only=active_only)
             return [
                 {
                     'user_id': str(r.user_id),

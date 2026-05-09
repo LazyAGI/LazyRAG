@@ -225,6 +225,7 @@ func toModelSource(e sourceEntity) model.Source {
 	return model.Source{
 		ID:                    e.ID,
 		TenantID:              e.TenantID,
+		CreateUserID:          strings.TrimSpace(e.CreateUserID),
 		Name:                  e.Name,
 		SourceType:            e.SourceType,
 		RootPath:              e.RootPath,

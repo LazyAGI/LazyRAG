@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,19 @@ import (
 	"github.com/lazyrag/scan_control_plane/internal/model"
 	"github.com/lazyrag/scan_control_plane/internal/store"
 )
+
+func newServerTestStore(t *testing.T) *store.Store {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "cp.db")
+	st, err := store.New("sqlite", dbPath, 10*time.Second, zap.NewNop())
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = st.Close()
+	})
+	return st
+}
 
 func TestFetchTreeFileStatsRunsInParallel(t *testing.T) {
 	t.Parallel()
@@ -330,6 +344,108 @@ func TestNormalizeTreeParseQueueStatesForResponse(t *testing.T) {
 	}
 	if got[1].Children[1].ParseQueueState != "FAILED" {
 		t.Fatalf("expected child failed state, got %s", got[1].Children[1].ParseQueueState)
+	}
+}
+
+func TestListSourcesIncludesCurrentUserBatchOverview(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	if err := st.RegisterAgent(ctx, model.RegisterAgentRequest{
+		AgentID:  "agent-1",
+		TenantID: "tenant-1",
+		Hostname: "test",
+		Version:  "v1",
+	}); err != nil {
+		t.Fatalf("register agent failed: %v", err)
+	}
+
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		CreateUserID:          "user-1",
+		Name:                  "cloud source",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	if _, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		CreateUserID:          "user-2",
+		Name:                  "other source",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	}); err != nil {
+		t.Fatalf("create other source failed: %v", err)
+	}
+
+	enabled := true
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          &enabled,
+		AuthConnectionID: "conn-1",
+		TargetType:       "wiki_space",
+		TargetRef:        "space-1",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{
+			SourceID:       src.ID,
+			EventType:      "modified",
+			Path:           "/tmp/watch/a.txt",
+			OccurredAt:     time.Now().UTC(),
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: "FEISHU",
+			TriggerPolicy:  string(model.TriggerPolicyImmediate),
+		},
+	})
+	if err != nil {
+		t.Fatalf("build mutations failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply mutations failed: %v", err)
+	}
+
+	h := &Handler{store: st, core: coreclient.NewNoop(), log: zap.NewNop()}
+	req := httptest.NewRequest(http.MethodGet, "/api/scan/sources?tenant_id=tenant-1", nil)
+	req.Header.Set("X-User-Id", "user-1")
+	w := httptest.NewRecorder()
+	h.listSources(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Items []model.Source `json:"items"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected current user's source only, got %d", len(resp.Items))
+	}
+	item := resp.Items[0]
+	if item.ID != src.ID {
+		t.Fatalf("expected source %s, got %s", src.ID, item.ID)
+	}
+	if item.CloudBinding == nil || item.CloudBinding.Status != "ACTIVE" {
+		t.Fatalf("expected active cloud binding, got %#v", item.CloudBinding)
+	}
+	if item.Documents == nil {
+		t.Fatalf("expected documents overview")
+	}
+	if item.Documents.Total != 1 || item.Documents.Summary.TotalDocumentCount != 1 {
+		t.Fatalf("expected one document, got total=%d summary=%d", item.Documents.Total, item.Documents.Summary.TotalDocumentCount)
+	}
+	if len(item.Documents.Items) != 1 || item.Documents.Items[0].Name != "a.txt" {
+		t.Fatalf("expected first document a.txt, got %#v", item.Documents.Items)
 	}
 }
 

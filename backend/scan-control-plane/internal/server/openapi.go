@@ -62,11 +62,12 @@ func buildOpenAPISpec() map[string]any {
 					"200": resp("Source list", inlineObj(map[string]any{
 						"items": arrSchema(refSchema("Source")),
 					}, []string{"items"})),
-				}),
+					"400": errResp(),
+				}, headerParam("X-User-Id", true)),
 				"post": op("Create source", reqBody(refSchema("CreateSourceRequest")), map[string]any{
 					"200": resp("Created source", refSchema("Source")),
 					"400": errResp(),
-				}),
+				}, headerParam("X-User-Id", true)),
 			},
 			"/api/scan/knowledge-bases": map[string]any{
 				"post": op("Create knowledge base in core and grant current user read permission", reqBody(refSchema("CreateKnowledgeBaseRequest")), map[string]any{
@@ -330,6 +331,7 @@ func schemas() map[string]any {
 		"Source": inlineObj(map[string]any{
 			"id":                      strSchema(),
 			"tenant_id":               strSchema(),
+			"create_user_id":          strSchema(),
 			"name":                    strSchema(),
 			"source_type":             strSchema(),
 			"root_path":               strSchema(),
@@ -345,6 +347,8 @@ func schemas() map[string]any {
 			"default_trigger_policy":  strSchema(),
 			"created_at":              dateTimeSchema(),
 			"updated_at":              dateTimeSchema(),
+			"cloud_binding":           refSchema("CloudSourceBinding"),
+			"documents":               refSchema("SourceDocumentsResponse"),
 		}, []string{"id", "tenant_id", "name", "source_type", "root_path", "status", "watch_enabled", "idle_window_seconds", "reconcile_seconds", "agent_id", "created_at", "updated_at"}),
 		"CreateSourceRequest": inlineObj(map[string]any{
 			"tenant_id":               strSchema(),
@@ -844,6 +848,15 @@ func pathParam(name string) map[string]any {
 		"name":     name,
 		"in":       "path",
 		"required": true,
+		"schema":   strSchema(),
+	}
+}
+
+func headerParam(name string, required bool) map[string]any {
+	return map[string]any{
+		"name":     name,
+		"in":       "header",
+		"required": required,
 		"schema":   strSchema(),
 	}
 }

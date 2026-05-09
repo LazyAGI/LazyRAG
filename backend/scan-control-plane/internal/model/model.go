@@ -45,27 +45,31 @@ const (
 )
 
 type Source struct {
-	ID                    string       `json:"id"`
-	TenantID              string       `json:"tenant_id"`
-	Name                  string       `json:"name"`
-	SourceType            string       `json:"source_type"`
-	RootPath              string       `json:"root_path"`
-	Status                SourceStatus `json:"status"`
-	WatchEnabled          bool         `json:"watch_enabled"`
-	IdleWindowSeconds     int64        `json:"idle_window_seconds"`
-	ReconcileSeconds      int64        `json:"reconcile_seconds"`
-	ReconcileSchedule     string       `json:"reconcile_schedule,omitempty"`
-	AgentID               string       `json:"agent_id"`
-	DatasetID             string       `json:"dataset_id,omitempty"`
-	DefaultOriginType     string       `json:"default_origin_type"`
-	DefaultOriginPlatform string       `json:"default_origin_platform"`
-	DefaultTriggerPolicy  string       `json:"default_trigger_policy"`
-	CreatedAt             time.Time    `json:"created_at"`
-	UpdatedAt             time.Time    `json:"updated_at"`
+	ID                    string                   `json:"id"`
+	TenantID              string                   `json:"tenant_id"`
+	CreateUserID          string                   `json:"create_user_id,omitempty"`
+	Name                  string                   `json:"name"`
+	SourceType            string                   `json:"source_type"`
+	RootPath              string                   `json:"root_path"`
+	Status                SourceStatus             `json:"status"`
+	WatchEnabled          bool                     `json:"watch_enabled"`
+	IdleWindowSeconds     int64                    `json:"idle_window_seconds"`
+	ReconcileSeconds      int64                    `json:"reconcile_seconds"`
+	ReconcileSchedule     string                   `json:"reconcile_schedule,omitempty"`
+	AgentID               string                   `json:"agent_id"`
+	DatasetID             string                   `json:"dataset_id,omitempty"`
+	DefaultOriginType     string                   `json:"default_origin_type"`
+	DefaultOriginPlatform string                   `json:"default_origin_platform"`
+	DefaultTriggerPolicy  string                   `json:"default_trigger_policy"`
+	CreatedAt             time.Time                `json:"created_at"`
+	UpdatedAt             time.Time                `json:"updated_at"`
+	CloudBinding          *CloudSourceBinding      `json:"cloud_binding,omitempty"`
+	Documents             *SourceDocumentsResponse `json:"documents,omitempty"`
 }
 
 type CreateSourceRequest struct {
 	TenantID              string `json:"tenant_id"`
+	CreateUserID          string `json:"create_user_id,omitempty"`
 	Name                  string `json:"name"`
 	RootPath              string `json:"root_path"`
 	AgentID               string `json:"agent_id"`

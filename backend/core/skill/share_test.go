@@ -148,6 +148,9 @@ func TestShareExpandsTargetGroupsFromAuthService(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/authservice/group/g1/user":
+			if got := r.URL.Query().Get("active_only"); got != "true" {
+				t.Fatalf("expected group user lookup to request active_only=true, got %q", got)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"users": []map[string]string{
 					{"user_id": "u1", "username": "User 1"},

@@ -18,6 +18,7 @@ import (
 
 func (s *Store) CreateSource(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {
 	req.TenantID = strings.TrimSpace(req.TenantID)
+	req.CreateUserID = strings.TrimSpace(req.CreateUserID)
 	req.Name = strings.TrimSpace(req.Name)
 	req.AgentID = strings.TrimSpace(req.AgentID)
 	req.RootPath = strings.TrimSpace(req.RootPath)
@@ -60,6 +61,7 @@ func (s *Store) createCloudSource(ctx context.Context, req model.CreateSourceReq
 	src := sourceEntity{
 		ID:                    id,
 		TenantID:              req.TenantID,
+		CreateUserID:          req.CreateUserID,
 		Name:                  req.Name,
 		SourceType:            "cloud_sync",
 		RootPath:              rootPath,
@@ -126,8 +128,9 @@ func (s *Store) ensureSourceByRootPath(ctx context.Context, req model.CreateSour
 	now := time.Now().UTC()
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing sourceEntity
-		findErr := tx.Where("tenant_id = ? AND agent_id = ? AND root_path = ?", req.TenantID, req.AgentID, rootPath).Take(&existing).Error
+		findErr := tx.Where("tenant_id = ? AND agent_id = ? AND root_path = ? AND create_user_id = ?", req.TenantID, req.AgentID, rootPath, req.CreateUserID).Take(&existing).Error
 		if findErr == nil {
+			existing.CreateUserID = req.CreateUserID
 			existing.Name = req.Name
 			existing.IdleWindowSeconds = idle
 			existing.ReconcileSeconds = reconcile
@@ -175,6 +178,7 @@ func (s *Store) ensureSourceByRootPath(ctx context.Context, req model.CreateSour
 		src := sourceEntity{
 			ID:                    sourceID(),
 			TenantID:              req.TenantID,
+			CreateUserID:          req.CreateUserID,
 			Name:                  req.Name,
 			SourceType:            "local_fs",
 			RootPath:              rootPath,
@@ -211,7 +215,7 @@ func (s *Store) ensureSourceByRootPath(ctx context.Context, req model.CreateSour
 		return model.Source{}, err
 	}
 	var src sourceEntity
-	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND agent_id = ? AND root_path = ?", req.TenantID, req.AgentID, rootPath).Take(&src).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("tenant_id = ? AND agent_id = ? AND root_path = ? AND create_user_id = ?", req.TenantID, req.AgentID, rootPath, req.CreateUserID).Take(&src).Error; err != nil {
 		return model.Source{}, err
 	}
 	return toModelSource(src), nil
@@ -411,11 +415,14 @@ func deletePendingSourceCommands(tx *gorm.DB, agentID, sourceID string) error {
 		Delete(&agentCommandEntity{}).Error
 }
 
-func (s *Store) ListSources(ctx context.Context, tenantID string) ([]model.Source, error) {
+func (s *Store) ListSources(ctx context.Context, tenantID, createUserID string) ([]model.Source, error) {
 	var entities []sourceEntity
 	db := s.db.WithContext(ctx).Order("created_at DESC")
 	if tenantID != "" {
 		db = db.Where("tenant_id = ?", tenantID)
+	}
+	if createUserID != "" {
+		db = db.Where("create_user_id = ?", createUserID)
 	}
 	if err := db.Find(&entities).Error; err != nil {
 		return nil, err
@@ -632,6 +639,33 @@ func (s *Store) GetCloudSourceBinding(ctx context.Context, sourceID string) (mod
 		nextSyncAt = checkpoint.NextSyncAt
 	}
 	return toModelCloudSourceBinding(binding, nextSyncAt), nil
+}
+
+func (s *Store) ListCloudSourceBindingsBySourceIDs(ctx context.Context, sourceIDs []string) (map[string]model.CloudSourceBinding, error) {
+	sourceIDs = uniqueTrimmedStrings(sourceIDs)
+	result := make(map[string]model.CloudSourceBinding, len(sourceIDs))
+	if len(sourceIDs) == 0 {
+		return result, nil
+	}
+
+	var bindings []cloudSourceBindingEntity
+	if err := s.db.WithContext(ctx).Where("source_id IN ?", sourceIDs).Find(&bindings).Error; err != nil {
+		return nil, err
+	}
+
+	var checkpoints []cloudSyncCheckpointEntity
+	if err := s.db.WithContext(ctx).Where("source_id IN ?", sourceIDs).Find(&checkpoints).Error; err != nil {
+		return nil, err
+	}
+	nextSyncBySourceID := make(map[string]*time.Time, len(checkpoints))
+	for _, checkpoint := range checkpoints {
+		nextSyncBySourceID[checkpoint.SourceID] = checkpoint.NextSyncAt
+	}
+
+	for _, binding := range bindings {
+		result[binding.SourceID] = toModelCloudSourceBinding(binding, nextSyncBySourceID[binding.SourceID])
+	}
+	return result, nil
 }
 
 func (s *Store) TriggerCloudSync(ctx context.Context, sourceID string, req model.TriggerCloudSyncRequest) (model.CloudSyncRun, error) {

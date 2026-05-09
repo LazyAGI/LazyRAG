@@ -1224,6 +1224,19 @@ type mergedDocRow struct {
 	PDFConvertResult string
 }
 
+func latestTime(values ...time.Time) time.Time {
+	var out time.Time
+	for _, value := range values {
+		if value.IsZero() {
+			continue
+		}
+		if out.IsZero() || value.After(out) {
+			out = value
+		}
+	}
+	return out
+}
+
 func loadDatasetDocuments(ctx context.Context, datasetID, keyword, pid string, applyPIDFilter bool, limit, offset int) ([]mergedDocRow, int64, error) {
 	if limit <= 0 {
 		limit = 20
@@ -1530,7 +1543,7 @@ func loadMergedDocumentsBySearch(ctx context.Context, datasetIDs []string, keywo
 			DatasetID:        doc.DatasetID,
 			DatasetDisplay:   datasetDisplay,
 			BaseCreatedAt:    base.CreatedAt,
-			BaseUpdatedAt:    base.UpdatedAt,
+			BaseUpdatedAt:    latestTime(base.UpdatedAt, doc.UpdatedAt),
 			DisplayName:      displayName,
 			PID:              doc.PID,
 			Tags:             doc.Tags,
@@ -1898,7 +1911,7 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 			DatasetID:        doc.DatasetID,
 			DatasetDisplay:   datasetDisplay,
 			BaseCreatedAt:    base.CreatedAt,
-			BaseUpdatedAt:    base.UpdatedAt,
+			BaseUpdatedAt:    latestTime(base.UpdatedAt, doc.UpdatedAt),
 			DisplayName:      displayName,
 			PID:              doc.PID,
 			Tags:             doc.Tags,

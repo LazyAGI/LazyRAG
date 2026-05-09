@@ -272,7 +272,30 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureParseTaskIndexes(ctx); err != nil {
 		return err
 	}
+	if err := s.ensureSourceIndexes(ctx); err != nil {
+		return err
+	}
 	return s.ensureSourceFileSnapshotIndexes(ctx)
+}
+
+func (s *Store) ensureSourceIndexes(ctx context.Context) error {
+	switch s.db.Dialector.Name() {
+	case "postgres":
+		if err := s.db.WithContext(ctx).Exec("ALTER TABLE sources DROP CONSTRAINT IF EXISTS uk_sources_tenant_agent_root").Error; err != nil {
+			return err
+		}
+	}
+	if err := s.db.WithContext(ctx).Exec("DROP INDEX IF EXISTS uk_sources_tenant_agent_root").Error; err != nil {
+		return err
+	}
+	if err := s.db.WithContext(ctx).Exec(
+		"CREATE UNIQUE INDEX IF NOT EXISTS uk_sources_tenant_agent_root ON sources (tenant_id, create_user_id, agent_id, root_path)",
+	).Error; err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Exec(
+		"CREATE INDEX IF NOT EXISTS idx_sources_tenant_creator ON sources (tenant_id, create_user_id)",
+	).Error
 }
 
 func (s *Store) ensureParseTaskIndexes(ctx context.Context) error {

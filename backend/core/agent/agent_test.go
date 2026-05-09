@@ -342,11 +342,41 @@ func TestBuildCaseCSVBytesJoinsListValues(t *testing.T) {
 	if strings.Join(records[0], ",") != strings.Join(expectedHeader, ",") {
 		t.Fatalf("unexpected header: %#v", records[0])
 	}
-	if records[1][3] != "a.pdf\nb.pdf" {
-		t.Fatalf("expected list cell to be joined with newlines, got %q", records[1][3])
+	if records[1][3] != "a.pdf; b.pdf" {
+		t.Fatalf("expected list cell to be joined inline, got %q", records[1][3])
 	}
 	if records[1][1] != `{"source":"doc"}` {
 		t.Fatalf("expected object cell to be json encoded, got %q", records[1][1])
+	}
+}
+
+func TestBuildCaseCSVBytesNormalizesMultilineCells(t *testing.T) {
+	csvBytes, rowCount, err := buildCaseCSVBytes([]any{
+		map[string]any{
+			"answer":   "line 1\r\nline 2\n\nline 3",
+			"segments": []any{"chunk 1\nchunk 2", "chunk 3"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildCaseCSVBytes returned error: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("expected row count 1, got %d", rowCount)
+	}
+	if bytes.ContainsAny(csvBytes, "\r") || bytes.Count(csvBytes, []byte("\n")) != 2 {
+		t.Fatalf("expected csv to contain record separators only, got %q", string(csvBytes))
+	}
+
+	reader := csv.NewReader(bytes.NewReader(csvBytes))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v", err)
+	}
+	if records[1][0] != "line 1 line 2 line 3" {
+		t.Fatalf("expected multiline string to be normalized, got %q", records[1][0])
+	}
+	if records[1][1] != "chunk 1 chunk 2; chunk 3" {
+		t.Fatalf("expected multiline list values to be normalized, got %q", records[1][1])
 	}
 }
 
@@ -463,8 +493,8 @@ func TestBuildCaseDetailsCSVBytesUsesChineseHeadersAndQuestionTypeNames(t *testi
 	if records[1][2] != "单跳" {
 		t.Fatalf("expected question_type to be mapped to 单跳, got %q", records[1][2])
 	}
-	if records[1][3] != "要点一\n要点二" {
-		t.Fatalf("expected list value to be joined with newlines, got %q", records[1][3])
+	if records[1][3] != "要点一; 要点二" {
+		t.Fatalf("expected list value to be joined inline, got %q", records[1][3])
 	}
 }
 
