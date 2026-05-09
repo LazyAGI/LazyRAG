@@ -74,6 +74,10 @@ class NormalLineSplitter(NodeTransform):
     def __init__(self, **kwargs):
         super().__init__()
 
+    def sig_fields(self) -> dict:
+        # No content-affecting parameters; behavior is fully determined by class identity.
+        return {}
+
     def _split_para(self, para_list):
         out_para = []
         for index in range(len(para_list)):
@@ -407,6 +411,9 @@ class MineruLineSplitter(NodeTransform):
     def __init__(self, **kwargs):
         super().__init__()
 
+    def sig_fields(self) -> dict:
+        return {}
+
     def forward(self, document: DocNode, **kwargs) -> List[DocNode]:
         result = []
         nodes = document if isinstance(document, list) else [document]
@@ -427,6 +434,9 @@ class LineSplitter(NodeTransform):
         super().__init__()
         self._normal_spliter = NormalLineSplitter()
         self._mineru_spliter = MineruLineSplitter()
+
+    def sig_fields(self) -> dict:
+        return {}
 
     def forward(self, document: DocNode, **kwargs) -> List[DocNode]:
         result = []

@@ -99,25 +99,30 @@ def _build_pdf_reader():
     raise ValueError(f'Unsupported OCR server type: {ocr_type!r}')
 
 
-def reset_document() -> None:
-    '''Drop all vector/segment data and the algorithm registration record.
+def reset_stores() -> None:
+    '''Drop all Milvus collections and OpenSearch indices for this algo.
 
-    Called when LAZYRAG_RESET_ALGO_ON_STARTUP=true so that a fresh rebuild
-    starts from a clean state (e.g. after changing the embed model or node groups).
-    Operates directly on the underlying stores — does NOT require a started Document.
+    Called when LAZYRAG_RESET_ALGO_ON_STARTUP=true, after drop_lazyllm_tables()
+    and before build_document().  Clears the vector/segment data so the next
+    document parse starts from a clean state.
+
+    Note: when using `make reset-kb`, Milvus/OpenSearch volumes are already
+    wiped externally, so this function is a no-op in that flow.  It is useful
+    when resetting algo state without removing the underlying volumes (e.g.
+    changing embed model or node group config in-place).
+
     TODO(wangzhihong): move it to lazyllm.Document
     '''
     import re
     from lazyllm import LOG
     from lazyllm.tools.rag.store import MilvusStore, OpenSearchStore
 
-    LOG.warning(f'[build_document] RESET_ALGO_ON_STARTUP is set — dropping all data for algo "{ALGO_ID}"')
+    LOG.warning(f'[build_document] Clearing vector/segment stores for algo "{ALGO_ID}"')
 
-    # Mirrors _DocumentStore._gen_collection_name: col_{algo}_{group}, lowercased.
     _pat = re.compile(r'[^a-z0-9_]+')
 
     def _col(group: str) -> str:
-        return _pat.sub('_', f'col_{ALGO_ID}_{group}'.lower()).strip('_')
+        return _pat.sub('_', f'col_{group}'.lower()).strip('_')
 
     activated_groups = ['block', 'line', '__lazyllm_root__', '__lazyllm_image__']
     store_conf = _build_store_config(get_embed_index_kwargs())
@@ -137,8 +142,56 @@ def reset_document() -> None:
             opensearch.delete(_col(group))
         LOG.warning(f'[build_document] OpenSearch indices dropped for algo "{ALGO_ID}"')
 
-    DocumentProcessor(url=_cfg['document_processor_url']).drop_algorithm(ALGO_ID)
-    LOG.warning(f'[build_document] Reset complete for algo "{ALGO_ID}"')
+
+# Backward-compat alias — callers that imported reset_document() still work.
+reset_document = reset_stores
+
+
+# All tables created and owned by lazyllm's SqlManager / doc-service.
+# Order matters: tables with FK dependencies on others should come first.
+_LAZYLLM_TABLES = [
+    'lazyllm_doc_node_group_status',
+    'lazyllm_doc_parse_state',
+    'lazyllm_kb_algorithm',
+    'lazyllm_kb_documents',
+    'lazyllm_knowledge_bases',
+    'lazyllm_doc_path_locks',
+    'lazyllm_documents',
+    'lazyllm_doc_service_tasks',
+    'lazyllm_callback_records',
+    'lazyllm_idempotency_records',
+    'lazyllm_node_group',
+    'lazyllm_algorithm',
+    'lazyllm_waiting_task_queue',
+    'lazyllm_finished_task_queue',
+]
+
+
+def drop_lazyllm_tables() -> None:
+    '''Drop all lazyllm-managed tables using the configured database URL.
+
+    Uses DROP TABLE IF EXISTS … CASCADE so the operation is idempotent and
+    handles FK dependencies automatically.  SqlManager will recreate the tables
+    with the current schema on next startup.
+    '''
+    from lazyllm import LOG
+    db_url = _cfg.get('database_url') if hasattr(_cfg, 'get') else _cfg['database_url']
+    if not db_url:
+        LOG.warning('[build_document] database_url not set — skipping lazyllm table drop')
+        return
+    # Normalise psycopg3 URL to psycopg2 for SQLAlchemy (lazyllm uses psycopg2 internally)
+    sa_url = db_url.replace('postgresql+psycopg://', 'postgresql+psycopg2://', 1)
+    try:
+        import sqlalchemy
+        engine = sqlalchemy.create_engine(sa_url)
+        table_list = ', '.join(f'"{t}"' for t in _LAZYLLM_TABLES)
+        with engine.connect() as conn:
+            conn.execute(sqlalchemy.text(f'DROP TABLE IF EXISTS {table_list} CASCADE'))
+            conn.commit()
+        engine.dispose()
+        LOG.warning(f'[build_document] Dropped {len(_LAZYLLM_TABLES)} lazyllm tables — will be recreated on startup')
+    except Exception as e:
+        LOG.error(f'[build_document] Failed to drop lazyllm tables: {e}')
 
 
 def build_document() -> Document:
@@ -155,12 +208,19 @@ def build_document() -> Document:
     resolved_config_path = get_config_path()
     embed = {k: AutoModel(model=k, config=resolved_config_path) for k in embed_keys}
 
+    # After the node-group refactor, store_conf must be set on DocumentProcessor,
+    # not on Document (Document raises ValueError if both manager=DocumentProcessor
+    # and store_conf are provided simultaneously).
+    processor = DocumentProcessor(
+        url=processor_url,
+        store_conf=_build_store_config(get_embed_index_kwargs()),
+    )
+
     docs = Document(
         dataset_path=None,
         name=ALGO_ID,
         embed=embed,
-        store_conf=_build_store_config(get_embed_index_kwargs()),
-        manager=DocumentProcessor(url=processor_url),
+        manager=processor,
         doc_fields=[],
         server=server_port,
     )

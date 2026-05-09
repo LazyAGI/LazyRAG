@@ -21,7 +21,7 @@ x-core-env: &core-env
   ACL_DB_DRIVER: postgres
   ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
   LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-  LAZYRAG_UPLOAD_ROOT: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+  LAZYRAG_UPLOAD_ROOT: /var/lib/lazyrag/uploads
   LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
   LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
   LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
@@ -43,8 +43,8 @@ x-llm-api-keys: &llm-api-keys
 
 
 x-upload-paths: &upload-paths
-  LAZYRAG_UPLOAD_HOST_DIR: ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}
-  LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+  LAZYRAG_UPLOAD_HOST_DIR: ./data/core/uploads
+  LAZYRAG_SHARED_UPLOAD_DIR: /var/lib/lazyrag/uploads
 
 x-db-conn: &db-conn
   LAZYRAG_DATABASE_URL: ${LAZYRAG_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
@@ -119,9 +119,9 @@ services:
     command: ["-config", "/app/configs/control-plane.scan.yml"]
     volumes:
       - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
-      - ${RAGSCAN_BASE_ROOT:-./data/scan}:${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
-      - ${RAGSCAN_BASE_ROOT:-./data/scan}/staging:${RAGSCAN_STAGING_CONTAINER_DIR:-/data/staging}
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
+      - ${RAGSCAN_BASE_ROOT:-./data/scan}/staging:/data/staging
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -146,14 +146,14 @@ services:
       RAGSCAN_AGENT_LISTEN_ADDR: "0.0.0.0:19090"
       RAGSCAN_AGENT_ADVERTISE_ADDR: "http://file-watcher:19090"
       RAGSCAN_CONTROL_PLANE_BASE_URL: "http://scan-control-plane:18080"
-      RAGSCAN_BASE_ROOT: ${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
+      RAGSCAN_BASE_ROOT: /data/ragscan
       RAGSCAN_HOST_PATH_STYLE: ${RAGSCAN_HOST_PATH_STYLE:-posix}
       RAGSCAN_WATCH_HOST_DIR: ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}
-      RAGSCAN_WATCH_CONTAINER_DIR: ${RAGSCAN_WATCH_CONTAINER_DIR:-/watch/docs}
+      RAGSCAN_WATCH_CONTAINER_DIR: /watch/docs
     volumes:
       - ./backend/file-watcher/configs/agent.yaml:/app/configs/agent.yaml:ro
-      - ${RAGSCAN_BASE_ROOT:-./data/scan}:${RAGSCAN_BASE_ROOT_CONTAINER_DIR:-/data/ragscan}
-      - ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}:${RAGSCAN_WATCH_CONTAINER_DIR:-/watch/docs}
+      - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
+      - ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}:/watch/docs
     depends_on:
       scan-control-plane:
         condition: service_healthy
@@ -214,10 +214,10 @@ services:
     expose:
       - "8080"
     environment:
-      OFFICE_CONVERT_ALLOWED_ROOTS: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      OFFICE_CONVERT_ALLOWED_ROOTS: /var/lib/lazyrag/uploads
       OFFICE_CONVERT_TIMEOUT_SECONDS: "900"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 15s
@@ -232,7 +232,7 @@ services:
     volumes:
       - ./api/backend:/openapi-export
       - /tmp/evo:/var/lib/lazyrag/evo
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     expose:
       - "8000"
     environment:
@@ -271,7 +271,7 @@ services:
     command: ["sleep", "infinity"]
     volumes:
       - ./backend/core:/app
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     environment:
       <<: *core-env
     depends_on:
@@ -310,15 +310,16 @@ services:
     expose:
       - "8000"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     environment:
       <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: http://doc-server:8000/v1/internal/callbacks/tasks
-      LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: /var/lib/lazyrag/uploads
       LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
-      LAZYRAG_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_RESET_ALL_ON_STARTUP: ${LAZYRAG_RESET_ALL_ON_STARTUP:-false}
+      LAZYRAG_UPLOAD_DIR: /var/lib/lazyrag/uploads
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "backend/core/doc/doc_server.py"]
     healthcheck:
@@ -439,7 +440,7 @@ services:
     expose:
       - "8000"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
       <<: [*db-conn, *upload-paths, *llm-api-keys]
@@ -469,7 +470,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     environment:
       LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
       LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: "1"
@@ -528,6 +529,8 @@ services:
       LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
       LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
+      LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
+      LAZYRAG_RESET_ALL_ON_STARTUP: ${LAZYRAG_RESET_ALL_ON_STARTUP:-false}
       <<: *llm-api-keys
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
@@ -558,7 +561,7 @@ services:
     expose:
       - "8046"
     volumes:
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s
@@ -567,7 +570,7 @@ services:
       start_period: 30s
     environment:
       LAZYRAG_DOCUMENT_SERVER_URL: http://parsing:8000,general_algo
-      LAZYRAG_SHARED_UPLOAD_DIR: ${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}
+      LAZYRAG_SHARED_UPLOAD_DIR: /var/lib/lazyrag/uploads
       LAZYRAG_MOUNT_BASE_DIR: /var/lib/lazyrag/uploads
       LAZYLLM_MOUNT_DIR: /var/lib/lazyrag/uploads
       LAZYRAG_USE_INNER_MODEL: "true"
@@ -631,7 +634,7 @@ services:
       <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazyrag/evo
-      - ${LAZYRAG_UPLOAD_HOST_DIR:-./data/core/uploads}:${LAZYRAG_SHARED_UPLOAD_DIR:-/var/lib/lazyrag/uploads}:ro
+      - ./data/core/uploads:/var/lib/lazyrag/uploads:ro
       - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8047/healthz || exit 1"]

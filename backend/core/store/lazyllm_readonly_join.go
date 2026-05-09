@@ -34,12 +34,13 @@ type LazyLLMDocumentView struct {
 }
 
 // LazyLLMTaskView is a joined view of core diff data and lazyllm base data.
+// AlgoID was removed from the lazyllm_doc_service_tasks table in the
+// node-group refactor; the field no longer exists in schema-B.
 type LazyLLMTaskView struct {
 	TaskID        string
 	TaskType      string
 	DocID         string
 	KbID          string
-	AlgoID        string
 	Status        string
 	Message       *string
 	ErrorCode     *string
@@ -99,14 +100,16 @@ func GetLazyLLMDocumentView(ctx context.Context, docID string, tx *gorm.DB) (*La
 	}, nil
 }
 
-// ListLazyLLMTaskViewsByKb returns merged task views filtered by kb_id/algo_id.
-func ListLazyLLMTaskViewsByKb(ctx context.Context, kbID, algoID string, limit int, tx *gorm.DB) ([]LazyLLMTaskView, error) {
+// ListLazyLLMTaskViewsByKb returns merged task views filtered by kb_id.
+// The algoID parameter has been removed after the node-group refactor;
+// algo_id is no longer a column in lazyllm_doc_service_tasks.
+func ListLazyLLMTaskViewsByKb(ctx context.Context, kbID string, limit int, tx *gorm.DB) ([]LazyLLMTaskView, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	var diffs []orm.Task
 	if err := dbOrTx(tx).WithContext(ctx).
-		Where("deleted_at IS NULL AND kb_id = ? AND algo_id = ?", kbID, algoID).
+		Where("deleted_at IS NULL AND kb_id = ?", kbID).
 		Find(&diffs).Error; err != nil {
 		return nil, err
 	}
@@ -131,7 +134,7 @@ func ListLazyLLMTaskViewsByKb(ctx context.Context, kbID, algoID string, limit in
 	var bases []readonlyorm.LazyLLMDocServiceTaskRow
 	if err := LazyLLMDB().WithContext(ctx).
 		Table((readonlyorm.LazyLLMDocServiceTaskRow{}).TableName()).
-		Where("kb_id = ? AND algo_id = ? AND task_id IN ?", kbID, algoID, taskIDs).
+		Where("kb_id = ? AND task_id IN ?", kbID, taskIDs).
 		Order("updated_at DESC").
 		Limit(limit).
 		Find(&bases).Error; err != nil {
@@ -149,7 +152,6 @@ func ListLazyLLMTaskViewsByKb(ctx context.Context, kbID, algoID string, limit in
 			TaskType:           base.TaskType,
 			DocID:              base.DocID,
 			KbID:               base.KbID,
-			AlgoID:             base.AlgoID,
 			Status:             base.Status,
 			Message:            base.Message,
 			ErrorCode:          base.ErrorCode,

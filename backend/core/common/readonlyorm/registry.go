@@ -28,6 +28,11 @@ func Specs() []TableSpec {
 			Table:           "lazyllm_kb_documents",
 			RequiredColumns: requiredColumnsOf(reflect.TypeOf(LazyLLMKBDocRow{})),
 		},
+		{
+			Schema:          schema,
+			Table:           "lazyllm_kb_algorithm",
+			RequiredColumns: requiredColumnsOf(reflect.TypeOf(LazyLLMKBAlgorithmRow{})),
+		},
 	}
 }
 
