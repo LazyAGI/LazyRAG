@@ -219,13 +219,8 @@ def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
 
 def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     """_build_ppl_call with reasoning=True should use query_ppl_reasoning."""
-    captured = {}
-
-    def fake_reasoning(query_arg, kb_search, stream_flag):
-        captured['query_arg'] = query_arg
-        captured['kb_search'] = kb_search
-        captured['stream_flag'] = stream_flag
-        return {'text': 'reasoned'}
+    def fake_reasoning(**kwargs):
+        return {'text': 'reasoned', 'kwargs': kwargs}
 
     chat_server = SimpleNamespace(
         sensitive_filter=SimpleNamespace(loaded=False, check=lambda query: (False, None)),
@@ -238,26 +233,19 @@ def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     ppl_call = module._build_ppl_call(
         True,
         'algo',
-        {'query': 'ignored'},
-        'hello',
-        {'scope': 'all'},
-        7,
-        False,
+        {'query': 'hello', 'filters': {'scope': 'all'}, 'priority': 7},
+        stream=False,
     )
 
-    # ppl_call is (ppl_fn, arg1, arg2, stream_flag)
+    # ppl_call is (ppl_fn, params)
     assert ppl_call[0] is fake_reasoning
-    assert ppl_call[1] == {'query': 'hello'}
-    assert ppl_call[2] == {
-        'kb_search': {
-            'filters': {'scope': 'all'},
-            'files': [],
-            'stream': False,
-            'priority': 7,
-            'document_url': 'http://kb-service/algo',
-        }
+    assert ppl_call[1] == {
+        'query': 'hello',
+        'filters': {'scope': 'all'},
+        'priority': 7,
+        'document_url': 'http://kb-service/algo',
+        'stream': False,
     }
-    assert ppl_call[3] is False
 
 
 def _decode_sse_payloads(raw_chunks):
