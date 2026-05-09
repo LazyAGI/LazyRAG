@@ -1128,7 +1128,6 @@ type BatchDeleteDocumentRequest struct {
 type externalDeleteDocsRequest struct {
 	DocIDs         []string `json:"doc_ids"`
 	KbID           string   `json:"kb_id,omitempty"`
-	AlgoID         string   `json:"algo_id,omitempty"`
 	IdempotencyKey string   `json:"idempotency_key,omitempty"`
 }
 
@@ -1147,7 +1146,6 @@ func deleteExternalDocs(r *http.Request, datasetID string, rows []orm.Document) 
 	req := externalDeleteDocsRequest{
 		DocIDs:         docIDs,
 		KbID:           datasetKbIDByID(datasetID),
-		AlgoID:         datasetAlgoIDByID(datasetID),
 		IdempotencyKey: newDocID(),
 	}
 	url := common.JoinURL(parsingServiceEndpoint(), "/v1/docs/delete")
