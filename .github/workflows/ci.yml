@@ -1,21 +1,32 @@
-# CI: pull_request_target -> lint, doc_check -> wait_approve (env: protest) -> tests
 name: CI
 
 on:
+  workflow_dispatch:
+  push:
+    branches: [main, master, 'dev/*']
+    paths-ignore:
+      - "**.md"
+      - ".git*"
+      - "docs/**"
   pull_request_target:
     branches: [main, master, 'dev/*']
+    paths-ignore:
+      - "**.md"
+      - ".git*"
+      - "docs/**"
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 2
 
       - name: Set up Python
@@ -33,10 +44,11 @@ jobs:
 
   doc_check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,10 +69,11 @@ jobs:
   test-frontend:
     needs: [wait_approve]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -72,10 +85,11 @@ jobs:
   test-auth-service:
     needs: [wait_approve]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -92,10 +106,11 @@ jobs:
   test-backend-core:
     needs: [wait_approve]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-go@v5
         with:
@@ -104,13 +119,36 @@ jobs:
       - name: Test
         run: cd tests/backend/core && go mod tidy && go test ./... -v
 
-  test-algorithm:
+  test-evo-cli:
     needs: [wait_approve]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r evo/requirements.txt
+          pip install pytest httpx
+
+      - name: Test
+        run: python -m pytest tests/evo/ tests/test_cli.py -v
+
+  test-algorithm:
+    needs: [wait_approve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
