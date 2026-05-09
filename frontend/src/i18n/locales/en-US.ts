@@ -1214,6 +1214,9 @@ const enUS = {
       "Experience memory is best shared with specific collaborators to sync preferences, tone, and accumulated know-how.",
     memoryAutoEvo: "Auto Evolution",
     memoryAutoEvoToggleFailed: "Auto evolution toggle failed",
+    memorySkillPendingRemoveTag: "Delete Suggested",
+    memorySkillAutoEvoDisabledByRemove:
+      "This skill has a delete suggestion, so auto evolution cannot be enabled",
     memorySkillParent: "Primary Skill",
     memorySkillChild: "Subskill",
     memoryParentSkill: "Primary Skill",

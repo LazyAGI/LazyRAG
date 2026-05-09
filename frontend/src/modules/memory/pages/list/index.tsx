@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Empty,
   Input,
@@ -32,6 +33,8 @@ export default function MemoryManagementListPage() {
     experienceFeatureEnabled,
     experienceSettingSaving,
     handleExperienceFeatureToggle,
+    refreshSkillAssets,
+    refreshExperienceSection,
     searchInput,
     setSearchInput,
     query,
@@ -45,14 +48,20 @@ export default function MemoryManagementListPage() {
     availableGlossarySourceOptions,
     availableCategories,
     availableTags,
+    selectedGlossaryAssets,
+    glossaryAssets,
     glossaryLoading,
     glossaryLoadError,
     refreshGlossaryAssets,
+    handleBatchMergeGlossary,
+    handleBatchDeleteGlossary,
     filteredExperienceItems,
     experienceLoading,
     experienceColumns,
     filteredGlossaryItems,
     glossaryColumns,
+    selectedGlossaryAssetIds,
+    setSelectedGlossaryAssetIds,
     skillLoading,
     skillAssets,
     filteredSkillTree,
@@ -126,6 +135,19 @@ export default function MemoryManagementListPage() {
                 }
                 resetFilters();
                 navigateToMemoryList(tabKey);
+                void (async () => {
+                  if (tabKey === "skills") {
+                    await refreshSkillAssets();
+                    return;
+                  }
+                  if (tabKey === "experience") {
+                    await refreshExperienceSection({ silent: true });
+                    return;
+                  }
+                  if (tabKey === "glossary") {
+                    await refreshGlossaryAssets({ silent: true });
+                  }
+                })();
               }}
             >
               <span className="memory-tab-icon">{tabItem.icon}</span>
@@ -133,6 +155,9 @@ export default function MemoryManagementListPage() {
                 <strong>{tabItem.title}</strong>
                 <span>{tabItem.description}</span>
               </span>
+              {tabKey === "skills" && incomingPendingCount > 0 ? (
+                <span className="memory-tab-count">{incomingPendingCount}</span>
+              ) : null}
             </button>
           );
         })}
@@ -219,6 +244,23 @@ export default function MemoryManagementListPage() {
         </div>
       ) : null}
 
+      {activeTab === "skills" && incomingPendingCount > 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          className="memory-skill-share-alert"
+          message={t("admin.memorySkillSharePendingHintTitle")}
+          description={t("admin.memorySkillSharePendingHintDesc", {
+            count: incomingPendingCount,
+          })}
+          action={
+            <Button size="small" onClick={() => openSkillShareCenter("incoming")}>
+              {t("admin.memorySkillShareOpenInbox")}
+            </Button>
+          }
+        />
+      ) : null}
+
       {activeTab === "experience" ? (
         <Table<ExperienceAsset>
           className="admin-page-table memory-table"
@@ -228,6 +270,7 @@ export default function MemoryManagementListPage() {
           columns={experienceColumns}
           tableLayout="fixed"
           pagination={{ pageSize: 6, showSizeChanger: false }}
+          scroll={{ x: 1180 }}
           locale={{
             emptyText: (
               <Empty
@@ -240,13 +283,19 @@ export default function MemoryManagementListPage() {
       ) : activeTab === "glossary" ? (
         <GlossaryListSection
           t={t}
+          assets={glossaryAssets}
           columns={glossaryColumns}
           filteredItems={filteredGlossaryItems}
           glossaryLoadError={glossaryLoadError}
           glossaryLoading={glossaryLoading}
           glossarySource={glossarySource}
+          handleBatchDeleteGlossary={handleBatchDeleteGlossary}
+          handleBatchMergeGlossary={handleBatchMergeGlossary}
           query={query}
           refreshGlossaryAssets={refreshGlossaryAssets}
+          selectedGlossaryAssetIds={selectedGlossaryAssetIds}
+          selectedGlossaryAssets={selectedGlossaryAssets}
+          setSelectedGlossaryAssetIds={setSelectedGlossaryAssetIds}
         />
       ) : (
         <Table<StructuredAsset>
@@ -273,7 +322,7 @@ export default function MemoryManagementListPage() {
               />
             ),
           }}
-          scroll={activeTab === "tools" ? { x: 980, y: 420 } : { x: 980 }}
+          scroll={activeTab === "tools" ? { x: 980, y: 420 } : { x: 1200 }}
         />
       )}
     </>

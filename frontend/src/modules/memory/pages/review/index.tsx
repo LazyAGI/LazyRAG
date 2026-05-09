@@ -48,6 +48,7 @@ export default function MemoryReviewPage() {
     clearSelectedBackendSuggestions,
     backendSuggestionSubmitting,
     selectedBackendSuggestionIds,
+    isBackendSuggestionSelectable,
     setBackendSuggestionSelected,
     submitBackendSuggestionDecision,
     backendDraftDiffLines,
@@ -265,33 +266,45 @@ export default function MemoryReviewPage() {
                         const submittingDecision = backendSuggestionSubmitting[suggestion.id];
                         const isSubmitting = Boolean(submittingDecision);
                         const isSelected = selectedBackendSuggestionIds.includes(suggestion.id);
+                        const isRemoveSuggestion =
+                          activeProposal.tab === "skills" &&
+                          String(suggestion.action || "").trim().toLowerCase() === "remove";
+                        const isSelectable = isBackendSuggestionSelectable(suggestion);
 
                         return (
                           <div
                             className={`memory-diff-change-item memory-backend-suggestion-card ${
                               isSelected ? "is-selected" : ""
-                            } ${isSubmitting ? "is-submitting" : ""}`}
+                            } ${isSubmitting ? "is-submitting" : ""} ${
+                              isRemoveSuggestion ? "is-remove-suggestion" : ""
+                            } ${!isSelectable ? "is-disabled" : ""}`}
                             key={suggestion.id}
                           >
                             <div className="memory-diff-change-item-head memory-backend-suggestion-card-head">
                               <div className="memory-backend-suggestion-selector">
                                 <Checkbox
                                   checked={isSelected}
-                                  disabled={isAnyBackendSuggestionMutating}
+                                  disabled={isAnyBackendSuggestionMutating || !isSelectable}
                                   onChange={(event) =>
                                     setBackendSuggestionSelected(suggestion.id, event.target.checked)
                                   }
                                 />
                                 <div className="memory-diff-change-item-title">
                                   <strong>{`${index + 1}. ${suggestion.title || "-"}`}</strong>
+                                  {isRemoveSuggestion ? (
+                                    <span className="memory-backend-suggestion-delete-badge">
+                                      删除建议
+                                    </span>
+                                  ) : null}
                                 </div>
                               </div>
                               <div className="memory-diff-change-actions">
                                 <Button
                                   size="small"
                                   type="primary"
+                                  danger={isRemoveSuggestion}
                                   loading={submittingDecision === "accept"}
-                                  disabled={isAnyBackendSuggestionMutating}
+                                  disabled={isAnyBackendSuggestionMutating || !isSelectable}
                                   onClick={() =>
                                     void submitBackendSuggestionDecision(suggestion, "accept")
                                   }
@@ -311,7 +324,7 @@ export default function MemoryReviewPage() {
                                   <Button
                                     size="small"
                                     loading={submittingDecision === "reject"}
-                                    disabled={isAnyBackendSuggestionMutating}
+                                    disabled={isAnyBackendSuggestionMutating || !isSelectable}
                                   >
                                     {t("admin.memoryDiffRejectField")}
                                   </Button>
