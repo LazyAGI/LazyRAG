@@ -122,7 +122,7 @@ def test_synthesizer_bounded_refine_when_gaps_present() -> None:
     print("  -> OK")
 
 
-def test_synthesizer_caps_gap_hypotheses_to_4() -> None:
+def test_synthesizer_oversize_gap_hypotheses_triggers_single_refine() -> None:
     _h("Synthesizer: gap_hypotheses oversize -> still only triggers one refine pass")
     session = create_session(load_config())
     _seed(session)
@@ -235,7 +235,7 @@ def main() -> int:
     return _run([
         test_synthesizer_single_pass_when_no_gaps,
         test_synthesizer_bounded_refine_when_gaps_present,
-        test_synthesizer_caps_gap_hypotheses_to_4,
+        test_synthesizer_oversize_gap_hypotheses_triggers_single_refine,
         test_synthesizer_handles_parse_failure,
         test_to_action_validates_priority_and_direction,
         test_annotate_with_code_map_demotes_when_target_missing,

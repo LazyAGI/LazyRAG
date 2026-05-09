@@ -317,7 +317,7 @@ def test_registry_lazy_autodiscovery() -> None:
     finally:
         reg_mod._discover_package = original
 
-    assert discovery_calls >= 1
+    assert discovery_calls == 1
     assert reg._discovered is True
     print(f"  8 concurrent callers -> {discovery_calls} discovery invocation(s)")
     print("  -> OK")
