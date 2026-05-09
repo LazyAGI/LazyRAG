@@ -1,4 +1,5 @@
 from functools import lru_cache
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -8,6 +9,7 @@ _CHAT_DIR = Path(__file__).resolve().parents[1]
 _INNER_CONFIG_PATH = _CHAT_DIR / 'runtime_models.inner.yaml'
 _ONLINE_CONFIG_PATH = _CHAT_DIR / 'runtime_models.online.yaml'
 _DYNAMIC_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
+_EXPANDED_CONFIG_DIR = Path('/tmp/lazyrag_runtime_models')
 
 # Maps runtime_models.yaml type values to _dynamic_module_slot names used by
 # _DynamicSourceRouterMixin subclasses (OnlineChatModule / OnlineEmbeddingModule).
@@ -47,8 +49,22 @@ def get_config_path() -> str:
     from config import config as _cfg
     raw = _cfg['model_config_path']
     if raw in aliases:
-        return str(aliases[raw])
-    return raw
+        path = str(aliases[raw])
+    else:
+        path = raw
+    return _expanded_config_path(path)
+
+
+def _expanded_config_path(config_path: str) -> str:
+    path = Path(config_path)
+    text = path.read_text(encoding='utf-8')
+    expanded = os.path.expandvars(text)
+    if expanded == text:
+        return config_path
+    _EXPANDED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    target = _EXPANDED_CONFIG_DIR / path.name
+    target.write_text(expanded, encoding='utf-8')
+    return str(target)
 
 
 def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
@@ -59,6 +75,23 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     '''
     with Path(config_path or get_config_path()).open(encoding='utf-8') as f:
         return yaml.safe_load(f) or {}
+
+
+def normalize_skill_fs_url(value: Any) -> str:
+    raw = str(value or '').strip()
+    if not raw:
+        return ''
+    parts = [part.strip() for part in raw.split(',') if part.strip()]
+    if not parts:
+        return ''
+    if parts[0].startswith(('remote://', 'remotefs://')) and '.agentic/skills' not in parts:
+        parts.append('.agentic/skills')
+    return ','.join(parts)
+
+
+def extract_skill_fs_source(path: Any) -> str:
+    raw = str(path or '').strip()
+    return 'remote' if raw.startswith(('remote://', 'remotefs://')) else 'file'
 
 
 @lru_cache(maxsize=1)

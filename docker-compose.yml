@@ -585,7 +585,7 @@ services:
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
-    command: ["python", "-m", "chat.app.chat", "--port", "8046"]
+    command: ["sleep", "infinity"]
     depends_on:
       lazyllm-algo:
         condition: service_healthy

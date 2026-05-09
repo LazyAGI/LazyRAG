@@ -13,8 +13,7 @@ from lazyllm.tools.fs import LazyLLMFSBase
 
 
 def _resolve_base_url() -> str:
-    config = load_model_config()
-    agentic_config = config.get('agentic')
+    agentic_config = lazyllm.globals['agentic_config']
     base_url = str(agentic_config.get('core_api_url') or '').strip()
     return base_url
 
