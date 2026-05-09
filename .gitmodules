@@ -1,4 +1,4 @@
 [submodule "algorithm/lazyllm"]
 	path = algorithm/lazyllm
-	url = https://github.com/Yuang-Deng/LazyLLM.git
-	branch = dya/fix_memory_lazyllm
+	url = https://github.com/LazyAGI/LazyLLM.git
+	branch = main
