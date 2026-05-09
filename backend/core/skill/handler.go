@@ -456,29 +456,22 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if state.Resource.AutoEvo && status != evolution.SuggestionStatusInvalid {
-		if err := DeleteSkill(r.Context(), db, userID, state.Resource.ID); err != nil {
+		if err := disableSkillAutoEvoForPendingRemove(r.Context(), db, *state.Resource); err != nil {
 			appLog.Logger.Error().
 				Err(err).
 				Str("route", "/skill/remove").
 				Str("session_id", req.SessionID).
 				Str("user_id", userID).
 				Str("skill_id", state.Resource.ID).
-				Msg("auto_evo remove delete failed")
+				Msg("auto_evo disable failed for pending remove suggestion")
 		} else {
-			_ = evolution.UpdateSuggestionStatus(r.Context(), db, []string{row.ID}, evolution.SuggestionStatusApplied)
-			_ = db.WithContext(r.Context()).Model(&orm.ResourceSuggestion{}).Where("id = ?", row.ID).Updates(map[string]any{
-				"reviewer_id":   "system",
-				"reviewer_name": "auto_evo",
-				"reviewed_at":   now,
-			}).Error
-			result.Status = evolution.SuggestionStatusApplied
 			appLog.Logger.Info().
 				Str("route", "/skill/remove").
 				Str("session_id", req.SessionID).
 				Str("user_id", userID).
 				Str("skill_id", state.Resource.ID).
 				Str("suggestion_id", row.ID).
-				Msg("auto_evo remove applied")
+				Msg("auto_evo disabled for pending remove suggestion")
 		}
 	}
 

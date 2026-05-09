@@ -155,61 +155,6 @@
         ],
         "type": "object"
       },
-      "AddWordGroupConflictToGroupsRequest": {
-        "properties": {
-          "group_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "id": {
-            "type": "string"
-          },
-          "word": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "word"
-        ],
-        "type": "object"
-      },
-      "AddWordGroupConflictToGroupsResponse": {
-        "properties": {
-          "added_groups": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "deleted_conflict_rows": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "group_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "skipped_groups": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "word": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "deleted_conflict_rows",
-          "word"
-        ],
-        "type": "object"
-      },
       "Algo": {
         "properties": {
           "algo_id": {
@@ -238,97 +183,6 @@
             "type": "array"
           }
         },
-        "type": "object"
-      },
-      "ApplyWordGroupActionBatchResponse": {
-        "properties": {
-          "results": {
-            "items": {
-              "$ref": "#/components/schemas/ApplyWordGroupActionResponse"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
-      "ApplyWordGroupActionItem": {
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "create_user_id": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "group_ids": {
-            "type": "string"
-          },
-          "message_ids": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "words": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "action",
-          "create_user_id",
-          "description",
-          "group_ids",
-          "message_ids",
-          "reason"
-        ],
-        "type": "object"
-      },
-      "ApplyWordGroupActionRequest": {
-        "properties": {
-          "action_list": {
-            "items": {
-              "$ref": "#/components/schemas/ApplyWordGroupActionItem"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
-      "ApplyWordGroupActionResponse": {
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "added_words": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "conflict_id": {
-            "type": "string"
-          },
-          "group_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "skipped_words": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "action"
-        ],
         "type": "object"
       },
       "ApplyWordGroupActionBatchResponse": {
@@ -583,35 +437,6 @@
         ],
         "type": "object"
       },
-      "BatchDeleteWordGroupsRequest": {
-        "properties": {
-          "group_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
-      "BatchDeleteWordGroupsResponse": {
-        "properties": {
-          "deleted_rows": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "group_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "deleted_rows"
-        ],
-        "type": "object"
-      },
       "BatchUploadTasksResponse": {
         "properties": {
           "tasks": {
@@ -674,32 +499,15 @@
         },
         "type": "object"
       },
-      "CheckWordsExistRequest": {
+      "CheckModelProviderData": {
         "properties": {
-          "aliases": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "term": {
-            "type": "string"
+          "success": {
+            "type": "boolean"
           }
         },
         "required": [
-          "term"
+          "success"
         ],
-        "type": "object"
-      },
-      "CheckWordsExistResponse": {
-        "properties": {
-          "existing": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
         "type": "object"
       },
       "CheckWordsExistRequest": {
@@ -791,34 +599,6 @@
           "stored_path",
           "upload_id"
         ],
-        "type": "object"
-      },
-      "ConversationBatchDeleteRequest": {
-        "properties": {
-          "conversation_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "conversation_ids"
-        ],
-        "type": "object"
-      },
-      "ConversationBatchDeleteResponse": {
-        "properties": {
-          "deleted_count": {
-            "type": "integer"
-          },
-          "deleted_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
         "type": "object"
       },
       "ConversationBatchDeleteRequest": {
@@ -1197,95 +977,6 @@
         ],
         "type": "object"
       },
-      "CreateWordGroupRequest": {
-        "properties": {
-          "aliases": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "conflict": {
-            "type": "boolean"
-          },
-          "description": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "lock": {
-            "type": "boolean"
-          },
-          "term": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "conflict",
-          "description",
-          "id",
-          "lock",
-          "term"
-        ],
-        "type": "object"
-      },
-      "CreateWordGroupResponse": {
-        "properties": {
-          "aliases": {
-            "items": {
-              "$ref": "#/components/schemas/CreatedAlias"
-            },
-            "type": "array"
-          },
-          "description": {
-            "type": "string"
-          },
-          "group_id": {
-            "type": "string"
-          },
-          "lock": {
-            "type": "boolean"
-          },
-          "reference": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          },
-          "term": {
-            "type": "string"
-          },
-          "term_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "description",
-          "group_id",
-          "lock",
-          "reference",
-          "source",
-          "term",
-          "term_id"
-        ],
-        "type": "object"
-      },
-      "CreatedAlias": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "word": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "word"
-        ],
-        "type": "object"
-      },
       "Dataset": {
         "properties": {
           "acl": {
@@ -1328,9 +1019,6 @@
             "type": "integer"
           },
           "is_empty": {
-            "type": "boolean"
-          },
-          "is_owner": {
             "type": "boolean"
           },
           "is_owner": {
@@ -1386,7 +1074,6 @@
           "document_size",
           "is_empty",
           "is_owner",
-          "is_owner",
           "name",
           "segment_count",
           "share_type",
@@ -1435,38 +1122,6 @@
             "type": "string"
           }
         },
-        "type": "object"
-      },
-      "DeleteWordGroupConflictResponse": {
-        "properties": {
-          "deleted_rows": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "deleted_rows",
-          "id"
-        ],
-        "type": "object"
-      },
-      "DeleteWordGroupResponse": {
-        "properties": {
-          "deleted_rows": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "group_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "deleted_rows",
-          "group_id"
-        ],
         "type": "object"
       },
       "DeleteWordGroupConflictResponse": {
@@ -1696,52 +1351,6 @@
           },
           "message": {
             "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ExportConversationsRequest": {
-        "properties": {
-          "conversation_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "create_user_names": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "end_time": {
-            "type": "string"
-          },
-          "feed_back": {
-            "type": "integer"
-          },
-          "file_types": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "keyword": {
-            "type": "string"
-          },
-          "start_time": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "ExportConversationsResponse": {
-        "properties": {
-          "uris": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
           }
         },
         "type": "object"
@@ -2099,80 +1708,6 @@
         },
         "type": "object"
       },
-      "ListWordGroupConflictsResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/WordGroupConflictResponse"
-            },
-            "type": "array"
-          },
-          "next_page_token": {
-            "type": "string"
-          },
-          "total_size": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "next_page_token",
-          "total_size"
-        ],
-        "type": "object"
-      },
-      "ListWordGroupsResponse": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/CreateWordGroupResponse"
-            },
-            "type": "array"
-          },
-          "next_page_token": {
-            "type": "string"
-          },
-          "total_size": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "next_page_token",
-          "total_size"
-        ],
-        "type": "object"
-      },
-      "MergeAndAddWordRequest": {
-        "properties": {
-          "group_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "id": {
-            "type": "string"
-          },
-          "word": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "word"
-        ],
-        "type": "object"
-      },
-      "MergeWordGroupsRequest": {
-        "properties": {
-          "group_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "type": "object"
-      },
       "ParserConfig": {
         "properties": {
           "name": {
@@ -2344,12 +1879,6 @@
             },
             "type": "array"
           },
-          "keyword_list": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "order_by": {
             "type": "string"
           },
@@ -2385,29 +1914,6 @@
         },
         "required": [
           "task_ids"
-        ],
-        "type": "object"
-      },
-      "SearchWordGroupsRequest": {
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "page_size": {
-            "type": "integer"
-          },
-          "page_token": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "keyword",
-          "page_size",
-          "page_token",
-          "source"
         ],
         "type": "object"
       },
@@ -2497,9 +2003,6 @@
       },
       "StartTaskResult": {
         "properties": {
-          "detail": {
-            "type": "string"
-          },
           "detail": {
             "type": "string"
           },
@@ -2674,9 +2177,6 @@
               "$ref": "#/components/schemas/TaskFile"
             },
             "type": "array"
-          },
-          "relative_path": {
-            "type": "string"
           },
           "relative_path": {
             "type": "string"
@@ -2888,35 +2388,6 @@
         ],
         "type": "object"
       },
-      "UpdateWordGroupRequest": {
-        "properties": {
-          "aliases": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "description": {
-            "type": "string"
-          },
-          "group_id": {
-            "type": "string"
-          },
-          "lock": {
-            "type": "boolean"
-          },
-          "term": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "description",
-          "group_id",
-          "lock",
-          "term"
-        ],
-        "type": "object"
-      },
       "UploadFileResponse": {
         "properties": {
           "content_type": {
@@ -3012,10 +2483,6 @@
             "type": "string"
           },
           "name": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
             "type": "string"
           }
         },
@@ -3057,6 +2524,64 @@
           "reason",
           "updated_at",
           "word"
+        ],
+        "type": "object"
+      },
+      "addModelProviderGroupModelOpenAPIRequest": {
+        "properties": {
+          "model_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_type",
+          "name"
+        ],
+        "type": "object"
+      },
+      "addModelProviderGroupModelOpenAPIResponse": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "model_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "user_model_provider_group_id": {
+            "type": "string"
+          },
+          "user_model_provider_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "group_name",
+          "id",
+          "is_default",
+          "model_type",
+          "name",
+          "provider_name",
+          "user_model_provider_group_id",
+          "user_model_provider_id"
         ],
         "type": "object"
       },
@@ -3150,6 +2675,88 @@
         ],
         "type": "object"
       },
+      "checkModelProviderOpenAPIRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "provider_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key",
+          "base_url",
+          "provider_name"
+        ],
+        "type": "object"
+      },
+      "createModelProviderGroupOpenAPIRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "name"
+        ],
+        "type": "object"
+      },
+      "createModelProviderGroupOpenAPIResponse": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "user_model_provider_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "id",
+          "name",
+          "user_model_provider_id"
+        ],
+        "type": "object"
+      },
+      "deleteModelProviderGroupModelOpenAPIResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "deleteModelProviderGroupOpenAPIResponse": {
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
       "internalSkillCreateOpenAPIRequest": {
         "properties": {
           "category": {
@@ -3217,6 +2824,120 @@
         ],
         "type": "object"
       },
+      "listModelProviderGroupModelsOpenAPIItem": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "model_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "user_model_provider_group_id": {
+            "type": "string"
+          },
+          "user_model_provider_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "group_name",
+          "id",
+          "is_default",
+          "model_type",
+          "name",
+          "provider_name",
+          "user_model_provider_group_id",
+          "user_model_provider_id"
+        ],
+        "type": "object"
+      },
+      "listModelProviderGroupModelsOpenAPIResponse": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/listModelProviderGroupModelsOpenAPIItem"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "listModelProviderGroupsOpenAPIItem": {
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "user_model_provider_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key",
+          "base_url",
+          "id",
+          "name",
+          "user_model_provider_id"
+        ],
+        "type": "object"
+      },
+      "listModelProviderGroupsOpenAPIResponse": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/listModelProviderGroupsOpenAPIItem"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "listSelectedModelsOpenAPIResponse": {
+        "properties": {
+          "selections": {
+            "items": {
+              "$ref": "#/components/schemas/selectedModelOpenAPIItem"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "listUserModelProvidersOpenAPIResponse": {
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/userModelProviderOpenAPIItem"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "managedStateListOpenAPIResponse": {
         "properties": {
           "items": {
@@ -3230,6 +2951,19 @@
       },
       "managedStateOpenAPIResponse": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "content": {
             "type": "string"
           },
@@ -3253,6 +2987,10 @@
           }
         },
         "required": [
+          "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "content",
           "content_summary",
           "has_pending_review_suggestions",
@@ -3265,6 +3003,9 @@
       },
       "managedStateUpsertOpenAPIRequest": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
           "content": {
             "type": "string"
           }
@@ -3323,6 +3064,71 @@
           "id",
           "status"
         ],
+        "type": "object"
+      },
+      "selectedModelOpenAPIItem": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "model_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_name": {
+            "type": "string"
+          },
+          "user_model_provider_group_id": {
+            "type": "string"
+          },
+          "user_model_provider_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "group_name",
+          "model_id",
+          "model_type",
+          "name",
+          "provider_name",
+          "user_model_provider_group_id",
+          "user_model_provider_id"
+        ],
+        "type": "object"
+      },
+      "setSelectedModelOpenAPIItem": {
+        "properties": {
+          "model_id": {
+            "type": "string"
+          },
+          "model_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "model_type"
+        ],
+        "type": "object"
+      },
+      "setSelectedModelsOpenAPIRequest": {
+        "properties": {
+          "selections": {
+            "items": {
+              "$ref": "#/components/schemas/setSelectedModelOpenAPIItem"
+            },
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "shareSkillOpenAPIRequest": {
@@ -3428,6 +3234,16 @@
           "auto_evo": {
             "type": "boolean"
           },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "content": {
             "type": "string"
           },
@@ -3464,6 +3280,9 @@
         },
         "required": [
           "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "content",
           "description",
           "file_ext",
@@ -3482,6 +3301,16 @@
         "properties": {
           "auto_evo": {
             "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
           },
           "category": {
             "type": "string"
@@ -3534,6 +3363,9 @@
         },
         "required": [
           "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "category",
           "content",
           "description",
@@ -3642,6 +3474,16 @@
           "auto_evo": {
             "type": "boolean"
           },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "description": {
             "type": "string"
           },
@@ -3672,6 +3514,9 @@
         },
         "required": [
           "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "description",
           "file_ext",
           "has_pending_review_suggestions",
@@ -3688,6 +3533,16 @@
         "properties": {
           "auto_evo": {
             "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
           },
           "category": {
             "type": "string"
@@ -3731,6 +3586,9 @@
         },
         "required": [
           "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "category",
           "description",
           "has_pending_review_suggestions",
@@ -4386,11 +4244,55 @@
           "session_id"
         ],
         "type": "object"
+      },
+      "updateModelProviderGroupOpenAPIRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "name"
+        ],
+        "type": "object"
+      },
+      "userModelProviderOpenAPIItem": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "default_model_provider_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "default_model_provider_id",
+          "description",
+          "id",
+          "name"
+        ],
+        "type": "object"
       }
     }
   },
   "info": {
-    "description": "LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。",
     "description": "LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。",
     "title": "Backend Core API",
     "version": "0.1.0"
@@ -4452,452 +4354,6 @@
           }
         },
         "summary": "Admin (requires document.write)"
-      }
-    },
-    "/api/core/agent/diffs/{apply_id}/{filename:.*}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "apply_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "filename:.*",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/diffs/{apply_id}/{filename:.*}"
-      }
-    },
-    "/api/core/agent/files:content": {
-      "post": {
-        "description": "Read a local agent result file by path and return its text content. Use JSON body to avoid URL path escaping issues.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/agentFileContentOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/agentFileContentOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Agent result file content"
-          }
-        },
-        "summary": "Read agent result file content",
-        "tags": [
-          "agent"
-        ]
-      }
-    },
-    "/api/core/agent/reports/{report_id}:content": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "report_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/reports/{report_id}:content"
-      }
-    },
-    "/api/core/agent/threads": {
-      "get": {
-        "description": "List the current user's agent threads. Use thread_id from this response to load thread details or history.",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_token",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/agentThreadListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Agent thread list"
-          }
-        },
-        "summary": "List agent threads",
-        "tags": [
-          "agent"
-        ]
-      },
-      "post": {
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /agent/threads"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/history": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/history"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/records": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/records"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/results/abtests": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/results/abtests"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/results/analysis-reports": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/results/analysis-reports"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/results/datasets": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/results/datasets"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/results/diffs": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/results/diffs"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/results/eval-reports": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/results/eval-reports"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}/rounds": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}/rounds"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}:cancel": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /agent/threads/{thread_id}:cancel"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}:events": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /agent/threads/{thread_id}:events"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}:history": {
-      "delete": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "DELETE /agent/threads/{thread_id}:history"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}:messages": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /agent/threads/{thread_id}:messages"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}:pause": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /agent/threads/{thread_id}:pause"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}:retry": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /agent/threads/{thread_id}:retry"
-      }
-    },
-    "/api/core/agent/threads/{thread_id}:start": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "thread_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /agent/threads/{thread_id}:start"
       }
     },
     "/api/core/agent/diffs/{apply_id}/{filename:.*}": {
@@ -5476,67 +4932,6 @@
         ]
       }
     },
-    "/api/core/conversation:export": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExportConversationsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExportConversationsResponse"
-                }
-              }
-            },
-            "description": "Export conversation files"
-          }
-        },
-        "summary": "Export conversations",
-        "tags": [
-          "conversations"
-        ]
-      }
-    },
-    "/api/core/conversation:export/files/{file_id}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "file_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Exported conversation file"
-          }
-        },
-        "summary": "Download exported conversation file",
-        "tags": [
-          "conversations"
-        ]
-      }
-    },
     "/api/core/conversation:switchStatus": {
       "get": {
         "responses": {
@@ -5549,10 +4944,8 @@
               }
             },
             "description": "Multi-answer switch status"
-            "description": "Multi-answer switch status"
           }
         },
-        "summary": "Get multi-answer switch status"
         "summary": "Get multi-answer switch status"
       },
       "post": {
@@ -5577,10 +4970,8 @@
               }
             },
             "description": "SettextMulti-answer switch status"
-            "description": "SettextMulti-answer switch status"
           }
         },
-        "summary": "SetMulti-answer switch status"
         "summary": "SetMulti-answer switch status"
       }
     },
@@ -5622,10 +5013,8 @@
               }
             },
             "description": "Conversation list"
-            "description": "Conversation list"
           }
         },
-        "summary": "Conversation list"
         "summary": "Conversation list"
       }
     },
@@ -5651,10 +5040,8 @@
               }
             },
             "description": "Conversation status"
-            "description": "Conversation status"
           }
         },
-        "summary": "Get conversation status"
         "summary": "Get conversation status"
       }
     },
@@ -5680,10 +5067,8 @@
               }
             },
             "description": "Deleted successfully"
-            "description": "Deleted successfully"
           }
         },
-        "summary": "Delete conversation"
         "summary": "Delete conversation"
       },
       "get": {
@@ -5707,10 +5092,8 @@
               }
             },
             "description": "Conversationtext"
-            "description": "Conversationtext"
           }
         },
-        "summary": "Get conversation"
         "summary": "Get conversation"
       }
     },
@@ -5736,37 +5119,8 @@
               }
             },
             "description": "Conversation details and history"
-            "description": "Conversation details and history"
           }
         },
-        "summary": "Get conversationtext"
-      }
-    },
-    "/api/core/conversations:batchDelete": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConversationBatchDeleteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationBatchDeleteResponse"
-                }
-              }
-            },
-            "description": "Batch deleted conversations"
-          }
-        },
-        "summary": "Batch delete conversations"
         "summary": "Get conversationtext"
       }
     },
@@ -5800,7 +5154,6 @@
     "/api/core/conversations:chat": {
       "post": {
         "description": "textConversationtext",
-        "description": "textConversationtext",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5816,7 +5169,6 @@
           }
         },
         "summary": "Conversationtext (requires qa.read)"
-        "summary": "Conversationtext (requires qa.read)"
       }
     },
     "/api/core/conversations:feedBackChatHistory": {
@@ -5829,21 +5181,17 @@
                 "properties": {
                   "expected_answer": {
                     "description": "text",
-                    "description": "text",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "text ID",
                     "description": "text ID",
                     "type": "string"
                   },
                   "reason": {
                     "description": "text",
-                    "description": "text",
                     "type": "string"
                   },
                   "type": {
-                    "description": "text",
                     "description": "text",
                     "format": "int32",
                     "type": "integer"
@@ -5869,16 +5217,13 @@
               }
             },
             "description": "Feedback succeeded"
-            "description": "Feedback succeeded"
           }
         },
-        "summary": "Feedback conversation history"
         "summary": "Feedback conversation history"
       }
     },
     "/api/core/conversations:resumeChat": {
       "post": {
-        "description": "Resumetext",
         "description": "Resumetext",
         "requestBody": {
           "content": {
@@ -5888,11 +5233,9 @@
                 "properties": {
                   "conversation_id": {
                     "description": "Conversation ID",
-                    "description": "Conversation ID",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "text，textResumetext ID",
                     "description": "text，textResumetext ID",
                     "type": "string"
                   }
@@ -5916,10 +5259,8 @@
               }
             },
             "description": "SSE streaming response item is ChatChunkResponse wrapped by result"
-            "description": "SSE streaming response item is ChatChunkResponse wrapped by result"
           }
         },
-        "summary": "Resume conversation stream"
         "summary": "Resume conversation stream"
       }
     },
@@ -5933,11 +5274,9 @@
                 "properties": {
                   "deleted_history_id": {
                     "description": "textDeletetext ID",
-                    "description": "textDeletetext ID",
                     "type": "string"
                   },
                   "set_history_id": {
-                    "description": "text ID",
                     "description": "text ID",
                     "type": "string"
                   }
@@ -5962,16 +5301,13 @@
               }
             },
             "description": "Set result"
-            "description": "Set result"
           }
         },
-        "summary": "Set conversation history"
         "summary": "Set conversation history"
       }
     },
     "/api/core/conversations:stopChatGeneration": {
       "post": {
-        "description": "textConversationtext",
         "description": "textConversationtext",
         "requestBody": {
           "content": {
@@ -5981,11 +5317,9 @@
                 "properties": {
                   "conversation_id": {
                     "description": "Conversation ID",
-                    "description": "Conversation ID",
                     "type": "string"
                   },
                   "history_id": {
-                    "description": "text，text ID",
                     "description": "text，text ID",
                     "type": "string"
                   }
@@ -6009,10 +5343,8 @@
               }
             },
             "description": "Stopped successfully"
-            "description": "Stopped successfully"
           }
         },
-        "summary": "Stop conversation generation"
         "summary": "Stop conversation generation"
       }
     },
@@ -6028,10 +5360,8 @@
               }
             },
             "description": "Algorithm list"
-            "description": "Algorithm list"
           }
         },
-        "summary": "Dataset algorithm list"
         "summary": "Dataset algorithm list"
       }
     },
@@ -6065,10 +5395,8 @@
               }
             },
             "description": "Dataset tags"
-            "description": "Dataset tags"
           }
         },
-        "summary": "Dataset tags"
         "summary": "Dataset tags"
       }
     },
@@ -6129,10 +5457,8 @@
               }
             },
             "description": "Dataset list"
-            "description": "Dataset list"
           }
         },
-        "summary": "Dataset list",
         "summary": "Dataset list",
         "tags": [
           "datasets"
@@ -6170,10 +5496,8 @@
               }
             },
             "description": "Created dataset"
-            "description": "Created dataset"
           }
         },
-        "summary": "Create dataset",
         "summary": "Create dataset",
         "tags": [
           "datasets"
@@ -6202,10 +5526,8 @@
               }
             },
             "description": "Deleted successfully"
-            "description": "Deleted successfully"
           }
         },
-        "summary": "Delete dataset",
         "summary": "Delete dataset",
         "tags": [
           "datasets"
@@ -6232,10 +5554,8 @@
               }
             },
             "description": "Dataset details"
-            "description": "Dataset details"
           }
         },
-        "summary": "Get dataset",
         "summary": "Get dataset",
         "tags": [
           "datasets"
@@ -6273,10 +5593,8 @@
               }
             },
             "description": "Updated dataset"
-            "description": "Updated dataset"
           }
         },
-        "summary": "Update dataset",
         "summary": "Update dataset",
         "tags": [
           "datasets"
@@ -6321,10 +5639,8 @@
               }
             },
             "description": "Document list"
-            "description": "Document list"
           }
         },
-        "summary": "Document list",
         "summary": "Document list",
         "tags": [
           "documents"
@@ -6361,10 +5677,8 @@
               }
             },
             "description": "Created document"
-            "description": "Created document"
           }
         },
-        "summary": "Create document",
         "summary": "Create document",
         "tags": [
           "documents"
@@ -6401,10 +5715,8 @@
               }
             },
             "description": "Deleted successfully"
-            "description": "Deleted successfully"
           }
         },
-        "summary": "Delete document",
         "summary": "Delete document",
         "tags": [
           "documents"
@@ -6439,10 +5751,8 @@
               }
             },
             "description": "Document details"
-            "description": "Document details"
           }
         },
-        "summary": "Get document",
         "summary": "Get document",
         "tags": [
           "documents"
@@ -6487,10 +5797,8 @@
               }
             },
             "description": "Updated document"
-            "description": "Updated document"
           }
         },
-        "summary": "Update document",
         "summary": "Update document",
         "tags": [
           "documents"
@@ -6589,34 +5897,6 @@
         "summary": "POST /datasets/{dataset}/documents/{document}/segments:search"
       }
     },
-    "/api/core/datasets/{dataset}/documents/{document}/segments:search": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "document",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /datasets/{dataset}/documents/{document}/segments:search"
-      }
-    },
     "/api/core/datasets/{dataset}/documents/{document}:content": {
       "get": {
         "parameters": [
@@ -6648,10 +5928,8 @@
               }
             },
             "description": "Document binary content"
-            "description": "Document binary content"
           }
         },
-        "summary": "Preview document content"
         "summary": "Preview document content"
       }
     },
@@ -6686,30 +5964,8 @@
               }
             },
             "description": "Document download content"
-            "description": "Document download content"
           }
         },
-        "summary": "Download document"
-      }
-    },
-    "/api/core/datasets/{dataset}/documents:batchUpdateTags": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "POST /datasets/{dataset}/documents:batchUpdateTags"
         "summary": "Download document"
       }
     },
@@ -6765,10 +6021,8 @@
               }
             },
             "description": "Document search results"
-            "description": "Document search results"
           }
         },
-        "summary": "Search documents",
         "summary": "Search documents",
         "tags": [
           "documents"
@@ -6797,88 +6051,8 @@
               }
             },
             "description": "Member list"
-            "description": "Member list"
           }
         },
-        "summary": "Dataset member list"
-      }
-    },
-    "/api/core/datasets/{dataset}/members/groups/{group_id}": {
-      "delete": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EmptyObject"
-                }
-              }
-            },
-            "description": "Deleted successfully"
-          }
-        },
-        "summary": "Delete dataset group member"
-      },
-      "patch": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "dataset",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateDatasetMemberRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasetMember"
-                }
-              }
-            },
-            "description": "Updated member"
-          }
-        },
-        "summary": "Update dataset group member"
         "summary": "Dataset member list"
       }
     },
@@ -6990,10 +6164,8 @@
               }
             },
             "description": "Deleted successfully"
-            "description": "Deleted successfully"
           }
         },
-        "summary": "textUser ID Delete datasetMember"
         "summary": "textUser ID Delete datasetMember"
       },
       "get": {
@@ -7025,10 +6197,8 @@
               }
             },
             "description": "Member details"
-            "description": "Member details"
           }
         },
-        "summary": "textUser ID Get datasetMember"
         "summary": "textUser ID Get datasetMember"
       },
       "patch": {
@@ -7070,10 +6240,8 @@
               }
             },
             "description": "Updated member"
-            "description": "Updated member"
           }
         },
-        "summary": "textUser ID Update datasetMember"
         "summary": "textUser ID Update datasetMember"
       }
     },
@@ -7109,10 +6277,8 @@
               }
             },
             "description": "Member search results"
-            "description": "Member search results"
           }
         },
-        "summary": "Search dataset members"
         "summary": "Search dataset members"
       }
     },
@@ -7186,10 +6352,8 @@
               }
             },
             "description": "Task list"
-            "description": "Task list"
           }
         },
-        "summary": "Task list",
         "summary": "Task list",
         "tags": [
           "tasks"
@@ -7226,10 +6390,8 @@
               }
             },
             "description": "Created task"
-            "description": "Created task"
           }
         },
-        "summary": "Create task",
         "summary": "Create task",
         "tags": [
           "tasks"
@@ -7266,10 +6428,8 @@
               }
             },
             "description": "Deleted successfully"
-            "description": "Deleted successfully"
           }
         },
-        "summary": "Delete task",
         "summary": "Delete task",
         "tags": [
           "tasks"
@@ -7304,10 +6464,8 @@
               }
             },
             "description": "Task details"
-            "description": "Task details"
           }
         },
-        "summary": "Get task",
         "summary": "Get task",
         "tags": [
           "tasks"
@@ -7354,10 +6512,8 @@
               }
             },
             "description": "Resume result"
-            "description": "Resume result"
           }
         },
-        "summary": "Resume task",
         "summary": "Resume task",
         "tags": [
           "tasks"
@@ -7404,10 +6560,8 @@
               }
             },
             "description": "Suspended successfully"
-            "description": "Suspended successfully"
           }
         },
-        "summary": "Suspend task",
         "summary": "Suspend task",
         "tags": [
           "tasks"
@@ -7464,10 +6618,8 @@
               }
             },
             "description": "CreatetextTask list"
-            "description": "CreatetextTask list"
           }
         },
-        "summary": "BatchUploadtextCreate task"
         "summary": "BatchUploadtextCreate task"
       }
     },
@@ -7503,10 +6655,8 @@
               }
             },
             "description": "Task search results"
-            "description": "Task search results"
           }
         },
-        "summary": "Search tasks by task ID",
         "summary": "Search tasks by task ID",
         "tags": [
           "tasks"
@@ -7545,10 +6695,8 @@
               }
             },
             "description": "Start result"
-            "description": "Start result"
           }
         },
-        "summary": "Start task",
         "summary": "Start task",
         "tags": [
           "tasks"
@@ -7605,10 +6753,8 @@
               }
             },
             "description": "Upload filetext"
-            "description": "Upload filetext"
           }
         },
-        "summary": "Upload file"
         "summary": "Upload file"
       }
     },
@@ -7643,10 +6789,8 @@
               }
             },
             "description": "textUpload filetext"
-            "description": "textUpload filetext"
           }
         },
-        "summary": "PreviewtextUpload file"
         "summary": "PreviewtextUpload file"
       }
     },
@@ -7681,10 +6825,8 @@
               }
             },
             "description": "textUpload fileDownloadtext"
-            "description": "textUpload fileDownloadtext"
           }
         },
-        "summary": "DownloadtextUpload file"
         "summary": "DownloadtextUpload file"
       }
     },
@@ -7737,10 +6879,8 @@
               }
             },
             "description": "Part upload result"
-            "description": "Part upload result"
           }
         },
-        "summary": "UploadDatasettext",
         "summary": "UploadDatasettext",
         "tags": [
           "tasks"
@@ -7787,10 +6927,8 @@
               }
             },
             "description": "Abort uploadtext"
-            "description": "Abort uploadtext"
           }
         },
-        "summary": "Abort upload",
         "summary": "Abort upload",
         "tags": [
           "tasks"
@@ -7837,10 +6975,8 @@
               }
             },
             "description": "Complete uploadtext"
-            "description": "Complete uploadtext"
           }
         },
-        "summary": "Complete upload",
         "summary": "Complete upload",
         "tags": [
           "tasks"
@@ -7879,10 +7015,8 @@
               }
             },
             "description": "Upload initialization result"
-            "description": "Upload initialization result"
           }
         },
-        "summary": "Initialize dataset upload",
         "summary": "Initialize dataset upload",
         "tags": [
           "tasks"
@@ -7921,10 +7055,8 @@
               }
             },
             "description": "Added members"
-            "description": "Added members"
           }
         },
-        "summary": "Batch add dataset members"
         "summary": "Batch add dataset members"
       }
     },
@@ -7960,10 +7092,8 @@
               }
             },
             "description": "Deleted successfully"
-            "description": "Deleted successfully"
           }
         },
-        "summary": "BatchDelete document",
         "summary": "BatchDelete document",
         "tags": [
           "documents"
@@ -8002,10 +7132,8 @@
               }
             },
             "description": "Set successfully"
-            "description": "Set successfully"
           }
         },
-        "summary": "Set as default dataset",
         "summary": "Set as default dataset",
         "tags": [
           "datasets"
@@ -8044,10 +7172,8 @@
               }
             },
             "description": "Unset successfully"
-            "description": "Unset successfully"
           }
         },
-        "summary": "Unset default dataset",
         "summary": "Unset default dataset",
         "tags": [
           "datasets"
@@ -8066,10 +7192,8 @@
               }
             },
             "description": "Creator list"
-            "description": "Creator list"
           }
         },
-        "summary": "Document creator list"
         "summary": "Document creator list"
       }
     },
@@ -8085,10 +7209,8 @@
               }
             },
             "description": "Document tag list"
-            "description": "Document tag list"
           }
         },
-        "summary": "Document tag list"
         "summary": "Document tag list"
       }
     },
@@ -8114,236 +7236,11 @@
               }
             },
             "description": "textDocument search results"
-            "description": "textDocument search results"
           }
         },
-        "summary": "textSearch documents",
         "summary": "textSearch documents",
         "tags": [
           "documents"
-        ]
-      }
-    },
-    "/api/core/evolution/suggestions": {
-      "get": {
-        "description": "Use evolution_id=\u003cresource_type\u003e:\u003cresource_id\u003e for a single-parameter resource filter. resource_type and resource_key remain available as optional compatibility filters.",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "evolution_id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "resource_type",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "resource_key",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "keyword",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/suggestionListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Suggestion list"
-          }
-        },
-        "summary": "List evolution suggestions",
-        "tags": [
-          "evolution"
-        ]
-      }
-    },
-    "/api/core/evolution/suggestions/{id}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Suggestion details"
-          }
-        },
-        "summary": "Get evolution suggestion",
-        "tags": [
-          "evolution"
-        ]
-      }
-    },
-    "/api/core/evolution/suggestions/{id}:approve": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Approved suggestion"
-          }
-        },
-        "summary": "Approve evolution suggestion",
-        "tags": [
-          "evolution"
-        ]
-      }
-    },
-    "/api/core/evolution/suggestions/{id}:reject": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/suggestionItemOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Rejected suggestion"
-          }
-        },
-        "summary": "Reject evolution suggestion",
-        "tags": [
-          "evolution"
-        ]
-      }
-    },
-    "/api/core/evolution/suggestions:batchApprove": {
-      "post": {
-        "description": "Sets every listed suggestion to accepted regardless of its current status, as long as the suggestion exists.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Approved suggestions"
-          }
-        },
-        "summary": "Batch approve evolution suggestions",
-        "tags": [
-          "evolution"
-        ]
-      }
-    },
-    "/api/core/evolution/suggestions:batchReject": {
-      "post": {
-        "description": "Sets every listed suggestion to rejected regardless of its current status, as long as the suggestion exists.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/suggestionBatchReviewOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Rejected suggestions"
-          }
-        },
-        "summary": "Batch reject evolution suggestions",
-        "tags": [
-          "evolution"
         ]
       }
     },
@@ -8620,36 +7517,6 @@
         ]
       }
     },
-    "/api/core/inner/word_group:apply": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApplyWordGroupActionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApplyWordGroupActionBatchResponse"
-                }
-              }
-            },
-            "description": "Per-item apply results"
-          }
-        },
-        "summary": "Internal: apply word-group actions in batch (algorithm → core)",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
     "/api/core/kb/grant-principals": {
       "get": {
         "responses": {
@@ -8676,7 +7543,6 @@
             "description": "OK"
           }
         },
-        "summary": "Get grantable principals"
         "summary": "Get grantable principals"
       }
     },
@@ -8741,7 +7607,6 @@
           }
         },
         "summary": "Knowledge base list"
-        "summary": "Knowledge base list"
       }
     },
     "/api/core/kb/permission/batch": {
@@ -8784,7 +7649,6 @@
           }
         },
         "summary": "Batch query knowledge base permissions"
-        "summary": "Batch query knowledge base permissions"
       }
     },
     "/api/core/kb/{kb_id}/acl": {
@@ -8823,7 +7687,6 @@
             "description": "OK"
           }
         },
-        "summary": "ACL list"
         "summary": "ACL list"
       },
       "post": {
@@ -8872,7 +7735,6 @@
             "description": "OK"
           }
         },
-        "summary": "Add ACL"
         "summary": "Add ACL"
       }
     },
@@ -8923,7 +7785,6 @@
           }
         },
         "summary": "BatchAdd ACL"
-        "summary": "BatchAdd ACL"
       }
     },
     "/api/core/kb/{kb_id}/acl/{acl_id}": {
@@ -8970,7 +7831,6 @@
             "description": "OK"
           }
         },
-        "summary": "Delete ACL"
         "summary": "Delete ACL"
       },
       "put": {
@@ -9027,7 +7887,6 @@
           }
         },
         "summary": "Update ACL"
-        "summary": "Update ACL"
       }
     },
     "/api/core/kb/{kb_id}/authorization": {
@@ -9066,7 +7925,6 @@
             "description": "OK"
           }
         },
-        "summary": "Get knowledge base authorization"
         "summary": "Get knowledge base authorization"
       },
       "post": {
@@ -9115,7 +7973,6 @@
           }
         },
         "summary": "Set knowledge base authorization"
-        "summary": "Set knowledge base authorization"
       }
     },
     "/api/core/kb/{kb_id}/can": {
@@ -9155,7 +8012,6 @@
           }
         },
         "summary": "Check knowledge base operation permission"
-        "summary": "Check knowledge base operation permission"
       }
     },
     "/api/core/kb/{kb_id}/permission": {
@@ -9194,7 +8050,6 @@
             "description": "OK"
           }
         },
-        "summary": "Query knowledge base permissions"
         "summary": "Query knowledge base permissions"
       }
     },
@@ -9426,51 +8281,95 @@
         ]
       }
     },
-    "/api/core/personalization-items": {
+    "/api/core/model_providers": {
       "get": {
+        "description": "Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keyword",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/managedStateListOpenAPIResponse"
+                  "$ref": "#/components/schemas/listUserModelProvidersOpenAPIResponse"
                 }
               }
             },
-            "description": "Managed personalization items"
+            "description": "User model provider list"
           }
         },
-        "summary": "List managed memory and preference items",
+        "summary": "List user model providers",
         "tags": [
-          "personalization"
+          "model_providers"
         ]
       }
     },
-    "/api/core/personalization-setting": {
+    "/api/core/model_providers/models": {
       "get": {
+        "description": "Requires query model_type (e.g. llm, embedding). Returns all non-deleted user_model_provider_group_models for the current user with that model_type across all providers and groups. Ordered by user_model_provider_id, group id, then name. Same items as GET .../groups/{group_id}/models.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "model_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/personalizationSettingOpenAPIResponse"
+                  "$ref": "#/components/schemas/listModelProviderGroupModelsOpenAPIResponse"
                 }
               }
             },
-            "description": "Personalization setting"
+            "description": "Models list"
           }
         },
-        "summary": "Get personalization setting",
+        "summary": "List current user's models by model_type",
         "tags": [
-          "personalization"
+          "model_providers"
+        ]
+      }
+    },
+    "/api/core/model_providers/selected_models": {
+      "get": {
+        "description": "Returns the current user's selected model for each model_type.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/listSelectedModelsOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Selected models"
+          }
+        },
+        "summary": "Get selected models by model_type",
+        "tags": [
+          "model_providers"
         ]
       },
       "put": {
+        "description": "Upserts selected model rows for the current user. Each selection requires model_type and model_id. model_id must belong to the current user and model_type must match the model row.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/personalizationSettingOpenAPIRequest"
+                "$ref": "#/components/schemas/setSelectedModelsOpenAPIRequest"
               }
             }
           },
@@ -9481,146 +8380,66 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/personalizationSettingOpenAPIResponse"
+                  "$ref": "#/components/schemas/listSelectedModelsOpenAPIResponse"
                 }
               }
             },
-            "description": "Updated personalization setting"
+            "description": "Saved selected models"
           }
         },
-        "summary": "Set personalization setting",
+        "summary": "Save selected models by model_type",
         "tags": [
-          "personalization"
+          "model_providers"
         ]
       }
     },
-    "/api/core/memory": {
-      "put": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/managedStateUpsertOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/managedStateOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Managed memory item"
-          }
-        },
-        "summary": "Upsert managed memory",
-        "tags": [
-          "memory"
-        ]
-      }
-    },
-    "/api/core/memory/suggestion": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/systemSuggestionOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/recordedSuggestionListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Created memory suggestions"
-          }
-        },
-        "summary": "Create memory suggestions",
-        "tags": [
-          "memory"
-        ]
-      }
-    },
-    "/api/core/memory:confirm": {
-      "post": {
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/systemConfirmOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Confirmed memory draft"
-          }
-        },
-        "summary": "Confirm memory draft",
-        "tags": [
-          "memory"
-        ]
-      }
-    },
-    "/api/core/memory:discard": {
-      "post": {
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/systemDiscardOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Discarded memory draft"
-          }
-        },
-        "summary": "Discard memory draft",
-        "tags": [
-          "memory"
-        ]
-      }
-    },
-    "/api/core/memory:draft-preview": {
+    "/api/core/model_providers/{model_provider_id}/groups": {
       "get": {
+        "description": "Lists non-deleted groups for the user model provider. model_provider_id is the id from GET /model_providers. Each item includes api_key.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/systemDraftPreviewOpenAPIResponse"
+                  "$ref": "#/components/schemas/listModelProviderGroupsOpenAPIResponse"
                 }
               }
             },
-            "description": "Memory draft preview"
+            "description": "Group list"
           }
         },
-        "summary": "Preview memory draft diff",
+        "summary": "List model provider connection groups",
         "tags": [
-          "memory"
+          "model_providers"
         ]
-      }
-    },
-    "/api/core/memory:generate": {
+      },
       "post": {
+        "description": "Creates a group (name, base_url, optional api_key) under the given user model provider. model_provider_id is the id from GET /model_providers. The api_key is not returned in the response body.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/skillGenerateOpenAPIRequest"
+                "$ref": "#/components/schemas/createModelProviderGroupOpenAPIRequest"
               }
             }
           },
@@ -9631,16 +8450,305 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/systemGenerateOpenAPIResponse"
+                  "$ref": "#/components/schemas/createModelProviderGroupOpenAPIResponse"
                 }
               }
             },
-            "description": "Generated memory draft"
+            "description": "Created group"
           }
         },
-        "summary": "Generate memory draft",
+        "summary": "Create model provider connection group",
         "tags": [
-          "memory"
+          "model_providers"
+        ]
+      }
+    },
+    "/api/core/model_providers/{model_provider_id}/groups/{group_id}": {
+      "delete": {
+        "description": "Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/deleteModelProviderGroupOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Deleted group"
+          }
+        },
+        "summary": "Delete model provider connection group",
+        "tags": [
+          "model_providers"
+        ]
+      },
+      "patch": {
+        "description": "Updates name, base_url, and optionally api_key for a group. The group is selected by path group_id. Omit api_key or send an empty string to keep the existing API key (e.g. when the UI shows a mask). The api_key is not returned in the response body.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/updateModelProviderGroupOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/createModelProviderGroupOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Updated group"
+          }
+        },
+        "summary": "Update model provider connection group",
+        "tags": [
+          "model_providers"
+        ]
+      }
+    },
+    "/api/core/model_providers/{model_provider_id}/groups/{group_id}/models": {
+      "get": {
+        "description": "Lists non-deleted user_model_provider_group_models for the group. Each item includes is_default (true when copied from default_models seeding; false for user-added models).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/listModelProviderGroupModelsOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Group models list"
+          }
+        },
+        "summary": "List models under a connection group",
+        "tags": [
+          "model_providers"
+        ]
+      },
+      "post": {
+        "description": "Creates a user_model_provider_group_models row with is_default false (custom model name and model_type). Name must be unique within the group among active rows. provider_name and base_url are taken from the user provider and group. Response group_name is user_model_provider_groups.name (not stored on the model row).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/addModelProviderGroupModelOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/addModelProviderGroupModelOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Created group model"
+          }
+        },
+        "summary": "Add custom model under a connection group",
+        "tags": [
+          "model_providers"
+        ]
+      }
+    },
+    "/api/core/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}": {
+      "delete": {
+        "description": "Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/deleteModelProviderGroupModelOpenAPIResponse"
+                }
+              }
+            },
+            "description": "Deleted group model"
+          }
+        },
+        "summary": "Delete model under a connection group",
+        "tags": [
+          "model_providers"
+        ]
+      }
+    },
+    "/api/core/model_providers/{model_provider_id}/groups/{group_id}:check": {
+      "post": {
+        "description": "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/checkModelProviderOpenAPIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckModelProviderData"
+                }
+              }
+            },
+            "description": "data contains only success (bool), mapped from algorithm /api/model/check"
+          }
+        },
+        "summary": "Check model provider connectivity",
+        "tags": [
+          "model_providers"
+        ]
+      }
+    },
+    "/api/core/model_providers:with_groups": {
+      "get": {
+        "description": "Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/listUserModelProvidersOpenAPIResponse"
+                }
+              }
+            },
+            "description": "User model providers with groups"
+          }
+        },
+        "summary": "List user model providers that have groups",
+        "tags": [
+          "model_providers"
         ]
       }
     },
@@ -9742,10 +8850,8 @@
               }
             },
             "description": "Prompt list"
-            "description": "Prompt list"
           }
         },
-        "summary": "Prompt list"
         "summary": "Prompt list"
       },
       "post": {
@@ -9770,10 +8876,8 @@
               }
             },
             "description": "Created prompt"
-            "description": "Created prompt"
           }
         },
-        "summary": "Create prompt"
         "summary": "Create prompt"
       }
     },
@@ -9799,10 +8903,8 @@
               }
             },
             "description": "Deleted successfully"
-            "description": "Deleted successfully"
           }
         },
-        "summary": "Delete prompt"
         "summary": "Delete prompt"
       },
       "get": {
@@ -9826,10 +8928,8 @@
               }
             },
             "description": "Prompt details"
-            "description": "Prompt details"
           }
         },
-        "summary": "Get prompt"
         "summary": "Get prompt"
       },
       "patch": {
@@ -9864,10 +8964,8 @@
               }
             },
             "description": "Updated prompt"
-            "description": "Updated prompt"
           }
         },
-        "summary": "Update prompt"
         "summary": "Update prompt"
       }
     },
@@ -9893,10 +8991,8 @@
               }
             },
             "description": "Set successfully"
-            "description": "Set successfully"
           }
         },
-        "summary": "Set as default prompt"
         "summary": "Set as default prompt"
       }
     },
@@ -9922,735 +9018,8 @@
               }
             },
             "description": "Unset successfully"
-            "description": "Unset successfully"
           }
         },
-        "summary": "Unset default prompt"
-      }
-    },
-    "/api/core/remote-fs/content": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /remote-fs/content"
-      }
-    },
-    "/api/core/remote-fs/exists": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /remote-fs/exists"
-      }
-    },
-    "/api/core/remote-fs/info": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /remote-fs/info"
-      }
-    },
-    "/api/core/remote-fs/list": {
-      "get": {
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "summary": "GET /remote-fs/list"
-      }
-    },
-    "/api/core/skill-shares/incoming": {
-      "get": {
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillShareListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Incoming share list"
-          }
-        },
-        "summary": "List incoming skill shares",
-        "tags": [
-          "skill-shares"
-        ]
-      }
-    },
-    "/api/core/skill-shares/outgoing": {
-      "get": {
-        "parameters": [
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillShareListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Outgoing share list"
-          }
-        },
-        "summary": "List outgoing skill shares",
-        "tags": [
-          "skill-shares"
-        ]
-      }
-    },
-    "/api/core/skill-shares/{share_item_id}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "share_item_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillShareDetailOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Skill share detail"
-          }
-        },
-        "summary": "Get skill share item",
-        "tags": [
-          "skill-shares"
-        ]
-      }
-    },
-    "/api/core/skill-shares/{share_item_id}:accept": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "share_item_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillShareAcceptOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Accepted share"
-          }
-        },
-        "summary": "Accept skill share",
-        "tags": [
-          "skill-shares"
-        ]
-      }
-    },
-    "/api/core/skill-shares/{share_item_id}:reject": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "share_item_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillShareRejectOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Rejected share"
-          }
-        },
-        "summary": "Reject skill share",
-        "tags": [
-          "skill-shares"
-        ]
-      }
-    },
-    "/api/core/skill/create": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/internalSkillCreateOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Created skill"
-          }
-        },
-        "summary": "Create skill directly from internal request",
-        "tags": [
-          "skill-evolution"
-        ]
-      }
-    },
-    "/api/core/skill/remove": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/internalSkillRemoveOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDeleteOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Deleted skill"
-          }
-        },
-        "summary": "Delete skill directly from internal request",
-        "tags": [
-          "skill-evolution"
-        ]
-      }
-    },
-    "/api/core/skill/suggestion": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/internalSkillSuggestionOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/recordedSuggestionListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Created skill suggestions"
-          }
-        },
-        "summary": "Create skill suggestions",
-        "tags": [
-          "skill-evolution"
-        ]
-      }
-    },
-    "/api/core/skills": {
-      "get": {
-        "parameters": [
-          {
-            "in": "query",
-            "name": "keyword",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "category",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "tags",
-            "required": false,
-            "schema": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Skill list"
-          }
-        },
-        "summary": "List skills",
-        "tags": [
-          "skills"
-        ]
-      },
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/skillCreateManagedOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Created skill"
-          }
-        },
-        "summary": "Create managed skill",
-        "tags": [
-          "skills"
-        ]
-      }
-    },
-    "/api/core/skills/{skill_id}": {
-      "delete": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDeleteOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Deleted skill"
-          }
-        },
-        "summary": "Delete managed skill",
-        "tags": [
-          "skills"
-        ]
-      },
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Skill details"
-          }
-        },
-        "summary": "Get skill details",
-        "tags": [
-          "skills"
-        ]
-      },
-      "patch": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/skillUpdateManagedOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Updated skill"
-          }
-        },
-        "summary": "Update managed skill",
-        "tags": [
-          "skills"
-        ]
-      }
-    },
-    "/api/core/skills/{skill_id}:confirm": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDetailOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Confirmed skill"
-          }
-        },
-        "summary": "Confirm skill draft",
-        "tags": [
-          "skills"
-        ]
-      }
-    },
-    "/api/core/skills/{skill_id}:discard": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDiscardOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Discarded skill draft"
-          }
-        },
-        "summary": "Discard skill draft",
-        "tags": [
-          "skills"
-        ]
-      }
-    },
-    "/api/core/skills/{skill_id}:draft-preview": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillDraftPreviewOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Skill draft preview"
-          }
-        },
-        "summary": "Preview skill draft diff",
-        "tags": [
-          "skills"
-        ]
-      }
-    },
-    "/api/core/skills/{skill_id}:generate": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/skillGenerateOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillGenerateOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Generated skill draft"
-          }
-        },
-        "summary": "Generate skill draft",
-        "tags": [
-          "skills"
-        ]
-      }
-    },
-    "/api/core/skills/{skill_id}:share": {
-      "post": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/shareSkillOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillShareCreateOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Created share task"
-          }
-        },
-        "summary": "Share skill",
-        "tags": [
-          "skill-shares"
-        ]
-      }
-    },
-    "/api/core/skills/{skill_id}:shares": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "skill_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/skillShareTargetsOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Skill share targets"
-          }
-        },
-        "summary": "List latest skill share status by target user",
-        "tags": [
-          "skill-shares"
-        ]
         "summary": "Unset default prompt"
       }
     },
@@ -11430,10 +9799,8 @@
               }
             },
             "description": "Upload filetext"
-            "description": "Upload filetext"
           }
         },
-        "summary": "Upload temp file"
         "summary": "Upload temp file"
       }
     },
@@ -11478,10 +9845,8 @@
               }
             },
             "description": "Part upload result"
-            "description": "Part upload result"
           }
         },
-        "summary": "Upload temp filetext",
         "summary": "Upload temp filetext",
         "tags": [
           "uploads"
@@ -11520,10 +9885,8 @@
               }
             },
             "description": "Abort uploadtext"
-            "description": "Abort uploadtext"
           }
         },
-        "summary": "AborttextUpload",
         "summary": "AborttextUpload",
         "tags": [
           "uploads"
@@ -11562,10 +9925,8 @@
               }
             },
             "description": "Complete uploadtext"
-            "description": "Complete uploadtext"
           }
         },
-        "summary": "textUpload",
         "summary": "textUpload",
         "tags": [
           "uploads"
@@ -11594,10 +9955,8 @@
               }
             },
             "description": "Upload initialization result"
-            "description": "Upload initialization result"
           }
         },
-        "summary": "Initialize temp multipart upload",
         "summary": "Initialize temp multipart upload",
         "tags": [
           "uploads"
@@ -11655,558 +10014,6 @@
           }
         },
         "summary": "Upload files to knowledge base"
-      }
-    },
-    "/api/core/user-preference": {
-      "put": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/managedStateUpsertOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/managedStateOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Managed user preference item"
-          }
-        },
-        "summary": "Upsert managed user preference",
-        "tags": [
-          "preferences"
-        ]
-      }
-    },
-    "/api/core/user-preference:confirm": {
-      "post": {
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/systemConfirmOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Confirmed user preference draft"
-          }
-        },
-        "summary": "Confirm user preference draft",
-        "tags": [
-          "preferences"
-        ]
-      }
-    },
-    "/api/core/user-preference:discard": {
-      "post": {
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/systemDiscardOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Discarded user preference draft"
-          }
-        },
-        "summary": "Discard user preference draft",
-        "tags": [
-          "preferences"
-        ]
-      }
-    },
-    "/api/core/user-preference:draft-preview": {
-      "get": {
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/systemDraftPreviewOpenAPIResponse"
-                }
-              }
-            },
-            "description": "User preference draft preview"
-          }
-        },
-        "summary": "Preview user preference draft diff",
-        "tags": [
-          "preferences"
-        ]
-      }
-    },
-    "/api/core/user-preference:generate": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/skillGenerateOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/systemGenerateOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Generated user preference draft"
-          }
-        },
-        "summary": "Generate user preference draft",
-        "tags": [
-          "preferences"
-        ]
-      }
-    },
-    "/api/core/user_preference/suggestion": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/systemSuggestionOpenAPIRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/recordedSuggestionListOpenAPIResponse"
-                }
-              }
-            },
-            "description": "Created user preference suggestions"
-          }
-        },
-        "summary": "Create user preference suggestions",
-        "tags": [
-          "preferences"
-        ]
-      }
-    },
-    "/api/core/word_group": {
-      "get": {
-        "parameters": [
-          {
-            "in": "query",
-            "name": "page_token",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListWordGroupsResponse"
-                }
-              }
-            },
-            "description": "Word group list"
-          }
-        },
-        "summary": "List word groups (term row updated_at DESC)",
-        "tags": [
-          "word_group"
-        ]
-      },
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateWordGroupRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateWordGroupResponse"
-                }
-              }
-            },
-            "description": "Created word group"
-          }
-        },
-        "summary": "Create word group",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group/{group_id}": {
-      "delete": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteWordGroupResponse"
-                }
-              }
-            },
-            "description": "Deleted word group"
-          }
-        },
-        "summary": "Delete word group by group_id",
-        "tags": [
-          "word_group"
-        ]
-      },
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "group_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateWordGroupResponse"
-                }
-              }
-            },
-            "description": "Word group detail"
-          }
-        },
-        "summary": "Get word group detail by group_id",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group:batchDelete": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BatchDeleteWordGroupsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BatchDeleteWordGroupsResponse"
-                }
-              }
-            },
-            "description": "Batch deleted word groups"
-          }
-        },
-        "summary": "Batch soft-delete word groups by group_ids",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group:checkExists": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CheckWordsExistRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CheckWordsExistResponse"
-                }
-              }
-            },
-            "description": "Existing words among term and aliases"
-          }
-        },
-        "summary": "Check which words already exist",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group:merge": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MergeWordGroupsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateWordGroupResponse"
-                }
-              }
-            },
-            "description": "Merged word group"
-          }
-        },
-        "summary": "Merge word groups into the first group_id (first term kept; others become aliases)",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group:mergeAndAddWord": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MergeAndAddWordRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateWordGroupResponse"
-                }
-              }
-            },
-            "description": "Merged word group with added word"
-          }
-        },
-        "summary": "Merge word groups then add one word into merged group as alias",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group:search": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchWordGroupsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListWordGroupsResponse"
-                }
-              }
-            },
-            "description": "Word group search results"
-          }
-        },
-        "summary": "Search word groups by keyword and optional source (paginated list)",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group:update": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateWordGroupRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreateWordGroupResponse"
-                }
-              }
-            },
-            "description": "Updated word group"
-          }
-        },
-        "summary": "Update word group (term, description, lock, replace aliases)",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group_conflict": {
-      "get": {
-        "parameters": [
-          {
-            "in": "query",
-            "name": "page_token",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page_size",
-            "required": false,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListWordGroupConflictsResponse"
-                }
-              }
-            },
-            "description": "Word group conflict list"
-          }
-        },
-        "summary": "List pending word group conflicts (updated_at DESC)",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group_conflict/{id}": {
-      "delete": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteWordGroupConflictResponse"
-                }
-              }
-            },
-            "description": "Deleted word group conflict"
-          }
-        },
-        "summary": "Soft-delete a word group conflict by id",
-        "tags": [
-          "word_group"
-        ]
-      }
-    },
-    "/api/core/word_group_conflict:addToGroup": {
-      "post": {
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddWordGroupConflictToGroupsRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AddWordGroupConflictToGroupsResponse"
-                }
-              }
-            },
-            "description": "Conflict word add-to-group result"
-          }
-        },
-        "summary": "Add conflict word to selected groups",
-        "tags": [
-          "word_group"
-        ]
       }
     },
     "/api/core/user-preference": {
