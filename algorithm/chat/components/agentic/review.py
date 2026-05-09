@@ -3,7 +3,6 @@ from __future__ import annotations
 import threading
 import traceback
 from typing import Any
-import os
 
 import lazyllm
 from lazyllm.tools.fs.client import FS
@@ -14,10 +13,6 @@ from chat.tools.skill_manager import list_all_skills_with_category
 from config import config as _cfg
 
 
-def _env_enabled(name: str) -> bool:
-    return os.getenv(name, '').lower() in ('1', 'true', 'yes')
-
-
 def _build_review_decision(
     available_tools: list[str],
     tool_turns: int,
@@ -25,7 +20,6 @@ def _build_review_decision(
     memory_review_interval: int,
     skill_review_interval: int,
 ) -> dict[str, Any]:
-    debug_force_combined = _env_enabled('LAZYRAG_SKILL_REVIEW_DEBUG')
     memory_due = (
         'memory' in available_tools
         and user_turns > memory_review_interval
@@ -43,9 +37,7 @@ def _build_review_decision(
     )
     skill_due = skill_due_by_tool_turns or skill_due_by_user_turns
 
-    if debug_force_combined:
-        mode = 'combined'
-    elif memory_due and skill_due:
+    if memory_due and skill_due:
         mode = 'combined'
     elif memory_due:
         mode = 'memory'
@@ -60,7 +52,6 @@ def _build_review_decision(
         'skill_due': skill_due,
         'skill_due_by_tool_turns': skill_due_by_tool_turns,
         'skill_due_by_user_turns': skill_due_by_user_turns,
-        'debug_force_combined': debug_force_combined,
         'tool_turns': tool_turns,
         'user_turns': user_turns,
         'memory_review_interval': memory_review_interval,
@@ -173,13 +164,9 @@ def _spawn_background_review(
             lazyllm.locals.clear()
             print(f'[bg-review:{review_mode}] EXIT thread={tname}')
 
-    if _env_enabled('LAZYRAG_REVIEW_DEBUG'):
-        print(f'[bg-review:{review_mode}] RUN_SYNC sid={request_global_sid}')
-        _worker()
-    else:
-        thread = threading.Thread(target=_worker, daemon=True)
-        print(
-            f'[bg-review:{review_mode}] SPAWN_ASYNC sid={request_global_sid} '
-            f'thread={thread.name}'
-        )
-        thread.start()
+    thread = threading.Thread(target=_worker, daemon=True)
+    print(
+        f'[bg-review:{review_mode}] SPAWN_ASYNC sid={request_global_sid} '
+        f'thread={thread.name}'
+    )
+    thread.start()
