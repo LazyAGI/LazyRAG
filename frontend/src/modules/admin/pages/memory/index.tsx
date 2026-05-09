@@ -2174,12 +2174,14 @@ export default function MemoryManagement() {
 
       if (
         tab === "experience" &&
-        experienceAssets.some(
-          (item) =>
-            item.id === itemId &&
-            !item.autoEvo &&
-            isPendingReviewSuggestionStatus(item.suggestionStatus),
-        )
+        (options?.forceReload ||
+          experienceAssets.some(
+            (item) =>
+              item.id === itemId &&
+              !item.autoEvo &&
+              (item.hasPendingReviewSuggestions ||
+                isPendingReviewSuggestionStatus(item.suggestionStatus)),
+          ))
       ) {
         const matchedExperience = experienceAssets.find((item) => item.id === itemId);
         if (!matchedExperience) {
