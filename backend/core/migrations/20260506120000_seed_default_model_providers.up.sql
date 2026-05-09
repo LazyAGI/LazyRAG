@@ -30,16 +30,15 @@ https://platform.deepseek.com/api_keys
 3. 为 Key 命名后点击创建，系统会生成一串密钥，请复制并妥善保存至你的代码配置中。$d1$, 'https://api.deepseek.com', now(), now(), NULL),
   ('3d6fe37fbe514ca7b2aedec309a6abd4', 'Doubao', $d2$字节跳动火山引擎出品，旗舰模型深度思考能力极强，全面覆盖复杂推理、代码开发及高精度文生图等多模态场景。
 
-获取 API Key：
-https://console.volcengine.com/iam/keymanage/
+获取 API Key 指南：
 
-申请教程：
+访问 火山方舟
 
-1. 访问火山引擎（Volcengine）控制台，使用手机号或邮箱注册火山引擎账号并完成实名认证。
+一站式大模型服务平台 https://www.volcengine.com/product/ark，点击 【立即体验】 并登录。
 
-2. 登录后，在控制台右上角点击账号头像，进入"API 访问密钥"管理页面。
+点击页面右上角的 【控制台】。
 
-3. 点击"新建密钥"，系统会自动生成 Access Key ID 和 Secret Access Key，请妥善保管。$d2$, 'https://ark.cn-beijing.volces.com/api/v3', now(), now(), NULL),
+在左侧导航栏中找到并点击 【API-Key 管理】 即可进行配置与创建。$d2$, 'https://ark.cn-beijing.volces.com/api/v3', now(), now(), NULL),
   ('8b2d73f125c44725882d08e348185acc', 'GLM', $d3$清华出身的国产大模型，Coding 能力已对齐顶尖闭源模型，深度适配 Agent 工作流、工具调用与超长上下文解析。
 
 获取 API Key：
