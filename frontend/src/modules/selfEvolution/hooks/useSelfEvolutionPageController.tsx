@@ -596,21 +596,21 @@ export function SelfEvolutionPageController({
   }, [diffArtifactFiles, diffArtifactKey, directFetchedDiffText]);
 
   const historySessionEntries = useMemo<HistorySessionEntry[]>(() => {
-    const sessionEntries = chatSessions
-      .filter((session) => session.id !== activeSessionId)
-      .map<HistorySessionEntry>((session) => ({
-        key: session.threadId || session.id,
-        sessionId: session.id,
-        threadId: session.threadId,
-        title: session.title,
-        updatedAt: session.updatedAt,
-        messageCount: session.messages.length,
-        source: session.threadId ? "thread" : "local",
-      }));
+    const sessionEntries = chatSessions.map<HistorySessionEntry>((session) => ({
+      key: session.threadId || session.id,
+      sessionId: session.id,
+      threadId: session.threadId,
+      title: session.title,
+      updatedAt: session.updatedAt,
+      messageCount: session.messages.length,
+      source: session.threadId ? "thread" : "local",
+      isCurrent:
+        session.id === activeSessionId ||
+        Boolean(activeThreadId && session.threadId === activeThreadId),
+    }));
     const mergedEntries = [
       ...sessionEntries,
       ...remoteThreadHistory
-        .filter((item) => item.threadId !== activeThreadId)
         .filter((item) => !sessionEntries.some((session) => session.threadId === item.threadId))
         .map<HistorySessionEntry>((item) => ({
           key: item.threadId,
@@ -621,6 +621,7 @@ export function SelfEvolutionPageController({
           messageCount: undefined,
           status: item.status,
           source: "thread" as const,
+          isCurrent: Boolean(activeThreadId && item.threadId === activeThreadId),
         })),
     ];
 
@@ -2081,7 +2082,7 @@ export function SelfEvolutionPageController({
       key: "knowledge-base",
       step: "1",
       title: "选择知识库",
-      description: "请您选择一个知识库，用作优化目标",
+      description: "选择本轮要分析和优化的知识库",
       currentValue: knowledgeBaseLaunchLabel,
       toneClassName: "is-blue",
       icon: <DatabaseOutlined />,
@@ -2093,7 +2094,7 @@ export function SelfEvolutionPageController({
       key: "existing-eval-set",
       step: "2",
       title: "已有评测集",
-      description: "您是否要选择一个已经存在的评测集",
+      description: "可沿用已有评测集；没有合适的可选择不使用",
       currentValue: selectedEvalSetLabel,
       toneClassName: "is-green",
       icon: <FileTextOutlined />,
@@ -2105,7 +2106,7 @@ export function SelfEvolutionPageController({
       key: "extra-eval-set",
       step: "3",
       title: "补充评测集",
-      description: "是否补充生成评测集",
+      description: "没有使用已有评测集时，需要补充生成评测集",
       currentValue: extraEvalLabel,
       toneClassName: "is-amber",
       icon: <ExperimentOutlined />,
@@ -2117,7 +2118,7 @@ export function SelfEvolutionPageController({
       key: "intervention",
       step: "4",
       title: "过程干预",
-      description: "您是否要干预整个优化过程",
+      description: "选择由人工确认关键步骤，或交给系统自动处理",
       currentValue: interventionLabel,
       toneClassName: "is-violet",
       icon: <MessageOutlined />,
@@ -2139,7 +2140,7 @@ export function SelfEvolutionPageController({
       key: "new-session-knowledge-base",
       step: "1",
       title: "选择知识库",
-      description: "请您重新选择本轮会话的优化目标知识库",
+      description: "选择本轮要分析和优化的知识库",
       currentValue: draftKnowledgeBaseLaunchLabel,
       toneClassName: "is-blue",
       icon: <DatabaseOutlined />,
@@ -2151,7 +2152,7 @@ export function SelfEvolutionPageController({
       key: "new-session-existing-eval-set",
       step: "2",
       title: "已有评测集",
-      description: "您可以沿用历史评测集，也可以选择不使用已有评测集",
+      description: "可沿用已有评测集；没有合适的可选择不使用",
       currentValue: draftEvalSetLabel,
       toneClassName: "is-green",
       icon: <FileTextOutlined />,
@@ -2163,7 +2164,7 @@ export function SelfEvolutionPageController({
       key: "new-session-extra-eval-set",
       step: "3",
       title: "补充评测集",
-      description: "如未选择已有评测集，本步必须选择“是，补充评测集”",
+      description: "没有使用已有评测集时，需要补充生成评测集",
       currentValue: draftExtraEvalLabel,
       toneClassName: "is-amber",
       icon: <ExperimentOutlined />,
@@ -2175,7 +2176,7 @@ export function SelfEvolutionPageController({
       key: "new-session-intervention",
       step: "4",
       title: "过程干预",
-      description: "选择本会话采用交互处理或自动处理",
+      description: "选择由人工确认关键步骤，或交给系统自动处理",
       currentValue: draftInterventionLabel,
       toneClassName: "is-violet",
       icon: <MessageOutlined />,

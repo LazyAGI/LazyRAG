@@ -1,6 +1,20 @@
 .memory-page {
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
   gap: 20px;
   padding: 16px;
+  box-sizing: border-box;
+}
+
+.memory-list-page {
+  min-height: 0;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 20px;
+  overflow: hidden;
 }
 
 .memory-page.is-review-mode {
@@ -218,13 +232,26 @@
 }
 
 .memory-table {
+  min-height: 0;
+  flex: 1;
+
   .ant-table {
     border-radius: 16px;
     overflow: hidden;
   }
 
+  .ant-spin-nested-loading,
+  .ant-spin-container {
+    min-height: 0;
+  }
+
   .ant-table-body {
     scrollbar-gutter: stable;
+  }
+
+  .ant-table-pagination.ant-pagination {
+    flex-shrink: 0;
+    margin: 12px 0 0;
   }
 }
 
