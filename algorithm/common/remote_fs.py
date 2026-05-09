@@ -4,11 +4,9 @@ from io import BytesIO, TextIOWrapper
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-import fsspec
 import lazyllm
 import requests
 
-from chat.utils.load_config import load_model_config
 from lazyllm.tools.fs import LazyLLMFSBase
 
 
@@ -27,8 +25,6 @@ def _resolve_session_id() -> str:
 
 class RemoteFS(LazyLLMFSBase):
     """A read-only filesystem proxy using the backend core remote-fs API."""
-
-    protocol = 'remotefs'
 
     def __init__(self, token: str = 'remote', base_url: str = '', timeout: float = 10, **kwargs):
         super().__init__(token=token, **kwargs)
@@ -129,6 +125,3 @@ class RemoteFS(LazyLLMFSBase):
 
 
 RemoteFileSystem = RemoteFS
-
-# Register with fsspec so it can be used via 'remotefs://' URLs
-fsspec.register_implementation('remotefs', RemoteFS)

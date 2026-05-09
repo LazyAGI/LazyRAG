@@ -45,7 +45,7 @@ def test_remote_fs_uses_core_readonly_api(monkeypatch):
 
     fs = RemoteFS(base_url='http://core:8000', timeout=3)
 
-    assert fs.ls('remotefs://skills') == [{'name': 'remote://skills/a', 'type': 'directory', 'size': 0}]
+    assert fs.ls('remote://skills') == [{'name': 'remote://skills/a', 'type': 'directory', 'size': 0}]
     assert fs.info('skills/a/SKILL.md')['size'] == 4
     assert fs.exists('skills/a/SKILL.md') is True
     assert fs.open('skills/a/SKILL.md', 'rb').read() == b'test'

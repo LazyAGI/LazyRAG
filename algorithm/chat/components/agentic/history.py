@@ -26,6 +26,7 @@ _HISTORY_TAG_PATTERN = re.compile(
     r'<(?P<tag>tp|trp|tool_call|tool_result)(?P<attrs>[^>]*)>(?P<body>.*?)</(?P=tag)>',
     re.DOTALL,
 )
+_KB_TOOL_PREFIX = 'kb_'
 
 
 def _history_message_content(message: dict[str, Any]) -> str:
@@ -37,6 +38,10 @@ def _tool_result_message_content(result: Any) -> str:
     if isinstance(result, str):
         return result
     return json.dumps(result, ensure_ascii=False, separators=(',', ':'))
+
+
+def _is_kb_tool_name(name: Any) -> bool:
+    return isinstance(name, str) and name.startswith(_KB_TOOL_PREFIX)
 
 
 def _history_citation_key(item: dict[str, Any]) -> Optional[str]:
@@ -133,7 +138,7 @@ def _restore_history_citations(result: Any, config: Optional[dict[str, Any]]) ->
         return
     if isinstance(result, list):
         for item in result:
-            _restore_history_citations(item, config)
+            _restore_history_citation_item(item, config)
 
 
 def _parse_history_assistant_content(
@@ -214,6 +219,30 @@ def _parse_history_assistant_content(
     return segments
 
 
+def _append_pending_assistant(
+    normalized: list[dict[str, Any]],
+    pending_reasoning_parts: list[str],
+    pending_text_parts: list[str],
+    pending_tool_calls: list[dict[str, Any]],
+    saw_structured_segments: bool,
+) -> None:
+    reasoning = '\n'.join(
+        part.strip() for part in pending_reasoning_parts if str(part).strip()
+    ).strip()
+    text = ''.join(pending_text_parts).strip()
+    if not reasoning and not text and not pending_tool_calls:
+        return
+    msg: dict[str, Any] = {'role': 'assistant', 'content': text}
+    if saw_structured_segments:
+        msg['reasoning_content'] = reasoning
+    if pending_tool_calls:
+        msg['tool_calls'] = list(pending_tool_calls)
+    normalized.append(msg)
+    pending_reasoning_parts.clear()
+    pending_text_parts.clear()
+    pending_tool_calls.clear()
+
+
 def _normalize_history_for_agent(
     history: list[dict[str, Any]],
     config: Optional[dict[str, Any]] = None,
@@ -231,24 +260,6 @@ def _normalize_history_for_agent(
             pending_text_parts: list[str] = []
             pending_tool_calls: list[dict[str, Any]] = []
             saw_structured_segments = False
-
-            def _flush_assistant():
-                nonlocal saw_structured_segments
-                reasoning = '\n'.join(
-                    part.strip() for part in pending_reasoning_parts if str(part).strip()
-                ).strip()
-                text = ''.join(pending_text_parts).strip()
-                if not reasoning and not text and not pending_tool_calls:
-                    return
-                msg: dict[str, Any] = {'role': 'assistant', 'content': text}
-                if saw_structured_segments:
-                    msg['reasoning_content'] = reasoning
-                if pending_tool_calls:
-                    msg['tool_calls'] = list(pending_tool_calls)
-                normalized.append(msg)
-                pending_reasoning_parts.clear()
-                pending_text_parts.clear()
-                pending_tool_calls.clear()
 
             for seg in segments:
                 seg_type = seg['type']
@@ -269,8 +280,15 @@ def _normalize_history_for_agent(
                     })
                 elif seg_type == 'tool_result':
                     saw_structured_segments = True
-                    _flush_assistant()
-                    _restore_history_citations(seg['result'], config)
+                    _append_pending_assistant(
+                        normalized,
+                        pending_reasoning_parts,
+                        pending_text_parts,
+                        pending_tool_calls,
+                        saw_structured_segments,
+                    )
+                    if _is_kb_tool_name(seg['name']):
+                        _restore_history_citations(seg['result'], config)
                     normalized.append({
                         'role': 'tool',
                         'tool_call_id': seg['id'],
@@ -278,7 +296,13 @@ def _normalize_history_for_agent(
                         'content': _tool_result_message_content(seg['result']),
                     })
 
-            _flush_assistant()
+            _append_pending_assistant(
+                normalized,
+                pending_reasoning_parts,
+                pending_text_parts,
+                pending_tool_calls,
+                saw_structured_segments,
+            )
             continue
 
         if role == 'user':

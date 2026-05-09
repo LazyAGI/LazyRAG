@@ -10,7 +10,7 @@ import (
 var (
 	toolCallTagPattern   = regexp.MustCompile(`(?s)<tool_call\b[^>]*>.*?</tool_call>`)
 	toolResultTagPattern = regexp.MustCompile(`(?s)<tool_result\b[^>]*>.*?</tool_result>`)
-	thinkBlockPattern     = regexp.MustCompile(`(?s)<think>.*?</think>`)
+	thinkBlockPattern    = regexp.MustCompile(`(?s)<think>.*?</think>`)
 )
 
 func stripToolTags(text string) string {

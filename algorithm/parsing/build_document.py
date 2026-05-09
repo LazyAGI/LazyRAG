@@ -208,17 +208,16 @@ def build_document() -> Document:
     resolved_config_path = get_config_path()
     embed = {k: AutoModel(model=k, config=resolved_config_path) for k in embed_keys}
 
-    # Current LazyLLM expects store_conf on Document when using DocumentProcessor,
-    # while DocumentProcessor only carries the remote processor URL.
+    # Current LazyLLM expects store_conf on DocumentProcessor when using DocumentProcessor,
+    # while Document receives only the remote processor manager.
     # Document validates this manager/store_conf combination before wiring DocImpl.
-    processor = DocumentProcessor(url=processor_url)
+    processor = DocumentProcessor(url=processor_url, store_conf=_build_store_config(get_embed_index_kwargs()))
 
     docs = Document(
         dataset_path=None,
         name=ALGO_ID,
         embed=embed,
         manager=processor,
-        store_conf=_build_store_config(get_embed_index_kwargs()),
         doc_fields=[],
         server=server_port,
     )

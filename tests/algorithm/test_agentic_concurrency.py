@@ -797,6 +797,48 @@ def test_normalize_history_restores_citations_from_tool_result():
     assert config['_citation_next_index'] == 2
 
 
+def test_normalize_history_skips_citation_restore_for_non_kb_tool_result():
+    config = {}
+    agentic._reset_citation_state(config)
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '我先查公网。'
+            '<tool_call>{"id":"toolcall-1-1","name":"web_search","arguments":{"query":"evo"}}</tool_call>'
+            '<tool_result>{"id":"toolcall-1-1","name":"web_search","result":{"success":true,"status":"ok","query":"evo",'
+            '"requested_source":"auto","resolved_source":"wikipedia","tried_sources":["bocha","google","bing","wikipedia"],'
+            '"lang":"zh","total":0,"items":[]}}</tool_result>'
+        ),
+    }]
+
+    normalized = agentic._normalize_history_for_agent(history, config)
+
+    assert normalized == [
+        {
+            'role': 'assistant',
+            'content': '我先查公网。',
+            'reasoning_content': '',
+            'tool_calls': [{
+                'id': 'toolcall-1-1',
+                'type': 'function',
+                'function': {
+                    'name': 'web_search',
+                    'arguments': '{"query": "evo"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'toolcall-1-1',
+            'name': 'web_search',
+            'content': '{"success":true,"status":"ok","query":"evo","requested_source":"auto","resolved_source":"wikipedia","tried_sources":["bocha","google","bing","wikipedia"],"lang":"zh","total":0,"items":[]}',
+        },
+    ]
+    assert config['_citation_sources'] == {}
+    assert config['_citation_key_map'] == {}
+    assert config['_citation_next_index'] == 1
+
+
 def test_normalize_history_keeps_reasoning_aligned_with_assistant_segments():
     history = [{
         'role': 'assistant',

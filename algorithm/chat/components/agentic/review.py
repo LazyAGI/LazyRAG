@@ -59,6 +59,7 @@ def _build_review_decision(
         'available_tools': list(available_tools or []),
     }
 
+
 def _build_existing_state_context(config: dict, review_mode: str) -> str:
     """Build a context block with existing memory and user_preference for review."""
     parts: list[str] = []
@@ -69,7 +70,7 @@ def _build_existing_state_context(config: dict, review_mode: str) -> str:
         if memory_content or user_pref_content:
             parts.append('\n\n--- EXISTING STATE ---')
             parts.append(
-                'Below is the CURRENT content stored on the backend. '
+                'Below is the CURRENT memory and user_preference stored on the backend. '
                 'You MUST read it carefully before deciding what to change.'
             )
             parts.append(
@@ -96,13 +97,13 @@ def _spawn_background_review(
     request_global_sid: str,
 ) -> None:
     review_tools = REVIEW_TOOLS.get(review_mode, [])
-    base_prompt = REVIEW_PROMPTS.get(review_mode, _COMBINED_REVIEW_PROMPT)
+    review_prompt = REVIEW_PROMPTS.get(review_mode, _COMBINED_REVIEW_PROMPT)
     if not review_tools:
         print(f'[bg-review:{review_mode}] SKIP no review tools')
         return
 
-    existing_context = _build_existing_state_context(config, review_mode)
-    review_prompt = base_prompt + existing_context
+    # existing_context = _build_existing_state_context(config, review_mode)
+    # review_prompt = base_prompt + existing_context
 
     snapshot = list(history_snapshot)
     skills_dir = config.get('skill_fs_url') or ''
@@ -137,7 +138,7 @@ def _spawn_background_review(
                 tools=review_tools,
                 max_retries=_cfg['review_max_retries'],
                 return_trace=False,
-                prompt=" ",
+                prompt=' ',
                 skills=review_skills,
                 keep_full_turns=keep_full_turns,
                 fs=FS,

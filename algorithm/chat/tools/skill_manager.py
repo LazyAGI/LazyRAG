@@ -360,8 +360,8 @@ def skill_manage(
         )
         if not _is_writable_skill_source(source):
             return _fail(
-                f"Skill {name!r} in category {normalized_category!r} has read-only source "
-                f"{source!r}; skill_manage can only modify remote skills."
+                f'Skill {name!r} in category {normalized_category!r} has read-only source '
+                f'{source!r}; skill_manage can only modify remote skills.'
             )
 
         result = {
@@ -393,8 +393,8 @@ def skill_manage(
         source = existing_skill.get('source', 'file')
         if not _is_writable_skill_source(source):
             return _fail(
-                f"Skill {name!r} in category {normalized_category!r} has read-only source "
-                f"{source!r}; skill_manage can only remove remote skills."
+                f'Skill {name!r} in category {normalized_category!r} has read-only source '
+                f'{source!r}; skill_manage can only remove remote skills.'
             )
 
         result = {

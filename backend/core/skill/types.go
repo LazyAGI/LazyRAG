@@ -1,9 +1,9 @@
 package skill
 
 type childSkillInput struct {
-	Name     string `json:"name"`
-	Content  string `json:"content"`
-	FileExt  string `json:"file_ext"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	FileExt string `json:"file_ext"`
 	AutoEvo bool   `json:"auto_evo"`
 }
 
