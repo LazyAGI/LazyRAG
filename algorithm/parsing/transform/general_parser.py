@@ -34,6 +34,9 @@ class GeneralParser(NodeTransform):
         self._split_by = split_by
         self._len_split = len(split_by)
 
+    def sig_fields(self) -> dict:
+        return {'max_length': self._max_length, 'split_by': self._split_by}
+
     def _image_path_transform(self, text: str) -> str:
         def _replace(match: re.Match) -> str:
             alt_text, url = match.groups()

@@ -2,15 +2,14 @@ package readonlyorm
 
 import "time"
 
-// LazyLLMDocServiceTaskRow maps to schema-B table: lazyllm_doc_service_tasks
-// doc_id / task_id / kb_id / algo_id sizes align with lazyllm_documents and core datasets.kb_id (varchar(255)).
+// LazyLLMDocServiceTaskRow maps to schema-B table: lazyllm_doc_service_tasks.
+// algo_id was removed from this table in the node-group refactor (wzh/doc_sig).
 type LazyLLMDocServiceTaskRow struct {
 	ID         int        `gorm:"column:id;primaryKey;autoIncrement"`
 	TaskID     string     `gorm:"column:task_id;type:varchar(128);not null"`
 	TaskType   string     `gorm:"column:task_type;type:varchar(128);not null"`
 	DocID      string     `gorm:"column:doc_id;type:varchar(128);not null"`
 	KbID       string     `gorm:"column:kb_id;type:varchar(255);not null"`
-	AlgoID     string     `gorm:"column:algo_id;type:varchar(255);not null"`
 	Status     string     `gorm:"column:status;type:varchar(64);not null"`
 	Message    *string    `gorm:"column:message;type:text"`
 	ErrorCode  *string    `gorm:"column:error_code;type:varchar(64)"`
