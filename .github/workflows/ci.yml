@@ -99,6 +99,7 @@ jobs:
         run: |
           pip install -r backend/auth-service/requirements.txt
           pip install -r tests/backend/auth-service/requirements-test.txt
+          pip install 'httpx<0.28' 'anyio<4.5'
 
       - name: Test
         run: python -m pytest tests/backend/auth-service/ -v
@@ -149,6 +150,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: true
 
       - uses: actions/setup-python@v5
         with:
@@ -157,6 +159,8 @@ jobs:
       - name: Install deps
         run: |
           pip install -r algorithm/requirements.txt
+          pip install -e algorithm/lazyllm
+          pip install pypdf docx2txt EbookLib html2text olefile spacy bm25s PyStemmer nltk jieba sentencepiece psycopg2-binary
           pip install pytest httpx
 
       - name: Test
