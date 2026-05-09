@@ -41,12 +41,23 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
       }
     }, [algorithm, visible, form]);
 
-    function getAlgorithm() {
-      KnowledgeBaseServiceApi()
+    function getAlgorithm(sourceData?: Dataset) {
+      return KnowledgeBaseServiceApi()
         .datasetServiceListAlgos()
         .then((res) => {
           const list = res.data.algos;
           setAlgorithm(list || []);
+          const sourceAlgoId = sourceData?.algo?.algo_id;
+          if (list?.length === 1) {
+            form.setFieldsValue({
+              algo_id: sourceAlgoId || list[0].algo_id,
+            });
+          } else if (sourceAlgoId) {
+            form.setFieldsValue({ algo_id: sourceAlgoId });
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load algorithm list:', err);
         });
     }
 
@@ -54,13 +65,12 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
       KnowledgeBaseServiceApi()
         .datasetServiceAllDatasetTags()
         .then((res) => {
-          setTags(res.data.tags);
+          setTags(res.data.tags || []);
         });
     }
 
     function onOpen(sourceData: Dataset | undefined) {
       getTags();
-      getAlgorithm();
       setData(sourceData);
       if (sourceData) {
         form.setFieldsValue({
@@ -69,7 +79,12 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
           industry: sourceData?.industry,
         });
       }
-      setVisible(true);
+      // Show the modal only after the algo list is loaded so the selector
+      // visibility (algorithm.length !== 1) is evaluated with real data,
+      // not with the initial empty array.
+      getAlgorithm(sourceData).finally(() => {
+        setVisible(true);
+      });
     }
 
     function onCancel() {
@@ -82,7 +97,8 @@ const UpdateAppModel = forwardRef<UpdateImperativeProps, ForwardProps>(
         const params = { ...values };
         const selectedAlgoId =
           params.algo_id || (algorithm.length === 1 ? algorithm[0]?.algo_id : undefined);
-        params.algo = algorithm.find((item) => item.algo_id === selectedAlgoId);
+        params.algo =
+          algorithm.find((item) => item.algo_id === selectedAlgoId) || data?.algo;
         if (selectedAlgoId) {
           params.algo_id = selectedAlgoId;
         }

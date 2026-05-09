@@ -95,18 +95,15 @@ NUMBER_PATTERNS = _generate_number_index_patterns()
 LETTER_NUMBER_PATTERNS = _generate_letter_number_index_patterns()
 INDEX_PATTERNS = NORMAL_PATTERNS + NUMBER_PATTERNS + LETTER_NUMBER_PATTERNS
 
-TIME_PATTERNS = [re.compile(r'.{0,100}?\s*\n\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*\n?$'),
-                 re.compile(r'^\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*$'),
-                 re.compile(
-                        r'.{0,100}?\s*\n\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年'
-                        r'[一二三四五六七八九十]{1,2}月'
-                        r'[一二三四五六七八九十]{1,3}日)\s*\n?$'
-                    ),
-                 re.compile(
-                    r'^\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年'
-                    r'[一二三四五六七八九十]{1,2}月'
-                    r'[一二三四五六七八九十]{1,3}日)\s*$'
-                )
+TIME_PATTERNS = [
+    re.compile(r'.{0,100}?\s*\n\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*\n?$'),
+    re.compile(r'^\s*(\d{4}年\d{1,2}月\d{1,2}日)\s*$'),
+    re.compile(r'.{0,100}?\s*\n\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年'
+               r'[一二三四五六七八九十]{1,2}月'
+               r'[一二三四五六七八九十]{1,3}日)\s*\n?$'),
+    re.compile(r'^\s*([零○0０〇ＯΟ一二三四五六七八九十]{4}年'
+               r'[一二三四五六七八九十]{1,2}月'
+               r'[一二三四五六七八九十]{1,3}日)\s*$'),
 ]
 
 

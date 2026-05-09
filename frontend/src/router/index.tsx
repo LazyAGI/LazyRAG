@@ -17,6 +17,17 @@ import AdminLayout from "@/modules/admin/AdminLayout";
 import UserManagement from "@/modules/admin/pages/user";
 import GroupManagement from "@/modules/admin/pages/group";
 import GroupDetail from "@/modules/admin/pages/group/detail.tsx";
+import DataSourceManagement from "@/modules/dataSource";
+import DataSourceDetail from "@/modules/dataSource/detail";
+import DataSourceFeishuCallback from "@/modules/dataSource/feishuCallback";
+import MemoryManagement from "@/modules/memory";
+import MemoryManagementListPage from "@/modules/memory/pages/list";
+import MemoryReviewPage from "@/modules/memory/pages/review";
+import MemoryGlossaryDetailPage from "@/modules/memory/pages/glossaryDetail";
+import MemorySkillDetailPage from "@/modules/memory/pages/skillDetail";
+import MemoryExperienceDetailPage from "@/modules/memory/pages/experienceDetail";
+import ModelProviderPage from "@/modules/admin/pages/modelProvider";
+import { SelfEvolutionHomePage, SelfEvolutionDetailPage } from "@/modules/selfEvolution";
 import { getAntdLocale } from "@/i18n/antdLocale";
 
 export default function AppRouter() {
@@ -31,6 +42,10 @@ export default function AppRouter() {
         <Route path="/register" element={<SigninDashboard />}>
           <Route index element={<SigninRegister />} />
         </Route>
+        <Route
+          path="/oauth/feishu/data-source/callback"
+          element={<DataSourceFeishuCallback />}
+        />
         <Route path="/loginTransition" element={<LoginTransition />} />
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Navigate to="/agent/chat" replace />} />
@@ -48,6 +63,32 @@ export default function AppRouter() {
               element={<Knowledge />}
             />
           </Route>
+          <Route path="data-sources" element={<DataSourceManagement />} />
+          <Route path="data-sources/:id" element={<DataSourceDetail />} />
+          <Route path="model-providers" element={<ModelProviderPage />} />
+          <Route path="memory-management" element={<MemoryManagement />}>
+            <Route index element={<MemoryManagementListPage />} />
+            <Route path="tools" element={<MemoryManagementListPage />} />
+            <Route path="skills" element={<MemoryManagementListPage />} />
+            <Route path="skills/:itemId" element={<MemorySkillDetailPage />} />
+            <Route path="experience" element={<MemoryManagementListPage />} />
+            <Route
+              path="experience/:itemId"
+              element={<MemoryExperienceDetailPage />}
+            />
+            <Route path="glossary" element={<MemoryManagementListPage />} />
+            <Route
+              path="glossary/:itemId"
+              element={<MemoryGlossaryDetailPage />}
+            />
+            <Route
+              path="review/:tab/:itemId"
+              element={<MemoryReviewPage />}
+            />
+          </Route>
+          <Route path="self-evolution" element={<SelfEvolutionHomePage />} />
+          <Route path="self-evolution/detail/:threadId" element={<SelfEvolutionDetailPage />} />
+          <Route path="self-evolution/:threadId" element={<SelfEvolutionDetailPage />} />
         </Route>
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Navigate to="groups" replace />} />

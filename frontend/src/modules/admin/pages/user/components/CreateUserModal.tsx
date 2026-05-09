@@ -5,11 +5,11 @@ import { getLocalizedErrorMessage } from "@/components/request";
 import { createUserApi, createRoleApi } from "@/modules/signin/utils/request";
 import {
   passwordRules,
+  USERNAME_MAX_LENGTH,
   usernameRules,
 } from "@/modules/signin/utils/formRules";
 import type { UserItem, RoleItem } from "@/api/generated/auth-client";
 
-const USERNAME_MAX_LENGTH = 100;
 const EMAIL_MAX_LENGTH = 100;
 const PASSWORD_MAX_LENGTH = 32;
 
@@ -129,10 +129,7 @@ const CreateUserModal = ({ visible, editingUser, onCancel, onSuccess }: CreateUs
         <Form.Item
           name="username"
           label={t("admin.username")}
-          rules={[
-            ...usernameRules,
-            { max: USERNAME_MAX_LENGTH, message: t("admin.usernameMax", { max: USERNAME_MAX_LENGTH }) },
-          ]}
+          rules={usernameRules}
         >
           <Input
             placeholder={t("admin.enterUsernameWithMax", { max: USERNAME_MAX_LENGTH })}

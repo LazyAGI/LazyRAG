@@ -63,7 +63,7 @@ const ChatPage: FC = () => {
         Accept: "text/event-stream",
         ...AgentAppsAuth.getAuthHeaders(),
       },
-      timeout: 300000,
+      timeout: 1800000,
       payload: JSON.stringify({
         action,
         conversation_id: sessionId,

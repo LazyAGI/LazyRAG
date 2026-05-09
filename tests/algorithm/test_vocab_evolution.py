@@ -6,10 +6,6 @@ import sys
 
 import pytest
 
-_ALGO = _os.path.join(_os.path.dirname(__file__), '..', '..', 'algorithm')
-if _ALGO not in sys.path:
-    sys.path.insert(0, _ALGO)
-
 from vocab.evolution import (  # noqa: E402
     ActionPlanningModule,
     ChatHistoryRecord,
@@ -74,7 +70,7 @@ def test_history_chunker_splits_long_user_messages_without_overlap():
 
 
 def test_synonym_extraction_module_validates_and_dedupes_candidates():
-    llm = FakeLLM([[ 
+    llm = FakeLLM([[
         {
             'word': '苹果',
             'synonym': 'apple',

@@ -27,6 +27,46 @@ const BotAvatarIcon = new URL(
   import.meta.url,
 ).href;
 
+async function copyTextToClipboard(text: string) {
+  const normalizedText = text.trim();
+  if (!normalizedText) {
+    return;
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(normalizedText);
+      return;
+    }
+  } catch {
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = normalizedText;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.width = "1px";
+  textarea.style.height = "1px";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, normalizedText.length);
+
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) {
+      throw new Error("Copy command failed");
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 interface FeedbackState {
   showModal: boolean;
   isSubmitting: boolean;
@@ -127,6 +167,15 @@ const AssistantMessage = (props: any) => {
   useEffect(() => {
     dispatch({ type: "SYNC_FROM_SERVER", feedbackType: item?.feed_back });
   }, [item?.feed_back]);
+
+  const handleCopy = async (text?: string) => {
+    try {
+      await copyTextToClipboard(text || "");
+      message.success(t("chat.copySuccess"));
+    } catch {
+      message.error(t("chat.copyFailedManual"));
+    }
+  };
 
   function renderLoading() {
     return (
@@ -434,10 +483,7 @@ const AssistantMessage = (props: any) => {
               <Button
                 className="tool-btn"
                 icon={<CopyOutlined />}
-                onClick={() => {
-                  navigator.clipboard.writeText(answer.content.trim());
-                  message.success(t("chat.copySuccess"));
-                }}
+                onClick={() => handleCopy(answer.content)}
               />
             </Tooltip>
             {showFullToolbar && index === length - 1 && (
@@ -535,10 +581,7 @@ const AssistantMessage = (props: any) => {
               <Button
                 className="tool-btn"
                 icon={<CopyOutlined />}
-                onClick={() => {
-                  navigator.clipboard.writeText(item.delta.trim());
-                  message.success(t("chat.copySuccess"));
-                }}
+                onClick={() => handleCopy(item.delta)}
               />
             </Tooltip>
             {index === length - 1 && (

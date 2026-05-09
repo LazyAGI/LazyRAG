@@ -1248,9 +1248,8 @@ func startTasksInternal(r *http.Request, datasetID string, taskIDs []string) ([]
 
 func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string) ([]StartTaskResult, error) {
 	kbID := datasetKbIDByID(datasetID)
-	algoID := datasetAlgoIDByID(datasetID)
-	if kbID == "" || algoID == "" {
-		return nil, fmt.Errorf("dataset kb/algo mapping not found")
+	if kbID == "" {
+		return nil, fmt.Errorf("dataset kb mapping not found")
 	}
 	resultsByTaskID := make(map[string]StartTaskResult, len(taskIDs))
 	orderedUniqueIDs := make([]string, 0, len(taskIDs))
@@ -1319,7 +1318,7 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 			items = append(items, buildAddFileItem(datasetID, candidate.task, candidate.doc, candidate.docExt, parsePath))
 		}
 		if len(baseTasks) > 0 {
-			extResults, err := callExternalAddDocs(r, addRequest{Items: items, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
+			extResults, err := callExternalAddDocs(r, addRequest{Items: items, KbID: kbID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 			if err != nil {
 				for i, taskRow := range baseTasks {
 					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
@@ -1367,7 +1366,7 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 					return
 				}
 				item := buildAddFileItem(datasetID, candidate.task, candidate.doc, dExt, parsePath)
-				extResults, err := callExternalAddDocs(r, addRequest{Items: []addFileItem{item}, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
+				extResults, err := callExternalAddDocs(r, addRequest{Items: []addFileItem{item}, KbID: kbID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 				if err != nil {
 					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
 					outcomes[idx] = officeOutcome{task: candidate.task, doc: candidate.doc, docExt: dExt, result: StartTaskResult{TaskID: candidate.task.ID, DocumentID: candidate.doc.ID, DisplayName: candidate.doc.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}}
@@ -2278,7 +2277,6 @@ func createTaskFromExistingDocument(r *http.Request, datasetID, userID, userName
 
 func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []string) ([]StartTaskResult, error) {
 	kbID := datasetKbIDByID(datasetID)
-	algoID := datasetAlgoIDByID(datasetID)
 	results := make([]StartTaskResult, 0, len(taskIDs))
 	docIDs := make([]string, 0, len(taskIDs))
 	taskRows := make([]orm.Task, 0, len(taskIDs))
@@ -2309,7 +2307,7 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 	if len(taskRows) == 0 {
 		return results, fmt.Errorf("no valid tasks to start")
 	}
-	if err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, AlgoID: algoID, IdempotencyKey: newTaskID()}); err != nil {
+	if err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, IdempotencyKey: newTaskID()}); err != nil {
 		for i, taskRow := range taskRows {
 			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: common.ResolveAppError(err.Error(), http.StatusBadGateway).Message, Detail: fmt.Sprint(common.ResolveAppError(err.Error(), http.StatusBadGateway).Detail)})
 		}
@@ -2553,7 +2551,7 @@ func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.D
 			log.Printf("[transfer] skip item task=%s source_doc=%s reason=%s", taskRow.ID, node.ID, map[bool]string{true: "folder or empty source lazy doc id", false: ""}[isFolder || sourceLazyDocID == ""])
 			continue
 		}
-		items = append(items, transferItem{DocID: sourceLazyDocID, TargetDocID: newID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), SourceAlgoID: datasetAlgoIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), TargetAlgoID: datasetAlgoIDByID(targetDatasetID), Mode: mode})
+		items = append(items, transferItem{DocID: sourceLazyDocID, TargetDocID: newID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), Mode: mode})
 		log.Printf("[transfer] add item task=%s source_doc=%s source_lazy_doc=%s target_doc=%s", taskRow.ID, node.ID, sourceLazyDocID, newID)
 	}
 	log.Printf("[transfer] prepare done task=%s bindings=%d items=%d", taskRow.ID, len(bindings), len(items))
