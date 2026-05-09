@@ -341,6 +341,62 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
     assert init_calls == [('global', 'sid-1'), ('local', 'sid-1')]
 
 
+def test_handle_chat_stream_preserves_separate_think_and_text_frames(monkeypatch):
+    async def _stream():
+        yield {'think': '思考片段', 'text': None}
+        yield {'think': None, 'text': '正文片段'}
+
+    def _pipeline(query_params):
+        return _stream()
+
+    chat_server = SimpleNamespace(
+        sensitive_filter=SimpleNamespace(loaded=False, check=lambda query: (False, None)),
+        has_dataset=lambda dataset: dataset == 'algo',
+        get_query_pipeline=lambda dataset, stream=False: _pipeline,
+        query_ppl_reasoning='unused',
+    )
+    module = _import_chat_service_module(monkeypatch, chat_server=chat_server)
+
+    class _FakeStreamingResponse:
+        def __init__(self, body_iterator, media_type):
+            self.body_iterator = body_iterator
+            self.media_type = media_type
+
+    async def fake_to_thread(fn, *args):
+        return fn(*args)
+
+    monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: ([], []))
+    monkeypatch.setattr(module, 'StreamingResponse', _FakeStreamingResponse)
+    monkeypatch.setattr(module.asyncio, 'to_thread', fake_to_thread)
+
+    response = asyncio.run(
+        module.handle_chat(
+            query='hello',
+            history=[],
+            session_id='sid-1',
+            filters=None,
+            files=None,
+            debug=False,
+            reasoning=False,
+            databases=[],
+            dataset='algo',
+            priority=1,
+            is_stream=True,
+        )
+    )
+
+    async def _collect():
+        return [chunk async for chunk in response.body_iterator]
+
+    payloads = _decode_sse_payloads(asyncio.run(_collect()))
+
+    assert [payload['data'] for payload in payloads] == [
+        {'think': '思考片段', 'text': None},
+        {'think': None, 'text': '正文片段'},
+        {'status': 'FINISHED'},
+    ]
+
+
 def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkeypatch):
     init_calls = []
     start_order = []

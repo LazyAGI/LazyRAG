@@ -908,7 +908,7 @@ func TestReviewSuggestionsIgnoreOriginalStatusForAllResourceTypes(t *testing.T) 
 	}
 }
 
-func TestListSuggestionsIgnoresStatusQueryAndOnlyReturnsVisibleStatuses(t *testing.T) {
+func TestListSuggestionsStatusQueryFiltering(t *testing.T) {
 	db := newTestDB(t)
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
@@ -972,29 +972,56 @@ func TestListSuggestionsIgnoresStatusQueryAndOnlyReturnsVisibleStatuses(t *testi
 		t.Fatalf("create suggestions: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/core/evolution/suggestions?resource_type=memory&status=applied&status=rejected&page=1&page_size=20", nil)
-	rec := httptest.NewRecorder()
+	// Unsupported statuses are ignored and still return visible statuses.
+	ignoredReq := httptest.NewRequest(http.MethodGet, "/api/core/evolution/suggestions?resource_type=memory&status=applied&status=rejected&page=1&page_size=20", nil)
+	ignoredRec := httptest.NewRecorder()
 
-	ListSuggestions(rec, req)
+	ListSuggestions(ignoredRec, ignoredReq)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected list status 200, got %d body=%s", rec.Code, rec.Body.String())
+	if ignoredRec.Code != http.StatusOK {
+		t.Fatalf("expected list status 200, got %d body=%s", ignoredRec.Code, ignoredRec.Body.String())
 	}
-	var resp listSuggestionsAPITestResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var ignoredResp listSuggestionsAPITestResponse
+	if err := json.Unmarshal(ignoredRec.Body.Bytes(), &ignoredResp); err != nil {
 		t.Fatalf("decode list response: %v", err)
 	}
-	if resp.Code != 0 {
-		t.Fatalf("expected list code 0, got %d", resp.Code)
+	if ignoredResp.Code != 0 {
+		t.Fatalf("expected list code 0, got %d", ignoredResp.Code)
 	}
-	if resp.Data.Total != 2 {
-		t.Fatalf("expected total 2 after ignoring status filter, got %d", resp.Data.Total)
+	if ignoredResp.Data.Total != 2 {
+		t.Fatalf("expected total 2 after ignoring unsupported status filter, got %d", ignoredResp.Data.Total)
 	}
-	if len(resp.Data.Items) != 2 {
-		t.Fatalf("expected 2 visible items after ignoring status filter, got %d", len(resp.Data.Items))
+	if len(ignoredResp.Data.Items) != 2 {
+		t.Fatalf("expected 2 visible items after ignoring unsupported status filter, got %d", len(ignoredResp.Data.Items))
 	}
-	if resp.Data.Items[0].ID != "s-accepted" || resp.Data.Items[1].ID != "s-pending" {
-		t.Fatalf("expected visible suggestions in created_at desc order, got ids %q and %q", resp.Data.Items[0].ID, resp.Data.Items[1].ID)
+	if ignoredResp.Data.Items[0].ID != "s-accepted" || ignoredResp.Data.Items[1].ID != "s-pending" {
+		t.Fatalf("expected visible suggestions in created_at desc order, got ids %q and %q", ignoredResp.Data.Items[0].ID, ignoredResp.Data.Items[1].ID)
+	}
+
+	// Supported status filter should narrow down to that status only.
+	pendingReq := httptest.NewRequest(http.MethodGet, "/api/core/evolution/suggestions?resource_type=memory&status=pending_review&page=1&page_size=20", nil)
+	pendingRec := httptest.NewRecorder()
+
+	ListSuggestions(pendingRec, pendingReq)
+
+	if pendingRec.Code != http.StatusOK {
+		t.Fatalf("expected pending list status 200, got %d body=%s", pendingRec.Code, pendingRec.Body.String())
+	}
+	var pendingResp listSuggestionsAPITestResponse
+	if err := json.Unmarshal(pendingRec.Body.Bytes(), &pendingResp); err != nil {
+		t.Fatalf("decode pending list response: %v", err)
+	}
+	if pendingResp.Code != 0 {
+		t.Fatalf("expected pending list code 0, got %d", pendingResp.Code)
+	}
+	if pendingResp.Data.Total != 1 {
+		t.Fatalf("expected total 1 for pending_review filter, got %d", pendingResp.Data.Total)
+	}
+	if len(pendingResp.Data.Items) != 1 {
+		t.Fatalf("expected 1 visible item for pending_review filter, got %d", len(pendingResp.Data.Items))
+	}
+	if pendingResp.Data.Items[0].ID != "s-pending" {
+		t.Fatalf("expected pending suggestion only, got id %q", pendingResp.Data.Items[0].ID)
 	}
 }
 

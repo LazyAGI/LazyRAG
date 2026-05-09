@@ -22,13 +22,18 @@ interface SkillNode {
   parent_id?: string;
   parent_skill_id?: string;
   parentSkillId?: string;
+  auto_evo?: boolean;
   is_locked?: boolean;
   is_enabled?: boolean;
   file_ext?: string;
   node_type?: string;
   update_status?: string;
   has_pending_review_suggestions?: boolean;
+  has_pending_remove_suggestion?: boolean;
   suggestion_status?: string;
+  auto_evo_apply_status?: string;
+  auto_evo_generation?: number;
+  auto_evo_error?: string;
   children?: SkillNode[];
   [key: string]: unknown;
 }
@@ -42,12 +47,17 @@ export interface SkillAssetRecord {
   content: string;
   parentId?: string;
   protect: boolean;
+  autoEvo: boolean;
   isEnabled: boolean;
   fileExt?: string;
   nodeType?: string;
   hasPendingReviewSuggestions?: boolean;
+  hasPendingRemoveSuggestion?: boolean;
   suggestionStatus?: string;
   updateStatus?: string;
+  autoEvoApplyStatus?: string;
+  autoEvoGeneration?: number;
+  autoEvoError?: string;
 }
 
 export interface SkillDraftGeneratePayload {
@@ -250,12 +260,17 @@ const normalizeSkillNode = (raw: SkillNode, parentId?: string): SkillAssetRecord
     content: toStringValue(raw.content || ""),
     parentId: resolvedParentId || undefined,
     protect: toBoolean(raw.is_locked, false),
+    autoEvo: toBoolean(raw.auto_evo, false),
     isEnabled: toBoolean(raw.is_enabled, true),
     fileExt: toStringValue(raw.file_ext || ""),
     nodeType: toStringValue(raw.node_type || ""),
     hasPendingReviewSuggestions: toBoolean(raw.has_pending_review_suggestions, false),
+    hasPendingRemoveSuggestion: toBoolean(raw.has_pending_remove_suggestion, false),
     suggestionStatus: toStringValue(raw.suggestion_status || ""),
     updateStatus: toStringValue(raw.update_status || ""),
+    autoEvoApplyStatus: toStringValue(raw.auto_evo_apply_status || ""),
+    autoEvoGeneration: typeof raw.auto_evo_generation === "number" ? raw.auto_evo_generation : 0,
+    autoEvoError: toStringValue(raw.auto_evo_error || ""),
   };
 };
 
@@ -924,7 +939,7 @@ export async function discardSkillDraft(skillId: string): Promise<boolean> {
 }
 
 export async function removeSkillAsset(skillId: string) {
-  return axiosInstance.post(`${coreBasePath}/skill/remove`, { id: skillId });
+  return axiosInstance.delete(`${coreBasePath}/skills/${encodeURIComponent(skillId)}`);
 }
 
 export async function disableSkillAsset(skillId: string) {

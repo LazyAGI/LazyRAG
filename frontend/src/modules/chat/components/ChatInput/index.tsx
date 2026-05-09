@@ -182,6 +182,7 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
     const promptRef = useRef<PromptImperativeProps>(null);
     const batchChatRef = useRef<BatchChatImperativeProps | null>(null);
     const innerRef = useRef<HTMLDivElement>(null);
+    const isComposingRef = useRef(false);
     const [isUploading, setIsUploading] = useState(false);
     const { setThink } = useChatThinkStore();
     const { setNewMessage } = useChatNewMessageStore();
@@ -473,6 +474,26 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       [fileList.length],
     );
 
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key !== "Enter" || e.shiftKey || isUploading) {
+        return;
+      }
+
+      // IME candidate confirmation also uses Enter, and some browsers only
+      // expose the composition state through the native event / keyCode 229.
+      if (
+        isComposingRef.current ||
+        e.nativeEvent.isComposing ||
+        e.nativeEvent.keyCode === 229
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      handleSend();
+      setNewMessage(false);
+    };
+
     return (
       <div className="input-wrapper" ref={innerRef}>
         <div className="input-container">
@@ -488,15 +509,13 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                 value={value}
                 onChange={(e) => handleInputChange(e.target.value)}
                 onPaste={handlePaste}
-                onKeyUp={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!isSendDisabled) {
-                      handleSend();
-                      setNewMessage(false);
-                    }
-                  }
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
                 }}
+                onCompositionEnd={() => {
+                  isComposingRef.current = false;
+                }}
+                onKeyDown={handleKeyDown}
               />
 
               <div className="input-bottom-actions">

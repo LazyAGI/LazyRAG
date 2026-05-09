@@ -105,6 +105,7 @@ ENV LAZYRAG_REVIEW_MAX_RETRIES=5
 ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
 ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
 ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
+ENV LAZYRAG_USE_INNER_MODEL=true
 ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
@@ -139,5 +140,5 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/app/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]
