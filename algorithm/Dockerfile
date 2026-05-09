@@ -140,5 +140,5 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/app/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]
