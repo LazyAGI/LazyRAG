@@ -16,14 +16,6 @@ from chat.prompts.agentic import (
 )
 from chat.utils.load_config import normalize_skill_fs_url
 
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(str(__import__('os').getenv(name, default)).strip())
-    except (TypeError, ValueError):
-        return default
-
-
 DEFAULT_TOOLS = [
     'kb_search',
     'kb_get_parent_node',

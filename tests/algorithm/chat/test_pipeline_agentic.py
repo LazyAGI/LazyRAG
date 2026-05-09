@@ -76,7 +76,7 @@ def _import_agentic_module(monkeypatch):
 
     # Fake deep dependency modules to avoid import chain issues
     fake_review = ModuleType('chat.components.agentic.review')
-    fake_review._decide_review_mode = lambda *a, **kw: None
+    fake_review._build_review_decision = lambda *a, **kw: {'mode': None}
     fake_review._spawn_background_review = lambda *a, **kw: None
 
     fake_skill_manager = ModuleType('chat.tools.skill_manager')

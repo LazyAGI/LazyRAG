@@ -908,31 +908,6 @@ def test_stream_uses_citations_restored_from_history(fake_pipeline, monkeypatch)
         },
     ]
 
-
-def test_review_debug_forces_combined(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
-
-    assert agentic._decide_review_mode(
-        available_tools=[],
-        tool_turns=0,
-        user_turns=0,
-        memory_review_interval=99,
-        skill_review_interval=99,
-    ) == 'combined'
-
-
-def test_review_mode_uses_intervals_without_debug(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_SKILL_REVIEW_DEBUG', raising=False)
-
-    assert agentic._decide_review_mode(
-        available_tools=['memory', 'skill_manage'],
-        tool_turns=0,
-        user_turns=2,
-        memory_review_interval=1,
-        skill_review_interval=5,
-    ) == 'memory'
-
-
 def test_count_tool_turns_only_counts_assistant_messages_with_tool_calls():
     history = agentic._normalize_history_for_agent([
         {'role': 'assistant', 'content': 'plain text'},

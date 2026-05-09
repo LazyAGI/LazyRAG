@@ -19,7 +19,6 @@ from lazyllm.tools.fs.client import FS
 from lazyllm.tools.sandbox.sandbox_base import create_sandbox  # noqa: F401
 
 from config import config as _cfg
-from chat.components.agentic.config import _env_int
 
 
 from chat.components.agentic.config import (  # noqa: E402
@@ -40,7 +39,6 @@ from chat.components.agentic.history import (  # noqa: E402
 )
 from chat.components.agentic.review import (  # noqa: E402
     _build_review_decision,
-    _decide_review_mode,
     _spawn_background_review,
 )
 from chat.components.agentic.tool_stream import (  # noqa: E402
@@ -226,8 +224,8 @@ def agentic_forward(
         )
     tool_turns = _count_tool_turns(agent_history)
     user_turns = _count_user_turns(history, query)
-    memory_review_interval = _env_int('LAZYRAG_MEMORY_REVIEW_INTERVAL', 1)
-    skill_review_interval = _env_int('LAZYRAG_SKILL_REVIEW_INTERVAL', 5)
+    memory_review_interval = _cfg['memory_review_interval']
+    skill_review_interval = _cfg['skill_review_interval']
     review_decision = _build_review_decision(
         available_tools=available_tools,
         tool_turns=tool_turns,
@@ -247,13 +245,7 @@ def agentic_forward(
         f'memory_interval={memory_review_interval} skill_interval={skill_review_interval} '
         f'available_tools={available_tools}'
     )
-    review_mode = _decide_review_mode(
-        available_tools=available_tools,
-        tool_turns=tool_turns,
-        user_turns=user_turns,
-        memory_review_interval=memory_review_interval,
-        skill_review_interval=skill_review_interval,
-    )
+    review_mode = review_decision['mode']
     if review_mode is not None:
         _spawn_background_review(
             config=config,

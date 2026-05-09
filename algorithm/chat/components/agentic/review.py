@@ -8,7 +8,7 @@ import os
 import lazyllm
 from lazyllm.tools.fs.client import FS
 
-from chat.components.agentic.config import REVIEW_PROMPTS, REVIEW_TOOLS, _env_int
+from chat.components.agentic.config import REVIEW_PROMPTS, REVIEW_TOOLS
 from chat.prompts.agentic import _COMBINED_REVIEW_PROMPT
 from chat.tools.skill_manager import list_all_skills_with_category
 from config import config as _cfg
@@ -67,24 +67,6 @@ def _build_review_decision(
         'skill_review_interval': skill_review_interval,
         'available_tools': list(available_tools or []),
     }
-
-
-def _decide_review_mode(
-    available_tools: list[str],
-    tool_turns: int,
-    user_turns: int,
-    memory_review_interval: int,
-    skill_review_interval: int,
-) -> str | None:
-    decision = _build_review_decision(
-        available_tools=available_tools,
-        tool_turns=tool_turns,
-        user_turns=user_turns,
-        memory_review_interval=memory_review_interval,
-        skill_review_interval=skill_review_interval,
-    )
-    return decision['mode']
-
 
 def _build_existing_state_context(config: dict, review_mode: str) -> str:
     """Build a context block with existing memory and user_preference for review."""
@@ -174,7 +156,7 @@ def _spawn_background_review(
             )
             print(
                 f'[bg-review:{review_mode}] AGENT_READY thread={tname} '
-                f'max_retries={_env_int("LAZYRAG_REVIEW_MAX_RETRIES", 5)} '
+                f"max_retries={_cfg['review_max_retries']} "
                 f'review_tools={review_tools} review_skills={len(review_skills)}'
             )
             res = review_agent(review_prompt, llm_chat_history=snapshot)

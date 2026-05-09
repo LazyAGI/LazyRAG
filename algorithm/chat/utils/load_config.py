@@ -1,5 +1,4 @@
 from functools import lru_cache
-import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -9,7 +8,6 @@ _CHAT_DIR = Path(__file__).resolve().parents[1]
 _INNER_CONFIG_PATH = _CHAT_DIR / 'runtime_models.inner.yaml'
 _ONLINE_CONFIG_PATH = _CHAT_DIR / 'runtime_models.online.yaml'
 _DYNAMIC_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
-_EXPANDED_CONFIG_DIR = Path('/tmp/lazyrag_runtime_models')
 
 # Maps runtime_models.yaml type values to _dynamic_module_slot names used by
 # _DynamicSourceRouterMixin subclasses (OnlineChatModule / OnlineEmbeddingModule).
@@ -52,19 +50,7 @@ def get_config_path() -> str:
         path = str(aliases[raw])
     else:
         path = raw
-    return _expanded_config_path(path)
-
-
-def _expanded_config_path(config_path: str) -> str:
-    path = Path(config_path)
-    text = path.read_text(encoding='utf-8')
-    expanded = os.path.expandvars(text)
-    if expanded == text:
-        return config_path
-    _EXPANDED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    target = _EXPANDED_CONFIG_DIR / path.name
-    target.write_text(expanded, encoding='utf-8')
-    return str(target)
+    return path
 
 
 def load_model_config(config_path: str | None = None) -> Dict[str, Any]:

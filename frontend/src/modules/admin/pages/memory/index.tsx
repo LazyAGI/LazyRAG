@@ -891,9 +891,8 @@ export default function MemoryManagement() {
       return;
     }
 
-    void refreshSkillAssets();
     void refreshSkillShareCenter({ silent: true });
-  }, [activeTab, refreshSkillAssets, refreshSkillShareCenter]);
+  }, [activeTab, refreshSkillShareCenter]);
 
   useEffect(() => {
     if (activeTab !== "experience") {
@@ -4000,39 +3999,6 @@ export default function MemoryManagement() {
   const genericColumns: ColumnsType<StructuredAsset> = [
     ...structuredInfoColumns,
     {
-      title: t("admin.memoryAutoEvo"),
-      key: "autoEvo",
-      width: 90,
-      render: (_value, record) => (
-        <Switch
-          checked={record.autoEvo}
-          loading={skillAutoEvoLoading.has(record.id)}
-          onChange={(checked) => {
-            void (async () => {
-              setSkillAutoEvoLoading((prev) => new Set(prev).add(record.id));
-              try {
-                await patchSkillAsset(record.id, { auto_evo: checked });
-                await refreshSkillAssets({ preserveChangeProposals: true });
-              } catch (error) {
-                console.error("Toggle auto_evo failed:", error);
-                await refreshSkillAssets({ preserveChangeProposals: true });
-                message.error(
-                  getLocalizedErrorMessage(error, t("admin.memoryAutoEvoToggleFailed")) ||
-                    t("admin.memoryAutoEvoToggleFailed"),
-                );
-              } finally {
-                setSkillAutoEvoLoading((prev) => {
-                  const next = new Set(prev);
-                  next.delete(record.id);
-                  return next;
-                });
-              }
-            })();
-          }}
-        />
-      ),
-    },
-    {
       title: t("admin.memoryOperations"),
       key: "actions",
       width: 250,
@@ -4107,6 +4073,39 @@ export default function MemoryManagement() {
           </Space>
         );
       },
+    },
+    {
+      title: t("admin.memoryAutoEvo"),
+      key: "autoEvo",
+      width: 90,
+      render: (_value, record) => (
+        <Switch
+          checked={record.autoEvo}
+          loading={skillAutoEvoLoading.has(record.id)}
+          onChange={(checked) => {
+            void (async () => {
+              setSkillAutoEvoLoading((prev) => new Set(prev).add(record.id));
+              try {
+                await patchSkillAsset(record.id, { auto_evo: checked });
+                await refreshSkillAssets({ preserveChangeProposals: true });
+              } catch (error) {
+                console.error("Toggle auto_evo failed:", error);
+                await refreshSkillAssets({ preserveChangeProposals: true });
+                message.error(
+                  getLocalizedErrorMessage(error, t("admin.memoryAutoEvoToggleFailed")) ||
+                    t("admin.memoryAutoEvoToggleFailed"),
+                );
+              } finally {
+                setSkillAutoEvoLoading((prev) => {
+                  const next = new Set(prev);
+                  next.delete(record.id);
+                  return next;
+                });
+              }
+            })();
+          }}
+        />
+      ),
     },
   ];
 
