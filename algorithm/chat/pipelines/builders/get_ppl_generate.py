@@ -54,13 +54,15 @@ def get_ppl_generate(stream=False):
                 mixed_aggregate.merge_images = _merge_text_and_images | bind(all_nodes=mixed_aggregate.input)
             ppl.aggregate = ifs(_has_image_nodes, tpath=mixed_aggregate, fpath=AggregateComponent())
             ppl.formatter = RAGContextFormatter() | bind(query=ppl.kwargs['query'], nodes=ppl.aggregate)
-            ppl.multimodal_query = build_multimodal_query_with_images | bind(nodes=ppl.aggregate)
+            ppl.multimodal_query = build_multimodal_query_with_images | bind(
+                nodes=ppl.aggregate,
+                image_files=ppl.kwargs['image_files'],
+            )
             ppl.answer = llm_caller | bind(llm_chat_history=[], files=[], priority=1)
             ppl.parser = CustomOutputParser(llm_type_think=LLM_TYPE_THINK) | bind(
                 stream=stream,
                 recall_result=ppl.input,
                 aggregate=ppl.aggregate,
-                image_files=[],
                 debug=ppl.kwargs['debug'])
 
     return ppl

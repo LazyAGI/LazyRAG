@@ -271,17 +271,26 @@ def _first_entry_type(entries: Any) -> str:
 
 @lru_cache(maxsize=1)
 def get_image_embed_key(config_path: Optional[str] = None) -> Optional[str]:
-    '''Return the embed role name marked as cross-modal (image) embed.
+    '''Return the embed role name identified as image embed by model name.
 
-    A role is treated as the image embed when its yaml entry uses
-    ``type: cross_modal_embed``.  Returns None when no such role exists,
-    in which case callers should skip the image retrieval branch.
+    A role is treated as the image embed when its first entry has
+    ``name: siglip`` (case-insensitive). Returns None when no such role
+    exists, in which case callers should skip the image retrieval branch.
     '''
     raw = load_model_config(config_path)
     for role, entries in raw.items():
         if not role.startswith(_EMBED_KEY_PREFIX):
             continue
-        if _first_entry_type(entries) == 'cross_modal_embed':
+        if isinstance(entries, list) and entries:
+            entry = entries[0]
+        elif isinstance(entries, dict):
+            entry = entries
+        else:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        model_name = str(entry.get('name') or '').strip().lower()
+        if model_name == 'siglip':
             return role
     return None
 

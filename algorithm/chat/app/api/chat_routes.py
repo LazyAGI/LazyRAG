@@ -18,10 +18,6 @@ async def chat(
     session_id: Annotated[str, Body(description='Session ID')] = 'session_id',
     filters: Annotated[Optional[Dict[str, Any]], Body(description='Retrieval filter conditions')] = None,
     files: Annotated[Optional[List[str]], Body(description='Uploaded temporary files')] = None,
-    query_images: Annotated[
-        Optional[List[str]],
-        Body(description='Image paths or URLs accompanying the query (used by VLM rewrite)'),
-    ] = None,
     debug: Annotated[Optional[bool], Body(description='Enable debug mode')] = False,
     reasoning: Annotated[Optional[bool], Body(description='Enable reasoning mode')] = False,
     databases: Annotated[Optional[List[Dict]], Body(description='Associated databases')] = None,
@@ -60,7 +56,6 @@ async def chat(
         session_id=session_id,
         filters=filters,
         files=files,
-        query_images=query_images,
         debug=debug,
         reasoning=reasoning,
         databases=databases,

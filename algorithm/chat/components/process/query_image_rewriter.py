@@ -29,7 +29,7 @@ class QueryImageRewriter(ModuleBase):
         self.llm = llm
 
     def _extract_paths(self, payload: Dict[str, Any]) -> List[str]:
-        paths = payload.get('query_images') or []
+        paths = payload.get('image_files') or []
         if not isinstance(paths, list):
             return []
         return [str(path).strip() for path in paths if str(path).strip()]

@@ -83,12 +83,16 @@ def _merge_text_and_images(text_nodes, all_nodes, **_):
     return list(text_nodes or []) + _image_nodes(all_nodes)
 
 
-def build_multimodal_query_with_images(query, nodes):
+def build_multimodal_query_with_images(query, nodes, image_files=None):
     paths = []
     for node in (nodes or []):
         path = _image_path(node)
         if path:
             paths.append(path)
+    for path in (image_files or []):
+        resolved = _resolve_shared_upload_path(path)
+        if resolved:
+            paths.append(resolved)
     if not paths:
         return query
     return encode_query_with_filepaths(query, list(dict.fromkeys(paths)))

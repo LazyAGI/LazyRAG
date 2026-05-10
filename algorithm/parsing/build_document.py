@@ -6,6 +6,7 @@ from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
+from chat.components import tmp  # noqa: F401
 from chat.utils.load_config import (
     get_embed_keys,
     get_embed_index_kwargs,

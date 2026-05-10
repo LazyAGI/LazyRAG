@@ -12,11 +12,11 @@ from urllib.parse import urlparse
 import requests
 import lazyllm
 from lazyllm import ModuleBase, LOG
-from lazyllm.thirdparty import PIL
 from lazyllm.tools.rag import DocNode
 from lazyllm.tools.rag.doc_node import ImageDocNode
 
 from config import config as _cfg
+from parsing.utils import normalize_image_file
 from processor.table_image_map import merge_table_image_maps, normalize_table_image_map, serialize_table_image_map
 
 
@@ -336,27 +336,8 @@ class ImageConverterNode(ModuleBase):
             f.write(response.content)
         return local_path
 
-    def _safe_name(self, value: str) -> str:
-        normalized = ''.join(c if c.isalnum() or c in ('-', '_') else '_' for c in value.strip())
-        return normalized or 'image'
-
     def _normalize_image_file(self, image_path: str) -> str:
-        src = Path(image_path).resolve()
-        target_dir = self._normalized_root / self._safe_name(src.parent.name or 'root')
-        target_dir.mkdir(parents=True, exist_ok=True)
-        dst = target_dir / f'{self._safe_name(src.stem)}.jpg'
-        with PIL.Image.open(src) as img:
-            if getattr(img, 'n_frames', 1) > 1:
-                img.seek(0)
-            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
-                rgba = img.convert('RGBA')
-                background = PIL.Image.new('RGB', rgba.size, (255, 255, 255))
-                background.paste(rgba, mask=rgba.getchannel('A'))
-                rgb = background
-            else:
-                rgb = img.convert('RGB')
-            rgb.save(dst, format='JPEG', quality=95)
-        return str(dst)
+        return normalize_image_file(image_path=image_path, normalized_root=self._normalized_root)
 
     def _parse_nodes(self, document: List[DocNode], **kwargs) -> List[ImageDocNode]:
         image_nodes = []

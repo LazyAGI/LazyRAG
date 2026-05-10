@@ -3,11 +3,12 @@ from pathlib import Path
 from typing import List, Optional
 
 from lazyllm.common import retry
-from lazyllm.thirdparty import PIL, fsspec
+from lazyllm.thirdparty import fsspec
 from lazyllm.tools.rag.doc_node import ImageDocNode
 from lazyllm.tools.rag.readers.readerBase import LazyLLMReaderBase, get_default_fs
 
 from config import config as _cfg
+from parsing.utils import normalize_image_file
 
 RETRY_TIMES = 3
 
@@ -21,30 +22,8 @@ class ImageEmbReader(LazyLLMReaderBase):
     def _normalized_root(self) -> Path:
         return Path(_cfg['shared_upload_dir']) / 'normalized_images'
 
-    def _safe_name(self, value: str) -> str:
-        normalized = ''.join(c if c.isalnum() or c in ('-', '_') else '_' for c in value.strip())
-        return normalized or 'image'
-
     def _normalize_image_file(self, image_path: str) -> str:
-        src = Path(image_path).resolve()
-        target_dir = self._normalized_root() / self._safe_name(src.parent.name or 'root')
-        target_dir.mkdir(parents=True, exist_ok=True)
-        dst = target_dir / f'{self._safe_name(src.stem)}.jpg'
-
-        with PIL.Image.open(src) as img:
-            if getattr(img, 'n_frames', 1) > 1:
-                img.seek(0)
-
-            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
-                rgba = img.convert('RGBA')
-                background = PIL.Image.new('RGB', rgba.size, (255, 255, 255))
-                background.paste(rgba, mask=rgba.getchannel('A'))
-                rgb = background
-            else:
-                rgb = img.convert('RGB')
-
-            rgb.save(dst, format='JPEG', quality=95)
-        return str(dst)
+        return normalize_image_file(image_path=image_path, normalized_root=self._normalized_root())
 
     @retry(stop_after_attempt=RETRY_TIMES)
     def _load_data(self, file: Path, fs: Optional['fsspec.AbstractFileSystem'] = None) -> List[ImageDocNode]:
