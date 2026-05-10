@@ -4,8 +4,9 @@ import logging
 import os
 from dataclasses import replace
 from typing import Any
+from lazyllm import AutoModel
+from algorithm.chat.utils.load_config import get_config_path
 from evo.datagen import run_eval, load_report, fetch_traces_for_report
-from evo.orchestrator.llm import get_automodel
 from evo.runtime.fs import atomic_write_json
 from evo.runtime.model_gateway import ModelGateway
 from evo.service.core import store as _store
@@ -104,16 +105,9 @@ def _eval_judge_llm_factory(ctx: ExecCtx):
     gateway: ModelGateway[str] = ModelGateway(
         cfg, name='evo-eval-judge-llm', logger=logging.getLogger('evo.datagen.evaluate')
     )
-    client = get_automodel(ctx.cfg.model_config.llm_role)
+    client = AutoModel(model=ctx.cfg.model_config.llm_role, config=get_config_path())
 
-    def factory():
-        def call(prompt: str):
-            digest = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
-            return gateway.call(lambda: client(prompt), cache_key=f'eval-judge:{digest}', agent='eval_judge')
-
-        return call
-
-    return factory
+    return lambda: (lambda prompt: gateway.call(lambda: client(prompt), cache_key=prompt, agent='eval_judge'))
 
 
 def _eval_max_workers(payload: dict[str, Any]) -> int:

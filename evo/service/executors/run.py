@@ -49,7 +49,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
 
 def _run_pipeline(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = False) -> None:
     from evo.harness.pipeline import build_standard_plan, PipelineOptions
-    from evo.main import default_embed_provider, default_llm_provider
+    from evo.orchestrator.llm import default_embed_provider, default_llm_provider
     from evo.runtime.session import create_session, session_scope
 
     cur = _store.get(ctx.store, tid) or {}

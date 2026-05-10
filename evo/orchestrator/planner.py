@@ -442,6 +442,18 @@ def _checkpoint_autooperator_plan(message: str, checkpoint: dict[str, Any]) -> d
             'ops': [{'op': 'checkpoint.continue', 'reason': text, 'args': {}}],
             'reply': '好的，继续执行下一步。',
         }
+    flow = _flow_from_text(text)
+    if flow and _wants_restart(text) and flow in (checkpoint.get('allowed_stages') or []):
+        return {
+            'ops': [
+                {
+                    'op': 'checkpoint.rewind',
+                    'reason': f'回退到 {flow} 重新执行',
+                    'args': {'to_stage': flow, 'input_patch': {}},
+                }
+            ],
+            'reply': f'好的，回退到 {flow} 重新执行。',
+        }
     if text.startswith('当前分析报告的自动修改建议证据不足，请回退到 run 重新分析'):
         return {
             'ops': [
@@ -598,6 +610,15 @@ def _heuristic_plan(message: str, ctx: PlanContext) -> dict[str, Any] | None:
         ops = _cancel_restart_ops(flow, latest, active)
         if ops:
             return {'ops': ops, 'reply': '我会先取消当前相关任务，然后按原参数重新开始。'}
+    if flow and _wants_restart(message):
+        start = _restart_op(flow, latest.get(flow) or {})
+        if start:
+            ops = []
+            if _has_active_flow(active, flow):
+                ops.append({'op': 'task.stop_active', 'reason': f'停止当前 {flow} 任务', 'args': {'flow': flow}})
+            ops.append(start)
+            return {'ops': ops, 'reply': '我会按最近一次任务参数重新执行。'}
+        return {'ops': [], 'reply': f'当前线程没有可复用的 {flow} 任务参数，无法直接重新执行。'}
     if _wants_thread_retry(message):
         return {
             'ops': [{'op': 'thread.retry', 'reason': '重试当前整个 thread 最近可恢复任务', 'args': {}}],
@@ -759,6 +780,10 @@ def _wants_thread_retry(message: str) -> bool:
     return any((k in message for k in ('重试整个thread', '重试整个线程', '重试当前线程', '重试当前整个流程', '重试整个流程')))
 
 
+def _wants_restart(message: str) -> bool:
+    return any((k in message for k in ('重新执行', '重新跑', '重跑', '重新启动', '重新发起', 'rerun', 'restart')))
+
+
 def _extract_id_after(message: str, markers: tuple[str, ...]) -> str | None:
     for marker in markers:
         m = re.search(re.escape(marker) + '\\s*([A-Za-z0-9_.:-]+)', message, re.I)
@@ -815,7 +840,7 @@ def _restart_op(flow: str, row: dict[str, Any]) -> dict[str, Any] | None:
         )
     if flow == 'run':
         args = {k: payload[k] for k in ('eval_id', 'badcase_limit', 'score_field') if k in payload}
-        return {'op': 'run.start', 'reason': '重新启动分析流程', 'args': args}
+        return {'op': 'run.start', 'reason': '重新启动分析流程', 'args': args} if args.get('eval_id') else None
     if flow == 'apply':
         args = {'report_id': row.get('report_id') or payload.get('report_id')}
         return {'op': 'apply.start', 'reason': '重新启动代码修改', 'args': args} if args['report_id'] else None

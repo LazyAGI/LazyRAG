@@ -12,6 +12,16 @@ llm_instruct:
   dynamic_auth: true
   type: llm
 
+evo_llm:
+  source: dynamic
+  dynamic_auth: true
+  type: llm
+
+evo_embed:
+  source: dynamic
+  dynamic_auth: true
+  type: embed
+
 reranker:
   source: dynamic
   dynamic_auth: true

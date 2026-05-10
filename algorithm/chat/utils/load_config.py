@@ -5,10 +5,10 @@ from typing import Any, Dict, Optional
 import yaml
 from lazyllm.tools.agent.skill_manager import SkillManager as LazySkillManager
 
-_CHAT_DIR = Path(__file__).resolve().parents[1]
-_INNER_CONFIG_PATH = _CHAT_DIR / 'runtime_models.inner.yaml'
-_ONLINE_CONFIG_PATH = _CHAT_DIR / 'runtime_models.online.yaml'
-_DYNAMIC_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
+_COMMON_DIR = Path(__file__).resolve().parents[2] / 'common'
+_INNER_CONFIG_PATH = _COMMON_DIR / 'runtime_models.inner.yaml'
+_ONLINE_CONFIG_PATH = _COMMON_DIR / 'runtime_models.online.yaml'
+_DYNAMIC_CONFIG_PATH = _COMMON_DIR / 'runtime_models.yaml'
 
 # Maps runtime_models.yaml type values to _dynamic_module_slot names used by
 # _DynamicSourceRouterMixin subclasses (OnlineChatModule / OnlineEmbeddingModule).

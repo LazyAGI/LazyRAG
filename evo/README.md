@@ -690,9 +690,9 @@ Environment variables read by `load_config()`:
 | `EVO_BADCASE_SCORE_FIELD` | `answer_correctness` |
 | `EVO_CODE_MAP` | empty |
 | `EVO_CHAT_SOURCE` | `<repo>/algorithm/chat` |
-| `EVO_LLM_ROLE` | `evo_llm` |
-| `EVO_EMBED_ROLE` | `evo_embed` |
-| `EVO_AUTO_USER_ROLE` | `evo_llm` |
+| `LAZYRAG_EVO_LLM_ROLE` | `evo_llm` |
+| `LAZYRAG_EVO_EMBED_ROLE` | `evo_embed` |
+| `LAZYRAG_EVO_AUTO_USER_ROLE` | `evo_llm` |
 | `EVO_KB_BASE_URL` | `http://localhost:8055` |
 | `EVO_CHUNK_BASE_URL` | `http://localhost:8055` |
 | `EVO_DATASETGEN_MAX_WORKERS` | `5` |

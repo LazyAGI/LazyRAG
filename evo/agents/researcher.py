@@ -109,6 +109,7 @@ def run_researcher(
         agent=f'{RESEARCHER_NAME}:{hypothesis.id}',
         schema=SCHEMAS['researcher'],
         producer=lambda task: runner.run(task),
+        max_repair=2,
     )
     verdict = str(parsed.get('verdict', 'inconclusive'))
     if verdict not in _VALID_VERDICTS:

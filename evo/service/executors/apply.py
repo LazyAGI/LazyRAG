@@ -51,6 +51,7 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
     workspace = GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source)
     opts = _apply_options(ctx, cur)
     thread_id = cur.get('thread_id')
+    opts.deploy_check = lambda worktree, tid2: _deploy_candidate_for_apply(ctx, tid, tid2, worktree)
     elog = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path) if thread_id else None
     if elog:
         elog.append_event(
@@ -103,42 +104,14 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
     if cur['status'] not in ('running', 'stopping'):
         return
     if result.status == 'SUCCEEDED':
-        candidate = None
-        try:
-            candidate = _launch_candidate_chat(ctx, tid, cur.get('thread_id'), workspace.worktree_path(tid))
-            _smoke_test_candidate_chat(ctx, cur.get('thread_id'), candidate)
-            ctx.update_payload(
-                tid,
-                {
-                    'result': {
-                        **(((_store.get(ctx.store, tid) or {}).get('payload') or {}).get('result') or {}),
-                        **_candidate_payload(candidate),
-                    }
-                },
-            )
-        except Exception as exc:
-            if candidate:
-                _discard_candidate_chat(ctx, candidate)
-            ctx.update_payload(
-                tid,
-                {
-                    'result': {
-                        **(((_store.get(ctx.store, tid) or {}).get('payload') or {}).get('result') or {}),
-                        'candidate_error': str(exc),
-                    }
-                },
-            )
-            raise
         ctx.on_success(tid)
         c2 = _store.get(ctx.store, tid) or {}
         w2 = c2.get('thread_id')
         if w2:
             ws = ThreadWorkspace(ctx.cfg.storage.base_dir, w2)
-            if candidate:
-                ws.attach_artifact('chat_ids', candidate.chat_id)
-            data = {'apply_id': tid}
-            if candidate:
-                data.update(_candidate_payload(candidate))
+            data = {'apply_id': tid, **(result.deployment or {})}
+            if result.deployment and result.deployment.get('candidate_chat_id'):
+                ws.attach_artifact('chat_ids', result.deployment['candidate_chat_id'])
             EventLog(ws.events_path).append_event('apply.finish', task_id=tid, payload=data)
     else:
         err = result.error or {}
@@ -216,7 +189,27 @@ def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
 def _diff_summary(rr: RoundResult) -> str:
     count = len(rr.files_changed)
     tests = 'tests passed' if rr.test_passed else 'tests failed' if rr.test_passed is False else 'tests not run'
-    return f'Round {rr.index}: {count} file(s) changed; {tests}.'
+    deploy = '; deploy passed' if rr.deploy_passed else '; deploy failed' if rr.deploy_passed is False else ''
+    return f'Round {rr.index}: {count} file(s) changed; {tests}{deploy}.'
+
+
+def _deploy_candidate_for_apply(ctx: ExecCtx, apply_id: str, thread_id: str | None, worktree) -> dict:
+    candidate = None
+    try:
+        candidate = _launch_candidate_chat(ctx, apply_id, thread_id, worktree)
+        _smoke_test_candidate_chat(ctx, thread_id, candidate)
+        payload = _candidate_payload(candidate)
+        ctx.update_payload(apply_id, {'result': {**_result_payload(ctx, apply_id), **payload}})
+        return payload
+    except Exception as exc:
+        if candidate:
+            _discard_candidate_chat(ctx, candidate)
+        ctx.update_payload(apply_id, {'result': {**_result_payload(ctx, apply_id), 'candidate_error': str(exc)}})
+        raise
+
+
+def _result_payload(ctx: ExecCtx, tid: str) -> dict:
+    return (((_store.get(ctx.store, tid) or {}).get('payload') or {}).get('result') or {})
 
 
 def _launch_candidate_chat(ctx: ExecCtx, apply_id: str, thread_id: str | None, worktree) -> object:

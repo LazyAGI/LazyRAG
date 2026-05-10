@@ -1,11 +1,12 @@
 from __future__ import annotations
 from pathlib import Path
+from lazyllm import AutoModel
 from evo.abtest import AbtestInputs, VerdictPolicy, execute_abtest
-from evo.orchestrator.llm import get_automodel
+from evo.runtime.model_gateway import ModelGateway
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .context import CancelToken, ExecCtx
-
+from algorithm.chat.utils.load_config import get_config_path
 
 def execute(ctx: ExecCtx, tid: str) -> None:
     cur = _store.get(ctx.store, tid)
@@ -25,6 +26,9 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     policy_data = payload.get('policy') or {}
     if isinstance(policy_data.get('guard_metrics'), list):
         policy_data['guard_metrics'] = tuple(policy_data['guard_metrics'])
+    client = AutoModel(model=ctx.cfg.model_config.llm_role, config=get_config_path())
+    gateway: ModelGateway[str] = ModelGateway(ctx.cfg.llm, name='evo-abtest-llm')
+
     inputs = AbtestInputs(
         abtest_id=tid,
         thread_id=thread_id,
@@ -46,7 +50,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
             chat_runner=runner,
             chat_registry=ctx.chat_registry,
             cfg=ctx.cfg,
-            llm_factory=lambda: get_automodel(ctx.cfg.model_config.llm_role),
+            llm_factory=lambda: (lambda prompt: gateway.call(lambda: client(prompt), cache_key=prompt, agent='abtest')),
             cancel=token.requested,
         )
         ctx.update_payload(

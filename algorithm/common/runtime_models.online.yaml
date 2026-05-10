@@ -10,6 +10,14 @@ llm_instruct:
   - source: qwen
     name: qwen-plus
 
+evo_llm:
+  - source: qwen
+    name: qwen3-max
+
+evo_embed:
+  - source: qwen
+    name: text-embedding-v3
+
 reranker:
   - source: qwen
     name: gte-rerank-v2

@@ -1,8 +1,8 @@
 x-trace-config: &trace-config
-  LANGFUSE_HOST: ""
-  LANGFUSE_BASE_URL: ""
-  LANGFUSE_PUBLIC_KEY: ""
-  LANGFUSE_SECRET_KEY: ""
+  LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+  LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
   LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
   LAZYLLM_TRACE_BACKEND: ${LAZYLLM_TRACE_BACKEND:-langfuse}
   OTEL_EXPORTER_OTLP_TIMEOUT: 60
@@ -647,17 +647,16 @@ services:
     expose:
       - "8048"
     ports:
-      - "8048:8048"
+      - "8050:8048"
     environment:
       EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
       EVO_CODE_MAP: /app/evo/code_map.json
-      OPENCODE_BIN: /usr/local/bin/opencode
-      EVO_OPENCODE_PROVIDER: maas
-      EVO_OPENCODE_MODEL: minimax-m27
-      EVO_OPENCODE_TIMEOUT_S: "2400"
-      EVO_OPENCODE_ANTHROPIC_KEY: ""
-      EVO_LLM_ROLE: evo_llm
-      EVO_EMBED_ROLE: evo_embed
+      LAZYRAG_EVO_CODE_BINARY: /usr/local/bin/opencode
+      LAZYRAG_EVO_CODE_PROVIDER: maas
+      LAZYRAG_EVO_CODE_MODEL: minimax-m27
+      LAZYRAG_EVO_CODE_TIMEOUT_S: "2400"
+      LAZYRAG_EVO_LLM_ROLE: evo_llm
+      LAZYRAG_EVO_EMBED_ROLE: evo_embed
       EVO_KB_BASE_URL: http://doc-server:8000
       EVO_CHUNK_BASE_URL: http://doc-server:8000
       EVO_TARGET_CHAT_URL: http://chat:8046/api/chat

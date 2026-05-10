@@ -72,6 +72,8 @@ class AnalysisSession:
     artifact_base_dir: Path | None = None
     schema_failure_count: int = 0
     _node_cache: dict[str, NodeInfo | None] = field(default_factory=dict, repr=False)
+    _llm_client: Any | None = field(default=None, repr=False)
+    _embed_client: Any | None = field(default=None, repr=False)
 
     def logger(self, suffix: str = '') -> logging.Logger:
         name = f'evo.session.{self.run_id}'
@@ -86,6 +88,30 @@ class AnalysisSession:
 
     def on(self, event_type: str, handler: Handler) -> None:
         self.telemetry.on(event_type, handler)
+
+    def get_llm_client(self) -> Any:
+        if self._llm_client is None:
+            if self.llm_provider:
+                self._llm_client = self.llm_provider()
+            else:
+                from lazyllm import AutoModel
+                from algorithm.chat.utils.load_config import get_config_path
+
+                self._llm_client = AutoModel(model=self.config.model_config.llm_role, config=get_config_path())
+        if self._llm_client is None:
+            raise RuntimeError('LLM factory returned None; check LAZYRAG_EVO_LLM_ROLE and LAZYRAG_MODEL_CONFIG_PATH.')
+        return self._llm_client
+
+    def get_embed_client(self) -> Any:
+        if self._embed_client is None:
+            if self.embed_provider:
+                self._embed_client = self.embed_provider()
+            else:
+                from lazyllm import AutoModel
+                from algorithm.chat.utils.load_config import get_config_path
+
+                self._embed_client = AutoModel(model=self.config.model_config.embed_role, config=get_config_path())
+        return self._embed_client
 
     @property
     def parsed_judge(self) -> dict[str, JudgeRecord]:

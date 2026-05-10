@@ -25,12 +25,7 @@ class MemoryCurator:
             f"- handle: {handle or '(none)'}\n"
             f'- ok: {str(ok).lower()}\n'
         )
-        raw = self.session.llm.call(
-            producer=lambda: self.invoker.invoke(user),
-            cache_key=None,
-            use_cache=False,
-            agent=f'{CURATOR_NAME}:{self.agent}',
-        )
+        raw = self.invoker.invoke(user, agent=f'{CURATOR_NAME}:{self.agent}')
         text = (raw or '').strip()
         if not text:
             return working_memory

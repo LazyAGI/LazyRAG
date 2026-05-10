@@ -57,10 +57,6 @@ class Conductor:
                 len(decision.get('actions') or []),
                 len(actions),
             )
-            if decision.get('done') and (not actions):
-                self._mark_converged()
-                self._emit(it + 1, True, total)
-                return ConductorRunResult(it + 1, True, total)
             if not actions:
                 self._mark_converged()
                 self._emit(it + 1, True, total)

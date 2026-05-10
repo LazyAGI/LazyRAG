@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+from algorithm.config import config
 from evo.runtime.code_config import CodeAccessConfig, load_code_access
 
 
@@ -171,9 +172,9 @@ def load_config(
     eval_file = os.getenv('EVO_EVAL_FILE', '')
     judge_path = Path(eval_file) if eval_file else data_dir / 'eval_mock.json'
     model_config = EvoModelConfig(
-        llm_role=os.getenv('EVO_LLM_ROLE', 'evo_llm'),
-        embed_role=os.getenv('EVO_EMBED_ROLE', 'evo_embed'),
-        auto_user_role=os.getenv('EVO_AUTO_USER_ROLE', 'evo_llm'),
+        llm_role=config['evo_llm_role'],
+        embed_role=config['evo_embed_role'],
+        auto_user_role=config['evo_auto_user_role'],
     )
     storage = StorageConfig(base_dir=base_dir)
     storage.ensure()
