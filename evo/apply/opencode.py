@@ -32,12 +32,14 @@ PROVIDER_BASE_URLS = {
 
 def apply_model() -> OpencodeProviderConfig:
     provider = str(config['evo_code_provider'] or '').strip()
+    base_url = str(config['evo_code_base_url'] or '').strip() or PROVIDER_BASE_URLS.get(provider, '')
+    label = str(config['evo_code_label'] or provider).strip()
     return OpencodeProviderConfig(
-        provider,
+        _provider_id(provider, base_url, label),
         str(config['evo_code_model'] or '').strip(),
         str(config['evo_code_api_key'] or '').strip() or _provider_api_key(provider),
-        str(config['evo_code_base_url'] or '').strip() or PROVIDER_BASE_URLS.get(provider, ''),
-        str(config['evo_code_label'] or provider).strip(),
+        base_url,
+        label,
     )
 
 
@@ -71,6 +73,7 @@ class OpencodeSession:
         self.env = {**os.environ, 'HOME': str(self.home)}
         if self.provider_config:
             self.env[_api_key_env(self.provider_config.provider)] = self.provider_config.api_key
+            _append_no_proxy(self.env, self.provider_config.base_url)
             _write_provider_auth(self.home, self.provider_config)
 
     def close(self) -> None:
@@ -208,9 +211,31 @@ def _api_key_env(provider: str) -> str:
     return f'OPENCODE_{safe}_API_KEY'
 
 
+def _append_no_proxy(env: dict[str, str], base_url: str) -> None:
+    parsed = urlparse(base_url)
+    if not parsed.hostname:
+        return
+    for key in ('NO_PROXY', 'no_proxy'):
+        values = [part.strip() for part in (env.get(key) or '').split(',') if part.strip()]
+        if parsed.hostname not in values:
+            values.append(parsed.hostname)
+        env[key] = ','.join(values)
+
+
 def _provider_api_key(provider: str) -> str:
     safe = ''.join((ch if ch.isalnum() else '_' for ch in provider.upper()))
     return os.environ.get(f'LAZYLLM_{safe}_API_KEY', '') or os.environ.get(f'{safe}_API_KEY', '')
+
+
+def _provider_id(provider: str, base_url: str, label: str) -> str:
+    if provider == 'openai' and base_url.rstrip('/') != PROVIDER_BASE_URLS['openai'].rstrip('/'):
+        return _safe_provider_id(label or 'openai_compatible')
+    return provider
+
+
+def _safe_provider_id(value: str) -> str:
+    out = ''.join(ch.lower() if ch.isalnum() else '_' for ch in value.strip())
+    return out.strip('_') or 'openai_compatible'
 
 
 def _validate_provider_config(provider_config: OpencodeProviderConfig | None) -> None:

@@ -9,6 +9,8 @@ from evo.service.core import schemas
 from evo.service.core.intent_store import Intent, IntentPreview, PlanResult
 
 FLOWS = ('dataset_gen', 'eval', 'run', 'apply', 'abtest')
+FLOW_BY_STEP = {'1': 'dataset_gen', '2': 'eval', '3': 'run', '4': 'apply', '5': 'abtest'}
+RESUMABLE_STATUSES = {'paused', 'failed_transient'}
 SCHEMAS = {
     'run.start': schemas.RunCreate, 'apply.start': schemas.ApplyCreate,
     'dataset_gen.start': schemas.DatasetGenCreate, 'eval.run': schemas.EvalCreate,
@@ -139,8 +141,13 @@ def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> lis
     out = []
     for item in ops or []:
         op, args = item.get('op'), dict(item.get('args') or {})
+        op, args = _normalize_control_op(op, args, state)
         if state.checkpoint and op in {'task.continue_latest', 'thread.retry'}:
             op, args = 'checkpoint.continue', {}
+        elif op in {'task.continue_latest', 'thread.retry'}:
+            args = _retry_args(args, state)
+            if restart := _restart_failed_op(args.get('flow'), state):
+                op, args = restart
         if op == 'eval.run':
             if args.get('eval_id') and not args.get('dataset_id'):
                 op = 'eval.fetch'
@@ -159,6 +166,72 @@ def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> lis
             args.setdefault('eval_name', state.inputs.get('eval_name') or f'{ctx.thread_id}_eval')
         out.append({'op': op, 'reason': item.get('reason', ''), 'args': {k: v for k, v in args.items() if v is not None}})
     return out
+
+
+def _normalize_control_op(op: str | None, args: dict, state: State) -> tuple[str | None, dict]:
+    if not op:
+        return op, args
+    flow = _flow_arg(args) or _op_flow(op)
+    action = op.split('.', 1)[1] if '.' in op else ''
+    if action == 'continue' and flow in FLOWS:
+        return 'task.continue_latest', {'flow': flow}
+    if action == 'stop' and flow in FLOWS:
+        return 'task.stop_active', {'flow': flow}
+    if action == 'cancel' and flow in FLOWS:
+        return 'task.cancel_active', {'flow': flow}
+    if op in {'apply.accept', 'apply.reject'} and not args.get('task_id'):
+        args['task_id'] = state.latest_id('apply')
+    if op == 'checkpoint.rewind' and not args.get('to_stage'):
+        args['to_stage'] = flow
+    return op, args
+
+
+def _retry_args(args: dict, state: State) -> dict:
+    flow = _flow_arg(args) or _latest_retry_flow(state)
+    return {'flow': flow} if flow else {}
+
+
+def _flow_arg(args: dict) -> str | None:
+    raw = args.get('flow') or args.get('stage') or args.get('to_stage')
+    if raw in FLOWS:
+        return str(raw)
+    step = str(args.get('step') or args.get('stage_index') or '').strip()
+    return FLOW_BY_STEP.get(step)
+
+
+def _op_flow(op: str) -> str | None:
+    flow = op.split('.', 1)[0]
+    return flow if flow in FLOWS else None
+
+
+def _latest_retry_flow(state: State) -> str | None:
+    rows = [row for row in state.latest.values() if row.get('status') in RESUMABLE_STATUSES | {'failed_permanent'}]
+    rows.sort(key=lambda row: float(row.get('updated_at') or 0), reverse=True)
+    return rows[0].get('flow') if rows else None
+
+
+def _restart_failed_op(flow: str | None, state: State) -> tuple[str, dict] | None:
+    if not flow or (state.latest.get(flow) or {}).get('status') != 'failed_permanent':
+        return None
+    if flow == 'dataset_gen':
+        args = {'kb_id': state.inputs.get('kb_id'), 'algo_id': state.inputs.get('algo_id') or 'general_algo',
+                'eval_name': state.inputs.get('eval_name') or f'{state.ctx.thread_id}_eval'}
+        if state.inputs.get('num_cases'):
+            args['num_cases'] = state.inputs['num_cases']
+        return ('dataset_gen.start', args)
+    if flow == 'eval':
+        args = {'dataset_id': state.artifact('dataset_ids'), 'target_chat_url': state.inputs.get('target_chat_url')}
+        _fill_eval(args, state.inputs)
+        return ('eval.run', args)
+    if flow == 'run':
+        return ('run.start', {'eval_id': state.latest_id('eval') if state.success('eval') else state.artifact('eval_ids')})
+    if flow == 'apply':
+        return ('apply.start', {'report_id': state.latest_payload('run').get('report_id')})
+    if flow == 'abtest':
+        args: dict = {}
+        _fill_abtest(args, state)
+        return ('abtest.create', args)
+    return None
 
 
 def _fill_eval(args: dict, inputs: dict) -> None:
@@ -185,6 +258,8 @@ def _validate(op: str, args: dict, ctx: PlanContext) -> None:
     if model := SCHEMAS.get(op):
         model(**payload)
     state = State(ctx)
+    if state.active and op not in {'task.stop_active', 'task.cancel_active'}:
+        raise ValueError(f"thread already has running task: {_active_summary(state)}")
     if state.checkpoint and not op.startswith('checkpoint.'):
         raise ValueError('pending checkpoint only accepts checkpoint.* ops')
     if op in {'task.continue_latest', 'thread.retry'} and not _has_resumable(state, args):
@@ -209,7 +284,8 @@ def _prompt(message: str, ctx: PlanContext, *, checkpoint: bool) -> str:
             f'You are the Evo {"checkpoint" if checkpoint else "planner"} intent agent. Return strict JSON only: '
             '{"reply":"Chinese user-facing reply","ops":[{"op":"registered.op","reason":"short reason","args":{}}]}\n'
             'Use checkpoint.* only when pending_checkpoint exists. Prefer exact user intent; do not invent IDs. '
-            'For retry/续跑/继续执行, resume the latest paused or transient failed task with task.continue_latest; '
+            'Never ask the user for task_id; use flow/stage instead. Stage map: 第1步=dataset_gen, 第2步=eval, '
+            '第3步=run, 第4步=apply, 第5步=abtest. For retry/续跑/继续执行, use task.continue_latest with optional flow; '
             'restart a stage only when the user explicitly asks to rerun that named stage.')
 
 
@@ -275,11 +351,15 @@ def _apply_ready(row: dict) -> bool:
 def _has_resumable(state: State, args: dict) -> bool:
     flow, task_id = args.get('flow'), args.get('task_id')
     return any(
-        row.get('status') in {'paused', 'failed_transient'} and
+        row.get('status') in RESUMABLE_STATUSES and
         (not flow or row.get('flow') == flow) and
         (not task_id or row.get('id') == task_id)
         for row in state.latest.values()
     )
+
+
+def _active_summary(state: State) -> str:
+    return ', '.join(f"{row.get('flow')}:{row.get('id')}" for row in state.active[:3])
 
 
 def _caps(ctx: PlanContext) -> str:

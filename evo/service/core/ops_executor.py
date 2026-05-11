@@ -68,8 +68,11 @@ class OpsExecutor:
 
     def _one(self, op: Op, thread_id: str | None) -> OpResult:
         try:
-            caps.validate(op.op, op.args)
-            args = _validated_args(op.op, {**op.args, **({'thread_id': thread_id} if thread_id else {})})
+            raw_args = {**op.args, **({'thread_id': thread_id} if thread_id else {})}
+            if op.op in CONTROL and not raw_args.get('task_id'):
+                raw_args['task_id'] = _control_task_id(self._jm, op.op, raw_args)
+            caps.validate(op.op, raw_args)
+            args = _validated_args(op.op, raw_args)
             if op.op in START:
                 tid = getattr(self._jm, START[op.op])(**args)
                 return OpResult(op=op.op, task_id=tid, status='submitted')
@@ -158,6 +161,20 @@ def _active_task(jm: 'JobManager', args: dict[str, Any], *, require_running: boo
             rows.sort(key=lambda r: (r.get('status') != 'running', -float(r.get('created_at') or 0)))
             return rows[0]['id']
     raise store.StateError('NO_ACTIVE_TASK', f"no active task found for flow={args.get('flow')!r}")
+
+
+def _control_task_id(jm: 'JobManager', op: str, args: dict[str, Any]) -> str:
+    flow, action = op.split('.', 1)
+    if action == 'continue':
+        return _wait_resumable(jm, {'flow': flow, 'thread_id': args.get('thread_id')})
+    if action in {'stop', 'cancel'}:
+        return _active_task(jm, {'flow': flow, 'thread_id': args.get('thread_id')}, require_running=action == 'stop')
+    rows = store.list_flow_tasks_by_thread(jm.store, flow, args['thread_id']) if args.get(
+        'thread_id') else store.list_recent(jm.store, flow, 100)
+    rows.sort(key=lambda row: float(row.get('updated_at') or 0), reverse=True)
+    if rows:
+        return rows[0]['id']
+    raise store.StateError('TASK_NOT_FOUND', f'no task found for flow={flow!r}')
 
 
 def _wait_resumable(jm: 'JobManager', args: dict[str, Any]) -> str:
