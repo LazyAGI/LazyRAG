@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}python:3.11-slim
 
 ARG OPENCODE_VERSION=1.14.28
 ARG OPENCODE_DOWNLOAD_PREFIX=https://gh-proxy.com/
