@@ -76,6 +76,13 @@ export interface ListSkillOptions {
   pageSize?: number;
 }
 
+export interface SkillAssetListResult {
+  records: SkillAssetRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface ShareSkillPayload {
   targetUserIds: string[];
   targetGroupIds: string[];
@@ -149,6 +156,19 @@ const toStringValue = (value: unknown, fallback = ""): string => {
   }
   if (typeof value === "number") {
     return String(value);
+  }
+  return fallback;
+};
+
+const toNumberValue = (value: unknown, fallback = 0): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
   }
   return fallback;
 };
@@ -831,6 +851,13 @@ const normalizeSkillShareRecord = (raw: RawObject): SkillShareRecord | null => {
 export async function listSkillAssets(
   options: ListSkillOptions = {},
 ): Promise<SkillAssetRecord[]> {
+  const result = await listSkillAssetsPage(options);
+  return result.records;
+}
+
+export async function listSkillAssetsPage(
+  options: ListSkillOptions = {},
+): Promise<SkillAssetListResult> {
   const response = await axiosInstance.get(`${coreBasePath}/skills`, {
     params: {
       page: options.page ?? 1,
@@ -839,6 +866,8 @@ export async function listSkillAssets(
   });
 
   const payload = unwrapEnvelope<unknown>(response.data);
+  const rawPayload = toRawObject(payload);
+  const rawEnvelope = toRawObject(response.data);
   const skillNodes = extractSkillList(payload);
   const flattened = flattenSkillNodes(skillNodes);
   const enabledOnly = flattened.filter((item) => item.isEnabled !== false);
@@ -848,7 +877,37 @@ export async function listSkillAssets(
     deduped.set(item.id, item);
   });
 
-  return Array.from(deduped.values());
+  const records = Array.from(deduped.values());
+  const page = Math.max(1, toNumberValue(rawPayload?.page ?? rawEnvelope?.page, options.page ?? 1));
+  const pageSize = Math.max(
+    1,
+    toNumberValue(
+      rawPayload?.page_size ??
+        rawPayload?.pageSize ??
+        rawEnvelope?.page_size ??
+        rawEnvelope?.pageSize,
+      options.pageSize ?? 200,
+    ),
+  );
+  const total = Math.max(
+    records.length,
+    toNumberValue(
+      rawPayload?.total ??
+        rawPayload?.total_count ??
+        rawPayload?.totalCount ??
+        rawEnvelope?.total ??
+        rawEnvelope?.total_count ??
+        rawEnvelope?.totalCount,
+      records.length,
+    ),
+  );
+
+  return {
+    records,
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export async function getSkillAssetDetail(skillId: string): Promise<SkillAssetRecord | null> {

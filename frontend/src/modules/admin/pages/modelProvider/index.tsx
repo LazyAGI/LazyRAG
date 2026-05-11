@@ -1465,7 +1465,7 @@ export default function ModelProviderPage() {
                             className="model-provider-expand-button"
                             onClick={() => void toggleProviderModels(provider.id)}
                           >
-                            {isExpanded ? t("modelProvider.hideModels") : t("modelProvider.showModels")}
+                            {isExpanded ? t("modelProvider.collapseGroups") : t("modelProvider.expandGroups")}
                             {isExpanded ? <UpOutlined /> : <DownOutlined />}
                           </Button>
                           <Popconfirm
@@ -1517,7 +1517,7 @@ export default function ModelProviderPage() {
                                         loading={!!loadingGroupModelIds[`${provider.id}:${group.id}`]}
                                         onClick={() => void toggleGroupModels(provider.id, group.id)}
                                       >
-                                        {expandedGroupIds[`${provider.id}:${group.id}`] ? t("modelProvider.hideModels") : t("modelProvider.showModels")}
+                                        {expandedGroupIds[`${provider.id}:${group.id}`] ? t("modelProvider.collapseModels") : t("modelProvider.expandModels")}
                                         {expandedGroupIds[`${provider.id}:${group.id}`] ? <UpOutlined /> : <DownOutlined />}
                                       </Button>
                                       <Button icon={<PlusCircleOutlined />} onClick={() => openCustomModelModal(provider, group)}>
