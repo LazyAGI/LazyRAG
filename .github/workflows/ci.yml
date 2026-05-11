@@ -1,3 +1,4 @@
+# CI: pull_request_target -> lint, doc_check -> wait_approve (env: protest) -> tests
 name: CI
 
 on:

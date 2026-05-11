@@ -4,6 +4,7 @@ import inspect
 import json
 import logging
 import pkgutil
+import threading
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -49,6 +50,7 @@ class ToolRegistry:
         self._specs: dict[str, ToolSpec] = {}
         self._discovery_package = discovery_package
         self._discovered = False
+        self._lock = threading.Lock()
 
     def register(self, spec: ToolSpec, *, replace: bool = False) -> None:
         if replace or spec.name not in self._specs:
@@ -57,11 +59,14 @@ class ToolRegistry:
     def _ensure_discovered(self) -> None:
         if self._discovered:
             return
-        try:
-            _discover_package(self._discovery_package)
-        except Exception as exc:
-            _log.warning('Tool auto-discovery failed: %s', exc)
-        self._discovered = True
+        with self._lock:
+            if self._discovered:
+                return
+            try:
+                _discover_package(self._discovery_package)
+            except Exception as exc:
+                _log.warning('Tool auto-discovery failed: %s', exc)
+            self._discovered = True
 
     def get(self, name: str) -> ToolSpec:
         self._ensure_discovered()
