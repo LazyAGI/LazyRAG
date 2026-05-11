@@ -103,8 +103,8 @@ func SetSelectedModels(w http.ResponseWriter, r *http.Request) {
 	for _, item := range req.Selections {
 		modelType := strings.TrimSpace(item.ModelType)
 		modelID := strings.TrimSpace(item.ModelID)
-		if modelType == "" || modelID == "" {
-			common.ReplyErr(w, "model_type and model_id are required", http.StatusBadRequest)
+		if modelType == "" {
+			common.ReplyErr(w, "model_type is required", http.StatusBadRequest)
 			return
 		}
 		if _, ok := allowedSelectionModelTypes[modelType]; !ok {
@@ -116,6 +116,9 @@ func SetSelectedModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		selectionByType[modelType] = modelID
+		if modelID == "" {
+			continue
+		}
 		if _, exists := modelIDSet[modelID]; !exists {
 			modelIDSet[modelID] = struct{}{}
 			modelIDs = append(modelIDs, modelID)
@@ -123,17 +126,22 @@ func SetSelectedModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var models []orm.UserModelProviderGroupModel
-	if err := db.WithContext(r.Context()).
-		Where("id IN ? AND create_user_id = ? AND deleted_at IS NULL", modelIDs, userID).
-		Find(&models).Error; err != nil {
-		common.ReplyErr(w, "query models failed", http.StatusInternalServerError)
-		return
+	if len(modelIDs) > 0 {
+		if err := db.WithContext(r.Context()).
+			Where("id IN ? AND create_user_id = ? AND deleted_at IS NULL", modelIDs, userID).
+			Find(&models).Error; err != nil {
+			common.ReplyErr(w, "query models failed", http.StatusInternalServerError)
+			return
+		}
 	}
 	modelByID := make(map[string]orm.UserModelProviderGroupModel, len(models))
 	for _, m := range models {
 		modelByID[m.ID] = m
 	}
 	for _, modelID := range selectionByType {
+		if modelID == "" {
+			continue
+		}
 		if _, ok := modelByID[modelID]; !ok {
 			common.ReplyErr(w, "model not found", http.StatusBadRequest)
 			return
@@ -143,6 +151,13 @@ func SetSelectedModels(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	if err := db.WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
 		for modelType, modelID := range selectionByType {
+			if modelID == "" {
+				if err := tx.Where("user_id = ? AND model_type = ?", userID, modelType).
+					Delete(&orm.UserSelectedModel{}).Error; err != nil {
+					return err
+				}
+				continue
+			}
 			var row orm.UserSelectedModel
 			err := tx.Where("user_id = ? AND model_type = ?", userID, modelType).Take(&row).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
