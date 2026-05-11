@@ -1,5 +1,6 @@
-# Stage: base - LazyLLM runtime from GitHub tarball + minimal deps. RAG wheels come from requirements.txt.
-FROM python:3.11-slim AS base
+# Stage: base - lazyllm[rag] only. Rebuilt only when upgrading lazyllm version.
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}python:3.11-slim AS base
 WORKDIR /app
 
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian

@@ -321,6 +321,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
             />
             <Button
               type="link"
+              className="chat-selector-action-button"
               disabled={knowledgeLoading}
               onClick={() => {
                 // setSearchValue('');
@@ -354,13 +355,13 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                     setKnowledgeLoading(false);
                   });
               }}
-              style={{ padding: 0, marginLeft: 16 }}
             >
               {t("chat.reset")}
             </Button>
             {selectedIds.length !== knowledgeBaseList.length ? (
               <Button
                 type="link"
+                className="chat-selector-action-button"
                 disabled={knowledgeLoading}
                 onClick={() => {
                   const allIds = knowledgeBaseList.map(
@@ -373,14 +374,13 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
                     [],
                   );
                 }}
-                style={{ padding: 0, marginLeft: 16 }}
               >
                 {t("chat.selectAll")}
               </Button>
             ) : (
               <Button
                 type="link"
-                style={{ padding: 0, marginLeft: 16 }}
+                className="chat-selector-action-button"
                 onClick={() => {
                   setSelectedIds(defaultKnowledgeId);
                   onChange?.(

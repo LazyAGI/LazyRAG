@@ -53,6 +53,7 @@ interface FeishuPendingOAuthSession {
   connectionId: string;
   state: string;
   redirectUri: string;
+  returnUrl: string;
 }
 
 export type FeishuDataSourceOAuthMessage =
@@ -81,6 +82,29 @@ function buildAppUrlFromApiOrigin(path: string) {
   const baseName = getBaseName().replace(/\/$/, "");
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${getApiOrigin()}${baseName}${normalizedPath}`;
+}
+
+function normalizeSameOriginReturnUrl(value?: string) {
+  const fallbackUrl = getDataSourceManagementUrl();
+
+  if (!value) {
+    return fallbackUrl;
+  }
+
+  try {
+    const url = new URL(value, window.location.href);
+    if (url.origin !== window.location.origin) {
+      return fallbackUrl;
+    }
+
+    if (url.pathname.endsWith("/oauth/feishu/data-source/callback")) {
+      return fallbackUrl;
+    }
+
+    return url.href;
+  } catch {
+    return fallbackUrl;
+  }
 }
 
 function getAuthHeaders() {
@@ -298,6 +322,15 @@ export function getDataSourceManagementUrl() {
   return `${window.location.origin}${getBaseName()}/data-sources`;
 }
 
+export function getFeishuDataSourceOAuthReturnUrl(state?: string | null) {
+  if (!state) {
+    return getDataSourceManagementUrl();
+  }
+
+  const pending = loadPendingFeishuOAuthSession(state);
+  return normalizeSameOriginReturnUrl(pending?.returnUrl);
+}
+
 export function openCenteredPopup(url: string, title: string) {
   const width = 560;
   const height = 760;
@@ -330,6 +363,7 @@ export async function requestFeishuDataSourceAuthorizeUrl(input: {
   appId: string;
   appSecret: string;
   scopes: string[];
+  returnUrl?: string;
 }) {
   const redirectUri = getFeishuDataSourceCallbackUrl();
 
@@ -372,6 +406,7 @@ export async function requestFeishuDataSourceAuthorizeUrl(input: {
     connectionId: connectionId.trim(),
     state: state.trim(),
     redirectUri,
+    returnUrl: normalizeSameOriginReturnUrl(input.returnUrl || window.location.href),
   });
 
   return authorizeUrl;
