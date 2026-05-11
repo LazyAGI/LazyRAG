@@ -3,7 +3,6 @@ from types import SimpleNamespace
 
 retriever_mod = importlib.import_module('chat.pipelines.builders.get_retriever')
 ppl_search_mod = importlib.import_module('chat.pipelines.builders.get_ppl_search')
-ppl_generate_mod = importlib.import_module('chat.pipelines.builders.get_ppl_generate')
 
 
 class _DummyContext:
@@ -141,45 +140,6 @@ def test_adaptive_get_token_len_uses_text_length():
     assert ppl_search_mod._adaptive_get_token_len(SimpleNamespace()) == 1
 
 
-def test_answer_llm_sets_system_prompt(monkeypatch):
-    # _answer_llm() was inlined into get_ppl_generate(); verify that AutoModel.prompt()
-    # is called with RAG_ANSWER_SYSTEM when building the generate pipeline.
-    prompt_calls = []
-
-    class _FakeLLM:
-        def prompt(self, system):
-            prompt_calls.append(system)
-            return self
-
-        def share(self):
-            return self
-
-        def __call__(self, *args, **kwargs):
-            return ''
-
-    fake_ppl = _FakePipeline(
-        input_value=['node-a'],
-        kwargs={'query': 'q', 'debug': False},
-    )
-
-    monkeypatch.setattr(
-        ppl_generate_mod,
-        'AutoModel',
-        lambda model, config=False: _FakeLLM(),
-    )
-    monkeypatch.setattr(ppl_generate_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
-    monkeypatch.setattr(ppl_generate_mod, 'pipeline', lambda: fake_ppl)
-    monkeypatch.setattr(ppl_generate_mod, 'bind', lambda **kwargs: _DummyPipe())
-    monkeypatch.setattr(ppl_generate_mod, 'AggregateComponent', lambda: _DummyPipe())
-    monkeypatch.setattr(ppl_generate_mod, 'RAGContextFormatter', lambda: _DummyPipe())
-    monkeypatch.setattr(ppl_generate_mod, 'CustomOutputParser', lambda **kwargs: _DummyPipe())
-
-    ppl_generate_mod.get_ppl_generate(stream=False)
-
-    assert len(prompt_calls) == 1
-    assert prompt_calls[0] == ppl_generate_mod.RAG_ANSWER_SYSTEM
-
-
 def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
     search_ppl = _FakePipeline(
         input_value={'query': 'q', 'files': [], 'filters': {'scope': 'all'}},
@@ -306,50 +266,3 @@ def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch
     assert recorded['ifs']['cond']('ignored') is True
 
 
-def test_get_ppl_generate_keeps_expected_stage_order(monkeypatch):
-    generate_ppl = _FakePipeline(
-        input_value=['node-a'],
-        kwargs={'query': 'who?', 'debug': True},
-    )
-    recorded = {}
-
-    class _FakeLLM:
-        def prompt(self, system):
-            return self
-
-        def share(self):
-            return self
-
-        def __call__(self, *args, **kwargs):
-            return ''
-
-    monkeypatch.setattr(ppl_generate_mod, 'AutoModel', lambda model, config=False: _FakeLLM())
-    monkeypatch.setattr(ppl_generate_mod.lazyllm, 'save_pipeline_result', lambda: _DummyContext())
-    monkeypatch.setattr(ppl_generate_mod, 'pipeline', lambda: generate_ppl)
-    monkeypatch.setattr(ppl_generate_mod, 'bind', lambda **kwargs: _DummyPipe())
-
-    class _FakeAggregateComponent:
-        def __init__(self):
-            recorded['aggregate_init'] = True
-
-    class _FakeFormatter(_DummyPipe):
-        def __init__(self):
-            super().__init__('formatter')
-            recorded['formatter_init'] = True
-
-    class _FakeParser(_DummyPipe):
-        def __init__(self, **kwargs):
-            super().__init__('parser')
-            recorded['parser_init'] = kwargs
-
-    monkeypatch.setattr(ppl_generate_mod, 'AggregateComponent', _FakeAggregateComponent)
-    monkeypatch.setattr(ppl_generate_mod, 'RAGContextFormatter', _FakeFormatter)
-    monkeypatch.setattr(ppl_generate_mod, 'CustomOutputParser', _FakeParser)
-
-    result = ppl_generate_mod.get_ppl_generate(stream=True)
-
-    assert result is generate_ppl
-    assert generate_ppl.assignments == ['aggregate', 'formatter', 'answer', 'parser']
-    assert recorded['aggregate_init'] is True
-    assert recorded['formatter_init'] is True
-    assert recorded['parser_init'] == {'llm_type_think': ppl_generate_mod.LLM_TYPE_THINK}

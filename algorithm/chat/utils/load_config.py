@@ -23,7 +23,7 @@ _TYPE_TO_SLOT: Dict[str, str] = {
 # Prefix convention for embed-type roles in the flat yaml format.
 # Any top-level key starting with this prefix is treated as an embed role.
 _EMBED_KEY_PREFIX = 'embed_'
-_EMBED_TYPES = {'embed', 'rerank', 'cross_modal_embed'}
+_EMBED_TYPES = {'embed', 'cross_modal_embed'}
 _IMAGE_EMBED_TYPES = {'cross_modal_embed'}
 
 
