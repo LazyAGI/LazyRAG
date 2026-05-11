@@ -1091,6 +1091,7 @@ export default function DataSourceManagement() {
         appId: feishuAppSetup.appId,
         appSecret: feishuAppSetup.appSecret,
         scopes: FEISHU_DEFAULT_SCOPES,
+        returnUrl: window.location.href,
       });
 
       const popup = openCenteredPopup(authorizeUrl, t("admin.dataSourceFeishuAuthWindowTitle"));

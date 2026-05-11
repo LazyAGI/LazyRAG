@@ -274,6 +274,10 @@ export const workflowResultLabels: Record<WorkflowResultKind, string> = {
   abtests: "A/B 测试结果",
 };
 
+export function getSelfEvolutionWorkflowImageSrc(language?: string) {
+  return language?.startsWith("en") ? "/Lazy-e.png" : "/Lazy-c.png";
+}
+
 export function createCoreAgentApiClient() {
   const baseUrl = BASE_URL || window.location.origin;
   return new CoreDefaultApi(
@@ -1159,7 +1163,6 @@ function normalizeHistoryEventMessages(payload: ThreadRestorePayload): ChatMessa
   const nestedRoundRecords = rounds.flatMap((item) =>
     isRecord(item)
       ? [
-          item,
           ...getNestedArrayField(item, ["messages"]),
           ...getNestedArrayField(item, ["events"]),
           ...getNestedArrayField(item, ["records"]),
@@ -1237,8 +1240,11 @@ export function normalizeThreadHistoryMessages(payload: ThreadRestorePayload): C
     .filter((item): item is Record<string, unknown> => isRecord(item))
     .flatMap<ChatMessage>((item, index) => {
       const requestPayload = getNestedRecordField(item, ["request_payload"]);
-      const userContent = getHistoryMessageContent(requestPayload);
+      const userContent =
+        getStringField(item, ["user_message", "userMessage"]) ||
+        getHistoryMessageContent(requestPayload);
       const assistantContent =
+        getStringField(item, ["assistant_message", "assistantMessage"]) ||
         getHistoryAssistantDeltaContent(item.records) ||
         getHistoryAssistantDeltaContent(item.assistant_message);
       const roundId = getStringField(item, ["round_id", "id"]) || `round-${index + 1}`;
@@ -1914,6 +1920,10 @@ export function buildCheckpointWaitPrompt(payload: Record<string, unknown> | und
       getStringField(eventData, ["completed_task_id", "task_id"]) ||
       getStringField(artifacts, ["task_id"]),
   };
+}
+
+export function isTerminalAbtestCheckpoint(prompt: CheckpointWaitPrompt | undefined) {
+  return prompt?.completedStageLabel === stageLabels.abtest && !prompt.nextStage;
 }
 
 export function buildFailureRetryPrompt(

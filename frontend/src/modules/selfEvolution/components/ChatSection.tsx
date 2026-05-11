@@ -1,6 +1,7 @@
 import { type ChangeEvent, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { Input, Typography } from "antd";
 import { ClockCircleFilled, MessageOutlined } from "@ant-design/icons";
+import { useTranslation } from "react-i18next";
 import {
   type SelfEvolutionChatMessage,
   type SelfEvolutionCheckpointPrompt,
@@ -19,12 +20,13 @@ export function ChatMessageStream({
   messages,
   streamRef,
 }: ChatMessageStreamProps) {
+  const { t } = useTranslation();
   return (
     <div
       ref={streamRef}
       className="self-evolution-chat-stream"
       aria-live="polite"
-      aria-label="会话消息流"
+      aria-label={t("selfEvolutionRun.chatStreamAria")}
     >
       {messages.length > 0 ? (
         messages.map((item) => (
@@ -39,8 +41,8 @@ export function ChatMessageStream({
       ) : (
         <Paragraph className="self-evolution-chat-empty">
           {isAutoInteractionActive
-            ? "自动处理已启动，过程消息会展示在这里。"
-            : "当前会话暂无消息，请在底部输入指令开始。"}
+            ? t("selfEvolutionRun.autoMessagesPlaceholder")
+            : t("selfEvolutionRun.emptyChatPlaceholder")}
         </Paragraph>
       )}
     </div>
@@ -48,10 +50,11 @@ export function ChatMessageStream({
 }
 
 export function AutoInteractionStatus() {
+  const { t } = useTranslation();
   return (
     <div className="self-evolution-auto-interaction-status" role="status" aria-live="polite">
       <MessageOutlined />
-      <Text>自动处理进行中，系统会按流程推进并在上方展示过程消息。</Text>
+      <Text>{t("selfEvolutionRun.autoInteractionStatus")}</Text>
     </div>
   );
 }
@@ -77,6 +80,7 @@ export function ChatComposer({
   renderKnowledgeAndModeTools,
   renderSendButton,
 }: ChatComposerProps) {
+  const { t } = useTranslation();
   const onInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onPromptChange(event.target.value);
   };
@@ -117,25 +121,27 @@ export function ChatComposer({
             disabled={isSendingMessage}
           >
             {isSendingMessage
-              ? pendingCheckpointWaitPrompt.command === "重试"
-                ? "重试中..."
-                : "继续中..."
+              ? pendingCheckpointWaitPrompt.command === t("selfEvolutionRun.retry")
+                ? t("selfEvolutionRun.retrying")
+                : t("selfEvolutionRun.continuing")
               : pendingCheckpointWaitPrompt.command}
           </button>
         </div>
       )}
 
-      {!isCheckpointWaiting && (
-        <Input.TextArea
-          value={prompt}
-          onChange={onInputChange}
-          autoSize={{ minRows: 2, maxRows: 4 }}
-          className="self-evolution-chatlike-input"
-          placeholder="继续输入指令，例如：请先扩展数据集样本，再进入评测阶段。"
-          aria-label="继续输入自进化指令"
-          onPressEnter={onInputPressEnter}
-        />
-      )}
+      <Input.TextArea
+        value={prompt}
+        onChange={onInputChange}
+        autoSize={{ minRows: 2, maxRows: 4 }}
+        className="self-evolution-chatlike-input"
+        placeholder={
+          isCheckpointWaiting
+            ? t("selfEvolutionRun.checkpointInputPlaceholder")
+            : t("selfEvolutionRun.inputPlaceholder")
+        }
+        aria-label={t("selfEvolutionRun.inputAria")}
+        onPressEnter={onInputPressEnter}
+      />
 
       <div className="self-evolution-chat-composer-footer">
         <div className="self-evolution-chat-composer-left">
@@ -144,7 +150,7 @@ export function ChatComposer({
 
         <div className="self-evolution-chatlike-actions">
           <Text className="self-evolution-chatlike-helper">
-            {isSendingMessage ? "消息发送中" : activeStepText}
+            {isSendingMessage ? t("selfEvolutionRun.sendingMessage") : activeStepText}
           </Text>
           {renderSendButton()}
         </div>

@@ -1,13 +1,14 @@
 import { Modal, Tag, Typography } from "antd";
 import { HistoryOutlined, LoadingOutlined } from "@ant-design/icons";
+import { useTranslation } from "react-i18next";
 import {
   type SelfEvolutionLaunchOptionCard,
   type SelfEvolutionSummaryItem,
   type SelfEvolutionWorkflowStep,
 } from "./types";
+import { getSelfEvolutionWorkflowImageSrc } from "../shared";
 
 const { Paragraph, Text } = Typography;
-const launchConfigHint = "请先完成 1-4 步配置：选择知识库、评测集策略、补充评测集和过程干预。点击开始后，系统会创建本轮会话并自动进入 Step 1。";
 
 type LaunchOptionGridProps = {
   optionCards: SelfEvolutionLaunchOptionCard[];
@@ -15,11 +16,12 @@ type LaunchOptionGridProps = {
 };
 
 export function LaunchOptionGrid({ optionCards, className = "" }: LaunchOptionGridProps) {
+  const { t } = useTranslation();
   return (
     <div
       className={`self-evolution-launch-compact-grid ${className}`.trim()}
       role="list"
-      aria-label="启动配置选项"
+      aria-label={t("selfEvolutionRun.launchOptionsAria")}
     >
       {optionCards.map((item) => (
         <article
@@ -33,7 +35,7 @@ export function LaunchOptionGrid({ optionCards, className = "" }: LaunchOptionGr
             </span>
             <div className="self-evolution-launch-compact-copy">
               <Text className="self-evolution-launch-card-title">{item.title}</Text>
-              <Text className="self-evolution-launch-card-current-value">当前：{item.currentValue}</Text>
+              <Text className="self-evolution-launch-card-current-value">{t("selfEvolutionRun.currentValue", { value: item.currentValue })}</Text>
               <Text className={`self-evolution-launch-compact-desc${item.isDescSingleLine ? " is-single-line" : ""}`}>
                 {item.description}
               </Text>
@@ -92,6 +94,7 @@ export function NewSessionConfigModal({
   onCancel,
   onConfirm,
 }: NewSessionConfigModalProps) {
+  const { t } = useTranslation();
   return (
     <Modal
       open={open}
@@ -104,45 +107,45 @@ export function NewSessionConfigModal({
       destroyOnClose={false}
       title={null}
     >
-      <section className="self-evolution-new-session-shell" aria-label="新会话五步配置">
+      <section className="self-evolution-new-session-shell" aria-label={t("selfEvolutionRun.newSessionConfigAria")}>
         <header className="self-evolution-new-session-head">
-          <Text className="self-evolution-new-session-kicker">新会话 · 五步重选</Text>
+          <Text className="self-evolution-new-session-kicker">{t("selfEvolutionRun.newSessionKicker")}</Text>
           <Typography.Title level={4} className="self-evolution-new-session-title">
-            创建前请重新确认本轮配置
+            {t("selfEvolutionRun.newSessionTitle")}
           </Typography.Title>
           <Text className="self-evolution-new-session-subtitle">
-            {launchConfigHint}
+            {t("selfEvolutionRun.launchConfigHint")}
           </Text>
         </header>
 
-        <div className="self-evolution-new-session-step-rail" aria-label="五步流程状态">
+        <div className="self-evolution-new-session-step-rail" aria-label={t("selfEvolutionRun.fiveStepStatusAria")}>
           <span className={`self-evolution-new-session-step-chip${isStepOneDone ? " is-done" : ""}`}>
-            1. 选择知识库
+            {t("selfEvolutionRun.stepChipKnowledgeBase")}
           </span>
           <span className={`self-evolution-new-session-step-chip${isStepTwoDone ? " is-done" : ""}`}>
-            2. 已有评测集
+            {t("selfEvolutionRun.stepChipExistingEval")}
           </span>
           <span className={`self-evolution-new-session-step-chip${isStepThreeDone ? " is-done" : ""}`}>
-            3. 补充评测集
+            {t("selfEvolutionRun.stepChipExtraEval")}
           </span>
           <span className={`self-evolution-new-session-step-chip${isStepFourDone ? " is-done" : ""}`}>
-            4. 过程干预
+            {t("selfEvolutionRun.stepChipIntervention")}
           </span>
-          <span className="self-evolution-new-session-step-chip is-focus">5. 开始</span>
+          <span className="self-evolution-new-session-step-chip is-focus">{t("selfEvolutionRun.stepChipStart")}</span>
         </div>
 
         <LaunchOptionGrid optionCards={optionCards} className="self-evolution-new-session-grid" />
 
         <footer className="self-evolution-launch-start-bar self-evolution-new-session-start-bar">
           <div className="self-evolution-launch-start-copy">
-            <Text className="self-evolution-launch-start-step">5. 开始</Text>
-            <Text className="self-evolution-launch-start-title">确认后启动新会话流程</Text>
-            <LaunchSummary summaryItems={summaryItems} ariaLabel="新会话配置摘要" />
+            <Text className="self-evolution-launch-start-step">{t("selfEvolutionRun.stepChipStart")}</Text>
+            <Text className="self-evolution-launch-start-title">{t("selfEvolutionRun.newSessionStartTitle")}</Text>
+            <LaunchSummary summaryItems={summaryItems} ariaLabel={t("selfEvolutionRun.newSessionSummaryAria")} />
           </div>
 
           <div className="self-evolution-new-session-actions">
             <button type="button" className="self-evolution-new-session-cancel" onClick={onCancel}>
-              取消
+              {t("common.cancel")}
             </button>
             <button
               type="button"
@@ -150,7 +153,7 @@ export function NewSessionConfigModal({
               onClick={onConfirm}
               disabled={isConfirmDisabled}
             >
-              {isConfirming ? "启动中..." : "开始新会话"}
+              {isConfirming ? t("selfEvolutionRun.starting") : t("selfEvolutionRun.startNewSession")}
             </button>
           </div>
         </footer>
@@ -180,36 +183,38 @@ export function SelfEvolutionHomeView({
   onOpenHistorySessionModal,
   onStartSession,
 }: SelfEvolutionHomeViewProps) {
+  const { t, i18n } = useTranslation();
+  const workflowImageSrc = getSelfEvolutionWorkflowImageSrc(i18n.resolvedLanguage || i18n.language);
   return (
     <div className="self-evolution-chatlike-page admin-page">
       <header className="self-evolution-chatlike-top">
         <Tag color="blue" className="self-evolution-chatlike-tag">
-          单线程会话
+          {t("selfEvolutionRun.singleThreadSession")}
         </Tag>
         <div className="self-evolution-chatlike-top-actions">
           <button
             type="button"
             className="self-evolution-chatlike-top-history"
             onClick={onOpenHistorySessionModal}
-            aria-label="打开历史会话列表"
+            aria-label={t("selfEvolutionRun.openHistoryAria")}
           >
             {isLoadingThreadHistoryList ? <LoadingOutlined spin /> : <HistoryOutlined />}
-            <span>历史会话</span>
+            <span>{t("selfEvolutionRun.historySessions")}</span>
           </button>
         </div>
       </header>
 
-      <section className="self-evolution-welcome-container" aria-label="欢迎与配置">
+      <section className="self-evolution-welcome-container" aria-label={t("selfEvolutionRun.welcomeConfigAria")}>
         <div className="self-evolution-welcome-shell">
           <figure className="self-evolution-welcome-visual">
             <img
               className="self-evolution-welcome-visual-image"
-              src="/Lazy.png"
-              alt="自进化系统五步流程示意图：生成数据集、评测报告、分析报告、代码优化、A/B 测试"
+              src={workflowImageSrc}
+              alt={t("selfEvolutionRun.workflowImageAlt")}
             />
             <figcaption className="self-evolution-welcome-visual-meta">
-              <Text className="self-evolution-welcome-visual-title">自进化执行路径</Text>
-              <div className="self-evolution-welcome-visual-badges" role="list" aria-label="流程状态">
+              <Text className="self-evolution-welcome-visual-title">{t("selfEvolutionRun.executionPath")}</Text>
+              <div className="self-evolution-welcome-visual-badges" role="list" aria-label={t("selfEvolutionRun.workflowStatusAria")}>
                 {workflowSteps.map((step) => (
                   <span
                     key={`welcome-badge-${step.renderKey || step.id}`}
@@ -225,9 +230,9 @@ export function SelfEvolutionHomeView({
 
           <div className="self-evolution-chatlike-launchpad-content">
             <div className="self-evolution-chatlike-launchpad-header">
-              <Text className="self-evolution-chatlike-launchpad-kicker">启动配置</Text>
+              <Text className="self-evolution-chatlike-launchpad-kicker">{t("selfEvolutionRun.launchConfig")}</Text>
               <Paragraph className="self-evolution-chatlike-launchpad-subtitle">
-                {launchConfigHint}
+                {t("selfEvolutionRun.launchConfigHint")}
               </Paragraph>
             </div>
 
@@ -235,14 +240,14 @@ export function SelfEvolutionHomeView({
 
             <div className="self-evolution-launch-start-bar" aria-labelledby="self-evolution-launch-start-title">
               <div className="self-evolution-launch-start-copy">
-                <Text className="self-evolution-launch-start-step">5. 开始</Text>
+                <Text className="self-evolution-launch-start-step">{t("selfEvolutionRun.stepChipStart")}</Text>
                 <Text className="self-evolution-launch-start-title" id="self-evolution-launch-start-title">
-                  确认后启动本轮优化
+                  {t("selfEvolutionRun.startCurrentOptimization")}
                 </Text>
                 <LaunchSummary
                   summaryItems={launchSummaryItems}
                   id="self-evolution-launch-summary"
-                  ariaLabel="当前配置摘要"
+                  ariaLabel={t("selfEvolutionRun.currentSummaryAria")}
                 />
               </div>
 
@@ -253,7 +258,7 @@ export function SelfEvolutionHomeView({
                 disabled={!isLaunchConfigValid || isStartingSession}
                 aria-describedby="self-evolution-launch-summary"
               >
-                {isStartingSession ? "启动中..." : "开始"}
+                {isStartingSession ? t("selfEvolutionRun.starting") : t("selfEvolutionRun.start")}
               </button>
             </div>
           </div>
