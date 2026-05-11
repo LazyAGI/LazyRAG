@@ -556,7 +556,7 @@ services:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: /app/common/runtime_models.online.yaml
       PYTHONPATH: /app
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
@@ -628,7 +628,7 @@ services:
       LAZYRAG_MEMORY_REVIEW_INTERVAL: "1"
       LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
       LAZYRAG_SKILL_REVIEW_DEBUG: "false"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: /app/common/runtime_models.online.yaml
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
