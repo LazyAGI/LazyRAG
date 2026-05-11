@@ -18,8 +18,9 @@ import os
 import sys
 import tempfile
 
-from chat.utils.load_config import get_retrieval_settings
 from lazyllm import Document, Retriever
+from chat.pipelines.builders import get_retriever as retriever_builder
+from chat.utils.load_config import get_embed_keys
 
 
 def run_single(document, payload):
@@ -43,9 +44,16 @@ def run_config(document, payload):
         ) as handle:
             handle.write(payload['config_content'])
             config_path = handle.name
-        settings = get_retrieval_settings(config_path)
+        original_get_embed_keys = retriever_builder.get_embed_keys
+        try:
+            get_embed_keys.cache_clear()
+            retriever_builder.get_embed_keys = lambda: get_embed_keys(config_path)
+            retriever_configs = retriever_builder._build_default_retriever_configs()
+        finally:
+            retriever_builder.get_embed_keys = original_get_embed_keys
+            get_embed_keys.cache_clear()
         results = []
-        for cfg in settings.retriever_configs:
+        for cfg in retriever_configs:
             cfg = dict(cfg)
             cfg['output_format'] = 'dict'
             retriever = Retriever(document, **cfg)
@@ -141,11 +149,21 @@ def _run_config_retrievers(
 ) -> List[Dict[str, Any]]:
     """Run all retrievers defined in runtime_models config."""
     from lazyllm import Retriever
-    from chat.utils.load_config import get_retrieval_settings
+    from chat.pipelines.builders import get_retriever as retriever_builder
+    from chat.utils.load_config import get_embed_keys
 
-    settings = get_retrieval_settings(config_path)
+    original_get_embed_keys = retriever_builder.get_embed_keys
+    try:
+        if config_path:
+            get_embed_keys.cache_clear()
+            retriever_builder.get_embed_keys = lambda: get_embed_keys(config_path)
+        retriever_configs = retriever_builder._build_default_retriever_configs()
+    finally:
+        if config_path:
+            retriever_builder.get_embed_keys = original_get_embed_keys
+            get_embed_keys.cache_clear()
     all_results = []
-    for cfg in settings.retriever_configs:
+    for cfg in retriever_configs:
         cfg = dict(cfg)
         cfg['output_format'] = 'dict'
         retriever = Retriever(document, **cfg)

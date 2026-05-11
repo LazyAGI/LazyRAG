@@ -13,6 +13,10 @@ interface ApiEnvelope<T> {
 }
 
 interface ManagedStateItem {
+  auto_evo?: boolean;
+  auto_evo_apply_status?: string;
+  auto_evo_generation?: number;
+  auto_evo_error?: string;
   content?: string;
   content_summary?: string;
   has_pending_review_suggestions?: boolean;
@@ -29,10 +33,14 @@ export interface PreferenceAssetRecord {
   title: string;
   content: string;
   protect: boolean;
+  autoEvo: boolean;
   hasPendingReviewSuggestions?: boolean;
   resourceType?: string;
   summary?: string;
   suggestionStatus?: string;
+  autoEvoApplyStatus?: string;
+  autoEvoGeneration?: number;
+  autoEvoError?: string;
 }
 
 export interface PreferenceSuggestionPayload {
@@ -103,6 +111,7 @@ export interface EvolutionSuggestionRecord {
 export interface EvolutionSuggestionListOptions {
   page?: number;
   pageSize?: number;
+  statuses?: string[];
   evolutionId?: string;
   resourceId?: string;
   resourceType?: string;
@@ -386,11 +395,7 @@ export const serializePreferenceContent = (item: {
   content: string;
   protect?: boolean;
 }) => {
-  const title = sanitizeInlineValue(item.title);
-  const content = item.content.trim();
-  const protect = item.protect ? "true" : "false";
-
-  return `---\ntitle: ${title}\nprotect: ${protect}\n---\n${content}`;
+  return item.content.trim();
 };
 
 export const parsePreferenceContent = (
@@ -410,6 +415,7 @@ export const parsePreferenceContent = (
     title,
     content: parsedBody,
     protect: frontMatter.protect ?? Boolean(fallback?.protect),
+    autoEvo: Boolean(fallback?.autoEvo),
     resourceType: fallback?.resourceType,
     summary: fallback?.summary,
   };
@@ -435,11 +441,13 @@ const normalizeManagedPreference = (item: ManagedStateItem): PreferenceAssetReco
     return null;
   }
 
+  const backendAutoEvo = toBoolean(item.auto_evo, false);
   const parsed = parsePreferenceContent(content, {
     id: id || title || summary || "preference",
     title: title || summary || "",
     content,
     protect: false,
+    autoEvo: backendAutoEvo,
     resourceType,
     summary,
   });
@@ -449,6 +457,9 @@ const normalizeManagedPreference = (item: ManagedStateItem): PreferenceAssetReco
     hasPendingReviewSuggestions,
     title: sanitizeInlineValue(title) || parsed.title,
     suggestionStatus,
+    autoEvoApplyStatus: toStringValue(item.auto_evo_apply_status, ""),
+    autoEvoGeneration: toNumberValue(item.auto_evo_generation, 0),
+    autoEvoError: toStringValue(item.auto_evo_error, ""),
   };
 };
 
@@ -523,6 +534,12 @@ export async function listEvolutionSuggestions(
   }
   if (options.keyword) {
     params.set("keyword", options.keyword);
+  }
+  if (options.statuses?.length) {
+    options.statuses
+      .map((status) => status.trim())
+      .filter(Boolean)
+      .forEach((status) => params.append("status", status));
   }
 
   const response = await axiosInstance.get(
@@ -614,12 +631,17 @@ export async function upsertPreferenceAsset(item: {
   title: string;
   content: string;
   protect?: boolean;
+  autoEvo?: boolean;
   resourceType?: string;
 }): Promise<PreferenceAssetRecord> {
   const endpoint = isMemoryResourceType(item.resourceType) ? "memory" : "user-preference";
-  const response = await axiosInstance.put(`${coreBasePath}/${endpoint}`, {
+  const requestPayload: RawObject = {
     content: serializePreferenceContent(item),
-  });
+  };
+  if (item.autoEvo !== undefined) {
+    requestPayload.auto_evo = Boolean(item.autoEvo);
+  }
+  const response = await axiosInstance.put(`${coreBasePath}/${endpoint}`, requestPayload);
   const records = extractManagedPreferenceRecords(response.data);
   const payload = pickUpsertedPreferenceRecord(records, item);
 
@@ -629,6 +651,7 @@ export async function upsertPreferenceAsset(item: {
       id: item.title,
       title: item.title,
       protect: Boolean(item.protect),
+      autoEvo: Boolean(item.autoEvo),
       resourceType: item.resourceType,
     })
   );

@@ -24,16 +24,26 @@ export function HistorySessionItem({
   onDelete,
 }: HistorySessionItemProps) {
   return (
-    <div className="self-evolution-history-modal-item" role="listitem">
+    <div
+      className={`self-evolution-history-modal-item${entry.isCurrent ? " is-current" : ""}`}
+      role="listitem"
+    >
       <button
         type="button"
         className="self-evolution-history-modal-item-select"
         onClick={() => onSelect(entry)}
-        disabled={isDeleting}
+        disabled={isDeleting || entry.isCurrent}
+        aria-current={entry.isCurrent ? "true" : undefined}
       >
         <div className="self-evolution-history-modal-item-main">
           <div className="self-evolution-history-modal-item-title-row">
             <strong>{entry.title}</strong>
+            {entry.isCurrent && (
+              <span className="self-evolution-history-modal-current-badge">
+                <span className="self-evolution-history-modal-current-dot" />
+                当前会话
+              </span>
+            )}
             <span className={`self-evolution-history-modal-item-badge is-${entry.source}`}>
               {entry.source === "thread" ? "线程会话" : "本地会话"}
             </span>
@@ -47,7 +57,7 @@ export function HistorySessionItem({
             <span className="self-evolution-history-modal-item-status">{entry.status}</span>
           )}
           <span>{entry.updatedAt}</span>
-          <span>进入</span>
+          <span>{entry.isCurrent ? "正在查看" : "进入"}</span>
         </div>
       </button>
       <button

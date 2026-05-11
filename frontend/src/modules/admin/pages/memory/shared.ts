@@ -19,7 +19,10 @@ export const GLOSSARY_CONTENT_MAX_LENGTH = 300;
 export interface BaseAsset {
   id: string;
   content: string;
-  protect?: boolean;
+  autoEvo?: boolean;
+  autoEvoApplyStatus?: string;
+  autoEvoGeneration?: number;
+  autoEvoError?: string;
 }
 
 export interface StructuredAsset extends BaseAsset {
@@ -87,7 +90,7 @@ export interface AssetDraft {
   aliases: string[];
   source: GlossarySource;
   content: string;
-  protect: boolean;
+  autoEvo: boolean;
 }
 
 export interface SkillTreeNode extends StructuredAsset {
@@ -154,7 +157,7 @@ export type ProposalFieldKey =
   | "category"
   | "tags"
   | "content"
-  | "protect"
+  | "autoEvo"
   | "title";
 
 export type ProposalFieldDecision = "accept" | "reject" | "pending";
@@ -172,7 +175,7 @@ export interface StructuredDiffLabels {
   description: string;
   category: string;
   tags: string;
-  protect: string;
+  autoEvo: string;
   content: string;
   yes: string;
   no: string;
@@ -180,7 +183,7 @@ export interface StructuredDiffLabels {
 
 export interface ExperienceDiffLabels {
   title: string;
-  protect: string;
+  autoEvo: string;
   content: string;
   yes: string;
   no: string;
@@ -263,7 +266,7 @@ export const createDraft = (): AssetDraft => ({
   aliases: [],
   source: "user",
   content: "",
-  protect: false,
+  autoEvo: false,
 });
 
 export const createStructuredDraft = (
@@ -291,7 +294,7 @@ export const createStructuredDraft = (
     aliases: [],
     source: "user",
     content: normalizedContent,
-    protect: Boolean(item.protect),
+    autoEvo: Boolean(item.autoEvo),
   };
 };
 
@@ -548,7 +551,7 @@ export const initialGlossary: GlossaryAsset[] = [
     aliases: ["降雨阈值", "触发雨量阈值"],
     source: "user",
     content: "用于判定地质灾害预警等级的降雨强度临界值。",
-    protect: false,
+    autoEvo: false,
   },
   {
     id: "glossary-rock-pile",
@@ -557,7 +560,7 @@ export const initialGlossary: GlossaryAsset[] = [
     aliases: ["崩塌堆积体", "松散堆积体"],
     source: "user",
     content: "常见不良地质体，检索阶段需与边坡失稳风险词联动。",
-    protect: true,
+    autoEvo: true,
   },
   {
     id: "glossary-chainage",
@@ -566,7 +569,7 @@ export const initialGlossary: GlossaryAsset[] = [
     aliases: ["桩号", "线路里程"],
     source: "ai",
     content: "用于定位铁路线路具体位置的标准标识，通常格式为 Kxx+xxx。",
-    protect: false,
+    autoEvo: false,
   },
 ];
 
@@ -594,7 +597,7 @@ export const serializeStructuredAsset = (
     `${labels.description}: ${item.description}`,
     `${labels.category}: ${item.category || "-"}`,
     `${labels.tags}: ${tags}`,
-    `${labels.protect}: ${item.protect ? labels.yes : labels.no}`,
+    `${labels.autoEvo}: ${item.autoEvo ? labels.yes : labels.no}`,
     "",
     `${labels.content}:`,
     item.content,
@@ -609,7 +612,7 @@ export const serializeExperienceAsset = (
 ) => {
   const lines = [
     `${labels.title}: ${item.title}`,
-    `${labels.protect}: ${item.protect ? labels.yes : labels.no}`,
+    `${labels.autoEvo}: ${item.autoEvo ? labels.yes : labels.no}`,
     "",
     `${labels.content}:`,
     item.content,
@@ -803,7 +806,7 @@ export const initialGlossaryChangeProposals: GlossaryChangeProposal[] = (() => {
         aliases: ["降雨历时曲线", "雨量-历时曲线"],
         source: "ai",
         content: "用于判断不同历时降雨过程与灾害触发概率关系的分析曲线。",
-        protect: false,
+        autoEvo: false,
       },
       reason: "AI 从近期对话中提炼的高频术语，建议纳入词表以提升召回。",
       requiresGroupConfirm: true,
@@ -820,7 +823,7 @@ export const initialGlossaryChangeProposals: GlossaryChangeProposal[] = (() => {
         aliases: ["雨强-历时触发模型", "降雨触发模型", "ID 触发模型"],
         source: "user",
         content: "用于灾害触发条件检索与研判的统一词条。",
-        protect: false,
+        autoEvo: false,
       },
       reason: "模型识别到该术语在近期问答中频繁出现，建议新增为独立词条。",
     },

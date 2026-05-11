@@ -2,6 +2,7 @@
   "name": "lazyrag-frontend",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "type": "module",
   "packageManager": "pnpm@10.0.0",
   "scripts": {

@@ -7,6 +7,7 @@ import {
 } from "./types";
 
 const { Paragraph, Text } = Typography;
+const launchConfigHint = "请先完成 1-4 步配置：选择知识库、评测集策略、补充评测集和过程干预。点击开始后，系统会创建本轮会话并自动进入 Step 1。";
 
 type LaunchOptionGridProps = {
   optionCards: SelfEvolutionLaunchOptionCard[];
@@ -110,7 +111,7 @@ export function NewSessionConfigModal({
             创建前请重新确认本轮配置
           </Typography.Title>
           <Text className="self-evolution-new-session-subtitle">
-            1-4 步为必选项，第 5 步确认后会创建新会话并自动进入 Step 1。
+            {launchConfigHint}
           </Text>
         </header>
 
@@ -226,7 +227,7 @@ export function SelfEvolutionHomeView({
             <div className="self-evolution-chatlike-launchpad-header">
               <Text className="self-evolution-chatlike-launchpad-kicker">启动配置</Text>
               <Paragraph className="self-evolution-chatlike-launchpad-subtitle">
-                选择知识库、评测集和干预方式后即可开始。
+                {launchConfigHint}
               </Paragraph>
             </div>
 

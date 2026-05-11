@@ -10,11 +10,6 @@ from typing_extensions import TypedDict
 MAX_SUGGESTIONS_PER_CALL = 5
 DEFAULT_CORE_API_TIMEOUT = 30
 
-_TARGET_FILENAMES: Dict[str, str] = {
-    'memory': 'memory.jsonl',
-    'user': 'user.jsonl',
-}
-
 
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
     return {
@@ -34,21 +29,6 @@ def _handle_tool_errors(func):
             return _tool_failure(func.__name__, exc)
 
     return wrapper
-
-
-class Suggestion(TypedDict, total=False):
-    """Natural-language edit suggestion shared by skill / memory / user_preference.
-
-    Fields:
-        title (str, required): short label summarising the proposed change.
-        content (str, required): natural-language description of the
-            modification; the downstream reviewer applies it.
-        reason (str, optional): why the change is worth making.
-    """
-
-    title: str
-    content: str
-    reason: str
 
 
 def _agentic_config() -> Dict[str, Any]:
@@ -104,6 +84,21 @@ def _post_core_api(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+class Suggestion(TypedDict, total=False):
+    """Natural-language edit suggestion shared by skill / memory / user_preference.
+
+    Fields:
+        title (str, required): short label summarising the proposed change.
+        content (str, required): natural-language description of the
+            modification; the downstream reviewer applies it.
+        reason (str, optional): why the change is worth making.
+    """
+
+    title: str
+    content: str
+    reason: str
+
+
 @fc_register('tool', execute_in_sandbox=False)
 @_handle_tool_errors
 def memory(
@@ -115,15 +110,13 @@ def memory(
     (``target='user'``).
 
     Call this tool when, while handling the current query, you learn
-    something that should persist **across future sessions** — e.g. stable
-    facts about the user, their preferences, or durable working-memory
-    items the agent should remember next time. Each call accepts a batch
-    of at most 5 suggestions; every suggestion describes ONE change in
-    natural language and will be reviewed before being merged.
+    something that should persist across future sessions, but it must still
+    go through the review and draft-confirmation workflow before becoming the
+    final stored text.
 
-    Do **not** use this tool for one-off conversational notes, for
-    answering the current query, or to echo the final response back to
-    the user.
+    Each call accepts a batch of at most 5 suggestions; every suggestion
+    describes ONE proposed change in natural language and will be reviewed
+    before being merged.
 
     Args:
         target: Which buffer the suggestions belong to. ``'memory'`` is the
@@ -136,12 +129,6 @@ def memory(
             - ``content`` (str, required): natural-language description of
               the modification.
             - ``reason`` (str, optional): rationale for the change.
-
-    Returns:
-        A structured result with success status.
-
-        - success: ``{'success': True, 'result': {...}}``
-        - failure: ``{'success': False, 'reason': '...'}``
     """
     def _ok(result: Dict[str, Any]) -> Dict[str, Any]:
         return {'success': True, 'result': result}
@@ -149,7 +136,7 @@ def memory(
     def _fail(reason: str) -> Dict[str, Any]:
         return {'success': False, 'reason': reason}
 
-    if target not in _TARGET_FILENAMES:
+    if target not in {'memory', 'user'}:
         return _fail(
             f"Unknown target {target!r}; expected one of 'memory', 'user'."
         )

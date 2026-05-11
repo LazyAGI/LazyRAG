@@ -406,20 +406,6 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
           ) : null}
         </div>
       )}
-
-      {activeTab !== "tools" && !isChildSkillDraft ? (
-        <label className={`memory-lock-toggle ${isReadOnly ? "is-disabled" : ""}`}>
-          <input
-            type="checkbox"
-            checked={draft.protect}
-            disabled={isReadOnly}
-            onChange={(event) =>
-              setDraft((previous: any) => ({ ...previous, protect: event.target.checked }))
-            }
-          />
-          <span>{t("admin.memoryProtect")}</span>
-        </label>
-      ) : null}
     </Modal>
   );
 }

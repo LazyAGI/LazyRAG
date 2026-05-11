@@ -22,13 +22,16 @@ interface SkillNode {
   parent_id?: string;
   parent_skill_id?: string;
   parentSkillId?: string;
-  is_locked?: boolean;
+  auto_evo?: boolean;
   is_enabled?: boolean;
   file_ext?: string;
   node_type?: string;
   update_status?: string;
   has_pending_review_suggestions?: boolean;
   suggestion_status?: string;
+  auto_evo_apply_status?: string;
+  auto_evo_generation?: number;
+  auto_evo_error?: string;
   children?: SkillNode[];
   [key: string]: unknown;
 }
@@ -41,13 +44,16 @@ export interface SkillAssetRecord {
   tags: string[];
   content: string;
   parentId?: string;
-  protect: boolean;
+  autoEvo: boolean;
   isEnabled: boolean;
   fileExt?: string;
   nodeType?: string;
   hasPendingReviewSuggestions?: boolean;
   suggestionStatus?: string;
   updateStatus?: string;
+  autoEvoApplyStatus?: string;
+  autoEvoGeneration?: number;
+  autoEvoError?: string;
 }
 
 export interface SkillDraftGeneratePayload {
@@ -249,13 +255,16 @@ const normalizeSkillNode = (raw: SkillNode, parentId?: string): SkillAssetRecord
     tags: toStringArray(raw.tags),
     content: toStringValue(raw.content || ""),
     parentId: resolvedParentId || undefined,
-    protect: toBoolean(raw.is_locked, false),
+    autoEvo: toBoolean(raw.auto_evo ?? raw.is_locked, false),
     isEnabled: toBoolean(raw.is_enabled, true),
     fileExt: toStringValue(raw.file_ext || ""),
     nodeType: toStringValue(raw.node_type || ""),
     hasPendingReviewSuggestions: toBoolean(raw.has_pending_review_suggestions, false),
     suggestionStatus: toStringValue(raw.suggestion_status || ""),
     updateStatus: toStringValue(raw.update_status || ""),
+    autoEvoApplyStatus: toStringValue(raw.auto_evo_apply_status || ""),
+    autoEvoGeneration: typeof raw.auto_evo_generation === "number" ? raw.auto_evo_generation : 0,
+    autoEvoError: toStringValue(raw.auto_evo_error || ""),
   };
 };
 
@@ -396,6 +405,15 @@ const normalizePrincipal = (
     typeHint === "group"
       ? getFirstString([raw], ["group_name", "groupName", "name"])
       : getFirstString([raw], [
+          "display_name_zh",
+          "displayNameZh",
+          "display_name_cn",
+          "displayNameCn",
+          "name_zh",
+          "nameZh",
+          "nickname",
+          "nick_name",
+          "nickName",
           "display_name",
           "displayName",
           "username",
@@ -450,7 +468,24 @@ const dedupePrincipals = (principals: SkillSharePrincipal[]): SkillSharePrincipa
       return;
     }
 
-    deduped.set(`${principal.type}:${principal.id || principal.name}`, principal);
+    const key = `${principal.type}:${principal.id || principal.name}`;
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, principal);
+      return;
+    }
+
+    const existingHasDisplayName = existing.name && existing.name !== existing.id;
+    const nextHasDisplayName = principal.name && principal.name !== principal.id;
+    deduped.set(key, {
+      ...existing,
+      id: existing.id || principal.id,
+      name: existingHasDisplayName
+        ? existing.name
+        : nextHasDisplayName
+          ? principal.name
+          : existing.name || principal.name,
+    });
   });
 
   return Array.from(deduped.values());
@@ -654,8 +689,6 @@ const normalizeSkillShareRecord = (raw: RawObject): SkillShareRecord | null => {
         "receiver",
         "receiver_user",
         "receiverUser",
-        "target_user_id",
-        "targetUserId",
       ],
     ),
     ...extractPrincipals(
@@ -691,8 +724,6 @@ const normalizeSkillShareRecord = (raw: RawObject): SkillShareRecord | null => {
         "targetGroup",
         "receiver_group",
         "receiverGroup",
-        "target_group_id",
-        "targetGroupId",
       ],
     ),
   ]);

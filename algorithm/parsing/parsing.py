@@ -6,7 +6,7 @@ import urllib.request
 import chat.components.tmp  # noqa: F401 — registers BgeM3Embed / Qwen3Rerank into lazyllm.online
 from config import config as _cfg
 from parsing.build_document import (
-    build_document, reset_stores,
+    build_document, drop_lazyllm_tables, reset_stores,
     get_algo_server_port, ALGO_ID,
 )
 
@@ -50,6 +50,7 @@ def main() -> None:
     _wait_for_http_ok(f'{processor_url}/health', 'DocumentProcessor', startup_timeout, retry_interval)
 
     if _cfg['reset_algo_on_startup']:
+        drop_lazyllm_tables()
         reset_stores()
 
     docs = build_document()
