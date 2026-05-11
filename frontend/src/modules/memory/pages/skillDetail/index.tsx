@@ -151,7 +151,7 @@ export default function MemorySkillDetailPage() {
               ) : null}
               {skill.protect ? (
                 <Tag className="memory-protect-tag" bordered={false}>
-                  {t("admin.memoryProtect")}
+                  {t("admin.memoryProtect", { defaultValue: "保护" })}
                 </Tag>
               ) : null}
             </div>
