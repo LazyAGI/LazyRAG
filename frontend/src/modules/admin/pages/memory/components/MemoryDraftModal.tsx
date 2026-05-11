@@ -28,7 +28,10 @@ interface MemoryDraftModalProps {
   createSkillUploadProps: (childTempId?: string) => any;
   addChildSkillDraft: () => void;
   removeChildSkillDraft: (tempId: string) => void;
-  updateChildSkillDraft: (tempId: string, patch: { name?: string; content?: string }) => void;
+  updateChildSkillDraft: (
+    tempId: string,
+    patch: { name?: string; description?: string; tags?: string[]; content?: string },
+  ) => void;
 }
 
 export default function MemoryDraftModal(props: MemoryDraftModalProps) {
@@ -56,7 +59,6 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
     updateChildSkillDraft,
   } = props;
   const [glossaryAliasInput, setGlossaryAliasInput] = useState("");
-
   const handleGlossaryAliasesChange = (value: string[]) => {
     const normalizedAliases = Array.from(
       new Set((value || []).map((item) => item.trim()).filter(Boolean)),
@@ -213,24 +215,22 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
               }
             />
           </div>
-          {!isChildSkillDraft ? (
-            <div className="memory-form-field memory-form-field-full">
-              <label>{t("admin.memoryDescription")}</label>
-              <Input.TextArea
-                rows={3}
-                autoSize={{ minRows: 3, maxRows: 6 }}
-                value={draft.description}
-                readOnly={isReadOnly}
-                placeholder={t("common.pleaseInput") + t("admin.memoryDescription")}
-                onChange={(event) =>
-                  setDraft((previous: any) => ({
-                    ...previous,
-                    description: event.target.value,
-                  }))
-                }
-              />
-            </div>
-          ) : null}
+          <div className="memory-form-field memory-form-field-full">
+            <label>{t("admin.memoryDescription")}</label>
+            <Input.TextArea
+              rows={3}
+              autoSize={{ minRows: 3, maxRows: 6 }}
+              value={draft.description}
+              readOnly={isReadOnly}
+              placeholder={t("common.pleaseInput") + t("admin.memoryDescription")}
+              onChange={(event) =>
+                setDraft((previous: any) => ({
+                  ...previous,
+                  description: event.target.value,
+                }))
+              }
+            />
+          </div>
           {activeTab === "skills" ? (
             <div className="memory-form-field">
               <label>{t("admin.memoryParentSkill")}</label>
@@ -254,42 +254,40 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
             </div>
           ) : null}
           {!isChildSkillDraft ? (
-            <>
-              <div className="memory-form-field">
-                <label>{t("admin.memoryCategory")}</label>
-                <Input
-                  value={draft.category}
-                  readOnly={isReadOnly}
-                  placeholder={t("admin.memoryCategoryPlaceholder")}
-                  onChange={(event) =>
-                    setDraft((previous: any) => ({ ...previous, category: event.target.value }))
-                  }
-                />
-              </div>
-              <div className="memory-form-field">
-                <label>{t("admin.memoryTagSet")}</label>
-                <Select
-                  mode="tags"
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  tokenSeparators={[",", "，"]}
-                  style={{ width: "100%" }}
-                  value={draft.tags}
-                  disabled={isReadOnly}
-                  placeholder={t("admin.memoryTagsPlaceholder")}
-                  onChange={(value) =>
-                    setDraft((previous: any) => ({
-                      ...previous,
-                      tags: normalizeTagValues(value),
-                    }))
-                  }
-                  options={tagOptions}
-                />
-                <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
-              </div>
-            </>
+            <div className="memory-form-field">
+              <label>{t("admin.memoryCategory")}</label>
+              <Input
+                value={draft.category}
+                readOnly={isReadOnly}
+                placeholder={t("admin.memoryCategoryPlaceholder")}
+                onChange={(event) =>
+                  setDraft((previous: any) => ({ ...previous, category: event.target.value }))
+                }
+              />
+            </div>
           ) : null}
+          <div className="memory-form-field">
+            <label>{t("admin.memoryTagSet")}</label>
+            <Select
+              mode="tags"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              tokenSeparators={[",", "，"]}
+              style={{ width: "100%" }}
+              value={draft.tags}
+              disabled={isReadOnly}
+              placeholder={t("admin.memoryTagsPlaceholder")}
+              onChange={(value) =>
+                setDraft((previous: any) => ({
+                  ...previous,
+                  tags: normalizeTagValues(value),
+                }))
+              }
+              options={tagOptions}
+            />
+            <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
+          </div>
           <div className="memory-form-field memory-form-field-full">
             <label>{t("admin.memoryMarkdown")}</label>
             <Input.TextArea
@@ -357,6 +355,42 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
                               })
                             }
                           />
+                        </div>
+                        <div className="memory-form-field memory-form-field-full">
+                          <label>{t("admin.memoryDescription")}</label>
+                          <Input.TextArea
+                            rows={3}
+                            autoSize={{ minRows: 3, maxRows: 6 }}
+                            value={child.description}
+                            readOnly={isReadOnly}
+                            placeholder={t("common.pleaseInput") + t("admin.memoryDescription")}
+                            onChange={(event) =>
+                              updateChildSkillDraft(child.tempId, {
+                                description: event.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="memory-form-field">
+                          <label>{t("admin.memoryTagSet")}</label>
+                          <Select
+                            mode="tags"
+                            allowClear
+                            showSearch
+                            optionFilterProp="label"
+                            tokenSeparators={[",", "，"]}
+                            style={{ width: "100%" }}
+                            value={child.tags}
+                            disabled={isReadOnly}
+                            placeholder={t("admin.memoryTagsPlaceholder")}
+                            onChange={(value) =>
+                              updateChildSkillDraft(child.tempId, {
+                                tags: normalizeTagValues(value),
+                              })
+                            }
+                            options={tagOptions}
+                          />
+                          <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
                         </div>
                         <div className="memory-form-field memory-form-field-full">
                           <label>{t("admin.memoryMarkdown")}</label>
