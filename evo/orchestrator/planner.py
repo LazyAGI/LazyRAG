@@ -74,7 +74,9 @@ class Planner:
     def draft(self, message: str, ctx: PlanContext) -> Intent:
         return self._intent(message, ctx, self._draft(message, ctx))
 
-    def draft_stream(self, message: str, ctx: PlanContext, cancel_requested: Callable[[], bool]) -> Iterator[dict[str, Any]]:
+    def draft_stream(
+        self, message: str, ctx: PlanContext, cancel_requested: Callable[[], bool]
+    ) -> Iterator[dict[str, Any]]:
         if self.stream_llm is None:
             yield {'type': 'final', 'intent': self.draft(message, ctx)}
             return
@@ -125,7 +127,11 @@ class Planner:
             cap = caps.get(op)
             previews.append(IntentPreview(op, item.get('reason') or f'{cap.flow}: {cap.description}', cap.safety, args))
         reply = draft.reply or f'收到：{message}。'
-        if previews and previews[0].op not in {'checkpoint.answer', 'checkpoint.cancel'} and not state.checkpoint.get('terminal'):
+        if (
+            previews
+            and previews[0].op not in {'checkpoint.answer', 'checkpoint.cancel'}
+            and not state.checkpoint.get('terminal')
+        ):
             reply += ' 我会在后台执行，并把过程写入事件流。'
         return Intent(intent_id=f'intent_{ctx.thread_id}_{uuid.uuid4().hex[:8]}', thread_id=ctx.thread_id,
                       user_message=message, reply=reply, suggested_ops_preview=previews, requires_confirm=False,
@@ -157,14 +163,18 @@ def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> lis
         elif op == 'run.start':
             args.setdefault('eval_id', state.latest_id('eval') if state.success('eval') else None)
         elif op == 'apply.start':
-            args.setdefault('report_id', state.latest_payload('run').get('report_id') or (state.latest.get('run') or {}).get('report_id'))
+            report_id = state.latest_payload('run').get('report_id') or (state.latest.get('run') or {}).get(
+                'report_id'
+            )
+            args.setdefault('report_id', report_id)
         elif op == 'abtest.create':
             _fill_abtest(args, state)
         elif op == 'dataset_gen.start':
             args.setdefault('kb_id', state.inputs.get('kb_id'))
             args.setdefault('algo_id', state.inputs.get('algo_id') or 'general_algo')
             args.setdefault('eval_name', state.inputs.get('eval_name') or f'{ctx.thread_id}_eval')
-        out.append({'op': op, 'reason': item.get('reason', ''), 'args': {k: v for k, v in args.items() if v is not None}})
+        clean_args = {k: v for k, v in args.items() if v is not None}
+        out.append({'op': op, 'reason': item.get('reason', ''), 'args': clean_args})
     return out
 
 
@@ -224,7 +234,8 @@ def _restart_failed_op(flow: str | None, state: State) -> tuple[str, dict] | Non
         _fill_eval(args, state.inputs)
         return ('eval.run', args)
     if flow == 'run':
-        return ('run.start', {'eval_id': state.latest_id('eval') if state.success('eval') else state.artifact('eval_ids')})
+        eval_id = state.latest_id('eval') if state.success('eval') else state.artifact('eval_ids')
+        return ('run.start', {'eval_id': eval_id})
     if flow == 'apply':
         return ('apply.start', {'report_id': state.latest_payload('run').get('report_id')})
     if flow == 'abtest':
@@ -259,14 +270,18 @@ def _validate(op: str, args: dict, ctx: PlanContext) -> None:
         model(**payload)
     state = State(ctx)
     if state.active and op not in {'task.stop_active', 'task.cancel_active'}:
-        raise ValueError(f"thread already has running task: {_active_summary(state)}")
+        raise ValueError(f'thread already has running task: {_active_summary(state)}')
     if state.checkpoint and not op.startswith('checkpoint.'):
         raise ValueError('pending checkpoint only accepts checkpoint.* ops')
     if op in {'task.continue_latest', 'thread.retry'} and not _has_resumable(state, args):
         raise ValueError('no paused or transient failed task to continue')
     if op.startswith('checkpoint.'):
         _validate_checkpoint(op, args, state.checkpoint)
-    if op == 'abtest.create' and (row := state.latest.get('apply') or {}).get('id') == args.get('apply_id') and not _apply_ready(row):
+    if (
+        op == 'abtest.create'
+        and (row := state.latest.get('apply') or {}).get('id') == args.get('apply_id')
+        and not _apply_ready(row)
+    ):
         raise ValueError('abtest.create requires a succeeded apply with final tests passed')
 
 
@@ -290,7 +305,13 @@ def _prompt(message: str, ctx: PlanContext, *, checkpoint: bool) -> str:
 
 
 def _draft_from_parsed(parsed: dict, source: str, prompt: str, raw: Any) -> Draft:
-    return Draft(str(parsed.get('reply') or ''), list(parsed.get('ops') or []), source, prompt, raw if raw is not None else parsed)
+    return Draft(
+        str(parsed.get('reply') or ''),
+        list(parsed.get('ops') or []),
+        source,
+        prompt,
+        raw if raw is not None else parsed,
+    )
 
 
 def _stream_plan(stream_llm, prompt: str, cancel_requested) -> Iterator[tuple[dict, Any, str]]:
@@ -345,15 +366,16 @@ class _ReplyDeltaExtractor:
 
 def _apply_ready(row: dict) -> bool:
     result = (row.get('payload') or {}).get('result') or {}
-    return row.get('status') in {'succeeded', 'accepted'} and result.get('status') == 'SUCCEEDED' and bool(row.get('final_commit') or result.get('final_commit'))
+    final_commit = row.get('final_commit') or result.get('final_commit')
+    return row.get('status') in {'succeeded', 'accepted'} and result.get('status') == 'SUCCEEDED' and bool(final_commit)
 
 
 def _has_resumable(state: State, args: dict) -> bool:
     flow, task_id = args.get('flow'), args.get('task_id')
     return any(
-        row.get('status') in RESUMABLE_STATUSES and
-        (not flow or row.get('flow') == flow) and
-        (not task_id or row.get('id') == task_id)
+        row.get('status') in RESUMABLE_STATUSES
+        and (not flow or row.get('flow') == flow)
+        and (not task_id or row.get('id') == task_id)
         for row in state.latest.values()
     )
 
