@@ -256,13 +256,12 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
               <span className="memory-form-hint">{t("admin.memoryRootSkill")}</span>
             </div>
           ) : null}
-          {!isChildSkillDraft || isChildSkillCategoryLocked ? (
+          {!isChildSkillDraft ? (
             <div className="memory-form-field">
               <label>{t("admin.memoryCategory")}</label>
               <Input
                 value={draft.category}
                 readOnly={isReadOnly}
-                disabled={isChildSkillCategoryLocked}
                 placeholder={t("admin.memoryCategoryPlaceholder")}
                 onChange={(event) =>
                   setDraft((previous: any) => ({ ...previous, category: event.target.value }))
