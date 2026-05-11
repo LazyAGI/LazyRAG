@@ -270,7 +270,7 @@ services:
         condition: service_healthy
 
   core-dev:
-    image: golang:1.24
+    image: golang:1.24-alpine
     working_dir: /app
     command: ["sleep", "infinity"]
     volumes:
@@ -309,12 +309,6 @@ services:
       network: host
       context: .
       dockerfile: backend/core/doc/Dockerfile
-      args:
-        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
-        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
-        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -446,12 +440,6 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
-      args:
-        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
-        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
-        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -485,12 +473,6 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
-      args:
-        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
-        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
-        PIP_RETRIES: ${PIP_RETRIES:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -530,12 +512,6 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
-      args:
-        APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
-        APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-1200}
-        PIP_RETRIES: ${PIP_RETRIES:-20}
     expose:
       - "8000"
     volumes:
@@ -589,12 +565,6 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
-      args:
-        APT_MIRROR: http://mirrors.aliyun.com/debian
-        APT_SECURITY_MIRROR: http://mirrors.aliyun.com/debian-security
-        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
-        PIP_RETRIES: ${PIP_RETRIES:-10}
       secrets:
         - apt_http_proxy
         - apt_https_proxy
