@@ -23,6 +23,8 @@ _TYPE_TO_SLOT: Dict[str, str] = {
 # Prefix convention for embed-type roles in the flat yaml format.
 # Any top-level key starting with this prefix is treated as an embed role.
 _EMBED_KEY_PREFIX = 'embed_'
+_EMBED_TYPES = {'embed', 'rerank', 'cross_modal_embed'}
+_IMAGE_EMBED_TYPES = {'cross_modal_embed'}
 
 
 def get_config_path() -> str:
@@ -240,15 +242,17 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
 def get_embed_keys(config_path: Optional[str] = None) -> list:
     '''Return the list of embed-type role names defined in the active config.
 
-    A role is considered an embed role when its key starts with the prefix
-    ``embed_`` (e.g. ``embed_main``, ``embed_sparse``).  The order matches the
-    yaml definition order, so the first key is always the primary (dense) embed.
+    A role is considered an embed role when its first-entry ``type`` is one of
+    ``embed`` / ``rerank`` / ``cross_modal_embed``. For backward compatibility,
+    keys that start with ``embed_`` are also treated as embed roles.
+    The order matches the yaml definition order, so the first key is always the
+    primary (dense) embed.
 
     Returns an empty list when no embed roles are found (caller should handle
     this as a configuration error).
     '''
     raw = load_model_config(config_path)
-    return [role for role in raw if role.startswith(_EMBED_KEY_PREFIX)]
+    return [role for role, entries in raw.items() if _is_embed_role(role, entries)]
 
 
 def _first_entry_type(entries: Any) -> str:
@@ -269,17 +273,27 @@ def _first_entry_type(entries: Any) -> str:
     return (entry.get('type') or '').lower()
 
 
+def _is_embed_role(role: str, entries: Any) -> bool:
+    '''Return whether the role should be treated as an embed role.'''
+    entry_type = _first_entry_type(entries)
+    if entry_type in _EMBED_TYPES:
+        return True
+    return role.startswith(_EMBED_KEY_PREFIX)
+
+
 @lru_cache(maxsize=1)
 def get_image_embed_key(config_path: Optional[str] = None) -> Optional[str]:
-    '''Return the embed role name identified as image embed by model name.
+    '''Return the embed role name identified as the image embed.
 
     A role is treated as the image embed when its first entry has
-    ``name: siglip`` (case-insensitive). Returns None when no such role
-    exists, in which case callers should skip the image retrieval branch.
+    ``type: cross_modal_embed``. For backward compatibility, it also falls
+    back to ``name: siglip`` (case-insensitive) when type is not provided.
+    Returns None when no such role exists, in which case callers should skip
+    the image retrieval branch.
     '''
     raw = load_model_config(config_path)
     for role, entries in raw.items():
-        if not role.startswith(_EMBED_KEY_PREFIX):
+        if not _is_embed_role(role, entries):
             continue
         if isinstance(entries, list) and entries:
             entry = entries[0]
@@ -289,6 +303,9 @@ def get_image_embed_key(config_path: Optional[str] = None) -> Optional[str]:
             continue
         if not isinstance(entry, dict):
             continue
+        entry_type = str(entry.get('type') or '').strip().lower()
+        if entry_type in _IMAGE_EMBED_TYPES:
+            return role
         model_name = str(entry.get('name') or '').strip().lower()
         if model_name == 'siglip':
             return role
@@ -328,7 +345,7 @@ def get_embed_index_kwargs(config_path: Optional[str] = None) -> list:
     raw = load_model_config(config_path)
     result = []
     for role, entries in raw.items():
-        if not role.startswith(_EMBED_KEY_PREFIX):
+        if not _is_embed_role(role, entries):
             continue
         if not isinstance(entries, list) or not entries:
             continue

@@ -9,7 +9,8 @@ from lazyllm.components.formatter import encode_query_with_filepaths
 
 
 _IMAGE_DESCRIBE_PROMPT = (
-    'Briefly describe what the image contains, then return a single concise sentence in plain text.'
+    'Given the user query and the attached image(s), return one concise plain-text sentence '
+    'that captures the image information most relevant to answering the query.'
 )
 
 _REMOTE_SCHEMES = ('http', 'https', 'file')
@@ -71,7 +72,8 @@ class QueryImageRewriter(ModuleBase):
         if not query or not image_paths:
             return payload
 
-        encoded_query = encode_query_with_filepaths(_IMAGE_DESCRIBE_PROMPT, image_paths)
+        prompt_query = f'User query: {query}\nInstruction: {_IMAGE_DESCRIBE_PROMPT}'
+        encoded_query = encode_query_with_filepaths(prompt_query, image_paths)
         priority = payload.get('priority', 0)
         llm_output = self.llm(
             encoded_query,
@@ -82,5 +84,5 @@ class QueryImageRewriter(ModuleBase):
         )
         image_desc = self._extract_text(llm_output)
         if image_desc:
-            payload['query'] = f'{query}\n\nImage context: {image_desc}'
+            payload['query'] = f'{query}\nImage context: {image_desc}'
         return payload

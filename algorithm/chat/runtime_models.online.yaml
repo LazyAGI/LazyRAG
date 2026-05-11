@@ -17,3 +17,9 @@ reranker:
 embed_main:
   - source: qwen
     name: text-embedding-v3
+
+# Cross-modal (image) embed; used by image nodes and image-only retrieval branch.
+embed_image:
+  - source: qwen
+    type: cross_modal_embed
+    name: qwen2.5-vl-embedding

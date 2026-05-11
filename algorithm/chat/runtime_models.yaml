@@ -26,4 +26,4 @@ embed_main:
 embed_image:
   source: dynamic
   dynamic_auth: true
-  type: embed
+  type: cross_modal_embed

@@ -4,6 +4,7 @@ from lazyllm import AutoModel, pipeline, parallel, bind, ifs
 from lazyllm.tools.rag import Reranker
 from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
+from chat.components.process.query_image_rewriter import QueryImageRewriter
 from chat.pipelines.builders.get_retriever import get_retriever, get_remote_docment
 from chat.utils.load_config import get_config_path
 from vocab.vocab_manager import get_vocab_manager
@@ -15,6 +16,10 @@ def parse_query(query_params: dict) -> str:
 
 def has_files(x: dict) -> bool:
     return bool(x.get('files'))
+
+
+def has_image_files(x: dict) -> bool:
+    return bool(x.get('image_files'))
 
 
 def merge_rank_results(*args):
@@ -79,16 +84,31 @@ def get_ppl_search(url: str, retriever_configs: List[dict] = None, topk=20, k_ma
     tmp_retriever = retrieval.tmp_retriever_pipeline
     image_retriever = retrieval.image_retriever
     document = get_remote_docment(url)
+    query_image_rewriter = QueryImageRewriter(
+        llm=AutoModel(model='llm', config=get_config_path()),
+    )
 
     with lazyllm.save_pipeline_result():
         text_branch = _build_text_branch(retrievers, tmp_retriever, document, topk, k_max)
 
         if image_retriever is None:
-            return text_branch
+            with pipeline() as text_search_ppl:
+                text_search_ppl.query_image_rewriter = ifs(
+                    has_image_files,
+                    tpath=query_image_rewriter,
+                    fpath=lambda x: x,
+                )
+                text_search_ppl.search = text_branch
+            return text_search_ppl
 
         image_branch = _build_image_branch(image_retriever)
 
         with pipeline() as search_ppl:
+            search_ppl.query_image_rewriter = ifs(
+                has_image_files,
+                tpath=query_image_rewriter,
+                fpath=lambda x: x,
+            )
             search_ppl.par = parallel(text_branch, image_branch)
             search_ppl.merge = merge_text_image_nodes
 
