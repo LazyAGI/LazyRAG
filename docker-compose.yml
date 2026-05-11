@@ -532,7 +532,7 @@ services:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
-      LAZYRAG_MODEL_CONFIG_PATH: /app/common/runtime_models.online.yaml
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
       PYTHONPATH: /app
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
@@ -565,6 +565,12 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        APT_MIRROR: http://mirrors.aliyun.com/debian
+        APT_SECURITY_MIRROR: http://mirrors.aliyun.com/debian-security
+        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
+        PIP_RETRIES: ${PIP_RETRIES:-10}
       secrets:
         - apt_http_proxy
         - apt_https_proxy
