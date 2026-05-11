@@ -150,7 +150,35 @@ def test_build_query_params_filters_history_and_modes(monkeypatch):
     assert params['priority'] == 8
     assert params['dataset'] == 'algo'
     assert params['session_id'] == 'sid-1'
+    assert params['create_user_id'] == ''
+    assert params['user_id'] == ''
     assert 'document_url' in params
+
+
+def test_build_query_params_copies_create_user_id_to_user_id(monkeypatch):
+    module = _import_chat_service_module(monkeypatch)
+
+    params = module.build_query_params(
+        query='hello',
+        history=None,
+        filters=None,
+        other_files=[],
+        databases=None,
+        debug=False,
+        image_files=[],
+        priority=8,
+        dataset='algo',
+        session_id='sid-1',
+        available_tools=None,
+        available_skills=None,
+        memory=None,
+        user_preference=None,
+        use_memory=None,
+        create_user_id='user-1',
+    )
+
+    assert params['create_user_id'] == 'user-1'
+    assert params['user_id'] == 'user-1'
 
 def test_handle_chat_rejects_unknown_dataset(monkeypatch):
     chat_server = SimpleNamespace(
@@ -219,12 +247,7 @@ def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
 
 def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     """_build_ppl_call with reasoning=True should use query_ppl_reasoning."""
-    captured = {}
-
-    def fake_reasoning(query_arg, kb_search, stream_flag):
-        captured['query_arg'] = query_arg
-        captured['kb_search'] = kb_search
-        captured['stream_flag'] = stream_flag
+    def fake_reasoning(params):
         return {'text': 'reasoned'}
 
     chat_server = SimpleNamespace(
@@ -235,29 +258,31 @@ def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     )
     module = _import_chat_service_module(monkeypatch, chat_server=chat_server)
 
+    query_params = {
+        'query': 'hello',
+        'filters': {'scope': 'all'},
+        'files': [],
+        'stream': True,
+        'priority': 7,
+        'document_url': 'stale-url',
+    }
     ppl_call = module._build_ppl_call(
         True,
         'algo',
-        {'query': 'ignored'},
-        'hello',
-        {'scope': 'all'},
-        7,
-        False,
+        query_params,
+        stream=False,
     )
 
-    # ppl_call is (ppl_fn, arg1, arg2, stream_flag)
+    # ppl_call is (ppl_fn, params)
     assert ppl_call[0] is fake_reasoning
-    assert ppl_call[1] == {'query': 'hello'}
-    assert ppl_call[2] == {
-        'kb_search': {
-            'filters': {'scope': 'all'},
-            'files': [],
-            'stream': False,
-            'priority': 7,
-            'document_url': 'http://kb-service/algo',
-        }
+    assert ppl_call[1] == {
+        'query': 'hello',
+        'filters': {'scope': 'all'},
+        'files': [],
+        'stream': False,
+        'priority': 7,
+        'document_url': 'http://kb-service/algo',
     }
-    assert ppl_call[3] is False
 
 
 def _decode_sse_payloads(raw_chunks):

@@ -794,7 +794,8 @@ class ActionPlanningModule(ModuleBase):
                     action = self._build_action(
                         reason=(
                             candidate.reason
-                            or f'`{candidate.word}` and `{candidate.synonym}` were provided under a new domain-specific description.'
+                            or f'`{candidate.word}` and `{candidate.synonym}` were '
+                            'provided under a new domain-specific description.'
                         ),
                         words=[candidate.word, candidate.synonym],
                         description=candidate.description,

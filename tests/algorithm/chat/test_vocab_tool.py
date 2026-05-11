@@ -103,6 +103,53 @@ def test_fetch_chat_histories_for_timestamped_session(monkeypatch):
     }]
 
 
+def test_resolve_create_user_id_falls_back_to_user_id(monkeypatch):
+    monkeypatch.setattr(vocab_tool, '_agentic_config', lambda: {'user_id': 'user-9'})
+
+    assert vocab_tool._resolve_create_user_id(None) == 'user-9'
+
+
+def test_resolve_create_user_id_for_sources_prefers_direct_user_id(monkeypatch):
+    assert vocab_db.resolve_create_user_id_for_session([{'create_user_id': ''}, {'user_id': 'user-10'}]) == 'user-10'
+
+
+def test_resolve_create_user_id_for_sources_uses_session_ids(monkeypatch):
+    seen_session_ids = []
+
+    class _FakeResult:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar(self):
+            return self._value
+
+    class _FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _sql, params):
+            seen_session_ids.append(params['session_id'])
+            if params['session_id'] == 'conv-2':
+                return _FakeResult('user-11')
+            return _FakeResult('')
+
+    class _FakeEngine:
+        def connect(self):
+            return _FakeConn()
+
+    monkeypatch.setattr(vocab_db, '_get_core_conn', lambda db_dsn=None, db_url=None: _FakeEngine())
+
+    assert vocab_db.resolve_create_user_id_for_session([
+        {'session_id': 'conv-2_1778221345821'},
+        {'session_id': ''},
+        '',
+    ]) == 'user-11'
+    assert seen_session_ids == ['conv-2_1778221345821', 'conv-2']
+
+
 def test_vocab_manage_creates_group_for_new_pair(monkeypatch):
     captured = {}
 

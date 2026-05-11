@@ -27,7 +27,7 @@ from .db import fetch_vocab_for_create_user_id
 
 
 def get_automodel(role: str):
-    from chat.pipelines.builders.get_models import get_automodel as _get_automodel
+    from chat.pipelines.builders import get_automodel as _get_automodel
 
     return _get_automodel(role)
 

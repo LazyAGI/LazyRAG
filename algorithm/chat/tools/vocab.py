@@ -89,6 +89,10 @@ def _resolve_create_user_id(agentic_config: Optional[Dict[str, Any]] = None) -> 
     if create_user_id:
         return create_user_id
 
+    user_id = _norm_text(config.get('user_id'))
+    if user_id:
+        return user_id
+
     session_id = _session_id(config)
     return resolve_create_user_id_for_session(session_id)
 

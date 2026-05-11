@@ -127,6 +127,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         'user_preference': user_preference,
         'use_memory': use_memory,
         'create_user_id': create_user_id or '',
+        'user_id': create_user_id or '',
     }
 
 

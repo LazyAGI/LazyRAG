@@ -424,20 +424,42 @@ def fetch_chat_histories_for_session(
 
 
 def resolve_create_user_id_for_session(
-    session_id: str,
+    session_id: Any,
     *,
     db_dsn: Optional[str] = None,
     db_url: Optional[str] = None,
 ) -> str:
-    session_id = str(session_id or '').strip()
-    if not session_id:
+    def _norm(value: Any) -> str:
+        return ' '.join(str(value or '').strip().split())
+
+    sources = list(session_id) if isinstance(session_id, (list, tuple)) else [session_id]
+    session_ids: List[str] = []
+    for source in sources:
+        if isinstance(source, dict):
+            for key in ('create_user_id', 'user_id'):
+                value = _norm(source.get(key))
+                if value:
+                    return value
+
+    for source in sources:
+        if isinstance(source, dict):
+            candidates = source.get('session_ids') or source.get('session_id') or []
+            candidates = candidates if isinstance(candidates, (list, tuple)) else [candidates]
+        else:
+            candidates = [source]
+        for candidate in candidates:
+            value = _norm(candidate)
+            if value and value not in session_ids:
+                session_ids.append(value)
+
+    if not session_ids:
         return ''
 
-    session_ids = [session_id]
-    if '_' in session_id:
-        conversation_id = session_id.rsplit('_', 1)[0].strip()
-        if conversation_id and conversation_id not in session_ids:
-            session_ids.append(conversation_id)
+    for value in tuple(session_ids):
+        if '_' in value:
+            conversation_id = value.rsplit('_', 1)[0].strip()
+            if conversation_id and conversation_id not in session_ids:
+                session_ids.append(conversation_id)
 
     sql = """
         SELECT create_user_id
@@ -454,7 +476,7 @@ def resolve_create_user_id_for_session(
                 if value:
                     return str(value or '').strip()
     except Exception as exc:
-        LOG.error(f'[VocabDB] resolve_create_user_id_for_session({session_id!r}) failed: {exc}')
+        LOG.error(f'[VocabDB] resolve_create_user_id_for_session({session_ids!r}) failed: {exc}')
         return ''
 
     return ''

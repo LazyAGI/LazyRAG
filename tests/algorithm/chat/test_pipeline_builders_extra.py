@@ -32,6 +32,15 @@ def _stub_vocab():
     # Stub vocab.db to avoid psycopg2 / sqlalchemy at import time
     if 'vocab.db' not in sys.modules:
         db_stub = types.ModuleType('vocab.db')
+
+        def _resolve_create_user_id_for_session_stub(source):
+            sources = source if isinstance(source, (list, tuple)) else [source]
+            for item in sources:
+                if isinstance(item, dict):
+                    return item.get('create_user_id') or item.get('user_id') or ''
+            return ''
+
+        db_stub.resolve_create_user_id_for_session = _resolve_create_user_id_for_session_stub
         sys.modules['vocab.db'] = db_stub
 
 
@@ -104,6 +113,70 @@ def test_parse_query_uses_empty_user_id_when_missing(monkeypatch):
     result = ppl_search_mod.parse_query({'query': 'test'})
 
     assert result == ':test'
+
+
+def test_parse_query_falls_back_to_user_id_alias(monkeypatch):
+    calls = []
+
+    def fake_get_vocab_manager(user_id):
+        calls.append(user_id)
+        return lambda q: f'expanded:{q}'
+
+    monkeypatch.setattr(ppl_search_mod, 'get_vocab_manager', fake_get_vocab_manager)
+
+    result = ppl_search_mod.parse_query({'query': 'hello', 'user_id': 'user-2'})
+
+    assert result == 'expanded:hello'
+    assert calls == ['user-2']
+
+
+def test_parse_query_resolves_user_from_query_session_id(monkeypatch):
+    calls = []
+
+    def fake_get_vocab_manager(user_id):
+        calls.append(user_id)
+        return lambda q: f'expanded:{q}'
+
+    monkeypatch.setattr(ppl_search_mod, 'get_vocab_manager', fake_get_vocab_manager)
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'resolve_create_user_id_for_session',
+        lambda sources: 'user-3' if sources[0].get('session_id') == 'conv-1_123' else '',
+    )
+
+    result = ppl_search_mod.parse_query({'query': 'hello', 'session_id': 'conv-1_123'})
+
+    assert result == 'expanded:hello'
+    assert calls == ['user-3']
+
+
+def test_parse_query_resolves_user_from_agentic_session_id(monkeypatch):
+    calls = []
+
+    def fake_get_vocab_manager(user_id):
+        calls.append(user_id)
+        return lambda q: f'expanded:{q}'
+
+    class _FakeGlobals:
+        _sid = ''
+
+        def get(self, key, default=None):
+            if key == 'agentic_config':
+                return {'session_id': 'conv-2_456', 'create_user_id': ''}
+            return default
+
+    monkeypatch.setattr(ppl_search_mod, 'get_vocab_manager', fake_get_vocab_manager)
+    monkeypatch.setattr(ppl_search_mod.lazyllm, 'globals', _FakeGlobals())
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'resolve_create_user_id_for_session',
+        lambda sources: 'user-4' if sources[1].get('session_id') == 'conv-2_456' else '',
+    )
+
+    result = ppl_search_mod.parse_query({'query': 'hello'})
+
+    assert result == 'expanded:hello'
+    assert calls == ['user-4']
 
 
 # ---------------------------------------------------------------------------
