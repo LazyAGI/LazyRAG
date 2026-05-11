@@ -116,7 +116,6 @@ class OpsExecutor:
             raise store.StateError('CHECKPOINT_NOT_FOUND', f'thread {thread_id} has no pending checkpoint')
         elog = EventLog(ws.events_path)
         if op.op == 'checkpoint.answer':
-            elog.append_event('message.assistant', payload={'content': op.args.get('message') or ''})
             return OpResult(op=op.op, status='answered', data={'checkpoint_id': checkpoint.get('checkpoint_id')})
         ws.clear_checkpoint()
         elog.append_event(op.op, payload={'checkpoint_id': checkpoint.get('checkpoint_id'), **op.args})

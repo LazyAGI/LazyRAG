@@ -128,16 +128,17 @@ class ThreadHub:
         elog.append_event('message.user', payload={'content': content})
         ctx = self.view.planner_context(thread_id, ws.messages_path, ws.load_artifacts())
         intent = self.planner.draft(content, ctx)
-        self.intents.save(intent)
         plan = self.planner.materialize(intent, ctx)
+        if intent.suggested_ops_preview and not plan.ops and plan.warnings:
+            intent.reply = f"无法执行：{plan.warnings[0].removeprefix('validation failed: ')}。"
+            intent.suggested_ops_preview = []
+        self.intents.save(intent)
         _append_message(ws.messages_path, 'assistant', intent.reply)
         self.intents.transition(intent.intent_id, 'confirm')
         self.intents.transition(intent.intent_id, 'materialize')
         if plan.ops:
             self._run_ops(thread_id, plan.ops)
         elog.append_event('message.assistant', payload={'content': intent.reply})
-        elog.append_event('intent.reply', payload={'intent_id': intent.intent_id,
-                          'content': intent.reply, 'planned_ops': plan.ops})
         return {
             'intent_id': intent.intent_id,
             'reply': intent.reply,
