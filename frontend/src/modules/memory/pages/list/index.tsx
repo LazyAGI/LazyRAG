@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Button,
   Empty,
   Input,
@@ -9,11 +11,18 @@ import {
   Tooltip,
 } from "antd";
 import { QuestionCircleOutlined } from "@ant-design/icons";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import { useMemoryManagementOutletContext } from "../../context";
 import type { ExperienceAsset, StructuredAsset } from "../../shared";
 import GlossaryListSection from "../../components/GlossaryListSection";
 
+const defaultMemoryListPageSize = 6;
+const memoryListPageSizeOptions = [6, 12, 20, 50];
+
 export default function MemoryManagementListPage() {
+  const memoryTableScrollY = "clamp(360px, 42vh, 520px)";
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(defaultMemoryListPageSize);
   const {
     t,
     activeTab,
@@ -32,6 +41,8 @@ export default function MemoryManagementListPage() {
     experienceFeatureEnabled,
     experienceSettingSaving,
     handleExperienceFeatureToggle,
+    refreshSkillAssets,
+    refreshExperienceSection,
     searchInput,
     setSearchInput,
     query,
@@ -45,14 +56,20 @@ export default function MemoryManagementListPage() {
     availableGlossarySourceOptions,
     availableCategories,
     availableTags,
+    selectedGlossaryAssets,
+    glossaryAssets,
     glossaryLoading,
     glossaryLoadError,
     refreshGlossaryAssets,
+    handleBatchMergeGlossary,
+    handleBatchDeleteGlossary,
     filteredExperienceItems,
     experienceLoading,
     experienceColumns,
     filteredGlossaryItems,
     glossaryColumns,
+    selectedGlossaryAssetIds,
+    setSelectedGlossaryAssetIds,
     skillLoading,
     skillAssets,
     filteredSkillTree,
@@ -61,8 +78,57 @@ export default function MemoryManagementListPage() {
     toolColumns,
   } = useMemoryManagementOutletContext();
 
+  const activeListTotal = useMemo(() => {
+    if (activeTab === "experience") {
+      return filteredExperienceItems.length;
+    }
+    if (activeTab === "skills") {
+      return filteredSkillTree.length;
+    }
+    if (activeTab === "tools") {
+      return filteredStructuredItems.length;
+    }
+    return 0;
+  }, [
+    activeTab,
+    filteredExperienceItems.length,
+    filteredSkillTree.length,
+    filteredStructuredItems.length,
+  ]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, query, category, tag]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(activeListTotal / pageSize));
+    if (currentPage > maxPage) {
+      setCurrentPage(maxPage);
+    }
+  }, [activeListTotal, currentPage, pageSize]);
+
+  const memoryListPagination = getLocalizedTablePagination(
+    {
+      current: currentPage,
+      pageSize,
+      total: activeListTotal,
+      showSizeChanger: true,
+      pageSizeOptions: memoryListPageSizeOptions,
+      showTotal: (total) => t("common.totalItems", { total }),
+      onChange: (page, nextPageSize) => {
+        setCurrentPage(page);
+        setPageSize(nextPageSize);
+      },
+      onShowSizeChange: (_current, nextPageSize) => {
+        setCurrentPage(1);
+        setPageSize(nextPageSize);
+      },
+    },
+    t,
+  );
+
   return (
-    <>
+    <div className="memory-list-page">
       <div className="memory-page-header">
         <div>
           <div className="memory-page-title-row">
@@ -126,6 +192,19 @@ export default function MemoryManagementListPage() {
                 }
                 resetFilters();
                 navigateToMemoryList(tabKey);
+                void (async () => {
+                  if (tabKey === "skills") {
+                    await refreshSkillAssets();
+                    return;
+                  }
+                  if (tabKey === "experience") {
+                    await refreshExperienceSection({ silent: true });
+                    return;
+                  }
+                  if (tabKey === "glossary") {
+                    await refreshGlossaryAssets({ silent: true });
+                  }
+                })();
               }}
             >
               <span className="memory-tab-icon">{tabItem.icon}</span>
@@ -133,6 +212,9 @@ export default function MemoryManagementListPage() {
                 <strong>{tabItem.title}</strong>
                 <span>{tabItem.description}</span>
               </span>
+              {tabKey === "skills" && incomingPendingCount > 0 ? (
+                <span className="memory-tab-count">{incomingPendingCount}</span>
+              ) : null}
             </button>
           );
         })}
@@ -219,6 +301,23 @@ export default function MemoryManagementListPage() {
         </div>
       ) : null}
 
+      {activeTab === "skills" && incomingPendingCount > 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          className="memory-skill-share-alert"
+          message={t("admin.memorySkillSharePendingHintTitle")}
+          description={t("admin.memorySkillSharePendingHintDesc", {
+            count: incomingPendingCount,
+          })}
+          action={
+            <Button size="small" onClick={() => openSkillShareCenter("incoming")}>
+              {t("admin.memorySkillShareOpenInbox")}
+            </Button>
+          }
+        />
+      ) : null}
+
       {activeTab === "experience" ? (
         <Table<ExperienceAsset>
           className="admin-page-table memory-table"
@@ -227,7 +326,7 @@ export default function MemoryManagementListPage() {
           dataSource={filteredExperienceItems}
           columns={experienceColumns}
           tableLayout="fixed"
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={memoryListPagination}
           locale={{
             emptyText: (
               <Empty
@@ -236,17 +335,24 @@ export default function MemoryManagementListPage() {
               />
             ),
           }}
+          scroll={{ x: 980, y: memoryTableScrollY }}
         />
       ) : activeTab === "glossary" ? (
         <GlossaryListSection
           t={t}
+          assets={glossaryAssets}
           columns={glossaryColumns}
           filteredItems={filteredGlossaryItems}
           glossaryLoadError={glossaryLoadError}
           glossaryLoading={glossaryLoading}
           glossarySource={glossarySource}
+          handleBatchDeleteGlossary={handleBatchDeleteGlossary}
+          handleBatchMergeGlossary={handleBatchMergeGlossary}
           query={query}
           refreshGlossaryAssets={refreshGlossaryAssets}
+          selectedGlossaryAssetIds={selectedGlossaryAssetIds}
+          selectedGlossaryAssets={selectedGlossaryAssets}
+          setSelectedGlossaryAssetIds={setSelectedGlossaryAssetIds}
         />
       ) : (
         <Table<StructuredAsset>
@@ -264,7 +370,7 @@ export default function MemoryManagementListPage() {
                 }
               : undefined
           }
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={memoryListPagination}
           locale={{
             emptyText: (
               <Empty
@@ -273,9 +379,12 @@ export default function MemoryManagementListPage() {
               />
             ),
           }}
-          scroll={activeTab === "tools" ? { x: 980, y: 420 } : { x: 980 }}
+          scroll={{
+            x: 980,
+            y: memoryTableScrollY,
+          }}
         />
       )}
-    </>
+    </div>
   );
 }

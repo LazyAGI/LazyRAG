@@ -280,8 +280,152 @@ def test_request_does_not_override_runtime_agent_defaults(fake_pipeline, monkeyp
     })
 
     obs = fake_pipeline.observations[-1]
-    assert obs['config']['skill_fs_url'] == 'remote://skills'
+    assert obs['config']['skill_fs_url'] == 'remote://skills,.agentic/skills'
     assert obs['agent_kwargs_tools'] == ('memory',)
+
+
+def test_stream_rewrites_citations_like_naive(fake_pipeline, monkeypatch):
+    class _FakeQueue:
+        _default_values = [['事实 [['], ['1]]']]
+        _named_values = {'think': []}
+
+        def __init__(self, name=None):
+            self.name = name
+
+        def clear(self):
+            return None
+
+        def dequeue(self):
+            if self.name:
+                values = type(self)._named_values.get(self.name, [])
+                return values.pop(0) if values else []
+            values = type(self)._default_values
+            return values.pop(0) if values else []
+
+        @classmethod
+        def get_instance(cls, name):
+            return cls(name)
+
+    source = {
+        'index': 1,
+        'segment_number': 21,
+        'document_id': 'doc-1',
+        'page': -1,
+        'bbox': [],
+        'dataset_id': 'kb-1',
+        'file_name': 'Doc.md',
+        'segement_id': 'seg-1',
+        'content': 'Source body',
+        'group_name': 'block',
+    }
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        config = lazyllm.globals.get('agentic_config')
+        config['_citation_sources'] = {1: source}
+        return {'text': '事实 [[1]]', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    lazyllm.globals._init_sid(sid='stream-citation-session')
+    lazyllm.locals._init_sid(sid='stream-citation-session')
+
+    async def _collect():
+        stream = agentic.agentic_rag({'query': 'hello'}, stream=True)
+        return [item async for item in stream]
+
+    frames = asyncio.run(_collect())
+
+    assert frames == [
+        {'think': None, 'text': '事实 ', 'sources': []},
+        {'think': None, 'text': '[1](#source "Doc.md")', 'sources': []},
+        {'think': None, 'text': '', 'sources': [source]},
+    ]
+
+
+def test_stream_keeps_sources_when_final_result_already_contains_links(fake_pipeline, monkeypatch):
+    class _FakeQueue:
+        _default_values = [['事实 [['], ['1]]']]
+        _named_values = {'think': []}
+
+        def __init__(self, name=None):
+            self.name = name
+
+        def clear(self):
+            return None
+
+        def dequeue(self):
+            if self.name:
+                values = type(self)._named_values.get(self.name, [])
+                return values.pop(0) if values else []
+            values = type(self)._default_values
+            return values.pop(0) if values else []
+
+        @classmethod
+        def get_instance(cls, name):
+            return cls(name)
+
+    source = {
+        'index': 1,
+        'segment_number': 21,
+        'document_id': 'doc-1',
+        'page': -1,
+        'bbox': [],
+        'dataset_id': 'kb-1',
+        'file_name': 'Doc.md',
+        'segement_id': 'seg-1',
+        'content': 'Source body',
+        'group_name': 'block',
+    }
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        config = lazyllm.globals.get('agentic_config')
+        config['_citation_sources'] = {1: source}
+        return {'text': '事实 [1](#source "Doc.md")', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    lazyllm.globals._init_sid(sid='stream-citation-link-session')
+    lazyllm.locals._init_sid(sid='stream-citation-link-session')
+
+    async def _collect():
+        stream = agentic.agentic_rag({'query': 'hello'}, stream=True)
+        return [item async for item in stream]
+
+    frames = asyncio.run(_collect())
+
+    assert frames == [
+        {'think': None, 'text': '事实 ', 'sources': []},
+        {'think': None, 'text': '[1](#source "Doc.md")', 'sources': []},
+        {'think': None, 'text': '', 'sources': [source]},
+    ]
+
+
+def test_format_non_stream_result_collects_existing_source_links(fake_pipeline):
+    source = {
+        'index': 2,
+        'segment_number': 15,
+        'document_id': 'doc-2',
+        'page': -1,
+        'bbox': [],
+        'dataset_id': 'kb-1',
+        'file_name': 'Doc.md',
+        'segement_id': 'seg-2',
+        'content': 'Existing source body',
+        'group_name': 'block',
+    }
+
+    output = agentic._format_non_stream_result(
+        {'text': '答案 [2](#source "Doc.md")'},
+        {'_citation_sources': {2: source}},
+    )
+
+    assert output == {
+        'text': '答案 [2](#source "Doc.md")',
+        'think': '',
+        'sources': [source],
+    }
 
 
 def test_tool_stream_frame_serializes_tool_call_into_text_tags():
@@ -597,29 +741,214 @@ def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
     ]
 
 
-def test_review_debug_forces_combined(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
+def test_normalize_history_restores_citations_from_tool_result():
+    config = {}
+    agentic._reset_citation_state(config)
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '这里是总结。'
+            '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
+            '<tool_result>{"id":"toolcall-1-1","name":"kb_search","result":{"status":"success","items":['
+            '{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
+            ']}}</tool_result>'
+        ),
+    }]
 
-    assert agentic._decide_review_mode(
-        available_tools=[],
-        tool_turns=0,
-        user_turns=0,
-        memory_review_interval=99,
-        skill_review_interval=99,
-    ) == 'combined'
+    normalized = agentic._normalize_history_for_agent(history, config)
+
+    assert normalized == [
+        {
+            'role': 'assistant',
+            'content': '这里是总结。',
+            'reasoning_content': '',
+            'tool_calls': [{
+                'id': 'toolcall-1-1',
+                'type': 'function',
+                'function': {
+                    'name': 'kb_search',
+                    'arguments': '{"query": "HCA"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'toolcall-1-1',
+            'name': 'kb_search',
+            'content': '{"status":"success","items":[{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}]}',
+        },
+    ]
+    assert config['_citation_sources'] == {
+        1: {
+            'file_id': '',
+            'file_name': 'DeepSeek_V4.pdf',
+            'document_id': 'doc-1',
+            'segement_id': 'seg-1',
+            'dataset_id': 'kb-1',
+            'index': 1,
+            'content': 'HCA body',
+            'group_name': 'block',
+            'segment_number': 21,
+            'page': -1,
+            'bbox': [],
+        },
+    }
+    assert config['_citation_key_map'] == {'uid:seg-1': 1}
+    assert config['_citation_next_index'] == 2
 
 
-def test_review_mode_uses_intervals_without_debug(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_SKILL_REVIEW_DEBUG', raising=False)
+def test_normalize_history_skips_citation_restore_for_non_kb_tool_result():
+    config = {}
+    agentic._reset_citation_state(config)
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '我先查公网。'
+            '<tool_call>{"id":"toolcall-1-1","name":"web_search","arguments":{"query":"evo"}}</tool_call>'
+            '<tool_result>{"id":"toolcall-1-1","name":"web_search","result":{"success":true,"status":"ok","query":"evo",'
+            '"requested_source":"auto","resolved_source":"wikipedia","tried_sources":["bocha","google","bing","wikipedia"],'
+            '"lang":"zh","total":0,"items":[]}}</tool_result>'
+        ),
+    }]
 
-    assert agentic._decide_review_mode(
-        available_tools=['memory', 'skill_manage'],
-        tool_turns=0,
-        user_turns=2,
-        memory_review_interval=1,
-        skill_review_interval=5,
-    ) == 'memory'
+    normalized = agentic._normalize_history_for_agent(history, config)
 
+    assert normalized == [
+        {
+            'role': 'assistant',
+            'content': '我先查公网。',
+            'reasoning_content': '',
+            'tool_calls': [{
+                'id': 'toolcall-1-1',
+                'type': 'function',
+                'function': {
+                    'name': 'web_search',
+                    'arguments': '{"query": "evo"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'toolcall-1-1',
+            'name': 'web_search',
+            'content': '{"success":true,"status":"ok","query":"evo","requested_source":"auto","resolved_source":"wikipedia","tried_sources":["bocha","google","bing","wikipedia"],"lang":"zh","total":0,"items":[]}',
+        },
+    ]
+    assert config['_citation_sources'] == {}
+    assert config['_citation_key_map'] == {}
+    assert config['_citation_next_index'] == 1
+
+
+def test_normalize_history_keeps_reasoning_aligned_with_assistant_segments():
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '<think>先规划检索。</think>'
+            '我先查资料。'
+            '<tool_call>{"id":"call-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
+            '<tool_result>{"id":"call-1","name":"kb_search","result":{"status":"ok"}}</tool_result>'
+            '<think>现在信息够了，开始写结论。</think>'
+            '现在基于结果整理报告。'
+        ),
+    }]
+
+    assert agentic._normalize_history_for_agent(history) == [
+        {
+            'role': 'assistant',
+            'content': '我先查资料。',
+            'reasoning_content': '先规划检索。',
+            'tool_calls': [{
+                'id': 'call-1',
+                'type': 'function',
+                'function': {
+                    'name': 'kb_search',
+                    'arguments': '{"query": "HCA"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'call-1',
+            'name': 'kb_search',
+            'content': '{"status":"ok"}',
+        },
+        {
+            'role': 'assistant',
+            'content': '现在基于结果整理报告。',
+            'reasoning_content': '现在信息够了，开始写结论。',
+        },
+    ]
+
+
+def test_stream_uses_citations_restored_from_history(fake_pipeline, monkeypatch):
+    class _FakeQueue:
+        _default_values = [['延续上一轮知识。[['], ['1]]']]
+        _named_values = {'think': []}
+
+        def __init__(self, name=None):
+            self.name = name
+
+        def clear(self):
+            return None
+
+        def dequeue(self):
+            if self.name:
+                values = type(self)._named_values.get(self.name, [])
+                return values.pop(0) if values else []
+            values = type(self)._default_values
+            return values.pop(0) if values else []
+
+        @classmethod
+        def get_instance(cls, name):
+            return cls(name)
+
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '上一轮总结。'
+            '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
+            '<tool_result>{"id":"toolcall-1-1","name":"kb_search","result":{"status":"success","items":['
+            '{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
+            ']}}</tool_result>'
+        ),
+    }]
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        return {'text': '延续上一轮知识。[1](#source "DeepSeek_V4.pdf")', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    lazyllm.globals._init_sid(sid='stream-history-citation-session')
+    lazyllm.locals._init_sid(sid='stream-history-citation-session')
+
+    async def _collect():
+        stream = agentic.agentic_rag({'query': 'follow-up', 'history': history}, stream=True)
+        return [item async for item in stream]
+
+    frames = asyncio.run(_collect())
+
+    assert frames == [
+        {'think': None, 'text': '延续上一轮知识。', 'sources': []},
+        {'think': None, 'text': '[1](#source "DeepSeek_V4.pdf")', 'sources': []},
+        {
+            'think': None,
+            'text': '',
+            'sources': [{
+                'file_id': '',
+                'file_name': 'DeepSeek_V4.pdf',
+                'document_id': 'doc-1',
+                'segement_id': 'seg-1',
+                'dataset_id': 'kb-1',
+                'index': 1,
+                'content': 'HCA body',
+                'group_name': 'block',
+                'segment_number': 21,
+                'page': -1,
+                'bbox': [],
+            }],
+        },
+    ]
 
 def test_count_tool_turns_only_counts_assistant_messages_with_tool_calls():
     history = agentic._normalize_history_for_agent([

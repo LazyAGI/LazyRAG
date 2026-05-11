@@ -17,6 +17,7 @@ export type SelfEvolutionHistoryEntry = {
   messageCount?: number;
   status?: string;
   source: "thread" | "local";
+  isCurrent?: boolean;
 };
 
 export type SelfEvolutionCheckpointPrompt = {

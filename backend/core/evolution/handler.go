@@ -15,6 +15,7 @@ import (
 
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
+	appLog "lazyrag/core/log"
 	"lazyrag/core/store"
 )
 
@@ -58,7 +59,7 @@ func ListSuggestions(w http.ResponseWriter, r *http.Request) {
 
 	var rows []orm.ResourceSuggestion
 	if err := query.
-		Order("created_at DESC").
+		Order("CASE WHEN action = 'remove' THEN 0 ELSE 1 END, created_at DESC").
 		Limit(pageSize).
 		Offset((page - 1) * pageSize).
 		Find(&rows).Error; err != nil {
@@ -244,6 +245,19 @@ func batchReviewSuggestions(w http.ResponseWriter, r *http.Request, targetStatus
 		row.ReviewerName = reviewerName
 		row.ReviewedAt = &now
 		row.UpdatedAt = now
+
+		if row.Action == SuggestionActionRemove && targetStatus == SuggestionStatusAccepted {
+			if ApplyRemoveSuggestion != nil {
+				if err := ApplyRemoveSuggestion(r.Context(), db, row); err != nil {
+					appLog.Logger.Error().
+						Err(err).
+						Str("suggestion_id", row.ID).
+						Str("action", row.Action).
+						Msg("apply remove suggestion failed during batch approve")
+				}
+			}
+		}
+
 		item, err := suggestionResponse(r.Context(), resolver, row)
 		if err != nil {
 			common.ReplyErr(w, "resolve suggestion outdated failed", http.StatusInternalServerError)
@@ -297,6 +311,9 @@ func applySuggestionListFilters(ctx context.Context, db *gorm.DB, query *gorm.DB
 	if resourceKey := strings.TrimSpace(values.Get("resource_key")); resourceKey != "" {
 		query = query.Where("resource_key = ?", resourceKey)
 	}
+	if statuses := filterVisibleStatuses(values["status"]); len(statuses) > 0 {
+		query = query.Where("status IN ?", statuses)
+	}
 
 	var err error
 	query, err = applySuggestionEvolutionFilter(ctx, db, query, values.Get("evolution_id"))
@@ -304,6 +321,34 @@ func applySuggestionListFilters(ctx context.Context, db *gorm.DB, query *gorm.DB
 		return nil, err
 	}
 	return query, nil
+}
+
+func filterVisibleStatuses(rawStatuses []string) []string {
+	if len(rawStatuses) == 0 {
+		return nil
+	}
+	visible := make(map[string]struct{}, len(VisibleSuggestionStatuses()))
+	for _, status := range VisibleSuggestionStatuses() {
+		visible[status] = struct{}{}
+	}
+
+	seen := make(map[string]struct{}, len(rawStatuses))
+	out := make([]string, 0, len(rawStatuses))
+	for _, status := range rawStatuses {
+		normalized := strings.TrimSpace(status)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := visible[normalized]; !ok {
+			continue
+		}
+		if _, duplicated := seen[normalized]; duplicated {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	return out
 }
 
 func applySuggestionEvolutionFilter(ctx context.Context, db *gorm.DB, query *gorm.DB, evolutionID string) (*gorm.DB, error) {

@@ -4,7 +4,10 @@ import sys
 from functools import wraps
 from typing import Any, Dict, List, Literal, Optional
 
+from pydantic import BaseModel
+
 import requests
+import lazyllm
 from lazyllm import fc_register
 from lazyllm.tools.agent.skill_manager import SkillManager as LazySkillManager
 
@@ -15,13 +18,7 @@ if __package__ in (None, ''):
 
 from lazyllm.tools.fs.client import FS
 from common.remote_fs import RemoteFileSystem  # noqa: F401
-from chat.tools.memory import (
-    MAX_SUGGESTIONS_PER_CALL,
-    Suggestion,
-    _agentic_config,
-    _post_core_api,
-    _session_id,
-)
+from chat.utils.load_config import extract_skill_fs_source
 
 _PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9._-]+$')
 _UUID_SEGMENT_RE = re.compile(
@@ -29,6 +26,66 @@ _UUID_SEGMENT_RE = re.compile(
 )
 _FRONTMATTER_RE = re.compile(r'^---\s*\n(.*?)\n---\s*\n(.*)$', re.DOTALL)
 _MAX_DESCRIPTION_LENGTH = 1024
+_DEFAULT_CORE_API_TIMEOUT = 30
+MAX_SUGGESTIONS_PER_CALL = 5
+
+
+class Suggestion(BaseModel):
+    title: str
+    content: str
+
+
+def _agentic_config() -> Dict[str, Any]:
+    config = lazyllm.globals.get('agentic_config') or {}
+    return config if isinstance(config, dict) else {}
+
+
+def _core_api_base_url(agentic_config: Optional[Dict[str, Any]] = None) -> str:
+    config = agentic_config if isinstance(agentic_config, dict) else _agentic_config()
+    return str(config.get('core_api_url'))
+
+
+def _core_api_endpoint(path: str, agentic_config: Optional[Dict[str, Any]] = None) -> str:
+    base_url = _core_api_base_url(agentic_config)
+    normalized_path = '/' + path.lstrip('/')
+    return f'{base_url}{normalized_path}'
+
+
+def _session_id(agentic_config: Optional[Dict[str, Any]] = None) -> str:
+    config = agentic_config if isinstance(agentic_config, dict) else _agentic_config()
+    return str(config.get('session_id') or lazyllm.globals._sid or '').strip()
+
+
+def _post_core_api(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    config = _agentic_config()
+    url = _core_api_endpoint(path, config)
+    timeout = config.get('core_api_timeout', _DEFAULT_CORE_API_TIMEOUT)
+    with requests.sessions.Session() as session:
+        session.trust_env = False
+        response = session.post(url, json=payload, timeout=timeout)
+
+    try:
+        body = response.json()
+    except ValueError:
+        body = {'text': response.text}
+
+    if not response.ok:
+        msg = (
+            body.get('msg') or body.get('message')
+            if isinstance(body, dict)
+            else response.text
+        )
+        raise RuntimeError(f'POST {url} failed with HTTP {response.status_code}: {msg}')
+
+    if isinstance(body, dict) and body.get('code') not in (None, 0):
+        msg = body.get('msg') or body.get('message') or body
+        raise RuntimeError(f'POST {url} failed: {msg}')
+
+    return {
+        'persisted': 'core_api',
+        'url': url,
+        'response': body,
+    }
 
 
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
@@ -166,6 +223,7 @@ def list_all_skill_entries(
             'name': name,
             'category': category,
             'path': skill_dir,
+            'source': extract_skill_fs_source(skill_dir),
         }
     return results
 
@@ -179,6 +237,10 @@ def list_all_skills_with_category(
     return results
 
 
+def _is_writable_skill_source(source: str) -> bool:
+    return source == 'remote'
+
+
 @fc_register('tool', execute_in_sandbox=False)
 @_handle_tool_errors
 def skill_manage(
@@ -187,6 +249,7 @@ def skill_manage(
     category: Optional[str],
     content: Optional[str] = None,
     suggestions: Optional[List[Suggestion]] = None,
+    reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Manage skills by creating, modifying, or removing a skill entry.
 
@@ -194,14 +257,24 @@ def skill_manage(
         name: Skill name.
         action: Action to perform.
         category: Skill category directory.
-        content: Full SKILL.md content when creating a skill.
-        suggestions: Suggestions when modifying a skill.
+        content: Full SKILL.md content. ONLY for action='create'.
+            Do NOT pass for action='modify' or 'remove'.
+        suggestions: List of {title, content} objects. ONLY for action='modify'.
+            Do NOT pass for action='create' or 'remove'.
+        reason: Why the skill should be removed. ONLY for action='remove'.
     """
     def _ok(result: Dict[str, Any]) -> Dict[str, Any]:
         return {'success': True, 'result': result}
 
     def _fail(reason: str) -> Dict[str, Any]:
+        print(f'[skill_manage] FAIL reason={reason!r}')
         return {'success': False, 'reason': reason}
+
+    print(
+        f'[skill_manage] CALLED name={name!r} action={action!r} '
+        f'category={category!r} content_len={len(content) if content else 0} '
+        f'suggestions_count={len(suggestions) if suggestions else 0}'
+    )
 
     name_error = _validate_skill_name(name)
     if name_error:
@@ -222,6 +295,12 @@ def skill_manage(
 
     existing_skills = list_all_skill_entries(agentic_config.get('skill_fs_url') or '')
     skill_id = _skill_identity(normalized_category or '', name)
+    existing_skill = existing_skills.get(skill_id)
+    print(
+        f'[skill_manage] LOOKUP skill_id={skill_id!r} '
+        f'found={existing_skill is not None} '
+        f'existing_keys={list(existing_skills.keys())!r}'
+    )
 
     if action == 'create':
         content_error = _validate_skill_content(content or '')
@@ -229,7 +308,13 @@ def skill_manage(
             return _fail(content_error)
         if suggestions:
             return _fail("action='create' must not include 'suggestions'.")
-        if skill_id in existing_skills:
+        if existing_skill:
+            source = existing_skill.get('source', 'file')
+            if not _is_writable_skill_source(source):
+                return _fail(
+                    f'Skill {name!r} already exists in category {normalized_category!r} '
+                    f'with read-only source {source!r}; skill_manage can only write remote skills.'
+                )
             return _fail(
                 f'Skill {name!r} already exists in category {normalized_category!r}; '
                 "use action='modify' to edit it or action='remove' to delete it first."
@@ -263,23 +348,33 @@ def skill_manage(
                 f'At most {MAX_SUGGESTIONS_PER_CALL} suggestions are allowed per call; '
                 f'got {len(suggestions)}.'
             )
-        if skill_id not in existing_skills:
+        if not existing_skill:
             return _fail(
                 f'Skill {name!r} does not exist in category {normalized_category!r}; '
                 "use action='create' to add a new skill."
+            )
+        source = existing_skill.get('source', 'file')
+        print(
+            f'[skill_manage] MODIFY_CHECK source={source!r} '
+            f'writable={_is_writable_skill_source(source)}'
+        )
+        if not _is_writable_skill_source(source):
+            return _fail(
+                f'Skill {name!r} in category {normalized_category!r} has read-only source '
+                f'{source!r}; skill_manage can only modify remote skills.'
             )
 
         result = {
             'name': name,
             'action': action,
             'category': normalized_category,
-            'suggestions': list(suggestions),
+            'suggestions': [s.model_dump() for s in suggestions],
         }
         payload = {
             'session_id': session_id,
             'skill_name': name,
             'category': normalized_category,
-            'suggestions': [dict(s) for s in suggestions],
+            'suggestions': [s.model_dump() for s in suggestions],
         }
         try:
             result.update(_post_core_api('/skill/suggestion', payload))
@@ -290,21 +385,29 @@ def skill_manage(
     if action == 'remove':
         if content is not None or suggestions:
             return _fail("action='remove' must not include 'content' or 'suggestions'.")
-        if skill_id not in existing_skills:
+        if not existing_skill:
             return _fail(
                 f'Skill {name!r} does not exist in category {normalized_category!r}; '
                 'nothing to remove.'
+            )
+        source = existing_skill.get('source', 'file')
+        if not _is_writable_skill_source(source):
+            return _fail(
+                f'Skill {name!r} in category {normalized_category!r} has read-only source '
+                f'{source!r}; skill_manage can only remove remote skills.'
             )
 
         result = {
             'name': name,
             'action': action,
             'category': normalized_category,
+            'reason': reason,
         }
         payload = {
             'session_id': session_id,
             'skill_name': name,
             'category': normalized_category,
+            'reason': reason or '',
         }
         try:
             result.update(_post_core_api('/skill/remove', payload))

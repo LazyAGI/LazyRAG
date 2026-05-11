@@ -171,7 +171,7 @@ func TestInternalCreateCreatesSkillDirectly(t *testing.T) {
 	}
 }
 
-func TestRemoveDeletesSkillByID(t *testing.T) {
+func TestInternalRemoveCreatesRemoveSuggestion(t *testing.T) {
 	db := newSkillTestDB(t)
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
@@ -214,30 +214,32 @@ func TestRemoveDeletesSkillByID(t *testing.T) {
 	var resp struct {
 		Code int `json:"code"`
 		Data struct {
-			Deleted bool `json:"deleted"`
+			Items []struct {
+				Status string `json:"status"`
+			} `json:"items"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Code != 0 || !resp.Data.Deleted {
-		t.Fatalf("expected deleted response, got %+v", resp)
+	if resp.Code != 0 || len(resp.Data.Items) != 1 || resp.Data.Items[0].Status != evolution.SuggestionStatusPendingReview {
+		t.Fatalf("expected pending remove suggestion response, got %+v", resp)
 	}
 
 	var skillCount int64
 	if err := db.Model(&orm.SkillResource{}).Where("id = ?", row.ID).Count(&skillCount).Error; err != nil {
 		t.Fatalf("count skills: %v", err)
 	}
-	if skillCount != 0 {
-		t.Fatalf("expected skill to be deleted, got %d rows", skillCount)
+	if skillCount != 1 {
+		t.Fatalf("expected skill to remain pending review, got %d rows", skillCount)
 	}
 
 	var suggestionCount int64
 	if err := db.Model(&orm.ResourceSuggestion{}).Count(&suggestionCount).Error; err != nil {
 		t.Fatalf("count suggestions: %v", err)
 	}
-	if suggestionCount != 0 {
-		t.Fatalf("expected no resource suggestions, got %d", suggestionCount)
+	if suggestionCount != 1 {
+		t.Fatalf("expected one resource suggestion, got %d", suggestionCount)
 	}
 
 }
@@ -916,8 +918,8 @@ func TestListMarksSkillsWithPendingReviewSuggestions(t *testing.T) {
 	if itemsByID[parentWithPending.ID].children[childWithPending.ID].suggestionStatus != evolution.SuggestionStatusPendingReview {
 		t.Fatalf("expected child suggestion_status pending_review, got %q", itemsByID[parentWithPending.ID].children[childWithPending.ID].suggestionStatus)
 	}
-	if !itemsByID[parentAcceptedOnly.ID].hasPending {
-		t.Fatalf("expected accepted-only parent to be marked as having active suggestion")
+	if itemsByID[parentAcceptedOnly.ID].hasPending {
+		t.Fatalf("expected accepted-only parent not to be marked as pending")
 	}
 	if itemsByID[parentAcceptedOnly.ID].suggestionStatus != evolution.SuggestionStatusAccepted {
 		t.Fatalf("expected accepted-only parent suggestion_status accepted, got %q", itemsByID[parentAcceptedOnly.ID].suggestionStatus)
@@ -1158,7 +1160,7 @@ func TestCreateParentSkillBuildsFrontmatterFromBodyOnlyContent(t *testing.T) {
 		Description: "Git workflow for postman test",
 		Category:    "coding",
 		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
-		IsLocked:    true,
+		AutoEvo:     true,
 	}
 	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", req); err != nil {
 		t.Fatalf("create parent skill: %v", err)
@@ -1384,10 +1386,10 @@ func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T
 		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
 		Children: []childSkillInput{
 			{
-				Name:     "rules",
-				Content:  "1. Create a feature branch.\n2. Rebase before merging.",
-				FileExt:  "md",
-				IsLocked: true,
+				Name:    "rules",
+				Content: "1. Create a feature branch.\n2. Rebase before merging.",
+				FileExt: "md",
+				AutoEvo: true,
 			},
 		},
 	}
@@ -1440,151 +1442,7 @@ func TestUpdateParentSkillRenameMovesChildrenAndRebuildsFrontmatter(t *testing.T
 	}
 }
 
-func TestUpdateChildSkillAcceptsUnchangedFullFormFields(t *testing.T) {
-	db := newSkillTestDB(t)
-	store.Init(db.DB, nil, nil)
-	t.Cleanup(func() { store.Init(nil, nil, nil) })
-
-	createReq := createSkillRequest{
-		Name:        "parent-skill",
-		Description: "Parent skill",
-		Category:    "按过程分类",
-		Content:     "# Parent Skill\n\nParent content.",
-		Children: []childSkillInput{
-			{
-				Name:     "子技能",
-				Content:  "sss1",
-				FileExt:  "md",
-				IsLocked: true,
-			},
-		},
-	}
-	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", createReq); err != nil {
-		t.Fatalf("create parent skill with child: %v", err)
-	}
-
-	var child orm.SkillResource
-	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeChild).Take(&child).Error; err != nil {
-		t.Fatalf("query child skill: %v", err)
-	}
-
-	req := mux.SetURLVars(
-		httptest.NewRequest(
-			http.MethodPatch,
-			"/api/core/skills/"+child.ID,
-			strings.NewReader(`{"name":"子技能","content":"sss2","is_locked":false,"description":"2","category":"按过程分类","tags":[],"is_enabled":true,"file_ext":"md"}`),
-		),
-		map[string]string{"skill_id": child.ID},
-	)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-Id", "u1")
-	req.Header.Set("X-User-Name", "User 1")
-	rec := httptest.NewRecorder()
-
-	UpdateManaged(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
-	}
-
-	var updated orm.SkillResource
-	if err := db.Where("id = ?", child.ID).Take(&updated).Error; err != nil {
-		t.Fatalf("query updated child skill: %v", err)
-	}
-	if updated.SkillName != "子技能" {
-		t.Fatalf("expected child name unchanged, got %q", updated.SkillName)
-	}
-	if updated.Content != "sss2" {
-		t.Fatalf("expected child content updated, got %q", updated.Content)
-	}
-	if updated.Description != "2" {
-		t.Fatalf("expected child description updated, got %q", updated.Description)
-	}
-	if updated.IsLocked {
-		t.Fatalf("expected child lock to be disabled")
-	}
-}
-
-func TestUpdateChildSkillRenamesAndMovesRelativePath(t *testing.T) {
-	db := newSkillTestDB(t)
-
-	createReq := createSkillRequest{
-		Name:        "parent-skill",
-		Description: "Parent skill",
-		Category:    "coding",
-		Content:     "# Parent Skill\n\nParent content.",
-		Children: []childSkillInput{
-			{
-				Name:    "rules",
-				Content: "1. Create a feature branch.",
-				FileExt: "md",
-			},
-		},
-	}
-	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", createReq); err != nil {
-		t.Fatalf("create parent skill with child: %v", err)
-	}
-
-	var child orm.SkillResource
-	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeChild).Take(&child).Error; err != nil {
-		t.Fatalf("query child skill: %v", err)
-	}
-
-	updateReq := updateSkillRequest{Name: stringPtr("renamed-rules")}
-	if err := updateSkill(context.Background(), db.DB, "u1", "User 1", child.ID, updateReq); err != nil {
-		t.Fatalf("rename child skill: %v", err)
-	}
-
-	var updated orm.SkillResource
-	if err := db.Where("id = ?", child.ID).Take(&updated).Error; err != nil {
-		t.Fatalf("query renamed child skill: %v", err)
-	}
-	if updated.SkillName != "renamed-rules" {
-		t.Fatalf("expected child name to be renamed, got %q", updated.SkillName)
-	}
-	expectedRelativePath := filepath.ToSlash(filepath.Join("coding", "parent-skill", "renamed-rules.md"))
-	if updated.RelativePath != expectedRelativePath {
-		t.Fatalf("unexpected child relative path: %q", updated.RelativePath)
-	}
-}
-
-func TestUpdateChildSkillRejectsDuplicateRename(t *testing.T) {
-	db := newSkillTestDB(t)
-
-	createReq := createSkillRequest{
-		Name:        "parent-skill",
-		Description: "Parent skill",
-		Category:    "coding",
-		Content:     "# Parent Skill\n\nParent content.",
-		Children: []childSkillInput{
-			{
-				Name:    "rules",
-				Content: "1. Create a feature branch.",
-				FileExt: "md",
-			},
-			{
-				Name:    "checks",
-				Content: "1. Run checks.",
-				FileExt: "md",
-			},
-		},
-	}
-	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", createReq); err != nil {
-		t.Fatalf("create parent skill with children: %v", err)
-	}
-
-	var child orm.SkillResource
-	if err := db.Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", "u1", evolution.SkillNodeTypeChild, "checks").Take(&child).Error; err != nil {
-		t.Fatalf("query child skill: %v", err)
-	}
-
-	updateReq := updateSkillRequest{Name: stringPtr("rules")}
-	if err := updateSkill(context.Background(), db.DB, "u1", "User 1", child.ID, updateReq); !errors.Is(err, gorm.ErrDuplicatedKey) {
-		t.Fatalf("expected duplicate child rename error, got %v", err)
-	}
-}
-
-func TestDeleteChildSkillRemovesRecordOnly(t *testing.T) {
+func TestDeleteChildSkillKeepsParentRecord(t *testing.T) {
 	db := newSkillTestDB(t)
 
 	createReq := createSkillRequest{
@@ -1613,7 +1471,7 @@ func TestDeleteChildSkillRemovesRecordOnly(t *testing.T) {
 		t.Fatalf("query child skill: %v", err)
 	}
 
-	if err := deleteSkill(context.Background(), db.DB, "u1", child.ID); err != nil {
+	if err := DeleteSkill(context.Background(), db.DB, "u1", child.ID); err != nil {
 		t.Fatalf("delete child skill: %v", err)
 	}
 
@@ -1622,6 +1480,58 @@ func TestDeleteChildSkillRemovesRecordOnly(t *testing.T) {
 	}
 	if err := db.Where("id = ?", parent.ID).Take(&orm.SkillResource{}).Error; err != nil {
 		t.Fatalf("expected parent record to remain, got err=%v", err)
+	}
+}
+
+func TestDeleteChildSkillRemovesRelatedSuggestions(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	createReq := createSkillRequest{
+		Name:        "git-workflow",
+		Description: "Git workflow for postman test",
+		Category:    "coding",
+		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
+		Children: []childSkillInput{
+			{
+				Name:    "rules",
+				Content: "1. Create a feature branch.",
+				FileExt: "md",
+			},
+		},
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", createReq); err != nil {
+		t.Fatalf("create parent skill with child: %v", err)
+	}
+
+	var child orm.SkillResource
+	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeChild).Take(&child).Error; err != nil {
+		t.Fatalf("query child skill: %v", err)
+	}
+	now := time.Now()
+	if err := db.Create(&orm.ResourceSuggestion{
+		ID:           "suggestion-child",
+		UserID:       "u1",
+		ResourceType: evolution.ResourceTypeSkill,
+		ResourceKey:  evolution.SkillSuggestionResourceKey(child),
+		Action:       evolution.SuggestionActionModify,
+		SessionID:    "session-1",
+		Status:       evolution.SuggestionStatusPendingReview,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create child suggestion: %v", err)
+	}
+
+	if err := DeleteSkill(context.Background(), db.DB, "u1", child.ID); err != nil {
+		t.Fatalf("delete child skill: %v", err)
+	}
+
+	var suggestionCount int64
+	if err := db.Model(&orm.ResourceSuggestion{}).Where("id = ?", "suggestion-child").Count(&suggestionCount).Error; err != nil {
+		t.Fatalf("count child suggestions: %v", err)
+	}
+	if suggestionCount != 0 {
+		t.Fatalf("expected related child suggestions to be deleted, got %d", suggestionCount)
 	}
 }
 
@@ -1658,7 +1568,7 @@ func TestDeleteParentSkillRemovesChildrenRecords(t *testing.T) {
 	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeChild).Find(&children).Error; err != nil {
 		t.Fatalf("query child skills: %v", err)
 	}
-	if err := deleteSkill(context.Background(), db.DB, "u1", parent.ID); err != nil {
+	if err := DeleteSkill(context.Background(), db.DB, "u1", parent.ID); err != nil {
 		t.Fatalf("delete parent skill: %v", err)
 	}
 
@@ -1669,6 +1579,76 @@ func TestDeleteParentSkillRemovesChildrenRecords(t *testing.T) {
 		if err := db.Where("id = ?", child.ID).Take(&orm.SkillResource{}).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
 			t.Fatalf("expected child record %s to be deleted, got err=%v", child.ID, err)
 		}
+	}
+}
+
+func TestDeleteParentSkillRemovesRelatedSuggestions(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	createReq := createSkillRequest{
+		Name:        "git-workflow",
+		Description: "Git workflow for postman test",
+		Category:    "coding",
+		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
+		Children: []childSkillInput{
+			{
+				Name:    "rules",
+				Content: "1. Create a feature branch.",
+				FileExt: "md",
+			},
+		},
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", createReq); err != nil {
+		t.Fatalf("create parent skill with child: %v", err)
+	}
+
+	var parent orm.SkillResource
+	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeParent).Take(&parent).Error; err != nil {
+		t.Fatalf("query parent skill: %v", err)
+	}
+	var child orm.SkillResource
+	if err := db.Where("owner_user_id = ? AND node_type = ?", "u1", evolution.SkillNodeTypeChild).Take(&child).Error; err != nil {
+		t.Fatalf("query child skill: %v", err)
+	}
+	now := time.Now()
+	suggestions := []orm.ResourceSuggestion{
+		{
+			ID:           "suggestion-parent",
+			UserID:       "u1",
+			ResourceType: evolution.ResourceTypeSkill,
+			ResourceKey:  evolution.SkillSuggestionResourceKey(parent),
+			Action:       evolution.SuggestionActionRemove,
+			SessionID:    "session-1",
+			Status:       evolution.SuggestionStatusPendingReview,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			ID:           "suggestion-child",
+			UserID:       "u1",
+			ResourceType: evolution.ResourceTypeSkill,
+			ResourceKey:  evolution.SkillSuggestionResourceKey(child),
+			Action:       evolution.SuggestionActionModify,
+			SessionID:    "session-1",
+			Status:       evolution.SuggestionStatusPendingReview,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+	}
+	if err := db.Create(&suggestions).Error; err != nil {
+		t.Fatalf("create suggestions: %v", err)
+	}
+
+	if err := DeleteSkill(context.Background(), db.DB, "u1", parent.ID); err != nil {
+		t.Fatalf("delete parent skill: %v", err)
+	}
+
+	var suggestionCount int64
+	if err := db.Model(&orm.ResourceSuggestion{}).Where("id IN ?", []string{"suggestion-parent", "suggestion-child"}).Count(&suggestionCount).Error; err != nil {
+		t.Fatalf("count parent suggestions: %v", err)
+	}
+	if suggestionCount != 0 {
+		t.Fatalf("expected related parent suggestions to be deleted, got %d", suggestionCount)
 	}
 }
 

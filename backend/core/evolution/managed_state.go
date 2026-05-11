@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
+	"lazyrag/core/algo"
 	"lazyrag/core/common"
 	"lazyrag/core/common/orm"
 	"lazyrag/core/store"
@@ -26,6 +28,10 @@ type ManagedStateItem struct {
 	ContentSummary              string `json:"content_summary"`
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
 	SuggestionStatus            string `json:"suggestion_status"`
+	AutoEvo                     bool   `json:"auto_evo"`
+	AutoEvoApplyStatus          string `json:"auto_evo_apply_status"`
+	AutoEvoGeneration           int64  `json:"auto_evo_generation"`
+	AutoEvoError                string `json:"auto_evo_error"`
 }
 
 func ListManagedStates(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +67,7 @@ func ListManagedStates(w http.ResponseWriter, r *http.Request) {
 		NewManagedStateItem(ResourceTypeMemory, memoryRow, suggestionStatuses[ResourceTypeMemory]),
 		NewManagedStateItem(ResourceTypeUserPreference, preferenceRow, suggestionStatuses[ResourceTypeUserPreference]),
 	}
+
 	common.ReplyOK(w, map[string]any{"items": items})
 }
 
@@ -91,7 +98,7 @@ func NewManagedStateItem(resourceType string, row any, suggestionStatus string) 
 	item := ManagedStateItem{
 		ResourceType:                strings.TrimSpace(resourceType),
 		Title:                       ManagedStateTitle(resourceType),
-		HasPendingReviewSuggestions: suggestionStatus != SuggestionStatusNone,
+		HasPendingReviewSuggestions: suggestionStatus == SuggestionStatusPendingReview,
 		SuggestionStatus:            suggestionStatus,
 	}
 	switch typed := row.(type) {
@@ -100,12 +107,20 @@ func NewManagedStateItem(resourceType string, row any, suggestionStatus string) 
 			item.ResourceID = strings.TrimSpace(typed.ID)
 			item.Content = typed.Content
 			item.ContentSummary = ManagedStateSummary(typed.Content)
+			item.AutoEvo = typed.AutoEvo
+			item.AutoEvoApplyStatus = NormalizeAutoEvoApplyStatus(typed.AutoEvoApplyStatus)
+			item.AutoEvoGeneration = typed.AutoEvoGeneration
+			item.AutoEvoError = typed.AutoEvoError
 		}
 	case *orm.SystemUserPreference:
 		if typed != nil {
 			item.ResourceID = strings.TrimSpace(typed.ID)
 			item.Content = typed.Content
 			item.ContentSummary = ManagedStateSummary(typed.Content)
+			item.AutoEvo = typed.AutoEvo
+			item.AutoEvoApplyStatus = NormalizeAutoEvoApplyStatus(typed.AutoEvoApplyStatus)
+			item.AutoEvoGeneration = typed.AutoEvoGeneration
+			item.AutoEvoError = typed.AutoEvoError
 		}
 	}
 	return item
@@ -163,4 +178,342 @@ func ManagedStateSummary(content string) string {
 		return strings.Join(fields, " ")
 	}
 	return ""
+}
+
+func applyManagedMemoryAutoEvolution(ctx context.Context, db *gorm.DB, row orm.SystemMemory) (bool, error) {
+	pending, err := LoadPendingReviewSuggestions(ctx, db, row.UserID, ResourceTypeMemory, SystemResourceKey(ResourceTypeMemory))
+	if err != nil {
+		return false, err
+	}
+	if len(pending) == 0 {
+		return false, nil
+	}
+	generated, genErr := algo.GenerateMemory(ctx, algo.MemoryGenerateRequest{
+		Content:     row.Content,
+		Suggestions: memoryAlgoSuggestions(pending),
+	})
+	if genErr != nil {
+		return false, genErr
+	}
+	now := time.Now()
+	result := db.WithContext(ctx).Model(&orm.SystemMemory{}).
+		Where("id = ? AND version = ? AND auto_evo = ? AND auto_evo_generation = ?",
+			row.ID, row.Version, true, row.AutoEvoGeneration).
+		Updates(map[string]any{
+			"content":               generated,
+			"content_hash":          HashContent(generated),
+			"version":               row.Version + 1,
+			"draft_content":         "",
+			"draft_source_version":  0,
+			"draft_status":          "",
+			"draft_updated_at":      nil,
+			"auto_evo_apply_status": AutoEvoApplyStatusRunning,
+			"auto_evo_error":        "",
+			"updated_at":            now,
+			"ext":                   WithDraftSuggestionIDs(row.Ext, nil),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+	if err := UpdateSuggestionStatus(ctx, db, memorySuggestionIDs(pending), SuggestionStatusApplied); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func applyManagedPreferenceAutoEvolution(ctx context.Context, db *gorm.DB, row orm.SystemUserPreference) (bool, error) {
+	pending, err := LoadPendingReviewSuggestions(ctx, db, row.UserID, ResourceTypeUserPreference, SystemResourceKey(ResourceTypeUserPreference))
+	if err != nil {
+		return false, err
+	}
+	if len(pending) == 0 {
+		return false, nil
+	}
+	generated, genErr := algo.GenerateUserPreference(ctx, algo.MemoryGenerateRequest{
+		Content:     row.Content,
+		Suggestions: prefAlgoSuggestions(pending),
+	})
+	if genErr != nil {
+		return false, genErr
+	}
+	now := time.Now()
+	result := db.WithContext(ctx).Model(&orm.SystemUserPreference{}).
+		Where("id = ? AND version = ? AND auto_evo = ? AND auto_evo_generation = ?",
+			row.ID, row.Version, true, row.AutoEvoGeneration).
+		Updates(map[string]any{
+			"content":               generated,
+			"content_hash":          HashContent(generated),
+			"version":               row.Version + 1,
+			"draft_content":         "",
+			"draft_source_version":  0,
+			"draft_status":          "",
+			"draft_updated_at":      nil,
+			"auto_evo_apply_status": AutoEvoApplyStatusRunning,
+			"auto_evo_error":        "",
+			"updated_at":            now,
+			"ext":                   WithDraftSuggestionIDs(row.Ext, nil),
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+	if err := UpdateSuggestionStatus(ctx, db, prefSuggestionIDs(pending), SuggestionStatusApplied); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func EnsureManagedMemoryAutoEvolutionScheduled(row orm.SystemMemory) error {
+	if !row.AutoEvo {
+		return nil
+	}
+	workerKey := AutoEvoWorkerKey(ResourceTypeMemory, row.ID)
+	if !TryAcquireAutoEvoWorker(workerKey) {
+		return nil
+	}
+	db := store.DB()
+	if db == nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return errors.New("store not initialized")
+	}
+	var latest orm.SystemMemory
+	if err := db.WithContext(context.Background()).Where("id = ?", row.ID).Take(&latest).Error; err != nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return err
+	}
+	if !latest.AutoEvo {
+		ReleaseAutoEvoWorker(workerKey)
+		return nil
+	}
+	pending, err := LoadPendingReviewSuggestions(context.Background(), db, latest.UserID, ResourceTypeMemory, SystemResourceKey(ResourceTypeMemory))
+	if err != nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return err
+	}
+	now := time.Now()
+	status := AutoEvoApplyStatusRunning
+	if len(pending) == 0 {
+		status = AutoEvoApplyStatusIdle
+	}
+	if err := db.WithContext(context.Background()).Model(&orm.SystemMemory{}).Where("id = ?", latest.ID).Updates(map[string]any{
+		"auto_evo_apply_status": status,
+		"auto_evo_started_at":   map[bool]any{true: now, false: nil}[len(pending) > 0],
+		"auto_evo_finished_at":  map[bool]any{true: nil, false: now}[len(pending) > 0],
+		"auto_evo_error":        "",
+		"updated_at":            now,
+	}).Error; err != nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return err
+	}
+	if len(pending) == 0 {
+		ReleaseAutoEvoWorker(workerKey)
+		return nil
+	}
+	go runManagedMemoryAutoEvolutionLoop(latest.ID, workerKey)
+	return nil
+}
+
+func EnsureManagedPreferenceAutoEvolutionScheduled(row orm.SystemUserPreference) error {
+	if !row.AutoEvo {
+		return nil
+	}
+	workerKey := AutoEvoWorkerKey(ResourceTypeUserPreference, row.ID)
+	if !TryAcquireAutoEvoWorker(workerKey) {
+		return nil
+	}
+	db := store.DB()
+	if db == nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return errors.New("store not initialized")
+	}
+	var latest orm.SystemUserPreference
+	if err := db.WithContext(context.Background()).Where("id = ?", row.ID).Take(&latest).Error; err != nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return err
+	}
+	if !latest.AutoEvo {
+		ReleaseAutoEvoWorker(workerKey)
+		return nil
+	}
+	pending, err := LoadPendingReviewSuggestions(context.Background(), db, latest.UserID, ResourceTypeUserPreference, SystemResourceKey(ResourceTypeUserPreference))
+	if err != nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return err
+	}
+	now := time.Now()
+	status := AutoEvoApplyStatusRunning
+	if len(pending) == 0 {
+		status = AutoEvoApplyStatusIdle
+	}
+	if err := db.WithContext(context.Background()).Model(&orm.SystemUserPreference{}).Where("id = ?", latest.ID).Updates(map[string]any{
+		"auto_evo_apply_status": status,
+		"auto_evo_started_at":   map[bool]any{true: now, false: nil}[len(pending) > 0],
+		"auto_evo_finished_at":  map[bool]any{true: nil, false: now}[len(pending) > 0],
+		"auto_evo_error":        "",
+		"updated_at":            now,
+	}).Error; err != nil {
+		ReleaseAutoEvoWorker(workerKey)
+		return err
+	}
+	if len(pending) == 0 {
+		ReleaseAutoEvoWorker(workerKey)
+		return nil
+	}
+	go runManagedPreferenceAutoEvolutionLoop(latest.ID, workerKey)
+	return nil
+}
+
+func runManagedMemoryAutoEvolutionLoop(memoryID, workerKey string) {
+	defer ReleaseAutoEvoWorker(workerKey)
+	ctx := context.Background()
+	db := store.DB()
+	if db == nil {
+		return
+	}
+	for {
+		var row orm.SystemMemory
+		if err := db.WithContext(ctx).Where("id = ?", memoryID).Take(&row).Error; err != nil {
+			return
+		}
+		if !row.AutoEvo {
+			return
+		}
+		pending, err := LoadPendingReviewSuggestions(ctx, db, row.UserID, ResourceTypeMemory, SystemResourceKey(ResourceTypeMemory))
+		if err != nil {
+			_ = db.WithContext(ctx).Model(&orm.SystemMemory{}).Where("id = ?", row.ID).Updates(map[string]any{
+				"auto_evo_apply_status": AutoEvoApplyStatusFailed,
+				"auto_evo_error":        err.Error(),
+				"auto_evo_finished_at":  time.Now(),
+				"updated_at":            time.Now(),
+			}).Error
+			return
+		}
+		if len(pending) == 0 {
+			_ = db.WithContext(ctx).Model(&orm.SystemMemory{}).Where("id = ?", row.ID).Updates(map[string]any{
+				"auto_evo_apply_status": AutoEvoApplyStatusIdle,
+				"auto_evo_error":        "",
+				"auto_evo_finished_at":  time.Now(),
+				"updated_at":            time.Now(),
+			}).Error
+			return
+		}
+		generation := row.AutoEvoGeneration
+		applied, err := applyManagedMemoryAutoEvolution(ctx, db, row)
+		if err != nil {
+			_ = db.WithContext(ctx).Model(&orm.SystemMemory{}).Where("id = ?", row.ID).Updates(map[string]any{
+				"auto_evo_apply_status": AutoEvoApplyStatusFailed,
+				"auto_evo_error":        err.Error(),
+				"auto_evo_finished_at":  time.Now(),
+				"updated_at":            time.Now(),
+			}).Error
+			return
+		}
+		if !applied {
+			var latest orm.SystemMemory
+			if err := db.WithContext(ctx).Where("id = ?", row.ID).Take(&latest).Error; err != nil {
+				return
+			}
+			if !latest.AutoEvo {
+				return
+			}
+			if latest.AutoEvoGeneration != generation {
+				continue
+			}
+		}
+	}
+}
+
+func runManagedPreferenceAutoEvolutionLoop(preferenceID, workerKey string) {
+	defer ReleaseAutoEvoWorker(workerKey)
+	ctx := context.Background()
+	db := store.DB()
+	if db == nil {
+		return
+	}
+	for {
+		var row orm.SystemUserPreference
+		if err := db.WithContext(ctx).Where("id = ?", preferenceID).Take(&row).Error; err != nil {
+			return
+		}
+		if !row.AutoEvo {
+			return
+		}
+		pending, err := LoadPendingReviewSuggestions(ctx, db, row.UserID, ResourceTypeUserPreference, SystemResourceKey(ResourceTypeUserPreference))
+		if err != nil {
+			_ = db.WithContext(ctx).Model(&orm.SystemUserPreference{}).Where("id = ?", row.ID).Updates(map[string]any{
+				"auto_evo_apply_status": AutoEvoApplyStatusFailed,
+				"auto_evo_error":        err.Error(),
+				"auto_evo_finished_at":  time.Now(),
+				"updated_at":            time.Now(),
+			}).Error
+			return
+		}
+		if len(pending) == 0 {
+			_ = db.WithContext(ctx).Model(&orm.SystemUserPreference{}).Where("id = ?", row.ID).Updates(map[string]any{
+				"auto_evo_apply_status": AutoEvoApplyStatusIdle,
+				"auto_evo_error":        "",
+				"auto_evo_finished_at":  time.Now(),
+				"updated_at":            time.Now(),
+			}).Error
+			return
+		}
+		generation := row.AutoEvoGeneration
+		applied, err := applyManagedPreferenceAutoEvolution(ctx, db, row)
+		if err != nil {
+			_ = db.WithContext(ctx).Model(&orm.SystemUserPreference{}).Where("id = ?", row.ID).Updates(map[string]any{
+				"auto_evo_apply_status": AutoEvoApplyStatusFailed,
+				"auto_evo_error":        err.Error(),
+				"auto_evo_finished_at":  time.Now(),
+				"updated_at":            time.Now(),
+			}).Error
+			return
+		}
+		if !applied {
+			var latest orm.SystemUserPreference
+			if err := db.WithContext(ctx).Where("id = ?", row.ID).Take(&latest).Error; err != nil {
+				return
+			}
+			if !latest.AutoEvo {
+				return
+			}
+			if latest.AutoEvoGeneration != generation {
+				continue
+			}
+		}
+	}
+}
+
+func memorySuggestionIDs(rows []orm.ResourceSuggestion) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if trimmed := strings.TrimSpace(row.ID); trimmed != "" {
+			ids = append(ids, trimmed)
+		}
+	}
+	return ids
+}
+
+func prefSuggestionIDs(rows []orm.ResourceSuggestion) []string {
+	return memorySuggestionIDs(rows)
+}
+
+func memoryAlgoSuggestions(rows []orm.ResourceSuggestion) []algo.Suggestion {
+	result := make([]algo.Suggestion, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, algo.Suggestion{
+			Title:   strings.TrimSpace(row.Title),
+			Content: strings.TrimSpace(row.Content),
+			Reason:  strings.TrimSpace(row.Reason),
+		})
+	}
+	return result
+}
+
+func prefAlgoSuggestions(rows []orm.ResourceSuggestion) []algo.Suggestion {
+	return memoryAlgoSuggestions(rows)
 }

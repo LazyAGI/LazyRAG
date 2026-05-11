@@ -6,6 +6,8 @@ from collections import OrderedDict
 from html import escape
 from typing import Any, Optional
 
+from chat.utils.stream_scanner import BasePlugin, IncrementalScanner
+
 from chat.components.agentic.tool_stream import (
     _TOOL_CALL_TAG,
     _TOOL_PREVIEW_TAG,
@@ -17,11 +19,14 @@ _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
 _CITATION_PATTERN = re.compile(r'\[\[(\d+)\]\]')
+_SOURCE_LINK_PATTERN = re.compile(r'\[(\d+)\]\(#source(?:\s+"[^"]*")?\)')
+_SOURCE_REF_PATTERN = re.compile(r'\[\[(\d+)\]\]')
 _THINK_BLOCK_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 _HISTORY_TAG_PATTERN = re.compile(
     r'<(?P<tag>tp|trp|tool_call|tool_result)(?P<attrs>[^>]*)>(?P<body>.*?)</(?P=tag)>',
     re.DOTALL,
 )
+_KB_TOOL_PREFIX = 'kb_'
 
 
 def _history_message_content(message: dict[str, Any]) -> str:
@@ -35,20 +40,153 @@ def _tool_result_message_content(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, separators=(',', ':'))
 
 
+def _is_kb_tool_name(name: Any) -> bool:
+    return isinstance(name, str) and name.startswith(_KB_TOOL_PREFIX)
+
+
+def _history_citation_key(item: dict[str, Any]) -> Optional[str]:
+    uid = item.get('uid') or item.get('segement_id')
+    if uid:
+        return f'uid:{uid}'
+    docid = item.get('docid') or item.get('document_id')
+    group = item.get('group') or item.get('group_name')
+    number = item.get('number') or item.get('segment_number')
+    if docid and group and number is not None:
+        return f'node:{docid}:{group}:{number}'
+    text = item.get('text') or item.get('content')
+    if docid and text:
+        return f'text:{docid}:{str(text)[:80]}'
+    return None
+
+
+def _history_source_node_from_item(index: int, item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
+    global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
+    content = item.get('text') if item.get('text') is not None else item.get('content', '')
+    return {
+        'file_id': '',
+        'file_name': (
+            item.get('file_name')
+            or global_md.get('file_name')
+            or metadata.get('file_name')
+            or metadata.get('source')
+            or 'title_example'
+        ),
+        'document_id': item.get('docid') or item.get('document_id') or global_md.get('docid', ''),
+        'segement_id': item.get('uid') or item.get('segement_id') or '',
+        'dataset_id': item.get('kb_id') or item.get('dataset_id') or global_md.get('kb_id', ''),
+        'index': index,
+        'content': content or '',
+        'group_name': item.get('group') or item.get('group_name') or '',
+        'segment_number': (
+            metadata.get('store_num')
+            or metadata.get('lazyllm_store_num')
+            or item.get('number')
+            or item.get('segment_number')
+            or -1
+        ),
+        'page': metadata.get('page', -1),
+        'bbox': metadata.get('bbox', []),
+    }
+
+
+def _history_citation_index(item: dict[str, Any]) -> Optional[int]:
+    raw_index = item.get('citation_index') or item.get('index')
+    if isinstance(raw_index, int) and raw_index > 0:
+        return raw_index
+    if isinstance(raw_index, str) and raw_index.isdigit():
+        return int(raw_index)
+    ref = item.get('ref')
+    if isinstance(ref, str):
+        match = _SOURCE_REF_PATTERN.fullmatch(ref.strip())
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _restore_history_citation_item(item: dict[str, Any], config: dict[str, Any]) -> None:
+    index = _history_citation_index(item)
+    if index is None:
+        return
+    text = item.get('text') if item.get('text') is not None else item.get('content')
+    if not text:
+        return
+
+    refs = config.setdefault(_CITATION_REFS_KEY, {})
+    key_map = config.setdefault(_CITATION_KEY_MAP_KEY, {})
+    next_index = int(config.get(_CITATION_NEXT_KEY) or 1)
+    if index >= next_index:
+        config[_CITATION_NEXT_KEY] = index + 1
+
+    source = _history_source_node_from_item(index, item)
+    existing = refs.get(index) or refs.get(str(index))
+    if not isinstance(existing, dict) or (not existing.get('content') and source.get('content')):
+        refs[index] = source
+
+    key = _history_citation_key(item)
+    if key:
+        key_map[key] = index
+
+
+def _restore_history_citations(result: Any, config: Optional[dict[str, Any]]) -> None:
+    if config is None:
+        return
+    if isinstance(result, dict):
+        _restore_history_citation_item(result, config)
+        for value in result.values():
+            _restore_history_citations(value, config)
+        return
+    if isinstance(result, list):
+        for item in result:
+            _restore_history_citation_item(item, config)
+
+
 def _parse_history_assistant_content(
     content: str,
-) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
-    reasoning_content, content = _split_think_and_body(content or '')
-    text_parts: list[str] = []
-    tool_calls: list[dict[str, Any]] = []
-    tool_results: list[dict[str, Any]] = []
+) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
     cursor = 0
+    content = content or ''
 
-    for match in _HISTORY_TAG_PATTERN.finditer(content or ''):
-        text_parts.append(content[cursor:match.start()])
-        cursor = match.end()
-        tag = match.group('tag')
-        body = match.group('body') or ''
+    while cursor < len(content):
+        think_start = content.find('<think>', cursor)
+        tag_match = _HISTORY_TAG_PATTERN.search(content, cursor)
+        tag_start = tag_match.start() if tag_match else -1
+
+        next_start = len(content)
+        next_kind = ''
+        if think_start >= 0 and think_start < next_start:
+            next_start = think_start
+            next_kind = 'think'
+        if tag_start >= 0 and tag_start < next_start:
+            next_start = tag_start
+            next_kind = 'tag'
+
+        if not next_kind:
+            remaining = content[cursor:]
+            if remaining:
+                segments.append({'type': 'text', 'content': remaining})
+            break
+
+        if next_start > cursor:
+            segments.append({'type': 'text', 'content': content[cursor:next_start]})
+
+        if next_kind == 'think':
+            think_body_start = next_start + len('<think>')
+            think_end = content.find('</think>', think_body_start)
+            if think_end >= 0:
+                think_content = content[think_body_start:think_end]
+                cursor = think_end + len('</think>')
+            else:
+                think_content = content[think_body_start:]
+                cursor = len(content)
+            segments.append({'type': 'reasoning', 'content': think_content})
+            continue
+
+        assert tag_match is not None
+        cursor = tag_match.end()
+        tag = tag_match.group('tag')
+        body = tag_match.group('body') or ''
         if tag in (_TOOL_PREVIEW_TAG, _TOOL_RESULT_PREVIEW_TAG):
             continue
         try:
@@ -65,25 +203,50 @@ def _parse_history_assistant_content(
             arguments = payload.get('arguments', {})
             if not isinstance(arguments, dict):
                 arguments = {}
-            tool_calls.append({
+            segments.append({
+                'type': 'tool_call',
                 'id': tool_call_id,
-                'type': 'function',
-                'function': {
-                    'name': tool_name,
-                    'arguments': json.dumps(arguments, ensure_ascii=False),
-                },
+                'name': tool_name,
+                'arguments': arguments,
             })
         elif tag == _TOOL_RESULT_TAG:
-            tool_results.append({
+            segments.append({
+                'type': 'tool_result',
                 'id': str(payload.get('id') or ''),
                 'name': str(payload.get('name') or ''),
                 'result': payload.get('result'),
             })
-    text_parts.append(content[cursor:])
-    return ''.join(text_parts).strip(), reasoning_content, tool_calls, tool_results
+    return segments
 
 
-def _normalize_history_for_agent(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _append_pending_assistant(
+    normalized: list[dict[str, Any]],
+    pending_reasoning_parts: list[str],
+    pending_text_parts: list[str],
+    pending_tool_calls: list[dict[str, Any]],
+    saw_structured_segments: bool,
+) -> None:
+    reasoning = '\n'.join(
+        part.strip() for part in pending_reasoning_parts if str(part).strip()
+    ).strip()
+    text = ''.join(pending_text_parts).strip()
+    if not reasoning and not text and not pending_tool_calls:
+        return
+    msg: dict[str, Any] = {'role': 'assistant', 'content': text}
+    if saw_structured_segments:
+        msg['reasoning_content'] = reasoning
+    if pending_tool_calls:
+        msg['tool_calls'] = list(pending_tool_calls)
+    normalized.append(msg)
+    pending_reasoning_parts.clear()
+    pending_text_parts.clear()
+    pending_tool_calls.clear()
+
+
+def _normalize_history_for_agent(
+    history: list[dict[str, Any]],
+    config: Optional[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for message in history or []:
         if not isinstance(message, dict):
@@ -91,28 +254,55 @@ def _normalize_history_for_agent(history: list[dict[str, Any]]) -> list[dict[str
         role = str(message.get('role') or '').strip()
         if role == 'assistant':
             content = _history_message_content(message)
-            body_text, reasoning_content, tool_calls, tool_results = _parse_history_assistant_content(content)
-            assistant_message = {'role': 'assistant', 'content': body_text}
-            assistant_message['reasoning_content'] = reasoning_content or ''
-            if tool_calls:
-                assistant_message['tool_calls'] = tool_calls
-            normalized.append(assistant_message)
+            segments = _parse_history_assistant_content(content)
 
-            valid_tool_call_ids = {
-                str(tool_call.get('id') or '')
-                for tool_call in tool_calls
-                if str(tool_call.get('id') or '')
-            }
-            for tool_result in tool_results:
-                tool_call_id = str(tool_result.get('id') or '')
-                if not tool_call_id or tool_call_id not in valid_tool_call_ids:
-                    continue
-                normalized.append({
-                    'role': 'tool',
-                    'tool_call_id': tool_call_id,
-                    'name': str(tool_result.get('name') or ''),
-                    'content': _tool_result_message_content(tool_result.get('result')),
-                })
+            pending_reasoning_parts: list[str] = []
+            pending_text_parts: list[str] = []
+            pending_tool_calls: list[dict[str, Any]] = []
+            saw_structured_segments = False
+
+            for seg in segments:
+                seg_type = seg['type']
+                if seg_type == 'reasoning':
+                    saw_structured_segments = True
+                    pending_reasoning_parts.append(seg['content'])
+                elif seg_type == 'text':
+                    pending_text_parts.append(seg['content'])
+                elif seg_type == 'tool_call':
+                    saw_structured_segments = True
+                    pending_tool_calls.append({
+                        'id': seg['id'],
+                        'type': 'function',
+                        'function': {
+                            'name': seg['name'],
+                            'arguments': json.dumps(seg['arguments'], ensure_ascii=False),
+                        },
+                    })
+                elif seg_type == 'tool_result':
+                    saw_structured_segments = True
+                    _append_pending_assistant(
+                        normalized,
+                        pending_reasoning_parts,
+                        pending_text_parts,
+                        pending_tool_calls,
+                        saw_structured_segments,
+                    )
+                    if _is_kb_tool_name(seg['name']):
+                        _restore_history_citations(seg['result'], config)
+                    normalized.append({
+                        'role': 'tool',
+                        'tool_call_id': seg['id'],
+                        'name': seg['name'],
+                        'content': _tool_result_message_content(seg['result']),
+                    })
+
+            _append_pending_assistant(
+                normalized,
+                pending_reasoning_parts,
+                pending_text_parts,
+                pending_tool_calls,
+                saw_structured_segments,
+            )
             continue
 
         if role == 'user':
@@ -163,7 +353,15 @@ def _rewrite_citations(text: str, config: dict) -> tuple[str, list[dict[str, Any
         title = escape(str(source.get('file_name') or 'title'), quote=True)
         return f'[{index}](#source "{title}")'
 
-    return _CITATION_PATTERN.sub(_replace, text), list(collected.values())
+    rewritten = _CITATION_PATTERN.sub(_replace, text)
+
+    for match in _SOURCE_LINK_PATTERN.finditer(rewritten):
+        index = int(match.group(1))
+        source = _citation_source(config, index)
+        if source:
+            collected.setdefault(index, source)
+
+    return rewritten, list(collected.values())
 
 
 def _split_think_and_body(raw_text: str, existing_think: Any = '') -> tuple[str, str]:
@@ -208,6 +406,59 @@ def _format_non_stream_result(result: Any, config: dict) -> dict[str, Any]:
         'sources': sources,
     })
     return output
+
+
+class _ConfigCitationPlugin(BasePlugin):
+    prefix_set = {'['}
+    _pat = re.compile(r'\[\[(\d+)\]\]')
+    _link_pat = re.compile(r'\[(\d+)\]\(#source(?:\s+"[^"]*")?\)')
+
+    def __init__(self, config: dict[str, Any]):
+        self._config = config
+        self._collected: OrderedDict[int, dict[str, Any]] = OrderedDict()
+
+    def match(self, src: str, pos: int):
+        link_match = self._link_pat.match(src, pos)
+        if link_match:
+            index = int(link_match.group(1))
+            source = _citation_source(self._config, index)
+            if source:
+                self._collected.setdefault(index, source)
+            return (link_match.end(), link_match.group(0))
+
+        match = self._pat.match(src, pos)
+        if not match:
+            return None
+        index = int(match.group(1))
+        source = _citation_source(self._config, index)
+        if not source:
+            return (match.end(), '')
+        self._collected.setdefault(index, source)
+        title = escape(str(source.get('file_name') or 'title'), quote=True)
+        return (match.end(), f'[{index}](#source "{title}")')
+
+    def collect(self) -> list[dict[str, Any]]:
+        return list(self._collected.values())
+
+    def last_incomplete_pos(self, buf: str) -> int | None:
+        last_double = buf.rfind('[[')
+        if last_double != -1 and ']]' not in buf[last_double + 2:]:
+            return last_double
+        source_link_start = buf.rfind('](#source')
+        if source_link_start != -1 and ')' not in buf[source_link_start:]:
+            open_bracket = buf.rfind('[', 0, source_link_start)
+            if open_bracket != -1:
+                return open_bracket
+        if buf.endswith('['):
+            return len(buf) - 1
+        return None
+
+
+def _build_stream_citation_scanner(
+    config: dict[str, Any],
+) -> tuple[IncrementalScanner, _ConfigCitationPlugin]:
+    plugin = _ConfigCitationPlugin(config)
+    return IncrementalScanner([plugin], initial_state='BODY'), plugin
 
 
 def _count_user_turns(history: list[dict[str, Any]], current_query: str | None) -> int:

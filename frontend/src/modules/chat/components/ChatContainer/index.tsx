@@ -41,6 +41,10 @@ import { ChatServiceApi } from "@/modules/chat/utils/request";
 import dayjs from "dayjs";
 import { useTranslation } from "react-i18next";
 import { getRegenerationInputs } from "@/modules/chat/utils/message";
+import {
+  splitThinkingContent,
+  formatThinkingForDisplay,
+} from "@/modules/chat/utils/thinking";
 
 const ThinkIcon = new URL("../../assets/images/think.png", import.meta.url)
   .href;
@@ -69,6 +73,7 @@ interface Props {
 export interface ChatMessage {
   role?: string;
   delta?: string;
+  raw_delta?: string;
   images?: {
     base64?: string;
     uid?: string;
@@ -88,6 +93,7 @@ export interface ChatMessage {
     content: string;
     index: number;
     history_id?: string;
+    raw_content?: string;
     reasoning_content?: string;
     sources?: Source[];
     thinking_duration_s?: string;
@@ -255,6 +261,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
         selected_answer_index: selectedIndex,
         answer_preference: "prefer_first",
         delta: selectedAnswer.content || "",
+        raw_delta: selectedAnswer.raw_content || selectedAnswer.content || "",
         reasoning_content: selectedAnswer.reasoning_content || "",
         sources: selectedAnswer.sources || lastAssistantMessage.sources,
         history_id:
@@ -501,28 +508,39 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
         }
 
         const previousDelta = assistantMessage.delta || "";
-        const previousReasoningContent =
-          assistantMessage.reasoning_content || "";
+        const previousRawDelta =
+          assistantMessage.raw_delta || previousDelta || "";
 
         const previousSecondDelta = assistantMessage.second_result || "";
-        const previousSecondReasoningContent =
-          assistantMessage.second_reasoning_content || "";
+        const previousSecondRawDelta =
+          assistantMessage.second_raw_result || previousSecondDelta || "";
+
+        const mergedRawDelta = previousRawDelta + (result.delta || "");
+        const splitResult = splitThinkingContent(
+          mergedRawDelta,
+          assistantMessage.reasoning_content || "",
+        );
+        const mergedSecondRawDelta =
+          previousSecondRawDelta + (result.second_result || "");
+        const secondSplitResult = splitThinkingContent(
+          mergedSecondRawDelta,
+          assistantMessage.second_reasoning_content || "",
+        );
 
         assistantMessage = {
           ...assistantMessage,
           ...result,
           id: result.messageId,
-          delta: previousDelta + (result.delta || ""),
-          reasoning_content:
-            previousReasoningContent + (result.reasoning_content || ""),
+          raw_delta: mergedRawDelta,
+          delta: splitResult.content,
+          reasoning_content: splitResult.reasoning_content,
           sources:
             result.sources && result.sources.length > 0
               ? result.sources
               : assistantMessage.sources,
-          second_result: previousSecondDelta + (result.second_result || ""),
-          second_reasoning_content:
-            previousSecondReasoningContent +
-            (result.second_reasoning_content || ""),
+          second_raw_result: mergedSecondRawDelta,
+          second_result: secondSplitResult.content,
+          second_reasoning_content: secondSplitResult.reasoning_content,
           second_id: result.second_id || assistantMessage.second_id,
         };
 
@@ -536,6 +554,8 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
               content: assistantMessage.delta || "",
               index: 0,
               history_id: assistantMessage.id || result.messageId,
+              raw_content:
+                assistantMessage.raw_delta || assistantMessage.delta || "",
               reasoning_content: assistantMessage.reasoning_content || "",
               sources: assistantMessage.sources,
               thinking_duration_s: assistantMessage.thinking_duration_s,
@@ -544,6 +564,9 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
               content: assistantMessage.second_result,
               index: 1,
               history_id: assistantMessage.second_id,
+              raw_content:
+                assistantMessage.second_raw_result ||
+                assistantMessage.second_result,
               reasoning_content: assistantMessage.second_reasoning_content,
               sources: assistantMessage.sources,
               thinking_duration_s: assistantMessage.second_thinking_duration_s,
@@ -906,7 +929,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
               >
                 <div className="chat-think-text">
                   <MarkdownViewer sources={item.sources}>
-                    {item.reasoning_content}
+                    {formatThinkingForDisplay(item.reasoning_content)}
                   </MarkdownViewer>
                 </div>
                 {!item.delta &&

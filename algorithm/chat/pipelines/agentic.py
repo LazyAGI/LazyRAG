@@ -30,13 +30,17 @@ from chat.components.agentic.config import (  # noqa: E402
     _sync_request_context,
 )
 from chat.components.agentic.history import (  # noqa: E402
+    _build_stream_citation_scanner,
     _count_tool_turns,
     _count_user_turns,
     _format_non_stream_result,
     _normalize_history_for_agent,
     _reset_citation_state,
 )
-from chat.components.agentic.review import _decide_review_mode, _spawn_background_review  # noqa: E402
+from chat.components.agentic.review import (  # noqa: E402
+    _build_review_decision,
+    _spawn_background_review,
+)
 from chat.components.agentic.tool_stream import (  # noqa: E402
     _STREAM_CHUNK_SIZE,
     _format_tool_stream_frame,
@@ -220,13 +224,28 @@ def agentic_forward(
         )
     tool_turns = _count_tool_turns(agent_history)
     user_turns = _count_user_turns(history, query)
-    review_mode = _decide_review_mode(
+    memory_review_interval = _cfg['memory_review_interval']
+    skill_review_interval = _cfg['skill_review_interval']
+    review_decision = _build_review_decision(
         available_tools=available_tools,
         tool_turns=tool_turns,
         user_turns=user_turns,
-        memory_review_interval=_cfg['memory_review_interval'],
-        skill_review_interval=_cfg['skill_review_interval'],
+        memory_review_interval=memory_review_interval,
+        skill_review_interval=skill_review_interval,
     )
+    print(
+        '[bg-review] DECISION '
+        f"mode={review_decision.get('mode')} "
+        f"memory_due={review_decision.get('memory_due')} "
+        f"skill_due={review_decision.get('skill_due')} "
+        f"skill_due_by_tool_turns={review_decision.get('skill_due_by_tool_turns')} "
+        f"skill_due_by_user_turns={review_decision.get('skill_due_by_user_turns')} "
+        f"debug_force_combined={review_decision.get('debug_force_combined')} "
+        f'tool_turns={tool_turns} user_turns={user_turns} '
+        f'memory_interval={memory_review_interval} skill_interval={skill_review_interval} '
+        f'available_tools={available_tools}'
+    )
+    review_mode = review_decision['mode']
     if review_mode is not None:
         _spawn_background_review(
             config=config,
@@ -265,6 +284,7 @@ async def _agentic_forward_stream(
     sentinel = object()
     closed = threading.Event()
     streamed_text = False
+    text_scanner, citation_plugin = _build_stream_citation_scanner(runtime_params)
 
     lazyllm.globals._init_sid(global_sid)
     lazyllm.locals._init_sid(local_sid)
@@ -280,14 +300,24 @@ async def _agentic_forward_stream(
         nonlocal streamed_text
         frames: list[dict[str, Any]] = []
 
-        lazyllm.FileSystemQueue.get_instance('think').dequeue()
+        think_values = lazyllm.FileSystemQueue.get_instance('think').dequeue()
+        if think_values:
+            think_text = ''.join(think_values)
+            if think_text:
+                frames.append(_stream_frame(think=think_text))
 
         text_values = lazyllm.FileSystemQueue().dequeue()
         if text_values:
             text = ''.join(text_values)
             if text:
-                streamed_text = True
-                frames.append(_stream_frame(text=text))
+                for field, seg in text_scanner.feed(text):
+                    if not seg:
+                        continue
+                    if field == 'think':
+                        frames.append(_stream_frame(think=seg))
+                    else:
+                        streamed_text = True
+                        frames.append(_stream_frame(text=seg))
 
         return frames
 
@@ -340,16 +370,28 @@ async def _agentic_forward_stream(
 
         for frame in _drain_stream_frames():
             yield frame
+        for field, seg in text_scanner.flush():
+            if not seg:
+                continue
+            if field == 'think':
+                yield _stream_frame(think=seg)
+            else:
+                streamed_text = True
+                yield _stream_frame(text=seg)
 
         output = _format_non_stream_result(final_result, runtime_params)
         chunk_size = int(runtime_params.get('stream_chunk_size') or _STREAM_CHUNK_SIZE)
         if not streamed_text:
+            think = str(output.get('think') or '')
+            if think:
+                for chunk in _iter_text_chunks(think, chunk_size):
+                    yield _stream_frame(think=chunk)
             for chunk in _iter_text_chunks(str(output.get('text') or ''), chunk_size):
                 yield _stream_frame(
                     text=chunk,
                 )
 
-        sources = output.get('sources') or []
+        sources = output.get('sources') or citation_plugin.collect()
         if sources:
             yield _stream_frame(
                 text='',
@@ -386,11 +428,6 @@ def agentic_rag(
     if not isinstance(query, str) or not query.strip():
         raise ValueError('query is required')
 
-    history = (global_params or {}).get('history') or []
-    if not isinstance(history, list):
-        history = []
-    history = _normalize_history_for_agent(history)
-
     runtime_params = _get_runtime_agent_defaults()
     runtime_params.update(global_params or {})
     runtime_params.update(kwargs)
@@ -399,6 +436,11 @@ def agentic_rag(
     runtime_params['stream'] = stream
     _sync_request_context(runtime_params)
     _reset_citation_state(runtime_params)
+
+    history = (global_params or {}).get('history') or []
+    if not isinstance(history, list):
+        history = []
+    history = _normalize_history_for_agent(history, runtime_params)
 
     lazyllm.globals['agentic_config'] = runtime_params
 

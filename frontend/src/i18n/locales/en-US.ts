@@ -1184,6 +1184,7 @@ const enUS = {
       "Accepted {{count}} suggestions and generating the preview",
     memoryDiffPreviewGenerating: "Generating preview...",
     memoryDiffBatchRejectSuccess: "Rejected {{count}} suggestions",
+    memoryDiffPreviewGeneratingTitle: "Updating skill content",
     memoryDiffSelectedCount: "{{selected}} selected",
     memoryDiffSelectAll: "Select All",
     memoryDiffSelectFieldFirst: "Please select at least one suggestion first",
@@ -1211,7 +1212,11 @@ const enUS = {
       "Skills are best shared with collaborating teams so SOPs and operating standards stay aligned.",
     memoryShareExperienceHint:
       "Experience memory is best shared with specific collaborators to sync preferences, tone, and accumulated know-how.",
-    memoryProtect: "Protected (Lock)",
+    memoryAutoEvo: "Auto Evolution",
+    memoryAutoEvoToggleFailed: "Auto evolution toggle failed",
+    memorySkillPendingRemoveTag: "Delete Suggested",
+    memorySkillAutoEvoDisabledByRemove:
+      "This skill has a delete suggestion, so auto evolution cannot be enabled",
     memorySkillParent: "Primary Skill",
     memorySkillChild: "Subskill",
     memoryParentSkill: "Primary Skill",

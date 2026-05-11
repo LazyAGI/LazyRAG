@@ -305,8 +305,8 @@ func resumeFromDBOnly(db *gorm.DB, convID string, flusher http.Flusher, w http.R
 	writeSSEChunk(w, flusher, map[string]any{
 		"conversation_id": convID,
 		"seq":             last.Seq,
-		"message":         last.Result,
-		"delta":           last.Result,
+		"message":         stripThinkTags(stripToolTags(last.Result)),
+		"delta":           stripThinkTags(stripToolTags(last.Result)),
 		"finish_reason":   "FINISH_REASON_STOP",
 		"history_id":      last.ID,
 	})
@@ -318,8 +318,8 @@ func resumeCompletedFromDB(db *gorm.DB, convID string, flusher http.Flusher, w h
 		writeSSEChunk(w, flusher, map[string]any{
 			"conversation_id": convID,
 			"seq":             last.Seq,
-			"message":         last.Result,
-			"delta":           last.Result,
+			"message":         stripThinkTags(stripToolTags(last.Result)),
+			"delta":           stripThinkTags(stripToolTags(last.Result)),
 			"finish_reason":   "FINISH_REASON_STOP",
 			"history_id":      last.ID,
 		})
@@ -339,8 +339,8 @@ func resumeCompletedFromDB(db *gorm.DB, convID string, flusher http.Flusher, w h
 		writeSSEChunk(w, flusher, map[string]any{
 			"conversation_id": convID,
 			"seq":             h.Seq,
-			"message":         h.Result,
-			"delta":           h.Result,
+			"message":         stripThinkTags(stripToolTags(h.Result)),
+			"delta":           stripThinkTags(stripToolTags(h.Result)),
 			"finish_reason":   finish,
 			"history_id":      h.ID,
 		})
@@ -724,32 +724,28 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 				sources = rr.Sources
 			}
 		}
-		// text input / reasoning_content text
+		// text input
 		var input any
-		var reasoningContent string
 		if len(h.Ext) > 0 {
 			var ext struct {
-				Input            any    `json:"input"`
-				ReasoningContent string `json:"reasoning_content"`
+				Input any `json:"input"`
 			}
 			if err := json.Unmarshal(h.Ext, &ext); err == nil {
 				input = ext.Input
-				reasoningContent = ext.ReasoningContent
 			}
 		}
 
 		list = append(list, map[string]any{
-			"seq":               h.Seq,
-			"query":             h.RawContent,
-			"result":            h.Result,
-			"id":                h.ID,
-			"feed_back":         h.FeedBack,
-			"sources":           sources,
-			"input":             input,
-			"reasoning_content": reasoningContent,
-			"reason":            h.Reason,
-			"expected_answer":   h.ExpectedAnswer,
-			"create_time":       h.CreateTime.UTC().Format(time.RFC3339),
+			"seq":             h.Seq,
+			"query":           h.RawContent,
+			"result":          stripThinkTags(stripToolTags(h.Result)),
+			"id":              h.ID,
+			"feed_back":       h.FeedBack,
+			"sources":         sources,
+			"input":           input,
+			"reason":          h.Reason,
+			"expected_answer": h.ExpectedAnswer,
+			"create_time":     h.CreateTime.UTC().Format(time.RFC3339),
 		})
 	}
 

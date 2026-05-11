@@ -38,6 +38,7 @@ import {
 import { allowedUploadTypes } from "@/modules/chat/components/ImageUpload";
 import { CHAT_RESUME_CONVERSATION_KEY } from "@/modules/chat/constants/chat";
 import { normalizeMessageInputs } from "@/modules/chat/utils/message";
+import { splitThinkingContent } from "@/modules/chat/utils/thinking";
 interface IChatLayoutProps {
   setIsChatContent: (isChatContent: boolean) => void;
   initchatConfig: ChatConfig;
@@ -174,10 +175,19 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
             const isLastRecord = record === lastHistory;
             const isActuallyGenerating =
               isLastRecord && (!record.result || record.result === "");
+            const splitResult = splitThinkingContent(
+              record.result,
+              record.reasoning_content,
+            );
+            const secondSplitResult = splitThinkingContent(
+              record.second_result,
+              record.second_reasoning_content,
+            );
             const assistantMsg: any = {
               role: RoleTypes.ASSISTANT,
-              reasoning_content: record.reasoning_content,
-              delta: record.result || "",
+              reasoning_content: splitResult.reasoning_content,
+              delta: splitResult.content,
+              raw_delta: record.result || "",
               finish_reason: isActuallyGenerating
                 ? ChatConversationsResponseFinishReasonEnum.FinishReasonUnspecified
                 : ChatConversationsResponseFinishReasonEnum.FinishReasonStop,
@@ -188,17 +198,19 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
             if (record.second_result && record.second_id) {
               assistantMsg.answers = [
                 {
-                  content: record.result || "",
+                  content: splitResult.content,
                   index: 0,
                   history_id: record.id,
-                  reasoning_content: record.reasoning_content || "",
+                  reasoning_content: splitResult.reasoning_content,
+                  raw_content: record.result || "",
                   sources: record.sources,
                 },
                 {
-                  content: record.second_result,
+                  content: secondSplitResult.content,
                   index: 1,
                   history_id: record.second_id,
-                  reasoning_content: record.second_reasoning_content || "",
+                  reasoning_content: secondSplitResult.reasoning_content,
+                  raw_content: record.second_result || "",
                 },
               ];
               assistantMsg.reasoning_content = "";
@@ -409,10 +421,19 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
             });
 
             // Push assistant.
+            const splitResult = splitThinkingContent(
+              record.result,
+              record.reasoning_content,
+            );
+            const secondSplitResult = splitThinkingContent(
+              record.second_result,
+              record.second_reasoning_content,
+            );
             const assistantMessage: any = {
               role: RoleTypes.ASSISTANT,
-              reasoning_content: record.reasoning_content,
-              delta: record.result,
+              reasoning_content: splitResult.reasoning_content,
+              delta: splitResult.content,
+              raw_delta: record.result || "",
               finish_reason:
                 ChatConversationsResponseFinishReasonEnum.FinishReasonStop,
               history_id: record.id,
@@ -424,18 +445,20 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
             if (record.second_result && record.second_id) {
               assistantMessage.answers = [
                 {
-                  content: record.result || "",
+                  content: splitResult.content,
                   index: 0,
                   history_id: record.id,
-                  reasoning_content: record.reasoning_content || "",
+                  reasoning_content: splitResult.reasoning_content,
+                  raw_content: record.result || "",
                   sources: record.sources,
                   thinking_duration_s: record.thinking_time_s,
                 },
                 {
-                  content: record.second_result,
+                  content: secondSplitResult.content,
                   index: 1,
                   history_id: record.second_id,
-                  reasoning_content: record.second_reasoning_content || "",
+                  reasoning_content: secondSplitResult.reasoning_content,
+                  raw_content: record.second_result || "",
                   sources: record.sources,
                   thinking_duration_s: record.second_thinking_time_s,
                 },
