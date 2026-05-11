@@ -605,7 +605,7 @@ services:
       LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
       LAZYRAG_SKILL_REVIEW_DEBUG: "false"
       LAZYRAG_SKIP_STARTUP_PIPELINE: "1"
-      LAZYRAG_MODEL_CONFIG_PATH: /app/common/runtime_models.online.yaml
+      LAZYRAG_MODEL_CONFIG_PATH: /app/common/runtime_models.inner.yaml
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
