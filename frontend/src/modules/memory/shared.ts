@@ -20,6 +20,10 @@ export interface BaseAsset {
   id: string;
   content: string;
   protect?: boolean;
+  autoEvo?: boolean;
+  autoEvoApplyStatus?: string;
+  autoEvoGeneration?: number;
+  autoEvoError?: string;
 }
 
 export interface StructuredAsset extends BaseAsset {
@@ -31,6 +35,7 @@ export interface StructuredAsset extends BaseAsset {
   fileExt?: string;
   isEnabled?: boolean;
   hasPendingReviewSuggestions?: boolean;
+  hasPendingRemoveSuggestion?: boolean;
   suggestionStatus?: string;
   updateStatus?: string;
   nodeType?: string;

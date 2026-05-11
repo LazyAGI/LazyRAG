@@ -15,18 +15,21 @@ llm_instruct:
 
 reranker:
   - source: qwen3rerank
+    type: rerank
     name: Qwen3-Reranker-8B
     url: http://10.119.24.104:8331/v1/rerank
     skip_auth: true
 
 embed_main:
   - source: bgem3embed
+    type: embed
     name: bgem3_emb_dense_custom
     url: http://10.119.27.151:2269/embed
     skip_auth: true
 
 embed_sparse:
   - source: bgem3embed
+    type: embed
     name: bgem3_emb_sparse_custom
     url: http://10.119.27.151:2269/sparse_embed
     skip_auth: true

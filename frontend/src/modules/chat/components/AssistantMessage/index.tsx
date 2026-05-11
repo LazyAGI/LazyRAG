@@ -409,6 +409,7 @@ const AssistantMessage = (props: any) => {
         item.selected_answer_index = selectedIndex;
         if (selectedAnswer) {
           item.delta = selectedAnswer.content || "";
+          item.raw_delta = selectedAnswer.raw_content || item.raw_delta;
           item.reasoning_content = selectedAnswer.reasoning_content || "";
           item.sources = selectedAnswer.sources || item.sources;
           item.history_id = selectedAnswer.history_id || item.history_id;

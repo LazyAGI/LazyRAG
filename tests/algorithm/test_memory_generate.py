@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from chat.pipelines.memory_generate import (
     BadRequestError,
+    _build_generate_prompt,
     _format_inputs_block,
     generate_memory_content,
 )
@@ -62,6 +63,31 @@ def test_generate_memory_content_requires_suggestions_or_user_instruct():
         assert "At least one of 'suggestions' or 'user_instruct' must be provided." == str(exc)
     else:
         raise AssertionError('Expected BadRequestError')
+
+
+def test_generate_prompts_include_stale_content_governance():
+    suggestions = [{
+        'title': 'Update stale memory',
+        'content': 'Replace old KB failure diagnosis with the current service-level cause.',
+        'reason': 'Previous memory is outdated',
+        'outdated': True,
+    }]
+
+    for memory_type in ('skill', 'memory', 'user_preference'):
+        prompt = _build_generate_prompt(
+            memory_type=memory_type,
+            content='old content that may now be stale',
+            suggestions=suggestions,
+            user_instruct=None,
+        )
+
+        assert 'bounded, continuously maintained store' in prompt
+        assert 'not an append-only log' in prompt
+        assert 'Outdated=TRUE is only one stale signal' in prompt
+        assert 'Even when the limit is not exceeded' in prompt
+        assert 'proactively compress, consolidate, or delete stale information' in prompt
+        assert 'Current content length after removing whitespace' in prompt
+        assert 'Remaining budget before merging suggestions' in prompt
 
 
 def test_memory_generate_route_accepts_suggestions_without_user_instruct(monkeypatch):
