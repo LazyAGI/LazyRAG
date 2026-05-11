@@ -1,5 +1,6 @@
 # Kong with custom rbac-auth plugin (needs lua-resty-http for auth-service calls)
-FROM docker.m.daocloud.io/library/kong:3.6
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}kong:3.6
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \

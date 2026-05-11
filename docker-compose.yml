@@ -64,7 +64,11 @@ x-core-db-conn: &core-db-conn
 services:
 
   kong:
-    image: kong:3.6
+    build:
+      context: ./kong
+      dockerfile: Dockerfile
+      args:
+        DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io/library/}
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
