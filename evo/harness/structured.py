@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json
-import os
 from typing import Any, Callable
 
 try:
@@ -9,6 +8,7 @@ except ImportError:
     from jsonschema import Draft7Validator as _JsonSchemaValidator
 from evo.apply.errors import ApplyError
 from evo.harness.react import LLMInvoker
+from evo.runtime.config import EVO_MAX_SCHEMA_FAILURES
 from evo.runtime.session import AnalysisSession
 from evo.utils import strip_thinking
 
@@ -18,7 +18,7 @@ except ImportError:
     json_repair = None
 _ERROR_LIMIT = 20
 _PREVIEW_CHARS = 2000
-_MAX_SCHEMA_FAILURES = int(os.getenv('EVO_MAX_SCHEMA_FAILURES', '3'))
+_MAX_SCHEMA_FAILURES = EVO_MAX_SCHEMA_FAILURES
 _REPAIR_SYSTEM_PROMPT = (
     'You are a strict JSON formatter. Your ONLY job is to take the user message '
     '(which contains a previous bad model output, validation errors, and the required JSON schema) '

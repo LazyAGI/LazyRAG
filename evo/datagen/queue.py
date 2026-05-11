@@ -34,7 +34,7 @@ def get_eval_queue(
     if not target_chat_url:
         raise RAGTargetRequiredError(
             f'No target_chat_url provided for eval {eval_name}. '
-            'Set EVO_TARGET_CHAT_URL or pass target_chat_url explicitly.'
+            'Pass target_chat_url explicitly when overriding the internal chat service.'
         )
     workers = max(1, min(max_workers, len(cases) or 1))
     eval_queue: list[dict] = []

@@ -20,12 +20,15 @@ def build_report(session: AnalysisSession, synthesis: SynthesisResult | None) ->
     s = synthesis or SynthesisResult(summary='no synthesis')
     world = session.world_store.world if session.world_store else None
     flow = session.flow_analysis
+    total_cases = len(session.case_step_features) or len(session.parsed_judge)
+    if total_cases <= 0:
+        raise ValueError('analysis report has no loaded cases')
     return DiagnosisReport(
         report_id=rid,
         metadata={
             'created_at': timestamp.isoformat(),
             'run_id': session.run_id,
-            'total_cases': len(session.case_step_features) or len(session.parsed_judge),
+            'total_cases': total_cases,
             'pipeline': list(session.trace_meta.pipeline),
             'eval_report_meta': session.eval_report_meta,
         },

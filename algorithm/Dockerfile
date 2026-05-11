@@ -101,7 +101,7 @@ RUN pip install --no-cache-dir \
 RUN cd /opt/lazyllm && lazyllm install rag
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/app/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
 ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
 ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
@@ -166,5 +166,5 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
-ENV PYTHONPATH=/app/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]

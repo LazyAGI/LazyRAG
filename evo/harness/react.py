@@ -576,7 +576,8 @@ class LLMInvoker:
         agent: str = 'llm',
         gateway: bool = True,
     ) -> str:
-        call = lambda: self._invoke_raw(user_text, system_prompt=system_prompt, actor=agent)
+        def call():
+            return self._invoke_raw(user_text, system_prompt=system_prompt, actor=agent)
         if not gateway:
             return call()
         return self.session.llm.call(call, cache_key=cache_key, use_cache=cache_key is not None, agent=agent) or ''

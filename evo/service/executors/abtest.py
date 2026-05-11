@@ -3,10 +3,11 @@ from pathlib import Path
 from lazyllm import AutoModel
 from evo.abtest import AbtestInputs, VerdictPolicy, execute_abtest
 from evo.runtime.model_gateway import ModelGateway
-from evo.service.core import store as _store
+from evo.service.core import state as thread_state, store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .context import CancelToken, ExecCtx
 from algorithm.chat.utils.load_config import get_config_path
+
 
 def execute(ctx: ExecCtx, tid: str) -> None:
     cur = _store.get(ctx.store, tid)
@@ -38,9 +39,9 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         apply_worktree=Path(payload['apply_worktree']),
         candidate_chat_id=payload.get('candidate_chat_id'),
         target_chat_url=payload.get('target_chat_url'),
-        eval_options=payload.get('eval_options') or {},
+        eval_options=_eval_options(payload, ws),
         policy=ctx.abtest_policy.get(tid) or VerdictPolicy(**policy_data),
-        candidate_env=_candidate_env(Path(payload['apply_worktree'])),
+        candidate_env=_candidate_env(ctx, payload['apply_id'], Path(payload['apply_worktree'])),
     )
     try:
         result = execute_abtest(
@@ -84,7 +85,15 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         ctx.abtest_policy.pop(tid, None)
 
 
-def _candidate_env(worktree: Path) -> dict[str, str]:
+def _candidate_env(ctx: ExecCtx, apply_id: str, worktree: Path) -> dict[str, str]:
     from . import apply as apply_exec
 
-    return apply_exec.candidate_launch_env(worktree)
+    return apply_exec.candidate_launch_env(worktree, apply_exec._ensure_chat_package_alias(ctx, apply_id, worktree))
+
+
+def _eval_options(payload: dict, ws: ThreadWorkspace) -> dict:
+    options = dict(payload.get('eval_options') or {})
+    inputs = (thread_state.read_json(ws.thread_meta_path) or {}).get('inputs') or {}
+    if inputs.get('dataset_name'):
+        options.setdefault('dataset_name', inputs['dataset_name'])
+    return options

@@ -15,8 +15,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     LAZYRAG_EVO_CODE_BINARY=/usr/local/bin/opencode \
     LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
-    EVO_BASE_DIR=/var/lib/lazyrag/evo \
-    EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
+    LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
+    LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
     LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
     PYTHONPATH=/app
 
@@ -135,5 +135,5 @@ RUN ln -s /app/algorithm/chat /app/chat && \
     ln -s /app/algorithm/processor /app/processor
 RUN chmod +x /app/evo/service/entrypoint.sh
 
-EXPOSE 8048
+EXPOSE 8047
 ENTRYPOINT ["/app/evo/service/entrypoint.sh"]

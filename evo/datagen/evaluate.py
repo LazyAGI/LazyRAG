@@ -1,11 +1,11 @@
 from __future__ import annotations
 import json
 import logging
-import os
 import re
 from concurrent.futures import TimeoutError, ThreadPoolExecutor, as_completed
 from typing import Any
 from evo.datagen.llm import chat
+from evo.runtime.config import EVO_EVAL_JUDGE_TIMEOUT_S
 from evo.datagen.prompts import prompt_evaluate
 
 _log = logging.getLogger('evo.datagen.evaluate')
@@ -70,7 +70,7 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
     result_list: list[dict] = []
     done = 0
     total = len(eval_queue)
-    timeout_s = float(os.getenv('EVO_EVAL_JUDGE_TIMEOUT_S', '900'))
+    timeout_s = EVO_EVAL_JUDGE_TIMEOUT_S
     executor = ThreadPoolExecutor(max_workers=max_workers)
     try:
         future_map = {

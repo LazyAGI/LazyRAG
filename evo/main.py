@@ -19,6 +19,7 @@ def setup_logging(verbose: bool = False) -> None:
         datefmt='%Y-%m-%d %H:%M:%S',
     )
 
+
 def prepend_pipeline_argv(argv: Sequence[str]) -> list[str]:
     av = list(argv)
     if not av:

@@ -40,13 +40,6 @@ State is stored under `./data/evo`.
 roots. Empty directories are safe to delete, but they will be recreated on
 service startup.
 
-## Related Docs
-
-evo runs as part of the LazyRAG stack. Before starting evo, make sure the core services (auth-service, core, parsing, chat) are up. For the full service dependency graph, environment variables, request auth chain, and optional service configuration, see:
-
-- [Architecture Reference](../docs/architecture.md) — service dependencies, env vars, Kong/RBAC auth chain, optional services (Milvus, OpenSearch, OCR)
-- [Quick Start](../docs/quick_start.md) — how to bring up the full stack with `make up`
-
 ## Start Commands
 
 Run from the repository root (`LazyRAG/`):
@@ -58,10 +51,6 @@ python3 -m pip install --user -r LazyRAG/evo/requirements.txt
 # Configure model access.
 export LAZYRAG_MODEL_CONFIG_PATH=inner
 export LAZYRAG_MAAS_API_KEY=...
-
-# Optional but usually needed for apply.
-export EVO_CODE_MAP=/abs/path/to/code_map.json
-export EVO_CHAT_SOURCE=/abs/path/to/algorithm/chat
 
 # Start API service.
 PYTHONPATH=LazyRAG python3 -m uvicorn evo.service.api:get_app \
@@ -83,6 +72,18 @@ docker compose build evo-api
 docker compose up -d evo-api
 docker compose logs -f evo-api
 ```
+
+## Configuration
+
+Evo keeps internal service wiring in `evo.runtime.config`. The shared
+`algorithm.config` registry only exposes model roles and opencode settings that
+operators may need to change.
+
+Common settings:
+
+- `LAZYRAG_EVO_LLM_ROLE`, `LAZYRAG_EVO_EMBED_ROLE`: AutoModel roles
+- `LAZYRAG_EVO_CODE_PROVIDER`, `LAZYRAG_EVO_CODE_MODEL`,
+  `LAZYRAG_EVO_CODE_API_KEY`, `LAZYRAG_EVO_CODE_BASE_URL`: opencode provider
 
 CLI commands:
 
@@ -597,11 +598,11 @@ Bulk stop/cancel:
 curl -sX POST "$BASE/v1/evo/admin/runs:cancelAll?scope=thread&thread_id=$THREAD_ID" | jq .
 curl -sX POST "$BASE/v1/evo/admin/applies:stopAll?scope=thread&thread_id=$THREAD_ID" | jq .
 
-# Global scope requires EVO_ADMIN_TOKEN.
+# Global scope requires LAZYRAG_EVO_ADMIN_TOKEN.
 curl -sX POST "$BASE/v1/evo/admin/runs:cancelAll?scope=global" \
-  -H "Authorization: Bearer $EVO_ADMIN_TOKEN" | jq .
+  -H "Authorization: Bearer $LAZYRAG_EVO_ADMIN_TOKEN" | jq .
 curl -sX POST "$BASE/v1/evo/admin/abtests:stopAll?scope=global" \
-  -H "Authorization: Bearer $EVO_ADMIN_TOKEN" | jq .
+  -H "Authorization: Bearer $LAZYRAG_EVO_ADMIN_TOKEN" | jq .
 ```
 
 Admin flow path names use store flow names plus `s`: `runs`, `applies`,
@@ -681,29 +682,14 @@ deploy: running -> deployed (failure → failed_transient, retry via continue)
 
 ## Configuration
 
-Environment variables read by `load_config()`:
+Operator-facing environment variables:
 
 | Variable | Default |
 | --- | --- |
-| `EVO_BASE_DIR` | `<repo>/LazyRAG/data/evo` |
-| `EVO_DATA_DIR` | `<repo>/LazyRAG/evo/data` |
-| `EVO_BADCASE_SCORE_FIELD` | `answer_correctness` |
-| `EVO_CODE_MAP` | empty |
-| `EVO_CHAT_SOURCE` | `<repo>/algorithm/chat` |
 | `LAZYRAG_EVO_LLM_ROLE` | `evo_llm` |
 | `LAZYRAG_EVO_EMBED_ROLE` | `evo_embed` |
 | `LAZYRAG_EVO_AUTO_USER_ROLE` | `evo_llm` |
-| `EVO_KB_BASE_URL` | `http://localhost:8055` |
-| `EVO_CHUNK_BASE_URL` | `http://localhost:8055` |
-| `EVO_DATASETGEN_MAX_WORKERS` | `5` |
-| `EVO_DEPLOY_ADAPTER` | `none` |
-| `EVO_DEPLOY_ADAPTER_BASE_URL` | empty |
-| `EVO_EVAL_PROVIDER` | empty |
-| `EVO_EVAL_BASE_URL` | empty |
-| `EVO_EVAL_TOKEN` | empty |
-| `EVO_EVAL_MOCK_PATH` | empty |
-| `EVO_PROFILE` | `dev` |
-| `EVO_ADMIN_TOKEN` | required for global stop/cancel |
+| `LAZYRAG_EVO_ADMIN_TOKEN` | required for global stop/cancel |
 | `LAZYRAG_MODEL_CONFIG_PATH` | chat model config path (`inner` / `online` / `dynamic` or an explicit file path, default: `inner`) |
 
 ## Operations

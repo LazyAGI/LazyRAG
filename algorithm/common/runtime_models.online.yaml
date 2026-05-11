@@ -1,18 +1,24 @@
-# Runtime model config for online/cloud deployment using Qwen (Alibaba DashScope).
+# Runtime model config for online/cloud deployment using Minimax.
 # All model roles are statically configured; API key is read from the environment.
 # yaml key = AutoModel(model=...) lookup name; name field = actual model name sent to the API.
 
 llm:
-  - source: qwen
-    name: qwen-plus
+  - source: openai
+    name: minimax-m27
+    url: http://106.75.235.251:9000/v1/
+    api_key: ${LAZYLLM_MINIMAX_API_KEY}
 
 llm_instruct:
-  - source: qwen
-    name: qwen-plus
+  - source: openai
+    name: minimax-m27
+    url: http://106.75.235.251:9000/v1/
+    api_key: ${LAZYLLM_MINIMAX_API_KEY}
 
 evo_llm:
-  - source: qwen
-    name: qwen3-max
+  - source: openai
+    name: minimax-m27
+    url: http://106.75.235.251:9000/v1/
+    api_key: ${LAZYLLM_MINIMAX_API_KEY}
 
 evo_embed:
   - source: qwen

@@ -32,7 +32,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     eval_name = payload.get('eval_name', tid)
     num_cases = payload.get('num_cases')
     if not kb_id:
-        ctx.on_failure(tid, _store.StateError('DATASET_NO_KB', 'dataset_gen requires kb_id'))
+        ctx.on_failure(tid, _store.StateError('DATASET_NO_KB', '生成评测集失败，因为知识库是空的', kind='permanent'))
         return
     token = CancelToken(ctx, tid)
     elog = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path) if thread_id else None

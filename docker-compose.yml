@@ -321,6 +321,7 @@ services:
       - "8000"
     volumes:
       - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
@@ -457,6 +458,7 @@ services:
       - "8000"
     volumes:
       - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
       <<: [*db-conn, *upload-paths, *llm-api-keys]
@@ -493,6 +495,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
       LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: "1"
@@ -536,10 +539,13 @@ services:
     expose:
       - "8000"
     volumes:
-      - ./algorithm/chat/runtime_models.yaml:/app/chat/runtime_models.yaml:ro
-      - ./algorithm/chat/runtime_models.inner.yaml:/app/chat/runtime_models.inner.yaml:ro
-      - ./algorithm/chat/utils/load_config.py:/app/chat/utils/load_config.py:ro
-      - ./algorithm/chat/pipelines/builders/get_ppl_search.py:/app/chat/pipelines/builders/get_ppl_search.py:ro
+      - ./algorithm/chat:/app/chat:ro
+      - ./algorithm/common:/app/common:ro
+      - ./algorithm/vocab:/app/vocab:ro
+      - ./algorithm/parsing:/app/parsing:ro
+      - ./algorithm/config.py:/app/config.py:ro
+      - ./algorithm/config.py:/app/algorithm/config.py:ro
+      - ./algorithm/lazyllm:/opt/lazyllm:ro
     healthcheck:
       test: ['CMD-SHELL', 'python parsing/healthcheck.py']
       interval: 15s
@@ -550,7 +556,8 @@ services:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
+      PYTHONPATH: /app
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
       LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
@@ -595,6 +602,11 @@ services:
       - "8046"
     volumes:
       - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./algorithm/chat:/app/chat:ro
+      - ./algorithm/common:/app/common:ro
+      - ./algorithm/vocab:/app/vocab:ro
+      - ./algorithm/config.py:/app/config.py:ro
+      - ./algorithm/lazyllm:/opt/lazyllm:ro
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8046/docs || exit 1']
       interval: 10s
@@ -616,7 +628,7 @@ services:
       LAZYRAG_MEMORY_REVIEW_INTERVAL: "1"
       LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
       LAZYRAG_SKILL_REVIEW_DEBUG: "false"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
@@ -645,36 +657,37 @@ services:
         - apt_http_proxy
         - apt_https_proxy
     expose:
-      - "8048"
+      - "8047"
     ports:
-      - "8050:8048"
+      - "8050:8047"
     environment:
-      EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
-      EVO_CODE_MAP: /app/evo/code_map.json
+      LAZYRAG_EVO_API_PORT: "8047"
+      LAZYRAG_EVO_BASE_DIR: /var/lib/lazyrag/evo
+      LAZYRAG_EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
+      LAZYRAG_EVO_CODE_MAP: /app/evo/code_map.json
       LAZYRAG_EVO_CODE_BINARY: /usr/local/bin/opencode
-      LAZYRAG_EVO_CODE_PROVIDER: maas
-      LAZYRAG_EVO_CODE_MODEL: minimax-m27
-      LAZYRAG_EVO_CODE_TIMEOUT_S: "2400"
+      LAZYRAG_EVO_CODE_PROVIDER: ${LAZYRAG_EVO_CODE_PROVIDER:-qwen}
+      LAZYRAG_EVO_CODE_MODEL: ${LAZYRAG_EVO_CODE_MODEL:-qwen3-max}
+      LAZYRAG_EVO_CODE_API_KEY: ${LAZYRAG_EVO_CODE_API_KEY:-}
+      LAZYRAG_EVO_CODE_BASE_URL: ${LAZYRAG_EVO_CODE_BASE_URL:-}
+      LAZYRAG_EVO_CODE_LABEL: ${LAZYRAG_EVO_CODE_LABEL:-qwen}
+      LAZYRAG_EVO_CODE_TIMEOUT_S: "900"
       LAZYRAG_EVO_LLM_ROLE: evo_llm
       LAZYRAG_EVO_EMBED_ROLE: evo_embed
-      EVO_KB_BASE_URL: http://doc-server:8000
-      EVO_CHUNK_BASE_URL: http://doc-server:8000
-      EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
-      MAAS_BASE_URL: http://106.75.235.251:9000/v1/
-      MAAS_MODEL_NAME: minimax-m27
+      LAZYRAG_EVO_KB_BASE_URL: http://doc-server:8000
+      LAZYRAG_EVO_CHUNK_BASE_URL: http://doc-server:8000
+      LAZYRAG_EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/algorithm/common/runtime_models.online.yaml}
       <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazyrag/evo
       - ./data/core/uploads:/var/lib/lazyrag/uploads:ro
       - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
-      - ./evo/datagen/rag_client.py:/app/evo/datagen/rag_client.py:ro
-      - ./evo/datagen/evaluate.py:/app/evo/datagen/evaluate.py:ro
-      - ./evo/abtest/runner.py:/app/evo/abtest/runner.py:ro
-      - ./evo/service/threads/driver.py:/app/evo/service/threads/driver.py:ro
-      - ./evo/service/threads/hub.py:/app/evo/service/threads/hub.py:ro
+      - ./algorithm/config.py:/app/config.py:ro
+      - ./algorithm/config.py:/app/algorithm/config.py:ro
+      - ./evo:/app/evo:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8048/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8047/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3

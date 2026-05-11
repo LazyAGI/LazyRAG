@@ -1,10 +1,5 @@
 from __future__ import annotations
-import json
 import logging
-import re
-import zipfile
-from pathlib import Path
-from xml.etree import ElementTree
 import requests
 
 _log = logging.getLogger('evo.datagen.kb_client')
@@ -16,7 +11,6 @@ class KBClient:
         self.chunk_base_url = chunk_base_url.rstrip('/')
         self.timeout = timeout
         self._doc_cache: dict[tuple[str, str], list[dict]] = {}
-        self._file_chunk_cache: dict[tuple[str, str], list[dict]] = {}
         self._http = requests.Session()
         self._http.trust_env = False
 
@@ -71,7 +65,7 @@ class KBClient:
             chunks = self._get_chunks_by_group(chunk_kb_id, doc_id, algo_id, group, rich=rich)
             if chunks:
                 return chunks
-        return self._get_chunks_from_doc_file(kb_id, doc_id, algo_id, rich=rich)
+        return []
 
     def _chunk_kb_id(self, kb_id: str, algo_id: str, doc_id: str) -> str:
         doc = self._find_doc(kb_id, algo_id, doc_id)
@@ -122,22 +116,6 @@ class KBClient:
                 _log.warning('get_chunks base=%s group=%s failed: %s', base, group, exc)
         return []
 
-    def _get_chunks_from_doc_file(self, kb_id: str, doc_id: str, algo_id: str, *, rich: bool) -> list[dict]:
-        key = (kb_id, doc_id)
-        if key not in self._file_chunk_cache:
-            doc = self._find_doc(kb_id, algo_id, doc_id)
-            path = _doc_path(doc)
-            text = _extract_text(path) if path else _doc_stub_text(doc)
-            if not text:
-                text = _doc_stub_text(doc)
-            self._file_chunk_cache[key] = _split_text(text, doc_id, doc)
-            if not self._file_chunk_cache[key]:
-                _log.warning('no chunks from API or file for doc_id=%s path=%s', doc_id, path)
-        chunks = self._file_chunk_cache[key]
-        if rich:
-            return chunks
-        return [{'content': c['content'], 'chunk_id': c['chunk_id']} for c in chunks]
-
     def _find_doc(self, kb_id: str, algo_id: str, doc_id: str) -> dict:
         for item in self.get_doc_list(kb_id, algo_id):
             doc = item.get('doc') or {}
@@ -148,111 +126,6 @@ class KBClient:
     @classmethod
     def from_config(cls, config) -> 'KBClient':
         return cls(kb_base_url=config.dataset_gen.kb_base_url, chunk_base_url=config.dataset_gen.chunk_base_url)
-
-
-def _doc_path(doc: dict) -> Path | None:
-    for key in ('path', 'file_path'):
-        if doc.get(key):
-            return Path(str(doc[key]))
-    meta = _doc_meta(doc)
-    for key in ('core_parse_stored_path', 'core_stored_path', 'external_file_path'):
-        if meta.get(key):
-            return Path(str(meta[key]))
-    return None
-
-
-def _doc_meta(doc: dict) -> dict:
-    raw = doc.get('metadata') or doc.get('meta') or {}
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            data = json.loads(raw)
-        except Exception:
-            return {}
-        return data if isinstance(data, dict) else {}
-    return {}
-
-
-def _extract_text(path: Path | None) -> str:
-    if not path or not path.exists():
-        return ''
-    suffix = path.suffix.lower()
-    if suffix == '.pdf':
-        return _extract_pdf(path)
-    if suffix == '.docx':
-        return _extract_docx(path)
-    if suffix in {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'}:
-        return (
-            f'Image document: {path.name}. The file is part of the knowledge base '
-            'and should be treated as visual source material.'
-        )
-    try:
-        return path.read_text(encoding='utf-8', errors='ignore')
-    except Exception as exc:
-        _log.warning('read doc file failed path=%s: %s', path, exc)
-        return ''
-
-
-def _doc_stub_text(doc: dict) -> str:
-    name = doc.get('filename') or doc.get('name') or doc.get('doc_id') or 'unknown'
-    meta = _doc_meta(doc)
-    parts = [f'Document name: {name}.']
-    if doc.get('file_type'):
-        parts.append(f"File type: {doc['file_type']}.")
-    if meta.get('content_type'):
-        parts.append(f"Content type: {meta['content_type']}.")
-    if meta.get('source_kind'):
-        parts.append(f"Source kind: {meta['source_kind']}.")
-    if meta.get('display_name') and meta.get('display_name') != name:
-        parts.append(f"Display name: {meta['display_name']}.")
-    parts.append('This metadata is the available knowledge-base representation for this non-text document.')
-    return ' '.join(parts)
-
-
-def _extract_pdf(path: Path) -> str:
-    try:
-        from pypdf import PdfReader
-
-        reader = PdfReader(str(path))
-        parts = []
-        for page in reader.pages[:40]:
-            parts.append(page.extract_text() or '')
-        return '\n'.join(parts)
-    except Exception as exc:
-        _log.warning('extract pdf failed path=%s: %s', path, exc)
-        return ''
-
-
-def _extract_docx(path: Path) -> str:
-    try:
-        with zipfile.ZipFile(path) as zf:
-            xml = zf.read('word/document.xml')
-        root = ElementTree.fromstring(xml)
-        return '\n'.join((node.text or '' for node in root.iter() if node.tag.endswith('}t') and node.text))
-    except Exception as exc:
-        _log.warning('extract docx failed path=%s: %s', path, exc)
-        return ''
-
-
-def _split_text(text: str, doc_id: str, doc: dict) -> list[dict]:
-    clean = re.sub('\\n{3,}', '\n\n', text).strip()
-    if not clean:
-        return []
-    filename = doc.get('filename') or doc.get('name') or doc_id
-    chunks = []
-    size, overlap = (1200, 160)
-    pos = 0
-    while pos < len(clean) and len(chunks) < 80:
-        part = clean[pos: pos + size].strip()
-        if len(part) >= 80:
-            idx = len(chunks)
-            chunk_id = f'file:{doc_id}:{idx}'
-            chunks.append(
-                {'content': part, 'chunk_id': chunk_id, 'uid': chunk_id, 'filename': filename, 'doc_id': doc_id}
-            )
-        pos += size - overlap
-    return chunks
 
 
 def _base_candidates(base: str) -> list[str]:

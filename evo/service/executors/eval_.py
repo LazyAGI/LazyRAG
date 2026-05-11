@@ -1,7 +1,5 @@
 from __future__ import annotations
-import hashlib
 import logging
-import os
 from dataclasses import replace
 from typing import Any
 from lazyllm import AutoModel
@@ -9,6 +7,7 @@ from algorithm.chat.utils.load_config import get_config_path
 from evo.datagen import run_eval, load_report, fetch_traces_for_report
 from evo.runtime.fs import atomic_write_json
 from evo.runtime.model_gateway import ModelGateway
+from evo.runtime.config import EVO_EVAL_JUDGE_MAX_RETRIES, EVO_EVAL_JUDGE_TIMEOUT_S, EVO_EVAL_MAX_WORKERS
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .context import CancelToken, ExecCtx
@@ -29,8 +28,10 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     payload = cur.get('payload') or {}
     eval_id = payload.get('eval_id')
     dataset_id = payload.get('dataset_id')
-    target_chat_url = payload.get('target_chat_url')
+    target_chat_url = payload.get('target_chat_url') or ctx.cfg.eval_run.target_chat_url
+    eval_options = payload.get('eval_options') or payload.get('options') or {}
     ws = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id)
+    filters = dict(eval_options.get('filters') or {})
     elog = EventLog(ws.events_path)
     token = CancelToken(ctx, tid)
     try:
@@ -44,8 +45,8 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 cfg=ctx.cfg,
                 llm_factory=_eval_judge_llm_factory(ctx),
                 max_workers=_eval_max_workers(payload),
-                dataset_name=(payload.get('eval_options') or {}).get('dataset_name', ''),
-                filters=(payload.get('eval_options') or {}).get('filters') or {},
+                dataset_name=eval_options.get('dataset_name', ''),
+                filters=filters,
                 persist_report=False,
                 on_progress=lambda current, total: elog.append_event(
                     'eval.progress',
@@ -99,9 +100,7 @@ def _fetch_traces(tid: str, elog: EventLog, report: dict, token: CancelToken) ->
 
 
 def _eval_judge_llm_factory(ctx: ExecCtx):
-    timeout_s = float(os.getenv('EVO_EVAL_JUDGE_TIMEOUT_S', '120'))
-    max_retries = int(os.getenv('EVO_EVAL_JUDGE_MAX_RETRIES', '1'))
-    cfg = replace(ctx.cfg.llm, producer_timeout_s=timeout_s, max_retries=max_retries)
+    cfg = replace(ctx.cfg.llm, producer_timeout_s=EVO_EVAL_JUDGE_TIMEOUT_S, max_retries=EVO_EVAL_JUDGE_MAX_RETRIES)
     gateway: ModelGateway[str] = ModelGateway(
         cfg, name='evo-eval-judge-llm', logger=logging.getLogger('evo.datagen.evaluate')
     )
@@ -111,7 +110,7 @@ def _eval_judge_llm_factory(ctx: ExecCtx):
 
 
 def _eval_max_workers(payload: dict[str, Any]) -> int:
-    raw = (payload.get('eval_options') or {}).get('max_workers')
+    raw = (payload.get('eval_options') or payload.get('options') or {}).get('max_workers')
     if raw is None:
-        raw = os.getenv('EVO_EVAL_MAX_WORKERS', '3')
+        raw = EVO_EVAL_MAX_WORKERS
     return max(1, int(raw))

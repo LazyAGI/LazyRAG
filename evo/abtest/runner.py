@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json
-import os
 import threading
 import time
 import urllib.request
@@ -9,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 from evo.chat_runner import ChatInstance, ChatRegistry, ChatRunner
 from evo.datagen import run_eval, load_report
+from evo.runtime.config import EVO_EVAL_MAX_WORKERS
 from evo.runtime.fs import atomic_write as _atomic_write
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .comparator import VerdictPolicy, compare_evals, judge_verdict
@@ -289,7 +289,7 @@ def _phase_run_eval(c: _Ctx) -> None:
 def _eval_max_workers(eval_options: dict[str, Any]) -> int:
     raw = eval_options.get('max_workers')
     if raw is None:
-        raw = os.getenv('EVO_EVAL_MAX_WORKERS', '3')
+        raw = EVO_EVAL_MAX_WORKERS
     return max(1, int(raw))
 
 

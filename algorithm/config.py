@@ -123,3 +123,7 @@ config.add('evo_apply_min_action_validity', str, '0.5', 'EVO_APPLY_MIN_ACTION_VA
 config.add('evo_llm_role', str, 'evo_llm', 'EVO_LLM_ROLE', description='Evo LLM AutoModel role.')
 config.add('evo_embed_role', str, 'evo_embed', 'EVO_EMBED_ROLE', description='Evo embedding AutoModel role.')
 config.add('evo_auto_user_role', str, 'evo_llm', 'EVO_AUTO_USER_ROLE', description='Evo auto-user AutoModel role.')
+config.add('evo_data_dir', str, None, 'EVO_DATA_DIR', description='Evo static data directory.')
+config.add('evo_base_dir', str, None, 'EVO_BASE_DIR', description='Evo runtime storage directory.')
+config.add('evo_code_map', str, None, 'EVO_CODE_MAP', description='Evo code map path.')
+config.add('evo_chat_source', str, None, 'EVO_CHAT_SOURCE', description='Evo chat source directory.')

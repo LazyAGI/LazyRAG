@@ -1,12 +1,12 @@
 from __future__ import annotations
 import json
 import logging
-import os
 import time
 import uuid
 import urllib.error
 import urllib.request
 from typing import Any
+from evo.runtime.config import EVO_RAG_MAX_RETRIES, EVO_RAG_RETRY_BACKOFF_S, EVO_RAG_TIMEOUT_S
 
 _log = logging.getLogger('evo.datagen.rag_client')
 
@@ -45,8 +45,8 @@ def call_rag_chat(
     req = urllib.request.Request(
         target_chat_url, data=data, headers={'Content-Type': 'application/json'}, method='POST'
     )
-    attempts = max(1, int(os.getenv('EVO_RAG_MAX_RETRIES', '3')))
-    backoff_s = float(os.getenv('EVO_RAG_RETRY_BACKOFF_S', '2'))
+    attempts = max(1, EVO_RAG_MAX_RETRIES)
+    backoff_s = EVO_RAG_RETRY_BACKOFF_S
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
@@ -77,7 +77,7 @@ def call_rag_chat(
 
 def _open_rag_request(req: urllib.request.Request) -> dict[str, Any]:
     try:
-        timeout = int(os.getenv('EVO_RAG_TIMEOUT_S', '120'))
+        timeout = EVO_RAG_TIMEOUT_S
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode('utf-8'))

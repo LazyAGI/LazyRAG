@@ -249,6 +249,11 @@ def _exhausted_error(rounds: list[RoundResult], max_rounds: int) -> dict:
             'message': f'allowlist 越界在 {max_rounds} 轮内未解决',
             'details': dict(det),
         }
+    if last and last.error:
+        err = dict(last.error)
+        err.setdefault('kind', 'transient')
+        err.setdefault('details', {})
+        return err
     return {
         'code': 'MAX_ROUNDS_EXCEEDED',
         'kind': 'transient',
@@ -338,7 +343,18 @@ def execute_apply(
         base_commit = None
     actions = _filter_actions(report)
     if not actions:
-        raise ApplyError('REPORT_INVALID', 'report has no in-scope actions')
+        workspace.ensure_bare()
+        worktree, wt_head = workspace.get_or_create_worktree(apply_id)
+        branch = GitWorkspace.branch_name(apply_id)
+        cp = _build_initial_checkpoint(apply_id, wt_head, branch, str(worktree))
+        cp.update({'status': 'succeeded', 'preview_ready': False, 'no_actions': True})
+        _write_checkpoint(cp_path, cp)
+        return ApplyResult(
+            apply_id=apply_id,
+            base_commit=wt_head,
+            branch_name=branch,
+            status='SUCCEEDED',
+        )
     allow_files, new_roots = _allow_spec(config)
     if not allow_files and (not new_roots):
         raise ApplyError('CODE_MAP_EMPTY', 'code_map is empty; nothing modifiable')
@@ -395,10 +411,12 @@ def execute_apply(
                 _write_checkpoint(cp_path, cp)
                 continue
             _check(cancel_token, at=f'round_{i:03d}.opencode_done')
-            sha, oob = workspace.commit_allowlisted(worktree, _commit_subj(apply_id, thread_id, i), allow_files, new_roots)
+            sha, oob = workspace.commit_allowlisted(worktree, _commit_subj(
+                apply_id, thread_id, i), allow_files, new_roots)
             rr.commit_sha = sha
             if oob is not None:
-                err = _retry_error('APPLY_PATH_OUT_OF_ALLOWLIST', 'changes outside allowlist were reverted', {'paths': oob})
+                err = _retry_error('APPLY_PATH_OUT_OF_ALLOWLIST',
+                                   'changes outside allowlist were reverted', {'paths': oob})
                 prior_failure = _mark_round(cp, rounds, rr, error=err, prior_failure=_allowlist_violation_context(oob),
                                             on_round=on_round)
                 _write_checkpoint(cp_path, cp)
@@ -415,8 +433,9 @@ def execute_apply(
             test_outcome = run_tests(worktree, round_dir / 'tests', command=options.test_command, on_proc=on_proc)
             rr.test_passed = test_outcome.passed
             if not test_outcome.passed:
-                prior_failure = _mark_round(cp, rounds, rr, prior_failure=_failure_context(rr.files_changed, test_outcome),
-                                            on_round=on_round)
+                prior_failure = _mark_round(
+                    cp, rounds, rr, prior_failure=_failure_context(
+                        rr.files_changed, test_outcome), on_round=on_round)
                 _write_checkpoint(cp_path, cp)
                 continue
             try:

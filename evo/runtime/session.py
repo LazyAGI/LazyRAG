@@ -1,6 +1,5 @@
 from __future__ import annotations
 import logging
-import os
 import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -201,17 +200,11 @@ class AnalysisSession:
 
     def _resolve_node_with_eval_kb(self, node_id: str) -> NodeInfo | None:
         kb_id = (self.state.eval_report_meta or {}).get('kb_id')
-        if not kb_id or os.getenv('EVO_NODE_KB_IDS'):
+        if not kb_id:
             return self.node_resolver(node_id)
-        old = os.environ.get('EVO_NODE_KB_IDS')
-        os.environ['EVO_NODE_KB_IDS'] = str(kb_id)
-        try:
-            return self.node_resolver(node_id)
-        finally:
-            if old is None:
-                os.environ.pop('EVO_NODE_KB_IDS', None)
-            else:
-                os.environ['EVO_NODE_KB_IDS'] = old
+        if self.node_resolver is http_get_node:
+            return http_get_node(node_id, kb_ids=(str(kb_id),))
+        return self.node_resolver(node_id)
 
     def score_lookup(self, score_field: str) -> Callable[[str], float | None]:
         def _lookup(dataset_id: str) -> float | None:
