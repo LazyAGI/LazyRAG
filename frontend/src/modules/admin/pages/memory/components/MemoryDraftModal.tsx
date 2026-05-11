@@ -59,6 +59,10 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
     updateChildSkillDraft,
   } = props;
   const [glossaryAliasInput, setGlossaryAliasInput] = useState("");
+  const isChildSkillCategoryLocked =
+    activeTab === "skills" && modalMode === "edit" && isChildSkillDraft;
+
+
   const handleGlossaryAliasesChange = (value: string[]) => {
     const normalizedAliases = Array.from(
       new Set((value || []).map((item) => item.trim()).filter(Boolean)),
@@ -253,18 +257,45 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
               <span className="memory-form-hint">{t("admin.memoryRootSkill")}</span>
             </div>
           ) : null}
-          {!isChildSkillDraft ? (
+          {!isChildSkillDraft || isChildSkillCategoryLocked ? (
             <div className="memory-form-field">
               <label>{t("admin.memoryCategory")}</label>
               <Input
                 value={draft.category}
                 readOnly={isReadOnly}
+                disabled={isChildSkillCategoryLocked}
                 placeholder={t("admin.memoryCategoryPlaceholder")}
                 onChange={(event) =>
                   setDraft((previous: any) => ({ ...previous, category: event.target.value }))
                 }
               />
             </div>
+          ) : null}
+          {!isChildSkillDraft ? (
+            <>
+              <div className="memory-form-field">
+                <label>{t("admin.memoryTagSet")}</label>
+                <Select
+                  mode="tags"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  tokenSeparators={[",", "，"]}
+                  style={{ width: "100%" }}
+                  value={draft.tags}
+                  disabled={isReadOnly}
+                  placeholder={t("admin.memoryTagsPlaceholder")}
+                  onChange={(value) =>
+                    setDraft((previous: any) => ({
+                      ...previous,
+                      tags: normalizeTagValues(value),
+                    }))
+                  }
+                  options={tagOptions}
+                />
+                <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
+              </div>
+            </>
           ) : null}
           <div className="memory-form-field">
             <label>{t("admin.memoryTagSet")}</label>
