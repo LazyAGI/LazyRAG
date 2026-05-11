@@ -255,7 +255,7 @@ def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
         'ctx_expand',
     ]
     assert recorded['join_top_k'] == 50
-    assert recorded['ifs']['cond']('ignored') is False
+    assert recorded['ifs']['cond']() is False
     assert recorded['reranker'] == {'name': 'ModuleReranker', 'model': 'model:reranker', 'topk': 7}
     assert recorded['adaptive_k']['k_max'] == 4
     assert recorded['adaptive_k']['max_tokens'] == 2048
@@ -303,7 +303,7 @@ def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch
 
     ppl_search_mod.get_ppl_search('http://kb-service', retriever_configs=[{'group_name': 'line'}])
 
-    assert recorded['ifs']['cond']('ignored') is True
+    assert recorded['ifs']['cond']() is True
 
 
 def test_get_ppl_generate_keeps_expected_stage_order(monkeypatch):

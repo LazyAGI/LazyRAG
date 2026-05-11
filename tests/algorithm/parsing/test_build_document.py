@@ -90,8 +90,10 @@ def test_build_pdf_reader_selects_mineru_with_upload_mode(monkeypatch):
     assert seen['url'] == 'http://mineru:8000'
     assert seen['backend'] == 'pipeline'
     assert seen['upload_mode'] is False
-    assert isinstance(seen['post_func'], build_document.NodeParser)
     assert seen['timeout'] == 3600
+    assert seen['patch_applied'] == build_document._cfg['ocr_patch_applied']
+    assert seen['service_variant'] == build_document._cfg['ocr_service_variant']
+    assert seen['image_cache_dir'] == '/app/uploads/.image_cache'
 
 
 def test_build_pdf_reader_selects_paddleocr(monkeypatch):
@@ -106,7 +108,11 @@ def test_build_pdf_reader_selects_paddleocr(monkeypatch):
     monkeypatch.setitem(build_document._cfg._impl, 'ocr_server_url', 'http://paddle.test/')
 
     assert isinstance(build_document._build_pdf_reader(), FakePaddleOCRPDFReader)
-    assert seen == {'url': 'http://paddle.test'}
+    assert seen == {
+        'url': 'http://paddle.test',
+        'service_variant': build_document._cfg['ocr_service_variant'],
+        'images_dir': '/app/uploads/.image_cache',
+    }
 
 
 def test_build_pdf_reader_rejects_unknown_ocr_type(monkeypatch):

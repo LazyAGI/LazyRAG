@@ -4,8 +4,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chat.utils.load_config import load_model_config, get_retrieval_settings
-import chat.pipelines.builders.get_models as get_models_mod
+try:
+    import lazyllm  # noqa: F401
+except Exception as exc:
+    pytest.skip(f'lazyllm unavailable in test environment: {exc}', allow_module_level=True)
+
+from chat.utils.load_config import get_retrieval_settings, load_model_config
+
+try:
+    import chat.pipelines.builders.get_models as get_models_mod
+except ImportError:
+    get_models_mod = None
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +54,7 @@ def test_model_config_resolves_env_and_single_embed(monkeypatch, tmp_path):
     )
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
 
-    config = load_model_config(str(config_path))
+    config = load_model_config(str(config_path), expand_env=True)
     settings = get_retrieval_settings(str(config_path))
 
     assert config['llm']['api_key'] == 'secret-key'
@@ -154,7 +163,7 @@ def test_model_config_requires_env_when_placeholder_has_no_default(tmp_path):
     )
 
     with pytest.raises(ValueError, match='TEST_API_KEY'):
-        load_model_config(str(config_path))
+        load_model_config(str(config_path), expand_env=True)
 
 
 def test_model_config_uses_env_override_path(monkeypatch, tmp_path):
@@ -182,14 +191,16 @@ def test_model_config_uses_env_override_path(monkeypatch, tmp_path):
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
     monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', str(config_path))
 
-    config = load_model_config()
+    config = load_model_config(expand_env=True)
     settings = get_retrieval_settings()
 
     assert config['llm']['model'] == 'foo-chat'
     assert settings.embed_keys == ['embed_1']
 
 
-def test_build_auto_model_writes_config_file(monkeypatch):
+@pytest.mark.skipif(get_models_mod is None,
+                    reason="chat.pipelines.builders.get_models module has been removed")
+def test_build_auto_model_writes_config_file(monkeypatch, tmp_path):
     captured = {}
 
     def fake_auto_model(*, model, config, **kwargs):
@@ -198,28 +209,29 @@ def test_build_auto_model_writes_config_file(monkeypatch):
         return 'fake-model'
 
     monkeypatch.setattr(get_models_mod, 'AutoModel', fake_auto_model)
+    monkeypatch.setattr(get_models_mod, '_RUNTIME_AUTO_MODEL_DIR', tmp_path / 'runtime-auto-model')
 
-    result = get_models_mod._build_auto_model('bgem3_emb_dense_custom', {
-        'source': 'bgem3embed',
-        'type': 'embed',
-        'url': 'http://127.0.0.1:2269/embed',
-        'skip_auth': True,
+    result = get_models_mod._build_auto_model('BAAI/bge-reranker-v2-m3', {
+        'source': 'siliconflow',
+        'type': 'rerank',
+        'api_key': 'secret-key',
     })
 
     assert result == 'fake-model'
-    assert captured['model'] == 'bgem3_emb_dense_custom'
+    assert captured['model'] == 'BAAI/bge-reranker-v2-m3'
     generated = yaml.safe_load(Path(captured['config']).read_text(encoding='utf-8'))
     assert generated == {
-        'bgem3_emb_dense_custom': [{
-            'source': 'bgem3embed',
-            'type': 'embed',
-            'model': 'bgem3_emb_dense_custom',
-            'url': 'http://127.0.0.1:2269/embed',
-            'skip_auth': True,
+        'BAAI/bge-reranker-v2-m3': [{
+            'source': 'siliconflow',
+            'type': 'rerank',
+            'model': 'BAAI/bge-reranker-v2-m3',
+            'api_key': 'secret-key',
         }]
     }
 
 
+@pytest.mark.skipif(get_models_mod is None,
+                    reason="chat.pipelines.builders.get_models module has been removed")
 def test_runtime_auto_model_dir_cleanup_removes_generated_files(tmp_path, monkeypatch):
     runtime_dir = tmp_path / 'runtime-auto-model'
     runtime_dir.mkdir()

@@ -10,6 +10,7 @@ def _import_agentic_module(monkeypatch):
         info=lambda *args, **kwargs: None,
         debug=lambda *args, **kwargs: None,
         error=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
     )
     fake_lazyllm.bind = lambda *args, **kwargs: ('bind', args, kwargs)
     fake_lazyllm.loop = lambda *args, **kwargs: ('loop', args, kwargs)
@@ -95,6 +96,11 @@ def _import_agentic_module(monkeypatch):
     fake_helpers = ModuleType('chat.utils.helpers')
     fake_helpers.tool_schema_to_string = lambda schema, include_params=True: 'tool-schema'
 
+    fake_utils_pkg = ModuleType('chat.utils')
+    fake_utils_pkg.__path__ = []
+    fake_load_config = ModuleType('chat.utils.load_config')
+    fake_load_config.get_config_path = lambda: 'runtime_models.yaml'
+
     fake_schema = ModuleType('chat.utils.schema')
 
     class PlanStep:
@@ -139,6 +145,7 @@ def _import_agentic_module(monkeypatch):
         'max_retries': 20,
         'memory_review_interval': 1,
         'skill_review_interval': 5,
+        'model_config_path': 'dynamic',
     }
 
     # Fake chat.pipelines package to prevent __init__.py from importing naive/memory_generate
@@ -176,6 +183,8 @@ def _import_agentic_module(monkeypatch):
     monkeypatch.setitem(sys.modules, 'chat.components.agentic.review', fake_review)
     monkeypatch.setitem(sys.modules, 'chat.tools.skill_manager', fake_skill_manager)
     monkeypatch.setitem(sys.modules, 'chat.components.generate.output_parser', fake_output_parser)
+    monkeypatch.setitem(sys.modules, 'chat.utils', fake_utils_pkg)
+    monkeypatch.setitem(sys.modules, 'chat.utils.load_config', fake_load_config)
     monkeypatch.setitem(sys.modules, 'chat.utils.helpers', fake_helpers)
     monkeypatch.setitem(sys.modules, 'chat.utils.schema', fake_schema)
 

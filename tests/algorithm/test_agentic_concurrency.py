@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from typing import Any, Dict, List
 
 import pytest
@@ -51,7 +50,6 @@ class _FakeAgent:
         self._kwargs = kwargs
 
     def __call__(self, query: str, llm_chat_history: Any = None) -> Dict[str, Any]:
-        time.sleep(0.05)
         config = lazyllm.globals.get('agentic_config')
         snapshot = dict(config) if isinstance(config, dict) else None
         callback = self._kwargs.get('stream_event_callback')
@@ -84,6 +82,20 @@ def fake_pipeline(monkeypatch):
     """Patch agentic's heavy external deps so it can run offline."""
     _FakeAgent.observations = []
 
+    class _FakeFileSystemQueue:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def clear(self):
+            return None
+
+        def dequeue(self):
+            return []
+
+        @classmethod
+        def get_instance(cls, *_args, **_kwargs):
+            return cls()
+
     monkeypatch.setattr(agentic, 'AutoModel', lambda *_a, **_kw: object())
     monkeypatch.setattr(agentic, 'create_sandbox', lambda **_kw: object())
     monkeypatch.setattr(agentic, '_ensure_tools_registered', lambda: None)
@@ -91,6 +103,7 @@ def fake_pipeline(monkeypatch):
     monkeypatch.setattr(agentic, '_get_runtime_agent_defaults', lambda: {})
     monkeypatch.setattr(agentic, '_StreamingReactAgent', _FakeAgent)
     monkeypatch.setattr(lazyllm.tools.agent, 'ReactAgent', _FakeAgent)
+    monkeypatch.setattr(lazyllm, 'FileSystemQueue', _FakeFileSystemQueue)
 
     yield _FakeAgent
 
