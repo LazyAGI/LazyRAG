@@ -48,6 +48,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 max_workers=_eval_max_workers(payload),
                 dataset_name=eval_options.get('dataset_name', ''),
                 filters=filters,
+                require_trace=_trace_enabled(),
                 persist_report=False,
                 on_progress=lambda current, total: elog.append_event(
                     'eval.progress',
