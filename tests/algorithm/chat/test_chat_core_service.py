@@ -150,12 +150,11 @@ def test_build_query_params_filters_history_and_modes(monkeypatch):
     assert params['priority'] == 8
     assert params['dataset'] == 'algo'
     assert params['session_id'] == 'sid-1'
-    assert params['create_user_id'] == ''
     assert params['user_id'] == ''
     assert 'document_url' in params
 
 
-def test_build_query_params_copies_create_user_id_to_user_id(monkeypatch):
+def test_build_query_params_sets_user_id(monkeypatch):
     module = _import_chat_service_module(monkeypatch)
 
     params = module.build_query_params(
@@ -174,10 +173,9 @@ def test_build_query_params_copies_create_user_id_to_user_id(monkeypatch):
         memory=None,
         user_preference=None,
         use_memory=None,
-        create_user_id='user-1',
+        user_id='user-1',
     )
 
-    assert params['create_user_id'] == 'user-1'
     assert params['user_id'] == 'user-1'
 
 def test_handle_chat_rejects_unknown_dataset(monkeypatch):
@@ -387,8 +385,8 @@ def test_handle_chat_stream_preserves_separate_think_and_text_frames(monkeypatch
             self.body_iterator = body_iterator
             self.media_type = media_type
 
-    async def fake_to_thread(fn, *args):
-        return fn(*args)
+    async def fake_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
 
     monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: ([], []))
     monkeypatch.setattr(module, 'StreamingResponse', _FakeStreamingResponse)
@@ -406,6 +404,11 @@ def test_handle_chat_stream_preserves_separate_think_and_text_frames(monkeypatch
             databases=[],
             dataset='algo',
             priority=1,
+            available_tools=None,
+            available_skills=None,
+            memory=None,
+            user_preference=None,
+            use_memory=None,
             is_stream=True,
         )
     )

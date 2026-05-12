@@ -37,10 +37,6 @@ if _ALGO not in sys.path:
 if _LAZYLLM_ROOT not in sys.path:
     sys.path.insert(0, _LAZYLLM_ROOT)
 
-for _module_name in list(sys.modules):
-    if _module_name == 'lazyllm' or _module_name.startswith('lazyllm.'):
-        del sys.modules[_module_name]
-
 import pytest
 from sqlalchemy import text
 from lazyllm.module import LLMBase
@@ -86,10 +82,10 @@ def _patch_vocab_discriminator():
         yield
 
 
-def _make_manager(rows: list, create_user_id: str = 'test_user'):
+def _make_manager(rows: list, user_id: str = 'test_user'):
     """Create an isolated VocabManager using an in-memory data_source (no DB)."""
     from vocab.vocab_manager import VocabManager
-    return VocabManager(create_user_id=create_user_id, data_source=rows)
+    return VocabManager(user_id=user_id, data_source=rows)
 
 
 def _reset_registry():
@@ -156,9 +152,9 @@ class TestVocabManagerBasic:
         # but QueryEnhACProcessor deduplicates by word (last wins)
         assert mgr.vocab_size == 2  # unique words: '苹果', 'apple'
 
-    def test_create_user_id_property(self):
-        mgr = _make_manager([], create_user_id='alice')
-        assert mgr.create_user_id == 'alice'
+    def test_user_id_property(self):
+        mgr = _make_manager([], user_id='alice')
+        assert mgr.user_id == 'alice'
 
     def test_call_with_string_enhances_query(self):
         mgr = _make_manager(_SAMPLE_ROWS_USER2)
@@ -201,7 +197,7 @@ class TestVocabManagerBasic:
 class TestVocabManagerReload:
 
     def test_reload_updates_vocab(self):
-        mgr = _make_manager([], create_user_id='u_reload')
+        mgr = _make_manager([], user_id='u_reload')
         assert mgr.vocab_size == 0
 
         new_rows = [
@@ -227,8 +223,8 @@ class TestVocabManagerReload:
         """When DB returns empty, reload gives vocab_size=0."""
         mgr = _make_manager([{'word': 'existing', 'cluster_id': 'x'}])
         assert mgr.vocab_size == 1
-        # Patch the module-level fetch_vocab_for_create_user_id that _load_from_db calls
-        with patch('vocab.vocab_manager.fetch_vocab_for_create_user_id', return_value=[]):
+        # Patch the module-level fetch_vocab_for_user_id that _load_from_db calls
+        with patch('vocab.vocab_manager.fetch_vocab_for_user_id', return_value=[]):
             mgr.reload()
         assert mgr.vocab_size == 0
 
@@ -247,16 +243,16 @@ class TestVocabRegistry:
 
     def test_different_users_get_different_managers(self):
         from vocab.vocab_manager import get_vocab_manager
-        with patch('vocab.vocab_manager.fetch_vocab_for_create_user_id', return_value=[]):
+        with patch('vocab.vocab_manager.fetch_vocab_for_user_id', return_value=[]):
             mgr_a = get_vocab_manager('alice')
             mgr_b = get_vocab_manager('bob')
         assert mgr_a is not mgr_b
-        assert mgr_a.create_user_id == 'alice'
-        assert mgr_b.create_user_id == 'bob'
+        assert mgr_a.user_id == 'alice'
+        assert mgr_b.user_id == 'bob'
 
     def test_same_user_gets_same_manager_instance(self):
         from vocab.vocab_manager import get_vocab_manager
-        with patch('vocab.vocab_manager.fetch_vocab_for_create_user_id', return_value=[]):
+        with patch('vocab.vocab_manager.fetch_vocab_for_user_id', return_value=[]):
             mgr1 = get_vocab_manager('charlie')
             mgr2 = get_vocab_manager('charlie')
         assert mgr1 is mgr2
@@ -265,11 +261,11 @@ class TestVocabRegistry:
         """user_001's vocab should not affect user_002's query."""
         from vocab.vocab_manager import get_vocab_manager
 
-        def _side_effect(create_user_id):
-            return _SAMPLE_ROWS_USER1 if create_user_id == 'user_001' else _SAMPLE_ROWS_USER2
+        def _side_effect(user_id):
+            return _SAMPLE_ROWS_USER1 if user_id == 'user_001' else _SAMPLE_ROWS_USER2
 
-        # patch the name used inside vocab_manager.py (from .db import fetch_vocab_for_create_user_id)
-        with patch('vocab.vocab_manager.fetch_vocab_for_create_user_id', side_effect=_side_effect):
+        # patch the name used inside vocab_manager.py (from .db import fetch_vocab_for_user_id)
+        with patch('vocab.vocab_manager.fetch_vocab_for_user_id', side_effect=_side_effect):
             mgr1 = get_vocab_manager('user_001')
             mgr2 = get_vocab_manager('user_002')
 
@@ -281,11 +277,11 @@ class TestVocabRegistry:
         assert '民法' in mgr2._proc.word_to_cluster
         assert '民法' not in mgr1._proc.word_to_cluster
 
-    def test_empty_create_user_id_allowed(self):
+    def test_empty_user_id_allowed(self):
         from vocab.vocab_manager import get_vocab_manager
-        with patch('vocab.vocab_manager.fetch_vocab_for_create_user_id', return_value=[]):
+        with patch('vocab.vocab_manager.fetch_vocab_for_user_id', return_value=[]):
             mgr = get_vocab_manager('')
-        assert mgr.create_user_id == ''
+        assert mgr.user_id == ''
         assert mgr.vocab_size == 0
 
 
@@ -300,7 +296,7 @@ class TestVocabManagerThreadSafety:
             {'word': 'threadtok', 'cluster_id': 'th'},
             {'word': 'tok2',      'cluster_id': 'th'},
         ]
-        mgr = _make_manager(rows, create_user_id='thread_user')
+        mgr = _make_manager(rows, user_id='thread_user')
         errors: list = []
 
         def _reload():
@@ -343,8 +339,8 @@ class TestVocabDBQueryLayer:
 
         assert mock_get_engine.call_args.kwargs == {'url': 'postgresql://core-db', 'dsn': None}
 
-    def test_fetch_vocab_for_create_user_id_queries_public_words_and_filters_deleted(self):
-        from vocab.db import fetch_vocab_for_create_user_id
+    def test_fetch_vocab_for_user_id_queries_public_words_and_filters_deleted(self):
+        from vocab.db import fetch_vocab_for_user_id
 
         conn = _FakeConnection(
             _FakeMappingsResult(rows=[{'word': '苹果', 'group_id': 'g1'}]),
@@ -353,16 +349,16 @@ class TestVocabDBQueryLayer:
         with patch('vocab.db._ensure_table_once', return_value=None), \
              patch('vocab.db._has_vocab_conn_target', return_value=True), \
              patch('vocab.db._get_vocab_conn', return_value=engine):
-            rows = fetch_vocab_for_create_user_id('user-x')
+            rows = fetch_vocab_for_user_id('user-x')
 
         assert rows == [{'word': '苹果', 'cluster_id': 'g1'}]
         sql, params = conn.executed[0]
         assert 'FROM public.words' in sql
         assert 'deleted_at IS NULL' in sql
-        assert params == {'create_user_id': 'user-x'}
+        assert params == {'user_id': 'user-x'}
 
     def test_fetch_vocab_groups_queries_reference_info_and_filters_deleted(self):
-        from vocab.db import fetch_vocab_groups_for_create_user_id
+        from vocab.db import fetch_vocab_groups_for_user_id
 
         conn = _FakeConnection(
             _FakeMappingsResult(rows=[
@@ -374,7 +370,7 @@ class TestVocabDBQueryLayer:
         with patch('vocab.db._ensure_table_once', return_value=None), \
              patch('vocab.db._has_vocab_conn_target', return_value=True), \
              patch('vocab.db._get_vocab_conn', return_value=engine):
-            groups = fetch_vocab_groups_for_create_user_id('user-y')
+            groups = fetch_vocab_groups_for_user_id('user-y')
 
         assert groups == {
             'g1': {
@@ -388,7 +384,7 @@ class TestVocabDBQueryLayer:
         assert 'COALESCE(reference_info, \'\') AS reference' in sql
         assert 'FROM public.words' in sql
         assert 'deleted_at IS NULL' in sql
-        assert params == {'create_user_id': 'user-y'}
+        assert params == {'user_id': 'user-y'}
 
 
 # ---------------------------------------------------------------------------
@@ -418,56 +414,55 @@ class TestVocabReloadRoute:
             'words': ['苹果', 'apple'],
             'description': '水果语境',
             'group_ids': '[]',
-            'create_user_id': 'user_001',
+            'user_id': 'user_001',
             'message_ids': '["m1"]',
             'action': 'create_new_group',
         }])
 
         with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr):
             spec.loader.exec_module(vocab_routes_mod)
-            vocab_routes_mod._run_vocab_evolution_task = mock_extract
             test_app.include_router(vocab_routes_mod.router)
 
         yield TestClient(test_app), mock_mgr, mock_extract
 
-    def test_reload_returns_ok_with_create_user_id(self, client):
+    def test_reload_returns_ok_with_user_id(self, client):
         tc, mock_mgr, _ = client
-        resp = tc.post('/api/vocab/reload', json={'create_user_id': 'user_001'})
+        resp = tc.post('/api/vocab/reload', json={'user_id': 'user_001'})
         assert resp.status_code == 200
         body = resp.json()
         assert body['status'] == 'ok'
-        assert body['create_user_id'] == 'user_001'
+        assert body['user_id'] == 'user_001'
         assert isinstance(body['vocab_size'], int)
 
-    def test_reload_default_empty_create_user_id(self, client):
+    def test_reload_default_empty_user_id(self, client):
         tc, _, _ = client
         resp = tc.post('/api/vocab/reload')
         assert resp.status_code == 200
-        assert resp.json()['create_user_id'] == ''
+        assert resp.json()['user_id'] == ''
 
-    def test_extract_returns_no_content_with_create_user_id(self, client):
+    def test_extract_returns_no_content_with_user_id(self, client):
         tc, _, mock_extract = client
-        resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
+        resp = tc.post('/api/vocab/extract', json={'user_id': 'user_001'})
 
         assert resp.status_code == 204
         assert resp.content == b''
-        mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
+        mock_extract.assert_not_called()
 
-    def test_extract_without_create_user_id_runs_for_all_users(self, client):
+    def test_extract_without_user_id_is_noop(self, client):
         tc, _, mock_extract = client
         resp = tc.post('/api/vocab/extract')
 
         assert resp.status_code == 204
         assert resp.content == b''
-        mock_extract.assert_called_once_with(None)
+        mock_extract.assert_not_called()
 
-    def test_extract_uses_background_task_and_does_not_change_response(self, client):
+    def test_extract_is_noop_and_does_not_change_response(self, client):
         tc, _, mock_extract = client
-        resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
+        resp = tc.post('/api/vocab/extract', json={'user_id': 'user_001'})
 
         assert resp.status_code == 204
         assert resp.content == b''
-        mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
+        mock_extract.assert_not_called()
 
     def test_extract_failure_does_not_break_response(self, tmp_path):
         from fastapi import FastAPI
@@ -483,14 +478,13 @@ class TestVocabReloadRoute:
 
         with patch('vocab.vocab_manager.get_vocab_manager', return_value=mock_mgr):
             spec.loader.exec_module(vocab_routes_mod)
-            vocab_routes_mod._run_vocab_evolution_task = mock_extract
             test_app.include_router(vocab_routes_mod.router)
             tc = TestClient(test_app)
-            resp = tc.post('/api/vocab/extract', json={'create_user_id': 'user_001'})
+            resp = tc.post('/api/vocab/extract', json={'user_id': 'user_001'})
 
         assert resp.status_code == 204
         assert resp.content == b''
-        mock_extract.assert_called_once_with({'create_user_id': 'user_001'})
+        mock_extract.assert_not_called()
 
     def test_reload_failure_returns_503(self, tmp_path):
         from fastapi import FastAPI
@@ -508,13 +502,13 @@ class TestVocabReloadRoute:
             spec.loader.exec_module(vocab_routes_mod)
             test_app.include_router(vocab_routes_mod.router)
             tc = TestClient(test_app)
-            resp = tc.post('/api/vocab/reload', json={'create_user_id': 'user_001'})
+            resp = tc.post('/api/vocab/reload', json={'user_id': 'user_001'})
 
         assert resp.status_code == 503
         assert resp.json() == {'detail': 'vocab reload failed'}
 
-    def test_reload_different_create_user_ids_call_respective_manager(self, tmp_path):
-        """Each create_user_id triggers reload on its own VocabManager instance."""
+    def test_reload_different_user_ids_call_respective_manager(self, tmp_path):
+        """Each user_id triggers reload on its own VocabManager instance."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         from vocab.vocab_manager import clear_registry
@@ -538,8 +532,8 @@ class TestVocabReloadRoute:
             spec.loader.exec_module(vocab_routes_mod)
             test_app.include_router(vocab_routes_mod.router)
             tc = TestClient(test_app)
-            tc.post('/api/vocab/reload', json={'create_user_id': 'alice'})
-            tc.post('/api/vocab/reload', json={'create_user_id': 'bob'})
+            tc.post('/api/vocab/reload', json={'user_id': 'alice'})
+            tc.post('/api/vocab/reload', json={'user_id': 'bob'})
 
         assert 'alice' in called_users
         assert 'bob' in called_users
@@ -600,32 +594,32 @@ class TestVocabDBIntegration:
     """Integration tests that hit the real core.public.words table."""
 
     def test_fetch_vocab_for_active_user(self):
-        from vocab.db import fetch_vocab_for_create_user_id
+        from vocab.db import fetch_vocab_for_user_id
         users = _real_vocab_users(limit=1)
         if not users:
             pytest.skip('no active vocab users in real core.words table')
 
-        rows = fetch_vocab_for_create_user_id(users[0])
+        rows = fetch_vocab_for_user_id(users[0])
         assert rows, f'expected active vocab rows for {users[0]!r}'
         assert all(row['word'] for row in rows)
         assert all(row['cluster_id'] for row in rows)
 
     def test_deleted_vocab_rows_are_excluded(self):
-        from vocab.db import fetch_vocab_for_create_user_id
+        from vocab.db import fetch_vocab_for_user_id
 
         deleted = _real_deleted_vocab_entry()
         if not deleted:
             pytest.skip('no deleted vocab rows available in real core.words table')
 
-        rows = fetch_vocab_for_create_user_id(deleted['create_user_id'])
+        rows = fetch_vocab_for_user_id(deleted['create_user_id'])
         assert {
             'word': deleted['word'],
             'cluster_id': deleted['group_id'],
         } not in rows
 
     def test_fetch_vocab_unknown_user_returns_empty(self):
-        from vocab.db import fetch_vocab_for_create_user_id
-        rows = fetch_vocab_for_create_user_id('__nonexistent_user_xyz__')
+        from vocab.db import fetch_vocab_for_user_id
+        rows = fetch_vocab_for_user_id('__nonexistent_user_xyz__')
         assert rows == []
 
     def test_vocab_manager_loads_from_db(self):
@@ -662,7 +656,7 @@ class TestVocabDBIntegration:
         mgr1 = get_vocab_manager(users[0])
         mgr2 = get_vocab_manager(users[1])
 
-        assert mgr1.create_user_id != mgr2.create_user_id
+        assert mgr1.user_id != mgr2.user_id
         assert mgr1 is not mgr2
         assert mgr1._proc.word_to_cluster != mgr2._proc.word_to_cluster
         _reset_registry()

@@ -16,28 +16,7 @@ for _module_name in list(sys.modules):
         del sys.modules[_module_name]
 
 from chat.components.agentic.config import REVIEW_TOOLS
-from chat.components.agentic.review import _decide_review_mode
 from chat.prompts.agentic import _COMBINED_REVIEW_PROMPT
-
-
-def test_decide_review_mode_returns_combined_when_memory_due():
-    assert _decide_review_mode(
-        available_tools=['memory'],
-        tool_turns=0,
-        user_turns=2,
-        memory_review_interval=1,
-        skill_review_interval=5,
-    ) == 'combined'
-
-
-def test_decide_review_mode_returns_combined_when_skill_due():
-    assert _decide_review_mode(
-        available_tools=['skill_manage'],
-        tool_turns=6,
-        user_turns=2,
-        memory_review_interval=1,
-        skill_review_interval=5,
-    ) == 'combined'
 
 
 def test_combined_review_uses_three_tools_and_single_choice_prompt():

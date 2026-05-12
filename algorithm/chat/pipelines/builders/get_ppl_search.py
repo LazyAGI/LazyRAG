@@ -6,18 +6,11 @@ from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
 from chat.pipelines.builders.get_retriever import get_retriever, get_remote_docment
 from chat.utils.load_config import get_config_path
-from vocab.db import resolve_create_user_id_for_session
 from vocab.vocab_manager import get_vocab_manager
 
 
 def parse_query(query_params: dict) -> str:
-    config = lazyllm.globals.get('agentic_config') or {}
-    resolved_create_user_id = resolve_create_user_id_for_session([
-        query_params,
-        config if isinstance(config, dict) else {},
-        getattr(lazyllm.globals, '_sid', ''),
-    ])
-    return get_vocab_manager(resolved_create_user_id)(query_params['query'])
+    return get_vocab_manager(query_params['user_id'])(query_params['query'])
 
 
 def has_files(x: dict) -> bool:

@@ -9,8 +9,7 @@ from typing_extensions import TypedDict
 from chat.tools.memory import _agentic_config, _post_core_api, _session_id
 from vocab.db import (
     fetch_chat_histories_for_session,
-    fetch_vocab_groups_for_create_user_id,
-    resolve_create_user_id_for_session,
+    fetch_vocab_groups_for_user_id,
 )
 from vocab.evolution import ActionPlanningModule, ChatHistoryRecord, SynonymCandidate, VocabEvolutionRequest
 
@@ -83,18 +82,9 @@ def _dedupe_keep_order(values: List[str]) -> List[str]:
     return result
 
 
-def _resolve_create_user_id(agentic_config: Optional[Dict[str, Any]] = None) -> str:
+def _resolve_user_id(agentic_config: Optional[Dict[str, Any]] = None) -> str:
     config = agentic_config if isinstance(agentic_config, dict) else _agentic_config()
-    create_user_id = _norm_text(config.get('create_user_id'))
-    if create_user_id:
-        return create_user_id
-
-    user_id = _norm_text(config.get('user_id'))
-    if user_id:
-        return user_id
-
-    session_id = _session_id(config)
-    return resolve_create_user_id_for_session(session_id)
+    return _norm_text(config.get('user_id'))
 
 
 def _serialize_string_list(values: List[str]) -> str:
@@ -109,7 +99,7 @@ def _serialize_backend_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, 
             'words': _dedupe_keep_order(action.get('words') or []),
             'description': _norm_text(action.get('description')),
             'group_ids': _serialize_string_list(action.get('group_ids') or []),
-            'create_user_id': _norm_text(action.get('create_user_id')),
+            'user_id': _norm_text(action.get('user_id')),
             'message_ids': _serialize_string_list(action.get('message_ids') or []),
             'action': _norm_text(action.get('action')),
         })
@@ -206,24 +196,24 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not session_id:
         return _fail("'session_id' is required in agentic_config.")
 
-    create_user_id = _resolve_create_user_id(agentic_config)
-    if not create_user_id:
-        return _fail('create_user_id could not be resolved from the current session.')
+    user_id = _resolve_user_id(agentic_config)
+    if not user_id:
+        return _fail('user_id is required in agentic_config.')
 
     LOG.info(
         '[VocabTool] start '
-        f'session_id={session_id!r} create_user_id={create_user_id!r} suggestion_count={len(suggestions)} '
+        f'session_id={session_id!r} user_id={user_id!r} suggestion_count={len(suggestions)} '
         f'suggestions={json.dumps([_summarize_suggestion_for_log(item) for item in suggestions], ensure_ascii=False)}'
     )
 
-    groups = fetch_vocab_groups_for_create_user_id(create_user_id)
+    groups = fetch_vocab_groups_for_user_id(user_id)
     session_histories = [
         ChatHistoryRecord.from_dict(item)
         for item in fetch_chat_histories_for_session(session_id)
     ]
     LOG.info(
         '[VocabTool] loaded context '
-        f'session_id={session_id!r} create_user_id={create_user_id!r} '
+        f'session_id={session_id!r} user_id={user_id!r} '
         f'existing_group_count={len(groups)} session_history_count={len(session_histories)}'
     )
     seen_pairs = set()
@@ -236,21 +226,21 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not word or not synonym:
             LOG.info(
                 '[VocabTool] skipped raw suggestion '
-                f'create_user_id={create_user_id!r} reason=missing_word_or_synonym '
+                f'user_id={user_id!r} reason=missing_word_or_synonym '
                 f'suggestion={json.dumps(_summarize_suggestion_for_log(suggestion), ensure_ascii=False)}'
             )
             continue
         if pair_key in seen_pairs:
             LOG.info(
                 '[VocabTool] skipped raw suggestion '
-                f'create_user_id={create_user_id!r} reason=duplicate_pair '
+                f'user_id={user_id!r} reason=duplicate_pair '
                 f'suggestion={json.dumps(_summarize_suggestion_for_log(suggestion), ensure_ascii=False)}'
             )
             continue
         seen_pairs.add(pair_key)
 
         candidate = SynonymCandidate(
-            create_user_id=create_user_id,
+            user_id=user_id,
             word=word,
             synonym=synonym,
             description=_norm_text(suggestion.get('description')),
@@ -260,16 +250,16 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
         candidates.append(candidate)
         LOG.info(
             '[VocabTool] prepared candidate '
-            f'create_user_id={create_user_id!r} '
+            f'user_id={user_id!r} '
             f'candidate={json.dumps(_summarize_candidate_for_log(candidate), ensure_ascii=False)}'
         )
 
     planner = ActionPlanningModule(
-        fetch_vocab_groups_fn=lambda _create_user_id, **kwargs: groups,
+        fetch_vocab_groups_fn=lambda _user_id, **kwargs: groups,
     )
     plan_result = planner.forward({
-        'request': VocabEvolutionRequest(create_user_id=create_user_id),
-        'create_user_id': create_user_id,
+        'request': VocabEvolutionRequest(user_id=user_id),
+        'user_id': user_id,
         'histories': session_histories,
         'candidates': candidates,
     })
@@ -282,7 +272,7 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
     ]
     LOG.info(
         '[VocabTool] planner finished '
-        f'create_user_id={create_user_id!r} candidate_count={len(candidates)} '
+        f'user_id={user_id!r} candidate_count={len(candidates)} '
         f'action_count={len(planned_actions)} skipped_count={len(skipped)} '
         f'actions={json.dumps([_summarize_action_for_log(item) for item in planned_actions], ensure_ascii=False)} '
         f'skipped={json.dumps(skipped, ensure_ascii=False)}'
@@ -290,7 +280,7 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     result: Dict[str, Any] = {
         'session_id': session_id,
-        'create_user_id': create_user_id,
+        'user_id': user_id,
         'submitted_actions': len(actions),
         'skipped': skipped,
     }
@@ -301,12 +291,12 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
     payload = {'action_list': actions}
     LOG.info(
         '[VocabTool] submitting actions '
-        f'create_user_id={create_user_id!r} payload={json.dumps(payload, ensure_ascii=False)}'
+        f'user_id={user_id!r} payload={json.dumps(payload, ensure_ascii=False)}'
     )
     try:
         result.update(_post_core_api(_WORD_GROUP_APPLY_INTERNAL_PATH, payload))
     except (requests.RequestException, RuntimeError) as exc:
-        LOG.error(f'[VocabTool] failed to submit vocab suggestions create_user_id={create_user_id!r}: {exc}')
+        LOG.error(f'[VocabTool] failed to submit vocab suggestions user_id={user_id!r}: {exc}')
         return _fail(f'Failed to submit vocab suggestions: {exc}')
 
     LOG.info(f'[VocabTool] finish status=applied result={json.dumps(result, ensure_ascii=False)}')

@@ -11,45 +11,8 @@ if _ALGO not in sys.path:
 if _LAZYLLM_ROOT not in sys.path:
     sys.path.insert(0, _LAZYLLM_ROOT)
 
-for _module_name in list(sys.modules):
-    if _module_name == 'lazyllm' or _module_name.startswith('lazyllm.'):
-        del sys.modules[_module_name]
-
 from chat.tools import vocab as vocab_tool
 from vocab import db as vocab_db
-
-
-def test_resolve_create_user_id_for_timestamped_session(monkeypatch):
-    seen_session_ids = []
-
-    class _FakeResult:
-        def __init__(self, value):
-            self._value = value
-
-        def scalar(self):
-            return self._value
-
-    class _FakeConn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def execute(self, _sql, params):
-            seen_session_ids.append(params['session_id'])
-            if params['session_id'] == 'conv-1':
-                return _FakeResult('user-1')
-            return _FakeResult('')
-
-    class _FakeEngine:
-        def connect(self):
-            return _FakeConn()
-
-    monkeypatch.setattr(vocab_db, '_get_core_conn', lambda db_dsn=None, db_url=None: _FakeEngine())
-
-    assert vocab_db.resolve_create_user_id_for_session('conv-1_1778221345821') == 'user-1'
-    assert seen_session_ids == ['conv-1_1778221345821', 'conv-1']
 
 
 def test_fetch_chat_histories_for_timestamped_session(monkeypatch):
@@ -61,7 +24,7 @@ def test_fetch_chat_histories_for_timestamped_session(monkeypatch):
 
         def all(self):
             return [{
-                'create_user_id': 'user-1',
+                'user_id': 'user-1',
                 'conversation_id': 'conv-1',
                 'message_id': 'm1',
                 'seq': 1,
@@ -92,7 +55,7 @@ def test_fetch_chat_histories_for_timestamped_session(monkeypatch):
 
     assert seen_conversation_ids == ['conv-1']
     assert rows == [{
-        'create_user_id': 'user-1',
+        'user_id': 'user-1',
         'conversation_id': 'conv-1',
         'message_id': 'm1',
         'seq': 1,
@@ -103,51 +66,10 @@ def test_fetch_chat_histories_for_timestamped_session(monkeypatch):
     }]
 
 
-def test_resolve_create_user_id_falls_back_to_user_id(monkeypatch):
+def test_resolve_user_id_reads_agentic_config(monkeypatch):
     monkeypatch.setattr(vocab_tool, '_agentic_config', lambda: {'user_id': 'user-9'})
 
-    assert vocab_tool._resolve_create_user_id(None) == 'user-9'
-
-
-def test_resolve_create_user_id_for_sources_prefers_direct_user_id(monkeypatch):
-    assert vocab_db.resolve_create_user_id_for_session([{'create_user_id': ''}, {'user_id': 'user-10'}]) == 'user-10'
-
-
-def test_resolve_create_user_id_for_sources_uses_session_ids(monkeypatch):
-    seen_session_ids = []
-
-    class _FakeResult:
-        def __init__(self, value):
-            self._value = value
-
-        def scalar(self):
-            return self._value
-
-    class _FakeConn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def execute(self, _sql, params):
-            seen_session_ids.append(params['session_id'])
-            if params['session_id'] == 'conv-2':
-                return _FakeResult('user-11')
-            return _FakeResult('')
-
-    class _FakeEngine:
-        def connect(self):
-            return _FakeConn()
-
-    monkeypatch.setattr(vocab_db, '_get_core_conn', lambda db_dsn=None, db_url=None: _FakeEngine())
-
-    assert vocab_db.resolve_create_user_id_for_session([
-        {'session_id': 'conv-2_1778221345821'},
-        {'session_id': ''},
-        '',
-    ]) == 'user-11'
-    assert seen_session_ids == ['conv-2_1778221345821', 'conv-2']
+    assert vocab_tool._resolve_user_id(None) == 'user-9'
 
 
 def test_vocab_manage_creates_group_for_new_pair(monkeypatch):
@@ -155,12 +77,12 @@ def test_vocab_manage_creates_group_for_new_pair(monkeypatch):
 
     monkeypatch.setattr(vocab_tool, '_agentic_config', lambda: {
         'session_id': 'sid-1',
-        'create_user_id': 'user-1',
+        'user_id': 'user-1',
     })
-    monkeypatch.setattr(vocab_tool, 'fetch_vocab_groups_for_create_user_id', lambda user_id: {})
+    monkeypatch.setattr(vocab_tool, 'fetch_vocab_groups_for_user_id', lambda user_id: {})
     monkeypatch.setattr(vocab_tool, 'fetch_chat_histories_for_session', lambda session_id: [
         {
-            'create_user_id': 'user-1',
+            'user_id': 'user-1',
             'conversation_id': 'sid-1',
             'message_id': 'm1',
             'seq': 1,
@@ -189,23 +111,22 @@ def test_vocab_manage_creates_group_for_new_pair(monkeypatch):
         'words': ['苹果', 'apple'],
         'description': '',
         'group_ids': '[]',
-        'create_user_id': 'user-1',
+        'user_id': 'user-1',
         'message_ids': '["m1"]',
         'action': 'create_new_group',
     }]
 
 
-def test_vocab_manage_resolves_user_from_session_and_adds_to_group(monkeypatch):
+def test_vocab_manage_adds_to_group(monkeypatch):
     captured = {}
 
-    monkeypatch.setattr(vocab_tool, '_agentic_config', lambda: {'session_id': 'sid-2'})
-    monkeypatch.setattr(vocab_tool, 'resolve_create_user_id_for_session', lambda session_id: 'user-2')
-    monkeypatch.setattr(vocab_tool, 'fetch_vocab_groups_for_create_user_id', lambda user_id: {
+    monkeypatch.setattr(vocab_tool, '_agentic_config', lambda: {'session_id': 'sid-2', 'user_id': 'user-2'})
+    monkeypatch.setattr(vocab_tool, 'fetch_vocab_groups_for_user_id', lambda user_id: {
         'g1': {'group_id': 'g1', 'words': ['民法'], 'description': '', 'references': []},
     })
     monkeypatch.setattr(vocab_tool, 'fetch_chat_histories_for_session', lambda session_id: [
         {
-            'create_user_id': 'user-2',
+            'user_id': 'user-2',
             'conversation_id': 'sid-2',
             'message_id': 'm2',
             'seq': 1,
@@ -233,7 +154,7 @@ def test_vocab_manage_resolves_user_from_session_and_adds_to_group(monkeypatch):
         'words': ['民事法律'],
         'description': '',
         'group_ids': '["g1"]',
-        'create_user_id': 'user-2',
+        'user_id': 'user-2',
         'message_ids': '["m2"]',
         'action': 'add_to_group',
     }]
@@ -244,14 +165,14 @@ def test_vocab_manage_creates_new_group_when_domain_description_changes(monkeypa
 
     monkeypatch.setattr(vocab_tool, '_agentic_config', lambda: {
         'session_id': 'sid-3',
-        'create_user_id': 'user-3',
+        'user_id': 'user-3',
     })
-    monkeypatch.setattr(vocab_tool, 'fetch_vocab_groups_for_create_user_id', lambda user_id: {
+    monkeypatch.setattr(vocab_tool, 'fetch_vocab_groups_for_user_id', lambda user_id: {
         'g-med': {'group_id': 'g-med', 'words': ['变白质'], 'description': '医学领域术语', 'references': ['["m-old"]']},
     })
     monkeypatch.setattr(vocab_tool, 'fetch_chat_histories_for_session', lambda session_id: [
         {
-            'create_user_id': 'user-3',
+            'user_id': 'user-3',
             'conversation_id': 'sid-3',
             'message_id': 'm3',
             'seq': 1,
@@ -279,7 +200,7 @@ def test_vocab_manage_creates_new_group_when_domain_description_changes(monkeypa
         'words': ['变白质', '铅球垫子'],
         'description': '体育领域术语',
         'group_ids': '[]',
-        'create_user_id': 'user-3',
+        'user_id': 'user-3',
         'message_ids': '["m3"]',
         'action': 'create_new_group',
     }]

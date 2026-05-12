@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 import traceback
 from typing import Any
@@ -94,24 +93,6 @@ def _build_existing_state_context(config: dict, review_mode: str) -> str:
     return '\n'.join(parts)
 
 
-def _decide_review_mode(
-    available_tools: list[str],
-    tool_turns: int,
-    user_turns: int,
-    memory_review_interval: int,
-    skill_review_interval: int,
-) -> str | None:
-    """Backward-compatible wrapper for older tests/callers."""
-    decision = _build_review_decision(
-        available_tools=available_tools,
-        tool_turns=tool_turns,
-        user_turns=user_turns,
-        memory_review_interval=memory_review_interval,
-        skill_review_interval=skill_review_interval,
-    )
-    return 'combined' if decision['mode'] is not None else None
-
-
 def _spawn_background_review(
     config: dict,
     llm: Any,
@@ -191,7 +172,7 @@ def _spawn_background_review(
             lazyllm.locals.clear()
             print(f'[bg-review:{review_mode}] EXIT thread={tname}')
 
-    if _cfg['review_debug'] or str(os.getenv('LAZYRAG_REVIEW_DEBUG') or '').strip().lower() in {'1', 'true', 'yes'}:
+    if _cfg['review_debug'] in {'1', 'true', 'yes'}:
         _worker()
         return
 

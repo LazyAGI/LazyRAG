@@ -64,13 +64,12 @@ def test_chat_route_forwards_parameters_and_stream_flag(monkeypatch):
         'memory': None,
         'user_preference': None,
         'use_memory': True,
-        'create_user_id': '',
+        'user_id': '',
         'trace': False,
         'model_config': None,
     }
 
-
-def test_chat_route_uses_user_id_as_create_user_id_alias(monkeypatch):
+def test_chat_route_forwards_user_id(monkeypatch):
     recorded = {}
 
     async def fake_handle_chat(**kwargs):
@@ -93,4 +92,4 @@ def test_chat_route_uses_user_id_as_create_user_id_alias(monkeypatch):
     )
 
     assert result == {'ok': True}
-    assert recorded['create_user_id'] == 'user-42'
+    assert recorded['user_id'] == 'user-42'
