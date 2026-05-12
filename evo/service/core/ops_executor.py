@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from evo.orchestrator import capabilities as caps
+from evo.runtime.config import EVO_TARGET_CHAT_URL
 from evo.service.core import schemas, state as thread_state, store
 if TYPE_CHECKING:
     from evo.service.core.manager import JobManager
@@ -222,9 +223,7 @@ def _rewind_op(jm: 'JobManager', thread_id: str, checkpoint: dict, args: dict[st
         dataset_id = _latest_artifact(ws, 'dataset_ids')
         if not dataset_id:
             return None
-        args: dict[str, Any] = {'dataset_id': dataset_id}
-        if inputs.get('target_chat_url'):
-            args['target_chat_url'] = inputs['target_chat_url']
+        args: dict[str, Any] = {'dataset_id': dataset_id, 'target_chat_url': EVO_TARGET_CHAT_URL}
         if inputs.get('dataset_name'):
             args['options'] = {'dataset_name': inputs['dataset_name']}
         return {'op': 'eval.run', 'args': args}

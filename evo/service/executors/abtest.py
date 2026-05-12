@@ -38,7 +38,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         dataset_id=payload['dataset_id'],
         apply_worktree=Path(payload['apply_worktree']),
         candidate_chat_id=payload.get('candidate_chat_id'),
-        target_chat_url=payload.get('target_chat_url'),
+        target_chat_url=ctx.cfg.eval_run.target_chat_url,
         eval_options=_eval_options(payload, ws),
         policy=ctx.abtest_policy.get(tid) or VerdictPolicy(**policy_data),
         candidate_env=_candidate_env(ctx, payload['apply_id'], Path(payload['apply_worktree'])),

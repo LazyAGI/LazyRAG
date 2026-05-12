@@ -29,7 +29,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     payload = cur.get('payload') or {}
     eval_id = payload.get('eval_id')
     dataset_id = payload.get('dataset_id')
-    target_chat_url = payload.get('target_chat_url') or ctx.cfg.eval_run.target_chat_url
+    target_chat_url = ctx.cfg.eval_run.target_chat_url
     eval_options = payload.get('eval_options') or payload.get('options') or {}
     ws = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id)
     filters = dict(eval_options.get('filters') or {})
@@ -42,7 +42,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
             )
             report = run_eval(
                 dataset_id=dataset_id,
-                target_chat_url=target_chat_url or '',
+                target_chat_url=target_chat_url,
                 cfg=ctx.cfg,
                 llm_factory=_eval_judge_llm_factory(ctx),
                 max_workers=_eval_max_workers(payload),

@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
 from evo.orchestrator import capabilities as caps
+from evo.runtime.config import EVO_TARGET_CHAT_URL
 from evo.service.core import schemas
 from evo.service.core.intent_store import Intent, IntentPreview, PlanResult
 
@@ -108,6 +109,8 @@ class Planner:
 
     def _draft(self, message: str, ctx: PlanContext) -> Draft:
         state = State(ctx)
+        if shortcut := _checkpoint_shortcut(message, state):
+            return shortcut
         prompt = _prompt(message, ctx, checkpoint=bool(state.checkpoint))
         try:
             return _draft_from_parsed(_parse_json(self.llm(prompt)), _source(state), prompt, None)
@@ -148,7 +151,7 @@ def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> lis
     for item in ops or []:
         op, args = item.get('op'), dict(item.get('args') or {})
         op, args = _normalize_control_op(op, args, state)
-        if state.checkpoint and op in {'task.continue_latest', 'thread.retry'}:
+        if state.checkpoint and (op in {'task.continue_latest', 'thread.retry'} or op == _checkpoint_next_op(state)):
             op, args = 'checkpoint.continue', {}
         elif op in {'task.continue_latest', 'thread.retry'}:
             args = _retry_args(args, state)
@@ -176,6 +179,20 @@ def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> lis
         clean_args = {k: v for k, v in args.items() if v is not None}
         out.append({'op': op, 'reason': item.get('reason', ''), 'args': clean_args})
     return out
+
+
+def _checkpoint_shortcut(message: str, state: State) -> Draft | None:
+    if not state.checkpoint:
+        return None
+    text = message.strip().lower()
+    if any(k in text for k in ('继续', '下一步', 'step 4', '第4步', '代码修改', '代码优化')):
+        return Draft('继续执行当前断点的下一步。', [{'op': 'checkpoint.continue', 'args': {}}], 'checkpoint_rule')
+    return None
+
+
+def _checkpoint_next_op(state: State) -> str | None:
+    next_op = state.checkpoint.get('next_op')
+    return next_op.get('op') if isinstance(next_op, dict) else None
 
 
 def _normalize_control_op(op: str | None, args: dict, state: State) -> tuple[str | None, dict]:
@@ -230,7 +247,7 @@ def _restart_failed_op(flow: str | None, state: State) -> tuple[str, dict] | Non
             args['num_cases'] = state.inputs['num_cases']
         return ('dataset_gen.start', args)
     if flow == 'eval':
-        args = {'dataset_id': state.artifact('dataset_ids'), 'target_chat_url': state.inputs.get('target_chat_url')}
+        args = {'dataset_id': state.artifact('dataset_ids'), 'target_chat_url': EVO_TARGET_CHAT_URL}
         _fill_eval(args, state.inputs)
         return ('eval.run', args)
     if flow == 'run':
@@ -246,7 +263,7 @@ def _restart_failed_op(flow: str | None, state: State) -> tuple[str, dict] | Non
 
 
 def _fill_eval(args: dict, inputs: dict) -> None:
-    args.setdefault('target_chat_url', inputs.get('target_chat_url'))
+    args['target_chat_url'] = EVO_TARGET_CHAT_URL
     options = dict(args.get('options') or args.get('eval_options') or {})
     if inputs.get('dataset_name'):
         options.setdefault('dataset_name', inputs['dataset_name'])
@@ -259,7 +276,7 @@ def _fill_abtest(args: dict, state: State) -> None:
     args.setdefault('apply_id', state.latest_id('apply'))
     args.setdefault('baseline_eval_id', state.latest_id('eval'))
     args.setdefault('dataset_id', state.artifact('dataset_ids'))
-    args.setdefault('target_chat_url', state.inputs.get('target_chat_url'))
+    args['target_chat_url'] = EVO_TARGET_CHAT_URL
     if state.inputs.get('dataset_name'):
         args.setdefault('eval_options', {}).setdefault('dataset_name', state.inputs['dataset_name'])
 

@@ -40,11 +40,13 @@ class ThreadHub:
         tid = f'thr-{uuid.uuid4().hex[:8]}'
         ws = ThreadWorkspace(self.jm.config.storage.base_dir, tid)
         now = time.time()
+        inputs = dict(payload.get('inputs') or {})
+        inputs['target_chat_url'] = self.jm.config.eval_run.target_chat_url
         meta = {
             'id': tid,
             'mode': mode,
             'title': payload.get('title', ''),
-            'inputs': payload.get('inputs') or {},
+            'inputs': inputs,
             'status': 'active',
             'state': thread_state.THREAD_IDLE,
             'created_at': now,

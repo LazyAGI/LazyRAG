@@ -12,7 +12,12 @@ from evo.abtest import VerdictPolicy
 from evo.apply.errors import classify
 from evo.apply.runner import ApplyOptions
 from evo.chat_runner import ChatRegistry, ChatRunner, SubprocessChatRunner
-from evo.runtime.config import EVO_CANDIDATE_CHAT_HEALTH_PATH, EVO_CANDIDATE_CHAT_STARTUP_TIMEOUT_S, EvoConfig
+from evo.runtime.config import (
+    EVO_CANDIDATE_CHAT_HEALTH_PATH,
+    EVO_CANDIDATE_CHAT_STARTUP_TIMEOUT_S,
+    EVO_TARGET_CHAT_URL,
+    EvoConfig,
+)
 from evo.service.core import state as thread_state, store
 from evo.service.executors import EXECUTORS, ExecCtx
 from evo.service.executors import apply as apply_exec
@@ -370,9 +375,7 @@ def _next_op(base_dir: Path, ws: ThreadWorkspace, row: dict) -> dict | None:
         dataset_id = payload.get('eval_name') or _latest_existing_dataset(base_dir, artifacts)
         if not dataset_id:
             return None
-        args: dict[str, Any] = {'dataset_id': dataset_id}
-        if inputs.get('target_chat_url'):
-            args['target_chat_url'] = inputs['target_chat_url']
+        args: dict[str, Any] = {'dataset_id': dataset_id, 'target_chat_url': EVO_TARGET_CHAT_URL}
         if inputs.get('dataset_name'):
             args['options'] = {'dataset_name': inputs['dataset_name']}
         return {'op': 'eval.run', 'args': args}
@@ -389,9 +392,12 @@ def _next_op(base_dir: Path, ws: ThreadWorkspace, row: dict) -> dict | None:
         eval_id = _latest_value(artifacts, 'eval_ids')
         if not dataset_id or not eval_id:
             return None
-        args: dict[str, Any] = {'apply_id': row.get('id'), 'baseline_eval_id': eval_id, 'dataset_id': dataset_id}
-        if inputs.get('target_chat_url'):
-            args['target_chat_url'] = inputs['target_chat_url']
+        args: dict[str, Any] = {
+            'apply_id': row.get('id'),
+            'baseline_eval_id': eval_id,
+            'dataset_id': dataset_id,
+            'target_chat_url': EVO_TARGET_CHAT_URL,
+        }
         if inputs.get('dataset_name'):
             args['eval_options'] = {'dataset_name': inputs['dataset_name']}
         return {'op': 'abtest.create', 'args': args}
