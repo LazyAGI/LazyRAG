@@ -189,7 +189,7 @@ def load_config(
     judge_path = data_dir / 'eval_mock.json'
     model_config = EvoModelConfig(
         llm_role=config['evo_llm_role'],
-        embed_role=config['embed_main'],
+        embed_role='embed_main',
         auto_user_role=config['evo_auto_user_role'],
     )
     storage = StorageConfig(base_dir=base_dir)

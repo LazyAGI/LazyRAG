@@ -130,10 +130,17 @@ def candidate_launch_env(worktree, alias_root=None) -> dict[str, str]:
 
 def _ensure_chat_package_alias(ctx: ExecCtx, apply_id: str, worktree):
     alias = ctx.cfg.storage.applies_dir / apply_id / 'chat_alias'
-    if alias.exists():
+    target = Path(worktree) / 'algorithm' / 'chat'
+    if alias.is_symlink():
+        if Path(os.readlink(alias)) == target:
+            return alias
+        alias.unlink()
+    elif alias.exists():
         return alias
+    elif os.path.lexists(alias):
+        alias.unlink()
     alias.parent.mkdir(parents=True, exist_ok=True)
-    alias.symlink_to(Path(worktree) / 'algorithm' / 'chat', target_is_directory=True)
+    alias.symlink_to(target, target_is_directory=True)
     return alias
 
 

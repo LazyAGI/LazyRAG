@@ -185,7 +185,14 @@ def _checkpoint_shortcut(message: str, state: State) -> Draft | None:
     if not state.checkpoint:
         return None
     text = message.strip().lower()
-    if any(k in text for k in ('继续', '下一步', 'step 4', '第4步', '代码修改', '代码优化')):
+    action, flow = _checkpoint_action(text, state)
+    if action == 'rewind' and flow:
+        return Draft(
+            f'重新执行{_FLOW_LABELS[flow]}。',
+            [{'op': 'checkpoint.rewind', 'args': {'to_stage': flow}}],
+            'checkpoint_rule',
+        )
+    if action == 'continue':
         return Draft('继续执行当前断点的下一步。', [{'op': 'checkpoint.continue', 'args': {}}], 'checkpoint_rule')
     return None
 
@@ -193,6 +200,39 @@ def _checkpoint_shortcut(message: str, state: State) -> Draft | None:
 def _checkpoint_next_op(state: State) -> str | None:
     next_op = state.checkpoint.get('next_op')
     return next_op.get('op') if isinstance(next_op, dict) else None
+
+
+_FLOW_META = {
+    'dataset_gen': ('评测集生成', ('评测集', '数据集', 'dataset', 'dataset_gen', '第1步', '第一步', 'step 1')),
+    'eval': ('评测', ('评测', 'eval', '第2步', '第二步', 'step 2')),
+    'run': ('分析', ('分析', 'run', '第3步', '第三步', 'step 3')),
+    'apply': ('代码修改', ('代码', '修改', '优化', 'apply', '第4步', '第四步', 'step 4')),
+    'abtest': ('ABTest', ('abtest', 'ab test', '第5步', '第五步', 'step 5')),
+}
+_FLOW_LABELS = {flow: meta[0] for flow, meta in _FLOW_META.items()}
+_RERUN_WORDS = ('重新', '重跑', '再跑', 'rerun', 'retry')
+_CONTINUE_WORDS = ('继续', '下一步', '确认', '执行', '开始', 'continue', 'next')
+
+
+def _checkpoint_action(text: str, state: State) -> tuple[str | None, str | None]:
+    flow = _mentioned_flow(text)
+    if _has(text, _RERUN_WORDS):
+        return ('rewind', flow)
+    next_flow = _op_flow(_checkpoint_next_op(state) or '')
+    if _has(text, _CONTINUE_WORDS) or (next_flow and flow == next_flow):
+        return ('continue', None)
+    return (None, None)
+
+
+def _mentioned_flow(text: str) -> str | None:
+    for flow, (_, words) in _FLOW_META.items():
+        if _has(text, words):
+            return flow
+    return None
+
+
+def _has(text: str, words: tuple[str, ...]) -> bool:
+    return any(word in text for word in words)
 
 
 def _normalize_control_op(op: str | None, args: dict, state: State) -> tuple[str | None, dict]:
@@ -322,6 +362,7 @@ def _prompt(message: str, ctx: PlanContext, *, checkpoint: bool) -> str:
 
 
 def _draft_from_parsed(parsed: dict, source: str, prompt: str, raw: Any) -> Draft:
+    parsed = _plan_dict(parsed)
     return Draft(
         str(parsed.get('reply') or ''),
         list(parsed.get('ops') or []),
@@ -406,23 +447,33 @@ def _caps(ctx: PlanContext) -> str:
 
 
 def _parse_json(raw: Any) -> dict:
-    if isinstance(raw, list):
-        raw = raw[-1] if raw else {}
-    if isinstance(raw, dict):
-        return dict(raw)
+    if isinstance(raw, (dict, list)):
+        return _plan_dict(raw)
     text = str(raw or '').strip()
     if m := re.search('```(?:json)?\\s*(.*?)```', text, re.S | re.I):
         text = m.group(1).strip()
     try:
-        return json.loads(text)
+        return _plan_dict(json.loads(text))
     except json.JSONDecodeError:
         s, e = text.find('{'), text.rfind('}')
         candidate = text[s:e + 1] if s >= 0 and e > s else text
         try:
             from json_repair import repair_json
-            return json.loads(repair_json(candidate))
+            return _plan_dict(json.loads(repair_json(candidate)))
         except Exception:
-            return json.loads(candidate)
+            return _plan_dict(json.loads(candidate))
+
+
+def _plan_dict(value: Any) -> dict:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list):
+        if all(isinstance(item, dict) and item.get('op') for item in value):
+            return {'reply': '', 'ops': value}
+        for item in reversed(value):
+            if isinstance(item, dict) and ('reply' in item or 'ops' in item):
+                return dict(item)
+    return {}
 
 
 def _json_string(value: str) -> str:

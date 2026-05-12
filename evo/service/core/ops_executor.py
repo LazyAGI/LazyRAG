@@ -233,6 +233,24 @@ def _rewind_op(jm: 'JobManager', thread_id: str, checkpoint: dict, args: dict[st
     if stage == 'apply':
         report_id = _latest_run_report(jm, thread_id)
         return {'op': 'apply.start', 'args': {'report_id': report_id, **_extra(patch)}} if report_id else None
+    if stage == 'abtest':
+        prev = _latest_task(jm, 'abtest', thread_id)
+        prev_payload = (prev or {}).get('payload') or {}
+        apply_id = patch.get('apply_id') or prev_payload.get('apply_id') or _latest_artifact(ws, 'apply_ids')
+        baseline_eval_id = patch.get('baseline_eval_id') or prev_payload.get('baseline_eval_id')
+        dataset_id = patch.get('dataset_id') or prev_payload.get('dataset_id') or _latest_artifact(ws, 'dataset_ids')
+        if not (apply_id and baseline_eval_id and dataset_id):
+            return None
+        inputs = (thread_state.read_json(ws.thread_meta_path) or {}).get('inputs') or {}
+        op_args = {
+            'apply_id': apply_id,
+            'baseline_eval_id': baseline_eval_id,
+            'dataset_id': dataset_id,
+            'target_chat_url': EVO_TARGET_CHAT_URL,
+        }
+        if inputs.get('dataset_name'):
+            op_args['eval_options'] = {'dataset_name': inputs['dataset_name']}
+        return {'op': 'abtest.create', 'args': op_args}
     return checkpoint.get('next_op')
 
 
@@ -248,6 +266,12 @@ def _latest_run_report(jm: 'JobManager', thread_id: str) -> str | None:
         if row.get('status') == 'succeeded':
             return (row.get('payload') or {}).get('report_id') or row.get('report_id')
     return None
+
+
+def _latest_task(jm: 'JobManager', flow: str, thread_id: str) -> dict | None:
+    rows = store.list_flow_tasks_by_thread(jm.store, flow, thread_id)
+    rows.sort(key=lambda row: row.get('updated_at') or 0, reverse=True)
+    return rows[0] if rows else None
 
 
 def _extra(patch: dict[str, Any]) -> dict[str, Any]:
