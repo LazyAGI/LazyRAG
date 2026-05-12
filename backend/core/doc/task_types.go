@@ -276,6 +276,7 @@ type taskExt struct {
 	DataSourceType   string            `json:"data_source_type,omitempty"`
 	Files            []TaskFile        `json:"files,omitempty"`
 	DocumentTags     []string          `json:"document_tags,omitempty"`
+	ReparseGroups    []string          `json:"reparse_groups,omitempty"`
 	TransferBindings []transferBinding `json:"transfer_bindings,omitempty"`
 }
 

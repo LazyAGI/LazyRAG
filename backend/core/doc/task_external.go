@@ -34,6 +34,7 @@ type addRequest struct {
 type reparseRequest struct {
 	DocIDs         []string `json:"doc_ids"`
 	KbID           string   `json:"kb_id,omitempty"`
+	NgNames        []string `json:"ng_names,omitempty"`
 	IdempotencyKey string   `json:"idempotency_key,omitempty"`
 }
 
@@ -91,9 +92,14 @@ func callExternalAddDocs(r *http.Request, req addRequest) ([]addResultItem, erro
 	return parseAddResponse(resp, req), nil
 }
 
-func callExternalReparseDocs(r *http.Request, req reparseRequest) error {
-	var resp map[string]any
-	return common.ApiPost(r.Context(), common.JoinURL(parsingServiceEndpoint(), "/v1/docs/reparse"), req, nil, &resp, 15*time.Second)
+func callExternalReparseDocs(r *http.Request, req reparseRequest) ([]string, error) {
+	var resp struct {
+		TaskIDs []string `json:"task_ids"`
+	}
+	if err := common.ApiPost(r.Context(), common.JoinURL(parsingServiceEndpoint(), "/v1/docs/reparse"), req, nil, &resp, 15*time.Second); err != nil {
+		return nil, err
+	}
+	return resp.TaskIDs, nil
 }
 
 func callExternalTransferDocs(r *http.Request, req transferRequest) error {

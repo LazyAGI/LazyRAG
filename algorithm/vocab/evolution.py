@@ -24,7 +24,7 @@ from lazyllm import LOG, pipeline, AutoModel
 from lazyllm.components import ChatPrompter
 from lazyllm.components.formatter import JsonFormatter
 from lazyllm.module import ModuleBase
-from algorithm.chat.utils.load_config import get_config_path
+from chat.utils.load_config import get_config_path
 
 from config import config as _cfg
 from .db import (
