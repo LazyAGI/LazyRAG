@@ -19,6 +19,9 @@ _DEFAULT_ES_PASSWORD = _cfg['opensearch_password']
 _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
+_CITATION_DOC_KEY_MAP_KEY = '_citation_doc_key_map'
+_CITATION_NEXT_DOC_KEY = '_citation_next_doc_index'
+_CITATION_DOC_CHUNK_NEXT_KEY = '_citation_next_chunk_index_map'
 
 
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
@@ -243,6 +246,28 @@ def _citation_key(item: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _document_citation_key(item: Dict[str, Any]) -> Optional[str]:
+    metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
+    global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
+    docid = item.get('docid') or item.get('document_id') or global_md.get('docid')
+    if not docid:
+        return None
+    dataset_id = item.get('kb_id') or item.get('dataset_id') or global_md.get('kb_id') or metadata.get('kb_id') or ''
+    return f'doc:{dataset_id}:{docid}'
+
+
+def _split_citation_index(index: Any) -> tuple[int | None, int | None]:
+    if isinstance(index, str) and '.' in index:
+        doc_index, chunk_index = index.split('.', 1)
+        if doc_index.isdigit() and chunk_index.isdigit():
+            return int(doc_index), int(chunk_index)
+    if isinstance(index, int) and index > 0:
+        return index, None
+    if isinstance(index, str) and index.isdigit():
+        return int(index), None
+    return None, None
+
+
 def _file_name_from_item(item: Dict[str, Any]) -> str:
     metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
     global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
@@ -255,10 +280,11 @@ def _file_name_from_item(item: Dict[str, Any]) -> str:
     )
 
 
-def _source_node_from_item(index: int, item: Dict[str, Any]) -> Dict[str, Any]:
+def _source_node_from_item(index: Any, item: Dict[str, Any]) -> Dict[str, Any]:
     metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
     global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
     content = item.get('text') if item.get('text') is not None else item.get('content', '')
+    document_index, chunk_index = _split_citation_index(index)
     return {
         'file_id': '',
         'file_name': _file_name_from_item(item),
@@ -266,6 +292,9 @@ def _source_node_from_item(index: int, item: Dict[str, Any]) -> Dict[str, Any]:
         'segement_id': item.get('uid') or item.get('segement_id') or '',
         'dataset_id': item.get('kb_id') or item.get('dataset_id') or global_md.get('kb_id', ''),
         'index': index,
+        'display_index': document_index or index,
+        'document_index': document_index or index,
+        'chunk_index': chunk_index,
         'content': content or '',
         'group_name': item.get('group') or item.get('group_name') or '',
         'segment_number': (
@@ -288,14 +317,25 @@ def _register_citation_item(item: Dict[str, Any]) -> Dict[str, Any]:
     config = _agentic_config()
     refs = config.setdefault(_CITATION_REFS_KEY, {})
     key_map = config.setdefault(_CITATION_KEY_MAP_KEY, {})
+    doc_key_map = config.setdefault(_CITATION_DOC_KEY_MAP_KEY, {})
+    doc_chunk_next_map = config.setdefault(_CITATION_DOC_CHUNK_NEXT_KEY, {})
     key = _citation_key(item)
     if not key:
         return item
 
     index = key_map.get(key)
     if index is None:
-        index = int(config.get(_CITATION_NEXT_KEY) or 1)
-        config[_CITATION_NEXT_KEY] = index + 1
+        doc_key = _document_citation_key(item)
+        if not doc_key:
+            return item
+        document_index = doc_key_map.get(doc_key)
+        if document_index is None:
+            document_index = int(config.get(_CITATION_NEXT_DOC_KEY) or 1)
+            config[_CITATION_NEXT_DOC_KEY] = document_index + 1
+            doc_key_map[doc_key] = document_index
+        chunk_index = int(doc_chunk_next_map.get(doc_key) or 1)
+        doc_chunk_next_map[doc_key] = chunk_index + 1
+        index = f'{document_index}.{chunk_index}'
         key_map[key] = index
         refs[index] = _source_node_from_item(index, item)
 

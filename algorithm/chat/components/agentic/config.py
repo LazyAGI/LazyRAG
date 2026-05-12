@@ -102,6 +102,28 @@ def _parse_dataset_url(dataset_url: str) -> Tuple[str, str]:
     return kb_url, kb_name
 
 
+def _normalize_environment_context(config: dict) -> None:
+    env_ctx = config.get('environment_context')
+    if not isinstance(env_ctx, dict):
+        config['environment_context'] = {}
+        return
+
+    time_ctx = env_ctx.get('time')
+    if not isinstance(time_ctx, dict):
+        config['environment_context'] = {}
+        return
+
+    normalized_time = {}
+    now = time_ctx.get('now')
+    timezone = time_ctx.get('timezone')
+    if isinstance(now, str) and now.strip():
+        normalized_time['now'] = now.strip()
+    if isinstance(timezone, str) and timezone.strip():
+        normalized_time['timezone'] = timezone.strip()
+
+    config['environment_context'] = {'time': normalized_time} if normalized_time else {}
+
+
 def _sync_request_context(config: dict) -> None:
     filters = config.get('filters') if isinstance(config.get('filters'), dict) else {}
     raw_kb_id = filters.get('kb_id')
@@ -131,9 +153,13 @@ def _sync_request_context(config: dict) -> None:
     if kb_name:
         config['kb_name'] = kb_name
     config['skill_fs_url'] = normalize_skill_fs_url(config.get('skill_fs_url'))
+    _normalize_environment_context(config)
 
 
 def _filter_tools_for_request(tools: list[str], config: dict) -> list[str]:
+    if not config.get('use_memory', True):
+        tools = [t for t in tools if t != 'memory']
+
     if config.get('kb_id'):
         return tools
 
@@ -147,8 +173,51 @@ def _filter_tools_for_request(tools: list[str], config: dict) -> list[str]:
     return filtered
 
 
+def _build_environment_context_prompt(config: dict) -> str:
+    env_ctx = config.get('environment_context')
+    if not isinstance(env_ctx, dict):
+        return ''
+
+    time_ctx = env_ctx.get('time')
+    if not isinstance(time_ctx, dict):
+        return ''
+
+    lines = []
+    now = time_ctx.get('now')
+    timezone = time_ctx.get('timezone')
+    if isinstance(now, str) and now.strip():
+        lines.append(f'Current user time: {now.strip()}')
+    if isinstance(timezone, str) and timezone.strip():
+        lines.append(f'User timezone: {timezone.strip()}')
+    if not lines:
+        return ''
+
+    return (
+        '## Environment Context\n'
+        + '\n'.join(lines)
+        + '\n\n'
+        + 'Use this context to interpret relative time expressions such as today, tomorrow, now, '
+        + 'this morning, tonight, 本周, 今天, 明天, 现在. Do not assume the server timezone is the user timezone.'
+    )
+
+
 def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> str:
     prompt_parts = [DEFAULT_SYSTEM_PROMPT]
+
+    environment_prompt = _build_environment_context_prompt(config)
+    if environment_prompt:
+        prompt_parts.append(environment_prompt)
+
+    if config.get('use_memory', True):
+        user_pref = config.get('user_preference')
+        mem = config.get('memory')
+        if (isinstance(user_pref, str) and user_pref.strip()) or (isinstance(mem, str) and mem.strip()):
+            memory_block = []
+            if isinstance(user_pref, str) and user_pref.strip():
+                memory_block.append(f"## User Profile / Preferences\n{user_pref.strip()}")
+            if isinstance(mem, str) and mem.strip():
+                memory_block.append(f"## Long-term Memory\n{mem.strip()}")
+            prompt_parts.append("\n\n".join(memory_block))
 
     tool_guidance: list[str] = []
     if 'memory' in available_tools and config.get('use_memory', True):

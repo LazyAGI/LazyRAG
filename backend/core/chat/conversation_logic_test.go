@@ -186,6 +186,12 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 		"memory":          "memory-content",
 		"user_preference": "preference-content",
 		"use_memory":      true,
+		"environment_context": map[string]any{
+			"time": map[string]any{
+				"now":      "2026-05-11T11:48:00.000Z",
+				"timezone": "Asia/Shanghai",
+			},
+		},
 	})
 
 	if req.Query != "hello" || req.SessionID != "conv-1" {
@@ -226,6 +232,10 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	}
 	if !req.UseMemory {
 		t.Fatalf("expected use_memory to be true")
+	}
+	timeContext, _ := req.EnvironmentContext["time"].(map[string]any)
+	if timeContext["now"] != "2026-05-11T11:48:00.000Z" || timeContext["timezone"] != "Asia/Shanghai" {
+		t.Fatalf("unexpected environment_context: %#v", req.EnvironmentContext)
 	}
 }
 

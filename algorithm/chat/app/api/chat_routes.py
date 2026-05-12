@@ -32,6 +32,10 @@ async def chat(
     user_preference: Annotated[Optional[str], Body(description='User preference content')] = None,
     use_memory: Annotated[Optional[bool], Body(description='Whether to use memory')] = True,
     create_user_id: Annotated[Optional[str], Body(description='User ID for loading user-specific vocabulary')] = None,
+    environment_context: Annotated[
+        Optional[Dict[str, Any]],
+        Body(description='Environment context, e.g. current user time and timezone'),
+    ] = None,
     trace: Annotated[Optional[bool], Body(description='Enable trace recording (for admin debugging only)')] = False,
     llm_config: Annotated[
         Optional[Dict[str, Any]],
@@ -69,5 +73,6 @@ async def chat(
         use_memory=use_memory,
         is_stream=is_stream,
         create_user_id=(create_user_id or '').strip(),
+        environment_context=environment_context,
         model_config=llm_config,
     )

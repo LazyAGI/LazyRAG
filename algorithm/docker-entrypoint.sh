@@ -8,5 +8,7 @@ set -e
 # Internal deployment key; safe to bake into image per project policy.
 : "${LAZYLLM_MINIMAX_API_KEY:=sk-maas-GDZmEQsilc4uGXXTaWnIHmET9V0eenZ8F6eWk3LaPzE}"
 export LAZYLLM_MINIMAX_API_KEY
+: "${LAZYLLM_OPENAI_API_KEY:=sk-maas-GDZmEQsilc4uGXXTaWnIHmET9V0eenZ8F6eWk3LaPzE}"
+export LAZYLLM_OPENAI_API_KEY
 
 exec "$@"

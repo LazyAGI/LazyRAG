@@ -39,6 +39,7 @@ import { allowedUploadTypes } from "@/modules/chat/components/ImageUpload";
 import { CHAT_RESUME_CONVERSATION_KEY } from "@/modules/chat/constants/chat";
 import { normalizeMessageInputs } from "@/modules/chat/utils/message";
 import { splitThinkingContent } from "@/modules/chat/utils/thinking";
+import { buildEnvironmentContext } from "@/modules/chat/utils/environment";
 interface IChatLayoutProps {
   setIsChatContent: (isChatContent: boolean) => void;
   initchatConfig: ChatConfig;
@@ -322,6 +323,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         stream: true,
         input,
         create_time: new Date().toISOString(),
+        environment_context: buildEnvironmentContext(),
       }),
       callbacks,
     });

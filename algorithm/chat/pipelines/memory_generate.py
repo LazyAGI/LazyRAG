@@ -10,7 +10,7 @@ from chat.utils.load_config import get_config_path
 MemoryType = Literal['skill', 'memory', 'user_preference']
 
 _MAX_GENERATE_ATTEMPTS = 3
-_MAX_MANAGED_CONTENT_CHARS = 1500
+_MAX_MANAGED_CONTENT_CHARS = 1400
 _JSON_BLOCK_RE = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
 _THINK_BLOCK_RE = re.compile(r'<think>.*?</think\s*>', re.DOTALL | re.IGNORECASE)
 
