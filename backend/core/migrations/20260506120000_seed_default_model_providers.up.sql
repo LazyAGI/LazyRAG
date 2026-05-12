@@ -98,7 +98,7 @@ https://bailian.console.aliyun.com/?apiKey=1#/api-key
 
 2. 在控制台右上角点击头像，进入"API-KEY"管理页面。
 
-3. 点击"创建 API-KEY"，系统会立即生成一串鉴权密钥，点击复制即可在应用中使用。$d7$, 'https://dashscope.aliyuncs.com/api/v1', now(), now(), NULL),
+3. 点击"创建 API-KEY"，系统会立即生成一串鉴权密钥，点击复制即可在应用中使用。$d7$, 'https://dashscope.aliyuncs.com', now(), now(), NULL),
   ('72ebcc11418d432887c28145b1600722', 'SenseNova', $d8$商汤科技打造的国产重磅基座，深度推理与多模态理解能力出色，综合性能强悍。
 
 获取 API Key：
@@ -110,7 +110,7 @@ https://console.sensecore.cn/cn-sh-01/aistudio/management/api-key
 
 2. 登录控制台，在左侧导航栏找到"API-Key管理"。
 
-3. 点击"创建API-Key"，自定义名称后即可生成，复制该 API Key 即可进行模型调用。$d8$, 'https://api.sensenova.cn', now(), now(), NULL),
+3. 点击"创建API-Key"，自定义名称后即可生成，复制该 API Key 即可进行模型调用。$d8$, 'https://api.sensenova.cn/compatible-mode/v1', now(), now(), NULL),
   ('f756580d5758487ea88691268169308c', 'SiliconFlow', $d9$极致高效的模型 API 聚合加速平台，提供一站式、高并发调用服务，价格极其优惠。
 
 获取 API Key：
