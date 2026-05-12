@@ -36,13 +36,13 @@ var (
 
 // ApplyWordGroupActionItem is one element of request body field action_list (algorithm → core contract).
 type ApplyWordGroupActionItem struct {
-	Reason       string   `json:"reason"`
-	Words        []string `json:"words"`
-	Description  string   `json:"description"`
-	GroupIDs     string   `json:"group_ids"` // JSON-serialized array, e.g. ["id1","id2"]
-	UserID       string   `json:"user_id"`
-	MessageIDs   string   `json:"message_ids"` // JSON-serialized array of message ids
-	Action       string   `json:"action"`
+	Reason      string   `json:"reason"`
+	Words       []string `json:"words"`
+	Description string   `json:"description"`
+	GroupIDs    string   `json:"group_ids"` // JSON-serialized array, e.g. ["id1","id2"]
+	UserID      string   `json:"user_id"`
+	MessageIDs  string   `json:"message_ids"` // JSON-serialized array of message ids
+	Action      string   `json:"action"`
 }
 
 // ApplyWordGroupActionRequest is the POST body for /inner/word_group:apply (algorithm → core contract).
@@ -301,7 +301,11 @@ func runAddToGroupBatch(db *gorm.DB, items []preparedAddRow, responses []ApplyWo
 			}
 
 			var existingRows []orm.Word
-			if err := tx.Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", k.GroupID, k.UserID).Find(&existingRows).Error; err != nil {
+			if err := tx.Where(
+				"group_id = ? AND create_user_id = ? AND deleted_at IS NULL",
+				k.GroupID,
+				k.UserID,
+			).Find(&existingRows).Error; err != nil {
 				return err
 			}
 			existing := make(map[string]struct{}, len(existingRows))
