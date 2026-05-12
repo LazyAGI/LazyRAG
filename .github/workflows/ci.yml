@@ -162,10 +162,10 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq cmake
           pip install scikit-build-core pybind11
           pip install -r algorithm/requirements.txt
-          pip uninstall -y lazyllm || true
-          pip install algorithm/lazyllm
           pip install pypdf docx2txt EbookLib html2text olefile spacy bm25s PyStemmer nltk jieba sentencepiece psycopg2-binary
           pip install pytest httpx
+          pip uninstall -y lazyllm || true
+          pip install algorithm/lazyllm
 
       - name: Test
         run: python -m pytest tests/algorithm/ -v
