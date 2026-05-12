@@ -126,3 +126,4 @@ config.add('evo_data_dir', str, None, 'EVO_DATA_DIR', description='Evo static da
 config.add('evo_base_dir', str, None, 'EVO_BASE_DIR', description='Evo runtime storage directory.')
 config.add('evo_code_map', str, None, 'EVO_CODE_MAP', description='Evo code map path.')
 config.add('evo_chat_source', str, None, 'EVO_CHAT_SOURCE', description='Evo chat source directory.')
+config.add('embed_main', str, 'embed_main', 'EMBED_MAIN', description='Embed main AutoModel role.')

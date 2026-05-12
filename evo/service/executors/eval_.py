@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import os
 from dataclasses import replace
 from typing import Any
 from lazyllm import AutoModel
@@ -72,7 +73,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         atomic_write_json(ws.eval_path(eval_id), report)
         ctx.update_payload(tid, {'eval_id': eval_id})
         ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).attach_artifact('eval_ids', eval_id)
-        traces = _fetch_traces(tid, elog, report, token)
+        traces = _fetch_traces(tid, elog, report, token) if _trace_enabled() else {}
         if token.requested():
             elog.append_event('eval.cancel', task_id=tid, payload={'eval_id': eval_id})
             ctx.on_stop(tid, 'fetch_traces')
@@ -95,8 +96,11 @@ def execute(ctx: ExecCtx, tid: str) -> None:
 def _fetch_traces(tid: str, elog: EventLog, report: dict, token: CancelToken) -> dict[str, Any]:
     if token.requested():
         return {}
-    out = fetch_traces_for_report(report, max_workers=8)
-    return out
+    return fetch_traces_for_report(report, max_workers=8)
+
+
+def _trace_enabled() -> bool:
+    return os.getenv('LAZYLLM_TRACE_ENABLED', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
 
 
 def _eval_judge_llm_factory(ctx: ExecCtx):
