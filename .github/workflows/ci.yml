@@ -165,7 +165,7 @@ jobs:
           pip install pypdf docx2txt EbookLib html2text olefile spacy bm25s PyStemmer nltk jieba sentencepiece psycopg2-binary
           pip install pytest httpx
           pip uninstall -y lazyllm || true
-          pip install algorithm/lazyllm
+          CMAKE_POLICY_VERSION_MINIMUM=3.5 pip install algorithm/lazyllm
 
       - name: Test
         run: python -m pytest tests/algorithm/ -v
