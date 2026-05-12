@@ -126,7 +126,7 @@ def test_get_ppl_naive_keeps_expected_stage_order(monkeypatch):
 
     assert result is fake_rag_pipeline
     assert fake_rag_pipeline.assignments == ['rewriter', 'search', 'generate']
-    assert recorded['rewriter_init'] == {'llm': 'model:llm_instruct'}
+    assert recorded['rewriter_init'] == {'llm': 'model:llm'}
     assert recorded['ifs']['cond'](
         {'history': [{'role': 'user', 'content': 'hi'}]}
     ) is True

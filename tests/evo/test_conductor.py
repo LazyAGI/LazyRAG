@@ -74,6 +74,17 @@ def test_conductor_done_immediately_when_llm_says_done() -> None:
     print("  -> OK")
 
 
+def test_conductor_exits_when_no_actions_even_if_not_done() -> None:
+    _h("Conductor: empty actions exits without burning iterations")
+    session = _make_session()
+    _scripted(json.dumps({"actions": [], "done": False}))
+    with session_scope(session):
+        with patch("evo.conductor.conductor.LLMInvoker", _ScriptedInvoker):
+            r = Conductor(session, cfg=ConductorConfig(max_iterations=8)).run()
+    assert r.iterations == 1 and r.converged is True and r.total_actions == 0
+    print("  -> OK")
+
+
 def test_conductor_max_iterations_cap() -> None:
     _h("Conductor: never-done LLM hits max_iterations cap")
     session = _make_session()
@@ -227,6 +238,7 @@ def _run(tests: list[Callable[[], None]]) -> int:
 def main() -> int:
     return _run([
         test_conductor_done_immediately_when_llm_says_done,
+        test_conductor_exits_when_no_actions_even_if_not_done,
         test_conductor_max_iterations_cap,
         test_conductor_per_hypothesis_research_cap,
         test_conductor_max_actions_per_batch,

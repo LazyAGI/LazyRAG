@@ -113,8 +113,7 @@ def run_generate_pipeline(
     _check_cancel(cancel)
     if not corpus.chunks:
         raise KBChunksEmptyError(
-            f'no chunks found for kb_id={kb_id} algo_id={algo_id}; '
-            'ensure document chunk API is populated or mount LAZYRAG_UPLOAD_HOST_DIR'
+            f'生成评测集失败，因为知识库是空的或没有可用内容。kb_id={kb_id} algo_id={algo_id}'
         )
     if plan['single_hop'] > 0:
         add(
@@ -209,7 +208,7 @@ def _get_docs_or_raise(dataset_source: KBClient, kb_id: str, algo_id: str) -> li
             ' URL_MAP document_url datasets are not enumerable through /v1/docs; '
             'use a local ds_* kb_id or add a remote enumeration adapter.'
         )
-    raise KBDocsEmptyError(f'no docs found for kb_id={kb_id} algo_id={algo_id}.{hint}')
+    raise KBDocsEmptyError(f'生成评测集失败，因为知识库是空的。kb_id={kb_id} algo_id={algo_id}.{hint}')
 
 
 def run_eval(

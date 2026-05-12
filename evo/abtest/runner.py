@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -7,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 from evo.chat_runner import ChatInstance, ChatRegistry, ChatRunner
 from evo.datagen import run_eval, load_report
+from evo.runtime.config import EVO_EVAL_MAX_WORKERS
 from evo.runtime.fs import atomic_write as _atomic_write
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .comparator import VerdictPolicy, compare_evals, judge_verdict
@@ -107,8 +109,7 @@ def execute_abtest(
             _save_state(state_path, state)
         finally:
             if ctx.candidate is not None:
-                chat_runner.stop(ctx.candidate.chat_id)
-                chat_registry.purge(ctx.candidate.chat_id)
+                _retire_candidate(ctx.candidate, chat_runner, chat_registry)
         log.append_event(
             'abtest.finish',
             task_id=inputs.abtest_id,
@@ -131,12 +132,10 @@ def execute_abtest(
         pass
     elif verdict == 'regressed':
         if ctx.candidate is not None:
-            chat_runner.stop(ctx.candidate.chat_id)
-            chat_registry.purge(ctx.candidate.chat_id)
+            _retire_candidate(ctx.candidate, chat_runner, chat_registry)
     elif verdict == 'invalid':
         if ctx.candidate is not None:
-            chat_runner.stop(ctx.candidate.chat_id)
-            chat_registry.purge(ctx.candidate.chat_id)
+            _retire_candidate(ctx.candidate, chat_runner, chat_registry)
     elif verdict == 'inconclusive':
         pass
     log.append_event(
@@ -265,7 +264,7 @@ def _phase_run_eval(c: _Ctx) -> None:
         target_chat_url=_chat_api_url(c.candidate.base_url),
         cfg=c.cfg,
         llm_factory=c.llm_factory,
-        max_workers=c.inputs.eval_options.get('max_workers', 10),
+        max_workers=_eval_max_workers(c.inputs.eval_options),
         dataset_name=c.inputs.eval_options.get('dataset_name', ''),
         filters=c.inputs.eval_options.get('filters') or {},
         require_trace=False,
@@ -275,11 +274,23 @@ def _phase_run_eval(c: _Ctx) -> None:
             task_id=c.inputs.abtest_id,
             payload={'current': current, 'total': total, 'dataset_id': c.inputs.dataset_id},
         ),
+        on_judge_progress=lambda current, total: c.log.append_event(
+            'abtest.judge_progress',
+            task_id=c.inputs.abtest_id,
+            payload={'current': current, 'total': total, 'dataset_id': c.inputs.dataset_id},
+        ),
     )
     eval_id = report.get('report_id') or f'cand-{c.inputs.abtest_id}'
     report['report_id'] = eval_id
     c.state['new_eval_id'] = eval_id
     _atomic_write(c.ws.eval_path(eval_id), json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def _eval_max_workers(eval_options: dict[str, Any]) -> int:
+    raw = eval_options.get('max_workers')
+    if raw is None:
+        raw = EVO_EVAL_MAX_WORKERS
+    return max(1, int(raw))
 
 
 def _phase_compare(c: _Ctx) -> None:
@@ -312,6 +323,34 @@ def _phase_persist(c: _Ctx) -> None:
         'apply_id': c.inputs.apply_id,
     }
     _atomic_write(out_dir / 'decision.json', json.dumps(decision, ensure_ascii=False, indent=2))
+
+
+def _retire_candidate(candidate: ChatInstance, chat_runner: ChatRunner, chat_registry: ChatRegistry) -> None:
+    done = threading.Event()
+
+    def _stop() -> None:
+        try:
+            chat_runner.stop(candidate.chat_id)
+        except Exception:
+            pass
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=_stop, daemon=True, name=f'evo-retire-chat-{candidate.chat_id}')
+    thread.start()
+    thread.join(timeout=15)
+    if not done.is_set() and candidate.pid:
+        try:
+            import os
+            import signal
+
+            os.kill(candidate.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    try:
+        chat_registry.purge(candidate.chat_id)
+    except Exception:
+        pass
 
 
 def _chat_api_url(base_url: str) -> str:

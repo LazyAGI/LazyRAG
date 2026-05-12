@@ -76,9 +76,7 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     printf '%s\n' '#!/usr/bin/env sh' \
       'PYTHONPATH="/opt/lazyllm:${PYTHONPATH:-}" exec python -m lazyllm.cli.main "$@"' \
       > /usr/local/bin/lazyllm; \
-    chmod 0755 /usr/local/bin/lazyllm; \
-    cd /opt/lazyllm; \
-    lazyllm install rag
+    chmod 0755 /usr/local/bin/lazyllm
 
 # Stage: default - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
 # Use the LazyLLM runtime installed under /opt/lazyllm so tracing behavior matches Evo/chat images.
@@ -91,9 +89,10 @@ LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN cd /opt/lazyllm && lazyllm install rag
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/app/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
 ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
 ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
@@ -141,5 +140,5 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
-ENV PYTHONPATH=/app/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]

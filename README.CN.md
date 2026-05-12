@@ -137,7 +137,7 @@ make up
 | `inner` | 内网/私有化部署 |
 | `dynamic` | 动态注入，key 随请求传入 |
 
-可配置 `llm`、`llm_instruct`、`reranker`、`embed_1~embed_3`。只配置 `embed_1` 时自动启用单路 embedding 模式。
+可配置 `llm`、`reranker`、`embed_1~embed_3`。只配置 `embed_1` 时自动启用单路 embedding 模式。
 
 ---
 

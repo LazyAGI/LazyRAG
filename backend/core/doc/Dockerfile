@@ -22,6 +22,6 @@ RUN pip install --no-cache-dir -i "${PIP_INDEX_URL}" --timeout "${PIP_DEFAULT_TI
 COPY algorithm /app/algorithm
 COPY backend/core/doc /app/backend/core/doc
 
-ENV PYTHONPATH=/app/algorithm/lazyllm:/app/algorithm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm:/app
 
 CMD ["python", "backend/core/doc/doc_server.py"]

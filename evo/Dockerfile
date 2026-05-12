@@ -14,12 +14,12 @@ ARG PIP_RETRIES=10
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    OPENCODE_BIN=/usr/local/bin/opencode \
-    OPENCODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
-    EVO_BASE_DIR=/var/lib/lazyrag/evo \
-    EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
+    LAZYRAG_EVO_CODE_BINARY=/usr/local/bin/opencode \
+    LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
+    LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
+    LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
     LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
-    PYTHONPATH=/app
+    PYTHONPATH=/opt/lazyllm:/app
 
 RUN --mount=type=secret,id=apt_http_proxy,required=false \
     --mount=type=secret,id=apt_https_proxy,required=false \
@@ -129,10 +129,11 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
 
 WORKDIR /app
 COPY evo/ /app/evo/
-COPY algorithm/chat /app/chat
-COPY algorithm/common /app/common
-COPY algorithm/vocab /app/vocab
-COPY algorithm/processor /app/processor
+COPY algorithm /app/algorithm
+RUN ln -s /app/algorithm/chat /app/chat && \
+    ln -s /app/algorithm/common /app/common && \
+    ln -s /app/algorithm/vocab /app/vocab && \
+    ln -s /app/algorithm/processor /app/processor
 RUN chmod +x /app/evo/service/entrypoint.sh
 
 EXPOSE 8047

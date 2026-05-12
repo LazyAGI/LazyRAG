@@ -326,7 +326,7 @@ def features_for_step(
     in_items = args if isinstance(args, list) else []
     out_items = mod.output if isinstance(mod.output, list) else []
     in_chunks, in_docs, in_files, _, _ = _collect_ids_docids(in_items, resolver)
-    out_chunks, out_docs, out_files, out_pages, _ = _collect_ids_docids(out_items, resolver)
+    out_chunks, out_docs, out_files, out_pages, out_texts = _collect_ids_docids(out_items, resolver)
     f: dict[str, float] = {
         'input_text_len': float(_text_len(mod.input)),
         'output_text_len': float(_text_len(mod.output)),
@@ -352,7 +352,7 @@ def features_for_step(
         if in_chunks:
             f.update(_id_filtering_features('chunk', in_chunks, out_chunks, gt_chunks))
             f.update(_id_filtering_features('doc', in_docs_clean, out_docs_clean, gt_docs))
-    if _is_text(mod.output):
+    if _extract_text(mod.output) or any(out_texts):
         f.update(_text_output_features(mod, judge, query, resolver, embed_fn))
     f.update(_failure_tags(f))
     return {k: round(v, 6) for (k, v) in f.items()}

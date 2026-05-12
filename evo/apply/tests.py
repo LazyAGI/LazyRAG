@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import logging
 import re
 import subprocess
@@ -43,6 +44,14 @@ def run_tests(
     log_path.write_text(log_text, encoding='utf-8')
     passed = proc.returncode == 0
     failed_tests = _extract_failed_tests(log_text) if not passed else []
+    (artifact_dir / 'result.json').write_text(
+        json.dumps(
+            {'passed': passed, 'returncode': proc.returncode, 'log_path': str(log_path), 'failed_tests': failed_tests},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding='utf-8',
+    )
     log.info('tests done: passed=%s returncode=%d failed_count=%d', passed, proc.returncode, len(failed_tests))
     traceback_md_path: Path | None = None
     if not passed:

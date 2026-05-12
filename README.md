@@ -136,7 +136,7 @@ Select a config file via `LAZYRAG_MODEL_CONFIG_PATH`. Three built-in modes:
 | `online` | Public cloud API |
 | `dynamic` | Key injected per request |
 
-Configure `llm`, `llm_instruct`, `reranker`, and `embed_1~embed_3`. If only `embed_1` is set, single-embedding mode activates automatically.
+Configure `llm`, `reranker`, and `embed_1~embed_3`. If only `embed_1` is set, single-embedding mode activates automatically.
 
 ---
 

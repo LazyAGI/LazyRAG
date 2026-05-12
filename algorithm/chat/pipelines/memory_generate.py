@@ -334,7 +334,7 @@ def _build_generate_prompt(
 
 class MemoryGeneratePipeline:
     def __init__(self) -> None:
-        self.llm = AutoModel(model='llm_instruct', config=get_config_path())
+        self.llm = AutoModel(model='llm', config=get_config_path())
 
     def generate(
         self,
