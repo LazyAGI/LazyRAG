@@ -7,8 +7,6 @@ from evo.runtime.code_config import CodeAccessConfig, load_code_access
 
 EVO_LLM_HTTP_TIMEOUT_S = 300
 EVO_LLM_PRODUCER_TIMEOUT_S = 600.0
-EVO_EMBED_HTTP_TIMEOUT_S = 60
-EVO_EMBED_PRODUCER_TIMEOUT_S = 120.0
 EVO_BADCASE_SCORE_FIELD = 'answer_correctness'
 EVO_DATASETGEN_MAX_WORKERS = 5
 EVO_EVAL_MAX_WORKERS = 3
@@ -58,8 +56,6 @@ def _default_embed_governance() -> ModelGovernanceConfig:
         max_retries=3,
         retry_base_seconds=2.0,
         on_failure='disable',
-        http_timeout_s=EVO_EMBED_HTTP_TIMEOUT_S,
-        producer_timeout_s=EVO_EMBED_PRODUCER_TIMEOUT_S,
     )
 
 
@@ -74,7 +70,7 @@ class AnalysisConfig:
 @dataclass(frozen=True)
 class EvoModelConfig:
     llm_role: str = 'evo_llm'
-    embed_role: str = 'evo_embed'
+    embed_role: str = 'embed_main'
     auto_user_role: str = 'evo_llm'
 
 
@@ -193,7 +189,7 @@ def load_config(
     judge_path = data_dir / 'eval_mock.json'
     model_config = EvoModelConfig(
         llm_role=config['evo_llm_role'],
-        embed_role=config['evo_embed_role'],
+        embed_role=config['embed_main'],
         auto_user_role=config['evo_auto_user_role'],
     )
     storage = StorageConfig(base_dir=base_dir)

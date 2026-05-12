@@ -433,7 +433,7 @@ class SynonymExtractionModule(ModuleBase):
         super().__init__(return_trace=return_trace)
         if llm is None:
             from chat.pipelines.builders import get_automodel
-            llm = get_automodel('llm_instruct')
+            llm = get_automodel('llm')
         base_llm = llm
         self._llm = base_llm.share(
             prompt=ChatPrompter(instruction=_EXTRACTION_PROMPT),
@@ -545,7 +545,7 @@ class ActionPlanningModule(ModuleBase):
         super().__init__(return_trace=return_trace)
         if llm is None:
             from chat.pipelines.builders import get_automodel
-            llm = get_automodel('llm_instruct')
+            llm = get_automodel('llm')
         base_llm = llm
         self._llm = base_llm.share(
             prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),

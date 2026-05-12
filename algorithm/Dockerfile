@@ -83,22 +83,12 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
 FROM base AS default
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
-# Args do not carry across FROM; re-declare so pip uses the mirror in this stage.
-ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=1200
-ARG PIP_RETRIES=20
-ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
-    PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
-    PIP_RETRIES=${PIP_RETRIES}
 LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
 LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    --default-timeout="${PIP_DEFAULT_TIMEOUT}" \
-    --retries="${PIP_RETRIES}" \
-    -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 RUN cd /opt/lazyllm && lazyllm install rag
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
@@ -116,7 +106,8 @@ ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
 ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
 ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
 # Use runtime_models.yaml by default (reachable from laptop). Inner config is for internal VPC only.
-ENV LAZYRAG_USE_INNER_MODEL=false
+ENV LAZYRAG_USE_INNER_MODEL=true
+ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
@@ -125,12 +116,6 @@ CMD ["python", "parsing/parsing.py"]
 FROM base AS mineru
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
-ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=1200
-ARG PIP_RETRIES=20
-ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
-    PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
-    PIP_RETRIES=${PIP_RETRIES}
 LABEL org.opencontainers.image.title="LazyRAG algorithm/mineru"
 LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
@@ -144,10 +129,7 @@ ARG MINERU_NUMPY_VERSION=1.26.4
 ARG MINERU_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 ARG MINERU_PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    --default-timeout="${PIP_DEFAULT_TIMEOUT}" \
-    --retries="${PIP_RETRIES}" \
-    -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 RUN if [ "$MINERU_PREINSTALL_CPU_TORCH" = "1" ]; then \
         pip install --no-cache-dir \
         --default-timeout="${PIP_DEFAULT_TIMEOUT}" \

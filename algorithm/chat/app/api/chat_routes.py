@@ -38,7 +38,7 @@ async def chat(
         Body(
             description=(
                 'Per-request model configuration. Keys are role names from runtime_models.yaml '
-                '(llm, llm_instruct, reranker, embed_main), each with its own config dict '
+                '(llm, reranker, embed_main), each with its own config dict '
                 '{source, model, base_url, api_key, skip_auth}. '
                 'Example: {"llm": {"source": "openai", "model": "gpt-4o", "api_key": "sk-..."}, '
                 '"embed_main": {"source": "siliconflow", "model": "BAAI/bge-m3", "api_key": "..."}}'

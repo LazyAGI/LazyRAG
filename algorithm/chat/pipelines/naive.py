@@ -21,7 +21,7 @@ def get_ppl_naive(url: str, retriever_configs: List[dict] = None, stream=False):
         with pipeline() as rag_ppl:
             rag_ppl.rewriter = ifs(
                 has_history,
-                tpath=MultiturnQueryRewriter(llm=AutoModel(model='llm_instruct', config=get_config_path()))
+                tpath=MultiturnQueryRewriter(llm=AutoModel(model='llm', config=get_config_path()))
                 | bind(
                     priority=rag_ppl.input['priority'],
                     has_appendix=bool(rag_ppl.input['image_files'])

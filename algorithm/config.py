@@ -121,7 +121,6 @@ config.add('evo_apply_test_command', str, 'bash tests/run-all.sh', 'EVO_APPLY_TE
 config.add('evo_apply_min_action_confidence', str, '0.5', 'EVO_APPLY_MIN_ACTION_CONFIDENCE', description='Evo apply minimum action confidence.')
 config.add('evo_apply_min_action_validity', str, '0.5', 'EVO_APPLY_MIN_ACTION_VALIDITY', description='Evo apply minimum action validity.')
 config.add('evo_llm_role', str, 'evo_llm', 'EVO_LLM_ROLE', description='Evo LLM AutoModel role.')
-config.add('evo_embed_role', str, 'evo_embed', 'EVO_EMBED_ROLE', description='Evo embedding AutoModel role.')
 config.add('evo_auto_user_role', str, 'evo_llm', 'EVO_AUTO_USER_ROLE', description='Evo auto-user AutoModel role.')
 config.add('evo_data_dir', str, None, 'EVO_DATA_DIR', description='Evo static data directory.')
 config.add('evo_base_dir', str, None, 'EVO_BASE_DIR', description='Evo runtime storage directory.')

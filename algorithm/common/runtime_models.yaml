@@ -7,20 +7,10 @@ llm:
   dynamic_auth: true
   type: llm
 
-llm_instruct:
-  source: dynamic
-  dynamic_auth: true
-  type: llm
-
 evo_llm:
   source: dynamic
   dynamic_auth: true
   type: llm
-
-evo_embed:
-  source: dynamic
-  dynamic_auth: true
-  type: embed
 
 reranker:
   source: dynamic
