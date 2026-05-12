@@ -159,8 +159,10 @@ jobs:
 
       - name: Install deps
         run: |
-          pip install -r algorithm/requirements.txt
+          sudo apt-get update -qq && sudo apt-get install -y -qq cmake
+          pip install scikit-build-core pybind11
           pip install -e algorithm/lazyllm
+          pip install -r algorithm/requirements.txt
           pip install pypdf docx2txt EbookLib html2text olefile spacy bm25s PyStemmer nltk jieba sentencepiece psycopg2-binary
           pip install pytest httpx
 
