@@ -134,8 +134,6 @@ components:
             properties:
                 action:
                     type: string
-                create_user_id:
-                    type: string
                 description:
                     type: string
                 group_ids:
@@ -144,17 +142,19 @@ components:
                     type: string
                 reason:
                     type: string
+                user_id:
+                    type: string
                 words:
                     items:
                         type: string
                     type: array
             required:
                 - action
-                - create_user_id
                 - description
                 - group_ids
                 - message_ids
                 - reason
+                - user_id
             type: object
         ApplyWordGroupActionRequest:
             properties:

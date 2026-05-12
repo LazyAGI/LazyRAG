@@ -8,7 +8,7 @@ ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG LAZYLLM_GITHUB_REF=main
 ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=300
+ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
 
 RUN --mount=type=secret,id=apt_http_proxy,required=false \

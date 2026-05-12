@@ -27,8 +27,8 @@ from lazyllm.module import ModuleBase
 
 from config import config as _cfg
 from .db import (
-    fetch_chat_histories_for_create_user_id,
-    fetch_vocab_groups_for_create_user_id,
+    fetch_chat_histories_for_user_id,
+    fetch_vocab_groups_for_user_id,
     list_chat_users,
 )
 
@@ -218,6 +218,27 @@ def _json_dump_list(values: Sequence[str]) -> str:
     return json.dumps(_dedupe_keep_order(values), ensure_ascii=False)
 
 
+def _summarize_candidate_for_log(candidate: 'SynonymCandidate') -> Dict[str, Any]:
+    return {
+        'word': candidate.word,
+        'synonym': candidate.synonym,
+        'description': _clip_text(candidate.description, 80),
+        'reason': _clip_text(candidate.reason, 120),
+        'message_ids': list(candidate.message_ids),
+    }
+
+
+def _summarize_action_for_log(action: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'action': _norm_text(action.get('action')),
+        'words': _dedupe_keep_order(action.get('words') or []),
+        'group_ids': _dedupe_keep_order(action.get('group_ids') or []),
+        'description': _clip_text(action.get('description'), 80),
+        'reason': _clip_text(action.get('reason'), 120),
+        'message_ids': _dedupe_keep_order(action.get('message_ids') or []),
+    }
+
+
 def _serialize_backend_action(action: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(action)
     payload['group_ids'] = _json_dump_list(payload.get('group_ids') or [])
@@ -274,7 +295,7 @@ def apply_vocab_evolution_actions(
 
 @dataclass
 class VocabEvolutionRequest:
-    create_user_id: str = ''
+    user_id: str = ''
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     lookback_days: int = 7
@@ -292,9 +313,9 @@ class VocabEvolutionRequest:
             return value
         if isinstance(value, dict):
             payload = dict(value)
-            create_user_id = _norm_text(payload.pop('create_user_id', ''))
-            if create_user_id:
-                payload['create_user_id'] = create_user_id
+            user_id = _norm_text(payload.pop('user_id', ''))
+            if user_id:
+                payload['user_id'] = user_id
             return cls(**payload)
         return cls()
 
@@ -306,7 +327,7 @@ class VocabEvolutionRequest:
 
 @dataclass
 class ChatHistoryRecord:
-    create_user_id: str
+    user_id: str
     conversation_id: str
     message_id: str
     seq: int
@@ -318,7 +339,7 @@ class ChatHistoryRecord:
     @classmethod
     def from_dict(cls, value: Dict[str, Any]) -> 'ChatHistoryRecord':
         return cls(
-            create_user_id=_norm_text(value.get('create_user_id')),
+            user_id=_norm_text(value.get('user_id')),
             conversation_id=_norm_text(value.get('conversation_id')),
             message_id=_norm_text(value.get('message_id')),
             seq=int(value.get('seq') or 0),
@@ -342,7 +363,7 @@ class ChatHistoryRecord:
 
 @dataclass
 class SynonymCandidate:
-    create_user_id: str
+    user_id: str
     word: str
     synonym: str
     description: str = ''
@@ -357,7 +378,7 @@ class SynonymCandidate:
 class HistoryCollector(ModuleBase):
     def __init__(
         self,
-        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_create_user_id,
+        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_user_id,
         return_trace: bool = False,
     ) -> None:
         super().__init__(return_trace=return_trace)
@@ -365,10 +386,10 @@ class HistoryCollector(ModuleBase):
 
     def forward(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         request = VocabEvolutionRequest.from_value(payload.get('request'))
-        create_user_id = _norm_text(payload.get('create_user_id'))
+        user_id = _norm_text(payload.get('user_id'))
         start_time, end_time = request.resolve_time_range()
         histories = self._fetch_histories(
-            create_user_id,
+            user_id,
             start_time=start_time,
             end_time=end_time,
             db_dsn=request.core_db_dsn,
@@ -377,7 +398,7 @@ class HistoryCollector(ModuleBase):
         rows = [ChatHistoryRecord.from_dict(item) for item in histories]
         return {
             'request': request,
-            'create_user_id': create_user_id,
+            'user_id': user_id,
             'histories': rows,
         }
 
@@ -400,7 +421,7 @@ class HistoryChunker(ModuleBase):
             if not current_parts:
                 return
             chunks.append({
-                'chunk_id': f'{payload["create_user_id"]}-chunk-{len(chunks) + 1}',
+                'chunk_id': f'{payload["user_id"]}-chunk-{len(chunks) + 1}',
                 'message_ids': _dedupe_keep_order(current_message_ids),
                 'text': '\n'.join(current_parts),
             })
@@ -453,7 +474,7 @@ class SynonymExtractionModule(ModuleBase):
 
     def _validate_candidate(
         self,
-        create_user_id: str,
+        user_id: str,
         item: Dict[str, Any],
         history_by_id: Dict[str, ChatHistoryRecord],
     ) -> Optional[SynonymCandidate]:
@@ -477,7 +498,7 @@ class SynonymExtractionModule(ModuleBase):
         if not valid_ids:
             return None
         return SynonymCandidate(
-            create_user_id=create_user_id,
+            user_id=user_id,
             word=word,
             synonym=synonym,
             description=_norm_text(item.get('description')),
@@ -502,7 +523,7 @@ class SynonymExtractionModule(ModuleBase):
 
     def forward(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         request: VocabEvolutionRequest = payload['request']
-        create_user_id = payload['create_user_id']
+        user_id = payload['user_id']
         histories: List[ChatHistoryRecord] = payload['histories']
         history_by_id = {row.message_id: row for row in histories}
         extracted: List[SynonymCandidate] = []
@@ -521,11 +542,11 @@ class SynonymExtractionModule(ModuleBase):
                         break
                 except Exception as exc:
                     LOG.warning(
-                        f'[VocabEvolution] extraction failed user={create_user_id!r} '
+                        f'[VocabEvolution] extraction failed user={user_id!r} '
                         f'attempt={attempt + 1} error={exc}'
                     )
             for item in self._coerce_output(raw_result):
-                candidate = self._validate_candidate(create_user_id, item, history_by_id)
+                candidate = self._validate_candidate(user_id, item, history_by_id)
                 if candidate is not None:
                     extracted.append(candidate)
 
@@ -539,20 +560,24 @@ class ActionPlanningModule(ModuleBase):
         self,
         llm: Optional[Any] = None,
         *,
-        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_create_user_id,
+        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_user_id,
         return_trace: bool = False,
     ) -> None:
         super().__init__(return_trace=return_trace)
-        if llm is None:
-            from chat.pipelines.builders import get_automodel
-            llm = get_automodel('llm_instruct')
-        base_llm = llm
-        self._llm = base_llm.share(
-            prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),
-            format=JsonFormatter(),
-            stream=False,
-        )
+        self._base_llm = llm
+        self._llm = None
         self._fetch_vocab_groups = fetch_vocab_groups_fn
+
+    def _get_llm(self) -> Any:
+        if self._llm is None:
+            from chat.pipelines.builders import get_automodel
+            base_llm = self._base_llm or get_automodel('llm_instruct')
+            self._llm = base_llm.share(
+                prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),
+                format=JsonFormatter(),
+                stream=False,
+            )
+        return self._llm
 
     def _build_memberships(self, groups: Dict[str, Dict[str, Any]]) -> Dict[str, List[str]]:
         memberships: Dict[str, List[str]] = defaultdict(list)
@@ -562,6 +587,23 @@ class ActionPlanningModule(ModuleBase):
                 if group_id not in memberships[key]:
                     memberships[key].append(group_id)
         return dict(memberships)
+
+    def _should_split_single_group_by_description(
+        self,
+        candidate: SynonymCandidate,
+        groups: Dict[str, Dict[str, Any]],
+        group_id: str,
+    ) -> bool:
+        candidate_description = _norm_key(candidate.description)
+        if not candidate_description:
+            return False
+
+        group = groups.get(group_id) or {}
+        group_description = _norm_key(group.get('description'))
+        if not group_description or candidate_description == group_description:
+            return False
+
+        return True
 
     def _resolve_conflict(
         self,
@@ -593,13 +635,13 @@ class ActionPlanningModule(ModuleBase):
         response: Dict[str, Any] = {}
         for attempt in range(max(1, request.conflict_retries)):
             try:
-                raw = self._llm(prompt_payload, **kwargs)
+                raw = self._get_llm()(prompt_payload, **kwargs)
                 if isinstance(raw, dict):
                     response = raw
                     break
             except Exception as exc:
                 LOG.warning(
-                    f'[VocabEvolution] conflict resolve failed user={candidate.create_user_id!r} '
+                    f'[VocabEvolution] conflict resolve failed user={candidate.user_id!r} '
                     f'attempt={attempt + 1} error={exc}'
                 )
         allowed = _dedupe_keep_order(response.get('group_ids_can_join') or response.get('allowed_group_ids') or [])
@@ -642,7 +684,7 @@ class ActionPlanningModule(ModuleBase):
         words: Sequence[str],
         description: str,
         group_ids: Sequence[str],
-        create_user_id: str,
+        user_id: str,
         message_ids: Sequence[str],
         action: str,
     ) -> Dict[str, Any]:
@@ -651,7 +693,7 @@ class ActionPlanningModule(ModuleBase):
             'words': _dedupe_keep_order(words),
             'description': _norm_text(description),
             'group_ids': _dedupe_keep_order(group_ids),
-            'create_user_id': _norm_text(create_user_id),
+            'user_id': _norm_text(user_id),
             'message_ids': _dedupe_keep_order(message_ids),
             'action': _norm_text(action),
         }
@@ -663,7 +705,7 @@ class ActionPlanningModule(ModuleBase):
             groups_key = tuple(sorted(action.get('group_ids', [])))
             key = (
                 action.get('action', ''),
-                action.get('create_user_id', ''),
+                action.get('user_id', ''),
                 words_key,
                 groups_key,
             )
@@ -682,38 +724,63 @@ class ActionPlanningModule(ModuleBase):
 
     def forward(self, payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         request: VocabEvolutionRequest = payload['request']
-        create_user_id = payload['create_user_id']
+        user_id = payload['user_id']
         histories: Dict[str, ChatHistoryRecord] = {row.message_id: row for row in payload['histories']}
-        groups = self._fetch_vocab_groups(create_user_id, db_url=request.vocab_db_url)
+        groups = self._fetch_vocab_groups(user_id, db_url=request.vocab_db_url)
         memberships = self._build_memberships(groups)
         actions: List[Dict[str, Any]] = []
         skipped: List[str] = []
+        candidates = list(payload.get('candidates', []))
 
-        for candidate in payload.get('candidates', []):
+        LOG.info(
+            '[VocabEvolution] planner start '
+            f'user_id={user_id!r} candidate_count={len(candidates)} existing_group_count={len(groups)}'
+        )
+
+        for candidate in candidates:
             word_groups = memberships.get(_norm_key(candidate.word), [])
             synonym_groups = memberships.get(_norm_key(candidate.synonym), [])
             common = sorted(set(word_groups) & set(synonym_groups))
+            candidate_summary = _summarize_candidate_for_log(candidate)
 
             if common:
-                skipped.append(f'{candidate.word}/{candidate.synonym}: already covered by existing group(s) {common}.')
+                reason = f'{candidate.word}/{candidate.synonym}: already covered by existing group(s) {common}.'
+                skipped.append(reason)
+                LOG.info(
+                    '[VocabEvolution] planner decision '
+                    f'user_id={user_id!r} decision=skip_already_covered '
+                    f'candidate={json.dumps(candidate_summary, ensure_ascii=False)} common_groups={common}'
+                )
                 continue
             if not word_groups and not synonym_groups:
-                actions.append(self._build_action(
+                action = self._build_action(
                     reason=candidate.reason or f'Extracted a clear synonym relationship between `{candidate.word}` and `{candidate.synonym}` from chat history.',  # noqa: E501
                     words=[candidate.word, candidate.synonym],
                     description=candidate.description,
                     group_ids=[],
-                    create_user_id=create_user_id,
+                    user_id=user_id,
                     message_ids=list(candidate.message_ids),
                     action='create_new_group',
-                ))
+                )
+                actions.append(action)
+                LOG.info(
+                    '[VocabEvolution] planner decision '
+                    f'user_id={user_id!r} decision=create_new_group '
+                    f'candidate={json.dumps(candidate_summary, ensure_ascii=False)} '
+                    f'action={json.dumps(_summarize_action_for_log(action), ensure_ascii=False)}'
+                )
                 continue
             if word_groups and synonym_groups:
-                skipped.append(
-                    (
-                        f'{candidate.word}/{candidate.synonym}: both words already exist '
-                        'in different groups; skip merge proposal.'
-                    )
+                reason = (
+                    f'{candidate.word}/{candidate.synonym}: both words already exist '
+                    'in different groups; skip merge proposal.'
+                )
+                skipped.append(reason)
+                LOG.info(
+                    '[VocabEvolution] planner decision '
+                    f'user_id={user_id!r} decision=skip_existing_split_groups '
+                    f'candidate={json.dumps(candidate_summary, ensure_ascii=False)} '
+                    f'word_groups={word_groups} synonym_groups={synonym_groups}'
                 )
                 continue
 
@@ -723,15 +790,47 @@ class ActionPlanningModule(ModuleBase):
                 new_word, anchor_word, anchor_groups = candidate.word, candidate.synonym, synonym_groups
 
             if len(anchor_groups) == 1:
-                actions.append(self._build_action(
+                if self._should_split_single_group_by_description(candidate, groups, anchor_groups[0]):
+                    action = self._build_action(
+                        reason=(
+                            candidate.reason
+                            or f'`{candidate.word}` and `{candidate.synonym}` were '
+                            'provided under a new domain-specific description.'
+                        ),
+                        words=[candidate.word, candidate.synonym],
+                        description=candidate.description,
+                        group_ids=[],
+                        user_id=user_id,
+                        message_ids=list(candidate.message_ids),
+                        action='create_new_group',
+                    )
+                    actions.append(action)
+                    LOG.info(
+                        '[VocabEvolution] planner decision '
+                        f'user_id={user_id!r} decision=create_new_group_description_split '
+                        f'candidate={json.dumps(candidate_summary, ensure_ascii=False)} '
+                        f'anchor_group_id={anchor_groups[0]!r} '
+                        f'existing_description={groups.get(anchor_groups[0], {}).get("description", "")} '
+                        f'action={json.dumps(_summarize_action_for_log(action), ensure_ascii=False)}'
+                    )
+                    continue
+                action = self._build_action(
                     reason=candidate.reason or f'`{new_word}` can be directly added to the synonym group containing `{anchor_word}`.',  # noqa: E501
                     words=[new_word],
                     description='',
                     group_ids=list(anchor_groups),
-                    create_user_id=create_user_id,
+                    user_id=user_id,
                     message_ids=list(candidate.message_ids),
                     action='add_to_group',
-                ))
+                )
+                actions.append(action)
+                LOG.info(
+                    '[VocabEvolution] planner decision '
+                    f'user_id={user_id!r} decision=add_to_group '
+                    f'candidate={json.dumps(candidate_summary, ensure_ascii=False)} '
+                    f'anchor_word={anchor_word!r} anchor_groups={anchor_groups} '
+                    f'action={json.dumps(_summarize_action_for_log(action), ensure_ascii=False)}'
+                )
                 continue
 
             decision = self._resolve_conflict(
@@ -744,40 +843,69 @@ class ActionPlanningModule(ModuleBase):
                 list(anchor_groups),
                 **kwargs,
             )
+            LOG.info(
+                '[VocabEvolution] planner conflict resolution '
+                f'user_id={user_id!r} candidate={json.dumps(candidate_summary, ensure_ascii=False)} '
+                f'anchor_word={anchor_word!r} anchor_groups={anchor_groups} '
+                f'decision={json.dumps(decision, ensure_ascii=False)}'
+            )
             if decision['allowed_group_ids']:
-                actions.append(self._build_action(
+                action = self._build_action(
                     reason=decision['reason'],
                     words=[new_word],
                     description='',
                     group_ids=list(decision['allowed_group_ids']),
-                    create_user_id=create_user_id,
+                    user_id=user_id,
                     message_ids=list(candidate.message_ids),
                     action='add_to_group',
-                ))
-            if len(decision['conflict_group_ids']) >= 2:
-                actions.append(self._build_action(
+                )
+                actions.append(action)
+                LOG.info(
+                    '[VocabEvolution] planner decision '
+                    f'user_id={user_id!r} decision=add_to_group_after_conflict '
+                    f'action={json.dumps(_summarize_action_for_log(action), ensure_ascii=False)}'
+                )
+            if decision['conflict_group_ids']:
+                action = self._build_action(
                     reason=decision['reason'],
                     words=[new_word],
                     description='',
                     group_ids=list(decision['conflict_group_ids']),
-                    create_user_id=create_user_id,
+                    user_id=user_id,
                     message_ids=list(candidate.message_ids),
                     action='conflict',
-                ))
+                )
+                actions.append(action)
+                LOG.info(
+                    '[VocabEvolution] planner decision '
+                    f'user_id={user_id!r} decision=conflict '
+                    f'action={json.dumps(_summarize_action_for_log(action), ensure_ascii=False)}'
+                )
             if (
                 not decision['allowed_group_ids']
                 and not decision['conflict_group_ids']
                 and decision.get('excluded_group_ids')
             ):
-                skipped.append(
-                    (
-                        f'{new_word}/{anchor_word}: ruled out from candidate groups '
-                        f'{decision["excluded_group_ids"]}.'
-                    )
+                reason = (
+                    f'{new_word}/{anchor_word}: ruled out from candidate groups '
+                    f'{decision["excluded_group_ids"]}.'
+                )
+                skipped.append(reason)
+                LOG.info(
+                    '[VocabEvolution] planner decision '
+                    f'user_id={user_id!r} decision=skip_ruled_out '
+                    f'candidate={json.dumps(candidate_summary, ensure_ascii=False)} '
+                    f'excluded_group_ids={decision["excluded_group_ids"]}'
                 )
 
         payload = dict(payload)
-        payload['actions'] = self._dedupe_actions(actions)
+        deduped_actions = self._dedupe_actions(actions)
+        LOG.info(
+            '[VocabEvolution] planner finished '
+            f'user_id={user_id!r} action_count={len(deduped_actions)} skipped_count={len(skipped)} '
+            f'actions={json.dumps([_summarize_action_for_log(item) for item in deduped_actions], ensure_ascii=False)}'
+        )
+        payload['actions'] = deduped_actions
         payload['skipped_reasons'] = skipped
         return payload
 
@@ -786,8 +914,8 @@ def get_ppl_vocab_evolution(
     *,
     extraction_llm: Optional[Any] = None,
     conflict_llm: Optional[Any] = None,
-    fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_create_user_id,
-    fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_create_user_id,
+    fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_user_id,
+    fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_user_id,
 ):
     """Build the per-user vocabulary evolution pipeline."""
     with lazyllm.save_pipeline_result():
@@ -807,8 +935,8 @@ class VocabEvolutionService:
         self,
         *,
         fetch_users_fn: Callable[..., List[str]] = list_chat_users,
-        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_create_user_id,
-        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_create_user_id,
+        fetch_histories_fn: Callable[..., List[Dict[str, Any]]] = fetch_chat_histories_for_user_id,
+        fetch_vocab_groups_fn: Callable[..., Dict[str, Dict[str, Any]]] = fetch_vocab_groups_for_user_id,
         extraction_llm: Optional[Any] = None,
         conflict_llm: Optional[Any] = None,
     ) -> None:
@@ -821,8 +949,8 @@ class VocabEvolutionService:
         )
 
     def _resolve_users(self, request: VocabEvolutionRequest) -> List[str]:
-        if request.create_user_id:
-            return [request.create_user_id]
+        if request.user_id:
+            return [request.user_id]
         start_time, end_time = request.resolve_time_range()
         return self._fetch_users(
             start_time=start_time,
@@ -837,33 +965,33 @@ class VocabEvolutionService:
     ) -> List[Dict[str, Any]]:
         req = VocabEvolutionRequest.from_value(request)
         actions: List[Dict[str, Any]] = []
-        create_user_ids = self._resolve_users(req)
-        target_label = req.create_user_id or '<all-users>'
+        user_ids = self._resolve_users(req)
+        target_label = req.user_id or '<all-users>'
         LOG.info(
-            f'[VocabEvolution] start requested_create_user_id={target_label!r} '
-            f'resolved_user_count={len(create_user_ids)}'
+            f'[VocabEvolution] start requested_user_id={target_label!r} '
+            f'resolved_user_count={len(user_ids)}'
         )
 
-        for create_user_id in create_user_ids:
-            LOG.info(f'[VocabEvolution] processing create_user_id={create_user_id!r}')
+        for user_id in user_ids:
+            LOG.info(f'[VocabEvolution] processing user_id={user_id!r}')
             try:
-                lazyllm.globals._init_sid(sid=create_user_id)
-                lazyllm.locals._init_sid(sid=create_user_id)
-                setattr(lazyllm.globals, _LAZYLLM_CONTEXT_CREATE_USER_ATTR, create_user_id)
-                result = self._pipeline({'request': req, 'create_user_id': create_user_id})
+                lazyllm.globals._init_sid(sid=user_id)
+                lazyllm.locals._init_sid(sid=user_id)
+                setattr(lazyllm.globals, _LAZYLLM_CONTEXT_CREATE_USER_ATTR, user_id)
+                result = self._pipeline({'request': req, 'user_id': user_id})
             except Exception as exc:
-                LOG.error(f'[VocabEvolution] processing failed create_user_id={create_user_id!r} error={exc}')
+                LOG.error(f'[VocabEvolution] processing failed user_id={user_id!r} error={exc}')
                 continue
             user_actions = result.get('actions', [])
             actions.extend(user_actions)
             LOG.info(
-                f'[VocabEvolution] processed create_user_id={create_user_id!r} '
+                f'[VocabEvolution] processed user_id={user_id!r} '
                 f'action_count={len(user_actions)} skipped_count={len(result.get("skipped_reasons", []))}'
             )
 
         serialized_actions = [_serialize_backend_action(item) for item in actions]
         LOG.info(
-            f'[VocabEvolution] finished requested_create_user_id={target_label!r} '
+            f'[VocabEvolution] finished requested_user_id={target_label!r} '
             f'action_count={len(serialized_actions)}'
         )
         return serialized_actions

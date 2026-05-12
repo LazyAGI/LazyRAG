@@ -1,7 +1,7 @@
 x-mirror-args: &mirror-args
   DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io/library/}
   PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
-  PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
+  PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-2400}
   PIP_RETRIES: ${PIP_RETRIES:-10}
   GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
   APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
@@ -551,7 +551,7 @@ services:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
       LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.online.yaml}
       # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
       # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
       LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
@@ -613,7 +613,7 @@ services:
       LAZYRAG_MEMORY_REVIEW_INTERVAL: "1"
       LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
       LAZYRAG_SKILL_REVIEW_DEBUG: "false"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/chat/runtime_models.online.yaml}
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
@@ -654,7 +654,7 @@ services:
       EVO_KB_BASE_URL: http://doc-server:8000
       EVO_CHUNK_BASE_URL: http://doc-server:8000
       EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/var/lib/lazyrag/chat-source/runtime_models.online.yaml}
       MAAS_BASE_URL: http://106.75.235.251:9000/v1/
       MAAS_MODEL_NAME: minimax-m27
       <<: [*trace-config, *proxy-env, *llm-api-keys]

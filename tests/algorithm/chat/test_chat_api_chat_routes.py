@@ -64,7 +64,32 @@ def test_chat_route_forwards_parameters_and_stream_flag(monkeypatch):
         'memory': None,
         'user_preference': None,
         'use_memory': True,
-        'create_user_id': '',
+        'user_id': '',
         'trace': False,
         'model_config': None,
     }
+
+def test_chat_route_forwards_user_id(monkeypatch):
+    recorded = {}
+
+    async def fake_handle_chat(**kwargs):
+        recorded.update(kwargs)
+        return {'ok': True}
+
+    fake_service = ModuleType('chat.app.core.chat_service')
+    fake_service.handle_chat = fake_handle_chat
+    monkeypatch.setitem(sys.modules, 'chat.app.core.chat_service', fake_service)
+    module = _load_chat_routes_module()
+    request = SimpleNamespace(url=SimpleNamespace(path='/api/chat'))
+
+    result = asyncio.run(
+        module.chat(
+            query='hello',
+            session_id='sid-1',
+            user_id='user-42',
+            request=request,
+        )
+    )
+
+    assert result == {'ok': True}
+    assert recorded['user_id'] == 'user-42'
