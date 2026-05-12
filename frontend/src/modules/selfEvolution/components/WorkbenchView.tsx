@@ -1,5 +1,6 @@
 import { type MouseEvent, type ReactNode, type Ref } from "react";
 import { Typography } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   CloseOutlined,
   HistoryOutlined,
@@ -127,23 +128,24 @@ export function SelfEvolutionWorkbenchView({
   onCancelCreateSession,
   onConfirmCreateSession,
 }: SelfEvolutionWorkbenchViewProps) {
+  const { t } = useTranslation();
   return (
     <div className="self-evolution-session-page">
       <div className="self-evolution-workbench">
-        <section className="self-evolution-workflow-panel" aria-label="执行步骤">
+        <section className="self-evolution-workflow-panel" aria-label={t("selfEvolutionRun.executionStepsAria")}>
           <div className="self-evolution-workflow-head">
-            <Title level={3}>自进化执行编排</Title>
-            <Paragraph>当前聚焦：{activeStepText}</Paragraph>
+            <Title level={3}>{t("selfEvolutionRun.executionOrchestration")}</Title>
+            <Paragraph>{t("selfEvolutionRun.currentFocus", { step: activeStepText })}</Paragraph>
             {routeThreadId && (
               <Text className="self-evolution-detail-thread">
-                {`线程 ID：${routeThreadId}${isRestoringThread ? " · 正在恢复详情" : ""}`}
+                {t("selfEvolutionRun.threadIdWithRestore", { id: routeThreadId, restoring: isRestoringThread ? t("selfEvolutionRun.restoringDetailSuffix") : "" })}
               </Text>
             )}
             {threadRestoreError && routeThreadId && (
               <div className="self-evolution-restore-error" role="alert">
                 <span>{threadRestoreError}</span>
                 <button type="button" onClick={onRetryRestoreThread}>
-                  重试
+                  {t("selfEvolutionRun.retry")}
                 </button>
               </div>
             )}
@@ -166,9 +168,9 @@ export function SelfEvolutionWorkbenchView({
           </div>
         </section>
 
-        <section className="self-evolution-chat-panel" aria-label="历史会话窗口">
+        <section className="self-evolution-chat-panel" aria-label={t("selfEvolutionRun.historyWindowAria")}>
           <div className="self-evolution-history-shell">
-            <div className="self-evolution-history-tabs" aria-label="历史会话标签栏">
+            <div className="self-evolution-history-tabs" aria-label={t("selfEvolutionRun.historyTabsAria")}>
               <div className="self-evolution-history-tabs-scroll">
                 <button
                   type="button"
@@ -207,20 +209,20 @@ export function SelfEvolutionWorkbenchView({
                 type="button"
                 className="self-evolution-history-tab-create"
                 onClick={onCreateSession}
-                title="新建会话"
+                title={t("selfEvolutionRun.newSession")}
               >
                 <PlusOutlined />
-                <span>新建</span>
+                <span>{t("selfEvolutionRun.new")}</span>
               </button>
               <button
                 type="button"
                 className="self-evolution-history-tab-fetch"
                 onClick={onOpenHistorySessionModal}
-                title="打开历史会话列表"
-                aria-label="打开历史会话列表"
+                title={t("selfEvolutionRun.openHistoryAria")}
+                aria-label={t("selfEvolutionRun.openHistoryAria")}
               >
                 <HistoryOutlined />
-                <span>历史</span>
+                <span>{t("selfEvolutionRun.history")}</span>
               </button>
             </div>
           </div>

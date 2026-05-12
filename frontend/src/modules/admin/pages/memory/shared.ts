@@ -100,6 +100,8 @@ export interface SkillTreeNode extends StructuredAsset {
 export interface ChildSkillDraft {
   tempId: string;
   name: string;
+  description: string;
+  tags: string[];
   content: string;
 }
 
@@ -304,6 +306,8 @@ export const createId = (prefix: string) =>
 export const createChildSkillDraft = (): ChildSkillDraft => ({
   tempId: createId("child-skill"),
   name: "",
+  description: "",
+  tags: [],
   content: "",
 });
 

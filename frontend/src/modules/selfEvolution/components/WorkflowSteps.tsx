@@ -238,8 +238,6 @@ export function CodeOptimizeWorkflowStep({
 }
 
 type AbTestWorkflowStepProps = {
-  summaryCount: number;
-  comparisonCount: number;
   downloadUrl: string;
   fallbackDownloadUrl: string;
   onCollapseChange: (activeKeys: string | string[]) => void;
@@ -249,8 +247,6 @@ type AbTestWorkflowStepProps = {
 };
 
 export function AbTestWorkflowStep({
-  summaryCount,
-  comparisonCount,
   downloadUrl,
   fallbackDownloadUrl,
   onCollapseChange,
@@ -259,7 +255,6 @@ export function AbTestWorkflowStep({
   children,
 }: AbTestWorkflowStepProps) {
   const href = downloadUrl || fallbackDownloadUrl;
-  const visibleCount = summaryCount || comparisonCount;
 
   return (
     <Collapse
@@ -271,7 +266,7 @@ export function AbTestWorkflowStep({
           key: "ab-test-preview",
           label: (
             <span className="self-evolution-dataset-collapse-label">
-              <span>{`查看 A/B 测试结果（${visibleCount}/${visibleCount}）`}</span>
+              <span>查看 A/B 测试结果</span>
               <a
                 className="self-evolution-dataset-download-link"
                 href={href || undefined}
