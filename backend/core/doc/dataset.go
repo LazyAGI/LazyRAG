@@ -410,10 +410,6 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	db := corestore.DB()
 	base := db.Model(&orm.Dataset{}).
 		Where("deleted_at IS NULL")
-	if keyword != "" {
-		kw := "%" + strings.ToLower(keyword) + "%"
-		base = base.Where(`LOWER(display_name) LIKE ? OR LOWER("desc") LIKE ?`, kw, kw)
-	}
 
 	orderClause := "updated_at desc"
 	if orderBy != "" {
@@ -460,6 +456,9 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		for _, ds := range rows {
 			perms := datasetACLForUserWithGroups(&ds, userID, groupIDs)
 			if len(perms) == 0 {
+				continue
+			}
+			if !datasetMatchesKeyword(&ds, keyword) {
 				continue
 			}
 			if len(wantTags) > 0 && !containsAll(parseDatasetTags(ds.Ext), wantTags) {
