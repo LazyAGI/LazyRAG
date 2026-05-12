@@ -141,7 +141,6 @@ jobs:
           pip install scikit-build-core pybind11
           CMAKE_POLICY_VERSION_MINIMUM=3.5 pip install --no-cache-dir algorithm/lazyllm
           cp algorithm/lazyllm/pyproject.toml "$(python -c 'import lazyllm; print(lazyllm.__path__[0])')/"
-          python -m pip install --upgrade pip
           pip install -r evo/requirements.txt
           pip install pytest httpx
 
