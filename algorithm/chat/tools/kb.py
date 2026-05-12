@@ -435,6 +435,8 @@ def kb_search(
             (TempDocRetriever). Defaults to the session's uploaded file list
             from `agentic_config['temp_files']`; pass an explicit list to
             override, or pass [] to force Branch B even when temp files exist.
+            Attached images are read from `agentic_config['image_files']` and
+            passed through so the search pipeline can rewrite the query.
 
     Returns:
         Retrieval results returned by `get_ppl_search(...)(payload)`.
@@ -450,6 +452,7 @@ def kb_search(
         'query': query,
         'filters': filters or {},
         'files': files,
+        'image_files': agentic_config.get('image_files') or [],
     }
     resolved_kb_id = _resolve_kb_id(agentic_config)
     if resolved_kb_id:
