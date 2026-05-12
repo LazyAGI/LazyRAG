@@ -163,7 +163,7 @@ jobs:
           pip install scikit-build-core pybind11
           pip install -r algorithm/requirements.txt
           pip uninstall -y lazyllm || true
-          pip install -e algorithm/lazyllm
+          pip install algorithm/lazyllm
           pip install pypdf docx2txt EbookLib html2text olefile spacy bm25s PyStemmer nltk jieba sentencepiece psycopg2-binary
           pip install pytest httpx
 
