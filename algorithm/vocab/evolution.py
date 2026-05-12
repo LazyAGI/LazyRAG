@@ -11,6 +11,7 @@ This module keeps only the algorithm-side extraction flow:
 from __future__ import annotations
 
 import json
+from os import name
 import re
 import threading
 from collections import defaultdict
@@ -20,10 +21,11 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 
 import lazyllm
 import httpx
-from lazyllm import LOG, pipeline
+from lazyllm import LOG, pipeline, AutoModel
 from lazyllm.components import ChatPrompter
 from lazyllm.components.formatter import JsonFormatter
 from lazyllm.module import ModuleBase
+from algorithm.chat.utils.load_config import get_config_path
 
 from config import config as _cfg
 from .db import (
@@ -432,8 +434,7 @@ class SynonymExtractionModule(ModuleBase):
     def __init__(self, llm: Optional[Any] = None, *, return_trace: bool = False) -> None:
         super().__init__(return_trace=return_trace)
         if llm is None:
-            from chat.pipelines.builders import get_automodel
-            llm = get_automodel('llm')
+            llm = AutoModel(model='llm', config=get_config_path())
         base_llm = llm
         self._llm = base_llm.share(
             prompt=ChatPrompter(instruction=_EXTRACTION_PROMPT),
@@ -544,8 +545,7 @@ class ActionPlanningModule(ModuleBase):
     ) -> None:
         super().__init__(return_trace=return_trace)
         if llm is None:
-            from chat.pipelines.builders import get_automodel
-            llm = get_automodel('llm')
+            llm = AutoModel(model='llm', config=get_config_path())
         base_llm = llm
         self._llm = base_llm.share(
             prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),
