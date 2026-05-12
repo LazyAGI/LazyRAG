@@ -7,6 +7,7 @@ import {
   FEISHU_DATA_SOURCE_OAUTH_CHANNEL,
   finishFeishuDataSourceOAuth,
   getDataSourceManagementUrl,
+  getFeishuDataSourceOAuthReturnUrl,
   saveFeishuDataSourceOAuthResult,
   type FeishuDataSourceOAuthMessage,
 } from "./feishuOAuth";
@@ -20,11 +21,14 @@ interface CallbackViewState {
   status: CallbackStatus;
   title: string;
   subtitle?: string;
+  returnUrl?: string;
 }
 
 function isPopupWindow() {
   return Boolean(window.opener && !window.opener.closed);
 }
+
+const CALLBACK_REDIRECT_DELAY_MS = 800;
 
 export default function FeishuDataSourceCallback() {
   const { t } = useTranslation();
@@ -85,6 +89,7 @@ export default function FeishuDataSourceCallback() {
       }
 
       try {
+        const returnUrl = getFeishuDataSourceOAuthReturnUrl(state);
         const connection = await finishFeishuDataSourceOAuth(code, state);
         setViewState({
           status: "success",
@@ -92,6 +97,7 @@ export default function FeishuDataSourceCallback() {
           subtitle: t("admin.dataSourceCallbackSuccessSubtitle", {
             accountName: connection.accountName,
           }),
+          returnUrl,
         });
         finalize({
           channel: FEISHU_DATA_SOURCE_OAUTH_CHANNEL,
@@ -99,6 +105,12 @@ export default function FeishuDataSourceCallback() {
           status: "success",
           connection,
         });
+
+        if (!isPopupWindow()) {
+          window.setTimeout(() => {
+            window.location.replace(returnUrl);
+          }, CALLBACK_REDIRECT_DELAY_MS);
+        }
       } catch (error: any) {
         const message = error?.message || t("admin.dataSourceOauthFailedRetry");
         setViewState({
@@ -167,7 +179,16 @@ export default function FeishuDataSourceCallback() {
             title={viewState.title}
             subTitle={viewState.subtitle}
             extra={
-              <Button type="primary" onClick={() => window.location.replace(getDataSourceManagementUrl())}>
+              <Button
+                type="primary"
+                onClick={() =>
+                  window.location.replace(
+                    viewState.status === "success" && viewState.returnUrl
+                      ? viewState.returnUrl
+                      : getDataSourceManagementUrl(),
+                  )
+                }
+              >
                 {t("admin.dataSourceCallbackBack")}
               </Button>
             }

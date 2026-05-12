@@ -7,14 +7,13 @@
   min-height: 100vh;
   height: 100vh;
   box-sizing: border-box;
-  padding: 20px 28px 24px;
+  padding: clamp(14px, 1.85vh, 20px) clamp(20px, 1.55vw, 28px) clamp(16px, 2.2vh, 24px);
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow-y: auto;
+  overflow: hidden;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   font-family:
     "Alibaba PuHuiTi 3.0",
     "HarmonyOS Sans SC",
@@ -123,10 +122,11 @@
 .self-evolution-welcome-container {
   position: relative;
   z-index: 1;
-  width: min(1320px, 100%);
-  margin: 12px auto 0;
-  flex: 1 0 auto;
+  width: min(84vw, 100%);
+  margin: clamp(8px, 1.2vh, 12px) auto 0;
+  flex: 1 1 0;
   min-height: 0;
+  max-height: calc(100vh - clamp(14px, 1.85vh, 20px) - clamp(16px, 2.2vh, 24px) - 34px - clamp(8px, 1.2vh, 12px));
   display: flex;
   opacity: 0;
   transform: translateY(24px);
@@ -136,11 +136,12 @@
 .self-evolution-welcome-shell {
   width: 100%;
   min-height: 0;
-  height: fit-content;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 18px 18px 20px;
-  border-radius: 26px;
+  gap: clamp(10px, 1.15vh, 14px);
+  padding: clamp(12px, 1.65vh, 18px) clamp(12px, 0.95vw, 18px) clamp(14px, 1.85vh, 20px);
+  border-radius: clamp(20px, 1.45vw, 26px);
   border: 1px solid var(--self-evolution-panel-border);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 252, 255, 0.95) 100%);
   box-shadow: var(--self-evolution-panel-shadow);
@@ -149,12 +150,14 @@
 
 .self-evolution-welcome-visual {
   margin: 0;
-  border-radius: 20px;
+  flex: 1 1 clamp(280px, 42vh, 470px);
+  min-height: 0;
+  border-radius: clamp(16px, 1.05vw, 20px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 12px 14px;
+  gap: clamp(8px, 1vh, 12px);
+  padding: clamp(9px, 1.1vh, 12px) clamp(9px, 0.65vw, 12px) clamp(10px, 1.25vh, 14px);
   border: 1px solid #d7e5fa;
   background:
     radial-gradient(circle at 12% 12%, rgba(53, 136, 255, 0.08), transparent 40%),
@@ -164,8 +167,9 @@
 .self-evolution-welcome-visual-image {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: clamp(180px, 30vh, 430px);
+  height: 100%;
+  min-height: 0;
+  max-height: clamp(220px, 38vh, 440px);
   object-fit: contain;
   object-position: center top;
   border-radius: 14px;
@@ -230,11 +234,12 @@
 .self-evolution-chatlike-launchpad-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 14px;
+  flex: 0 1 auto;
+  gap: clamp(8px, 1.1vh, 12px);
+  margin-top: 0;
+  padding: clamp(10px, 1.25vh, 14px);
   min-height: 0;
-  border-radius: 20px;
+  border-radius: clamp(16px, 1.05vw, 20px);
   border: 1px solid #dce9fb;
   background: linear-gradient(180deg, rgba(251, 254, 255, 0.98) 0%, #f5f9ff 100%);
 }
@@ -330,15 +335,15 @@
 .self-evolution-launch-compact-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
-  gap: 12px;
+  gap: clamp(8px, 1.1vh, 12px) clamp(10px, 0.75vw, 12px);
 }
 
 .self-evolution-launch-compact-item {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: clamp(7px, 0.9vh, 10px);
+  padding: clamp(9px, 1.1vh, 12px);
   border: 1px solid #dce8f8;
   border-radius: 16px;
   background: linear-gradient(180deg, #fbfdff 0%, #f4f8ff 100%);
@@ -471,8 +476,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: clamp(10px, 0.75vw, 12px);
+  padding: clamp(10px, 1.15vh, 12px) clamp(12px, 0.85vw, 14px);
   border-radius: 16px;
   border: 1px solid #cfdff5;
   background:

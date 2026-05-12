@@ -1,5 +1,5 @@
+import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Button,
   Empty,
   Input,
@@ -10,11 +10,17 @@ import {
   Tooltip,
 } from "antd";
 import { QuestionCircleOutlined } from "@ant-design/icons";
+import { getLocalizedTablePagination } from "@/components/ui/pagination";
 import { useMemoryManagementOutletContext } from "../../context";
 import type { ExperienceAsset, StructuredAsset } from "../../shared";
 import GlossaryListSection from "../../components/GlossaryListSection";
 
+const defaultMemoryListPageSize = 6;
+const memoryListPageSizeOptions = [6, 12, 20, 50];
+
 export default function MemoryManagementListPage() {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(defaultMemoryListPageSize);
   const {
     t,
     activeTab,
@@ -63,12 +69,88 @@ export default function MemoryManagementListPage() {
     selectedGlossaryAssetIds,
     setSelectedGlossaryAssetIds,
     skillLoading,
+    skillListPage,
+    skillListPageSize,
+    skillListTotal,
+    setSkillListPage,
+    setSkillListPageSize,
     skillAssets,
     filteredSkillTree,
     filteredStructuredItems,
     genericColumns,
     toolColumns,
   } = useMemoryManagementOutletContext();
+
+  const activeListTotal = useMemo(() => {
+    if (activeTab === "experience") {
+      return filteredExperienceItems.length;
+    }
+    if (activeTab === "skills") {
+      return skillListTotal;
+    }
+    if (activeTab === "tools") {
+      return filteredStructuredItems.length;
+    }
+    return 0;
+  }, [
+    activeTab,
+    filteredExperienceItems.length,
+    filteredStructuredItems.length,
+    skillListTotal,
+  ]);
+
+  useEffect(() => {
+    if (activeTab === "skills") {
+      setSkillListPage(1);
+      return;
+    }
+    setCurrentPage(1);
+  }, [activeTab, category, query, setSkillListPage, tag]);
+
+  const activePage = activeTab === "skills" ? skillListPage : currentPage;
+  const activePageSize = activeTab === "skills" ? skillListPageSize : pageSize;
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(activeListTotal / activePageSize));
+    if (activePage <= maxPage) {
+      return;
+    }
+    if (activeTab === "skills") {
+      setSkillListPage(maxPage);
+    } else {
+      setCurrentPage(maxPage);
+    }
+  }, [activeListTotal, activePage, activePageSize, activeTab, setSkillListPage]);
+
+  const memoryListPagination = getLocalizedTablePagination(
+    {
+      current: activePage,
+      pageSize: activePageSize,
+      total: activeListTotal,
+      showSizeChanger: true,
+      pageSizeOptions: memoryListPageSizeOptions,
+      showTotal: (total) => t("common.totalItems", { total }),
+      onChange: (page, nextPageSize) => {
+        if (activeTab === "skills") {
+          setSkillListPage(page);
+          setSkillListPageSize(nextPageSize);
+          return;
+        }
+        setCurrentPage(page);
+        setPageSize(nextPageSize);
+      },
+      onShowSizeChange: (_current, nextPageSize) => {
+        if (activeTab === "skills") {
+          setSkillListPage(1);
+          setSkillListPageSize(nextPageSize);
+          return;
+        }
+        setCurrentPage(1);
+        setPageSize(nextPageSize);
+      },
+    },
+    t,
+  );
 
   return (
     <>
@@ -91,7 +173,7 @@ export default function MemoryManagementListPage() {
           </p>
         </div>
         <Space>
-          {activeTab === "skills" ? (
+          {activeTab === "skills" && incomingPendingCount === 0 ? (
             <Button onClick={() => openSkillShareCenter("incoming")}>
               {t("admin.memorySkillShareInboxButton", {
                 count: incomingPendingCount,
@@ -155,9 +237,6 @@ export default function MemoryManagementListPage() {
                 <strong>{tabItem.title}</strong>
                 <span>{tabItem.description}</span>
               </span>
-              {tabKey === "skills" && incomingPendingCount > 0 ? (
-                <span className="memory-tab-count">{incomingPendingCount}</span>
-              ) : null}
             </button>
           );
         })}
@@ -244,23 +323,6 @@ export default function MemoryManagementListPage() {
         </div>
       ) : null}
 
-      {activeTab === "skills" && incomingPendingCount > 0 ? (
-        <Alert
-          type="info"
-          showIcon
-          className="memory-skill-share-alert"
-          message={t("admin.memorySkillSharePendingHintTitle")}
-          description={t("admin.memorySkillSharePendingHintDesc", {
-            count: incomingPendingCount,
-          })}
-          action={
-            <Button size="small" onClick={() => openSkillShareCenter("incoming")}>
-              {t("admin.memorySkillShareOpenInbox")}
-            </Button>
-          }
-        />
-      ) : null}
-
       {activeTab === "experience" ? (
         <Table<ExperienceAsset>
           className="admin-page-table memory-table"
@@ -269,7 +331,7 @@ export default function MemoryManagementListPage() {
           dataSource={filteredExperienceItems}
           columns={experienceColumns}
           tableLayout="fixed"
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={memoryListPagination}
           locale={{
             emptyText: (
               <Empty
@@ -312,7 +374,11 @@ export default function MemoryManagementListPage() {
                 }
               : undefined
           }
-          pagination={{ pageSize: 6, showSizeChanger: false }}
+          pagination={
+            activeTab === "skills"
+              ? memoryListPagination
+              : { pageSize: 6, showSizeChanger: false }
+          }
           locale={{
             emptyText: (
               <Empty

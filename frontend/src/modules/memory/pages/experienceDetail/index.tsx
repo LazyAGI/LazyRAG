@@ -63,7 +63,7 @@ export default function MemoryExperienceDetailPage() {
               {experience.protect ? (
                 <Tag className="memory-protect-tag" bordered={false}>
                   <LockOutlined />
-                  <span>{t("admin.memoryProtect")}</span>
+                  <span>{t("admin.memoryProtect", { defaultValue: "保护" })}</span>
                 </Tag>
               ) : null}
             </div>

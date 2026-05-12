@@ -46,7 +46,7 @@ import {
   listIncomingSkillShares,
   listOutgoingSkillShares,
   listSkillShareTargets,
-  listSkillAssets,
+  listSkillAssetsPage,
   patchSkillAsset,
   previewSkillDraft,
   rejectSkillShare,
@@ -157,6 +157,7 @@ import {
 import "./index.scss";
 
 const backendSuggestionPageSize = 20;
+const defaultSkillListPageSize = 6;
 const isPendingReviewSuggestionStatus = (status?: string) =>
   String(status || "").trim().toLowerCase() === "pending_review";
 const isSkillRemoveSuggestion = (suggestion: EvolutionSuggestionRecord) =>
@@ -232,6 +233,9 @@ export default function MemoryManagement() {
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillAutoEvoLoading, setSkillAutoEvoLoading] = useState<Set<string>>(new Set());
   const [skillsInitialized, setSkillsInitialized] = useState(false);
+  const [skillListPage, setSkillListPage] = useState(1);
+  const [skillListPageSize, setSkillListPageSize] = useState(defaultSkillListPageSize);
+  const [skillListTotal, setSkillListTotal] = useState(initialSkills.length);
   const [experienceAssets, setExperienceAssets] = useState<ExperienceAsset[]>([]);
   const [experienceFeatureEnabled, setExperienceFeatureEnabled] = useState(true);
   const [experienceLoading, setExperienceLoading] = useState(false);
@@ -589,15 +593,19 @@ export default function MemoryManagement() {
     [refreshExperienceAssets, refreshExperienceSetting, t],
   );
   const refreshSkillAssets = useCallback(async (
-    options: { preserveChangeProposals?: boolean } = {},
+    options: { page?: number; pageSize?: number; preserveChangeProposals?: boolean } = {},
   ) => {
     setSkillLoading(true);
 
     try {
-      const records = await listSkillAssets({
-        page: 1,
-        pageSize: 200,
+      const result = await listSkillAssetsPage({
+        page: options.page ?? skillListPage,
+        pageSize: options.pageSize ?? skillListPageSize,
       });
+      const records = result.records;
+      setSkillListTotal(result.total);
+      setSkillListPage(result.page);
+      setSkillListPageSize(result.pageSize);
       setSkillAssets(
         records.map((item) => ({
           id: item.id,
@@ -632,7 +640,7 @@ export default function MemoryManagement() {
       setSkillLoading(false);
       setSkillsInitialized(true);
     }
-  }, []);
+  }, [skillListPage, skillListPageSize]);
 
   const refreshGlossaryAssets = useCallback(
     async (options?: { keyword?: string; silent?: boolean; source?: GlossarySource }) => {
@@ -1211,7 +1219,7 @@ export default function MemoryManagement() {
     }
 
     const commonLabels = {
-      protect: t("admin.memoryProtect"),
+      protect: t("admin.memoryProtect", { defaultValue: "保护" }),
       content: t("admin.memoryContent"),
       yes: t("admin.memoryDiffBoolYes"),
       no: t("admin.memoryDiffBoolNo"),
@@ -1306,7 +1314,7 @@ export default function MemoryManagement() {
         Boolean(activeProposal.before.protect) !== Boolean(activeProposal.after.protect)
           ? {
               key: "protect",
-              label: t("admin.memoryProtect"),
+              label: t("admin.memoryProtect", { defaultValue: "保护" }),
               before: toBoolText(Boolean(activeProposal.before.protect)),
               after: toBoolText(Boolean(activeProposal.after.protect)),
               backendSuggestionId:
@@ -1343,7 +1351,7 @@ export default function MemoryManagement() {
       Boolean(activeProposal.before.protect) !== Boolean(activeProposal.after.protect)
         ? {
             key: "protect",
-            label: t("admin.memoryProtect"),
+            label: t("admin.memoryProtect", { defaultValue: "保护" }),
             before: toBoolText(Boolean(activeProposal.before.protect)),
             after: toBoolText(Boolean(activeProposal.after.protect)),
             backendSuggestionId:
@@ -1530,7 +1538,7 @@ export default function MemoryManagement() {
     }
 
     const commonLabels = {
-      protect: t("admin.memoryProtect"),
+      protect: t("admin.memoryProtect", { defaultValue: "保护" }),
       content: t("admin.memoryContent"),
       yes: t("admin.memoryDiffBoolYes"),
       no: t("admin.memoryDiffBoolNo"),
@@ -1763,10 +1771,9 @@ export default function MemoryManagement() {
     try {
       const content = await readFileAsText(file);
       const inferredName = getBaseName(file.name);
-      const frontMatter =
-        !childTempId && isMarkdownSkillFile(file.name)
-          ? parseMarkdownFrontMatter(content)
-          : null;
+      const frontMatter = isMarkdownSkillFile(file.name)
+        ? parseMarkdownFrontMatter(content)
+        : null;
       const hasFrontMatterMetadata = Boolean(
         frontMatter && (frontMatter.name || frontMatter.description),
       );
@@ -1814,6 +1821,7 @@ export default function MemoryManagement() {
               ? {
                   ...item,
                   name: item.name || inferredName,
+                  description: item.description || frontMatter?.description || "",
                   content: importedContent,
                 }
               : item,
@@ -1959,7 +1967,7 @@ export default function MemoryManagement() {
                   category: detail.category,
                   tags: detail.tags,
                   content: detail.content,
-                  parentId: detail.parentId,
+                  parentId: detail.parentId || previous.parentId,
                   protect: detail.protect,
                 },
                 { stripFrontMatter: true },
@@ -2016,7 +2024,7 @@ export default function MemoryManagement() {
   const buildStructuredAssetFromSkillShare = (
     share: SkillShareRecord,
   ): StructuredAsset => ({
-    id: share.skillId || share.id,
+    id: share.sourceSkillId || share.skillId || share.id,
     name: share.skillName || t("admin.memorySkillShareUnknownSkill"),
     description: share.skillDescription,
     category: share.category,
@@ -2029,14 +2037,17 @@ export default function MemoryManagement() {
     setSkillShareAction(share.id, "preview");
 
     try {
-      const detail = await getSkillAssetDetail(share.skillId || share.id);
+      const detail = await getSkillAssetDetail(share.sourceSkillId || share.skillId || share.id);
       openModal(
         "view",
         detail || buildStructuredAssetFromSkillShare(share),
+        { skipSkillDetailLoad: true },
       );
     } catch (error) {
       console.error("Load skill detail failed:", error);
-      openModal("view", buildStructuredAssetFromSkillShare(share));
+      openModal("view", buildStructuredAssetFromSkillShare(share), {
+        skipSkillDetailLoad: true,
+      });
     } finally {
       setSkillShareAction(share.id);
     }
@@ -3543,7 +3554,7 @@ export default function MemoryManagement() {
         message.warning(`${t("common.pleaseInput")}${t("admin.memoryName")}`);
         return;
       }
-      if (!isChildSkill && !draft.description.trim()) {
+      if (!draft.description.trim()) {
         message.warning(`${t("common.pleaseInput")}${t("admin.memoryDescription")}`);
         return;
       }
@@ -3552,9 +3563,7 @@ export default function MemoryManagement() {
         return;
       }
 
-      const normalizedSkillTags = isChildSkill
-        ? []
-        : normalizeTagValues(draft.tags);
+      const normalizedSkillTags = normalizeTagValues(draft.tags);
       if (activeTab === "skills" && normalizedSkillTags.length > SKILL_TAG_MAX_COUNT) {
         message.warning(
           t("admin.memorySkillTagMaxCount", {
@@ -3567,7 +3576,7 @@ export default function MemoryManagement() {
       const payload: StructuredAsset = {
         id: draft.id || createId(activeTab === "tools" ? "tool" : "skill"),
         name: draft.name.trim(),
-        description: isChildSkill ? "" : draft.description.trim(),
+        description: draft.description.trim(),
         category: isChildSkill ? "" : draft.category.trim(),
         tags: normalizedSkillTags,
         parentId: activeTab === "skills" ? draft.parentId || undefined : undefined,
@@ -3613,6 +3622,8 @@ export default function MemoryManagement() {
             };
 
             if (payload.parentId) {
+              patchPayload.description = payload.description;
+              patchPayload.tags = payload.tags;
               patchPayload.file_ext = payload.fileExt || inferSkillFileExt(undefined, payload.content);
             } else {
               patchPayload.description = payload.description;
@@ -3636,7 +3647,9 @@ export default function MemoryManagement() {
 
             await createSkillAsset({
               name: payload.name,
+              description: payload.description,
               category: parentSkill.category || draft.category.trim(),
+              tags: payload.tags,
               parent_skill_name: parentSkill.name,
               content: payload.content,
               file_ext: payload.fileExt || inferSkillFileExt(undefined, payload.content),
@@ -3649,7 +3662,10 @@ export default function MemoryManagement() {
 
             if (canCreateChildSkills) {
               const hasInvalidChild = draft.childSkills.some(
-                (child) => !child.name.trim() || !child.content.trim(),
+                (child) =>
+                  !child.name.trim() ||
+                  !child.description.trim() ||
+                  !child.content.trim(),
               );
               if (hasInvalidChild) {
                 message.warning(t("admin.memoryChildSkillRequired"));
@@ -3658,6 +3674,8 @@ export default function MemoryManagement() {
 
               childPayloads = draft.childSkills.map((child) => ({
                 name: child.name.trim(),
+                description: child.description.trim(),
+                tags: normalizeTagValues(child.tags),
                 content: child.content.trim(),
                 file_ext: inferSkillFileExt(undefined, child.content),
                 is_locked: Boolean(payload.protect),
@@ -4035,7 +4053,7 @@ export default function MemoryManagement() {
               {record.protect ? (
                 <Tag className="memory-protect-tag" bordered={false}>
                   <LockOutlined />
-                  <span>{t("admin.memoryProtect")}</span>
+                  <span>{t("admin.memoryProtect", { defaultValue: "保护" })}</span>
                 </Tag>
               ) : null}
             </div>
@@ -4270,7 +4288,7 @@ export default function MemoryManagement() {
               {record.protect ? (
                 <Tag className="memory-protect-tag" bordered={false}>
                   <LockOutlined />
-                  <span>{t("admin.memoryProtect")}</span>
+                  <span>{t("admin.memoryProtect", { defaultValue: "保护" })}</span>
                 </Tag>
               ) : null}
             </div>
@@ -4387,7 +4405,7 @@ export default function MemoryManagement() {
             {record.protect ? (
               <Tag className="memory-protect-tag" bordered={false}>
                 <LockOutlined />
-                <span>{t("admin.memoryProtect")}</span>
+                <span>{t("admin.memoryProtect", { defaultValue: "保护" })}</span>
               </Tag>
             ) : null}
           </div>
@@ -4556,6 +4574,11 @@ export default function MemoryManagement() {
     setSelectedGlossaryAssetIds,
     skillLoading,
     skillsInitialized,
+    skillListPage,
+    skillListPageSize,
+    skillListTotal,
+    setSkillListPage,
+    setSkillListPageSize,
     skillAssets,
     filteredSkillTree,
     filteredStructuredItems,

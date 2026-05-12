@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Button,
   Empty,
   Input,
@@ -71,6 +70,11 @@ export default function MemoryManagementListPage() {
     selectedGlossaryAssetIds,
     setSelectedGlossaryAssetIds,
     skillLoading,
+    skillListPage,
+    skillListPageSize,
+    skillListTotal,
+    setSkillListPage,
+    setSkillListPageSize,
     skillAssets,
     filteredSkillTree,
     filteredStructuredItems,
@@ -83,7 +87,7 @@ export default function MemoryManagementListPage() {
       return filteredExperienceItems.length;
     }
     if (activeTab === "skills") {
-      return filteredSkillTree.length;
+      return skillListTotal;
     }
     if (activeTab === "tools") {
       return filteredStructuredItems.length;
@@ -92,34 +96,56 @@ export default function MemoryManagementListPage() {
   }, [
     activeTab,
     filteredExperienceItems.length,
-    filteredSkillTree.length,
+    skillListTotal,
     filteredStructuredItems.length,
   ]);
 
   useEffect(() => {
+    if (activeTab === "skills") {
+      setSkillListPage(1);
+      return;
+    }
     setCurrentPage(1);
-  }, [activeTab, query, category, tag]);
+  }, [activeTab, category, query, setSkillListPage, tag]);
+
+  const activePage = activeTab === "skills" ? skillListPage : currentPage;
+  const activePageSize = activeTab === "skills" ? skillListPageSize : pageSize;
 
   useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(activeListTotal / pageSize));
-    if (currentPage > maxPage) {
+    const maxPage = Math.max(1, Math.ceil(activeListTotal / activePageSize));
+    if (activePage <= maxPage) {
+      return;
+    }
+    if (activeTab === "skills") {
+      setSkillListPage(maxPage);
+    } else {
       setCurrentPage(maxPage);
     }
-  }, [activeListTotal, currentPage, pageSize]);
+  }, [activeListTotal, activePage, activePageSize, activeTab, setSkillListPage]);
 
   const memoryListPagination = getLocalizedTablePagination(
     {
-      current: currentPage,
-      pageSize,
+      current: activePage,
+      pageSize: activePageSize,
       total: activeListTotal,
       showSizeChanger: true,
       pageSizeOptions: memoryListPageSizeOptions,
       showTotal: (total) => t("common.totalItems", { total }),
       onChange: (page, nextPageSize) => {
+        if (activeTab === "skills") {
+          setSkillListPage(page);
+          setSkillListPageSize(nextPageSize);
+          return;
+        }
         setCurrentPage(page);
         setPageSize(nextPageSize);
       },
       onShowSizeChange: (_current, nextPageSize) => {
+        if (activeTab === "skills") {
+          setSkillListPage(1);
+          setSkillListPageSize(nextPageSize);
+          return;
+        }
         setCurrentPage(1);
         setPageSize(nextPageSize);
       },
@@ -148,7 +174,7 @@ export default function MemoryManagementListPage() {
           </p>
         </div>
         <Space>
-          {activeTab === "skills" ? (
+          {activeTab === "skills" && incomingPendingCount === 0 ? (
             <Button onClick={() => openSkillShareCenter("incoming")}>
               {t("admin.memorySkillShareInboxButton", {
                 count: incomingPendingCount,
@@ -212,9 +238,6 @@ export default function MemoryManagementListPage() {
                 <strong>{tabItem.title}</strong>
                 <span>{tabItem.description}</span>
               </span>
-              {tabKey === "skills" && incomingPendingCount > 0 ? (
-                <span className="memory-tab-count">{incomingPendingCount}</span>
-              ) : null}
             </button>
           );
         })}
@@ -299,23 +322,6 @@ export default function MemoryManagementListPage() {
           ) : null}
           <Button onClick={resetFilters}>{t("admin.memoryReset")}</Button>
         </div>
-      ) : null}
-
-      {activeTab === "skills" && incomingPendingCount > 0 ? (
-        <Alert
-          type="info"
-          showIcon
-          className="memory-skill-share-alert"
-          message={t("admin.memorySkillSharePendingHintTitle")}
-          description={t("admin.memorySkillSharePendingHintDesc", {
-            count: incomingPendingCount,
-          })}
-          action={
-            <Button size="small" onClick={() => openSkillShareCenter("incoming")}>
-              {t("admin.memorySkillShareOpenInbox")}
-            </Button>
-          }
-        />
       ) : null}
 
       {activeTab === "experience" ? (
