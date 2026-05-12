@@ -9,6 +9,7 @@ def _import_agentic_module(monkeypatch):
     fake_lazyllm.LOG = SimpleNamespace(
         info=lambda *args, **kwargs: None,
         debug=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
         error=lambda *args, **kwargs: None,
     )
     fake_lazyllm.bind = lambda *args, **kwargs: ('bind', args, kwargs)
@@ -139,6 +140,7 @@ def _import_agentic_module(monkeypatch):
         'max_retries': 20,
         'memory_review_interval': 1,
         'skill_review_interval': 5,
+        'model_config_path': 'dynamic',
     }
 
     # Fake chat.pipelines package to prevent __init__.py from importing naive/memory_generate

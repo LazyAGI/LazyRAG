@@ -10,7 +10,6 @@ vocab.vocab_manager into sys.modules before the real import happens.
 import importlib
 import sys
 import types
-from types import SimpleNamespace
 
 
 def _stub_vocab():
@@ -28,13 +27,6 @@ def _stub_vocab():
         stub.get_vocab_manager = lambda user_id: (lambda q: q)
         sys.modules.setdefault('vocab', types.ModuleType('vocab'))
         sys.modules['vocab.vocab_manager'] = stub
-
-    # Stub vocab.db to avoid psycopg2 / sqlalchemy at import time
-    if 'vocab.db' not in sys.modules:
-        db_stub = types.ModuleType('vocab.db')
-        sys.modules['vocab.db'] = db_stub
-
-
 _stub_vocab()
 
 retriever_mod = importlib.import_module('chat.pipelines.builders.get_retriever')
@@ -92,18 +84,21 @@ def test_parse_query_delegates_to_vocab_manager(monkeypatch):
 
     monkeypatch.setattr(ppl_search_mod, 'get_vocab_manager', fake_get_vocab_manager)
 
-    result = ppl_search_mod.parse_query({'query': 'hello', 'create_user_id': 'user-1'})
+    result = ppl_search_mod.parse_query({'query': 'hello', 'user_id': 'user-1'})
 
     assert result == 'expanded:hello'
     assert calls == ['user-1']
 
 
-def test_parse_query_uses_empty_user_id_when_missing(monkeypatch):
+def test_parse_query_requires_user_id(monkeypatch):
     monkeypatch.setattr(ppl_search_mod, 'get_vocab_manager', lambda uid: lambda q: f'{uid}:{q}')
 
-    result = ppl_search_mod.parse_query({'query': 'test'})
-
-    assert result == ':test'
+    try:
+        ppl_search_mod.parse_query({'query': 'test'})
+    except KeyError as exc:
+        assert exc.args == ('user_id',)
+    else:
+        raise AssertionError('expected user_id to be required')
 
 
 # ---------------------------------------------------------------------------
