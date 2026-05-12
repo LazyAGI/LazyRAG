@@ -105,7 +105,6 @@ ENV LAZYRAG_REVIEW_MAX_RETRIES=5
 ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
 ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
 ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
-# Use runtime_models.yaml by default (reachable from laptop). Inner config is for internal VPC only.
 ENV LAZYRAG_USE_INNER_MODEL=true
 ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
@@ -132,21 +131,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN if [ "$MINERU_PREINSTALL_CPU_TORCH" = "1" ]; then \
         pip install --no-cache-dir \
-        --default-timeout="${PIP_DEFAULT_TIMEOUT}" \
-        --retries="${PIP_RETRIES}" \
         --index-url "$MINERU_PYTORCH_INDEX_URL" \
         "torch==${MINERU_TORCH_VERSION}+cpu" \
         "torchvision==${MINERU_TORCHVISION_VERSION}+cpu"; \
     fi
-RUN pip install --no-cache-dir \
-    --default-timeout="${PIP_DEFAULT_TIMEOUT}" \
-    --retries="${PIP_RETRIES}" \
-    "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERSION}" -i "$MINERU_PYPI_INDEX_URL"
+RUN pip install --no-cache-dir "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERSION}" -i "$MINERU_PYPI_INDEX_URL"
 RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
-        pip install --no-cache-dir \
-        --default-timeout="${PIP_DEFAULT_TIMEOUT}" \
-        --retries="${PIP_RETRIES}" \
-        "numpy==${MINERU_NUMPY_VERSION}"; \
+        pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY . .
 ENV PYTHONPATH=/opt/lazyllm:/app
