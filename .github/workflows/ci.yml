@@ -161,11 +161,16 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq cmake
           pip install scikit-build-core pybind11
+          CMAKE_POLICY_VERSION_MINIMUM=3.5 pip install --no-cache-dir algorithm/lazyllm
           pip install -r algorithm/requirements.txt
           pip install pypdf docx2txt EbookLib html2text olefile spacy bm25s PyStemmer nltk jieba sentencepiece psycopg2-binary
           pip install pytest httpx
-          pip uninstall -y lazyllm || true
-          CMAKE_POLICY_VERSION_MINIMUM=3.5 pip install algorithm/lazyllm
+
+      - name: Verify lazyllm install
+        run: |
+          python -c "from lazyllm.tools.agent.skill_manager import SkillManager; print('tools OK')"
+          python -c "from lazyllm.module import ModuleBase; print('module OK')"
+          python -c "from lazyllm import fc_register; print('fc_register OK')"
 
       - name: Test
         run: python -m pytest tests/algorithm/ -v
