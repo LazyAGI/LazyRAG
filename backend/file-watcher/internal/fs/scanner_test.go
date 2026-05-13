@@ -114,6 +114,29 @@ func TestScannerSkipsTransientEditorFiles(t *testing.T) {
 	}
 }
 
+func TestScannerStatRejectsTransientEditorFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	transientPath := filepath.Join(root, ".draft.txt.swp")
+	if err := os.WriteFile(transientPath, []byte("tmp"), 0o644); err != nil {
+		t.Fatalf("write transient file: %v", err)
+	}
+
+	scanner := NewScanner(
+		"agent-1",
+		config.ScanConfig{BatchSize: 100, LargeFileThresholdMB: 1},
+		&scanReporterStub{},
+		NewPathValidator([]string{root}),
+		NewPathMapper("", nil),
+		zap.NewNop(),
+	)
+
+	if _, err := scanner.Stat(context.Background(), transientPath); err == nil {
+		t.Fatal("expected Stat to reject transient editor file")
+	}
+}
+
 func TestWatcherIgnoresTransientEditorFileEvents(t *testing.T) {
 	t.Parallel()
 

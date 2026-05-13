@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -193,6 +194,9 @@ func (s *scanner) Stat(_ context.Context, path string) (internal.FileMeta, error
 	info, err := os.Stat(path)
 	if err != nil {
 		return internal.FileMeta{}, err
+	}
+	if isTransientFile(path, info.IsDir()) {
+		return internal.FileMeta{}, fmt.Errorf("%s: transient editor file is ignored", internal.ErrInvalidPath)
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {

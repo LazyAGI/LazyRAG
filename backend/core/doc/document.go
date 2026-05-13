@@ -549,6 +549,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "delete document failed", http.StatusInternalServerError)
 		return
 	}
+	recalcAffectedFolderStats(r.Context(), datasetID, row.PID)
 	w.WriteHeader(http.StatusOK)
 }
 func UpdateDocument(w http.ResponseWriter, r *http.Request) {
@@ -983,6 +984,11 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "batch delete document failed", http.StatusInternalServerError)
 		return
 	}
+	pids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		pids = append(pids, row.PID)
+	}
+	recalcAffectedFolderStats(r.Context(), datasetID, pids...)
 	w.WriteHeader(http.StatusOK)
 }
 func AllDocumentCreators(w http.ResponseWriter, r *http.Request) {

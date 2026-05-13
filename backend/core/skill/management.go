@@ -126,7 +126,7 @@ func Get(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "missing skill_id", http.StatusBadRequest)
 		return
 	}
-	item, err := getSkillDetail(r.Context(), db, userID, skillID)
+	item, err := getReadableSkillDetail(r.Context(), db, userID, skillID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			common.ReplyErr(w, "skill not found", http.StatusNotFound)
@@ -555,7 +555,6 @@ func Discard(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "skill draft not found", http.StatusNotFound)
 		return
 	}
-	ids := evolution.DraftSuggestionIDs(row.Ext)
 	now := time.Now()
 	update := map[string]any{
 		"draft_source_version": 0,
@@ -573,11 +572,86 @@ func Discard(w http.ResponseWriter, r *http.Request) {
 	_ = db.WithContext(r.Context()).Model(&orm.SkillResource{}).
 		Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).
 		Updates(map[string]any{"update_status": evolution.UpdateStatusUpToDate, "updated_at": now}).Error
-	if err := evolution.UpdateSuggestionStatus(r.Context(), db, ids, evolution.SuggestionStatusDiscarded); err != nil {
-		common.ReplyErr(w, "update suggestion status failed", http.StatusInternalServerError)
-		return
-	}
 	common.ReplyOK(w, map[string]any{"discarded": true})
+}
+
+func getReadableSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (map[string]any, error) {
+	var row orm.SkillResource
+	if err := db.WithContext(ctx).Where("id = ?", skillID).Take(&row).Error; err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(row.OwnerUserID) == strings.TrimSpace(userID) {
+		return getSkillDetail(ctx, db, row.OwnerUserID, skillID)
+	}
+
+	allowed, err := hasSharedSkillReadAccess(ctx, db, userID, row)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return getSkillDetail(ctx, db, row.OwnerUserID, skillID)
+}
+
+func hasSharedSkillReadAccess(ctx context.Context, db *gorm.DB, userID string, row orm.SkillResource) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return false, nil
+	}
+
+	rootSkill, err := sharedSkillRoot(ctx, db, row)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if strings.TrimSpace(rootSkill.ID) == "" {
+		return false, nil
+	}
+
+	sourceMatch := db.Where("skill_share_tasks.source_skill_id = ?", rootSkill.ID)
+	sourceRelativeRoot := filepath.ToSlash(filepath.Join(strings.TrimSpace(rootSkill.Category), strings.TrimSpace(rootSkill.SkillName)))
+	if sourceRelativeRoot != "" && sourceRelativeRoot != "." {
+		sourceMatch = sourceMatch.Or("skill_share_tasks.source_relative_root = ?", sourceRelativeRoot)
+	}
+	if strings.TrimSpace(rootSkill.Category) != "" && strings.TrimSpace(rootSkill.SkillName) != "" {
+		sourceMatch = sourceMatch.Or("skill_share_tasks.source_category = ? AND skill_share_tasks.source_parent_skill_name = ?", rootSkill.Category, rootSkill.SkillName)
+	}
+
+	var count int64
+	if err := db.WithContext(ctx).
+		Model(&orm.SkillShareItem{}).
+		Joins("JOIN skill_share_tasks ON skill_share_tasks.id = skill_share_items.share_task_id").
+		Where("skill_share_items.target_user_id = ?", userID).
+		Where("skill_share_tasks.source_user_id = ?", rootSkill.OwnerUserID).
+		Where(sourceMatch).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func sharedSkillRoot(ctx context.Context, db *gorm.DB, row orm.SkillResource) (orm.SkillResource, error) {
+	if row.NodeType == evolution.SkillNodeTypeParent {
+		return row, nil
+	}
+	if row.NodeType != evolution.SkillNodeTypeChild {
+		return orm.SkillResource{}, nil
+	}
+
+	parentName := strings.TrimSpace(row.ParentSkillName)
+	if parentName == "" {
+		return orm.SkillResource{}, nil
+	}
+	var parent orm.SkillResource
+	if err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ? AND category = ? AND skill_name = ?", row.OwnerUserID, evolution.SkillNodeTypeParent, row.Category, parentName).
+		Take(&parent).Error; err != nil {
+		return orm.SkillResource{}, err
+	}
+	return parent, nil
 }
 
 func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (map[string]any, error) {

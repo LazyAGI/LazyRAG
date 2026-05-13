@@ -1146,14 +1146,17 @@ func TestListSourceDocumentsWithUpdateTypeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list source documents failed: %v", err)
 	}
-	if resp.Total != 2 {
-		t.Fatalf("expected total=2, got %d", resp.Total)
+	if resp.Total != 1 {
+		t.Fatalf("expected deleted documents to be hidden from total, got %d", resp.Total)
 	}
 	if resp.Summary.NewCount != 1 {
 		t.Fatalf("expected new_count=1, got %d", resp.Summary.NewCount)
 	}
-	if resp.Summary.DeletedCount != 1 {
-		t.Fatalf("expected deleted_count=1, got %d", resp.Summary.DeletedCount)
+	if resp.Summary.DeletedCount != 0 {
+		t.Fatalf("expected deleted documents to be hidden from deleted_count, got %d", resp.Summary.DeletedCount)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].Path != newPath {
+		t.Fatalf("expected only visible file %s, got %+v", newPath, resp.Items)
 	}
 
 	filtered, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
@@ -1217,6 +1220,188 @@ func TestListSourceDocumentsSkipsTransientFileRows(t *testing.T) {
 	}
 }
 
+func TestListSourceDocumentsUsesLocalSnapshotMetadata(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-local-metadata",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/a.txt"
+	modAt := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+	syncAt := modAt.Add(2 * time.Minute)
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		DesiredVersionID: "v1",
+		CurrentVersionID: "v1",
+		LastModifiedAt:   &modAt,
+		ParseStatus:      "SUCCEEDED",
+		OriginType:       string(model.OriginTypeLocalFS),
+		OriginPlatform:   "LOCAL",
+		UpdatedAt:        syncAt.Add(30 * time.Second),
+	}).Error; err != nil {
+		t.Fatalf("create document failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	if err := st.db.WithContext(ctx).Create(&parseTaskEntity{
+		TenantID:                src.TenantID,
+		DocumentID:              doc.ID,
+		TaskAction:              taskActionCreate,
+		TargetVersionID:         "v1",
+		Status:                  "SUCCEEDED",
+		ScanOrchestrationStatus: "SUCCEEDED",
+		NextRunAt:               modAt,
+		FinishedAt:              &syncAt,
+		CreatedAt:               modAt,
+		UpdatedAt:               syncAt,
+	}).Error; err != nil {
+		t.Fatalf("create parse task failed: %v", err)
+	}
+
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    syncAt,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       path,
+		SizeBytes:  1234,
+		ModTime:    &modAt,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               syncAt,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	}
+	item := resp.Items[0]
+	if item.SizeBytes != 1234 {
+		t.Fatalf("expected size_bytes=1234, got %d", item.SizeBytes)
+	}
+	if item.SourceUpdatedAt == nil || !item.SourceUpdatedAt.Equal(modAt) {
+		t.Fatalf("expected source_updated_at=%v, got %v", modAt, item.SourceUpdatedAt)
+	}
+	if item.LastSyncedAt == nil || !item.LastSyncedAt.Equal(syncAt) {
+		t.Fatalf("expected last_synced_at=%v, got %v", syncAt, item.LastSyncedAt)
+	}
+	if resp.Summary.StorageBytes != 1234 {
+		t.Fatalf("expected storage_bytes=1234, got %d", resp.Summary.StorageBytes)
+	}
+}
+
+func TestListSourceDocumentsUsesFeishuCloudObjectMetadata(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-feishu",
+		Name:                  "src-feishu-metadata",
+		RootPath:              "/tmp/cloud/feishu",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create feishu source failed: %v", err)
+	}
+
+	path := "/tmp/cloud/feishu/docs/spec.txt"
+	originRef := "obj_feishu_001"
+	sourceUpdatedAt := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	docLastModifiedAt := sourceUpdatedAt.Add(-time.Hour)
+	lastSyncedAt := sourceUpdatedAt.Add(7 * time.Minute)
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		DesiredVersionID: "v1",
+		CurrentVersionID: "v1",
+		LastModifiedAt:   &docLastModifiedAt,
+		ParseStatus:      "SUCCEEDED",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        originRef,
+		UpdatedAt:        lastSyncedAt.Add(time.Minute),
+	}).Error; err != nil {
+		t.Fatalf("create cloud document failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&cloudObjectIndexEntity{
+		SourceID:           src.ID,
+		Provider:           "feishu",
+		ExternalObjectID:   originRef,
+		ExternalPath:       "/docs/spec.txt",
+		ExternalName:       "spec.txt",
+		ExternalKind:       "file",
+		ExternalVersion:    "rev1",
+		ExternalModifiedAt: &sourceUpdatedAt,
+		LocalAbsPath:       path,
+		SizeBytes:          4567,
+		LastSyncedAt:       &lastSyncedAt,
+		CreatedAt:          lastSyncedAt,
+		UpdatedAt:          lastSyncedAt,
+	}).Error; err != nil {
+		t.Fatalf("create cloud object index failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	}
+	item := resp.Items[0]
+	if item.SizeBytes != 4567 {
+		t.Fatalf("expected size_bytes=4567, got %d", item.SizeBytes)
+	}
+	if item.SourceUpdatedAt == nil || !item.SourceUpdatedAt.Equal(sourceUpdatedAt) {
+		t.Fatalf("expected source_updated_at=%v, got %v", sourceUpdatedAt, item.SourceUpdatedAt)
+	}
+	if item.LastSyncedAt == nil || !item.LastSyncedAt.Equal(lastSyncedAt) {
+		t.Fatalf("expected last_synced_at=%v, got %v", lastSyncedAt, item.LastSyncedAt)
+	}
+	if resp.Summary.StorageBytes != 4567 {
+		t.Fatalf("expected storage_bytes=4567, got %d", resp.Summary.StorageBytes)
+	}
+}
+
 func TestBuildMutationsFromEventsSkipsTransientFiles(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1232,6 +1417,71 @@ func TestBuildMutationsFromEventsSkipsTransientFiles(t *testing.T) {
 	}
 	if len(mutations) != 1 || mutations[0].SourceObjectID != "/tmp/watch/normal.txt" {
 		t.Fatalf("expected only normal mutation, got %+v", mutations)
+	}
+}
+
+func TestTransientExistingDocumentsDoNotScheduleOrClaimParseTasks(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	now := time.Now().UTC().Add(-time.Minute)
+	nextParseAt := now
+	doc := documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   "/tmp/watch/.normal.txt.swp",
+		DesiredVersionID: "v1",
+		NextParseAt:      &nextParseAt,
+		ParseStatus:      "PENDING",
+		UpdatedAt:        now,
+	}
+	if err := st.db.WithContext(ctx).Create(&doc).Error; err != nil {
+		t.Fatalf("seed transient document failed: %v", err)
+	}
+
+	created, err := st.ScheduleDueParses(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("schedule due parses failed: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("expected no tasks for transient document, got %d", created)
+	}
+	var reloaded documentEntity
+	if err := st.db.WithContext(ctx).Take(&reloaded, "id = ?", doc.ID).Error; err != nil {
+		t.Fatalf("reload transient document failed: %v", err)
+	}
+	if reloaded.NextParseAt != nil {
+		t.Fatalf("expected transient document next_parse_at cleared, got %v", reloaded.NextParseAt)
+	}
+
+	task := parseTaskEntity{
+		TenantID:                src.TenantID,
+		DocumentID:              doc.ID,
+		TaskAction:              taskActionCreate,
+		TargetVersionID:         "v1",
+		Status:                  "PENDING",
+		ScanOrchestrationStatus: "PENDING",
+		NextRunAt:               time.Now().UTC().Add(-time.Minute),
+		CreatedAt:               time.Now().UTC(),
+		UpdatedAt:               time.Now().UTC(),
+	}
+	if err := st.db.WithContext(ctx).Create(&task).Error; err != nil {
+		t.Fatalf("seed transient parse task failed: %v", err)
+	}
+	claimed, err := st.ClaimDueTasks(ctx, "worker-1", time.Now().UTC(), 10, time.Minute)
+	if err != nil {
+		t.Fatalf("claim due tasks failed: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("expected no claimed transient task, got %+v", claimed)
+	}
+	var reloadedTask parseTaskEntity
+	if err := st.db.WithContext(ctx).Take(&reloadedTask, "id = ?", task.ID).Error; err != nil {
+		t.Fatalf("reload transient task failed: %v", err)
+	}
+	if reloadedTask.Status != "SUPERSEDED" {
+		t.Fatalf("expected transient task superseded, got %s", reloadedTask.Status)
 	}
 }
 
@@ -1449,6 +1699,88 @@ func TestGenerateTasksForWatchSourceRecreatesDeletedPathPresentInPreview(t *test
 	}
 	if doc.CurrentVersionID != "" || doc.CoreDocumentID != "" {
 		t.Fatalf("expected recreated path to clear old core identity, got current=%q core=%q", doc.CurrentVersionID, doc.CoreDocumentID)
+	}
+}
+
+func TestGenerateTasksForWatchSourceDeletesPathMissingFromPreview(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	baseAt := time.Now().UTC().Add(-2 * time.Minute)
+	deletedPath := "/tmp/watch/deleted-in-source.txt"
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: deletedPath, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build create mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply create mutation failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, deletedPath)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"core_document_id":   "core-doc-deleted-in-source",
+			"current_version_id": "v_old",
+			"parse_status":       "SUCCEEDED",
+		}).Error; err != nil {
+		t.Fatalf("seed succeeded document failed: %v", err)
+	}
+
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "deleted", Path: deletedPath, OccurredAt: baseAt.Add(time.Minute)},
+	})
+	if err != nil {
+		t.Fatalf("build delete mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply delete mutation failed: %v", err)
+	}
+	doc = loadDocumentByPath(t, st, src, deletedPath)
+	if doc.ParseStatus != "DELETED" {
+		t.Fatalf("expected document to be marked deleted before preview, got %s", doc.ParseStatus)
+	}
+
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, nil, nil)
+	if err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	if token == "" {
+		t.Fatalf("expected selection token")
+	}
+	node, ok := findTreeNodeByPath(tree, deletedPath)
+	if !ok {
+		t.Fatalf("expected deleted document to be present in tree")
+	}
+	if node.UpdateType != "DELETED" {
+		t.Fatalf("expected deleted tree node update_type DELETED, got %s", node.UpdateType)
+	}
+
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{deletedPath},
+		SelectionToken: token,
+		TriggerPolicy:  "IMMEDIATE",
+	})
+	if err != nil {
+		t.Fatalf("generate tasks for deleted path failed: %v", err)
+	}
+	if resp.AcceptedCount != 1 {
+		t.Fatalf("expected accepted_count=1, got %d", resp.AcceptedCount)
+	}
+
+	if _, err := st.ScheduleDueParses(ctx, time.Now().UTC().Add(time.Second)); err != nil {
+		t.Fatalf("schedule delete parse failed: %v", err)
+	}
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 delete task, got %d", len(tasks))
+	}
+	if normalizeTaskAction(tasks[0].TaskAction) != taskActionDelete {
+		t.Fatalf("expected delete task action, got %s", tasks[0].TaskAction)
 	}
 }
 

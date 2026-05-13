@@ -46,7 +46,7 @@ func (h *Handler) Tree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, string(internal.ErrInvalidPath), err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, internal.TreeResponse{Items: []internal.TreeNode{root}})
+	writeJSON(w, http.StatusOK, internal.TreeResponse{Items: filterTreeNodesByKeyword([]internal.TreeNode{root}, req.Keyword)})
 }
 
 func NewHandler(manager source.Manager, validator fs.PathValidator, scanner fs.Scanner, staging fs.StagingService, mapper fs.PathMapper, log *zap.Logger) *Handler {
@@ -124,6 +124,10 @@ func (h *Handler) StatFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
 		return
 	}
+	if fs.IsTransientFile(runtimePath, false) {
+		writeError(w, http.StatusBadRequest, string(internal.ErrInvalidPath), "transient editor file is ignored")
+		return
+	}
 
 	meta, err := h.scanner.Stat(r.Context(), runtimePath)
 	if err != nil {
@@ -193,6 +197,10 @@ func (h *Handler) StageFile(w http.ResponseWriter, r *http.Request) {
 	runtimePath := h.mapper.ToRuntime(req.SrcPath)
 	if err := h.validator.EnsureAllowed(runtimePath); err != nil {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
+		return
+	}
+	if fs.IsTransientFile(runtimePath, false) {
+		writeError(w, http.StatusBadRequest, string(internal.ErrStageFailed), "transient editor file is ignored")
 		return
 	}
 
@@ -268,6 +276,27 @@ func publicBase(path string) string {
 		return clean
 	}
 	return clean[idx+1:]
+}
+
+func filterTreeNodesByKeyword(items []internal.TreeNode, keyword string) []internal.TreeNode {
+	normalized := strings.ToLower(strings.TrimSpace(keyword))
+	if normalized == "" {
+		return items
+	}
+	out := make([]internal.TreeNode, 0, len(items))
+	for _, node := range items {
+		item := node
+		item.Children = filterTreeNodesByKeyword(item.Children, normalized)
+		if treeNodeMatchesKeyword(item, normalized) || len(item.Children) > 0 {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func treeNodeMatchesKeyword(node internal.TreeNode, normalizedKeyword string) bool {
+	return strings.Contains(strings.ToLower(node.Title), normalizedKeyword) ||
+		strings.Contains(strings.ToLower(node.Key), normalizedKeyword)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

@@ -79,6 +79,61 @@ func newAgentTestDB(t *testing.T) *orm.DB {
 	return db
 }
 
+func TestBuildThreadCreateTitleUsesKnowledgeBaseDisplayNameAndDate(t *testing.T) {
+	db := newAgentTestDB(t)
+	if err := db.DB.AutoMigrate(&orm.Dataset{}); err != nil {
+		t.Fatalf("auto migrate dataset: %v", err)
+	}
+
+	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
+	if err := db.DB.Create(&orm.Dataset{
+		ID:                     "dataset-1",
+		KbID:                   "kb-1",
+		DisplayName:            "产品知识库",
+		ResourceUID:            "dataset-1",
+		DatasetInfo:            json.RawMessage(`{}`),
+		EmbeddingModel:         "default",
+		EmbeddingModelProvider: "default",
+		Type:                   1,
+		Ext:                    json.RawMessage(`{}`),
+		BaseModel: orm.BaseModel{
+			CreateUserID:   "user-1",
+			CreateUserName: "tester",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create dataset: %v", err)
+	}
+
+	payload := map[string]any{
+		"title": "old frontend title",
+		"inputs": map[string]any{
+			"kb_id": "kb-1",
+		},
+	}
+	applyThreadCreateTitle(context.Background(), db.DB, payload, now)
+
+	if got := payload["title"]; got != "产品知识库-2026-05-13" {
+		t.Fatalf("unexpected thread title: %#v", got)
+	}
+}
+
+func TestBuildThreadCreateTitleFallsBackToPayloadTitle(t *testing.T) {
+	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
+	payload := map[string]any{
+		"title": "前端传入名称",
+		"inputs": map[string]any{
+			"kb_id": "missing-kb",
+		},
+	}
+
+	got := buildThreadCreateTitle(context.Background(), nil, payload, now)
+	if got != "前端传入名称-2026-05-13" {
+		t.Fatalf("unexpected fallback thread title: %q", got)
+	}
+}
+
 func assertSignedStaticFileExists(t *testing.T, uploadRoot string, file *caseCSVFile) {
 	t.Helper()
 	if file == nil {
@@ -353,7 +408,7 @@ func TestBuildCaseCSVBytesJoinsListValues(t *testing.T) {
 func TestBuildCaseCSVBytesNormalizesMultilineCells(t *testing.T) {
 	csvBytes, rowCount, err := buildCaseCSVBytes([]any{
 		map[string]any{
-			"answer":   "line 1\r\nline 2\n\nline 3",
+			"answer":   "line 1\r\nline 2\n\nline 3\x00\x01",
 			"segments": []any{"chunk 1\nchunk 2", "chunk 3"},
 		},
 	})
@@ -363,8 +418,8 @@ func TestBuildCaseCSVBytesNormalizesMultilineCells(t *testing.T) {
 	if rowCount != 1 {
 		t.Fatalf("expected row count 1, got %d", rowCount)
 	}
-	if bytes.ContainsAny(csvBytes, "\r") || bytes.Count(csvBytes, []byte("\n")) != 2 {
-		t.Fatalf("expected csv to contain record separators only, got %q", string(csvBytes))
+	if bytes.ContainsAny(csvBytes, "\r\x00\x01") || bytes.Count(csvBytes, []byte("\n")) != 2 {
+		t.Fatalf("expected csv to contain record separators only and no control characters, got %q", string(csvBytes))
 	}
 
 	reader := csv.NewReader(bytes.NewReader(csvBytes))

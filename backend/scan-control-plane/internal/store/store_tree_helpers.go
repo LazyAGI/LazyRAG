@@ -179,6 +179,48 @@ func filterPathsByDiff(paths []string, diffByPath map[string]string) ([]string, 
 	return filtered, ignored
 }
 
+func (s *Store) deletedDocumentPathSet(ctx context.Context, sourceID string, paths []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(paths))
+	if len(paths) == 0 {
+		return out, nil
+	}
+	normalized := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, rawPath := range paths {
+		path := filepath.Clean(strings.TrimSpace(rawPath))
+		if path == "" || path == "." {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		normalized = append(normalized, path)
+	}
+	if len(normalized) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		SourceObjectID string
+	}
+	query := s.db.WithContext(ctx).
+		Table("documents").
+		Select("source_object_id").
+		Where("source_id = ? AND source_object_id IN ? AND parse_status = ?", sourceID, normalized, "DELETED")
+	query = applyTransientPathFilter(query, "source_object_id")
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		path := filepath.Clean(strings.TrimSpace(row.SourceObjectID))
+		if path == "" || path == "." {
+			continue
+		}
+		out[path] = struct{}{}
+	}
+	return out, nil
+}
+
 func collectDeletedPathsFromDiff(diffByPath map[string]string, currentPaths []string) []string {
 	currentSet := make(map[string]struct{}, len(currentPaths))
 	for _, path := range currentPaths {
@@ -190,6 +232,9 @@ func collectDeletedPathsFromDiff(diffByPath map[string]string, currentPaths []st
 			continue
 		}
 		cleanPath := filepath.Clean(strings.TrimSpace(path))
+		if isTransientSourceFilePath(cleanPath, false) {
+			continue
+		}
 		if _, ok := currentSet[cleanPath]; ok {
 			continue
 		}

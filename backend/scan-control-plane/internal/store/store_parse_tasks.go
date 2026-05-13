@@ -387,6 +387,15 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 	created := 0
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, doc := range docs {
+			if isTransientSourceFilePath(doc.SourceObjectID, false) {
+				if err := tx.Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(map[string]any{
+					"next_parse_at": nil,
+					"updated_at":    now.UTC(),
+				}).Error; err != nil {
+					return err
+				}
+				continue
+			}
 			taskAction := inferTaskActionForDocument(doc)
 			if taskAction != taskActionDelete && strings.TrimSpace(doc.DesiredVersionID) == "" {
 				continue
@@ -615,6 +624,12 @@ func (s *Store) ClaimDueTasks(ctx context.Context, leaseOwner string, now time.T
 			Where("d.id = ?", task.DocumentID).
 			Take(&row).Error; err != nil {
 			return nil, err
+		}
+		if isTransientSourceFilePath(row.SourceObjectID, false) {
+			if err := s.MarkTaskSuperseded(ctx, task.ID, "transient editor file is ignored"); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		result = append(result, PendingTask{
 			TaskID:           task.ID,
@@ -1137,7 +1152,7 @@ func (s *Store) latestParseTasksByDocumentIDs(ctx context.Context, documentIDs [
 	var rows []parseTaskDocJoin
 	if err := s.db.WithContext(ctx).
 		Table("parse_tasks pt").
-		Select("pt.id AS task_id, pt.document_id, pt.task_action, pt.target_version_id, pt.core_document_id, pt.status, pt.core_dataset_id, pt.core_task_id, pt.scan_orchestration_status").
+		Select("pt.id AS task_id, pt.document_id, pt.task_action, pt.target_version_id, pt.core_document_id, pt.status, pt.core_dataset_id, pt.core_task_id, pt.scan_orchestration_status, pt.submit_at, pt.finished_at, pt.updated_at").
 		Joins("JOIN (?) latest ON latest.max_id = pt.id", sub).
 		Scan(&rows).Error; err != nil {
 		return nil, err

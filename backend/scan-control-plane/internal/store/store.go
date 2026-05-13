@@ -89,6 +89,9 @@ type parseTaskDocJoin struct {
 	CoreDatasetID           string
 	CoreTaskID              string
 	ScanOrchestrationStatus string
+	SubmitAt                *time.Time
+	FinishedAt              *time.Time
+	UpdatedAt               time.Time
 }
 
 type SourceDocumentCoreRef struct {

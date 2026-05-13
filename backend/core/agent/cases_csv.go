@@ -320,6 +320,12 @@ func normalizeCaseCSVCellString(value string) string {
 		case '\r', '\n':
 			pendingLineBreak = true
 			continue
+		case '\t':
+			char = ' '
+		default:
+			if char < ' ' {
+				continue
+			}
 		}
 		if pendingLineBreak {
 			if builder.Len() > 0 && char != ' ' && char != '\t' {

@@ -369,6 +369,14 @@ func applyTransientPathFilter(db *gorm.DB, column string) *gorm.DB {
 	return db
 }
 
+func applyVisibleDocumentFilter(db *gorm.DB, parseStatusColumn string) *gorm.DB {
+	parseStatusColumn = strings.TrimSpace(parseStatusColumn)
+	if parseStatusColumn == "" {
+		return db
+	}
+	return db.Where("UPPER(COALESCE("+parseStatusColumn+", '')) <> ?", "DELETED")
+}
+
 func normalizeEventType(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "created":

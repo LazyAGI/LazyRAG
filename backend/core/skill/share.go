@@ -69,7 +69,7 @@ func Share(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetUsers, err := expandTargetUsers(r, db, compactStrings(req.TargetUserIDs), compactStrings(req.TargetGroupIDs))
+	targetUsers, err := expandTargetUsers(r, compactStrings(req.TargetUserIDs), compactStrings(req.TargetGroupIDs))
 	if err != nil {
 		common.ReplyErr(w, "expand target users failed", http.StatusInternalServerError)
 		return
@@ -571,11 +571,7 @@ func shareItemIsNewer(candidate, current orm.SkillShareItem) bool {
 	return strings.Compare(strings.TrimSpace(candidate.ID), strings.TrimSpace(current.ID)) > 0
 }
 
-func expandTargetUsers(r *http.Request, db *gorm.DB, userIDs, groupIDs []string) ([]string, error) {
-	ctx := context.Background()
-	if r != nil {
-		ctx = r.Context()
-	}
+func expandTargetUsers(r *http.Request, userIDs, groupIDs []string) ([]string, error) {
 	seen := make(map[string]struct{}, len(userIDs))
 	out := make([]string, 0, len(userIDs))
 	for _, userID := range userIDs {
@@ -588,23 +584,14 @@ func expandTargetUsers(r *http.Request, db *gorm.DB, userIDs, groupIDs []string)
 	if len(groupIDs) == 0 {
 		return out, nil
 	}
+	// Group shares must respect auth-service active_only filtering so disabled users
+	// are not reintroduced from stale local membership cache rows.
 	for _, userID := range common.FetchGroupUserIDsFromAuthService(r, groupIDs) {
 		if _, ok := seen[userID]; ok {
 			continue
 		}
 		seen[userID] = struct{}{}
 		out = append(out, userID)
-	}
-	var memberships []orm.UserGroupModel
-	if err := db.WithContext(ctx).Where("group_id IN ?", groupIDs).Find(&memberships).Error; err != nil {
-		return nil, err
-	}
-	for _, membership := range memberships {
-		if _, ok := seen[membership.UserID]; ok {
-			continue
-		}
-		seen[membership.UserID] = struct{}{}
-		out = append(out, membership.UserID)
 	}
 	sort.Strings(out)
 	return out, nil

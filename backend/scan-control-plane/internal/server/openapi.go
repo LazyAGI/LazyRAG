@@ -63,16 +63,17 @@ func buildOpenAPISpec() map[string]any {
 						"items": arrSchema(refSchema("Source")),
 					}, []string{"items"})),
 					"400": errResp(),
-				}, headerParam("X-User-Id", true)),
+				}),
 				"post": op("Create source", reqBody(refSchema("CreateSourceRequest")), map[string]any{
 					"200": resp("Created source", refSchema("Source")),
 					"400": errResp(),
-				}, headerParam("X-User-Id", true)),
+				}),
 			},
 			"/api/scan/knowledge-bases": map[string]any{
 				"post": op("Create knowledge base in core and grant current user read permission", reqBody(refSchema("CreateKnowledgeBaseRequest")), map[string]any{
 					"200": resp("Created knowledge base", refSchema("CreateKnowledgeBaseResponse")),
 					"400": errResp(),
+					"409": errResp(),
 					"502": errResp(),
 				}),
 			},
@@ -284,20 +285,6 @@ func buildOpenAPISpec() map[string]any {
 				"post": op("Report scan results", reqBody(refSchema("ReportScanResultsRequest")), map[string]any{
 					"200": acceptedResp(),
 					"500": errResp(),
-				}),
-			},
-			"/api/v1/agents/fs/validate": map[string]any{
-				"post": op("Validate path via agent", reqBody(refSchema("AgentPathRequest")), map[string]any{
-					"200": resp("Path validation result", refSchema("AgentPathValidateResponse")),
-					"404": errResp(),
-					"502": errResp(),
-				}),
-			},
-			"/api/v1/agents/fs/tree": map[string]any{
-				"post": op("Get directory tree via agent", reqBody(refSchema("AgentPathTreeRequest")), map[string]any{
-					"200": resp("Directory tree", refSchema("AgentPathTreeResponse")),
-					"404": errResp(),
-					"502": errResp(),
 				}),
 			},
 			"/api/scan/agents/fs/validate": map[string]any{
@@ -579,6 +566,7 @@ func schemas() map[string]any {
 			"parse_state":               strSchema(),
 			"file_type":                 strSchema(),
 			"size_bytes":                intSchema(),
+			"source_updated_at":         dateTimeSchema(),
 			"last_synced_at":            dateTimeSchema(),
 			"core_dataset_id":           strSchema(),
 			"core_task_id":              strSchema(),
@@ -761,6 +749,7 @@ func schemas() map[string]any {
 			"agent_id":      strSchema(),
 			"source_id":     strSchema(),
 			"path":          strSchema(),
+			"keyword":       strSchema(),
 			"max_depth":     intSchema(),
 			"include_files": boolSchema(),
 			"changes_only":  boolSchema(),
@@ -768,6 +757,7 @@ func schemas() map[string]any {
 		}, []string{"agent_id", "path"}),
 		"SourcePathTreeRequest": inlineObj(map[string]any{
 			"path":          strSchema(),
+			"keyword":       strSchema(),
 			"max_depth":     intSchema(),
 			"include_files": boolSchema(),
 			"changes_only":  boolSchema(),
@@ -848,15 +838,6 @@ func pathParam(name string) map[string]any {
 		"name":     name,
 		"in":       "path",
 		"required": true,
-		"schema":   strSchema(),
-	}
-}
-
-func headerParam(name string, required bool) map[string]any {
-	return map[string]any{
-		"name":     name,
-		"in":       "header",
-		"required": required,
 		"schema":   strSchema(),
 	}
 }

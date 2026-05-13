@@ -136,6 +136,254 @@ func TestDecodeJSONRejectsMultipleJSONValues(t *testing.T) {
 	}
 }
 
+func TestOpenAPISpecHidesAgentFSCompatAliases(t *testing.T) {
+	t.Parallel()
+
+	spec := buildOpenAPISpec()
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected OpenAPI paths map, got %#v", spec["paths"])
+	}
+
+	for _, path := range []string{
+		"/api/scan/agents/fs/tree",
+		"/api/scan/agents/fs/validate",
+	} {
+		if _, ok := paths[path]; !ok {
+			t.Fatalf("expected canonical path %s in OpenAPI spec", path)
+		}
+	}
+	for _, path := range []string{
+		"/api/v1/agents/fs/tree",
+		"/api/v1/agents/fs/validate",
+	} {
+		if _, ok := paths[path]; ok {
+			t.Fatalf("compat alias %s should not be exposed in OpenAPI spec", path)
+		}
+	}
+}
+
+type fakeKnowledgeBaseCore struct {
+	createResult coreclient.CreateKnowledgeBaseResult
+	createErr    error
+	foundKB      coreclient.KnowledgeBaseRef
+	found        bool
+	findErr      error
+}
+
+func (f fakeKnowledgeBaseCore) Enabled() bool { return true }
+
+func (f fakeKnowledgeBaseCore) SubmitParseTask(context.Context, store.PendingTask, string, string, int64) (coreclient.SubmitResult, error) {
+	return coreclient.SubmitResult{}, nil
+}
+
+func (f fakeKnowledgeBaseCore) CreateKnowledgeBase(context.Context, coreclient.CreateKnowledgeBaseRequest) (coreclient.CreateKnowledgeBaseResult, error) {
+	return f.createResult, f.createErr
+}
+
+func (f fakeKnowledgeBaseCore) FindKnowledgeBaseByName(context.Context, string, string, string) (coreclient.KnowledgeBaseRef, bool, error) {
+	return f.foundKB, f.found, f.findErr
+}
+
+func (f fakeKnowledgeBaseCore) SearchTasks(context.Context, []string) (map[string]coreclient.TaskState, error) {
+	return map[string]coreclient.TaskState{}, nil
+}
+
+func (f fakeKnowledgeBaseCore) SearchTasksByDataset(context.Context, string, []string) (map[string]coreclient.TaskState, error) {
+	return map[string]coreclient.TaskState{}, nil
+}
+
+func TestCreateKnowledgeBaseReusesUnboundScanManagedDataset(t *testing.T) {
+	t.Parallel()
+
+	st := newServerTestStore(t)
+	h := &Handler{
+		store: st,
+		core: fakeKnowledgeBaseCore{
+			createErr: &coreclient.HTTPError{StatusCode: http.StatusConflict, Body: "dataset name already exists"},
+			foundKB: coreclient.KnowledgeBaseRef{
+				DatasetID:   "ds_scan_half_created",
+				Name:        "local kb",
+				ScanManaged: true,
+			},
+			found: true,
+		},
+		log: zap.NewNop(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/scan/knowledge-bases", strings.NewReader(`{"name":"local kb","algo":{"algo_id":"algo-1"}}`))
+	req.Header.Set("X-User-Id", "user-1")
+	w := httptest.NewRecorder()
+
+	h.createKnowledgeBase(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp model.CreateKnowledgeBaseResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if resp.DatasetID != "ds_scan_half_created" || resp.Name != "local kb" {
+		t.Fatalf("expected reused dataset, got %#v", resp)
+	}
+}
+
+func TestCreateKnowledgeBaseDoesNotReuseBoundScanManagedDataset(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	if err := st.RegisterAgent(ctx, model.RegisterAgentRequest{
+		AgentID:  "agent-1",
+		TenantID: "tenant-1",
+		Hostname: "test",
+		Version:  "v1",
+	}); err != nil {
+		t.Fatalf("register agent failed: %v", err)
+	}
+	if _, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:     "tenant-1",
+		CreateUserID: "user-1",
+		Name:         "bound source",
+		AgentID:      "agent-1",
+		RootPath:     "/tmp/bound-source",
+		DatasetID:    "ds_scan_bound",
+	}); err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+
+	h := &Handler{
+		store: st,
+		core: fakeKnowledgeBaseCore{
+			createErr: &coreclient.HTTPError{StatusCode: http.StatusConflict, Body: "dataset name already exists"},
+			foundKB: coreclient.KnowledgeBaseRef{
+				DatasetID:   "ds_scan_bound",
+				Name:        "local kb",
+				ScanManaged: true,
+			},
+			found: true,
+		},
+		log: zap.NewNop(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/scan/knowledge-bases", strings.NewReader(`{"name":"local kb","algo":{"algo_id":"algo-1"}}`))
+	req.Header.Set("X-User-Id", "user-1")
+	w := httptest.NewRecorder()
+
+	h.createKnowledgeBase(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestFilterTreeByKeywordKeepsMatchingAncestors(t *testing.T) {
+	t.Parallel()
+
+	items := []model.TreeNode{
+		{Title: "root", Key: "/root", IsDir: true, Children: []model.TreeNode{
+			{Title: "docs", Key: "/root/docs", IsDir: true, Children: []model.TreeNode{
+				{Title: "ReleaseNotes.md", Key: "/root/docs/ReleaseNotes.md", IsDir: false},
+				{Title: "guide.txt", Key: "/root/docs/guide.txt", IsDir: false},
+			}},
+			{Title: "assets", Key: "/root/assets", IsDir: true, Children: []model.TreeNode{
+				{Title: "logo.png", Key: "/root/assets/logo.png", IsDir: false},
+			}},
+		}},
+	}
+
+	got := filterTreeByKeyword(items, "release")
+	if len(got) != 1 {
+		t.Fatalf("expected root to be kept, got %d nodes", len(got))
+	}
+	if len(got[0].Children) != 1 || got[0].Children[0].Title != "docs" {
+		t.Fatalf("expected only docs ancestor, got %#v", got[0].Children)
+	}
+	docs := got[0].Children[0]
+	if len(docs.Children) != 1 || docs.Children[0].Title != "ReleaseNotes.md" {
+		t.Fatalf("expected only matching release file, got %#v", docs.Children)
+	}
+}
+
+func TestPathTreeByAgentFiltersKeywordWhenAgentReturnsFullTree(t *testing.T) {
+	t.Parallel()
+
+	var receivedKeyword string
+	var ts *httptest.Server
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Skipf("skip: httptest listener not available in current sandbox: %v", r)
+			}
+		}()
+		ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/fs/tree" {
+				http.NotFound(w, r)
+				return
+			}
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+			receivedKeyword, _ = req["keyword"].(string)
+			_ = json.NewEncoder(w).Encode(model.AgentPathTreeResponse{
+				Items: []model.TreeNode{
+					{Title: "root", Key: "/root", IsDir: true, Children: []model.TreeNode{
+						{Title: "ReleaseNotes.md", Key: "/root/ReleaseNotes.md", IsDir: false},
+						{Title: "guide.txt", Key: "/root/guide.txt", IsDir: false},
+					}},
+				},
+			})
+		}))
+	}()
+	if ts == nil {
+		return
+	}
+	defer ts.Close()
+
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	if err := st.RegisterAgent(ctx, model.RegisterAgentRequest{
+		AgentID:    "agent-keyword",
+		TenantID:   "tenant-1",
+		Hostname:   "test",
+		Version:    "v1",
+		ListenAddr: ts.URL,
+	}); err != nil {
+		t.Fatalf("register agent failed: %v", err)
+	}
+	h := &Handler{
+		store:  st,
+		client: &http.Client{Timeout: 2 * time.Second},
+		log:    zap.NewNop(),
+	}
+
+	body := `{"agent_id":"agent-keyword","path":"/root","keyword":"release","include_files":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/scan/agents/fs/tree", strings.NewReader(body))
+	w := httptest.NewRecorder()
+
+	h.pathTreeByAgent(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 status, got %d: %s", w.Code, w.Body.String())
+	}
+	if receivedKeyword != "release" {
+		t.Fatalf("expected keyword to be forwarded, got %q", receivedKeyword)
+	}
+	var resp model.AgentPathTreeResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if len(resp.Items) != 1 || len(resp.Items[0].Children) != 1 {
+		t.Fatalf("expected filtered tree, got %#v", resp.Items)
+	}
+	if resp.Items[0].Children[0].Title != "ReleaseNotes.md" {
+		t.Fatalf("expected matching release file, got %#v", resp.Items[0].Children)
+	}
+}
+
 func TestApplyCoreTaskStateUsesCoreParseStateWithoutChangingSnapshotUpdate(t *testing.T) {
 	t.Parallel()
 

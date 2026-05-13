@@ -435,6 +435,18 @@ func (s *Store) ListSources(ctx context.Context, tenantID, createUserID string) 
 	return result, nil
 }
 
+func (s *Store) SourceExistsByDatasetID(ctx context.Context, datasetID string) (bool, error) {
+	datasetID = strings.TrimSpace(datasetID)
+	if datasetID == "" {
+		return false, nil
+	}
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&sourceEntity{}).Where("dataset_id = ?", datasetID).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (s *Store) GetSource(ctx context.Context, id string) (model.Source, error) {
 	var src sourceEntity
 	if err := s.db.WithContext(ctx).First(&src, "id = ?", id).Error; err != nil {

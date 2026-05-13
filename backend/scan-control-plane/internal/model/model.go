@@ -437,6 +437,7 @@ type SourceDocumentItem struct {
 	ParseState              string     `json:"parse_state"`
 	FileType                string     `json:"file_type,omitempty"`
 	SizeBytes               int64      `json:"size_bytes"`
+	SourceUpdatedAt         *time.Time `json:"source_updated_at,omitempty"`
 	LastSyncedAt            *time.Time `json:"last_synced_at,omitempty"`
 	CoreDatasetID           string     `json:"core_dataset_id,omitempty"`
 	CoreTaskID              string     `json:"core_task_id,omitempty"`
@@ -489,6 +490,7 @@ type AgentPathTreeRequest struct {
 	AgentID      string `json:"agent_id"`
 	SourceID     string `json:"source_id,omitempty"`
 	Path         string `json:"path"`
+	Keyword      string `json:"keyword,omitempty"`
 	MaxDepth     int    `json:"max_depth,omitempty"`
 	IncludeFiles bool   `json:"include_files,omitempty"`
 	ChangesOnly  bool   `json:"changes_only,omitempty"`
@@ -497,6 +499,7 @@ type AgentPathTreeRequest struct {
 
 type SourcePathTreeRequest struct {
 	Path         string `json:"path,omitempty"`
+	Keyword      string `json:"keyword,omitempty"`
 	MaxDepth     int    `json:"max_depth,omitempty"`
 	IncludeFiles bool   `json:"include_files,omitempty"`
 	ChangesOnly  bool   `json:"changes_only,omitempty"`

@@ -506,7 +506,6 @@ func Discard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ids := evolution.DraftSuggestionIDs(row.Ext)
 	now := time.Now()
 	update := map[string]any{
 		"draft_content":        "",
@@ -520,10 +519,6 @@ func Discard(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := db.WithContext(r.Context()).Model(&orm.SystemUserPreference{}).Where("id = ?", row.ID).Updates(update).Error; err != nil {
 		common.ReplyErr(w, "discard user_preference draft failed", http.StatusInternalServerError)
-		return
-	}
-	if err := evolution.UpdateSuggestionStatus(r.Context(), db, ids, evolution.SuggestionStatusDiscarded); err != nil {
-		common.ReplyErr(w, "update suggestion status failed", http.StatusInternalServerError)
 		return
 	}
 	common.ReplyOK(w, map[string]any{"discarded": true})
