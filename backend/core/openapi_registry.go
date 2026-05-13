@@ -1516,7 +1516,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.",
 			Tags:        []string{"model_providers"},
 			RequestBody: jsonBodyOf(checkModelProviderOpenAPIRequest{}, true),
-			Responses:   map[int]openAPIResponse{200: resp("data contains only success (bool), mapped from algorithm /api/model/check", modelprovider.CheckModelProviderData{})},
+			Responses:   map[int]openAPIResponse{200: resp("data: success and message from algorithm /api/model/check", modelprovider.CheckModelProviderData{})},
 		},
 		{
 			Method:      "GET",
