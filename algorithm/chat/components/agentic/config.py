@@ -218,10 +218,10 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
         if (isinstance(user_pref, str) and user_pref.strip()) or (isinstance(mem, str) and mem.strip()):
             memory_block = []
             if isinstance(user_pref, str) and user_pref.strip():
-                memory_block.append(f"## User Profile / Preferences\n{user_pref.strip()}")
+                memory_block.append(f'## User Profile / Preferences\n{user_pref.strip()}')
             if isinstance(mem, str) and mem.strip():
-                memory_block.append(f"## Long-term Memory\n{mem.strip()}")
-            prompt_parts.append("\n\n".join(memory_block))
+                memory_block.append(f'## Long-term Memory\n{mem.strip()}')
+            prompt_parts.append('\n\n'.join(memory_block))
 
     tool_guidance: list[str] = []
     if 'vocab_manage' in available_tools:
