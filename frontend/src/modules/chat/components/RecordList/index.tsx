@@ -56,6 +56,11 @@ interface IRecordList {
   currentSessionId: string;
   onSelected: (props: Conversation) => void;
   onRemove: (props: Conversation) => void;
+  compact?: boolean;
+  hideHeader?: boolean;
+  hideSearch?: boolean;
+  showBatchActions?: boolean;
+  title?: string;
 }
 
 export interface RecordListImperativeProps {
@@ -67,12 +72,24 @@ const { Search } = Input;
 const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
   (props, ref) => {
     const { t } = useTranslation();
-    const { currentSessionId, onSelected, onRemove } = props;
+    const {
+      currentSessionId,
+      onSelected,
+      onRemove,
+      compact = false,
+      hideHeader = false,
+      hideSearch = false,
+      showBatchActions = !compact,
+      title,
+    } = props;
     const [historyList, setHistoryList] = useState<Conversation[]>([]);
     const [keyword, setKeyword] = useState("");
     const [pageToken, setPageToken] = useState("");
     const [checkedList, setCheckedList] = useState<string[]>([]);
     const [showBatchExport, setShowBatchExport] = useState(false);
+    const scrollableTargetId = compact
+      ? "sidebarConversationScrollableDiv"
+      : "scrollableDiv";
     const deleteHistoryInFlightRef = useRef(false);
     const deleteHistoryLastInvokeRef = useRef(0);
     const { setThink } = useChatThinkStore();
@@ -133,7 +150,7 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
         .then(() => {
           message.success(t("chat.deleteConversationSuccess"));
           getHistory({ isFirst: true });
-          document.getElementById("scrollableDiv")?.scrollTo({ top: 0 });
+          document.getElementById(scrollableTargetId)?.scrollTo({ top: 0 });
         })
         .finally(() => {
           deleteHistoryInFlightRef.current = false;
@@ -234,59 +251,65 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
     }
 
     return (
-      <div className="record-container">
-        <div className="record-header">
-          <div className="record-header-top">
-            <div className="list-title">{t("chat.chatHistory")}</div>
-            <div className="record-toolbar-actions">
-              {showBatchExport ? (
-                <>
-                  <Button
-                    size="small"
-                    type="link"
-                    icon={<CloudDownloadOutlined />}
-                    onClick={() => {
-                      if (checkedList?.length) {
-                        exportHistoryFn();
-                      } else {
-                        message.warning(t("chat.selectConversationToExport"));
-                      }
-                    }}
-                  >
-                    {t("chat.export")}
-                  </Button>
-                  <Button
-                    size="small"
-                    type="text"
-                    onClick={() => setShowBatchExport(false)}
-                  >
-                    {t("common.cancel")}
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  size="small"
-                  type="link"
-                  style={{ padding: 0 }}
-                  onClick={() => setShowBatchExport(true)}
-                >
-                  {t("chat.batch")}
-                </Button>
+      <div className={classnames("record-container", { compact })}>
+        {!hideHeader && (
+          <div className="record-header">
+            <div className="record-header-top">
+              <div className="list-title">{title || t("chat.chatHistory")}</div>
+              {showBatchActions && (
+                <div className="record-toolbar-actions">
+                  {showBatchExport ? (
+                    <>
+                      <Button
+                        size="small"
+                        type="link"
+                        icon={<CloudDownloadOutlined />}
+                        onClick={() => {
+                          if (checkedList?.length) {
+                            exportHistoryFn();
+                          } else {
+                            message.warning(t("chat.selectConversationToExport"));
+                          }
+                        }}
+                      >
+                        {t("chat.export")}
+                      </Button>
+                      <Button
+                        size="small"
+                        type="text"
+                        onClick={() => setShowBatchExport(false)}
+                      >
+                        {t("common.cancel")}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="small"
+                      type="link"
+                      style={{ padding: 0 }}
+                      onClick={() => setShowBatchExport(true)}
+                    >
+                      {t("chat.batch")}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
+            {!hideSearch && (
+              <div className="record-toolbar">
+                <Search
+                  className="record-toolbar-search"
+                  placeholder={t("chat.searchConversation")}
+                  allowClear
+                  onSearch={(value: string) => {
+                    getHistory({ searchText: value, isFirst: true });
+                    setKeyword(value);
+                  }}
+                />
+              </div>
+            )}
           </div>
-          <div className="record-toolbar">
-            <Search
-              className="record-toolbar-search"
-              placeholder={t("chat.searchConversation")}
-              allowClear
-              onSearch={(value: string) => {
-                getHistory({ searchText: value, isFirst: true });
-                setKeyword(value);
-              }}
-            />
-          </div>
-        </div>
+        )}
         {showBatchExport && (
           <div style={{ padding: "8px 0" }}>
             <Checkbox
@@ -310,13 +333,13 @@ const RecordList = forwardRef<RecordListImperativeProps, IRecordList>(
             </Checkbox>
           </div>
         )}
-        <div className="record-list" id="scrollableDiv">
+        <div className="record-list" id={scrollableTargetId}>
           <InfiniteScroll
             dataLength={historyList?.length || 0}
             next={() => getHistory({ isMore: true })}
             hasMore={!!pageToken}
             loader={<Spin />}
-            scrollableTarget="scrollableDiv"
+            scrollableTarget={scrollableTargetId}
           >
             {showBatchExport ? (
               <Checkbox.Group

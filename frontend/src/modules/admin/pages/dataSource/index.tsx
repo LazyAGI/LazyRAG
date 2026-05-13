@@ -1094,6 +1094,21 @@ export default function DataSourceManagement() {
         returnUrl: window.location.href,
       });
 
+      const draft: FeishuDataSourceWizardDraft = {
+        wizardOpen: true,
+        wizardStep,
+        wizardMode,
+        selectedType,
+        editingId,
+        validatedAgentId: selectedAgent.agent_id,
+        oauthState: "waiting",
+        connectionVerified: previousVerified,
+        oauthConnection: previousConnection,
+        formValues: form.getFieldsValue(true),
+      };
+
+      saveFeishuDataSourceWizardDraft(draft);
+
       const popup = openCenteredPopup(authorizeUrl, t("admin.dataSourceFeishuAuthWindowTitle"));
 
       oauthAttemptRef.current = {
@@ -1123,20 +1138,6 @@ export default function DataSourceManagement() {
         return;
       }
 
-      const draft: FeishuDataSourceWizardDraft = {
-        wizardOpen: true,
-        wizardStep,
-        wizardMode,
-        selectedType,
-        editingId,
-        validatedAgentId: selectedAgent.agent_id,
-        oauthState: "waiting",
-        connectionVerified: previousVerified,
-        oauthConnection: previousConnection,
-        formValues: form.getFieldsValue(true),
-      };
-
-      saveFeishuDataSourceWizardDraft(draft);
       window.location.assign(authorizeUrl);
     } catch (error: any) {
       setOauthState(previousState);
@@ -1513,12 +1514,22 @@ export default function DataSourceManagement() {
       return;
     }
 
-    await form.validateFields();
-    if (!validateConnectionBeforeSave()) {
+    const syncStrategyFields =
+      form.getFieldValue("syncMode") === "scheduled"
+        ? ["syncMode", "scheduleCycle", "scheduleTime"]
+        : ["syncMode"];
+
+    if (wizardMode === "edit") {
+      await form.validateFields(syncStrategyFields);
+    } else {
+      await form.validateFields();
+    }
+
+    if (wizardMode !== "edit" && !validateConnectionBeforeSave()) {
       return;
     }
 
-    const values = form.getFieldsValue();
+    const values = form.getFieldsValue(true);
     if (selectedType === "local") {
       await handleSaveLocalSource(values);
       return;

@@ -256,6 +256,7 @@ const enUS = {
     logout: "Logout",
     goLogin: "Go to Login",
     language: "Language",
+    newChat: "New Chat",
   },
 
   // Profile
@@ -293,6 +294,7 @@ const enUS = {
   chat: {
     newChat: "New Chat",
     chatHistory: "Chat History",
+    recentConversations: "Recent Conversations",
     promptTemplate: "Prompt Templates",
     inputPlaceholder: "Ask a question, supports multi-turn conversation and image understanding",
     priorityFile: "This response will prioritize the uploaded file",
@@ -1141,11 +1143,11 @@ const enUS = {
     memoryAllCategories: "All categories",
     memoryAllTags: "All tags",
     memoryAllSources: "All sources",
-    memoryHabitFeatureToggle: "Habit Feature",
+    memoryHabitFeatureToggle: "Q&A Habit Enhancement",
     memoryHabitFeatureEnabledHint:
-      "Behavior capture is on and will keep collecting recurring phrasing and experience.",
+      "When enabled, Q&A uses your saved habits to better match your preferred phrasing and experience requirements.",
     memoryHabitFeatureDisabledHint:
-      "Behavior capture is paused, so no new habit notes will be accumulated.",
+      "When disabled, saved habits no longer affect Q&A responses. Existing habit content is kept.",
     memoryExperienceRefresh: "Refresh habits",
     memoryExperienceLoadFailed: "Failed to load habits",
     memoryExperienceSaveFailed: "Failed to save habit",
@@ -1411,6 +1413,11 @@ const enUS = {
       "This file includes name/description in front matter. Replace the current name and description?",
     memoryUploadSkillMetadataReplaceConfirm: "Replace",
     memoryUploadSkillMetadataReplaceKeep: "Keep current",
+    memoryUploadSkillContentMergeTitle: "Skill content already exists",
+    memoryUploadSkillContentMergeContent:
+      "The imported file will write skill content. Choose whether to replace the current content or append it to the end.",
+    memoryUploadSkillContentMergeReplace: "Replace",
+    memoryUploadSkillContentMergeAppend: "Append",
     memoryUploadSkillTypeInvalidParent: "Primary skills only support md files",
     memoryUploadSkillTypeInvalid:
       "Only md, txt, json, and yaml files are supported",
@@ -1467,7 +1474,7 @@ const enUS = {
     memoryGlossaryInboxEmpty: "No pending glossary messages",
     memoryGlossaryInboxAccept: "Accept",
     memoryGlossaryInboxMergeEdit: "Merge & Edit",
-    memoryGlossaryInboxReject: "Reject",
+    memoryGlossaryInboxReject: "Discard word",
     memoryGlossaryInboxAcceptSuccess: "Selected glossary messages accepted",
     memoryGlossaryInboxRejectSuccess: "Selected glossary messages rejected",
     memoryGlossaryInboxAcceptFailed: "Failed to accept glossary messages",
@@ -1484,7 +1491,7 @@ const enUS = {
     memoryGlossaryInboxConflictDefaultReason:
       "A glossary conflict was detected. Please confirm how to handle it.",
     memoryGlossaryInboxHandleMode: "Action",
-    memoryGlossaryInboxWriteSeparately: "Write separately",
+    memoryGlossaryInboxWriteSeparately: "Add to groups",
     memoryGlossaryInboxMergeAndWrite: "Merge then write",
     memoryGlossaryInboxCreateAndWrite: "Create group and write",
     memoryGlossaryInboxNewGroupPlaceholder: "Enter a new group name",

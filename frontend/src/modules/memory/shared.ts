@@ -76,6 +76,11 @@ export interface GlossaryConflictResolution {
   mode: GlossaryConflictResolveMode;
   selectedGroupIds: string[];
   newGroupTerm: string;
+  newGroupAliases?: string[];
+  newGroupContent?: string;
+  mergedGroupTerm?: string;
+  mergedGroupAliases?: string[];
+  mergedGroupContent?: string;
 }
 
 export interface AssetDraft {

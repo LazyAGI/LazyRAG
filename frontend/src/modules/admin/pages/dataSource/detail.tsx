@@ -1038,12 +1038,6 @@ export default function DataSourceDetail() {
       ),
     },
     {
-      title: t("admin.dataSourceDetailTableSourceUpdatedAt"),
-      dataIndex: "sourceUpdatedAt",
-      key: "sourceUpdatedAt",
-      width: 180,
-    },
-    {
       title: t("admin.dataSourceDetailTableUpdatedAt"),
       dataIndex: "updatedAt",
       key: "updatedAt",

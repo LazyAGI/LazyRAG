@@ -272,12 +272,13 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     }
 
     function sendMessage(text: string, clearInput = true) {
-      if (activeStreamRef.current || loading || !canChat || !text) {
+      const normalizedText = text.trim();
+      if (activeStreamRef.current || loading || !canChat || !normalizedText) {
         return;
       }
 
       const inputs = [
-        { input_type: "text", text },
+        { input_type: "text", text: normalizedText },
         ...getFileUrls(imageRef.current?.getFiles(), imageList).map((image) => {
           return {
             input_type: "image",
@@ -299,7 +300,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       );
 
       const userMessage = {
-        delta: text,
+        delta: normalizedText,
         role: RoleTypes.USER,
         images: imageList,
         files: fileList,
@@ -1136,7 +1137,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
                 shape="round"
                 className="submit-btn"
                 onClick={() => sendMessage(content)}
-                disabled={loading || !content || !canChat}
+                disabled={loading || !content.trim() || !canChat}
               >
                 <SendOutlined />
               </Button>

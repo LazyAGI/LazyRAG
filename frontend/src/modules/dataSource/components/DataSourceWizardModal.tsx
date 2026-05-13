@@ -109,6 +109,7 @@ export default function DataSourceWizardModal({
   onTestConnection,
   onInvalidateConnection,
 }: DataSourceWizardModalProps) {
+  const isEditMode = wizardMode === "edit";
   const renderConnectionSection = () => {
     if (!selectedType) {
       return null;
@@ -138,14 +139,14 @@ export default function DataSourceWizardModal({
               type="primary"
               icon={oauthState === "waiting" ? <SyncOutlined spin /> : <LinkOutlined />}
               loading={oauthState === "waiting"}
-              disabled={!isFeishuSetupReady}
+              disabled={isEditMode || !isFeishuSetupReady}
               onClick={onConnectAccount}
             >
               {oauthConnection
                 ? t("admin.dataSourceReconnectAccount")
                 : t("admin.dataSourceConnectAccount")}
             </Button>
-            {oauthState === "waiting" ? (
+            {oauthState === "waiting" && !isEditMode ? (
               <Button onClick={onOpenManualOauthModal}>
                 {t("admin.dataSourceOauthManualCallbackAction")}
               </Button>
@@ -242,7 +243,12 @@ export default function DataSourceWizardModal({
               : t("admin.dataSourceConnectionPending")}
           </Tag>
         </div>
-        <Button type="primary" icon={<LinkOutlined />} onClick={onTestConnection}>
+        <Button
+          type="primary"
+          icon={<LinkOutlined />}
+          disabled={isEditMode}
+          onClick={onTestConnection}
+        >
           {t("admin.dataSourceConnectionTestAction")}
         </Button>
       </Card>
@@ -261,7 +267,9 @@ export default function DataSourceWizardModal({
         <div className="data-source-wizard-footer">
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Space>
-            {wizardStep > 0 ? <Button onClick={onPrev}>{t("admin.dataSourceWizardPrev")}</Button> : null}
+            {wizardStep > 0 && !isEditMode ? (
+              <Button onClick={onPrev}>{t("admin.dataSourceWizardPrev")}</Button>
+            ) : null}
             {wizardStep < 1 ? (
               <Button type="primary" onClick={onNext}>
                 {t("admin.dataSourceWizardNext")}
@@ -276,14 +284,16 @@ export default function DataSourceWizardModal({
         </div>
       }
     >
-      <Steps
-        current={wizardStep}
-        items={[
-          { title: t("admin.dataSourceWizardType") },
-          { title: t("admin.dataSourceWizardConnection") },
-        ]}
-        className="data-source-wizard-steps"
-      />
+      {!isEditMode ? (
+        <Steps
+          current={wizardStep}
+          items={[
+            { title: t("admin.dataSourceWizardType") },
+            { title: t("admin.dataSourceWizardConnection") },
+          ]}
+          className="data-source-wizard-steps"
+        />
+      ) : null}
 
       <Form form={form} layout="vertical" className="data-source-wizard-form">
         {wizardStep === 0 ? (
@@ -361,7 +371,10 @@ export default function DataSourceWizardModal({
                         },
                       ]}
                     >
-                      <Input placeholder={t("admin.dataSourceKnowledgeBaseNamePlaceholder")} />
+                      <Input
+                        disabled={isEditMode}
+                        placeholder={t("admin.dataSourceKnowledgeBaseNamePlaceholder")}
+                      />
                     </Form.Item>
                   </Card>
 
@@ -375,8 +388,9 @@ export default function DataSourceWizardModal({
                         ]}
                       >
                         <Input
+                          disabled={isEditMode}
                           placeholder="/mnt/team-share/ops-docs"
-                          onChange={onInvalidateConnection}
+                          onChange={isEditMode ? undefined : onInvalidateConnection}
                         />
                       </Form.Item>
                     ) : (
@@ -392,6 +406,7 @@ export default function DataSourceWizardModal({
                           ]}
                         >
                           <Select
+                            disabled={isEditMode}
                             options={[
                               {
                                 label: t("admin.dataSourceFeishuTargetTypeWiki"),
@@ -415,12 +430,13 @@ export default function DataSourceWizardModal({
                           ]}
                         >
                           <Input
+                            disabled={isEditMode}
                             placeholder={
                               feishuTargetType === "drive_folder"
                                 ? t("admin.dataSourceFeishuTargetPlaceholderDrive")
                                 : t("admin.dataSourceFeishuTargetPlaceholderWiki")
                             }
-                            onChange={onInvalidateConnection}
+                            onChange={isEditMode ? undefined : onInvalidateConnection}
                           />
                         </Form.Item>
                       </>

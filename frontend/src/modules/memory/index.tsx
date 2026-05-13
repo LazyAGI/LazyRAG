@@ -1748,6 +1748,36 @@ export default function MemoryManagement() {
       reader.readAsText(file);
     });
 
+  const appendImportedSkillContent = (existingContent: string, importedContent: string) => {
+    if (!existingContent.trim()) {
+      return importedContent;
+    }
+    if (!importedContent.trim()) {
+      return existingContent;
+    }
+    return `${existingContent.replace(/\s+$/, "")}\n\n${importedContent.replace(/^\s+/, "")}`;
+  };
+
+  const confirmSkillContentImportMode = (existingContent?: string) => {
+    if (!existingContent?.trim()) {
+      return Promise.resolve<"replace" | "append">("replace");
+    }
+
+    return new Promise<"replace" | "append">((resolve) => {
+      Modal.confirm({
+        title: t("admin.memoryUploadSkillContentMergeTitle"),
+        content: t("admin.memoryUploadSkillContentMergeContent"),
+        okText: t("admin.memoryUploadSkillContentMergeReplace"),
+        cancelText: t("admin.memoryUploadSkillContentMergeAppend"),
+        closable: false,
+        maskClosable: false,
+        keyboard: false,
+        onOk: () => resolve("replace"),
+        onCancel: () => resolve("append"),
+      });
+    });
+  };
+
   const handleUploadSkillFile = async (
     file: File,
     options?: {
@@ -1778,6 +1808,14 @@ export default function MemoryManagement() {
         frontMatter && (frontMatter.name || frontMatter.description),
       );
       const importedContent = frontMatter?.content ?? content;
+      const existingContent = childTempId
+        ? draft.childSkills.find((item) => item.tempId === childTempId)?.content
+        : draft.content;
+      const contentImportMode = await confirmSkillContentImportMode(existingContent);
+      const resolveImportedContent = (currentContent: string) =>
+        contentImportMode === "append"
+          ? appendImportedSkillContent(currentContent, importedContent)
+          : importedContent;
 
       const applyMainDraftFromUpload = (replaceFromFrontMatter: boolean) => {
         setDraft((previous) => {
@@ -1785,7 +1823,7 @@ export default function MemoryManagement() {
             return {
               ...previous,
               name: previous.name || inferredName,
-              content: importedContent,
+              content: resolveImportedContent(previous.content),
             };
           }
 
@@ -1800,7 +1838,7 @@ export default function MemoryManagement() {
             ...previous,
             name: nextName,
             description: nextDescription,
-            content: importedContent,
+            content: resolveImportedContent(previous.content),
           };
         });
       };
@@ -1809,7 +1847,7 @@ export default function MemoryManagement() {
           ...previous,
           name: previous.name || frontMatter?.name || inferredName,
           description: previous.description || frontMatter?.description || "",
-          content: importedContent,
+          content: resolveImportedContent(previous.content),
         }));
       };
 
@@ -1822,7 +1860,7 @@ export default function MemoryManagement() {
                   ...item,
                   name: item.name || inferredName,
                   description: item.description || frontMatter?.description || "",
-                  content: importedContent,
+                  content: resolveImportedContent(item.content),
                 }
               : item,
           ),
@@ -3507,11 +3545,6 @@ export default function MemoryManagement() {
         return;
       }
 
-      if (!draft.content.trim()) {
-        message.warning(`${t("common.pleaseInput")}${t("admin.memoryContent")}`);
-        return;
-      }
-
       setExperienceSaving(true);
 
       try {
@@ -3763,6 +3796,7 @@ export default function MemoryManagement() {
           createUserApi().listUsersApiAuthserviceUserGet({
             page: 1,
             pageSize: 200,
+            activeOnly: true,
           }),
           createGroupApi().listGroupsApiAuthserviceGroupGet({
             page: 1,
@@ -3878,6 +3912,26 @@ export default function MemoryManagement() {
                 id: conflictId,
                 word: conflictWord,
                 groupIds: selectedGroupIds,
+              }).then((merged) => {
+                if (!merged || !resolution?.mergedGroupTerm?.trim()) {
+                  return merged;
+                }
+
+                return updateGlossaryAsset({
+                  ...merged,
+                  term: resolution.mergedGroupTerm.trim(),
+                  aliases: [
+                    ...new Set(
+                      (resolution.mergedGroupAliases?.length
+                        ? resolution.mergedGroupAliases
+                        : merged.aliases
+                      )
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    ),
+                  ],
+                  content: (resolution.mergedGroupContent ?? merged.content).trim(),
+                });
               });
             }
 
@@ -3900,7 +3954,9 @@ export default function MemoryManagement() {
 
             const aliases = [
               conflictWord,
-              ...proposal.after.aliases,
+              ...(resolution?.newGroupAliases?.length
+                ? resolution.newGroupAliases
+                : proposal.after.aliases),
             ]
               .map((item) => item.trim())
               .filter(Boolean);
@@ -3910,6 +3966,7 @@ export default function MemoryManagement() {
                 ...proposal.after,
                 term: newGroupTerm,
                 aliases: [...new Set(aliases)],
+                content: (resolution?.newGroupContent ?? proposal.after.content).trim(),
               },
               { conflictId },
             );
