@@ -2,7 +2,6 @@ import {
   Alert,
   Button,
   Checkbox,
-  Dropdown,
   Empty,
   Form,
   Input,
@@ -155,31 +154,6 @@ const GlossaryGroupCards = ({
         })}
       </div>
     </Checkbox.Group>
-  </div>
-);
-
-const GlossaryGroupPreviewCards = ({
-  groups,
-  t,
-}: {
-  groups: GlossaryAsset[];
-  t: TFunction;
-}) => (
-  <div className="memory-glossary-target-preview-grid">
-    {groups.map((group) => (
-      <div key={group.id} className="memory-glossary-target-preview-card">
-        <span className="memory-glossary-target-preview-main">
-          <strong>{group.term || t("admin.memoryGlossaryGroupUnassigned")}</strong>
-          <span className="memory-tag-group">
-            {group.aliases.length ? (
-              group.aliases.map((alias) => <Tag key={`${group.id}-${alias}`}>{alias}</Tag>)
-            ) : (
-              <span className="memory-content-preview">-</span>
-            )}
-          </span>
-        </span>
-      </div>
-    ))}
   </div>
 );
 
@@ -395,47 +369,6 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
                   : proposal.before
                     ? t("admin.memoryGlossaryInboxTypeUpdate")
                     : t("admin.memoryGlossaryInboxTypeAdd");
-                const actionMenuItems = [
-                  {
-                    key: "reject",
-                    danger: true,
-                    label: (
-                      <span className="memory-glossary-action-menu-item">
-                        <strong>{t("admin.memoryGlossaryInboxActionRejectTitle")}</strong>
-                        <span>{t("admin.memoryGlossaryInboxActionRejectDesc")}</span>
-                      </span>
-                    ),
-                  },
-                  {
-                    key: "separate",
-                    disabled: !targetGroups.length,
-                    label: (
-                      <span className="memory-glossary-action-menu-item">
-                        <strong>{t("admin.memoryGlossaryInboxActionAddTitle")}</strong>
-                        <span>{t("admin.memoryGlossaryInboxActionAddDesc")}</span>
-                      </span>
-                    ),
-                  },
-                  {
-                    key: "merge",
-                    disabled: targetGroups.length < 2,
-                    label: (
-                      <span className="memory-glossary-action-menu-item">
-                        <strong>{t("admin.memoryGlossaryInboxActionMergeTitle")}</strong>
-                        <span>{t("admin.memoryGlossaryInboxActionMergeDesc")}</span>
-                      </span>
-                    ),
-                  },
-                  {
-                    key: "create",
-                    label: (
-                      <span className="memory-glossary-action-menu-item">
-                        <strong>{t("admin.memoryGlossaryInboxActionCreateTitle")}</strong>
-                        <span>{t("admin.memoryGlossaryInboxActionCreateDesc")}</span>
-                      </span>
-                    ),
-                  },
-                ];
 
                 return (
                   <div key={proposal.id} className="memory-glossary-inbox-card">
@@ -468,40 +401,47 @@ export default function GlossaryInboxModal(props: GlossaryInboxModalProps) {
                       {targetGroups.length ? (
                         <div className="memory-glossary-inbox-card-line">
                           <strong>{t("admin.memoryGlossaryInboxTargetGroups")}</strong>
-                          <GlossaryGroupPreviewCards groups={targetGroups} t={t} />
+                          <div className="memory-glossary-conflict-summary">
+                            {targetGroups.map((group) => (
+                              <Tag key={`${proposal.id}-${group.id}`}>
+                                {group.term || group.id}
+                              </Tag>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
                     </div>
                     <div className="memory-glossary-inbox-card-actions">
-                      <Dropdown
-                        trigger={["click"]}
+                      <Button
+                        size="small"
                         disabled={isSubmitting}
-                        menu={{
-                          items: actionMenuItems,
-                          onClick: ({ key }) => {
-                            if (key === "reject") {
-                              rejectGlossaryProposals([proposal]);
-                              return;
-                            }
-                            if (key === "separate") {
-                              openAction(proposal, "separate");
-                              return;
-                            }
-                            if (key === "merge") {
-                              openAction(proposal, "merge");
-                              return;
-                            }
-                            openAction(proposal, "create");
-                          },
-                        }}
+                        loading={glossaryInboxSubmitting === "reject"}
+                        onClick={() => rejectGlossaryProposals([proposal])}
                       >
-                        <Button
-                          className="memory-glossary-action-trigger"
-                          loading={glossaryInboxSubmitting === "reject"}
-                        >
-                          {t("admin.memoryGlossaryInboxActionTrigger")}
-                        </Button>
-                      </Dropdown>
+                        {t("admin.memoryGlossaryInboxReject")}
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        disabled={isSubmitting || !targetGroups.length}
+                        onClick={() => openAction(proposal, "separate")}
+                      >
+                        {t("admin.memoryGlossaryInboxWriteSeparately")}
+                      </Button>
+                      <Button
+                        size="small"
+                        disabled={isSubmitting || targetGroups.length < 2}
+                        onClick={() => openAction(proposal, "merge")}
+                      >
+                        {t("admin.memoryGlossaryInboxMergeAndWrite")}
+                      </Button>
+                      <Button
+                        size="small"
+                        disabled={isSubmitting}
+                        onClick={() => openAction(proposal, "create")}
+                      >
+                        {t("admin.memoryGlossaryInboxCreateAndWrite")}
+                      </Button>
                     </div>
                   </div>
                 );
