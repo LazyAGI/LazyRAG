@@ -1227,14 +1227,33 @@ func loadDatasetDocuments(ctx context.Context, datasetID, keyword, pid string, a
 		limit = 20
 	}
 
+	keyTrim := strings.TrimSpace(keyword)
+	// Listing uses direct children only; keyword search must include nested documents under pid.
+	mergedPIDFilter := applyPIDFilter
 	var docs []orm.Document
-	db := store.DB().WithContext(ctx).
-		Where("dataset_id = ? AND deleted_at IS NULL", datasetID)
-	if applyPIDFilter {
-		db = db.Where("COALESCE(p_id, '') = ?", pid)
-	}
-	if err := db.Order("updated_at DESC").Find(&docs).Error; err != nil {
-		return nil, 0, err
+	if applyPIDFilter && keyTrim != "" {
+		mergedPIDFilter = false
+		var err error
+		if pid == "" {
+			err = store.DB().WithContext(ctx).
+				Where("dataset_id = ? AND deleted_at IS NULL", datasetID).
+				Order("updated_at DESC").
+				Find(&docs).Error
+		} else {
+			docs, err = loadDocumentSubtree(ctx, datasetID, pid)
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+	} else {
+		db := store.DB().WithContext(ctx).
+			Where("dataset_id = ? AND deleted_at IS NULL", datasetID)
+		if applyPIDFilter {
+			db = db.Where("COALESCE(p_id, '') = ?", pid)
+		}
+		if err := db.Order("updated_at DESC").Find(&docs).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 	if len(docs) == 0 {
 		return []mergedDocRow{}, 0, nil
@@ -1244,7 +1263,7 @@ func loadDatasetDocuments(ctx context.Context, datasetID, keyword, pid string, a
 	for _, doc := range docs {
 		docIDs = append(docIDs, doc.ID)
 	}
-	return loadMergedDocumentsByDocIDs(ctx, docIDs, datasetID, keyword, pid, applyPIDFilter, limit, offset)
+	return loadMergedDocumentsByDocIDs(ctx, docIDs, datasetID, keyword, pid, mergedPIDFilter, limit, offset)
 }
 
 func mergedDocRowFromCoreOnlyWithDatasetDisplay(row orm.Document, datasetDisplay string) mergedDocRow {

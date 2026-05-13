@@ -152,6 +152,10 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "term is required", http.StatusBadRequest)
 		return
 	}
+	if msg := validateTermAndAliases(term, aliases); msg != "" {
+		common.ReplyErr(w, msg, http.StatusBadRequest)
+		return
+	}
 	if body.Conflict && conflictID == "" {
 		common.ReplyErr(w, "id is required when conflict is true", http.StatusBadRequest)
 		return
@@ -271,6 +275,10 @@ func UpdateWordGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	if termText == "" {
 		common.ReplyErr(w, "term is required", http.StatusBadRequest)
+		return
+	}
+	if msg := validateTermAndAliases(termText, aliases); msg != "" {
+		common.ReplyErr(w, msg, http.StatusBadRequest)
 		return
 	}
 
@@ -1206,6 +1214,22 @@ func dedupeGroupIDsPreserveOrder(raw []string) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+// validateTermAndAliases returns a non-empty API error message if term equals any alias
+// or if aliases contain duplicates (after trimming, same as normalizeAliases).
+func validateTermAndAliases(term string, aliases []string) string {
+	seen := make(map[string]struct{}, len(aliases))
+	for _, a := range aliases {
+		if a == term {
+			return "term must not match any alias"
+		}
+		if _, ok := seen[a]; ok {
+			return "aliases must be unique"
+		}
+		seen[a] = struct{}{}
+	}
+	return ""
 }
 
 func normalizeAliases(raw []string) []string {
