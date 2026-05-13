@@ -66,6 +66,8 @@ const QaTab = (props: { detail: Doc; type: string }) => {
     Modal.confirm({
       title: t("common.delete"),
       content: t("knowledge.deleteQaConfirm"),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
       onOk: () => {
         SegmentServiceApi()
           .segmentServiceDeleteSegment({

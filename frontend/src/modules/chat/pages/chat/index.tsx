@@ -27,6 +27,8 @@ import { Method, SSE } from "@/modules/chat/utils/sse";
 import { CHAT_STREAM_URL, ChatServiceApi } from "@/modules/chat/utils/request";
 import { useEffect } from "react";
 import { useConversationSettings } from "@/modules/chat/store/conversationSettings";
+import { normalizeMessageInputs } from "@/modules/chat/utils/message";
+import { splitThinkingContent } from "@/modules/chat/utils/thinking";
 
 const ChatPage: FC = () => {
   const { t } = useTranslation();
@@ -62,7 +64,7 @@ const ChatPage: FC = () => {
         Accept: "text/event-stream",
         ...AgentAppsAuth.getAuthHeaders(),
       },
-      timeout: 300000,
+      timeout: 1800000,
       payload: JSON.stringify({
         action,
         conversation_id: sessionId,
@@ -124,11 +126,20 @@ const ChatPage: FC = () => {
         const list: ChatMessage[] = [];
         if (history && history.length > 0) {
           history.forEach((record: ChatHistory) => {
+            const normalizedInputs = normalizeMessageInputs(
+              record.input,
+              record.query,
+            );
+            const textInput = normalizedInputs.find((input) => {
+              const inputType = input.input_type || "text";
+              return inputType === "text" && !!input.text;
+            });
+
             // Push user.
             list.push({
               role: RoleTypes.USER,
-              delta: record.query,
-              images: record.input
+              delta: record.query || textInput?.text || "",
+              images: normalizedInputs
                 ?.filter((input) => {
                   return input.input_type === "image";
                 })
@@ -138,7 +149,7 @@ const ChatPage: FC = () => {
                     uid: image.file_id,
                   };
                 }),
-              files: record.input
+              files: normalizedInputs
                 ?.filter((input) => {
                   return input.input_type === "file";
                 })
@@ -147,18 +158,27 @@ const ChatPage: FC = () => {
                     name: file?.uri?.split("/").pop(),
                     uid: file.file_id,
                   };
-                }),
+              }),
               finish_reason:
                 ChatConversationsResponseFinishReasonEnum.FinishReasonStop,
-              inputs: record.input,
+              inputs: normalizedInputs,
               create_time: record.create_time || "xxx-xxx-xxx",
             });
 
             // Push assistant.
+            const splitResult = splitThinkingContent(
+              record.result,
+              record.reasoning_content,
+            );
+            const secondSplitResult = splitThinkingContent(
+              record.second_result,
+              record.second_reasoning_content,
+            );
             const assistantMessage: any = {
               role: RoleTypes.ASSISTANT,
-              reasoning_content: record.reasoning_content,
-              delta: record.result,
+              reasoning_content: splitResult.reasoning_content,
+              delta: splitResult.content,
+              raw_delta: record.result || "",
               finish_reason:
                 ChatConversationsResponseFinishReasonEnum.FinishReasonStop,
               history_id: record.id,
@@ -174,18 +194,20 @@ const ChatPage: FC = () => {
             ) {
               assistantMessage.answers = [
                 {
-                  content: record.result || "",
+                  content: splitResult.content,
                   index: 0,
                   history_id: record.id,
-                  reasoning_content: record.reasoning_content || "",
+                  reasoning_content: splitResult.reasoning_content,
+                  raw_content: record.result || "",
                   sources: record.sources,
                   thinking_duration_s: record.thinking_time_s,
                 },
                 {
-                  content: record.second_result,
+                  content: secondSplitResult.content,
                   index: 1,
                   history_id: record.second_id,
-                  reasoning_content: record.second_reasoning_content || "",
+                  reasoning_content: secondSplitResult.reasoning_content,
+                  raw_content: record.second_result || "",
                   sources: record.sources,
                   thinking_duration_s: record.second_thinking_time_s,
                 },

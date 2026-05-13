@@ -66,6 +66,43 @@ components:
                 - grantee_id
                 - permission
             type: object
+        AddWordGroupConflictToGroupsRequest:
+            properties:
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+                id:
+                    type: string
+                word:
+                    type: string
+            required:
+                - id
+                - word
+            type: object
+        AddWordGroupConflictToGroupsResponse:
+            properties:
+                added_groups:
+                    items:
+                        type: string
+                    type: array
+                deleted_conflict_rows:
+                    format: int64
+                    type: integer
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+                skipped_groups:
+                    items:
+                        type: string
+                    type: array
+                word:
+                    type: string
+            required:
+                - deleted_conflict_rows
+                - word
+            type: object
         Algo:
             properties:
                 algo_id:
@@ -85,6 +122,67 @@ components:
                     items:
                         type: string
                     type: array
+            type: object
+        ApplyWordGroupActionBatchResponse:
+            properties:
+                results:
+                    items:
+                        $ref: '#/components/schemas/ApplyWordGroupActionResponse'
+                    type: array
+            type: object
+        ApplyWordGroupActionItem:
+            properties:
+                action:
+                    type: string
+                create_user_id:
+                    type: string
+                description:
+                    type: string
+                group_ids:
+                    type: string
+                message_ids:
+                    type: string
+                reason:
+                    type: string
+                words:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - action
+                - create_user_id
+                - description
+                - group_ids
+                - message_ids
+                - reason
+            type: object
+        ApplyWordGroupActionRequest:
+            properties:
+                action_list:
+                    items:
+                        $ref: '#/components/schemas/ApplyWordGroupActionItem'
+                    type: array
+            type: object
+        ApplyWordGroupActionResponse:
+            properties:
+                action:
+                    type: string
+                added_words:
+                    items:
+                        type: string
+                    type: array
+                conflict_id:
+                    type: string
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+                skipped_words:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - action
             type: object
         AuthorizationSubjectGrant:
             properties:
@@ -172,6 +270,25 @@ components:
             required:
                 - parent
             type: object
+        BatchDeleteWordGroupsRequest:
+            properties:
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        BatchDeleteWordGroupsResponse:
+            properties:
+                deleted_rows:
+                    format: int64
+                    type: integer
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - deleted_rows
+            type: object
         BatchUploadTasksResponse:
             properties:
                 tasks:
@@ -212,6 +329,31 @@ components:
                 thinking_duration_s:
                     format: int64
                     type: integer
+            type: object
+        CheckModelProviderData:
+            properties:
+                success:
+                    type: boolean
+            required:
+                - success
+            type: object
+        CheckWordsExistRequest:
+            properties:
+                aliases:
+                    items:
+                        type: string
+                    type: array
+                term:
+                    type: string
+            required:
+                - term
+            type: object
+        CheckWordsExistResponse:
+            properties:
+                existing:
+                    items:
+                        type: string
+                    type: array
             type: object
         CompleteUploadRequest:
             properties:
@@ -254,6 +396,24 @@ components:
             required:
                 - stored_path
                 - upload_id
+            type: object
+        ConversationBatchDeleteRequest:
+            properties:
+                conversation_ids:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - conversation_ids
+            type: object
+        ConversationBatchDeleteResponse:
+            properties:
+                deleted_count:
+                    type: integer
+                deleted_ids:
+                    items:
+                        type: string
+                    type: array
             type: object
         ConversationChatStatusResponse:
             properties:
@@ -426,6 +586,68 @@ components:
                         $ref: '#/components/schemas/TaskResponse'
                     type: array
             type: object
+        CreateWordGroupRequest:
+            properties:
+                aliases:
+                    items:
+                        type: string
+                    type: array
+                conflict:
+                    type: boolean
+                description:
+                    type: string
+                id:
+                    type: string
+                lock:
+                    type: boolean
+                term:
+                    type: string
+            required:
+                - conflict
+                - description
+                - id
+                - lock
+                - term
+            type: object
+        CreateWordGroupResponse:
+            properties:
+                aliases:
+                    items:
+                        $ref: '#/components/schemas/CreatedAlias'
+                    type: array
+                description:
+                    type: string
+                group_id:
+                    type: string
+                lock:
+                    type: boolean
+                reference:
+                    type: string
+                source:
+                    type: string
+                term:
+                    type: string
+                term_id:
+                    type: string
+            required:
+                - description
+                - group_id
+                - lock
+                - reference
+                - source
+                - term
+                - term_id
+            type: object
+        CreatedAlias:
+            properties:
+                id:
+                    type: string
+                word:
+                    type: string
+            required:
+                - id
+                - word
+            type: object
         Dataset:
             properties:
                 acl:
@@ -456,6 +678,8 @@ components:
                     format: int64
                     type: integer
                 is_empty:
+                    type: boolean
+                is_owner:
                     type: boolean
                 name:
                     type: string
@@ -494,6 +718,7 @@ components:
                 - document_count
                 - document_size
                 - is_empty
+                - is_owner
                 - name
                 - segment_count
                 - share_type
@@ -527,6 +752,28 @@ components:
                     type: string
                 role:
                     type: string
+            type: object
+        DeleteWordGroupConflictResponse:
+            properties:
+                deleted_rows:
+                    format: int64
+                    type: integer
+                id:
+                    type: string
+            required:
+                - deleted_rows
+                - id
+            type: object
+        DeleteWordGroupResponse:
+            properties:
+                deleted_rows:
+                    format: int64
+                    type: integer
+                group_id:
+                    type: string
+            required:
+                - deleted_rows
+                - group_id
             type: object
         Doc:
             properties:
@@ -668,6 +915,36 @@ components:
                     type: integer
                 message:
                     type: string
+            type: object
+        ExportConversationsRequest:
+            properties:
+                conversation_ids:
+                    items:
+                        type: string
+                    type: array
+                create_user_names:
+                    items:
+                        type: string
+                    type: array
+                end_time:
+                    type: string
+                feed_back:
+                    type: integer
+                file_types:
+                    items:
+                        type: string
+                    type: array
+                keyword:
+                    type: string
+                start_time:
+                    type: string
+            type: object
+        ExportConversationsResponse:
+            properties:
+                uris:
+                    items:
+                        type: string
+                    type: array
             type: object
         GetKBAuthorizationResponse:
             properties:
@@ -823,6 +1100,55 @@ components:
                 total_size:
                     type: integer
             type: object
+        ListWordGroupConflictsResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/WordGroupConflictResponse'
+                    type: array
+                next_page_token:
+                    type: string
+                total_size:
+                    type: integer
+            required:
+                - next_page_token
+                - total_size
+            type: object
+        ListWordGroupsResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/CreateWordGroupResponse'
+                    type: array
+                next_page_token:
+                    type: string
+                total_size:
+                    type: integer
+            required:
+                - next_page_token
+                - total_size
+            type: object
+        MergeAndAddWordRequest:
+            properties:
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+                id:
+                    type: string
+                word:
+                    type: string
+            required:
+                - id
+                - word
+            type: object
+        MergeWordGroupsRequest:
+            properties:
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+            type: object
         ParserConfig:
             properties:
                 name:
@@ -932,6 +1258,10 @@ components:
                     type: string
                 keyword:
                     type: string
+                keyword_list:
+                    items:
+                        type: string
+                    type: array
                 order_by:
                     type: string
                 p_id:
@@ -955,6 +1285,22 @@ components:
                     type: string
             required:
                 - task_ids
+            type: object
+        SearchWordGroupsRequest:
+            properties:
+                keyword:
+                    type: string
+                page_size:
+                    type: integer
+                page_token:
+                    type: string
+                source:
+                    type: string
+            required:
+                - keyword
+                - page_size
+                - page_token
+                - source
             type: object
         SetChatHistoryResponse:
             properties:
@@ -997,6 +1343,8 @@ components:
             type: object
         StartTaskResult:
             properties:
+                detail:
+                    type: string
                 display_name:
                     type: string
                 document_id:
@@ -1114,6 +1462,8 @@ components:
                     items:
                         $ref: '#/components/schemas/TaskFile'
                     type: array
+                relative_path:
+                    type: string
                 reparse_groups:
                     items:
                         type: string
@@ -1230,6 +1580,26 @@ components:
                             type: array
                     type: object
             type: object
+        UpdateWordGroupRequest:
+            properties:
+                aliases:
+                    items:
+                        type: string
+                    type: array
+                description:
+                    type: string
+                group_id:
+                    type: string
+                lock:
+                    type: boolean
+                term:
+                    type: string
+            required:
+                - description
+                - group_id
+                - lock
+                - term
+            type: object
         UploadFileResponse:
             properties:
                 content_type:
@@ -1291,8 +1661,1210 @@ components:
             type: object
         UserInfo:
             properties:
-                display_name:
+                id:
                     type: string
+                name:
+                    type: string
+            type: object
+        WordGroupConflictResponse:
+            properties:
+                created_at:
+                    format: date-time
+                    type: string
+                description:
+                    type: string
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+                id:
+                    type: string
+                reason:
+                    type: string
+                updated_at:
+                    format: date-time
+                    type: string
+                word:
+                    type: string
+            required:
+                - created_at
+                - description
+                - id
+                - reason
+                - updated_at
+                - word
+            type: object
+        addModelProviderGroupModelOpenAPIRequest:
+            properties:
+                model_type:
+                    type: string
+                name:
+                    type: string
+            required:
+                - model_type
+                - name
+            type: object
+        addModelProviderGroupModelOpenAPIResponse:
+            properties:
+                base_url:
+                    type: string
+                group_name:
+                    type: string
+                id:
+                    type: string
+                is_default:
+                    type: boolean
+                model_type:
+                    type: string
+                name:
+                    type: string
+                provider_name:
+                    type: string
+                user_model_provider_group_id:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - group_name
+                - id
+                - is_default
+                - model_type
+                - name
+                - provider_name
+                - user_model_provider_group_id
+                - user_model_provider_id
+            type: object
+        agentFileContentOpenAPIRequest:
+            properties:
+                path:
+                    type: string
+            required:
+                - path
+            type: object
+        agentFileContentOpenAPIResponse:
+            properties:
+                content:
+                    type: string
+                file_size:
+                    format: int64
+                    type: integer
+                filename:
+                    type: string
+                path:
+                    type: string
+            required:
+                - content
+                - file_size
+                - filename
+                - path
+            type: object
+        agentThreadListOpenAPIResponse:
+            properties:
+                next_page_token:
+                    type: string
+                threads:
+                    items:
+                        $ref: '#/components/schemas/agentThreadOpenAPIResponse'
+                    type: array
+                total_size:
+                    format: int64
+                    type: integer
+            required:
+                - next_page_token
+                - total_size
+            type: object
+        agentThreadOpenAPIResponse:
+            properties:
+                created_at:
+                    type: string
+                current_task_id:
+                    type: string
+                status:
+                    type: string
+                thread_id:
+                    type: string
+                thread_payload:
+                    additionalProperties:
+                        properties: {}
+                        type: object
+                    type: object
+                updated_at:
+                    type: string
+            required:
+                - created_at
+                - status
+                - thread_id
+                - updated_at
+            type: object
+        checkModelProviderOpenAPIRequest:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                provider_name:
+                    type: string
+            required:
+                - api_key
+                - base_url
+                - provider_name
+            type: object
+        createModelProviderGroupOpenAPIRequest:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                name:
+                    type: string
+            required:
+                - base_url
+                - name
+            type: object
+        createModelProviderGroupOpenAPIResponse:
+            properties:
+                base_url:
+                    type: string
+                id:
+                    type: string
+                name:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - id
+                - name
+                - user_model_provider_id
+            type: object
+        deleteModelProviderGroupModelOpenAPIResponse:
+            properties:
+                id:
+                    type: string
+            required:
+                - id
+            type: object
+        deleteModelProviderGroupOpenAPIResponse:
+            properties:
+                id:
+                    type: string
+            required:
+                - id
+            type: object
+        internalSkillCreateOpenAPIRequest:
+            properties:
+                category:
+                    type: string
+                content:
+                    type: string
+                session_id:
+                    type: string
+                skill_name:
+                    type: string
+            required:
+                - category
+                - content
+                - session_id
+                - skill_name
+            type: object
+        internalSkillRemoveOpenAPIRequest:
+            properties:
+                category:
+                    type: string
+                session_id:
+                    type: string
+                skill_name:
+                    type: string
+            required:
+                - category
+                - session_id
+                - skill_name
+            type: object
+        internalSkillSuggestionOpenAPIRequest:
+            properties:
+                category:
+                    type: string
+                session_id:
+                    type: string
+                skill_name:
+                    type: string
+                suggestions:
+                    items:
+                        $ref: '#/components/schemas/suggestionPayloadOpenAPIRequest'
+                    type: array
+            required:
+                - category
+                - session_id
+                - skill_name
+            type: object
+        listModelProviderGroupModelsOpenAPIItem:
+            properties:
+                base_url:
+                    type: string
+                group_name:
+                    type: string
+                id:
+                    type: string
+                is_default:
+                    type: boolean
+                model_type:
+                    type: string
+                name:
+                    type: string
+                provider_name:
+                    type: string
+                user_model_provider_group_id:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - group_name
+                - id
+                - is_default
+                - model_type
+                - name
+                - provider_name
+                - user_model_provider_group_id
+                - user_model_provider_id
+            type: object
+        listModelProviderGroupModelsOpenAPIResponse:
+            properties:
+                models:
+                    items:
+                        $ref: '#/components/schemas/listModelProviderGroupModelsOpenAPIItem'
+                    type: array
+            type: object
+        listModelProviderGroupsOpenAPIItem:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                id:
+                    type: string
+                name:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - api_key
+                - base_url
+                - id
+                - name
+                - user_model_provider_id
+            type: object
+        listModelProviderGroupsOpenAPIResponse:
+            properties:
+                groups:
+                    items:
+                        $ref: '#/components/schemas/listModelProviderGroupsOpenAPIItem'
+                    type: array
+            type: object
+        listSelectedModelsOpenAPIResponse:
+            properties:
+                selections:
+                    items:
+                        $ref: '#/components/schemas/selectedModelOpenAPIItem'
+                    type: array
+            type: object
+        listUserModelProvidersOpenAPIResponse:
+            properties:
+                providers:
+                    items:
+                        $ref: '#/components/schemas/userModelProviderOpenAPIItem'
+                    type: array
+            type: object
+        managedStateListOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/managedStateOpenAPIResponse'
+                    type: array
+            type: object
+        managedStateOpenAPIResponse:
+            properties:
+                content:
+                    type: string
+                content_summary:
+                    type: string
+                has_pending_review_suggestions:
+                    type: boolean
+                resource_id:
+                    type: string
+                resource_type:
+                    type: string
+                suggestion_status:
+                    type: string
+                title:
+                    type: string
+            required:
+                - content
+                - content_summary
+                - has_pending_review_suggestions
+                - resource_id
+                - resource_type
+                - suggestion_status
+                - title
+            type: object
+        managedStateUpsertOpenAPIRequest:
+            properties:
+                content:
+                    type: string
+            required:
+                - content
+            type: object
+        personalizationSettingOpenAPIRequest:
+            properties:
+                enabled:
+                    type: boolean
+            required:
+                - enabled
+            type: object
+        personalizationSettingOpenAPIResponse:
+            properties:
+                enabled:
+                    type: boolean
+            required:
+                - enabled
+            type: object
+        recordedSuggestionListOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/recordedSuggestionOpenAPIResponse'
+                    type: array
+            type: object
+        recordedSuggestionOpenAPIResponse:
+            properties:
+                id:
+                    type: string
+                invalid_reason:
+                    type: string
+                status:
+                    type: string
+            required:
+                - id
+                - status
+            type: object
+        selectedModelOpenAPIItem:
+            properties:
+                base_url:
+                    type: string
+                group_name:
+                    type: string
+                model_id:
+                    type: string
+                model_type:
+                    type: string
+                name:
+                    type: string
+                provider_name:
+                    type: string
+                user_model_provider_group_id:
+                    type: string
+                user_model_provider_id:
+                    type: string
+            required:
+                - base_url
+                - group_name
+                - model_id
+                - model_type
+                - name
+                - provider_name
+                - user_model_provider_group_id
+                - user_model_provider_id
+            type: object
+        setSelectedModelOpenAPIItem:
+            properties:
+                model_id:
+                    type: string
+                model_type:
+                    type: string
+            required:
+                - model_id
+                - model_type
+            type: object
+        setSelectedModelsOpenAPIRequest:
+            properties:
+                selections:
+                    items:
+                        $ref: '#/components/schemas/setSelectedModelOpenAPIItem'
+                    type: array
+            type: object
+        shareSkillOpenAPIRequest:
+            properties:
+                message:
+                    type: string
+                target_group_ids:
+                    items:
+                        type: string
+                    type: array
+                target_user_ids:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        skillChildCreateOpenAPIRequest:
+            properties:
+                content:
+                    type: string
+                file_ext:
+                    type: string
+                is_locked:
+                    type: boolean
+                name:
+                    type: string
+            required:
+                - content
+                - name
+            type: object
+        skillCreateManagedOpenAPIRequest:
+            properties:
+                category:
+                    type: string
+                children:
+                    items:
+                        $ref: '#/components/schemas/skillChildCreateOpenAPIRequest'
+                    type: array
+                content:
+                    type: string
+                description:
+                    type: string
+                file_ext:
+                    type: string
+                is_enabled:
+                    type: boolean
+                is_locked:
+                    type: boolean
+                name:
+                    type: string
+                parent_skill_name:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - category
+                - content
+                - name
+            type: object
+        skillDeleteOpenAPIResponse:
+            properties:
+                deleted:
+                    type: boolean
+            required:
+                - deleted
+            type: object
+        skillDetailChildOpenAPIResponse:
+            properties:
+                content:
+                    type: string
+                description:
+                    type: string
+                file_ext:
+                    type: string
+                has_pending_review_suggestions:
+                    type: boolean
+                is_enabled:
+                    type: boolean
+                is_locked:
+                    type: boolean
+                name:
+                    type: string
+                node_type:
+                    type: string
+                parent_skill_name:
+                    type: string
+                skill_id:
+                    type: string
+                suggestion_status:
+                    type: string
+                update_status:
+                    type: string
+            required:
+                - content
+                - description
+                - file_ext
+                - has_pending_review_suggestions
+                - is_enabled
+                - is_locked
+                - name
+                - node_type
+                - parent_skill_name
+                - skill_id
+                - suggestion_status
+                - update_status
+            type: object
+        skillDetailOpenAPIResponse:
+            properties:
+                category:
+                    type: string
+                children:
+                    items:
+                        $ref: '#/components/schemas/skillDetailChildOpenAPIResponse'
+                    type: array
+                content:
+                    type: string
+                description:
+                    type: string
+                file_ext:
+                    type: string
+                has_pending_review_suggestions:
+                    type: boolean
+                is_enabled:
+                    type: boolean
+                is_locked:
+                    type: boolean
+                name:
+                    type: string
+                node_type:
+                    type: string
+                parent_skill_name:
+                    type: string
+                skill_id:
+                    type: string
+                suggestion_status:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type: array
+                update_status:
+                    type: string
+            required:
+                - category
+                - content
+                - description
+                - file_ext
+                - has_pending_review_suggestions
+                - is_enabled
+                - is_locked
+                - name
+                - node_type
+                - parent_skill_name
+                - skill_id
+                - suggestion_status
+                - update_status
+            type: object
+        skillDiscardOpenAPIResponse:
+            properties:
+                discarded:
+                    type: boolean
+            required:
+                - discarded
+            type: object
+        skillDraftPreviewOpenAPIResponse:
+            properties:
+                current_content:
+                    type: string
+                diff:
+                    type: string
+                draft_content:
+                    type: string
+                draft_source_version:
+                    format: int64
+                    type: integer
+                draft_status:
+                    type: string
+                outdated:
+                    type: boolean
+                skill_id:
+                    type: string
+            required:
+                - current_content
+                - diff
+                - draft_content
+                - draft_source_version
+                - draft_status
+                - outdated
+                - skill_id
+            type: object
+        skillGenerateOpenAPIRequest:
+            properties:
+                suggestion_ids:
+                    items:
+                        type: string
+                    type: array
+                user_instruct:
+                    type: string
+            required:
+                - user_instruct
+            type: object
+        skillGenerateOpenAPIResponse:
+            properties:
+                draft_path:
+                    type: string
+                draft_source_version:
+                    format: int64
+                    type: integer
+                draft_status:
+                    type: string
+                outdated:
+                    type: boolean
+            required:
+                - draft_path
+                - draft_source_version
+                - draft_status
+                - outdated
+            type: object
+        skillListChildOpenAPIResponse:
+            properties:
+                description:
+                    type: string
+                file_ext:
+                    type: string
+                has_pending_review_suggestions:
+                    type: boolean
+                is_enabled:
+                    type: boolean
+                is_locked:
+                    type: boolean
+                name:
+                    type: string
+                node_type:
+                    type: string
+                skill_id:
+                    type: string
+                suggestion_status:
+                    type: string
+                update_status:
+                    type: string
+            required:
+                - description
+                - file_ext
+                - has_pending_review_suggestions
+                - is_enabled
+                - is_locked
+                - name
+                - node_type
+                - skill_id
+                - suggestion_status
+                - update_status
+            type: object
+        skillListItemOpenAPIResponse:
+            properties:
+                category:
+                    type: string
+                children:
+                    items:
+                        $ref: '#/components/schemas/skillListChildOpenAPIResponse'
+                    type: array
+                description:
+                    type: string
+                has_pending_review_suggestions:
+                    type: boolean
+                is_enabled:
+                    type: boolean
+                is_locked:
+                    type: boolean
+                name:
+                    type: string
+                node_type:
+                    type: string
+                skill_id:
+                    type: string
+                suggestion_status:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type: array
+                update_status:
+                    type: string
+            required:
+                - category
+                - description
+                - has_pending_review_suggestions
+                - is_enabled
+                - is_locked
+                - name
+                - node_type
+                - skill_id
+                - suggestion_status
+                - update_status
+            type: object
+        skillListOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/skillListItemOpenAPIResponse'
+                    type: array
+                page:
+                    type: integer
+                page_size:
+                    type: integer
+                total:
+                    type: integer
+            required:
+                - page
+                - page_size
+                - total
+            type: object
+        skillShareAcceptOpenAPIResponse:
+            properties:
+                accepted:
+                    type: boolean
+                target_root_skill_id:
+                    type: string
+            required:
+                - accepted
+                - target_root_skill_id
+            type: object
+        skillShareCreateItemOpenAPIResponse:
+            properties:
+                accepted_at:
+                    type: string
+                created_at:
+                    type: string
+                error_message:
+                    type: string
+                id:
+                    type: string
+                rejected_at:
+                    type: string
+                share_task_id:
+                    type: string
+                status:
+                    type: string
+                target_relative_root:
+                    type: string
+                target_root_skill_id:
+                    type: string
+                target_user_id:
+                    type: string
+                target_user_name:
+                    type: string
+                updated_at:
+                    type: string
+            required:
+                - created_at
+                - id
+                - share_task_id
+                - status
+                - target_user_id
+                - target_user_name
+                - updated_at
+            type: object
+        skillShareCreateOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/skillShareCreateItemOpenAPIResponse'
+                    type: array
+                share_task_id:
+                    type: string
+            required:
+                - share_task_id
+            type: object
+        skillShareDetailOpenAPIResponse:
+            properties:
+                message:
+                    type: string
+                share_item_id:
+                    type: string
+                source:
+                    $ref: '#/components/schemas/skillDetailOpenAPIResponse'
+                status:
+                    type: string
+            required:
+                - message
+                - share_item_id
+                - source
+                - status
+            type: object
+        skillShareListItemOpenAPIResponse:
+            properties:
+                accepted_at:
+                    type: string
+                created_at:
+                    type: string
+                error_message:
+                    type: string
+                message:
+                    type: string
+                rejected_at:
+                    type: string
+                share_item_id:
+                    type: string
+                share_task_id:
+                    type: string
+                source_category:
+                    type: string
+                source_parent_skill_name:
+                    type: string
+                source_skill_id:
+                    type: string
+                source_user_id:
+                    type: string
+                source_user_name:
+                    type: string
+                status:
+                    type: string
+                target_root_skill_id:
+                    type: string
+                target_user_id:
+                    type: string
+                target_user_name:
+                    type: string
+                updated_at:
+                    type: string
+            required:
+                - created_at
+                - message
+                - share_item_id
+                - share_task_id
+                - source_category
+                - source_parent_skill_name
+                - source_skill_id
+                - source_user_id
+                - source_user_name
+                - status
+                - target_user_id
+                - target_user_name
+                - updated_at
+            type: object
+        skillShareListOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/skillShareListItemOpenAPIResponse'
+                    type: array
+                page:
+                    type: integer
+                page_size:
+                    type: integer
+                total:
+                    format: int64
+                    type: integer
+            required:
+                - page
+                - page_size
+                - total
+            type: object
+        skillShareRejectOpenAPIResponse:
+            properties:
+                rejected:
+                    type: boolean
+            required:
+                - rejected
+            type: object
+        skillShareTargetItemOpenAPIResponse:
+            properties:
+                accepted_at:
+                    type: string
+                error_message:
+                    type: string
+                message:
+                    type: string
+                rejected_at:
+                    type: string
+                share_item_id:
+                    type: string
+                share_task_id:
+                    type: string
+                shared_at:
+                    type: string
+                status:
+                    type: string
+                target_root_skill_id:
+                    type: string
+                target_user_id:
+                    type: string
+                target_user_name:
+                    type: string
+                updated_at:
+                    type: string
+            required:
+                - message
+                - share_item_id
+                - share_task_id
+                - shared_at
+                - status
+                - target_user_id
+                - target_user_name
+                - updated_at
+            type: object
+        skillShareTargetStatusSummaryOpenAPIResponse:
+            properties:
+                completed:
+                    format: int64
+                    type: integer
+                failed:
+                    format: int64
+                    type: integer
+                pending_accept:
+                    format: int64
+                    type: integer
+                rejected:
+                    format: int64
+                    type: integer
+            required:
+                - completed
+                - failed
+                - pending_accept
+                - rejected
+            type: object
+        skillShareTargetsOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/skillShareTargetItemOpenAPIResponse'
+                    type: array
+                page:
+                    type: integer
+                page_size:
+                    type: integer
+                skill_id:
+                    type: string
+                status_summary:
+                    $ref: '#/components/schemas/skillShareTargetStatusSummaryOpenAPIResponse'
+                total:
+                    format: int64
+                    type: integer
+            required:
+                - page
+                - page_size
+                - skill_id
+                - status_summary
+                - total
+            type: object
+        skillUpdateManagedOpenAPIRequest:
+            properties:
+                category:
+                    type: string
+                content:
+                    type: string
+                description:
+                    type: string
+                file_ext:
+                    type: string
+                is_enabled:
+                    type: boolean
+                is_locked:
+                    type: boolean
+                name:
+                    type: string
+                tags:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        suggestionBatchReviewOpenAPIRequest:
+            properties:
+                ids:
+                    items:
+                        type: string
+                    type: array
+            type: object
+        suggestionBatchReviewOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/suggestionItemOpenAPIResponse'
+                    type: array
+            type: object
+        suggestionItemOpenAPIResponse:
+            properties:
+                action:
+                    type: string
+                category:
+                    type: string
+                content:
+                    type: string
+                created_at:
+                    type: string
+                file_ext:
+                    type: string
+                full_content:
+                    type: string
+                id:
+                    type: string
+                invalid_reason:
+                    type: string
+                outdated:
+                    type: boolean
+                parent_skill_name:
+                    type: string
+                reason:
+                    type: string
+                relative_path:
+                    type: string
+                resource_key:
+                    type: string
+                resource_type:
+                    type: string
+                reviewed_at:
+                    type: string
+                reviewer_id:
+                    type: string
+                reviewer_name:
+                    type: string
+                session_id:
+                    type: string
+                skill_name:
+                    type: string
+                status:
+                    type: string
+                title:
+                    type: string
+                updated_at:
+                    type: string
+                user_id:
+                    type: string
+            required:
+                - action
+                - category
+                - content
+                - created_at
+                - file_ext
+                - full_content
+                - id
+                - invalid_reason
+                - outdated
+                - parent_skill_name
+                - reason
+                - relative_path
+                - resource_key
+                - resource_type
+                - reviewer_id
+                - reviewer_name
+                - session_id
+                - skill_name
+                - status
+                - title
+                - updated_at
+                - user_id
+            type: object
+        suggestionListOpenAPIResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/suggestionItemOpenAPIResponse'
+                    type: array
+                page:
+                    type: integer
+                page_size:
+                    type: integer
+                total:
+                    format: int64
+                    type: integer
+            required:
+                - page
+                - page_size
+                - total
+            type: object
+        suggestionPayloadOpenAPIRequest:
+            properties:
+                content:
+                    type: string
+                reason:
+                    type: string
+                title:
+                    type: string
+            required:
+                - content
+                - title
+            type: object
+        systemConfirmOpenAPIResponse:
+            properties:
+                content:
+                    type: string
+                version:
+                    format: int64
+                    type: integer
+            required:
+                - content
+                - version
+            type: object
+        systemDiscardOpenAPIResponse:
+            properties:
+                discarded:
+                    type: boolean
+            required:
+                - discarded
+            type: object
+        systemDraftPreviewOpenAPIResponse:
+            properties:
+                current_content:
+                    type: string
+                diff:
+                    type: string
+                draft_content:
+                    type: string
+                draft_source_version:
+                    format: int64
+                    type: integer
+                draft_status:
+                    type: string
+            required:
+                - current_content
+                - diff
+                - draft_content
+                - draft_source_version
+                - draft_status
+            type: object
+        systemGenerateOpenAPIResponse:
+            properties:
+                draft_content:
+                    type: string
+                draft_source_version:
+                    format: int64
+                    type: integer
+                draft_status:
+                    type: string
+                suggestion_ids:
+                    items:
+                        type: string
+                    type: array
+            required:
+                - draft_content
+                - draft_source_version
+                - draft_status
+            type: object
+        systemSuggestionOpenAPIRequest:
+            properties:
+                session_id:
+                    type: string
+                suggestions:
+                    items:
+                        $ref: '#/components/schemas/suggestionPayloadOpenAPIRequest'
+                    type: array
+            required:
+                - session_id
+            type: object
+        updateModelProviderGroupOpenAPIRequest:
+            properties:
+                api_key:
+                    type: string
+                base_url:
+                    type: string
+                name:
+                    type: string
+            required:
+                - base_url
+                - name
+            type: object
+        userModelProviderOpenAPIItem:
+            properties:
+                base_url:
+                    type: string
+                default_model_provider_id:
+                    type: string
+                description:
+                    type: string
+                id:
+                    type: string
+                name:
+                    type: string
+            required:
+                - base_url
+                - default_model_provider_id
+                - description
+                - id
+                - name
             type: object
 info:
     description: LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。
@@ -1335,6 +2907,275 @@ paths:
                 "200":
                     description: OK
             summary: Admin (requires document.write)
+    /api/core/agent/diffs/{apply_id}/{filename:.*}:
+        get:
+            parameters:
+                - in: path
+                  name: apply_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: filename:.*
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/diffs/{apply_id}/{filename:.*}
+    /api/core/agent/files:content:
+        post:
+            description: Read a local agent result file by path and return its text content. Use JSON body to avoid URL path escaping issues.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/agentFileContentOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/agentFileContentOpenAPIResponse'
+                    description: Agent result file content
+            summary: Read agent result file content
+            tags:
+                - agent
+    /api/core/agent/reports/{report_id}:content:
+        get:
+            parameters:
+                - in: path
+                  name: report_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/reports/{report_id}:content
+    /api/core/agent/threads:
+        get:
+            description: List the current user's agent threads. Use thread_id from this response to load thread details or history.
+            parameters:
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/agentThreadListOpenAPIResponse'
+                    description: Agent thread list
+            summary: List agent threads
+            tags:
+                - agent
+        post:
+            responses:
+                "200":
+                    description: OK
+            summary: POST /agent/threads
+    /api/core/agent/threads/{thread_id}:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}
+    /api/core/agent/threads/{thread_id}/history:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/history
+    /api/core/agent/threads/{thread_id}/records:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/records
+    /api/core/agent/threads/{thread_id}/results/abtests:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/results/abtests
+    /api/core/agent/threads/{thread_id}/results/analysis-reports:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/results/analysis-reports
+    /api/core/agent/threads/{thread_id}/results/datasets:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/results/datasets
+    /api/core/agent/threads/{thread_id}/results/diffs:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/results/diffs
+    /api/core/agent/threads/{thread_id}/results/eval-reports:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/results/eval-reports
+    /api/core/agent/threads/{thread_id}/rounds:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}/rounds
+    /api/core/agent/threads/{thread_id}:cancel:
+        post:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /agent/threads/{thread_id}:cancel
+    /api/core/agent/threads/{thread_id}:events:
+        get:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: GET /agent/threads/{thread_id}:events
+    /api/core/agent/threads/{thread_id}:history:
+        delete:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: DELETE /agent/threads/{thread_id}:history
+    /api/core/agent/threads/{thread_id}:messages:
+        post:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /agent/threads/{thread_id}:messages
+    /api/core/agent/threads/{thread_id}:pause:
+        post:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /agent/threads/{thread_id}:pause
+    /api/core/agent/threads/{thread_id}:retry:
+        post:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /agent/threads/{thread_id}:retry
+    /api/core/agent/threads/{thread_id}:start:
+        post:
+            parameters:
+                - in: path
+                  name: thread_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /agent/threads/{thread_id}:start
     /api/core/chat:
         post:
             requestBody:
@@ -1377,6 +3218,43 @@ paths:
                 "200":
                     description: Streaming response
             summary: Chat with knowledge base (streaming)
+    /api/core/conversation:export:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ExportConversationsRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ExportConversationsResponse'
+                    description: Export conversation files
+            summary: Export conversations
+            tags:
+                - conversations
+    /api/core/conversation:export/files/{file_id}:
+        get:
+            parameters:
+                - in: path
+                  name: file_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/octet-stream:
+                            schema:
+                                format: binary
+                                type: string
+                    description: Exported conversation file
+            summary: Download exported conversation file
+            tags:
+                - conversations
     /api/core/conversation:switchStatus:
         get:
             responses:
@@ -1492,6 +3370,22 @@ paths:
                                 $ref: '#/components/schemas/ConversationDetailResponse'
                     description: Conversation details and history
             summary: Get conversationtext
+    /api/core/conversations:batchDelete:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ConversationBatchDeleteRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConversationBatchDeleteResponse'
+                    description: Batch deleted conversations
+            summary: Batch delete conversations
     /api/core/conversations:chat:
         post:
             description: textConversationtext
@@ -1997,6 +3891,18 @@ paths:
                                 type: string
                     description: Document download content
             summary: Download document
+    /api/core/datasets/{dataset}/documents:batchUpdateTags:
+        post:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+            summary: POST /datasets/{dataset}/documents:batchUpdateTags
     /api/core/datasets/{dataset}/documents:search:
         post:
             parameters:
@@ -2104,6 +4010,53 @@ paths:
                                 $ref: '#/components/schemas/DatasetMember'
                     description: Updated member
             summary: textUser ID Update datasetMember
+    /api/core/datasets/{dataset}/members/groups/{group_id}:
+        delete:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EmptyObject'
+                    description: Deleted successfully
+            summary: Delete dataset group member
+        patch:
+            parameters:
+                - in: path
+                  name: dataset
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateDatasetMemberRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DatasetMember'
+                    description: Updated member
+            summary: Update dataset group member
     /api/core/datasets/{dataset}/members:search:
         post:
             parameters:
@@ -2709,6 +4662,142 @@ paths:
             summary: textSearch documents
             tags:
                 - documents
+    /api/core/evolution/suggestions:
+        get:
+            description: Use evolution_id=<resource_type>:<resource_id> for a single-parameter resource filter. resource_type and resource_key remain available as optional compatibility filters.
+            parameters:
+                - in: query
+                  name: page
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: evolution_id
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: resource_type
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: resource_key
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/suggestionListOpenAPIResponse'
+                    description: Suggestion list
+            summary: List evolution suggestions
+            tags:
+                - evolution
+    /api/core/evolution/suggestions/{id}:
+        get:
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/suggestionItemOpenAPIResponse'
+                    description: Suggestion details
+            summary: Get evolution suggestion
+            tags:
+                - evolution
+    /api/core/evolution/suggestions/{id}:approve:
+        post:
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/suggestionItemOpenAPIResponse'
+                    description: Approved suggestion
+            summary: Approve evolution suggestion
+            tags:
+                - evolution
+    /api/core/evolution/suggestions/{id}:reject:
+        post:
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/suggestionItemOpenAPIResponse'
+                    description: Rejected suggestion
+            summary: Reject evolution suggestion
+            tags:
+                - evolution
+    /api/core/evolution/suggestions:batchApprove:
+        post:
+            description: Sets every listed suggestion to accepted regardless of its current status, as long as the suggestion exists.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/suggestionBatchReviewOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/suggestionBatchReviewOpenAPIResponse'
+                    description: Approved suggestions
+            summary: Batch approve evolution suggestions
+            tags:
+                - evolution
+    /api/core/evolution/suggestions:batchReject:
+        post:
+            description: Sets every listed suggestion to rejected regardless of its current status, as long as the suggestion exists.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/suggestionBatchReviewOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/suggestionBatchReviewOpenAPIResponse'
+                    description: Rejected suggestions
+            summary: Batch reject evolution suggestions
+            tags:
+                - evolution
     /api/core/health:
         get:
             responses:
@@ -2721,6 +4810,24 @@ paths:
                 "200":
                     description: OK
             summary: Hello (requires user.read)
+    /api/core/inner/word_group:apply:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ApplyWordGroupActionRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ApplyWordGroupActionBatchResponse'
+                    description: Per-item apply results
+            summary: 'Internal: apply word-group actions in batch (algorithm → core)'
+            tags:
+                - word_group
     /api/core/kb/{kb_id}/acl:
         get:
             parameters:
@@ -3062,6 +5169,427 @@ paths:
                 "200":
                     description: Returns group names
             summary: List knowledge base groups
+    /api/core/memory:
+        put:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/managedStateUpsertOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/managedStateOpenAPIResponse'
+                    description: Managed memory item
+            summary: Upsert managed memory
+            tags:
+                - memory
+    /api/core/memory/suggestion:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/systemSuggestionOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/recordedSuggestionListOpenAPIResponse'
+                    description: Created memory suggestions
+            summary: Create memory suggestions
+            tags:
+                - memory
+    /api/core/memory:confirm:
+        post:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemConfirmOpenAPIResponse'
+                    description: Confirmed memory draft
+            summary: Confirm memory draft
+            tags:
+                - memory
+    /api/core/memory:discard:
+        post:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemDiscardOpenAPIResponse'
+                    description: Discarded memory draft
+            summary: Discard memory draft
+            tags:
+                - memory
+    /api/core/memory:draft-preview:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemDraftPreviewOpenAPIResponse'
+                    description: Memory draft preview
+            summary: Preview memory draft diff
+            tags:
+                - memory
+    /api/core/memory:generate:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/skillGenerateOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemGenerateOpenAPIResponse'
+                    description: Generated memory draft
+            summary: Generate memory draft
+            tags:
+                - memory
+    /api/core/model_providers:
+        get:
+            description: Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).
+            parameters:
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listUserModelProvidersOpenAPIResponse'
+                    description: User model provider list
+            summary: List user model providers
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups:
+        get:
+            description: Lists non-deleted groups for the user model provider. model_provider_id is the id from GET /model_providers. Each item includes api_key.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listModelProviderGroupsOpenAPIResponse'
+                    description: Group list
+            summary: List model provider connection groups
+            tags:
+                - model_providers
+        post:
+            description: Creates a group (name, base_url, optional api_key) under the given user model provider. model_provider_id is the id from GET /model_providers. The api_key is not returned in the response body.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/createModelProviderGroupOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/createModelProviderGroupOpenAPIResponse'
+                    description: Created group
+            summary: Create model provider connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}:
+        delete:
+            description: Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/deleteModelProviderGroupOpenAPIResponse'
+                    description: Deleted group
+            summary: Delete model provider connection group
+            tags:
+                - model_providers
+        patch:
+            description: Updates name, base_url, and optionally api_key for a group. The group is selected by path group_id. Omit api_key or send an empty string to keep the existing API key (e.g. when the UI shows a mask). The api_key is not returned in the response body.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/updateModelProviderGroupOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/createModelProviderGroupOpenAPIResponse'
+                    description: Updated group
+            summary: Update model provider connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}/models:
+        get:
+            description: Lists non-deleted user_model_provider_group_models for the group. Each item includes is_default (true when copied from default_models seeding; false for user-added models).
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listModelProviderGroupModelsOpenAPIResponse'
+                    description: Group models list
+            summary: List models under a connection group
+            tags:
+                - model_providers
+        post:
+            description: Creates a user_model_provider_group_models row with is_default false (custom model name and model_type). Name must be unique within the group among active rows. provider_name and base_url are taken from the user provider and group. Response group_name is user_model_provider_groups.name (not stored on the model row).
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/addModelProviderGroupModelOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/addModelProviderGroupModelOpenAPIResponse'
+                    description: Created group model
+            summary: Add custom model under a connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}:
+        delete:
+            description: Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: model_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/deleteModelProviderGroupModelOpenAPIResponse'
+                    description: Deleted group model
+            summary: Delete model under a connection group
+            tags:
+                - model_providers
+    /api/core/model_providers/{model_provider_id}/groups/{group_id}:check:
+        post:
+            description: Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.
+            parameters:
+                - in: path
+                  name: model_provider_id
+                  required: true
+                  schema:
+                    type: string
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/checkModelProviderOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CheckModelProviderData'
+                    description: data contains only success (bool), mapped from algorithm /api/model/check
+            summary: Check model provider connectivity
+            tags:
+                - model_providers
+    /api/core/model_providers/models:
+        get:
+            description: Requires query model_type (e.g. llm, embedding). Returns all non-deleted user_model_provider_group_models for the current user with that model_type across all providers and groups. Ordered by user_model_provider_id, group id, then name. Same items as GET .../groups/{group_id}/models.
+            parameters:
+                - in: query
+                  name: model_type
+                  required: false
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listModelProviderGroupModelsOpenAPIResponse'
+                    description: Models list
+            summary: List current user's models by model_type
+            tags:
+                - model_providers
+    /api/core/model_providers/selected_models:
+        get:
+            description: Returns the current user's selected model for each model_type.
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listSelectedModelsOpenAPIResponse'
+                    description: Selected models
+            summary: Get selected models by model_type
+            tags:
+                - model_providers
+        put:
+            description: Upserts selected model rows for the current user. Each selection requires model_type and model_id. model_id must belong to the current user and model_type must match the model row.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/setSelectedModelsOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listSelectedModelsOpenAPIResponse'
+                    description: Saved selected models
+            summary: Save selected models by model_type
+            tags:
+                - model_providers
+    /api/core/model_providers:with_groups:
+        get:
+            description: Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/listUserModelProvidersOpenAPIResponse'
+                    description: User model providers with groups
+            summary: List user model providers that have groups
+            tags:
+                - model_providers
+    /api/core/personalization-items:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/managedStateListOpenAPIResponse'
+                    description: Managed personalization items
+            summary: List managed memory and preference items
+            tags:
+                - personalization
+    /api/core/personalization-setting:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/personalizationSettingOpenAPIResponse'
+                    description: Personalization setting
+            summary: Get personalization setting
+            tags:
+                - personalization
+        put:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/personalizationSettingOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/personalizationSettingOpenAPIResponse'
+                    description: Updated personalization setting
+            summary: Set personalization setting
+            tags:
+                - personalization
     /api/core/prompts:
         get:
             parameters:
@@ -3184,6 +5712,444 @@ paths:
                                 $ref: '#/components/schemas/EmptyObject'
                     description: Unset successfully
             summary: Unset default prompt
+    /api/core/remote-fs/content:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /remote-fs/content
+    /api/core/remote-fs/exists:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /remote-fs/exists
+    /api/core/remote-fs/info:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /remote-fs/info
+    /api/core/remote-fs/list:
+        get:
+            responses:
+                "200":
+                    description: OK
+            summary: GET /remote-fs/list
+    /api/core/skill-shares/{share_item_id}:
+        get:
+            parameters:
+                - in: path
+                  name: share_item_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillShareDetailOpenAPIResponse'
+                    description: Skill share detail
+            summary: Get skill share item
+            tags:
+                - skill-shares
+    /api/core/skill-shares/{share_item_id}:accept:
+        post:
+            parameters:
+                - in: path
+                  name: share_item_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillShareAcceptOpenAPIResponse'
+                    description: Accepted share
+            summary: Accept skill share
+            tags:
+                - skill-shares
+    /api/core/skill-shares/{share_item_id}:reject:
+        post:
+            parameters:
+                - in: path
+                  name: share_item_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillShareRejectOpenAPIResponse'
+                    description: Rejected share
+            summary: Reject skill share
+            tags:
+                - skill-shares
+    /api/core/skill-shares/incoming:
+        get:
+            parameters:
+                - in: query
+                  name: status
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillShareListOpenAPIResponse'
+                    description: Incoming share list
+            summary: List incoming skill shares
+            tags:
+                - skill-shares
+    /api/core/skill-shares/outgoing:
+        get:
+            parameters:
+                - in: query
+                  name: status
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillShareListOpenAPIResponse'
+                    description: Outgoing share list
+            summary: List outgoing skill shares
+            tags:
+                - skill-shares
+    /api/core/skill/create:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/internalSkillCreateOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDetailOpenAPIResponse'
+                    description: Created skill
+            summary: Create skill directly from internal request
+            tags:
+                - skill-evolution
+    /api/core/skill/remove:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/internalSkillRemoveOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDeleteOpenAPIResponse'
+                    description: Deleted skill
+            summary: Delete skill directly from internal request
+            tags:
+                - skill-evolution
+    /api/core/skill/suggestion:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/internalSkillSuggestionOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/recordedSuggestionListOpenAPIResponse'
+                    description: Created skill suggestions
+            summary: Create skill suggestions
+            tags:
+                - skill-evolution
+    /api/core/skills:
+        get:
+            parameters:
+                - in: query
+                  name: keyword
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: category
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: tags
+                  required: false
+                  schema:
+                    items:
+                        type: string
+                    type: array
+                - in: query
+                  name: page
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillListOpenAPIResponse'
+                    description: Skill list
+            summary: List skills
+            tags:
+                - skills
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/skillCreateManagedOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDetailOpenAPIResponse'
+                    description: Created skill
+            summary: Create managed skill
+            tags:
+                - skills
+    /api/core/skills/{skill_id}:
+        delete:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDeleteOpenAPIResponse'
+                    description: Deleted skill
+            summary: Delete managed skill
+            tags:
+                - skills
+        get:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDetailOpenAPIResponse'
+                    description: Skill details
+            summary: Get skill details
+            tags:
+                - skills
+        patch:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/skillUpdateManagedOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDetailOpenAPIResponse'
+                    description: Updated skill
+            summary: Update managed skill
+            tags:
+                - skills
+    /api/core/skills/{skill_id}:confirm:
+        post:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDetailOpenAPIResponse'
+                    description: Confirmed skill
+            summary: Confirm skill draft
+            tags:
+                - skills
+    /api/core/skills/{skill_id}:discard:
+        post:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDiscardOpenAPIResponse'
+                    description: Discarded skill draft
+            summary: Discard skill draft
+            tags:
+                - skills
+    /api/core/skills/{skill_id}:draft-preview:
+        get:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillDraftPreviewOpenAPIResponse'
+                    description: Skill draft preview
+            summary: Preview skill draft diff
+            tags:
+                - skills
+    /api/core/skills/{skill_id}:generate:
+        post:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/skillGenerateOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillGenerateOpenAPIResponse'
+                    description: Generated skill draft
+            summary: Generate skill draft
+            tags:
+                - skills
+    /api/core/skills/{skill_id}:share:
+        post:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/shareSkillOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillShareCreateOpenAPIResponse'
+                    description: Created share task
+            summary: Share skill
+            tags:
+                - skill-shares
+    /api/core/skills/{skill_id}:shares:
+        get:
+            parameters:
+                - in: path
+                  name: skill_id
+                  required: true
+                  schema:
+                    type: string
+                - in: query
+                  name: status
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page
+                  required: false
+                  schema:
+                    type: integer
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/skillShareTargetsOpenAPIResponse'
+                    description: Skill share targets
+            summary: List latest skill share status by target user
+            tags:
+                - skill-shares
     /api/core/static-files/{path:.*}:
         get:
             parameters:
@@ -3346,6 +6312,338 @@ paths:
                 "200":
                     description: Returns [ids, results]
             summary: Upload files to knowledge base
+    /api/core/user-preference:
+        put:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/managedStateUpsertOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/managedStateOpenAPIResponse'
+                    description: Managed user preference item
+            summary: Upsert managed user preference
+            tags:
+                - preferences
+    /api/core/user-preference:confirm:
+        post:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemConfirmOpenAPIResponse'
+                    description: Confirmed user preference draft
+            summary: Confirm user preference draft
+            tags:
+                - preferences
+    /api/core/user-preference:discard:
+        post:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemDiscardOpenAPIResponse'
+                    description: Discarded user preference draft
+            summary: Discard user preference draft
+            tags:
+                - preferences
+    /api/core/user-preference:draft-preview:
+        get:
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemDraftPreviewOpenAPIResponse'
+                    description: User preference draft preview
+            summary: Preview user preference draft diff
+            tags:
+                - preferences
+    /api/core/user-preference:generate:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/skillGenerateOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/systemGenerateOpenAPIResponse'
+                    description: Generated user preference draft
+            summary: Generate user preference draft
+            tags:
+                - preferences
+    /api/core/user_preference/suggestion:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/systemSuggestionOpenAPIRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/recordedSuggestionListOpenAPIResponse'
+                    description: Created user preference suggestions
+            summary: Create user preference suggestions
+            tags:
+                - preferences
+    /api/core/word_group:
+        get:
+            parameters:
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListWordGroupsResponse'
+                    description: Word group list
+            summary: List word groups (term row updated_at DESC)
+            tags:
+                - word_group
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateWordGroupRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateWordGroupResponse'
+                    description: Created word group
+            summary: Create word group
+            tags:
+                - word_group
+    /api/core/word_group/{group_id}:
+        delete:
+            parameters:
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DeleteWordGroupResponse'
+                    description: Deleted word group
+            summary: Delete word group by group_id
+            tags:
+                - word_group
+        get:
+            parameters:
+                - in: path
+                  name: group_id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateWordGroupResponse'
+                    description: Word group detail
+            summary: Get word group detail by group_id
+            tags:
+                - word_group
+    /api/core/word_group:batchDelete:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BatchDeleteWordGroupsRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BatchDeleteWordGroupsResponse'
+                    description: Batch deleted word groups
+            summary: Batch soft-delete word groups by group_ids
+            tags:
+                - word_group
+    /api/core/word_group:checkExists:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CheckWordsExistRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CheckWordsExistResponse'
+                    description: Existing words among term and aliases
+            summary: Check which words already exist
+            tags:
+                - word_group
+    /api/core/word_group:merge:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/MergeWordGroupsRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateWordGroupResponse'
+                    description: Merged word group
+            summary: Merge word groups into the first group_id (first term kept; others become aliases)
+            tags:
+                - word_group
+    /api/core/word_group:mergeAndAddWord:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/MergeAndAddWordRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateWordGroupResponse'
+                    description: Merged word group with added word
+            summary: Merge word groups then add one word into merged group as alias
+            tags:
+                - word_group
+    /api/core/word_group:search:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchWordGroupsRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListWordGroupsResponse'
+                    description: Word group search results
+            summary: Search word groups by keyword and optional source (paginated list)
+            tags:
+                - word_group
+    /api/core/word_group:update:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateWordGroupRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateWordGroupResponse'
+                    description: Updated word group
+            summary: Update word group (term, description, lock, replace aliases)
+            tags:
+                - word_group
+    /api/core/word_group_conflict:
+        get:
+            parameters:
+                - in: query
+                  name: page_token
+                  required: false
+                  schema:
+                    type: string
+                - in: query
+                  name: page_size
+                  required: false
+                  schema:
+                    type: integer
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListWordGroupConflictsResponse'
+                    description: Word group conflict list
+            summary: List pending word group conflicts (updated_at DESC)
+            tags:
+                - word_group
+    /api/core/word_group_conflict/{id}:
+        delete:
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DeleteWordGroupConflictResponse'
+                    description: Deleted word group conflict
+            summary: Soft-delete a word group conflict by id
+            tags:
+                - word_group
+    /api/core/word_group_conflict:addToGroup:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AddWordGroupConflictToGroupsRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AddWordGroupConflictToGroupsResponse'
+                    description: Conflict word add-to-group result
+            summary: Add conflict word to selected groups
+            tags:
+                - word_group
 servers:
     - description: same origin; see paths with /api/core prefix
       url: /

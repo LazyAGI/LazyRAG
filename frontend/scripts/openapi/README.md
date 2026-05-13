@@ -4,10 +4,11 @@
 
 
 
-本地维护的 OpenAPI 规范文件位于：
+当前前端生成链路的权威输入位于：
 ```
 scripts/openapi/specs/auth-openapi.yaml
 scripts/openapi/specs/core.yaml
+scripts/openapi/specs/scan.yaml
 ```
 
 
@@ -15,6 +16,7 @@ scripts/openapi/specs/core.yaml
 ```
 src/api/generated/auth-client/
 src/api/generated/core-client/
+src/api/generated/scan-client/
 ```
 
 
@@ -26,7 +28,7 @@ npm run dev
 ```
 
 这个命令会：
-1. 自动生成 `auth` 和 `core` 接口（通过 `predev` 钩子）
+1. 自动生成 `auth`、`core` 和 `scan` 接口（通过 `predev` 钩子）
 2. 启动开发服务器
 
 
@@ -37,8 +39,11 @@ npm run gen:auth
 
 npm run gen:openapi auth
 npm run gen:openapi core
+npm run gen:openapi scan
 
 npm run gen:openapi
+
+npm run gen:openapi:check
 ```
 
 
@@ -66,8 +71,10 @@ npm run gen:openapi your-service
 ```
 
 
+- `scripts/openapi/openapi-manifest.mjs`: OpenAPI 输入/输出清单
+- `scripts/openapi/check-stale.mjs`: 检查 spec 与已生成 client 是否一致
 - `scripts/openapi/generate-api.mjs`: 主生成脚本
-- `scripts/openapi/generate-auth.sh`: 批量生成 auth 与 core 接口（依赖系统 `PATH` 中的 `java`）
+- `scripts/openapi/generate-auth.sh`: 批量生成 auth、core、scan 接口（依赖系统 `PATH` 中的 `java`）
 - `scripts/openapi/openapi-generator-config.json`: OpenAPI Generator 配置
 - `scripts/openapi/.openapi-cache.json`: 缓存文件（避免重复生成）
 
@@ -98,6 +105,14 @@ java -version
 1. OpenAPI YAML 文件格式是否正确
 2. Java 环境是否配置正确
 3. 网络连接是否正常（首次运行需要下载 OpenAPI Generator）
+4. 先执行 `npm run gen:openapi:check`，确认是否存在 stale 的 spec/client
+
+
+当前行为说明：
+
+- 如果本地没有 Java 且 spec 没变，`npm run dev` 会跳过生成并继续启动。
+- 如果本地没有 Java 且 spec 已变，脚本会直接报错并阻止启动，避免继续使用过期 client。
+- 如确需临时跳过 stale 检查，可使用 `OPENAPI_ALLOW_STALE=1 npm run dev`，但这只是临时兜底，不建议长期使用。
 
 
 - **OpenAPI Generator CLI**: v2.20.2+

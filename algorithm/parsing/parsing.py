@@ -1,81 +1,75 @@
-import os
+import time
+import requests
+import urllib.error
+import urllib.request
 
-from lazyllm import OnlineEmbeddingModule
-from lazyllm.tools.rag import Document, MineruPDFReader, PDFReader
-from lazyllm.tools.rag.transform import SentenceSplitter
-from lazyllm.tools.rag.readers import PaddleOCRPDFReader
-from lazyllm.tools.rag.doc_impl import NodeGroupType
-from lazyllm.tools.rag.parsing_service import DocumentProcessor
-
-
-# Milvus + OpenSearch are required when using Processor/Worker. If user provides external URIs, no deployment needed.
-milvus_uri = os.getenv('LAZYRAG_MILVUS_URI')
-opensearch_uri = os.getenv('LAZYRAG_OPENSEARCH_URI')
-if not milvus_uri:
-    raise ValueError('LAZYRAG_MILVUS_URI is required')
-if not opensearch_uri:
-    raise ValueError('LAZYRAG_OPENSEARCH_URI is required')
-store_config = {
-    'vector_store': {
-        'type': 'milvus',
-        'kwargs': {
-            'uri': milvus_uri,
-            'index_kwargs': {
-                'index_type': 'FLAT',
-                'metric_type': 'COSINE',
-            },
-        },
-    },
-    'segment_store': {
-        'type': 'opensearch',
-        'kwargs': {
-            'uris': opensearch_uri,
-            'client_kwargs': {
-                'http_compress': True,
-                'use_ssl': True,
-                'verify_certs': False,
-                'user': os.getenv('LAZYRAG_OPENSEARCH_USER', 'admin'),
-                'password': os.getenv('LAZYRAG_OPENSEARCH_PASSWORD', 'admin'),
-            },
-        },
-    },
-}
-
-ocr_type = os.getenv('LAZYRAG_OCR_SERVER_TYPE', 'none')
-ocr_url = os.getenv('LAZYRAG_OCR_SERVER_URL', 'http://localhost:8000').rstrip('/')
-processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
-server_port = int(os.getenv('LAZYRAG_DOCUMENT_SERVER_PORT', '8000'))
-
-if ocr_type in ('none', None, ''):
-    pdf_reader = PDFReader()
-elif ocr_type == 'mineru':
-    pdf_reader = MineruPDFReader(ocr_url)
-elif ocr_type == 'paddleocr':
-    pdf_reader = PaddleOCRPDFReader(url=ocr_url)
-else:
-    raise ValueError(f'Unsupported LAZYRAG_OCR_SERVER_TYPE: {ocr_type!r}')
-
-docs = Document(
-    dataset_path=None,
-    name='algo1',
-    embed=OnlineEmbeddingModule(),
-    store_conf=store_config,
-    manager=DocumentProcessor(url=processor_url),
-    doc_fields=[],
-    server=server_port,
+import chat.components.tmp  # noqa: F401 — registers BgeM3Embed / Qwen3Rerank into lazyllm.online
+from config import config as _cfg
+from parsing.build_document import (
+    build_document, drop_lazyllm_tables, reset_stores,
+    get_algo_server_port, ALGO_ID,
 )
 
-docs.add_reader('*.pdf', pdf_reader)
-docs.create_node_group(
-    name='block',
-    display_name='段落切片',
-    group_type=NodeGroupType.CHUNK,
-    transform=SentenceSplitter(chunk_size=512, chunk_overlap=50),
-)
-docs.activate_group('block')
+
+def _wait_for_http_ok(url: str, label: str, timeout: float, interval: float) -> None:
+    deadline = time.time() + timeout if timeout > 0 else None
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                if 200 <= response.status < 300:
+                    return
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            pass
+        if deadline is not None and time.time() >= deadline:
+            raise RuntimeError(f'timed out waiting for {label}: {url}')
+        time.sleep(interval)
+
+
+def _wait_for_algorithm_registration(processor_url: str, algo_id: str, timeout: float, interval: float) -> None:
+    deadline = time.time() + timeout if timeout > 0 else None
+    algo_list_url = f'{processor_url.rstrip("/")}/algo/list'
+    while True:
+        try:
+            response = requests.get(algo_list_url, timeout=3)
+            response.raise_for_status()
+            data = response.json().get('data', [])
+            if any(item.get('algo_id') == algo_id for item in data):
+                return
+        except requests.exceptions.RequestException:
+            pass
+        if deadline is not None and time.time() >= deadline:
+            raise RuntimeError(f'timed out waiting for algorithm registration: {algo_id}')
+        time.sleep(interval)
+
+
+def main() -> None:
+    processor_url = _cfg['document_processor_url'].rstrip('/')
+    retry_interval = float(_cfg['startup_retry_interval'])
+    startup_timeout = float(_cfg['startup_timeout'])
+
+    _wait_for_http_ok(f'{processor_url}/health', 'DocumentProcessor', startup_timeout, retry_interval)
+
+    if _cfg['reset_algo_on_startup']:
+        drop_lazyllm_tables()
+        reset_stores()
+
+    docs = build_document()
+    docs.start()
+
+    _wait_for_http_ok(
+        f'http://127.0.0.1:{get_algo_server_port()}/docs',
+        'lazyllm-algo local service',
+        startup_timeout,
+        retry_interval,
+    )
+    _wait_for_algorithm_registration(processor_url, ALGO_ID, startup_timeout, retry_interval)
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
 
 if __name__ == '__main__':
-    docs.start()
-    # NOTE: lazyllm has no public API for waiting on knowledge-base readiness; _manager._kbs is internal.
-    # May break with lazyllm updates; add a comment if this is necessary for startup ordering.
-    docs._manager._kbs.wait()
+    main()

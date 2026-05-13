@@ -1,5 +1,6 @@
 import { Modal, Button } from "antd";
 import type { ButtonProps } from "antd";
+import { useTranslation } from "react-i18next";
 
 interface CommonModalProps {
   contentText: React.ReactNode;
@@ -16,6 +17,7 @@ interface CommonModalProps {
 }
 
 export default function CommonModal(props: CommonModalProps) {
+  const { t } = useTranslation();
   const {
     contentText,
     successFn,
@@ -24,8 +26,8 @@ export default function CommonModal(props: CommonModalProps) {
     isBtn = true,
     width = 420,
     loading = false,
-    cancelText = "取消",
-    confirmText = "确认",
+    cancelText = t("common.cancel"),
+    confirmText = t("common.confirm"),
     btnType = "primary",
     disable = false,
   } = props;

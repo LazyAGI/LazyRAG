@@ -4,8 +4,15 @@
   .ant-select-selector {
     background: transparent !important;
     border: none !important;
-    color: inherit;
+    color: inherit !important;
+    border-radius: 0 !important;
     box-shadow: none !important;
+    padding-inline: 0 !important;
+  }
+
+  .ant-select-selection-item {
+    font-size: 13px;
+    font-weight: 500;
   }
 
   .ant-select-arrow {

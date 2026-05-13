@@ -1,16 +1,18 @@
 backend/auth-service/api_permissions.json
 .vscode/settings.json
 backend/core/core
+.env
 
 .flake8-python.path
 __pycache__
 
 # python files
-__pycache__
+*__pycache__*
 *.pyc
 
 # temp files
 test/
+node_modules/
 dist/
 tmp/
 build
@@ -28,6 +30,7 @@ wget-log
 .vscode
 .claude
 .cursor
+.codex
 
 # docs
 lazyllm_chroma/
@@ -71,4 +74,21 @@ docs/zh/assets
 build*
 lazyllm_cpp.egg-info/
 !build*.sh
+!build_document.py
 
+.venv/
+data/
+volumes/
+.conda
+
+# evo runtime artifacts
+evo/output/
+data/evo/
+
+# macOS
+.DS_Store
+
+AGENTS.md
+algorithm/.agentic_rag/
+version.*
+algorithm/Dockerfile.chat-rebase

@@ -1,4 +1,4 @@
-import { Breadcrumb, type BreadcrumbProps, Button, Typography } from "antd";
+import { Breadcrumb, type BreadcrumbProps, Button, Tooltip } from "antd";
 import { LeftOutlined } from "@ant-design/icons";
 import { useStyles } from "./useStyles";
 
@@ -9,18 +9,69 @@ const headerCss = `
   flex-direction: column;
   gap: 16px;
 }
+.common-detail-page-header .ant-breadcrumb {
+  max-width: 100%;
+}
+.detail-breadcrumb-item {
+  display: inline-block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .detail-page-title {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
-.detail-title { font-size: 20px; font-weight: 600; }
+.detail-title {
+  font-size: 20px;
+  font-weight: 600;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.detail-title-text,
+.detail-page-description-text,
+.detail-breadcrumb-text,
+.title-extra-text {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.detail-title-text {
+  max-width: 100%;
+}
+.detail-breadcrumb-text {
+  max-width: min(60vw, 960px);
+}
 .title-extra, .detail-page-description { font-size: 14px; color: #666; }
+.title-extra {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.title-extra-text {
+  max-width: 320px;
+}
+.detail-page-description-text {
+  max-width: 100%;
+}
 .settings-menu { display: flex; align-items: center; gap: 4px; }
 .extra-content { display: flex; flex-wrap: wrap; gap: 8px 24px; }
-.extra-content-item { display: flex; align-items: center; gap: 8px; }
+.extra-content-item { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .extra-content-label { font-size: 12px; color: #666; }
-.extra-content-value { font-size: 12px; }
+.extra-content-value { font-size: 12px; min-width: 0; max-width: 100%; }
+.extra-content-value-text {
+  display: inline-block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 `;
 
 interface ContentItem {
@@ -55,11 +106,40 @@ export default function DetailPageHeader({
   onBack,
 }: DetailPageHeaderProps) {
   useStyles("detail-page-header-styles", headerCss);
+  const normalizedBreadcrumbs = breadcrumbs?.map((item) => {
+    if (typeof item?.title !== "string" && typeof item?.title !== "number") {
+      return item;
+    }
+    const fullText = String(item.title);
+    return {
+      ...item,
+      title: (
+        <Tooltip title={fullText}>
+          <span className="detail-breadcrumb-item">{fullText}</span>
+        </Tooltip>
+      ),
+    };
+  });
+
+  const renderTextWithTooltip = (
+    value?: React.ReactNode | string,
+    className?: string,
+  ) => {
+    if (typeof value !== "string" && typeof value !== "number") {
+      return value;
+    }
+    const fullText = String(value);
+    return (
+      <Tooltip title={fullText}>
+        <span className={className}>{fullText}</span>
+      </Tooltip>
+    );
+  };
 
   return (
     <div className={`common-detail-page-header ${className}`}>
-      {breadcrumbs && breadcrumbs.length > 0 && (
-        <Breadcrumb items={breadcrumbs} />
+      {normalizedBreadcrumbs && normalizedBreadcrumbs.length > 0 && (
+        <Breadcrumb items={normalizedBreadcrumbs} />
       )}
       <div className="detail-page-title">
         {showBackButton && (
@@ -70,9 +150,15 @@ export default function DetailPageHeader({
             onClick={() => (onBack ? onBack() : window.history.back())}
           />
         )}
-        <span className="detail-title">{title}</span>
+        <span className="detail-title">
+          {renderTextWithTooltip(title, "detail-title-text")}
+        </span>
         {settingsMenu && <div className="settings-menu">{settingsMenu}</div>}
-        {titleExtra && <div className="title-extra">{titleExtra}</div>}
+        {titleExtra && (
+          <div className="title-extra">
+            {renderTextWithTooltip(titleExtra, "title-extra-text")}
+          </div>
+        )}
       </div>
       {extraContent && extraContent.length > 0 && (
         <div className="extra-content">
@@ -84,19 +170,16 @@ export default function DetailPageHeader({
                   {item.label}
                   {extraSplitter}
                 </span>
-                <span className="extra-content-value">{item.value}</span>
+                <span className="extra-content-value">
+                  {renderTextWithTooltip(item.value, "extra-content-value-text")}
+                </span>
               </div>
             ))}
         </div>
       )}
       {description && (
         <div className="detail-page-description">
-          <Typography.Paragraph
-            ellipsis={{ rows: 1, expandable: false }}
-            style={{ marginBottom: 0 }}
-          >
-            {description}
-          </Typography.Paragraph>
+          {renderTextWithTooltip(description, "detail-page-description-text")}
         </div>
       )}
     </div>

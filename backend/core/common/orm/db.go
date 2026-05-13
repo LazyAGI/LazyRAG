@@ -2,27 +2,28 @@ package orm
 
 import (
 	"fmt"
-	"log"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
+	"lazyrag/core/log"
 )
 
-// DB wraps *gorm.DB for ACL and other modules. Supports PostgreSQL, SQLite, MySQL.
+// DB text *gorm.DB，text ACL text。text PostgreSQL、SQLite、MySQL。
 type DB struct {
 	*gorm.DB
 }
 
-// Driver names for Connect.
+// Connect text
 const (
 	DriverPostgres = "postgres"
 	DriverSQLite   = "sqlite"
 	DriverMySQL    = "mysql"
 )
 
-// Connect opens a database connection. driver: postgres, sqlite, mysql. dsn format depends on driver.
+// Connect text。driver: postgres / sqlite / mysql，dsn text。
 func Connect(driver, dsn string) (*DB, error) {
 	var dialector gorm.Dialector
 	switch driver {
@@ -42,21 +43,11 @@ func Connect(driver, dsn string) (*DB, error) {
 	return &DB{DB: db}, nil
 }
 
-// MigrateACL runs auto-migration for ACL-related tables.
-func (db *DB) MigrateACL() error {
-	return db.AutoMigrate(
-		&VisibilityModel{},
-		&ACLModel{},
-		&KBModel{},
-		&UserGroupModel{},
-	)
-}
-
-// MustConnect connects or logs fatal. Useful for main.
+// MustConnect text，Failedtext Fatal Logtext，text main text。
 func MustConnect(driver, dsn string) *DB {
 	db, err := Connect(driver, dsn)
 	if err != nil {
-		log.Fatalf("orm: connect failed: %v", err)
+		log.Logger.Fatal().Err(err).Str("driver", driver).Msg("orm: connect failed")
 	}
 	return db
 }

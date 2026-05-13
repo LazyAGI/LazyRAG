@@ -2,6 +2,16 @@
 permission_groups:
   - user.read
   - user.write
+  - user.admin   # Owned only by admin role, used for gateway authorization of user/role/group management APIs
+  - document.read
+  - document.write
+  - qa.read
+
+# Default permission codes for built-in user role (must exist in permission_groups)
+# Design principle: newly registered users can use basic conversation and knowledge-base capabilities by default,
+# but cannot access auth-service user/role/group management APIs (these APIs require user.admin).
+default_user_role_permissions:
+  - user.read
   - document.read
   - document.write
   - qa.read

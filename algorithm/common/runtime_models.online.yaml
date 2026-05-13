@@ -1,0 +1,19 @@
+# Runtime model config for online/cloud deployment using Minimax.
+# All model roles are statically configured; API key is read from the environment.
+# yaml key = AutoModel(model=...) lookup name; name field = actual model name sent to the API.
+
+llm:
+  - source: qwen
+    name: qwen3-max
+
+evo_llm:
+  - source: qwen
+    name: qwen3-max
+
+reranker:
+  - source: qwen
+    name: gte-rerank-v2
+
+embed_main:
+  - source: qwen
+    name: text-embedding-v3

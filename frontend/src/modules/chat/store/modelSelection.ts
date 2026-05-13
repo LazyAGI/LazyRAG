@@ -1,6 +1,5 @@
 import { create } from "zustand";
 
-/** 与后端约定一致的模型名，请求/解析时使用，不随界面语言切换。 */
 export const MODEL_API_LABELS = {
   lazyRag: "LazyRAG 大模型",
   deepSeek: "DeepSeek",
@@ -8,7 +7,6 @@ export const MODEL_API_LABELS = {
 
 export type ModelSelectionType = "value_engineering" | "deepseek" | "both";
 
-/** 选择器触发区短文案对应的 i18n 键 */
 export const MODEL_SELECTION_SUMMARY_KEYS: Record<ModelSelectionType, string> = {
   value_engineering: "chat.modelSelectionTriggerLazyRag",
   deepseek: "chat.modelSelectionTriggerDeepSeek",
@@ -58,18 +56,18 @@ export function parseModelSelectionFromModels(
 }
 
 interface ModelSelectionStore {
-  
+
   conversationModelSelection: Record<string, ModelSelectionType>;
-  
+
   getModelSelection: (conversationId: string) => ModelSelectionType;
-  
+
   setModelSelection: (
     conversationId: string,
     selection: ModelSelectionType,
   ) => void;
-  
+
   resetForNewChat: () => void;
-  
+
   clearModelSelection: (conversationId: string) => void;
 }
 

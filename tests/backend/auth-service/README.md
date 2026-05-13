@@ -1,12 +1,12 @@
 # auth-service Unit Tests
 
-Tests for FastAPI auth service (JWT, RBAC, users, roles).
+Tests for the FastAPI auth service (`JWT`, `RBAC`, users, roles, Alembic).
 
 ## Setup
 
 ```bash
-pip install -r ../../../backend/auth-service/requirements.txt
-pip install -r requirements-test.txt
+pip install -r backend/auth-service/requirements.txt
+pip install -r tests/backend/auth-service/requirements-test.txt
 ```
 
 ## Run
@@ -25,6 +25,7 @@ cd ../../.. && python -m pytest tests/backend/auth-service/ -v
 
 ## Strategy
 
-- **DB**: SQLite in-memory via `LAZYRAG_DATABASE_URL=sqlite:///:memory:` (set in conftest before import)
+- **DB**: isolated SQLite test database file configured in `conftest.py`
 - **JWT**: Test secret in env
-- **No mocks**: Real DB, real JWT; bootstrap runs on startup
+- **Startup**: app startup runs Alembic and bootstrap during integration-style API tests
+- **Mocks**: Redis-dependent behavior is stubbed in targeted tests when the goal is unit coverage rather than Redis integration

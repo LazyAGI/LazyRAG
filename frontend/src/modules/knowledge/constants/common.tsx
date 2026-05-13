@@ -126,6 +126,7 @@ export const ACTION_COLUMN_BASE_WIDTH = 60;
 
 export const TABLE_PAGE_SIZE = 10;
 export const CARD_PAGE_SIZE = 12;
+export const IMPORT_TASK_POLL_INTERVAL = 5 * 1000;
 
 // export const SUPPORT_SUFFIX = ['txt', 'xml', 'json', 'pdf', 'docx', 'doc', 'html', 'md', 'pptx', 'csv', 'xlsx', 'xls'];
 export const SUPPORT_SUFFIX = ["pdf", "docx", "doc", "pptx", "zip"];

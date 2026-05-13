@@ -284,9 +284,25 @@ export function MemberServiceApi() {
         dataset: string;
         member?: string;
         userId?: string;
+        groupId?: string;
       },
       options?: RawAxiosRequestConfig,
     ) {
+      const groupId =
+        requestParameters.groupId ||
+        requestParameters.member?.match(/\/members\/groups\/([^/]+)/)?.[1] ||
+        "";
+
+      if (groupId) {
+        return coreClient.apiCoreDatasetsDatasetMembersGroupsGroupIdDelete(
+          {
+            dataset: requestParameters.dataset,
+            groupId,
+          },
+          options,
+        );
+      }
+
       const userId =
         requestParameters.userId ||
         requestParameters.member?.match(/(?:^|\/)id\/([^/]+)/)?.[1] ||
@@ -305,15 +321,45 @@ export function MemberServiceApi() {
         dataset: string;
         member?: string;
         userId?: string;
+        groupId?: string;
         datasetMember?: {
+          user_id?: string;
+          group_id?: string;
           role?: { role?: string; display_name?: string };
         };
         updateMask?: string;
       },
       options?: RawAxiosRequestConfig,
     ) {
+      const groupId =
+        requestParameters.groupId ||
+        requestParameters.datasetMember?.group_id ||
+        requestParameters.member?.match(/\/members\/groups\/([^/]+)/)?.[1] ||
+        "";
+
+      if (groupId) {
+        return coreClient.apiCoreDatasetsDatasetMembersGroupsGroupIdPatch(
+          {
+            dataset: requestParameters.dataset,
+            groupId,
+            updateDatasetMemberRequest: {
+              dataset_member: {
+                role: requestParameters.datasetMember?.role,
+              },
+              update_mask: {
+                paths: requestParameters.updateMask
+                  ? requestParameters.updateMask.split(",")
+                  : ["role"],
+              },
+            },
+          },
+          withJsonOptions(options),
+        );
+      }
+
       const userId =
         requestParameters.userId ||
+        requestParameters.datasetMember?.user_id ||
         requestParameters.member?.match(/(?:^|\/)id\/([^/]+)/)?.[1] ||
         "";
 
@@ -434,7 +480,7 @@ export function TaskServiceApi() {
   const uploadClient = CoreDefaultApiFactory(CoreConfig, BASE_URL, axiosInstance);
 
   return {
-    
+
     uploadFiles(
       dataset: string,
       formData: FormData,
@@ -464,7 +510,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     createTasks(
       dataset: string,
       body: CreateTaskRequest,
@@ -479,7 +525,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     startTasks(
       dataset: string,
       body: StartTaskRequest,
@@ -494,7 +540,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     listTasks(
       dataset: string,
       options?: RawAxiosRequestConfig,
@@ -502,7 +548,7 @@ export function TaskServiceApi() {
       return coreClient.apiCoreDatasetsDatasetTasksGet({ dataset }, options);
     },
 
-    
+
     searchTasks(
       dataset: string,
       body: SearchTasksRequest,
@@ -517,7 +563,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     suspendTask(
       dataset: string,
       task: string,
@@ -533,7 +579,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     resumeTask(
       dataset: string,
       task: string,
@@ -548,7 +594,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     deleteTask(
       dataset: string,
       task: string,
@@ -563,7 +609,7 @@ export function TaskServiceApi() {
       );
     },
 
-    
+
     getTask(
       dataset: string,
       task: string,

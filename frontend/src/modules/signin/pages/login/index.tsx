@@ -14,9 +14,6 @@ interface LoginForm {
   password: string;
 }
 
-const hashBase = () =>
-  `${window.location.origin}${window.location.pathname || ""}#`;
-
 const Login = () => {
   const [form] = Form.useForm<LoginForm>();
   const navigate = useNavigate();
@@ -28,7 +25,7 @@ const Login = () => {
     try {
       const userInfo = AgentAppsAuth.getUserInfo();
       if (userInfo && userInfo.token) {
-        window.location.href = hashBase() + "/agent/chat";
+        navigate("/agent/chat", { replace: true });
       }
     } catch {
       // ignore
@@ -42,19 +39,16 @@ const Login = () => {
       sessionStorage.getItem("signin_post_logout_cleanup") ||
       localStorage.getItem("signin_post_logout_cleanup");
     if (postLogoutCleanup === "1") {
+      localStorage.clear();
       [
         "signin_username",
         "signin_password",
         "signin_login_count",
         "signin_login_tag",
-        "signin_sso_url",
-        "signin_sso_client_id",
       ].forEach((key) => {
-        localStorage.removeItem(key);
         sessionStorage.removeItem(key);
       });
       sessionStorage.removeItem("signin_post_logout_cleanup");
-      localStorage.removeItem("signin_post_logout_cleanup");
     }
     checkUserLogin();
     const prefilledUsername = (location.state as { username?: string } | null)
@@ -70,8 +64,6 @@ const Login = () => {
       "signin_password",
       "signin_login_count",
       "signin_login_tag",
-      "signin_sso_url",
-      "signin_sso_client_id",
     ].forEach((key) => {
       localStorage.removeItem(key);
       sessionStorage.removeItem(key);
@@ -88,7 +80,7 @@ const Login = () => {
       const loginData = unwrapLoginResponse(res.data as any);
       await storeLoginSession(loginData, value.username);
       clearSigninRetryLocalCache();
-      window.location.href = hashBase() + "/agent/chat";
+      navigate("/agent/chat", { replace: true });
     } catch (error: any) {
       if (!error?.response && !error?.request) {
         message.error(error?.message || t("auth.loginFailed"));

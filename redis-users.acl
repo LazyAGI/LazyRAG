@@ -1,0 +1,2 @@
+user default on nopass ~* &* +@all
+user test on >123456 ~* &* +@all

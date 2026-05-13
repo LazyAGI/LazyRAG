@@ -6,28 +6,18 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { createHash } from "crypto";
 import { fileURLToPath } from "url";
+import {
+  getOpenApiApis,
+  getOpenApiCacheFilePath,
+  hashFile,
+} from "./openapi-manifest.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const cwdPath = process.cwd();
-const outputDirname = path.resolve(cwdPath, "src/api/generated");
-const localSpecsDir = path.resolve(cwdPath, "scripts/openapi/specs");
-
-const apis = [
-  {
-    name: "auth",
-    input: path.resolve(localSpecsDir, "auth-openapi.yaml"),
-    output: path.resolve(outputDirname, "auth-client"),
-  },
-  {
-    name: "core",
-    input: path.resolve(localSpecsDir, "core.yaml"),
-    output: path.resolve(outputDirname, "core-client"),
-  },
-];
+const apis = getOpenApiApis(cwdPath);
 
 const args = process.argv.slice(2);
 const flags = new Set(args.filter((arg) => arg.startsWith("--")));
@@ -44,19 +34,51 @@ if (target && selectedApis.length === 0) {
   process.exit(1);
 }
 
-const cacheFilePath = path.resolve(
-  cwdPath,
-  "scripts/openapi/.openapi-cache.json",
-);
+const cacheFilePath = getOpenApiCacheFilePath(cwdPath);
 let cache = {};
 if (!skipCache && fs.existsSync(cacheFilePath)) {
   cache = JSON.parse(fs.readFileSync(cacheFilePath, "utf-8"));
 }
 
-function hashFile(filePath) {
-  if (!fs.existsSync(filePath)) return "";
-  const content = fs.readFileSync(filePath);
-  return createHash("sha256").update(content).digest("hex");
+function resolveOpenApiGeneratorCommand() {
+  const binaryName =
+    process.platform === "win32"
+      ? "openapi-generator-cli.cmd"
+      : "openapi-generator-cli";
+  const localBinary = path.resolve(cwdPath, "node_modules", ".bin", binaryName);
+
+  if (fs.existsSync(localBinary)) {
+    return `"${localBinary}"`;
+  }
+
+  if (commandExists("pnpm")) {
+    return "pnpm exec openapi-generator-cli";
+  }
+
+  if (commandExists("npm")) {
+    return "npm exec -- openapi-generator-cli";
+  }
+
+  if (commandExists("npx")) {
+    return "npx --no-install openapi-generator-cli";
+  }
+
+  console.error(
+    "❌ openapi-generator-cli not found. Run `npm install` in frontend first, or install pnpm/npm/npx on PATH.",
+  );
+  process.exit(1);
+}
+
+function commandExists(command) {
+  try {
+    execSync(`${process.platform === "win32" ? "where" : "command -v"} ${command}`, {
+      stdio: "ignore",
+      cwd: cwdPath,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -80,6 +102,7 @@ function patchBasePath(outputDir) {
 }
 
 let updated = false;
+const openApiGeneratorCommand = resolveOpenApiGeneratorCommand();
 for (const api of selectedApis) {
   if (!fs.existsSync(api.input)) {
     console.warn(
@@ -100,7 +123,7 @@ for (const api of selectedApis) {
 
   try {
     execSync(
-      `pnpm exec openapi-generator-cli generate --skip-validate-spec -c scripts/openapi/openapi-generator-config.json -i "${api.input}" -o "${api.output}"`,
+      `${openApiGeneratorCommand} generate --skip-validate-spec -c scripts/openapi/openapi-generator-config.json -i "${api.input}" -o "${api.output}"`,
       { stdio: "inherit", cwd: cwdPath },
     );
     patchBasePath(api.output);

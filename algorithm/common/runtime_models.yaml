@@ -1,0 +1,23 @@
+# Runtime model roles for LazyRAG (online/cloud deployment).
+# All roles use source=dynamic: model config is injected per-request via globals.config.
+# No API keys or URLs here — they are provided by the frontend at runtime.
+
+llm:
+  source: dynamic
+  dynamic_auth: true
+  type: llm
+
+evo_llm:
+  source: dynamic
+  dynamic_auth: true
+  type: llm
+
+reranker:
+  source: dynamic
+  dynamic_auth: true
+  type: rerank
+
+embed_main:
+  source: dynamic
+  dynamic_auth: true
+  type: embed

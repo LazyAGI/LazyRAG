@@ -5,6 +5,7 @@
 import axios from "axios";
 
 const STORAGE_KEY = "lazyrag:user";
+export const AUTH_USER_CHANGE_EVENT = "lazyrag:user-change";
 
 const BASE_URL =
   (typeof import.meta !== "undefined" &&
@@ -75,6 +76,10 @@ function getStored(): UserInfo | null {
   }
 }
 
+function notifyUserInfoChange() {
+  window.dispatchEvent(new Event(AUTH_USER_CHANGE_EVENT));
+}
+
 export const AgentAppsAuth = {
   getUserInfo(): UserInfo | null {
     return getStored();
@@ -93,7 +98,8 @@ export const AgentAppsAuth = {
   },
 
   clearUserInfo() {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.clear();
+    notifyUserInfoChange();
   },
 
   getAuthHeaders(): Record<string, string> {
@@ -112,7 +118,7 @@ export const AgentAppsAuth = {
   },
 
   getLoginUrl(): string {
-    return `${window.location.origin}${window.location.pathname || ""}#/login`;
+    return `${window.location.origin}${window.BASENAME || ""}/login`;
   },
 
   async logout(redirectUrl?: string) {
@@ -134,6 +140,7 @@ export const AgentAppsAuth = {
       userId: resolveUserId(info),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    notifyUserInfoChange();
   },
 
   updateUserInfo(patch: Partial<UserInfo>) {

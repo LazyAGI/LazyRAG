@@ -187,6 +187,10 @@ const DragUpload = (props: IDragUploadProps) => {
     }
   };
 
+  const isZipFileItem = (item: any) =>
+    item?.path?.toLowerCase().endsWith(".zip") ||
+    item?.originFile?.name?.toLowerCase().endsWith(".zip");
+
   const handleChange = (fileList: any[]) => {
     const getRootFolderName = (path: string) => {
       const parts = path?.split("/") || [];
@@ -227,7 +231,8 @@ const DragUpload = (props: IDragUploadProps) => {
         return;
       }
 
-      if (maxFileSize && item.size > maxFileSize) {
+      const skipGenericSizeLimitForZip = zipMode && isZipFileItem(item);
+      if (!skipGenericSizeLimitForZip && maxFileSize && item.size > maxFileSize) {
         errorList.push(
           t("knowledge.singleFileMax", {
             size: FileUtils.formatFileSize(maxFileSize, 0),
@@ -247,7 +252,7 @@ const DragUpload = (props: IDragUploadProps) => {
       }
 
       totalSize += item.size;
-      if (maxSize && totalSize > maxSize) {
+      if (!skipGenericSizeLimitForZip && maxSize && totalSize > maxSize) {
         errorList.push(
           t("knowledge.totalSizeMax", {
             size: FileUtils.formatFileSize(maxSize, 0),
