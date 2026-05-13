@@ -34,9 +34,9 @@ class FakeLLM:
         return self._responses.pop(0)
 
 
-def _history(message_id: str, text: str, result: str = '好的', *, create_user_id: str = 'u1') -> ChatHistoryRecord:
+def _history(message_id: str, text: str, result: str = '好的', *, user_id: str = 'u1') -> ChatHistoryRecord:
     return ChatHistoryRecord(
-        create_user_id=create_user_id,
+        user_id=user_id,
         conversation_id='c1',
         message_id=message_id,
         seq=1,
@@ -51,7 +51,7 @@ def test_history_chunker_splits_long_user_messages_without_overlap():
     chunker = HistoryChunker()
     payload = {
         'request': VocabEvolutionRequest(max_chunk_chars=20),
-        'create_user_id': 'u1',
+        'user_id': 'u1',
         'histories': [
             _history('m1', '甲。乙。丙。丁。'),
             _history('m2', '戊。'),
@@ -103,7 +103,7 @@ def test_synonym_extraction_module_validates_and_dedupes_candidates():
     module = SynonymExtractionModule(llm=llm)
     payload = {
         'request': VocabEvolutionRequest(max_pairs_per_chunk=4),
-        'create_user_id': 'u1',
+        'user_id': 'u1',
         'histories': [
             _history('m1', '请记住 苹果 就是 apple'),
             _history('m2', '以后 apple 指的就是 苹果'),
@@ -129,15 +129,15 @@ def test_synonym_extraction_module_validates_and_dedupes_candidates():
 def test_action_planner_creates_new_group_when_vocab_is_empty():
     planner = ActionPlanningModule(
         llm=FakeLLM([]),
-        fetch_vocab_groups_fn=lambda create_user_id, **kwargs: {},
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: {},
     )
     payload = {
         'request': VocabEvolutionRequest(),
-        'create_user_id': 'u1',
+        'user_id': 'u1',
         'histories': [_history('m1', '记住 苹果 就是 apple')],
         'candidates': [
             SynonymCandidate(
-                create_user_id='u1',
+                user_id='u1',
                 word='苹果',
                 synonym='apple',
                 description='水果语境',
@@ -152,7 +152,46 @@ def test_action_planner_creates_new_group_when_vocab_is_empty():
         'words': ['苹果', 'apple'],
         'description': '水果语境',
         'group_ids': [],
-        'create_user_id': 'u1',
+        'user_id': 'u1',
+        'message_ids': ['m1'],
+        'action': 'create_new_group',
+    }]
+
+
+def test_action_planner_creates_new_group_when_single_anchor_group_has_different_description():
+    planner = ActionPlanningModule(
+        llm=FakeLLM([]),
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: {
+            'g-med': {
+                'group_id': 'g-med',
+                'description': '医学领域术语',
+                'words': ['变白质'],
+                'references': ['["m-old"]'],
+            },
+        },
+    )
+    payload = {
+        'request': VocabEvolutionRequest(),
+        'user_id': 'u1',
+        'histories': [_history('m1', '请记住变白质在体育领域就是铅球垫子。')],
+        'candidates': [
+            SynonymCandidate(
+                user_id='u1',
+                word='变白质',
+                synonym='铅球垫子',
+                description='体育领域术语',
+                reason='用户明确指定体育领域映射',
+                message_ids=['m1'],
+            )
+        ],
+    }
+    result = planner.forward(payload)
+    assert result['actions'] == [{
+        'reason': '用户明确指定体育领域映射',
+        'words': ['变白质', '铅球垫子'],
+        'description': '体育领域术语',
+        'group_ids': [],
+        'user_id': 'u1',
         'message_ids': ['m1'],
         'action': 'create_new_group',
     }]
@@ -171,15 +210,15 @@ def test_action_planner_splits_add_and_conflict_for_multi_group_anchor():
     }])
     planner = ActionPlanningModule(
         llm=llm,
-        fetch_vocab_groups_fn=lambda create_user_id, **kwargs: groups,
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: groups,
     )
     payload = {
         'request': VocabEvolutionRequest(conflict_retries=1),
-        'create_user_id': 'u1',
+        'user_id': 'u1',
         'histories': [_history('m1', '记住 K 就是 B')],
         'candidates': [
             SynonymCandidate(
-                create_user_id='u1',
+                user_id='u1',
                 word='K',
                 synonym='B',
                 description='铁路工程语境',
@@ -195,7 +234,7 @@ def test_action_planner_splits_add_and_conflict_for_multi_group_anchor():
             'words': ['K'],
             'description': '',
             'group_ids': ['g1'],
-            'create_user_id': 'u1',
+            'user_id': 'u1',
             'message_ids': ['m1'],
             'action': 'add_to_group',
         },
@@ -204,7 +243,7 @@ def test_action_planner_splits_add_and_conflict_for_multi_group_anchor():
             'words': ['K'],
             'description': '',
             'group_ids': ['g2', 'g3'],
-            'create_user_id': 'u1',
+            'user_id': 'u1',
             'message_ids': ['m1'],
             'action': 'conflict',
         },
@@ -231,18 +270,18 @@ def test_action_planner_excludes_ruled_out_groups_without_conflict():
             'excluded_group_ids': ['g2', 'g3'],
             'conflict_group_ids': [],
         }]),
-        fetch_vocab_groups_fn=lambda create_user_id, **kwargs: groups,
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: groups,
     )
     payload = {
         'request': VocabEvolutionRequest(conflict_retries=1),
-        'create_user_id': 'u1',
+        'user_id': 'u1',
         'histories': [
             _history('m1', '请记住，在铁路工程讨论里，K 就是 B。'),
             _history('m2', '这里的 B 是工程语境，不是财务术语，也不是化学试剂。'),
         ],
         'candidates': [
             SynonymCandidate(
-                create_user_id='u1',
+                user_id='u1',
                 word='K',
                 synonym='B',
                 description='铁路工程语境',
@@ -258,7 +297,7 @@ def test_action_planner_excludes_ruled_out_groups_without_conflict():
             'words': ['K'],
             'description': '',
             'group_ids': ['g1'],
-            'create_user_id': 'u1',
+            'user_id': 'u1',
             'message_ids': ['m1', 'm2'],
             'action': 'add_to_group',
         }
@@ -266,16 +305,62 @@ def test_action_planner_excludes_ruled_out_groups_without_conflict():
     assert result['skipped_reasons'] == []
 
 
-def test_vocab_evolution_request_accepts_create_user_id():
-    request = VocabEvolutionRequest.from_value({'create_user_id': 'u1'})
-    assert request.create_user_id == 'u1'
+def test_action_planner_keeps_single_unresolved_group_as_conflict():
+    groups = {
+        'g-chem': {'group_id': 'g-chem', 'description': '化工领域术语', 'words': ['大轻轻', '反应釜'], 'references': []},
+        'g-name': {'group_id': 'g-name', 'description': '用户指定昵称映射', 'words': ['大轻轻', '小轻轻'], 'references': []},
+    }
+    planner = ActionPlanningModule(
+        llm=FakeLLM([{
+            'reason': '已排除化工组，但昵称组仍需用户确认。',
+            'group_ids_can_join': [],
+            'excluded_group_ids': ['g-chem'],
+            'conflict_group_ids': ['g-name'],
+        }]),
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: groups,
+    )
+    payload = {
+        'request': VocabEvolutionRequest(conflict_retries=1),
+        'user_id': 'u1',
+        'histories': [_history('m1', '请记住：大轻轻就是达青青')],
+        'candidates': [
+            SynonymCandidate(
+                user_id='u1',
+                word='大轻轻',
+                synonym='达青青',
+                description='人名指代',
+                reason='用户明确指示二者为同一人',
+                message_ids=['m1'],
+            )
+        ],
+    }
+
+    result = planner.forward(payload)
+
+    assert result['actions'] == [
+        {
+            'reason': '已排除化工组，但昵称组仍需用户确认。',
+            'words': ['达青青'],
+            'description': '',
+            'group_ids': ['g-name'],
+            'user_id': 'u1',
+            'message_ids': ['m1'],
+            'action': 'conflict',
+        }
+    ]
+    assert result['skipped_reasons'] == []
+
+
+def test_vocab_evolution_request_accepts_user_id():
+    request = VocabEvolutionRequest.from_value({'user_id': 'u1'})
+    assert request.user_id == 'u1'
 
 
 def test_vocab_evolution_service_returns_flat_actions():
     histories = {
-    'u1': [{'create_user_id': 'u1', 'conversation_id': 'c1', 'message_id': 'm1', 'seq': 1,
+    'u1': [{'user_id': 'u1', 'conversation_id': 'c1', 'message_id': 'm1', 'seq': 1,
                 'raw_content': '', 'content': '记住 苹果 就是 apple', 'result': '好的', 'create_time': None}],
-    'u2': [{'create_user_id': 'u2', 'conversation_id': 'c2', 'message_id': 'm2', 'seq': 1,
+    'u2': [{'user_id': 'u2', 'conversation_id': 'c2', 'message_id': 'm2', 'seq': 1,
                 'raw_content': '', 'content': '记住 民法 就是 民事法律', 'result': '好的', 'create_time': None}],
     }
     extraction_llm = FakeLLM([
@@ -284,31 +369,31 @@ def test_vocab_evolution_service_returns_flat_actions():
     ])
     service = VocabEvolutionService(
         fetch_users_fn=lambda **kwargs: ['u1', 'u2'],
-        fetch_histories_fn=lambda create_user_id, **kwargs: histories[create_user_id],
-        fetch_vocab_groups_fn=lambda create_user_id, **kwargs: {},
+        fetch_histories_fn=lambda user_id, **kwargs: histories[user_id],
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: {},
         extraction_llm=extraction_llm,
         conflict_llm=FakeLLM([]),
     )
     actions = service.run({'lookback_days': 7})
 
     assert len(actions) == 2
-    assert {item['create_user_id'] for item in actions} == {'u1', 'u2'}
-    assert next(item for item in actions if item['create_user_id'] == 'u1')['action'] == 'create_new_group'
-    assert next(item for item in actions if item['create_user_id'] == 'u2')['words'] == ['民法', '民事法律']
-    assert next(item for item in actions if item['create_user_id'] == 'u1')['group_ids'] == '[]'
-    assert next(item for item in actions if item['create_user_id'] == 'u1')['message_ids'] == '["m1"]'
+    assert {item['user_id'] for item in actions} == {'u1', 'u2'}
+    assert next(item for item in actions if item['user_id'] == 'u1')['action'] == 'create_new_group'
+    assert next(item for item in actions if item['user_id'] == 'u2')['words'] == ['民法', '民事法律']
+    assert next(item for item in actions if item['user_id'] == 'u1')['group_ids'] == '[]'
+    assert next(item for item in actions if item['user_id'] == 'u1')['message_ids'] == '["m1"]'
 
 
 def test_run_vocab_evolution_and_apply_posts_nested_action_list():
     class DummyService:
         def run(self, request):
-            assert request == {'create_user_id': 'u1'}
+            assert request == {'user_id': 'u1'}
             return [{
                 'reason': '用户明确要求记住苹果就是 apple',
                 'words': ['苹果', 'apple'],
                 'description': '水果语境',
                 'group_ids': '[]',
-                'create_user_id': 'u1',
+                'user_id': 'u1',
                 'message_ids': '["m1"]',
                 'action': 'create_new_group',
             }]
@@ -326,7 +411,7 @@ def test_run_vocab_evolution_and_apply_posts_nested_action_list():
         return DummyResponse()
 
     actions = run_vocab_evolution(
-        {'create_user_id': 'u1'},
+        {'user_id': 'u1'},
         service=DummyService(),
         apply_url='http://backend.local/api/core/inner/word_group:apply',
         post_fn=fake_post,
@@ -341,7 +426,7 @@ def test_run_vocab_evolution_and_apply_posts_nested_action_list():
                 'words': ['苹果', 'apple'],
                 'description': '水果语境',
                 'group_ids': '[]',
-                'create_user_id': 'u1',
+                'user_id': 'u1',
                 'message_ids': '["m1"]',
                 'action': 'create_new_group',
             }],
@@ -353,14 +438,14 @@ def test_run_vocab_evolution_and_apply_posts_nested_action_list():
 def test_vocab_evolution_service_continues_when_one_user_fails():
     service = VocabEvolutionService(
         fetch_users_fn=lambda **kwargs: ['u1', 'u2'],
-        fetch_histories_fn=lambda create_user_id, **kwargs: [],
-        fetch_vocab_groups_fn=lambda create_user_id, **kwargs: {},
+        fetch_histories_fn=lambda user_id, **kwargs: [],
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: {},
         extraction_llm=FakeLLM([]),
         conflict_llm=FakeLLM([]),
     )
 
     def fake_pipeline(payload):
-        if payload['create_user_id'] == 'u1':
+        if payload['user_id'] == 'u1':
             raise RuntimeError('boom')
         return {
             'actions': [{
@@ -368,7 +453,7 @@ def test_vocab_evolution_service_continues_when_one_user_fails():
                 'words': ['民法', '民事法律'],
                 'description': '法律术语',
                 'group_ids': [],
-                'create_user_id': 'u2',
+                'user_id': 'u2',
                 'message_ids': ['m2'],
                 'action': 'create_new_group',
             }],
@@ -382,7 +467,7 @@ def test_vocab_evolution_service_continues_when_one_user_fails():
         'words': ['民法', '民事法律'],
         'description': '法律术语',
         'group_ids': '[]',
-        'create_user_id': 'u2',
+        'user_id': 'u2',
         'message_ids': '["m2"]',
         'action': 'create_new_group',
     }]

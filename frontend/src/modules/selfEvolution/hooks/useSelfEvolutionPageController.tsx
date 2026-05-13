@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Dropdown,
   Modal,
@@ -85,7 +86,6 @@ import {
   getSessionTitleByMessage,
   createInitialWorkflowRuntimeState,
   createInitialWorkflowResultsState,
-  getStepStatusLabel,
   isRecord,
   getStringField,
   getNumberField,
@@ -128,6 +128,7 @@ import {
   buildAnalysisRunSummary,
   buildApplyRunSummary,
   getPendingCheckpointWaitPrompt,
+  isTerminalAbtestCheckpoint,
   isThreadEventAfter,
   reduceWorkflowRuntimeState,
   getThreadTitleFromPayload,
@@ -150,6 +151,7 @@ export function SelfEvolutionPageController({
   view: SelfEvolutionPageView;
   children: (props: SelfEvolutionPageRenderProps) => ReactNode;
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { threadId: routeThreadId } = useParams<{ threadId?: string }>();
@@ -244,37 +246,44 @@ export function SelfEvolutionPageController({
           return;
         }
 
-        setKnowledgeBaseError(
-          getLocalizedErrorMessage(error, "知识库列表加载失败，请稍后重试。") ||
-            "知识库列表加载失败，请稍后重试。",
-        );
+        const fallback = t("selfEvolutionRun.error.knowledgeBaseLoadFailed");
+        setKnowledgeBaseError(getLocalizedErrorMessage(error, fallback) || fallback);
       })
       .finally(() => {
         if (!signal?.aborted) {
           setIsKnowledgeBaseLoading(false);
         }
       });
-  }, []);
+  }, [t]);
   const selectedKnowledgeBaseLabel = knowledgeBaseOptions.find((item) => item.value === selectedKb)?.label;
   const knowledgeBasePlaceholder = knowledgeBaseError
-    ? "知识库加载失败"
+    ? t("selfEvolutionRun.knowledgeBaseLoadFailed")
     : isKnowledgeBaseLoading
-      ? "正在加载知识库"
+      ? t("selfEvolutionRun.knowledgeBaseLoading")
       : knowledgeBaseOptions.length === 0
-        ? "暂无可用知识库"
-        : "知识库";
+        ? t("selfEvolutionRun.noKnowledgeBase")
+        : t("selfEvolutionRun.knowledgeBase");
   const selectedKnowledgeBase = selectedKnowledgeBaseLabel || knowledgeBasePlaceholder;
   const knowledgeBaseLaunchLabel =
     selectedKnowledgeBaseLabel ||
     (knowledgeBaseError || isKnowledgeBaseLoading || knowledgeBaseOptions.length === 0
       ? knowledgeBasePlaceholder
-      : "尚未选择知识库");
-  const selectedEvalSetLabel =
-    existingEvalSetOptions.find((item) => item.value === selectedEvalSet)?.label || "不使用已有评测集";
+      : t("selfEvolutionRun.knowledgeBaseNotSelected"));
+  const getExistingEvalSetLabel = useCallback(
+    (value?: string) => {
+      const option = existingEvalSetOptions.find((item) => item.value === value);
+      if (option?.value === FIXED_EVAL_SET) {
+        return t("selfEvolutionRun.noExistingEvalSet");
+      }
+      return option?.label || t("selfEvolutionRun.noExistingEvalSet");
+    },
+    [t],
+  );
+  const selectedEvalSetLabel = getExistingEvalSetLabel(selectedEvalSet);
   const isExtraEvalRequired = selectedEvalSet === "__none__";
-  const extraEvalLabel = extraEvalStrategy === "generate" ? "是，补充评测集" : "否，不补充";
-  const interventionLabel = mode === "interactive" ? "是，人工干预" : "否，自动处理";
-  const modeLabel = mode === "auto" ? "自动处理" : "交互处理";
+  const extraEvalLabel = extraEvalStrategy === "generate" ? t("selfEvolutionRun.extraEvalGenerate") : t("selfEvolutionRun.extraEvalSkip");
+  const interventionLabel = mode === "interactive" ? t("selfEvolutionRun.interventionManual") : t("selfEvolutionRun.interventionAuto");
+  const modeLabel = mode === "auto" ? t("selfEvolutionRun.modeAuto") : t("selfEvolutionRun.modeInteractive");
   const isKnowledgeBaseRequired = !selectedKb;
   const isLaunchConfigComplete = Boolean(selectedKb && selectedEvalSet && extraEvalStrategy && mode);
   const isLaunchConfigValid =
@@ -287,24 +296,24 @@ export function SelfEvolutionPageController({
     draftSelectedKnowledgeBaseLabel ||
     (knowledgeBaseError || isKnowledgeBaseLoading || knowledgeBaseOptions.length === 0
       ? knowledgeBasePlaceholder
-      : "请选择知识库");
-  const draftSelectedEvalSetLabel = existingEvalSetOptions.find(
-    (item) => item.value === newSessionDraft.selectedEvalSet,
-  )?.label;
-  const draftEvalSetLabel = draftSelectedEvalSetLabel || "请选择评测集";
+      : t("selfEvolutionRun.selectKnowledgeBase"));
+  const draftSelectedEvalSetLabel = newSessionDraft.selectedEvalSet
+    ? getExistingEvalSetLabel(newSessionDraft.selectedEvalSet)
+    : undefined;
+  const draftEvalSetLabel = draftSelectedEvalSetLabel || t("selfEvolutionRun.selectEvalSet");
   const isDraftExtraEvalRequired = newSessionDraft.selectedEvalSet === "__none__";
   const draftExtraEvalLabel =
     newSessionDraft.extraEvalStrategy === "generate"
-      ? "是，补充评测集"
+      ? t("selfEvolutionRun.extraEvalGenerate")
       : newSessionDraft.extraEvalStrategy === "skip"
-        ? "否，不补充"
-        : "请选择补充策略";
+        ? t("selfEvolutionRun.extraEvalSkip")
+        : t("selfEvolutionRun.selectExtraEvalStrategy");
   const draftInterventionLabel =
     newSessionDraft.mode === "interactive"
-      ? "是，人工干预"
+      ? t("selfEvolutionRun.interventionManual")
       : newSessionDraft.mode === "auto"
-        ? "否，自动处理"
-        : "请选择干预方式";
+        ? t("selfEvolutionRun.interventionAuto")
+        : t("selfEvolutionRun.selectInterventionMode");
   const isNewSessionDraftComplete = Boolean(
     newSessionDraft.selectedKb &&
       newSessionDraft.selectedEvalSet &&
@@ -334,8 +343,8 @@ export function SelfEvolutionPageController({
       workflowSteps.find((item) => item.status === "paused") ||
       workflowSteps.find((item) => item.status === "failed") ||
       workflowSteps.find((item) => item.status === "pending");
-    return activeStep?.title || "流程已完成";
-  }, [workflowSteps]);
+    return activeStep?.title || t("selfEvolutionRun.workflowCompleted");
+  }, [workflowSteps, t]);
   const datasetDownloadFileName = useMemo(() => {
     const normalizedEvalName =
       evalSetPreviewData.eval_name.replace(/[\\/:*?"<>|]+/g, "_").trim() || "eval-dataset";
@@ -481,11 +490,16 @@ export function SelfEvolutionPageController({
   const activeThreadId = activeSession?.threadId || routeThreadId;
   const isAutoInteractionActive = mode === "auto" && Boolean(activeThreadId);
   const threadDialogueMessages = useMemo(
-    () =>
-      buildAutoInteractionMessagesFromEvents(threadEvents).map((item) => ({
+    () => {
+      if (mode !== "auto") {
+        return [];
+      }
+
+      return buildAutoInteractionMessagesFromEvents(threadEvents).map((item) => ({
         ...item,
-        agentLabel: mode === "auto" ? item.agentLabel : undefined,
-      })),
+        agentLabel: item.agentLabel,
+      }));
+    },
     [mode, threadEvents],
   );
   const displayedMessages = useMemo(() => {
@@ -506,7 +520,10 @@ export function SelfEvolutionPageController({
         return 0;
       });
   }, [activeMessages, threadDialogueMessages]);
-  const displayedCheckpointWaitPrompt = isAutoInteractionActive ? undefined : pendingCheckpointWaitPrompt;
+  const displayedCheckpointWaitPrompt =
+    isAutoInteractionActive || isTerminalAbtestCheckpoint(pendingCheckpointWaitPrompt)
+      ? undefined
+      : pendingCheckpointWaitPrompt;
   const datasetResultDownloadUrl = useMemo(
     () => buildCoreDownloadUrl(getResultDownloadPath(workflowResults.datasets.data)),
     [workflowResults.datasets.data],
@@ -596,21 +613,26 @@ export function SelfEvolutionPageController({
   }, [diffArtifactFiles, diffArtifactKey, directFetchedDiffText]);
 
   const historySessionEntries = useMemo<HistorySessionEntry[]>(() => {
-    const sessionEntries = chatSessions.map<HistorySessionEntry>((session) => ({
-      key: session.threadId || session.id,
-      sessionId: session.id,
-      threadId: session.threadId,
-      title: session.title,
-      updatedAt: session.updatedAt,
-      messageCount: session.messages.length,
-      source: session.threadId ? "thread" : "local",
-      isCurrent:
-        session.id === activeSessionId ||
-        Boolean(activeThreadId && session.threadId === activeThreadId),
-    }));
+    const sessionEntries = chatSessions
+      .filter(
+        (session) =>
+          session.id !== activeSessionId &&
+          (!activeThreadId || session.threadId !== activeThreadId),
+      )
+      .map<HistorySessionEntry>((session) => ({
+        key: session.threadId || session.id,
+        sessionId: session.id,
+        threadId: session.threadId,
+        title: session.title,
+        updatedAt: session.updatedAt,
+        messageCount: session.messages.length,
+        source: session.threadId ? "thread" : "local",
+        isCurrent: false,
+      }));
     const mergedEntries = [
       ...sessionEntries,
       ...remoteThreadHistory
+        .filter((item) => !activeThreadId || item.threadId !== activeThreadId)
         .filter((item) => !sessionEntries.some((session) => session.threadId === item.threadId))
         .map<HistorySessionEntry>((item) => ({
           key: item.threadId,
@@ -621,7 +643,7 @@ export function SelfEvolutionPageController({
           messageCount: undefined,
           status: item.status,
           source: "thread" as const,
-          isCurrent: Boolean(activeThreadId && item.threadId === activeThreadId),
+          isCurrent: false,
         })),
     ];
 
@@ -763,7 +785,7 @@ export function SelfEvolutionPageController({
       return [
         {
           key: "__loading__",
-          label: "正在加载知识库...",
+          label: t("selfEvolutionRun.knowledgeBaseLoadingEllipsis"),
           disabled: true,
           icon: <LoadingOutlined spin />,
         },
@@ -774,7 +796,7 @@ export function SelfEvolutionPageController({
       return [
         {
           key: "__retry__",
-          label: `${knowledgeBaseError} 点击重试`,
+          label: t("selfEvolutionRun.knowledgeBaseRetryLabel", { error: knowledgeBaseError }),
           icon: <ReloadOutlined />,
         },
       ];
@@ -784,7 +806,7 @@ export function SelfEvolutionPageController({
       return [
         {
           key: "__empty__",
-          label: "暂无可用知识库",
+          label: t("selfEvolutionRun.noKnowledgeBase"),
           disabled: true,
         },
       ];
@@ -798,7 +820,7 @@ export function SelfEvolutionPageController({
         </span>
       ),
     }));
-  }, [isKnowledgeBaseLoading, knowledgeBaseError, knowledgeBaseOptions]);
+  }, [isKnowledgeBaseLoading, knowledgeBaseError, knowledgeBaseOptions, t]);
 
   const onKnowledgeBaseMenuClick = (
     key: string,
@@ -816,22 +838,37 @@ export function SelfEvolutionPageController({
   };
 
   const modeMenuItems: MenuProps["items"] = [
-    { key: "auto", label: "自动处理" },
-    { key: "interactive", label: "交互处理" },
+    { key: "auto", label: t("selfEvolutionRun.modeAuto") },
+    { key: "interactive", label: t("selfEvolutionRun.modeInteractive") },
   ];
 
   const existingEvalSetMenuItems: MenuProps["items"] = [
     ...existingEvalSetOptions.map((item) => ({
       key: item.value,
-      label: item.label,
+      label: getExistingEvalSetLabel(item.value),
     })),
   ];
   const extraEvalStrategyMenuItems: MenuProps["items"] = [
-    { key: FIXED_EXTRA_EVAL_STRATEGY, label: "是，借助大模型补充生成" },
+    { key: FIXED_EXTRA_EVAL_STRATEGY, label: t("selfEvolutionRun.extraEvalGenerateWithModel") },
   ];
   const newSessionExtraEvalStrategyMenuItems: MenuProps["items"] = [
-    { key: FIXED_EXTRA_EVAL_STRATEGY, label: "是，借助大模型补充生成" },
+    { key: FIXED_EXTRA_EVAL_STRATEGY, label: t("selfEvolutionRun.extraEvalGenerateWithModel") },
   ];
+
+  const localizedGetStepStatusLabel = useCallback(
+    (status: WorkflowStep["status"]) => {
+      const statusKeyMap: Record<WorkflowStep["status"], string> = {
+        running: "selfEvolutionRun.status.running",
+        pending: "selfEvolutionRun.status.pending",
+        done: "selfEvolutionRun.status.done",
+        paused: "selfEvolutionRun.status.paused",
+        canceled: "selfEvolutionRun.status.canceled",
+        failed: "selfEvolutionRun.status.failed",
+      };
+      return t(statusKeyMap[status]);
+    },
+    [t],
+  );
 
   const buildSessionIntroContent = (
     targetKnowledgeBase: string,
@@ -839,7 +876,12 @@ export function SelfEvolutionPageController({
     targetExtraEvalLabel: string,
     targetInterventionLabel: string,
   ) =>
-    `已启动流程：知识库「${targetKnowledgeBase}」、评测集「${targetEvalSetLabel}」、补充评测集「${targetExtraEvalLabel}」、干预模式「${targetInterventionLabel}」。当前进入第一步：生成数据集。`;
+    t("selfEvolutionRun.sessionIntro", {
+      knowledgeBase: targetKnowledgeBase,
+      evalSet: targetEvalSetLabel,
+      extraEval: targetExtraEvalLabel,
+      intervention: targetInterventionLabel,
+    });
 
   const extractThreadId = (response: AgentThreadCreateResponse) =>
     response.data?.upstream?.id ||
@@ -1119,7 +1161,11 @@ export function SelfEvolutionPageController({
         }
 
         const event = normalizeThreadEvent(frame);
-        applyWorkflowEvent(event, sessionId);
+        const chatStreamDeltaKind = getChatStreamDeltaKind(event.type);
+        if (chatStreamDeltaKind) {
+          const streamId = getStringField(event.payload, ["message_id", "messageId", "id"]) || event.taskId || "default";
+          appendStreamDeltaToSession(sessionId, chatStreamDeltaKind, event.content, streamId);
+        }
         if (isTerminalThreadEvent(event.type)) {
           return;
         }
@@ -1130,7 +1176,12 @@ export function SelfEvolutionPageController({
     if (trailingText) {
       const frame = parseSSEFrame(trailingText);
       if (frame) {
-        applyWorkflowEvent(normalizeThreadEvent(frame), sessionId);
+        const event = normalizeThreadEvent(frame);
+        const chatStreamDeltaKind = getChatStreamDeltaKind(event.type);
+        if (chatStreamDeltaKind) {
+          const streamId = getStringField(event.payload, ["message_id", "messageId", "id"]) || event.taskId || "default";
+          appendStreamDeltaToSession(sessionId, chatStreamDeltaKind, event.content, streamId);
+        }
       }
     }
   };
@@ -1462,22 +1513,22 @@ export function SelfEvolutionPageController({
     if (!isLaunchConfigValid) {
       setHasLaunchValidationTriggered(true);
       if (!selectedKb) {
-        message.warning("必须先选择知识库才可以开始。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectKnowledgeBaseBeforeStart"), 1.2);
         return;
       }
       if (!selectedEvalSet) {
-        message.warning("请先选择已有评测集策略。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectExistingEvalSetStrategy"), 1.2);
         return;
       }
       if (!extraEvalStrategy) {
-        message.warning("请先选择补充评测集策略。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectExtraEvalStrategy"), 1.2);
         return;
       }
       if (!mode) {
-        message.warning("请先选择过程干预方式。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectInterventionMode"), 1.2);
         return;
       }
-      message.warning("当前配置还不完整，请先完成前 4 步。", 1.2);
+      message.warning(t("selfEvolutionRun.message.completeFirstFourSteps"), 1.2);
       return;
     }
 
@@ -1548,22 +1599,22 @@ export function SelfEvolutionPageController({
     if (!isNewSessionDraftValid) {
       setHasNewSessionValidationTriggered(true);
       if (!newSessionDraft.selectedKb) {
-        message.warning("请先选择知识库，再开始新会话。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectKnowledgeBaseBeforeNewSession"), 1.2);
         return;
       }
       if (!newSessionDraft.selectedEvalSet) {
-        message.warning("请先选择已有评测集策略。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectExistingEvalSetStrategy"), 1.2);
         return;
       }
       if (!newSessionDraft.extraEvalStrategy) {
-        message.warning("请先选择补充评测集策略。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectExtraEvalStrategy"), 1.2);
         return;
       }
       if (!newSessionDraft.mode) {
-        message.warning("请先选择过程干预方式。", 1.2);
+        message.warning(t("selfEvolutionRun.message.selectInterventionMode"), 1.2);
         return;
       }
-      message.warning("当前配置还不完整，请检查 1-4 步。", 1.2);
+      message.warning(t("selfEvolutionRun.message.checkFirstFourSteps"), 1.2);
       return;
     }
 
@@ -1573,8 +1624,7 @@ export function SelfEvolutionPageController({
     const nextExtraEvalStrategy = newSessionDraft.extraEvalStrategy as ExtraEvalStrategy;
     const nextKnowledgeBaseLabel =
       knowledgeBaseOptions.find((item) => item.value === nextKnowledgeBase)?.label || "知识库";
-    const nextEvalSetLabel =
-      existingEvalSetOptions.find((item) => item.value === nextEvalSet)?.label || "不使用已有评测集";
+    const nextEvalSetLabel = getExistingEvalSetLabel(nextEvalSet);
     const nextExtraEvalLabel = nextExtraEvalStrategy === "generate" ? "是，补充评测集" : "否，不补充";
     const nextInterventionLabel = nextMode === "interactive" ? "是，人工干预" : "否，自动处理";
     const nowLabel = getTimeLabel();
@@ -1759,11 +1809,12 @@ export function SelfEvolutionPageController({
         }
       }
 
-      message.success("会话历史已删除。", 1.2);
+      message.success(t("selfEvolutionRun.message.historyDeleted"), 1.2);
     } catch (error) {
+      const fallback = t("selfEvolutionRun.error.deleteHistoryFailed");
       message.error(
-        getLocalizedErrorMessage(error, "删除会话历史失败，请稍后重试。") ||
-          "删除会话历史失败，请稍后重试。",
+        getLocalizedErrorMessage(error, fallback) ||
+          fallback,
         2,
       );
     } finally {
@@ -1774,13 +1825,13 @@ export function SelfEvolutionPageController({
   const onDeleteHistorySession = (entry: HistorySessionEntry, event: MouseEvent<HTMLElement>) => {
     event.stopPropagation();
     Modal.confirm({
-      title: "删除会话历史",
+      title: t("selfEvolutionRun.deleteHistoryTitle"),
       content: entry.threadId
-        ? "确认删除该线程的会话历史？删除后将调用服务端历史删除接口。"
-        : "确认删除该本地会话？",
-      okText: "删除",
+        ? t("selfEvolutionRun.deleteThreadHistoryContent")
+        : t("selfEvolutionRun.deleteLocalHistoryContent"),
+      okText: t("common.delete"),
       okButtonProps: { danger: true },
-      cancelText: "取消",
+      cancelText: t("common.cancel"),
       centered: true,
       onOk: () => deleteHistorySession(entry),
     });
@@ -1812,8 +1863,8 @@ export function SelfEvolutionPageController({
         className={`self-evolution-chatlike-tool ${extraClassName}${isLocked ? " is-disabled" : ""}`.trim()}
         disabled={isLocked}
         aria-busy={isKnowledgeBaseLoading}
-        aria-label={isLocked ? `当前知识库已锁定：${selectedKnowledgeBase}` : `选择知识库：${selectedKnowledgeBase}`}
-        title={isLocked ? "进入流程后不可修改知识库" : undefined}
+        aria-label={isLocked ? t("selfEvolutionRun.knowledgeBaseLockedAria", { name: selectedKnowledgeBase }) : t("selfEvolutionRun.selectKnowledgeBaseAria", { name: selectedKnowledgeBase })}
+        title={isLocked ? t("selfEvolutionRun.knowledgeBaseLockedTitle") : undefined}
       >
         <DatabaseOutlined />
         <span>{selectedKnowledgeBase}</span>
@@ -1844,8 +1895,8 @@ export function SelfEvolutionPageController({
         type="button"
         className={`self-evolution-chatlike-tool ${extraClassName}${isLocked ? " is-disabled" : ""}`.trim()}
         disabled={isLocked}
-        aria-label={isLocked ? `当前处理模式已锁定：${modeLabel}` : `选择处理模式：${modeLabel}`}
-        title={isLocked ? "进入流程后不可修改处理模式" : undefined}
+        aria-label={isLocked ? t("selfEvolutionRun.modeLockedAria", { name: modeLabel }) : t("selfEvolutionRun.selectModeAria", { name: modeLabel })}
+        title={isLocked ? t("selfEvolutionRun.modeLockedTitle") : undefined}
       >
         <MessageOutlined />
         <span>{modeLabel}</span>
@@ -1896,7 +1947,7 @@ export function SelfEvolutionPageController({
           const nextStrategy = key as ExtraEvalStrategy;
           if (isExtraEvalRequired && nextStrategy === "skip") {
             setExtraEvalStrategy("generate");
-            message.warning("不使用已有评测集时，必须补充生成评测集。", 1.2);
+            message.warning(t("selfEvolutionRun.message.extraEvalRequired"), 1.2);
             return;
           }
           setExtraEvalStrategy(nextStrategy);
@@ -1965,7 +2016,7 @@ export function SelfEvolutionPageController({
           hasNewSessionValidationTriggered && !newSessionDraft.selectedKb ? " is-warning" : ""
         }`}
         aria-busy={isKnowledgeBaseLoading}
-        aria-label={`选择新会话知识库：${draftKnowledgeBaseLaunchLabel}`}
+        aria-label={t("selfEvolutionRun.selectNewSessionKnowledgeBaseAria", { name: draftKnowledgeBaseLaunchLabel })}
       >
         <DatabaseOutlined />
         <span>{draftKnowledgeBaseLaunchLabel}</span>
@@ -2022,7 +2073,7 @@ export function SelfEvolutionPageController({
         onClick: ({ key }) => {
           const nextStrategy = key as ExtraEvalStrategy;
           if (isDraftExtraEvalRequired && nextStrategy === "skip") {
-            message.warning("不使用已有评测集时，必须补充生成评测集。", 1.2);
+            message.warning(t("selfEvolutionRun.message.extraEvalRequired"), 1.2);
             return;
           }
           setNewSessionDraft((prev) => ({
@@ -2081,8 +2132,8 @@ export function SelfEvolutionPageController({
     {
       key: "knowledge-base",
       step: "1",
-      title: "选择知识库",
-      description: "选择本轮要分析和优化的知识库",
+      title: t("selfEvolutionRun.stepKnowledgeBase"),
+      description: t("selfEvolutionRun.stepKnowledgeBaseDesc"),
       currentValue: knowledgeBaseLaunchLabel,
       toneClassName: "is-blue",
       icon: <DatabaseOutlined />,
@@ -2093,8 +2144,8 @@ export function SelfEvolutionPageController({
     {
       key: "existing-eval-set",
       step: "2",
-      title: "已有评测集",
-      description: "可沿用已有评测集；没有合适的可选择不使用",
+      title: t("selfEvolutionRun.stepExistingEvalSet"),
+      description: t("selfEvolutionRun.stepExistingEvalSetDesc"),
       currentValue: selectedEvalSetLabel,
       toneClassName: "is-green",
       icon: <FileTextOutlined />,
@@ -2105,8 +2156,8 @@ export function SelfEvolutionPageController({
     {
       key: "extra-eval-set",
       step: "3",
-      title: "补充评测集",
-      description: "没有使用已有评测集时，需要补充生成评测集",
+      title: t("selfEvolutionRun.stepExtraEvalSet"),
+      description: t("selfEvolutionRun.stepExtraEvalSetDesc"),
       currentValue: extraEvalLabel,
       toneClassName: "is-amber",
       icon: <ExperimentOutlined />,
@@ -2117,8 +2168,8 @@ export function SelfEvolutionPageController({
     {
       key: "intervention",
       step: "4",
-      title: "过程干预",
-      description: "选择由人工确认关键步骤，或交给系统自动处理",
+      title: t("selfEvolutionRun.stepIntervention"),
+      description: t("selfEvolutionRun.stepInterventionDesc"),
       currentValue: interventionLabel,
       toneClassName: "is-violet",
       icon: <MessageOutlined />,
@@ -2129,18 +2180,18 @@ export function SelfEvolutionPageController({
   ];
 
   const launchSummaryItems = [
-    { label: "优化目标", value: knowledgeBaseLaunchLabel },
-    { label: "已有评测集", value: selectedEvalSetLabel },
-    { label: "补充评测集", value: extraEvalLabel },
-    { label: "过程干预", value: interventionLabel },
+    { label: t("selfEvolutionRun.summaryTarget"), value: knowledgeBaseLaunchLabel },
+    { label: t("selfEvolutionRun.summaryExistingEvalSet"), value: selectedEvalSetLabel },
+    { label: t("selfEvolutionRun.summaryExtraEvalSet"), value: extraEvalLabel },
+    { label: t("selfEvolutionRun.summaryIntervention"), value: interventionLabel },
   ];
 
   const newSessionOptionCards = [
     {
       key: "new-session-knowledge-base",
       step: "1",
-      title: "选择知识库",
-      description: "选择本轮要分析和优化的知识库",
+      title: t("selfEvolutionRun.stepKnowledgeBase"),
+      description: t("selfEvolutionRun.stepKnowledgeBaseDesc"),
       currentValue: draftKnowledgeBaseLaunchLabel,
       toneClassName: "is-blue",
       icon: <DatabaseOutlined />,
@@ -2151,8 +2202,8 @@ export function SelfEvolutionPageController({
     {
       key: "new-session-existing-eval-set",
       step: "2",
-      title: "已有评测集",
-      description: "可沿用已有评测集；没有合适的可选择不使用",
+      title: t("selfEvolutionRun.stepExistingEvalSet"),
+      description: t("selfEvolutionRun.stepExistingEvalSetDesc"),
       currentValue: draftEvalSetLabel,
       toneClassName: "is-green",
       icon: <FileTextOutlined />,
@@ -2163,8 +2214,8 @@ export function SelfEvolutionPageController({
     {
       key: "new-session-extra-eval-set",
       step: "3",
-      title: "补充评测集",
-      description: "没有使用已有评测集时，需要补充生成评测集",
+      title: t("selfEvolutionRun.stepExtraEvalSet"),
+      description: t("selfEvolutionRun.stepExtraEvalSetDesc"),
       currentValue: draftExtraEvalLabel,
       toneClassName: "is-amber",
       icon: <ExperimentOutlined />,
@@ -2175,8 +2226,8 @@ export function SelfEvolutionPageController({
     {
       key: "new-session-intervention",
       step: "4",
-      title: "过程干预",
-      description: "选择由人工确认关键步骤，或交给系统自动处理",
+      title: t("selfEvolutionRun.stepIntervention"),
+      description: t("selfEvolutionRun.stepInterventionDesc"),
       currentValue: draftInterventionLabel,
       toneClassName: "is-violet",
       icon: <MessageOutlined />,
@@ -2187,10 +2238,10 @@ export function SelfEvolutionPageController({
   ];
 
   const newSessionSummaryItems = [
-    { label: "优化目标", value: draftKnowledgeBaseLaunchLabel },
-    { label: "已有评测集", value: draftEvalSetLabel },
-    { label: "补充评测集", value: draftExtraEvalLabel },
-    { label: "过程干预", value: draftInterventionLabel },
+    { label: t("selfEvolutionRun.summaryTarget"), value: draftKnowledgeBaseLaunchLabel },
+    { label: t("selfEvolutionRun.summaryExistingEvalSet"), value: draftEvalSetLabel },
+    { label: t("selfEvolutionRun.summaryExtraEvalSet"), value: draftExtraEvalLabel },
+    { label: t("selfEvolutionRun.summaryIntervention"), value: draftInterventionLabel },
   ];
 
   const renderKnowledgeAndModeTools = () => (
@@ -2206,7 +2257,7 @@ export function SelfEvolutionPageController({
       onClick={() => void onSend()}
       disabled={isSendDisabled}
       className={`self-evolution-chatlike-send-button${isSendDisabled ? " disabled" : ""}`}
-      aria-label="发送"
+      aria-label={t("selfEvolutionRun.send")}
     >
       <SendIcon />
     </button>
@@ -3146,8 +3197,6 @@ export function SelfEvolutionPageController({
     if (step.id === "ab-test") {
       return (
         <AbTestWorkflowStep
-          summaryCount={abSummaryReports.length}
-          comparisonCount={abComparisonRows.length}
           downloadUrl={abtestResultDownloadUrl}
           fallbackDownloadUrl={abComparisonDownloadUrl}
           getDownloadFileName={getDownloadFileName}
@@ -3217,7 +3266,7 @@ export function SelfEvolutionPageController({
           isNewSessionStepFourDone,
           isNewSessionConfirmDisabled: !isNewSessionDraftValid || isConfirmingNewSession,
           isConfirmingNewSession,
-          getStepStatusLabel,
+          getStepStatusLabel: localizedGetStepStatusLabel,
           renderStepRuntimeSummary,
           renderStepChildren,
           renderKnowledgeAndModeTools,

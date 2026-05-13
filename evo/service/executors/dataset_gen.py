@@ -1,8 +1,10 @@
 from __future__ import annotations
 import logging
+from lazyllm import AutoModel
+from algorithm.chat.utils.load_config import get_config_path
 from evo.datagen import run_generate_pipeline
 from evo.datagen.kb_client import KBClient
-from evo.orchestrator.llm import get_automodel
+from evo.runtime.model_gateway import ModelGateway
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .context import CancelToken, ExecCtx
@@ -11,12 +13,10 @@ log = logging.getLogger('evo.service.executors.dataset_gen')
 
 
 def _resolve_llm_factory(cfg):
-    role = cfg.model_config.llm_role
+    client = AutoModel(model=cfg.model_config.llm_role, config=get_config_path())
+    gateway: ModelGateway[str] = ModelGateway(cfg.llm, name='evo-dataset-gen-llm', logger=log)
 
-    def factory():
-        return get_automodel(role)
-
-    return factory
+    return lambda: (lambda prompt: gateway.call(lambda: client(prompt), cache_key=prompt, agent='dataset_gen'))
 
 
 def execute(ctx: ExecCtx, tid: str) -> None:
@@ -32,7 +32,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     eval_name = payload.get('eval_name', tid)
     num_cases = payload.get('num_cases')
     if not kb_id:
-        ctx.on_failure(tid, _store.StateError('DATASET_NO_KB', 'dataset_gen requires kb_id'))
+        ctx.on_failure(tid, _store.StateError('DATASET_NO_KB', '生成评测集失败，因为知识库是空的', kind='permanent'))
         return
     token = CancelToken(ctx, tid)
     elog = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path) if thread_id else None

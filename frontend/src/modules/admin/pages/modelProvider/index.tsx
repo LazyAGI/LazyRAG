@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Empty, Form, Input, Modal, Popconfirm, Select, Tag, Tooltip, message } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   CheckCircleFilled,
   DeleteOutlined,
@@ -43,6 +44,7 @@ interface ProviderOption {
   brand: string;
   logoUrl?: string;
   headline: string;
+  backendDescription?: string;
   source: string;
   baseUrl: string;
   capabilities: ModelCapability[];
@@ -77,8 +79,8 @@ interface AlgorithmProviderConfig {
 
 interface ModuleConfig {
   key: ModelCapability;
-  title: string;
-  subtitle: string;
+  titleKey: string;
+  subtitleKey: string;
   required?: boolean;
   restricted?: boolean;
 }
@@ -112,62 +114,62 @@ interface SelectedModelApiItem {
   user_model_provider_id: string;
 }
 
-const capabilityLabels: Record<ModelCapability, string> = {
-  LLM_CHAT: "大模型",
-  EMBEDDING: "Embedding",
-  VLM: "图文模型",
-  RERANK: "Rerank",
-  ASR: "语音转文字",
-  TTS: "文字转语音",
-  TEXT_TO_IMAGE: "文生图",
-  MULTIMODAL_EMBEDDING: "多模态向量",
-  IMAGE_EDITING: "图像编辑",
-  LLM_SELF_EVOLUTION: "自进化",
+const capabilityLabelKeys: Record<ModelCapability, string> = {
+  LLM_CHAT: "modelProvider.capability.llmChat",
+  EMBEDDING: "modelProvider.capability.embedding",
+  VLM: "modelProvider.capability.vlm",
+  RERANK: "modelProvider.capability.rerank",
+  ASR: "modelProvider.capability.asr",
+  TTS: "modelProvider.capability.tts",
+  TEXT_TO_IMAGE: "modelProvider.capability.textToImage",
+  MULTIMODAL_EMBEDDING: "modelProvider.capability.multimodalEmbedding",
+  IMAGE_EDITING: "modelProvider.capability.imageEditing",
+  LLM_SELF_EVOLUTION: "modelProvider.capability.selfEvolution",
 };
 
 const moduleConfigs: ModuleConfig[] = [
   {
     key: "LLM_CHAT",
-    title: "大模型（对话）",
-    subtitle: "负责聊天、问答与核心推理，是系统功能的必配项。",
+    titleKey: "modelProvider.module.llmChatTitle",
+    subtitleKey: "modelProvider.module.llmChatSubtitle",
     required: true,
   },
   {
     key: "EMBEDDING",
-    title: "向量模型",
-    subtitle: "用于知识库向量化与检索召回，当前只能从平台限定模型中选择。",
+    titleKey: "modelProvider.module.embeddingTitle",
+    subtitleKey: "modelProvider.module.embeddingSubtitle",
     required: true,
     restricted: true,
   },
   {
     key: "VLM",
-    title: "图文模型",
-    subtitle: "用于图片理解、多模态问答与视觉内容分析。",
+    titleKey: "modelProvider.module.vlmTitle",
+    subtitleKey: "modelProvider.module.vlmSubtitle",
   },
   {
     key: "RERANK",
-    title: "重排序模型",
-    subtitle: "对召回结果二次排序，提升检索答案相关性。",
+    titleKey: "modelProvider.module.rerankTitle",
+    subtitleKey: "modelProvider.module.rerankSubtitle",
   },
   {
     key: "ASR",
-    title: "语音转文字",
-    subtitle: "将音频输入转换为文本，支撑语音问答场景。",
+    titleKey: "modelProvider.module.asrTitle",
+    subtitleKey: "modelProvider.module.asrSubtitle",
   },
   {
     key: "TTS",
-    title: "文字转语音",
-    subtitle: "将回答播报为语音，支撑语音输出场景。",
+    titleKey: "modelProvider.module.ttsTitle",
+    subtitleKey: "modelProvider.module.ttsSubtitle",
   },
   {
     key: "TEXT_TO_IMAGE",
-    title: "文生图",
-    subtitle: "根据文本生成图片，用于创作与可视化扩展。",
+    titleKey: "modelProvider.module.textToImageTitle",
+    subtitleKey: "modelProvider.module.textToImageSubtitle",
   },
   {
     key: "LLM_SELF_EVOLUTION",
-    title: "大模型（自进化）",
-    subtitle: "用于记忆抽取、策略反思与系统自进化任务。",
+    titleKey: "modelProvider.module.selfEvolutionTitle",
+    subtitleKey: "modelProvider.module.selfEvolutionSubtitle",
   },
 ];
 
@@ -178,7 +180,7 @@ const builtInProviders: ProviderOption[] = [
     brand: "通义",
     headline: "覆盖文本、向量、多模态、语音与重排序能力，适合作为默认全能供应商。",
     source: "tongyi",
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    baseUrl: "https://dashscope.aliyuncs.com/",
     capabilities: ["LLM_CHAT", "EMBEDDING", "VLM", "RERANK", "ASR", "TTS", "TEXT_TO_IMAGE"],
     models: [
       { id: "qwen-plus", name: "qwen-plus", capability: "LLM_CHAT", builtIn: true, enabled: true },
@@ -197,7 +199,7 @@ const builtInProviders: ProviderOption[] = [
     brand: "◎",
     headline: "通用模型生态完整，适合接入对话、向量、语音与多模态任务。",
     source: "openai",
-    baseUrl: "https://api.openai.com/v1",
+    baseUrl: "https://api.openai.com/v1/",
     capabilities: ["LLM_CHAT", "EMBEDDING", "VLM", "TTS", "ASR"],
     models: [
       { id: "gpt-4-1", name: "gpt-4.1", capability: "LLM_CHAT", builtIn: true, enabled: true },
@@ -213,7 +215,7 @@ const builtInProviders: ProviderOption[] = [
     brand: "AI",
     headline: "长文本和稳健推理体验突出，适合高质量文本对话场景。",
     source: "anthropic",
-    baseUrl: "https://api.anthropic.com",
+    baseUrl: "https://api.anthropic.com/v1/",
     capabilities: ["LLM_CHAT", "VLM"],
     models: [
       { id: "claude-sonnet-4-5", name: "claude-sonnet-4.5", capability: "LLM_CHAT", builtIn: true, enabled: true },
@@ -295,7 +297,8 @@ const getAlgorithmProviderConfig = (
 enum ModelProviderModelType {
   VLM = "VLM",
   LLM = "llm",
-  LLM2 = "llm2",
+  LLMChat = "llm-chat",
+  LLMEvolution = "llm-evo",
   Embedding = "embedding",
   MultimodalEmbedding = "multimodal_embedding",
   TextToImage = "text2image",
@@ -320,7 +323,15 @@ const modelTypeByCapability: Record<ModelCapability, ModelProviderModelType> = {
 
 const selectedModelTypeByCapability: Record<ModelCapability, ModelProviderModelType> = {
   ...modelTypeByCapability,
-  LLM_SELF_EVOLUTION: ModelProviderModelType.LLM2,
+  LLM_CHAT: ModelProviderModelType.LLMChat,
+  LLM_SELF_EVOLUTION: ModelProviderModelType.LLMEvolution,
+};
+
+const selectedCapabilityByModelType: Record<string, ModelCapability> = {
+  [ModelProviderModelType.LLMChat]: "LLM_CHAT",
+  [ModelProviderModelType.LLMEvolution]: "LLM_SELF_EVOLUTION",
+  llm: "LLM_CHAT",
+  llm2: "LLM_SELF_EVOLUTION",
 };
 
 function normalizeProviderKey(value: string) {
@@ -350,7 +361,7 @@ function getProviderLogoUrl(name: string) {
     [/minimax/, "minimaxi.com"],
     [/openai/, "openai.com"],
     [/qwen|tongyi|通义/, "qwen.ai"],
-    [/sensenova|sensecore|商汤/, "sensenova.cn"],
+    [/sensenova|sensecore|商汤|日日新/, "platform.sensenova.cn"],
     [/siliconflow/, "siliconflow.cn"],
   ];
   const match = domainMap.find(([pattern]) => pattern.test(normalized));
@@ -373,7 +384,39 @@ function mapModelTypeToCapability(modelType?: string): ModelCapability {
 
 function getCapabilityByModelType(modelType?: string): ModelCapability | undefined {
   const normalized = (modelType || "").toLowerCase();
+  const selectedCapability = selectedCapabilityByModelType[normalized];
+  if (selectedCapability) {
+    return selectedCapability;
+  }
   return moduleConfigs.find((module) => selectedModelTypeByCapability[module.key].toLowerCase() === normalized)?.key;
+}
+
+const createModelProviderFallbacks = (t: ReturnType<typeof useTranslation>["t"]) => ({
+  providerDescription: t("modelProvider.providerDescriptionFallback"),
+  providerDescriptions: {
+    claude: t("modelProvider.providerDescriptions.claude", { defaultValue: "" }),
+    deepseek: t("modelProvider.providerDescriptions.deepseek", { defaultValue: "" }),
+    doubao: t("modelProvider.providerDescriptions.doubao", { defaultValue: "" }),
+    glm: t("modelProvider.providerDescriptions.glm", { defaultValue: "" }),
+    kimi: t("modelProvider.providerDescriptions.kimi", { defaultValue: "" }),
+    minimax: t("modelProvider.providerDescriptions.minimax", { defaultValue: "" }),
+    openai: t("modelProvider.providerDescriptions.openai", { defaultValue: "" }),
+    qwen: t("modelProvider.providerDescriptions.qwen", { defaultValue: "" }),
+    sensenova: t("modelProvider.providerDescriptions.sensenova", { defaultValue: "" }),
+    siliconflow: t("modelProvider.providerDescriptions.siliconflow", { defaultValue: "" }),
+  } as Record<string, string>,
+});
+
+type ModelProviderFallbacks = ReturnType<typeof createModelProviderFallbacks>;
+
+function getLocalizedProviderDescription(
+  name: string,
+  fallbackDescription: string | undefined,
+  fallbacks: ModelProviderFallbacks
+) {
+  const providerKey = normalizeProviderKey(name).replace(/-/g, "");
+  const translatedDescription = fallbacks.providerDescriptions[providerKey];
+  return translatedDescription || fallbackDescription || fallbacks.providerDescription;
 }
 
 interface ApiEnvelope<T> {
@@ -443,13 +486,16 @@ async function modelProviderRequest<T>(
   return unwrapResponse<T>(response.data);
 }
 
-function mapApiProvider(provider: ApiProvider): ProviderOption {
+function mapApiProvider(provider: ApiProvider, fallbacks: ModelProviderFallbacks): ProviderOption {
+  const backendDescription = provider.description;
+
   return {
     id: provider.id,
     name: provider.name,
     brand: getProviderBrand(provider.name),
     logoUrl: getProviderLogoUrl(provider.name),
-    headline: provider.description || "系统内置模型供应商，可配置连接分组后使用。",
+    headline: getLocalizedProviderDescription(provider.name, backendDescription, fallbacks),
+    backendDescription,
     source: provider.name,
     baseUrl: provider.base_url || "",
     capabilities: [
@@ -512,10 +558,10 @@ function ProviderLogo({ provider, compact = false }: { provider: ProviderOption;
   );
 }
 
-function CapabilityTag({ capability, active = false }: { capability: ModelCapability; active?: boolean }) {
+function CapabilityTag({ label, active = false }: { label: string; active?: boolean }) {
   return (
     <Tag className={`model-provider-capability${active ? " is-active" : ""}`}>
-      {capabilityLabels[capability]}
+      {label}
     </Tag>
   );
 }
@@ -563,6 +609,7 @@ function getModelProvidersPath(keyword?: string) {
 }
 
 export default function ModelProviderPage() {
+  const { t, i18n } = useTranslation();
   const [providerConfigForm] = Form.useForm<ProviderConfigFormValues>();
   const [customModelForm] = Form.useForm<CustomModelFormValues>();
 
@@ -584,6 +631,8 @@ export default function ModelProviderPage() {
   const watchedProviderBaseUrl = Form.useWatch("baseUrl", providerConfigForm);
   const providerSearchRequestIdRef = useRef(0);
   const initialProvidersLoadedRef = useRef(false);
+  const localizedFallbacks = useMemo(() => createModelProviderFallbacks(t), [i18n.language, t]);
+  const getCapabilityLabel = useCallback((capability: ModelCapability) => t(capabilityLabelKeys[capability]), [t]);
   const configProvider = configModal?.provider || null;
   const baseUrlChanged = configProvider
     ? !isDefaultProviderBaseUrl(
@@ -598,8 +647,8 @@ export default function ModelProviderPage() {
       "GET",
       getModelProvidersPath(searchKeyword)
     );
-    return (providerData.providers || []).map(mapApiProvider);
-  }, []);
+    return (providerData.providers || []).map((provider) => mapApiProvider(provider, localizedFallbacks));
+  }, [localizedFallbacks]);
 
   const searchProviderOptions = useCallback(
     async (searchKeyword: string) => {
@@ -614,7 +663,7 @@ export default function ModelProviderPage() {
         }
       } catch (error) {
         if (providerSearchRequestIdRef.current === requestId) {
-          message.error(getLocalizedErrorMessage(error, "模型供应商搜索失败"));
+          message.error(getLocalizedErrorMessage(error, t("modelProvider.error.searchFailed")));
         }
       } finally {
         if (providerSearchRequestIdRef.current === requestId) {
@@ -673,7 +722,7 @@ export default function ModelProviderPage() {
             id: selection.user_model_provider_id,
             name: selection.provider_name,
             base_url: selection.base_url,
-          });
+          }, localizedFallbacks);
         const group = createConnectionGroup(provider, {
           id: selection.user_model_provider_group_id,
           name: selection.group_name,
@@ -700,7 +749,7 @@ export default function ModelProviderPage() {
       setSelectedModels(nextSelectedModels);
       setModuleModelOptions((current) => ({ ...selectedOptions, ...current }));
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "模型供应商加载失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.loadProvidersFailed")));
     } finally {
       initialProvidersLoadedRef.current = true;
       setLoading(false);
@@ -755,7 +804,7 @@ export default function ModelProviderPage() {
             id: model.user_model_provider_id,
             name: model.provider_name,
             base_url: model.base_url,
-          });
+          }, localizedFallbacks);
         const configuredProvider = addedProviderList.find((item) => item.id === provider.id);
         const group =
           configuredProvider?.groups.find((item) => item.id === model.user_model_provider_group_id) ||
@@ -784,7 +833,7 @@ export default function ModelProviderPage() {
 
       setModuleModelOptions((current) => ({ ...current, [capability]: options }));
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "模型列表加载失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.loadModelsFailed")));
     } finally {
       setModuleModelLoading((current) => ({ ...current, [capability]: false }));
     }
@@ -817,7 +866,7 @@ export default function ModelProviderPage() {
     setConfigModal({ provider: providerDraft, group });
     providerConfigForm.setFieldsValue({
       name: groupDraft.name,
-      apiKey: "",
+      apiKey: groupDraft.apiKey || "",
       baseUrl: groupDraft.baseUrl || providerDraft.baseUrl,
     });
   };
@@ -847,7 +896,7 @@ export default function ModelProviderPage() {
       : undefined;
 
     if (!isCustomBaseUrl && !apiKey && !existingGroup?.apiKeyConfigured) {
-      providerConfigForm.setFields([{ name: "apiKey", errors: ["请输入 API Key"] }]);
+      providerConfigForm.setFields([{ name: "apiKey", errors: [t("modelProvider.validation.apiKeyRequired")] }]);
       return;
     }
 
@@ -905,11 +954,11 @@ export default function ModelProviderPage() {
       }
       setExpandedProviderIds((current) => ({ ...current, [configProvider.id]: true }));
       clearModuleModelCache();
-      message.success(`${nextGroup.name} 已保存`);
+      message.success(t("modelProvider.message.groupSaved", { name: nextGroup.name }));
       setConfigModal(null);
       providerConfigForm.resetFields();
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "保存失败，请稍后重试"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.saveFailed")));
     } finally {
       setProviderConfigSaving(false);
     }
@@ -933,7 +982,7 @@ export default function ModelProviderPage() {
         return;
       }
       if (!group.apiKey) {
-        message.warning("请先填写 API Key 后再验证");
+        message.warning(t("modelProvider.message.fillApiKeyBeforeVerify"));
         return;
       }
 
@@ -966,7 +1015,7 @@ export default function ModelProviderPage() {
         )
       );
       if (isVerified) {
-        message.success("分组验证通过，已可用于模型配置");
+        message.success(t("modelProvider.message.groupVerified"));
         return;
       }
       setSelectedModels((current) => {
@@ -979,9 +1028,9 @@ export default function ModelProviderPage() {
         });
         return next;
       });
-      message.error("分组验证未通过，请检查 Base URL 和 API Key 后重试");
+      message.error(t("modelProvider.message.groupVerifyFailed"));
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "验证失败，请检查连接配置后重试"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.verifyFailed")));
     } finally {
       setVerifyingGroupIds((current) => {
         const next = { ...current };
@@ -1027,9 +1076,9 @@ export default function ModelProviderPage() {
         return next;
       });
       clearModuleModelCache();
-      message.success(`${group.name} 已移除`);
+      message.success(t("modelProvider.message.groupRemoved", { name: group.name }));
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "删除分组失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.deleteGroupFailed")));
     }
   };
 
@@ -1063,9 +1112,9 @@ export default function ModelProviderPage() {
         return next;
       });
       clearModuleModelCache();
-      message.success(`${provider.name} 已移除`);
+      message.success(t("modelProvider.message.providerRemoved", { name: provider.name }));
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "移除供应商失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.removeProviderFailed")));
     }
   };
 
@@ -1095,7 +1144,7 @@ export default function ModelProviderPage() {
         )
       );
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "模型列表加载失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.loadModelsFailed")));
     } finally {
       setLoadingGroupModelIds((current) => {
         const next = { ...current };
@@ -1148,7 +1197,7 @@ export default function ModelProviderPage() {
     const duplicated = group.models.some((model) => normalizeModelName(model.name) === normalizedName);
 
     if (duplicated) {
-      customModelForm.setFields([{ name: "name", errors: ["不能和该分组内置或已添加模型重名"] }]);
+      customModelForm.setFields([{ name: "name", errors: [t("modelProvider.validation.duplicateModelName")] }]);
       return;
     }
 
@@ -1186,10 +1235,10 @@ export default function ModelProviderPage() {
         )
       );
       clearModuleModelCache(values.capability);
-      message.success("模型已添加");
+      message.success(t("modelProvider.message.modelAdded"));
       closeCustomModelModal();
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "模型添加失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.addModelFailed")));
     }
   };
 
@@ -1227,9 +1276,9 @@ export default function ModelProviderPage() {
         return next;
       });
       clearModuleModelCache(model.capability);
-      message.success("模型已删除");
+      message.success(t("modelProvider.message.modelDeleted"));
     } catch (error) {
-      message.error(getLocalizedErrorMessage(error, "模型删除失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.deleteModelFailed")));
     }
   };
 
@@ -1253,7 +1302,7 @@ export default function ModelProviderPage() {
       [capability]: value,
     }));
     void saveSelectedModel(capability, value).catch((error) => {
-      message.error(getLocalizedErrorMessage(error, "默认模型保存失败"));
+      message.error(getLocalizedErrorMessage(error, t("modelProvider.error.saveDefaultModelFailed")));
     });
   };
 
@@ -1261,10 +1310,10 @@ export default function ModelProviderPage() {
     const previousValue = selectedModels[capability];
     if (capability === "EMBEDDING" && previousValue && previousValue !== value) {
       Modal.confirm({
-        title: "向量模型变更提醒",
-        content: "切换向量模型后，知识库检索服务将暂时不可用，直到向量全部重新计算完成。",
-        okText: "确认切换",
-        cancelText: "暂不切换",
+        title: t("modelProvider.embeddingChangeTitle"),
+        content: t("modelProvider.embeddingChangeContent"),
+        okText: t("modelProvider.confirmSwitch"),
+        cancelText: t("modelProvider.cancelSwitch"),
         onOk: () => {
           applyModelSelection(capability, value);
         },
@@ -1279,17 +1328,17 @@ export default function ModelProviderPage() {
     <main className="model-provider-page">
       <section className="model-provider-shell">
         <div className="model-provider-main-panel">
-          <section className="model-provider-config-panel" aria-label="模块默认模型配置">
+          <section className="model-provider-config-panel" aria-label={t("modelProvider.defaultConfigAria")}>
             <div className="model-provider-panel-title-row">
               <div>
-                <h2>模块默认模型</h2>
-                <p>不同模块可以选择不同模型；必配项未完成时，系统功能将受限。</p>
+                <h2>{t("modelProvider.defaultTitle")}</h2>
+                <p>{t("modelProvider.defaultSubtitle")}</p>
               </div>
             </div>
 
             <Alert
               className="model-provider-inline-alert"
-              message="向量模型当前仅允许从平台限定的供应商和模型中选择；后续名单确定后可直接收敛这里的选项。"
+              message={t("modelProvider.embeddingLimitedAlert")}
               showIcon
               type="info"
             />
@@ -1298,6 +1347,8 @@ export default function ModelProviderPage() {
               {moduleConfigs.map((module) => {
                 const options = moduleModelOptions[module.key] || [];
                 const optionLoading = Boolean(moduleModelLoading[module.key]);
+                const moduleTitle = t(module.titleKey);
+                const moduleSubtitle = t(module.subtitleKey);
 
                 return (
                   <div className="model-provider-default-row" key={module.key}>
@@ -1307,18 +1358,18 @@ export default function ModelProviderPage() {
                         htmlFor={`model-provider-${module.key.toLowerCase()}`}
                       >
                         {module.required ? <span className="is-required">*</span> : null}
-                        <span>{module.title}</span>
+                        <span>{moduleTitle}</span>
                       </label>
-                      <Tooltip placement="top" title={module.subtitle}>
+                      <Tooltip placement="top" title={moduleSubtitle}>
                         <button
-                          aria-label={`${module.title} 说明`}
+                          aria-label={t("modelProvider.moduleHelpAria", { title: moduleTitle })}
                           className="model-provider-default-help"
                           type="button"
                         >
                           <QuestionCircleOutlined />
                         </button>
                       </Tooltip>
-                      {module.restricted ? <Tag className="model-provider-limited-tag">限定</Tag> : null}
+                      {module.restricted ? <Tag className="model-provider-limited-tag">{t("modelProvider.limited")}</Tag> : null}
                     </div>
 
                     <Select
@@ -1327,18 +1378,18 @@ export default function ModelProviderPage() {
                       id={`model-provider-${module.key.toLowerCase()}`}
                       listHeight={340}
                       optionLabelProp="label"
-                      placeholder={module.required ? "请选择必配模型" : "可选配置"}
+                      placeholder={module.required ? t("modelProvider.requiredModelPlaceholder") : t("modelProvider.optionalModelPlaceholder")}
                       popupClassName="model-provider-select-dropdown"
                       suffixIcon={<DownOutlined className="model-provider-select-caret" />}
                       value={selectedModels[module.key]}
                       onChange={(value) => handleModelSelection(module.key, value)}
                       onDropdownVisibleChange={(open) => {
                         if (open) {
-                          void loadModuleModels(module.key);
+                          void loadModuleModels(module.key, true);
                         }
                       }}
                       loading={optionLoading}
-                      notFoundContent={optionLoading ? "加载中..." : "暂无可选模型"}
+                      notFoundContent={optionLoading ? t("common.loading") : t("modelProvider.noModelOptions")}
                     >
                       {options.map(({ provider, group, model, value }) => (
                         <Select.Option
@@ -1359,7 +1410,7 @@ export default function ModelProviderPage() {
                               <strong>{model.name}</strong>
                               <small>
                                 {provider.name} / {group.name}
-                                {model.builtIn ? " · 内置模型" : " · 自定义模型"}
+                                {model.builtIn ? t("modelProvider.builtInModelSuffix") : t("modelProvider.customModelSuffix")}
                               </small>
                             </span>
                           </span>
@@ -1374,8 +1425,8 @@ export default function ModelProviderPage() {
 
           <section className="model-provider-added-section">
             <div className="model-provider-panel-heading">
-              <h2>我的供应商分组与模型</h2>
-              <p>一个供应商可以维护多个连接分组；分组保存后需验证通过，才会进入默认模型选择。</p>
+              <h2>{t("modelProvider.myGroupsTitle")}</h2>
+              <p>{t("modelProvider.myGroupsSubtitle")}</p>
             </div>
 
             <div className="model-provider-added-list">
@@ -1395,7 +1446,7 @@ export default function ModelProviderPage() {
                           <div>
                             <strong>{provider.name}</strong>
                             <span>
-                              source: {provider.source} · {provider.groups.length} 个分组
+                              {t("modelProvider.providerGroupCount", { source: provider.source, count: provider.groups.length })}
                             </span>
                           </div>
                         </div>
@@ -1403,10 +1454,10 @@ export default function ModelProviderPage() {
                         <div className="model-provider-added-actions">
                           <span className="model-provider-connection-badge">
                             <CheckCircleFilled />
-                            {provider.groups.filter((group) => group.verified).length} 个可用
+                            {t("modelProvider.availableGroupCount", { count: provider.groups.filter((group) => group.verified).length })}
                           </span>
                           <Button icon={<PlusCircleOutlined />} onClick={() => openProviderConfig(provider)}>
-                            新增分组
+                            {t("modelProvider.addGroup")}
                           </Button>
                           <Button
                             aria-controls={modelListId}
@@ -1414,35 +1465,35 @@ export default function ModelProviderPage() {
                             className="model-provider-expand-button"
                             onClick={() => void toggleProviderModels(provider.id)}
                           >
-                            {isExpanded ? "隐藏模型" : "展示模型"}
+                            {isExpanded ? t("modelProvider.collapseGroups") : t("modelProvider.expandGroups")}
                             {isExpanded ? <UpOutlined /> : <DownOutlined />}
                           </Button>
                           <Popconfirm
-                            cancelText="取消"
+                            cancelText={t("common.cancel")}
                             okButtonProps={{ danger: true }}
-                            okText="移除"
-                            title={`确认移除 ${provider.name}？`}
-                            description="移除后，使用该供应商的模块选择会被清空。"
+                            okText={t("modelProvider.remove")}
+                            title={t("modelProvider.confirmRemoveProvider", { name: provider.name })}
+                            description={t("modelProvider.confirmRemoveProviderDesc")}
                             onConfirm={() => deleteProvider(provider)}
                           >
-                            <Button aria-label={`移除 ${provider.name}`} danger icon={<DeleteOutlined />} />
+                            <Button aria-label={t("modelProvider.removeProviderAria", { name: provider.name })} danger icon={<DeleteOutlined />} />
                           </Popconfirm>
                         </div>
                       </div>
 
                       {isExpanded ? (
                         <div
-                          aria-label={`${provider.name} 模型列表`}
+                          aria-label={t("modelProvider.providerModelListAria", { name: provider.name })}
                           className="model-provider-added-models"
                           id={modelListId}
                         >
-                          <div className="model-provider-added-tags" aria-label={`${provider.name} 支持能力`}>
+                          <div className="model-provider-added-tags" aria-label={t("modelProvider.providerCapabilitiesAria", { name: provider.name })}>
                             {provider.capabilities.map((capability) => (
-                              <CapabilityTag capability={capability} key={capability} />
+                              <CapabilityTag label={getCapabilityLabel(capability)} key={capability} />
                             ))}
                           </div>
 
-                          <div className="model-provider-group-rows" aria-label={`${provider.name} 连接分组`}>
+                          <div className="model-provider-group-rows" aria-label={t("modelProvider.providerGroupsAria", { name: provider.name })}>
                             {provider.groups.map((group) => {
                               const verifyKey = `${provider.id}:${group.id}`;
 
@@ -1454,7 +1505,7 @@ export default function ModelProviderPage() {
                                         <strong>{group.name}</strong>
                                         <Tag className="model-provider-source-tag">source: {group.source}</Tag>
                                         <Tag className={group.verified ? "model-provider-verified-tag" : "model-provider-pending-tag"}>
-                                          {group.verified ? "已验证" : "待验证"}
+                                          {group.verified ? t("modelProvider.verified") : t("modelProvider.pendingVerify")}
                                         </Tag>
                                       </div>
                                       <span>{group.baseUrl}</span>
@@ -1466,14 +1517,14 @@ export default function ModelProviderPage() {
                                         loading={!!loadingGroupModelIds[`${provider.id}:${group.id}`]}
                                         onClick={() => void toggleGroupModels(provider.id, group.id)}
                                       >
-                                        {expandedGroupIds[`${provider.id}:${group.id}`] ? "隐藏模型" : "展示模型"}
+                                        {expandedGroupIds[`${provider.id}:${group.id}`] ? t("modelProvider.collapseModels") : t("modelProvider.expandModels")}
                                         {expandedGroupIds[`${provider.id}:${group.id}`] ? <UpOutlined /> : <DownOutlined />}
                                       </Button>
                                       <Button icon={<PlusCircleOutlined />} onClick={() => openCustomModelModal(provider, group)}>
-                                        添加模型
+                                        {t("modelProvider.addModel")}
                                       </Button>
                                       <Button icon={<EditOutlined />} onClick={() => openProviderConfig(provider, group)}>
-                                        编辑
+                                        {t("common.edit")}
                                       </Button>
                                       <Button
                                         icon={<KeyOutlined />}
@@ -1481,52 +1532,52 @@ export default function ModelProviderPage() {
                                         type={group.verified ? "default" : "primary"}
                                         onClick={() => verifyProviderGroup(provider.id, group.id)}
                                       >
-                                        {group.verified ? "重新验证" : "验证"}
+                                        {group.verified ? t("modelProvider.reverify") : t("modelProvider.verify")}
                                       </Button>
                                       <Popconfirm
-                                        cancelText="取消"
+                                        cancelText={t("common.cancel")}
                                         okButtonProps={{ danger: true }}
-                                        okText="删除"
-                                        title={`确认删除 ${group.name}？`}
-                                        description="删除后，引用该分组的模块配置会被清空。"
+                                        okText={t("common.delete")}
+                                        title={t("modelProvider.confirmDeleteGroup", { name: group.name })}
+                                        description={t("modelProvider.confirmDeleteGroupDesc")}
                                         onConfirm={() => deleteProviderGroup(provider.id, group)}
                                       >
-                                        <Button aria-label={`删除 ${group.name}`} danger icon={<DeleteOutlined />} />
+                                        <Button aria-label={t("modelProvider.deleteGroupAria", { name: group.name })} danger icon={<DeleteOutlined />} />
                                       </Popconfirm>
                                     </div>
                                   </div>
 
                                   {expandedGroupIds[`${provider.id}:${group.id}`] ? (
-                                    <div className="model-provider-branch-model-rows" aria-label={`${group.name} 模型列表`}>
+                                    <div className="model-provider-branch-model-rows" aria-label={t("modelProvider.groupModelListAria", { name: group.name })}>
                                       {group.models.length ? (
                                         group.models.map((model) => (
                                           <div className="model-provider-model-row" key={model.id}>
                                             <div className="model-provider-model-meta">
                                               <strong>{model.name}</strong>
-                                              <CapabilityTag capability={model.capability} />
-                                              {model.builtIn ? null : <Tag className="model-provider-custom-tag">自定义</Tag>}
+                                              <CapabilityTag label={getCapabilityLabel(model.capability)} />
+                                              {model.builtIn ? null : <Tag className="model-provider-custom-tag">{t("modelProvider.custom")}</Tag>}
                                             </div>
 
                                             <div className="model-provider-model-actions">
                                               {model.builtIn ? (
-                                                <span>不可删除</span>
+                                                <span>{t("modelProvider.cannotDelete")}</span>
                                               ) : (
                                                 <Popconfirm
-                                                  cancelText="取消"
+                                                  cancelText={t("common.cancel")}
                                                   okButtonProps={{ danger: true }}
-                                                  okText="删除"
-                                                  title={`确认删除 ${model.name}？`}
-                                                  description="删除后，引用该模型的模块配置会被清空。"
+                                                  okText={t("common.delete")}
+                                                  title={t("modelProvider.confirmDeleteModel", { name: model.name })}
+                                                  description={t("modelProvider.confirmDeleteModelDesc")}
                                                   onConfirm={() => deleteCustomModel(provider.id, group.id, model)}
                                                 >
-                                                  <Button aria-label={`删除 ${model.name}`} icon={<DeleteOutlined />} />
+                                                  <Button aria-label={t("modelProvider.deleteModelAria", { name: model.name })} icon={<DeleteOutlined />} />
                                                 </Popconfirm>
                                               )}
                                             </div>
                                           </div>
                                         ))
                                       ) : (
-                                        <div className="model-provider-model-empty">暂无模型</div>
+                                        <div className="model-provider-model-empty">{t("modelProvider.noModels")}</div>
                                       )}
                                     </div>
                                   ) : null}
@@ -1541,24 +1592,24 @@ export default function ModelProviderPage() {
                 })
               ) : (
                 <div className="model-provider-empty-state" role="status">
-                  <Empty description="暂无供应商，请从右侧添加内置供应商" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  <Empty description={t("modelProvider.emptyAddedProviders")} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 </div>
               )}
             </div>
           </section>
         </div>
 
-        <aside className="model-provider-side-panel" aria-label="内置模型供应商">
+        <aside className="model-provider-side-panel" aria-label={t("modelProvider.builtInProvidersAria")}>
           <div className="model-provider-side-header">
-            <h2>内置供应商</h2>
-            <p>供应商与内置模型清单由系统提供，你只需要配置自己的连接信息。</p>
+            <h2>{t("modelProvider.builtInProvidersTitle")}</h2>
+            <p>{t("modelProvider.builtInProvidersSubtitle")}</p>
           </div>
 
           <Input
             allowClear
-            aria-label="搜索供应商或模型"
+            aria-label={t("modelProvider.searchAria")}
             disabled={loading}
-            placeholder="搜索供应商或模型"
+            placeholder={t("modelProvider.searchPlaceholder")}
             size="large"
             suffix={providerSearchLoading ? <LoadingOutlined /> : <SearchOutlined />}
             value={keyword}
@@ -1569,6 +1620,11 @@ export default function ModelProviderPage() {
             {visibleProviders.length ? (
               visibleProviders.map((provider) => {
                 const isAdded = addedProviderIds.has(provider.id);
+                const providerDescription = getLocalizedProviderDescription(
+                  provider.name,
+                  provider.backendDescription || provider.headline,
+                  localizedFallbacks
+                );
 
                 return (
                   <article className={`model-provider-card${isAdded ? " is-added" : ""}`} key={provider.id}>
@@ -1578,14 +1634,14 @@ export default function ModelProviderPage() {
                         <div>
                           <div className="model-provider-card-title-row">
                             <strong>{provider.name}</strong>
-                            {isAdded ? <Tag className="model-provider-added-tag">已添加</Tag> : null}
+                            {isAdded ? <Tag className="model-provider-added-tag">{t("modelProvider.added")}</Tag> : null}
                           </div>
                           <Tooltip
                             overlayClassName="model-provider-description-tooltip"
                             placement="left"
-                            title={renderDescriptionWithLinks(provider.headline)}
+                            title={renderDescriptionWithLinks(providerDescription)}
                           >
-                            <p className="model-provider-card-description">{provider.headline}</p>
+                            <p className="model-provider-card-description">{providerDescription}</p>
                           </Tooltip>
                         </div>
                       </div>
@@ -1598,7 +1654,7 @@ export default function ModelProviderPage() {
                         type="primary"
                         onClick={() => addProvider(provider)}
                       >
-                        {isAdded ? "新增分组" : "配置并添加"}
+                        {isAdded ? t("modelProvider.addGroup") : t("modelProvider.configureAndAdd")}
                       </Button>
                     </div>
                   </article>
@@ -1606,7 +1662,7 @@ export default function ModelProviderPage() {
               })
             ) : (
               <div className="model-provider-empty-state" role="status">
-                <Empty description="没有找到符合条件的供应商" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty description={t("modelProvider.noMatchedProviders")} image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </div>
             )}
           </div>
@@ -1618,9 +1674,9 @@ export default function ModelProviderPage() {
         confirmLoading={providerConfigSaving}
         destroyOnHidden
         maskClosable={!providerConfigSaving}
-        okText="保存配置"
+        okText={t("modelProvider.saveConfig")}
         open={!!configModal}
-        title={`${configProvider?.name || ""} 分组配置`}
+        title={t("modelProvider.groupConfigTitle", { name: configProvider?.name || "" })}
         width={520}
         onCancel={closeProviderConfig}
         onOk={() => providerConfigForm.submit()}
@@ -1632,27 +1688,27 @@ export default function ModelProviderPage() {
           onFinish={saveProviderConfig}
         >
           <Form.Item
-            extra="默认使用供应商名称；保存后会在分组列表展示。"
-            label="分组名称"
+            extra={t("modelProvider.groupNameExtra")}
+            label={t("modelProvider.groupName")}
             name="name"
             normalize={(value: string | undefined) => value?.trim()}
             rules={[
-              { required: true, message: "请输入分组名称" },
-              { max: 80, message: "分组名称不能超过 80 个字符" },
+              { required: true, message: t("modelProvider.validation.groupNameRequired") },
+              { max: 80, message: t("modelProvider.validation.groupNameMax") },
             ]}
           >
-            <Input maxLength={80} placeholder={configProvider?.name || "请输入分组名称"} />
+            <Input maxLength={80} placeholder={configProvider?.name || t("modelProvider.groupNamePlaceholder")} />
           </Form.Item>
 
           <Form.Item
-            extra={baseUrlChanged ? "当前已改为自定义 Base URL，API Key 可不填写。" : "Base URL 必填，默认值来自供应商内置配置。"}
+            extra={baseUrlChanged ? t("modelProvider.baseUrlCustomExtra") : t("modelProvider.baseUrlDefaultExtra")}
             label="Base URL"
             name="baseUrl"
             normalize={(value: string | undefined) => value?.trim()}
             rules={[
-              { required: true, message: "请输入 Base URL" },
-              { type: "url", message: "请输入有效的 URL" },
-              { max: 512, message: "Base URL 不能超过 512 个字符" },
+              { required: true, message: t("modelProvider.validation.baseUrlRequired") },
+              { type: "url", message: t("modelProvider.validation.baseUrlInvalid") },
+              { max: 512, message: t("modelProvider.validation.baseUrlMax") },
             ]}
           >
             <Input maxLength={512} placeholder="https://api.example.com/v1" />
@@ -1660,7 +1716,7 @@ export default function ModelProviderPage() {
 
           <Form.Item
             dependencies={["baseUrl"]}
-            extra={baseUrlChanged ? "自定义 Base URL 可不填写 API Key；已配置分组可保留掩码不变。" : "默认 Base URL 下 API Key 必填；已配置分组可保留掩码不变。"}
+            extra={baseUrlChanged ? t("modelProvider.apiKeyCustomExtra") : t("modelProvider.apiKeyDefaultExtra")}
             label="API Key"
             name="apiKey"
             normalize={(value: string | undefined) => value?.trim()}
@@ -1671,15 +1727,15 @@ export default function ModelProviderPage() {
                   const apiKey = normalizeFormText(value);
 
                   if (apiKeyRequired && !apiKey) {
-                    return Promise.reject(new Error("请输入 API Key"));
+                    return Promise.reject(new Error(t("modelProvider.validation.apiKeyRequired")));
                   }
 
                   if (apiKey.length > 512) {
-                    return Promise.reject(new Error("API Key 不能超过 512 个字符"));
+                    return Promise.reject(new Error(t("modelProvider.validation.apiKeyMax")));
                   }
 
                   if (/\s/.test(apiKey)) {
-                    return Promise.reject(new Error("API Key 不能包含空格"));
+                    return Promise.reject(new Error(t("modelProvider.validation.apiKeyNoSpaces")));
                   }
 
                   return Promise.resolve();
@@ -1687,7 +1743,7 @@ export default function ModelProviderPage() {
               },
             ]}
           >
-            <Input.Password autoComplete="off" maxLength={512} placeholder={apiKeyRequired ? "请输入 API Key" : "可不填写"} visibilityToggle />
+            <Input.Password autoComplete="off" maxLength={512} placeholder={apiKeyRequired ? t("modelProvider.apiKeyPlaceholder") : t("modelProvider.apiKeyOptionalPlaceholder")} visibilityToggle />
           </Form.Item>
         </Form>
       </Modal>
@@ -1695,9 +1751,9 @@ export default function ModelProviderPage() {
       <Modal
         centered
         destroyOnHidden
-        okText="添加"
+        okText={t("modelProvider.add")}
         open={!!customModelModal}
-        title={`${customModelModal?.group.name || ""} 添加自定义模型`}
+        title={t("modelProvider.addCustomModelTitle", { name: customModelModal?.group.name || "" })}
         width={520}
         onCancel={closeCustomModelModal}
         onOk={() => customModelForm.submit()}
@@ -1708,7 +1764,7 @@ export default function ModelProviderPage() {
           layout="vertical"
           onFinish={addCustomModel}
         >
-          <Form.Item label="供应商" name="providerId" rules={[{ required: true, message: "请选择供应商" }]}>
+          <Form.Item label={t("modelProvider.provider")} name="providerId" rules={[{ required: true, message: t("modelProvider.validation.providerRequired") }]}>
             <Select disabled>
               {customModelModal ? (
                 <Select.Option value={customModelModal.provider.id}>{customModelModal.provider.name}</Select.Option>
@@ -1716,7 +1772,7 @@ export default function ModelProviderPage() {
             </Select>
           </Form.Item>
 
-          <Form.Item label="分组" name="groupId" rules={[{ required: true, message: "请选择分组" }]}>
+          <Form.Item label={t("modelProvider.group")} name="groupId" rules={[{ required: true, message: t("modelProvider.validation.groupRequired") }]}>
             <Select disabled>
               {customModelModal ? (
                 <Select.Option value={customModelModal.group.id}>{customModelModal.group.name}</Select.Option>
@@ -1725,24 +1781,24 @@ export default function ModelProviderPage() {
           </Form.Item>
 
           <Form.Item
-            extra="模型名称不能和该分组内置模型或已添加模型重名。"
-            label="模型名称"
+            extra={t("modelProvider.modelNameExtra")}
+            label={t("modelProvider.modelName")}
             name="name"
             normalize={(value: string | undefined) => value?.trim()}
             rules={[
-              { required: true, message: "请输入模型名称" },
-              { max: 120, message: "模型名称不能超过 120 个字符" },
-              { pattern: /^[\w.-]+$/, message: "仅支持字母、数字、下划线、点和短横线" },
+              { required: true, message: t("modelProvider.validation.modelNameRequired") },
+              { max: 120, message: t("modelProvider.validation.modelNameMax") },
+              { pattern: /^[\w.-]+$/, message: t("modelProvider.validation.modelNamePattern") },
             ]}
           >
-            <Input maxLength={120} placeholder="例如 qwen-max-latest" />
+            <Input maxLength={120} placeholder={t("modelProvider.modelNamePlaceholder")} />
           </Form.Item>
 
-          <Form.Item label="模型类型" name="capability" rules={[{ required: true, message: "请选择模型类型" }]}>
+          <Form.Item label={t("modelProvider.modelType")} name="capability" rules={[{ required: true, message: t("modelProvider.validation.modelTypeRequired") }]}>
             <Select>
               {customModelModal?.provider.capabilities.map((capability) => (
                 <Select.Option key={capability} value={capability}>
-                  {capabilityLabels[capability]}
+                  {getCapabilityLabel(capability)}
                 </Select.Option>
               ))}
             </Select>

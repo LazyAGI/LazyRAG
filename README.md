@@ -65,21 +65,21 @@ Kong API Gateway + JWT/RBAC with four verification layers: Frontend → Kong RBA
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                    Frontend (8080)                    │
+│                    Frontend (8080)                   │
 │           nginx SPA — knowledge base / chat / ops    │
 └─────────────────────┬────────────────────────────────┘
                       │
              ┌────────▼────────┐
              │   Kong (8000)   │  API Gateway + RBAC
-             └──┬──────────┬──┘
-                │          │
-       ┌────────▼──┐  ┌────▼──────────┐
+             └──┬──────-────┬──┘
+                │           │
+       ┌────────▼-──┐  ┌────▼──────────┐
        │auth-service│  │  core (Go)    │  dataset / doc / task / retrieval
        │  FastAPI   │  │  HTTP API     │
        └────────────┘  └──────┬────────┘
                               │ proxy
-             ┌────────────────┼────────────────┐
-             │                │                │
+             ┌────────────────┼───────────────┐
+             │                │               │
     ┌────────▼──────┐  ┌──────▼──────┐  ┌─────▼──────┐
     │   parsing     │  │    chat     │  │    evo     │
     │ doc parse /   │  │  RAG chat   │  │ self-evo   │
@@ -136,7 +136,7 @@ Select a config file via `LAZYRAG_MODEL_CONFIG_PATH`. Three built-in modes:
 | `online` | Public cloud API |
 | `dynamic` | Key injected per request |
 
-Configure `llm`, `llm_instruct`, `reranker`, and `embed_1~embed_3`. If only `embed_1` is set, single-embedding mode activates automatically.
+Configure `llm`, `reranker`, and `embed_1~embed_3`. If only `embed_1` is set, single-embedding mode activates automatically.
 
 ---
 

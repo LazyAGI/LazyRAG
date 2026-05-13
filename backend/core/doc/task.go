@@ -1451,7 +1451,7 @@ func buildTaskResponse(r *http.Request, row orm.Task) TaskResponse {
 			extTaskFound = true
 		}
 	}
-	if !extTaskFound && lazyDoc != "" {
+	if !extTaskFound && lazyDoc != "" && TaskType(strings.TrimSpace(row.TaskType)) != TaskTypeReparse {
 		if err := store.LazyLLMDB().WithContext(r.Context()).Table((readonlyorm.LazyLLMDocServiceTaskRow{}).TableName()).Where("doc_id = ?", lazyDoc).Order("updated_at DESC").Take(&extTask).Error; err == nil {
 			extTaskFound = true
 		}
@@ -2266,7 +2266,7 @@ func createTaskFromExistingDocument(r *http.Request, datasetID, userID, userName
 	if len(tFiles) == 0 && (strings.TrimSpace(dExt.StoredPath) != "" || strings.TrimSpace(dExt.ParseStoredPath) != "") {
 		tFiles = []TaskFile{{DisplayName: displayName, StoredName: dExt.StoredName, StoredPath: dExt.StoredPath, ParseStoredPath: dExt.ParseStoredPath, FileSize: dExt.FileSize, RelativePath: dExt.RelativePath, ContentType: dExt.ContentType}}
 	}
-	tExt := taskExt{TaskType: tType, DocumentPID: documentPID, DisplayName: displayName, TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetPath: strings.TrimSpace(item.Task.TargetPath), DataSourceType: firstNonEmpty(strings.TrimSpace(item.Task.DataSourceType), "LOCAL_FILE"), Files: tFiles, DocumentTags: tags}
+	tExt := taskExt{TaskType: tType, DocumentPID: documentPID, DisplayName: displayName, TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetPath: strings.TrimSpace(item.Task.TargetPath), DataSourceType: firstNonEmpty(strings.TrimSpace(item.Task.DataSourceType), "LOCAL_FILE"), Files: tFiles, DocumentTags: tags, ReparseGroups: item.Task.ReparseGroups}
 	now := time.Now().UTC()
 	taskRow := orm.Task{ID: taskID, LazyllmTaskID: "", DocID: baseDoc.ID, KbID: datasetKbIDByID(datasetID), AlgoID: datasetAlgoIDByID(datasetID), DatasetID: datasetID, TaskType: tType, DocumentPID: documentPID, TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), DisplayName: displayName, Ext: mustJSON(tExt), BaseModel: orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now}}
 	if err := store.DB().WithContext(r.Context()).Create(&taskRow).Error; err != nil {
@@ -2307,7 +2307,19 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 	if len(taskRows) == 0 {
 		return results, fmt.Errorf("no valid tasks to start")
 	}
-	if err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, IdempotencyKey: newTaskID()}); err != nil {
+	// Collect ng_names from the first task that has ReparseGroups set.
+	// All tasks in a single reparse batch share the same reparse_groups selection.
+	var ngNames []string
+	for _, taskRow := range taskRows {
+		var ext taskExt
+		_ = json.Unmarshal(taskRow.Ext, &ext)
+		if len(ext.ReparseGroups) > 0 {
+			ngNames = ext.ReparseGroups
+			break
+		}
+	}
+	lazyllmTaskIDs, err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, NgNames: ngNames, IdempotencyKey: newTaskID()})
+	if err != nil {
 		for i, taskRow := range taskRows {
 			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: common.ResolveAppError(err.Error(), http.StatusBadGateway).Message, Detail: fmt.Sprint(common.ResolveAppError(err.Error(), http.StatusBadGateway).Detail)})
 		}
@@ -2318,7 +2330,15 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 		var ext taskExt
 		_ = json.Unmarshal(taskRow.Ext, &ext)
 		ext.TaskState = string(TaskStateRunning)
-		_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(map[string]any{"ext": mustJSON(ext), "updated_at": now}).Error
+		lazyllmTaskID := ""
+		if i < len(lazyllmTaskIDs) {
+			lazyllmTaskID = strings.TrimSpace(lazyllmTaskIDs[i])
+		}
+		updates := map[string]any{"ext": mustJSON(ext), "updated_at": now}
+		if lazyllmTaskID != "" {
+			updates["lazyllm_task_id"] = lazyllmTaskID
+		}
+		_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(updates).Error
 		results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "STARTED", SubmitStatus: "SUBMITTED"})
 	}
 	return results, nil

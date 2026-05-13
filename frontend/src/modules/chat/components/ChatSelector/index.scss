@@ -74,24 +74,24 @@
 }
 
 .chat-selector-container {
-  width: 680px;
-  max-width: calc(100vw - 32px);
+  width: clamp(520px, 46vw, calc(100vw - 2.4vw));
+  max-width: calc(100vw - 2.4vw);
   background: white;
   border-radius: 8px;
   overflow: hidden;
-  padding-top: 16px;
+  padding-top: clamp(12px, 1.1vw, 20px);
 }
 
 .chat-selector-search-box {
-  padding: 4px 16px;
+  padding: 0.3vw clamp(12px, 1.1vw, 20px);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  column-gap: 16px;
-  row-gap: 8px;
+  column-gap: clamp(12px, 1vw, 20px);
+  row-gap: clamp(6px, 0.6vw, 12px);
 
   .chat-selector-search-input {
-    flex: 1 1 280px;
+    flex: 1 1 clamp(260px, 34vw, 720px);
     min-width: 0;
     font-size: 14px;
 
@@ -104,12 +104,18 @@
       background-color: transparent;
     }
   }
+
+  .chat-selector-action-button {
+    padding: 0;
+    margin-left: 0;
+    flex: 0 0 auto;
+  }
 }
 
 .chat-selector-list-container {
-  max-height: 40vh;
+  max-height: min(40vh, 22vw);
   overflow-y: auto;
-  padding: 4px 10px;
+  padding: clamp(4px, 0.3vw, 8px) clamp(8px, 0.7vw, 14px);
 
   &::-webkit-scrollbar {
     width: 6px;
@@ -129,7 +135,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: clamp(8px, 0.7vw, 14px) clamp(12px, 1vw, 20px);
   cursor: pointer;
   transition: background-color 0.2s;
   color: #333;
@@ -165,7 +171,7 @@
   .chat-selector-check-icon {
     color: #1890ff;
     font-size: 14px;
-    margin-left: 8px;
+    margin-left: clamp(6px, 0.5vw, 10px);
     flex-shrink: 0;
   }
 }
@@ -182,5 +188,16 @@
     .ant-popover-inner {
       padding: 0;
     }
+  }
+}
+
+@media (max-width: 768px) {
+  .chat-selector-container {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+  }
+
+  .chat-selector-list-container {
+    max-height: 45vh;
   }
 }

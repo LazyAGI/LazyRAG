@@ -30,10 +30,15 @@ def create_app(
     from evo.service.core.intent_store import IntentStore
     from evo.service.core.ops_executor import OpsExecutor
     from evo.orchestrator.planner import Planner
-    from evo.orchestrator.llm import get_automodel, make_evo_stream_llm
+    from evo.runtime.model_gateway import ModelGateway
+    from lazyllm import AutoModel
+    from algorithm.chat.utils.load_config import get_config_path
+    from evo.orchestrator.llm import make_evo_stream_llm
 
+    client = AutoModel(model=cfg.model_config.llm_role, config=get_config_path())
+    gateway: ModelGateway[str] = ModelGateway(cfg.llm, name='evo-planner-llm')
     planner = Planner(
-        llm=lambda prompt: get_automodel(cfg.model_config.llm_role)(prompt),
+        llm=lambda prompt: gateway.call(lambda: client(prompt), cache_key=prompt, agent='planner'),
         stream_llm=make_evo_stream_llm(cfg),
     )
     intent_store = IntentStore(cfg.storage.base_dir / 'state' / 'intents')

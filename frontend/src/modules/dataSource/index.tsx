@@ -1091,6 +1091,7 @@ export default function DataSourceManagement() {
         appId: feishuAppSetup.appId,
         appSecret: feishuAppSetup.appSecret,
         scopes: FEISHU_DEFAULT_SCOPES,
+        returnUrl: window.location.href,
       });
 
       const popup = openCenteredPopup(authorizeUrl, t("admin.dataSourceFeishuAuthWindowTitle"));
@@ -1699,7 +1700,7 @@ export default function DataSourceManagement() {
           loading={scanLoading}
           pagination={{ pageSize: 6, showSizeChanger: false }}
           className="admin-page-table data-source-table"
-          scroll={{ x: 1480, y: "max(420px, calc(100vh - 510px))" }}
+          scroll={{ x: 1480, y: "clamp(22vh, calc(100vh - 560px), 52vh)" }}
         />
       </Card>
 

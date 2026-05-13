@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Collapse,
   Dropdown,
@@ -35,6 +36,7 @@ import { AgentAppsAuth } from "@/components/auth";
 import MarkdownViewer from "@/modules/knowledge/components/MarkdownViewer";
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
 import { BASE_URL, axiosInstance, getLocalizedErrorMessage } from "@/components/request";
+import { getSelfEvolutionWorkflowImageSrc } from "@/modules/selfEvolution/shared";
 import {
   ChatComposer,
   ChatMessageStream,
@@ -1520,6 +1522,10 @@ function buildCheckpointWaitPrompt(payload: Record<string, unknown> | undefined)
   };
 }
 
+function isTerminalAbtestCheckpoint(prompt: CheckpointWaitPrompt | undefined) {
+  return prompt?.completedStageLabel === stageLabels.abtest && !prompt.nextStage;
+}
+
 function compactPayloadForDisplay(payload: Record<string, unknown> | undefined) {
   if (!payload) {
     return "";
@@ -2645,6 +2651,8 @@ function getThreadModeFromPayload(payload: ThreadRestorePayload): EvolutionMode 
 }
 
 export default function SelfEvolutionPage() {
+  const { t, i18n } = useTranslation();
+  const workflowImageSrc = getSelfEvolutionWorkflowImageSrc(i18n.resolvedLanguage || i18n.language);
   const navigate = useNavigate();
   const { threadId: routeThreadId } = useParams<{ threadId?: string }>();
   const [mode, setMode] = useState<EvolutionMode>("interactive");
@@ -2758,8 +2766,17 @@ export default function SelfEvolutionPage() {
     (knowledgeBaseError || isKnowledgeBaseLoading || knowledgeBaseOptions.length === 0
       ? knowledgeBasePlaceholder
       : "尚未选择知识库");
-  const selectedEvalSetLabel =
-    existingEvalSetOptions.find((item) => item.value === selectedEvalSet)?.label || "不使用已有评测集";
+  const getExistingEvalSetLabel = useCallback(
+    (value?: string) => {
+      const option = existingEvalSetOptions.find((item) => item.value === value);
+      if (option?.value === FIXED_EVAL_SET) {
+        return t("selfEvolutionRun.noExistingEvalSet");
+      }
+      return option?.label || t("selfEvolutionRun.noExistingEvalSet");
+    },
+    [t],
+  );
+  const selectedEvalSetLabel = getExistingEvalSetLabel(selectedEvalSet);
   const isExtraEvalRequired = selectedEvalSet === "__none__";
   const extraEvalLabel = extraEvalStrategy === "generate" ? "是，补充评测集" : "否，不补充";
   const interventionLabel = mode === "interactive" ? "是，人工干预" : "否，自动处理";
@@ -2777,9 +2794,9 @@ export default function SelfEvolutionPage() {
     (knowledgeBaseError || isKnowledgeBaseLoading || knowledgeBaseOptions.length === 0
       ? knowledgeBasePlaceholder
       : "请选择知识库");
-  const draftSelectedEvalSetLabel = existingEvalSetOptions.find(
-    (item) => item.value === newSessionDraft.selectedEvalSet,
-  )?.label;
+  const draftSelectedEvalSetLabel = newSessionDraft.selectedEvalSet
+    ? getExistingEvalSetLabel(newSessionDraft.selectedEvalSet)
+    : undefined;
   const draftEvalSetLabel = draftSelectedEvalSetLabel || "请选择评测集";
   const isDraftExtraEvalRequired = newSessionDraft.selectedEvalSet === "__none__";
   const draftExtraEvalLabel =
@@ -2973,7 +2990,10 @@ export default function SelfEvolutionPage() {
     [threadEvents],
   );
   const displayedMessages = isAutoInteractionActive ? autoInteractionMessages : activeMessages;
-  const displayedCheckpointWaitPrompt = isAutoInteractionActive ? undefined : pendingCheckpointWaitPrompt;
+  const displayedCheckpointWaitPrompt =
+    isAutoInteractionActive || isTerminalAbtestCheckpoint(pendingCheckpointWaitPrompt)
+      ? undefined
+      : pendingCheckpointWaitPrompt;
   const datasetResultDownloadUrl = useMemo(
     () => buildCoreDownloadUrl(getResultDownloadPath(workflowResults.datasets.data)),
     [workflowResults.datasets.data],
@@ -3289,7 +3309,7 @@ export default function SelfEvolutionPage() {
   const existingEvalSetMenuItems: MenuProps["items"] = [
     ...existingEvalSetOptions.map((item) => ({
       key: item.value,
-      label: item.label,
+      label: getExistingEvalSetLabel(item.value),
     })),
   ];
   const extraEvalStrategyMenuItems: MenuProps["items"] = [
@@ -3532,7 +3552,11 @@ export default function SelfEvolutionPage() {
         }
 
         const event = normalizeThreadEvent(frame);
-        applyWorkflowEvent(event, sessionId);
+        const chatStreamDeltaKind = getChatStreamDeltaKind(event.type);
+        if (chatStreamDeltaKind) {
+          const streamId = getStringField(event.payload, ["message_id", "messageId", "id"]) || event.taskId || "default";
+          appendStreamDeltaToSession(sessionId, chatStreamDeltaKind, event.content, streamId);
+        }
         if (isTerminalThreadEvent(event.type)) {
           return;
         }
@@ -3543,7 +3567,12 @@ export default function SelfEvolutionPage() {
     if (trailingText) {
       const frame = parseSSEFrame(trailingText);
       if (frame) {
-        applyWorkflowEvent(normalizeThreadEvent(frame), sessionId);
+        const event = normalizeThreadEvent(frame);
+        const chatStreamDeltaKind = getChatStreamDeltaKind(event.type);
+        if (chatStreamDeltaKind) {
+          const streamId = getStringField(event.payload, ["message_id", "messageId", "id"]) || event.taskId || "default";
+          appendStreamDeltaToSession(sessionId, chatStreamDeltaKind, event.content, streamId);
+        }
       }
     }
   };
@@ -3962,8 +3991,7 @@ export default function SelfEvolutionPage() {
     const nextExtraEvalStrategy = newSessionDraft.extraEvalStrategy as ExtraEvalStrategy;
     const nextKnowledgeBaseLabel =
       knowledgeBaseOptions.find((item) => item.value === nextKnowledgeBase)?.label || "知识库";
-    const nextEvalSetLabel =
-      existingEvalSetOptions.find((item) => item.value === nextEvalSet)?.label || "不使用已有评测集";
+    const nextEvalSetLabel = getExistingEvalSetLabel(nextEvalSet);
     const nextExtraEvalLabel = nextExtraEvalStrategy === "generate" ? "是，补充评测集" : "否，不补充";
     const nextInterventionLabel = nextMode === "interactive" ? "是，人工干预" : "否，自动处理";
     const nowLabel = getTimeLabel();
@@ -6090,7 +6118,7 @@ export default function SelfEvolutionPage() {
           <figure className="self-evolution-welcome-visual">
             <img
               className="self-evolution-welcome-visual-image"
-              src="/Lazy.png"
+              src={workflowImageSrc}
               alt="自进化系统五步流程示意图：生成数据集、评测报告、分析报告、代码优化、A/B 测试"
             />
             <figcaption className="self-evolution-welcome-visual-meta">
