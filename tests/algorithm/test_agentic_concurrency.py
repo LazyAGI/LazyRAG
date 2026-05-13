@@ -293,8 +293,152 @@ def test_request_does_not_override_runtime_agent_defaults(fake_pipeline, monkeyp
     })
 
     obs = fake_pipeline.observations[-1]
-    assert obs['config']['skill_fs_url'] == 'remote://skills'
-    assert obs['agent_kwargs_tools'] == ('memory',)
+    assert obs['config']['skill_fs_url'] == 'remote://skills,.agentic/skills'
+    assert obs['agent_kwargs_tools'] == ('memory', 'vocab_manage')
+
+
+def test_stream_rewrites_citations_like_naive(fake_pipeline, monkeypatch):
+    class _FakeQueue:
+        _default_values = [['事实 [['], ['1]]']]
+        _named_values = {'think': []}
+
+        def __init__(self, name=None):
+            self.name = name
+
+        def clear(self):
+            return None
+
+        def dequeue(self):
+            if self.name:
+                values = type(self)._named_values.get(self.name, [])
+                return values.pop(0) if values else []
+            values = type(self)._default_values
+            return values.pop(0) if values else []
+
+        @classmethod
+        def get_instance(cls, name):
+            return cls(name)
+
+    source = {
+        'index': 1,
+        'segment_number': 21,
+        'document_id': 'doc-1',
+        'page': -1,
+        'bbox': [],
+        'dataset_id': 'kb-1',
+        'file_name': 'Doc.md',
+        'segement_id': 'seg-1',
+        'content': 'Source body',
+        'group_name': 'block',
+    }
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        config = lazyllm.globals.get('agentic_config')
+        config['_citation_sources'] = {1: source}
+        return {'text': '事实 [[1]]', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    lazyllm.globals._init_sid(sid='stream-citation-session')
+    lazyllm.locals._init_sid(sid='stream-citation-session')
+
+    async def _collect():
+        stream = agentic.agentic_rag({'query': 'hello'}, stream=True)
+        return [item async for item in stream]
+
+    frames = asyncio.run(_collect())
+
+    assert frames == [
+        {'think': None, 'text': '事实 ', 'sources': []},
+        {'think': None, 'text': '[1](#source "Doc.md")', 'sources': []},
+        {'think': None, 'text': '', 'sources': [source]},
+    ]
+
+
+def test_stream_keeps_sources_when_final_result_already_contains_links(fake_pipeline, monkeypatch):
+    class _FakeQueue:
+        _default_values = [['事实 [['], ['1]]']]
+        _named_values = {'think': []}
+
+        def __init__(self, name=None):
+            self.name = name
+
+        def clear(self):
+            return None
+
+        def dequeue(self):
+            if self.name:
+                values = type(self)._named_values.get(self.name, [])
+                return values.pop(0) if values else []
+            values = type(self)._default_values
+            return values.pop(0) if values else []
+
+        @classmethod
+        def get_instance(cls, name):
+            return cls(name)
+
+    source = {
+        'index': 1,
+        'segment_number': 21,
+        'document_id': 'doc-1',
+        'page': -1,
+        'bbox': [],
+        'dataset_id': 'kb-1',
+        'file_name': 'Doc.md',
+        'segement_id': 'seg-1',
+        'content': 'Source body',
+        'group_name': 'block',
+    }
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        config = lazyllm.globals.get('agentic_config')
+        config['_citation_sources'] = {1: source}
+        return {'text': '事实 [1](#source "Doc.md")', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    lazyllm.globals._init_sid(sid='stream-citation-link-session')
+    lazyllm.locals._init_sid(sid='stream-citation-link-session')
+
+    async def _collect():
+        stream = agentic.agentic_rag({'query': 'hello'}, stream=True)
+        return [item async for item in stream]
+
+    frames = asyncio.run(_collect())
+
+    assert frames == [
+        {'think': None, 'text': '事实 ', 'sources': []},
+        {'think': None, 'text': '[1](#source "Doc.md")', 'sources': []},
+        {'think': None, 'text': '', 'sources': [source]},
+    ]
+
+
+def test_format_non_stream_result_collects_existing_source_links(fake_pipeline):
+    source = {
+        'index': 2,
+        'segment_number': 15,
+        'document_id': 'doc-2',
+        'page': -1,
+        'bbox': [],
+        'dataset_id': 'kb-1',
+        'file_name': 'Doc.md',
+        'segement_id': 'seg-2',
+        'content': 'Existing source body',
+        'group_name': 'block',
+    }
+
+    output = agentic._format_non_stream_result(
+        {'text': '答案 [2](#source "Doc.md")'},
+        {'_citation_sources': {2: source}},
+    )
+
+    assert output == {
+        'text': '答案 [2](#source "Doc.md")',
+        'think': '',
+        'sources': [source],
+    }
 
 
 def test_tool_stream_frame_serializes_tool_call_into_text_tags():
@@ -317,7 +461,7 @@ def test_tool_stream_frame_serializes_tool_call_into_text_tags():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-3-1">Running skill helper script</tp>'
+            '<tp id="toolcall-3-1">Running the selected skill helper script at **scripts/list_files.sh** now.</tp>'
             '<tool_call>{"id":"toolcall-3-1","name":"run_script","arguments":{"name":"railway-foundation-bearing-capacity-review","rel_path":"scripts/list_files.sh"}}</tool_call>'
         ),
         'sources': [],
@@ -352,9 +496,9 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-1-1">Searching knowledge base for 全风化 软岩 风化岩分组 地基承载力 σ0 表-related content</tp>'
+            '<tp id="toolcall-1-1">Checking **全风化 软岩 风化岩分组 地基承载力 σ0 表** in the knowledge base for relevant material.</tp>'
             '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"全风化 软岩 风化岩分组 地基承载力 σ0 表","topk":15}}</tool_call>'
-            '<tp id="toolcall-1-2">Expanding related segments</tp>'
+            '<tp id="toolcall-1-2">Expanding nearby related segments around **36** for review.</tp>'
             '<tool_call>{"id":"toolcall-1-2","name":"kb_get_window_nodes","arguments":{"docid":"doc_7e052315556b40323f5007c5b9f549ab","number":"36","group":"block"}}</tool_call>'
         ),
         'sources': [],
@@ -379,7 +523,7 @@ def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-2-1">Memory recorded</trp>'
+            '<trp id="toolcall-2-1">Long term memory was saved successfully.</trp>'
             '<tool_result>{"id":"toolcall-2-1","name":"memory","result":{"status":"success","message":"memory saved","path":"/tmp/memory.json"}}</tool_result>'
         ),
         'sources': [],
@@ -413,9 +557,9 @@ def test_builtin_file_tool_uses_natural_preview_templates():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-4-1">Reading file content</tp>'
+            '<tp id="toolcall-4-1">Reading file content from **/tmp/demo.txt** for review now.</tp>'
             '<tool_call>{"id":"toolcall-4-1","name":"read_file","arguments":{"path":"/tmp/demo.txt","start_line":1,"end_line":20}}</tool_call>'
-            '<trp id="toolcall-4-1">File content loaded</trp>'
+            '<trp id="toolcall-4-1">File content was loaded successfully now.</trp>'
             '<tool_result>{"id":"toolcall-4-1","name":"read_file","result":{"status":"ok","path":"/tmp/demo.txt","content":"hello world"}}</tool_result>'
         ),
         'sources': [],
@@ -462,7 +606,7 @@ def test_tool_result_preview_is_truncated_to_fifty_chars():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-5-1">File content loaded</trp>'
+            '<trp id="toolcall-5-1">File content was loaded successfully now.</trp>'
             '<tool_result>{"id":"toolcall-5-1","name":"read_file","result":{"status":"ok","path":"/tmp/long.txt","content":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}</tool_result>'
         ),
         'sources': [],
@@ -486,7 +630,7 @@ def test_tool_result_failure_uses_failure_preview_template():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-6-1">Could not read file content</trp>'
+            '<trp id="toolcall-6-1">File content from **/tmp/missing.txt** could not be read.</trp>'
             '<tool_result>{"id":"toolcall-6-1","name":"read_file","result":{"status":"missing","path":"/tmp/missing.txt"}}</tool_result>'
         ),
         'sources': [],
@@ -511,7 +655,7 @@ def test_tool_result_needs_approval_uses_approval_preview_template():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-7-1">Confirmation required before deleting file</trp>'
+            '<trp id="toolcall-7-1">Please review the confirmation note "**Deleting files requires approval.**" before deleting this file.</trp>'
             '<tool_result>{"id":"toolcall-7-1","name":"delete_file","result":{"status":"needs_approval","reason":"Deleting files requires approval.","path":"/tmp/demo.txt"}}</tool_result>'
         ),
         'sources': [],
@@ -550,11 +694,11 @@ def test_unknown_tool_fallback_preview_omits_value():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-8-1">Processing request</tp>'
+            '<tp id="toolcall-8-1">Preparing the requested tool action for **/tmp/demo.txt**.</tp>'
             '<tool_call>{"id":"toolcall-8-1","name":"unknown_tool","arguments":{"path":"/tmp/demo.txt"}}</tool_call>'
-            '<trp id="toolcall-8-1">Result received</trp>'
+            '<trp id="toolcall-8-1">Tool results for **done** were received successfully.</trp>'
             '<tool_result>{"id":"toolcall-8-1","name":"unknown_tool","result":{"status":"ok","content":"done"}}</tool_result>'
-            '<trp id="toolcall-8-2">Could not complete this step</trp>'
+            '<trp id="toolcall-8-2">The step for **boom** could not be completed.</trp>'
             '<tool_result>{"id":"toolcall-8-2","name":"unknown_tool","result":{"status":"failed","reason":"boom"}}</tool_result>'
         ),
         'sources': [],
@@ -568,11 +712,10 @@ def test_normalize_history_keeps_plain_chat_messages_unchanged():
     ]
 
     result = agentic._normalize_history_for_agent(history)
-    # Plain messages are preserved; assistant messages get reasoning_content added
     assert result[0] == {'role': 'user', 'content': 'hello'}
     assert result[1]['role'] == 'assistant'
     assert result[1]['content'] == 'world'
-    assert result[1].get('reasoning_content') == ''
+    assert result[1].get('reasoning_content', '') == ''
 
 
 def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
@@ -610,29 +753,214 @@ def test_normalize_history_rebuilds_tool_messages_from_assistant_content():
     ]
 
 
-def test_review_debug_forces_combined(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_SKILL_REVIEW_DEBUG', 'TRUE')
+def test_normalize_history_restores_citations_from_tool_result():
+    config = {}
+    agentic._reset_citation_state(config)
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '这里是总结。'
+            '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
+            '<tool_result>{"id":"toolcall-1-1","name":"kb_search","result":{"status":"success","items":['
+            '{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
+            ']}}</tool_result>'
+        ),
+    }]
 
-    assert agentic._decide_review_mode(
-        available_tools=[],
-        tool_turns=0,
-        user_turns=0,
-        memory_review_interval=99,
-        skill_review_interval=99,
-    ) == 'combined'
+    normalized = agentic._normalize_history_for_agent(history, config)
+
+    assert normalized == [
+        {
+            'role': 'assistant',
+            'content': '这里是总结。',
+            'reasoning_content': '',
+            'tool_calls': [{
+                'id': 'toolcall-1-1',
+                'type': 'function',
+                'function': {
+                    'name': 'kb_search',
+                    'arguments': '{"query": "HCA"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'toolcall-1-1',
+            'name': 'kb_search',
+            'content': '{"status":"success","items":[{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}]}',
+        },
+    ]
+    assert config['_citation_sources'] == {
+        1: {
+            'file_id': '',
+            'file_name': 'DeepSeek_V4.pdf',
+            'document_id': 'doc-1',
+            'segement_id': 'seg-1',
+            'dataset_id': 'kb-1',
+            'index': 1,
+            'content': 'HCA body',
+            'group_name': 'block',
+            'segment_number': 21,
+            'page': -1,
+            'bbox': [],
+        },
+    }
+    assert config['_citation_key_map'] == {'uid:seg-1': 1}
+    assert config['_citation_next_index'] == 2
 
 
-def test_review_mode_uses_intervals_without_debug(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_SKILL_REVIEW_DEBUG', raising=False)
+def test_normalize_history_skips_citation_restore_for_non_kb_tool_result():
+    config = {}
+    agentic._reset_citation_state(config)
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '我先查公网。'
+            '<tool_call>{"id":"toolcall-1-1","name":"web_search","arguments":{"query":"evo"}}</tool_call>'
+            '<tool_result>{"id":"toolcall-1-1","name":"web_search","result":{"success":true,"status":"ok","query":"evo",'
+            '"requested_source":"auto","resolved_source":"wikipedia","tried_sources":["bocha","google","bing","wikipedia"],'
+            '"lang":"zh","total":0,"items":[]}}</tool_result>'
+        ),
+    }]
 
-    assert agentic._decide_review_mode(
-        available_tools=['memory', 'skill_manage'],
-        tool_turns=0,
-        user_turns=2,
-        memory_review_interval=1,
-        skill_review_interval=5,
-    ) == 'memory'
+    normalized = agentic._normalize_history_for_agent(history, config)
 
+    assert normalized == [
+        {
+            'role': 'assistant',
+            'content': '我先查公网。',
+            'reasoning_content': '',
+            'tool_calls': [{
+                'id': 'toolcall-1-1',
+                'type': 'function',
+                'function': {
+                    'name': 'web_search',
+                    'arguments': '{"query": "evo"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'toolcall-1-1',
+            'name': 'web_search',
+            'content': '{"success":true,"status":"ok","query":"evo","requested_source":"auto","resolved_source":"wikipedia","tried_sources":["bocha","google","bing","wikipedia"],"lang":"zh","total":0,"items":[]}',
+        },
+    ]
+    assert config['_citation_sources'] == {}
+    assert config['_citation_key_map'] == {}
+    assert config['_citation_next_index'] == 1
+
+
+def test_normalize_history_keeps_reasoning_aligned_with_assistant_segments():
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '<think>先规划检索。</think>'
+            '我先查资料。'
+            '<tool_call>{"id":"call-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
+            '<tool_result>{"id":"call-1","name":"kb_search","result":{"status":"ok"}}</tool_result>'
+            '<think>现在信息够了，开始写结论。</think>'
+            '现在基于结果整理报告。'
+        ),
+    }]
+
+    assert agentic._normalize_history_for_agent(history) == [
+        {
+            'role': 'assistant',
+            'content': '我先查资料。',
+            'reasoning_content': '先规划检索。',
+            'tool_calls': [{
+                'id': 'call-1',
+                'type': 'function',
+                'function': {
+                    'name': 'kb_search',
+                    'arguments': '{"query": "HCA"}',
+                },
+            }],
+        },
+        {
+            'role': 'tool',
+            'tool_call_id': 'call-1',
+            'name': 'kb_search',
+            'content': '{"status":"ok"}',
+        },
+        {
+            'role': 'assistant',
+            'content': '现在基于结果整理报告。',
+            'reasoning_content': '现在信息够了，开始写结论。',
+        },
+    ]
+
+
+def test_stream_uses_citations_restored_from_history(fake_pipeline, monkeypatch):
+    class _FakeQueue:
+        _default_values = [['延续上一轮知识。[['], ['1]]']]
+        _named_values = {'think': []}
+
+        def __init__(self, name=None):
+            self.name = name
+
+        def clear(self):
+            return None
+
+        def dequeue(self):
+            if self.name:
+                values = type(self)._named_values.get(self.name, [])
+                return values.pop(0) if values else []
+            values = type(self)._default_values
+            return values.pop(0) if values else []
+
+        @classmethod
+        def get_instance(cls, name):
+            return cls(name)
+
+    history = [{
+        'role': 'assistant',
+        'content': (
+            '上一轮总结。'
+            '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
+            '<tool_result>{"id":"toolcall-1-1","name":"kb_search","result":{"status":"success","items":['
+            '{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
+            ']}}</tool_result>'
+        ),
+    }]
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        return {'text': '延续上一轮知识。[1](#source "DeepSeek_V4.pdf")', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    lazyllm.globals._init_sid(sid='stream-history-citation-session')
+    lazyllm.locals._init_sid(sid='stream-history-citation-session')
+
+    async def _collect():
+        stream = agentic.agentic_rag({'query': 'follow-up', 'history': history}, stream=True)
+        return [item async for item in stream]
+
+    frames = asyncio.run(_collect())
+
+    assert frames == [
+        {'think': None, 'text': '延续上一轮知识。', 'sources': []},
+        {'think': None, 'text': '[1](#source "DeepSeek_V4.pdf")', 'sources': []},
+        {
+            'think': None,
+            'text': '',
+            'sources': [{
+                'file_id': '',
+                'file_name': 'DeepSeek_V4.pdf',
+                'document_id': 'doc-1',
+                'segement_id': 'seg-1',
+                'dataset_id': 'kb-1',
+                'index': 1,
+                'content': 'HCA body',
+                'group_name': 'block',
+                'segment_number': 21,
+                'page': -1,
+                'bbox': [],
+            }],
+        },
+    ]
 
 def test_count_tool_turns_only_counts_assistant_messages_with_tool_calls():
     history = agentic._normalize_history_for_agent([

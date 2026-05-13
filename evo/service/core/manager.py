@@ -1,91 +1,47 @@
 from __future__ import annotations
+import json
 import logging
-import os
 import shutil
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 from evo.abtest import VerdictPolicy
 from evo.apply.errors import classify
 from evo.apply.runner import ApplyOptions
 from evo.chat_runner import ChatRegistry, ChatRunner, SubprocessChatRunner
-from evo.runtime.config import EvoConfig
-from evo.service.core import store
+from evo.runtime.config import (
+    EVO_CANDIDATE_CHAT_HEALTH_PATH,
+    EVO_CANDIDATE_CHAT_STARTUP_TIMEOUT_S,
+    EVO_TARGET_CHAT_URL,
+    EvoConfig,
+)
+from evo.service.core import state as thread_state, store
 from evo.service.executors import EXECUTORS, ExecCtx
 from evo.service.executors import apply as apply_exec
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
-
 log = logging.getLogger('evo.service.core.manager')
 
 
 class TaskRegistry:
     def __init__(self) -> None:
-        self._threads: dict[str, threading.Thread] = {}
-        self._procs: dict[str, list[subprocess.Popen]] = {}
-        self._procs_lock = threading.Lock()
-        self._abtest_policy: dict[str, VerdictPolicy] = {}
-
-    def register_thread(self, tid: str, t: threading.Thread) -> None:
-        self._threads[tid] = t
-
-    def pop_thread(self, tid: str) -> None:
-        self._threads.pop(tid, None)
+        self.threads: dict[str, threading.Thread] = {}
+        self.procs: dict[str, list[subprocess.Popen]] = {}
+        self.abtest_policy: dict[str, VerdictPolicy] = {}
+        self.lock = threading.Lock()
 
     def register_proc(self, tid: str, proc: subprocess.Popen) -> None:
-        with self._procs_lock:
-            self._procs.setdefault(tid, []).append(proc)
-
-    def pop_procs(self, tid: str) -> None:
-        with self._procs_lock:
-            self._procs.pop(tid, None)
+        with self.lock:
+            self.procs.setdefault(tid, []).append(proc)
 
     def kill_procs(self, tid: str) -> None:
-        with self._procs_lock:
-            procs = self._procs.pop(tid, [])
-        for p in procs:
-            if p.poll() is None:
-                try:
-                    p.terminate()
-                except ProcessLookupError:
-                    pass
-        for p in procs:
-            try:
-                p.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                try:
-                    p.kill()
-                except ProcessLookupError:
-                    pass
-
-    def get_thread(self, tid: str) -> threading.Thread | None:
-        return self._threads.get(tid)
-
-    def set_abtest_policy(self, tid: str, policy: VerdictPolicy) -> None:
-        self._abtest_policy[tid] = policy
-
-    def pop_abtest_policy(self, tid: str) -> None:
-        self._abtest_policy.pop(tid, None)
-
-    def get_abtest_policy(self, tid: str) -> VerdictPolicy:
-        return self._abtest_policy.get(tid) or VerdictPolicy()
-
-
-class ArtifactBinder:
-    def __init__(self, base_dir: Path) -> None:
-        self._base_dir = base_dir
-
-    def attach(self, thread_id: str | None, kind: str, value: str) -> None:
-        if not thread_id:
-            return
-        ThreadWorkspace(self._base_dir, thread_id).attach_artifact(kind, value)
-
-    def event_log(self, thread_id: str | None) -> EventLog | None:
-        if not thread_id:
-            return None
-        ws = ThreadWorkspace(self._base_dir, thread_id)
-        return EventLog(ws.events_path)
+        with self.lock:
+            procs = self.procs.pop(tid, [])
+        for proc in procs:
+            if proc.poll() is None:
+                proc.terminate()
 
 
 class JobManager:
@@ -104,7 +60,7 @@ class JobManager:
         self._chat_runner = chat_runner or _default_chat_runner(config)
         self._chat_registry = chat_registry or ChatRegistry(config.storage.base_dir)
         self._registry = TaskRegistry()
-        self._binder = ArtifactBinder(config.storage.base_dir)
+        self._recover_interrupted_tasks()
 
     @property
     def store(self) -> store.FsStateStore:
@@ -132,180 +88,48 @@ class JobManager:
         return store.list_rounds(self._store, apply_id)
 
     def apply_commits_for_thread(self, thread_id: str) -> list[dict]:
-        rows = store.list_flow_tasks_by_thread(self._store, 'apply', thread_id)
-        out: list[dict] = []
-        for row in rows:
-            aid = row['id']
-            rounds = store.list_rounds(self._store, aid)
-            commits = []
-            for r in rounds:
-                sha = r.get('commit_sha')
-                if not sha:
-                    continue
-                commits.append(
-                    {
-                        'round': r.get('round'),
-                        'commit_sha': sha,
-                        'test_passed': r.get('test_passed'),
-                        'files_changed': r.get('files_changed'),
-                    }
-                )
-            out.append(
-                {
-                    'apply_id': aid,
-                    'status': row.get('status'),
-                    'thread_id': row.get('thread_id'),
-                    'branch_name': row.get('branch_name'),
-                    'base_commit': row.get('base_commit'),
-                    'final_commit': row.get('final_commit'),
-                    'commits': commits,
-                    'rounds': rounds,
-                }
-            )
+        out = []
+        for row in store.list_flow_tasks_by_thread(self._store, 'apply', thread_id):
+            rounds = store.list_rounds(self._store, row['id'])
+            out.append({'apply_id': row['id'], 'status': row.get('status'), 'commits': [
+                       r for r in rounds if r.get('commit_sha')], 'rounds': rounds})
         return out
 
-    def submit_run(
-        self,
-        *,
-        thread_id: str | None = None,
-        eval_id: str | None = None,
-        badcase_limit: int | None = None,
-        score_field: str | None = None,
-        extra_instructions: str | None = None,
-    ) -> str:
-        eid = eval_id or self._latest_thread_eval(thread_id)
-        payload: dict[str, Any] = {}
-        if eid:
-            payload['eval_id'] = eid
-        if badcase_limit is not None:
-            payload['badcase_limit'] = badcase_limit
-        if score_field:
-            payload['score_field'] = score_field
-        if extra_instructions:
-            payload['extra_instructions'] = extra_instructions
-        tid = store.create_task(self._store, 'run', thread_id=thread_id, payload=payload)
-        self._binder.attach(thread_id, 'run_ids', tid)
-        self._spawn(tid, 'run')
-        return tid
+    def submit_dataset_gen(self, **payload: Any) -> str:
+        return self._submit('dataset_gen', payload, thread_id=payload.pop('thread_id', None))
 
-    def submit_apply(
-        self, *, report_id: str | None = None, thread_id: str | None = None, extra_instructions: str | None = None
-    ) -> str:
+    def submit_eval(self, **payload: Any) -> str:
+        return self._submit('eval', payload, thread_id=payload.pop('thread_id', None))
+
+    def submit_run(self, **payload: Any) -> str:
+        thread_id = payload.pop('thread_id', None)
+        payload = {k: v for k, v in payload.items() if v is not None}
+        payload.setdefault('eval_id', self._latest_thread_eval(thread_id))
+        return self._submit('run', {k: v for k, v in payload.items() if v is not None}, thread_id=thread_id)
+
+    def submit_apply(self, *, report_id: str | None = None, thread_id: str
+                     | None = None, extra_instructions: str | None = None) -> str:
         rid, parent_run_id, _ = apply_exec.resolve_report(self._make_ctx(), report_id, thread_id=thread_id)
-        payload = {'extra_instructions': extra_instructions} if extra_instructions else {}
-        existing = _matching_apply(self._store, thread_id, rid, payload)
-        if existing:
-            return existing['id']
-        tid = store.create_task(
-            self._store, 'apply', parent_run_id=parent_run_id, report_id=rid, thread_id=thread_id, payload=payload
-        )
-        self._binder.attach(thread_id, 'apply_ids', tid)
-        self._spawn(tid, 'apply')
-        return tid
-
-    def submit_eval(
-        self,
-        *,
-        thread_id: str,
-        eval_id: str | None = None,
-        dataset_id: str | None = None,
-        target_chat_url: str | None = None,
-        options: dict | None = None,
-    ) -> str:
-        if not eval_id and (not dataset_id):
-            raise store.StateError('EVAL_NO_TARGET', 'need eval_id or dataset_id')
-        payload: dict[str, Any] = {}
-        if eval_id:
-            payload['eval_id'] = eval_id
-        if dataset_id:
-            payload['dataset_id'] = dataset_id
-        if target_chat_url:
-            payload['target_chat_url'] = target_chat_url
-        if options:
-            payload['eval_options'] = options
-        existing = _matching_eval(self._store, thread_id, payload)
-        if existing:
-            tid = existing['id']
-            if existing.get('status') in {'paused', 'failed_transient'}:
-                store.patch(self._store, tid, payload=payload)
-                store.transition(self._store, tid, 'continue', error_code=None, error_kind=None)
-                self._spawn(tid, 'eval')
-            return tid
-        tid = store.create_task(self._store, 'eval', thread_id=thread_id, payload=payload)
-        if eval_id:
-            self._binder.attach(thread_id, 'eval_ids', eval_id)
-        self._spawn(tid, 'eval')
-        return tid
+        return self._submit('apply', {'extra_instructions': extra_instructions} if extra_instructions else {
+        }, thread_id=thread_id, report_id=rid, parent_run_id=parent_run_id)
 
     def submit_abtest(
-        self,
-        *,
-        thread_id: str,
-        apply_id: str,
-        baseline_eval_id: str,
-        dataset_id: str,
-        apply_worktree: Path | None = None,
-        target_chat_url: str | None = None,
-        candidate_chat_id: str | None = None,
-        eval_options: dict | None = None,
-        policy: VerdictPolicy | dict | None = None,
-    ) -> str:
+            self,
+            *,
+            thread_id: str,
+            apply_id: str,
+            baseline_eval_id: str,
+            dataset_id: str,
+            policy: VerdictPolicy | dict | None = None,
+            **payload: Any) -> str:
         apply_row = store.must_get(self._store, apply_id)
-        _require_apply_ready_for_abtest(self._store, apply_row)
-        existing = _matching_abtest(self._store, thread_id, apply_id, baseline_eval_id, dataset_id, eval_options or {})
-        if existing:
-            return existing['id']
-        worktree = apply_worktree or apply_exec.resolve_worktree(self._make_ctx(), apply_id)
-        apply_result = (apply_row.get('payload') or {}).get('result') or {}
+        _require_apply_ready_for_abtest(apply_row)
         verdict_policy = _coerce_policy(policy)
-        payload = {
-            'apply_id': apply_id,
-            'baseline_eval_id': baseline_eval_id,
-            'dataset_id': dataset_id,
-            'apply_worktree': str(worktree),
-            'eval_options': eval_options or {},
-            'policy': verdict_policy.__dict__,
-        }
-        cid = candidate_chat_id or apply_result.get('candidate_chat_id')
-        if cid:
-            payload['candidate_chat_id'] = cid
-        url = target_chat_url or apply_result.get('candidate_chat_url')
-        if url:
-            payload['target_chat_url'] = url
-        stale = _matching_resumable_abtest(self._store, thread_id, apply_id, baseline_eval_id, dataset_id)
-        if stale:
-            tid = stale['id']
-            store.patch(self._store, tid, payload=payload)
-            self._registry.set_abtest_policy(tid, verdict_policy)
-            store.transition(self._store, tid, 'continue')
-            self._spawn(tid, 'abtest')
-            return tid
-        tid = store.create_task(self._store, 'abtest', thread_id=thread_id, payload=payload)
-        self._binder.attach(thread_id, 'abtest_ids', tid)
-        self._registry.set_abtest_policy(tid, verdict_policy)
-        self._spawn(tid, 'abtest')
-        return tid
-
-    def submit_dataset_gen(
-        self,
-        *,
-        thread_id: str | None = None,
-        kb_id: str,
-        algo_id: str | None = None,
-        eval_name: str | None = None,
-        num_cases: int | None = None,
-    ) -> str:
-        payload: dict[str, Any] = {'kb_id': kb_id}
-        if algo_id:
-            payload['algo_id'] = algo_id
-        if eval_name:
-            payload['eval_name'] = eval_name
-        if num_cases is not None:
-            payload['num_cases'] = num_cases
-        tid = store.create_task(self._store, 'dataset_gen', thread_id=thread_id, payload=payload)
-        if eval_name:
-            self._binder.attach(thread_id, 'dataset_ids', eval_name)
-        self._spawn(tid, 'dataset_gen')
+        worktree = payload.get('apply_worktree') or apply_exec.resolve_worktree(self._make_ctx(), apply_id)
+        data = {'apply_id': apply_id, 'baseline_eval_id': baseline_eval_id, 'dataset_id': dataset_id,
+                'apply_worktree': str(worktree), 'policy': verdict_policy.__dict__, **payload}
+        tid = self._submit('abtest', data, thread_id=thread_id)
+        self._registry.abtest_policy[tid] = verdict_policy
         return tid
 
     def stop(self, tid: str) -> dict:
@@ -316,39 +140,23 @@ class JobManager:
         self._registry.kill_procs(tid)
         if row['flow'] == 'run':
             shutil.rmtree(self._cfg.storage.runs_dir / tid, ignore_errors=True)
-        elif row['flow'] == 'apply':
+        if row['flow'] == 'apply':
             self._stop_apply_candidate(row)
             apply_exec.cleanup(self._make_ctx(), tid, drop_logs=False, drop_diffs=True)
         return row
 
     def cont(self, tid: str) -> dict:
-        row = store.get(self._store, tid)
-        if row is None:
-            raise store.StateError('TASK_NOT_FOUND', f'task {tid} not found')
-        flow = row['flow']
-        if flow not in ('dataset_gen', 'eval', 'run', 'apply', 'abtest'):
-            raise store.StateError('UNSUPPORTED_CONTINUE', f'flow {flow} does not support continue')
-        row = store.transition(self._store, tid, 'continue')
-        self._spawn(tid, flow)
-        return row
+        row = store.must_get(self._store, tid)
+        store.transition(self._store, tid, 'continue', error_code=None, error_kind=None)
+        self._spawn(tid, row['flow'])
+        return store.must_get(self._store, tid)
 
     def accept(self, tid: str, auto_next: str | bool = 'none') -> dict:
         row = store.transition(self._store, tid, 'accept')
-        payload = dict(row.get('payload') or {})
-        result = dict(payload.get('result') or {})
-        final_commit = row.get('final_commit') or result.get('final_commit')
-        if final_commit:
-            result['accepted_commit'] = final_commit
-            result['accepted_at'] = time.time()
-            payload['result'] = result
-            store.patch(self._store, tid, payload=payload)
-            row = store.get(self._store, tid) or row
-            thread_id = row.get('thread_id')
-            if thread_id:
-                self._binder.attach(thread_id, 'apply_commit_ids', final_commit)
-                elog = self._binder.event_log(thread_id)
-                if elog:
-                    elog.append(f'task:{tid}', 'apply.accepted', {'apply_id': tid, 'commit': final_commit})
+        final_commit = row.get('final_commit') or ((row.get('payload') or {}).get('result') or {}).get('final_commit')
+        if final_commit and row.get('thread_id'):
+            ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id']
+                            ).attach_artifact('apply_commit_ids', final_commit)
         return row
 
     def reject(self, tid: str) -> dict:
@@ -358,111 +166,278 @@ class JobManager:
         return row
 
     def cancel_all(self, flow: str, *, thread_id: str | None = None) -> list[dict]:
-        scope = 'thread' if thread_id else 'global'
-        active = store.list_active(self._store, flow, scope=scope, thread_id=thread_id)
-        ids = [a['id'] for a in active]
-        return store.transition_many(self._store, ids, 'cancel')
+        return store.transition_many(self._store, [r['id'] for r in store.list_active(
+            self._store, flow, scope='thread' if thread_id else 'global', thread_id=thread_id)], 'cancel')
 
     def stop_all(self, flow: str, *, thread_id: str | None = None) -> list[dict]:
-        scope = 'thread' if thread_id else 'global'
-        active = store.list_active(self._store, flow, scope=scope, thread_id=thread_id)
-        ids = [a['id'] for a in active]
-        return store.transition_many(self._store, ids, 'stop')
+        return store.transition_many(self._store, [r['id'] for r in store.list_active(
+            self._store, flow, scope='thread' if thread_id else 'global', thread_id=thread_id)], 'stop')
 
     def join(self, tid: str, timeout: float = 30.0) -> None:
-        t = self._registry.get_thread(tid)
-        if t is not None:
-            t.join(timeout=timeout)
+        if thread := self._registry.threads.get(tid):
+            thread.join(timeout=timeout)
+
+    def _submit(self, flow: str, payload: dict, *, thread_id: str | None = None, **fields: Any) -> str:
+        tid = store.create_task(self._store, flow, thread_id=thread_id, payload={
+                                k: v for k, v in payload.items() if v is not None}, **fields)
+        _attach(self._cfg.storage.base_dir, thread_id, _artifact_kind(flow), tid)
+        self._spawn(tid, flow)
+        return tid
 
     def _spawn(self, tid: str, flow: str) -> None:
-        target = EXECUTORS[flow]
+        thread = threading.Thread(target=self._run_executor, args=(tid, flow), daemon=True, name=f'evo-job-{tid}')
+        self._registry.threads[tid] = thread
+        thread.start()
+
+    def _run_executor(self, tid: str, flow: str) -> None:
         ctx = self._make_ctx()
-        t = threading.Thread(target=target, args=(ctx, tid), daemon=True, name=f'evo-job-{tid}')
-        self._registry.register_thread(tid, t)
-        t.start()
+        try:
+            EXECUTORS[flow](ctx, tid)
+        except Exception as exc:
+            log.exception('executor %s failed for %s: %s', flow, tid, exc)
+            ctx.on_failure(tid, exc)
+            ctx.pop_thread(tid)
+            ctx.pop_procs(tid)
 
     def _make_ctx(self) -> ExecCtx:
         return ExecCtx(
             store=self._store,
             cfg=self._cfg,
-            is_cancelled=self._is_cancelled,
+            is_cancelled=lambda tid: any(store.signals(self._store, tid).values()),
             register_proc=self._registry.register_proc,
             chat_runner_factory=lambda: self._chat_runner,
             chat_registry=self._chat_registry,
             apply_opts=self._apply_opts,
-            abtest_policy=self._registry._abtest_policy,
+            abtest_policy=self._registry.abtest_policy,
             on_stop=self._on_stop,
             on_failure=self._on_failure,
             on_success=self._on_success,
-            pop_thread=self._registry.pop_thread,
-            pop_procs=self._registry.pop_procs,
+            pop_thread=lambda tid: self._registry.threads.pop(tid, None),
+            pop_procs=lambda tid: self._registry.procs.pop(tid, None),
         )
 
-    def _is_cancelled(self, tid: str) -> bool:
-        s = store.signals(self._store, tid)
-        return s['stop'] or s['cancel']
-
-    def _stop_apply_candidate(self, row: dict) -> None:
-        result = (row.get('payload') or {}).get('result') or {}
-        chat_id = result.get('candidate_chat_id')
-        if not chat_id:
-            return
-        try:
-            self._chat_runner.stop(chat_id)
-        except Exception:
-            inst = self._chat_registry.get(chat_id)
-            if inst and inst.pid:
+    def _recover_interrupted_tasks(self) -> None:
+        for flow in store.FLOWS:
+            for row in store.list_active(self._store, flow):
+                if row.get('status') not in {'queued', 'running', 'stopping'}:
+                    continue
                 try:
-                    os.kill(inst.pid, 15)
-                except OSError:
-                    pass
-        self._chat_registry.purge(chat_id)
+                    recovered = store.transition(
+                        self._store,
+                        row['id'],
+                        'ack' if row.get('status') == 'stopping' else 'fail_transient',
+                        error_code='SERVICE_RESTARTED',
+                        error_kind='transient')
+                    if recovered.get('thread_id') and recovered.get('status') == 'failed_transient':
+                        thread_state.save_thread(
+                            self._cfg.storage.base_dir,
+                            thread_state.ThreadRecord(
+                                id=recovered['thread_id'],
+                                state=thread_state.THREAD_FAILED,
+                                current_flow=recovered.get('flow'),
+                                active_task_id=recovered.get('id'),
+                                error={
+                                    'code': 'SERVICE_RESTARTED',
+                                    'kind': 'transient',
+                                    'message': 'service restarted while task was running',
+                                },
+                            ),
+                        )
+                except Exception as exc:
+                    log.warning('recover task %s failed: %s', row.get('id'), exc)
 
     def _latest_thread_eval(self, thread_id: str | None) -> str | None:
         if not thread_id:
             return None
-        ws = ThreadWorkspace(self._cfg.storage.base_dir, thread_id)
-        evals = (ws.load_artifacts() or {}).get('eval_ids') or []
-        return evals[-1] if evals else None
+        vals = ThreadWorkspace(self._cfg.storage.base_dir, thread_id).load_artifacts().get('eval_ids') or []
+        return vals[-1] if vals else None
 
     def _on_stop(self, tid: str, at: str | None) -> None:
-        log.info('task %s stop requested at %s', tid, at)
-        cur = store.get(self._store, tid)
-        if cur is None or cur['status'] != 'stopping':
-            return
-        kw = {'current_step': at} if cur['flow'] == 'run' else {}
-        store.transition(self._store, tid, 'ack', **kw)
+        if (row := store.get(self._store, tid)) and row.get('status') == 'stopping':
+            store.transition(self._store, tid, 'ack', **({'current_step': at} if row.get('flow') == 'run' else {}))
 
     def _on_failure(self, tid: str, exc: Exception) -> None:
-        log.exception('task %s failed: %s', tid, exc)
         code = getattr(exc, 'code', type(exc).__name__)
         kind = getattr(exc, 'kind', None) or classify(code)
-        cur = store.get(self._store, tid)
-        if cur is None or cur['status'] not in ('running', 'stopping'):
-            return
-        action = 'fail_permanent' if kind == 'permanent' else 'fail_transient'
-        store.transition(self._store, tid, action, error_code=code, error_kind=kind)
+        if (row := store.get(self._store, tid)) and row.get('status') in {'running', 'stopping'}:
+            row = store.transition(self._store, tid, 'fail_permanent' if kind
+                                   == 'permanent' else 'fail_transient', error_code=code, error_kind=kind)
+            if row.get('thread_id'):
+                thread_state.save_thread(
+                    self._cfg.storage.base_dir,
+                    thread_state.ThreadRecord(
+                        id=row['thread_id'],
+                        state=thread_state.THREAD_FAILED,
+                        current_flow=row.get('flow'),
+                        error={
+                            'code': code,
+                            'kind': kind,
+                            'message': str(exc)}))
+            if row.get('thread_id'):
+                flow = row['flow']
+                tag = f'{flow}.failed'
+                EventLog(
+                    ThreadWorkspace(
+                        self._cfg.storage.base_dir,
+                        row['thread_id']).events_path).append_event(
+                    tag,
+                    task_id=tid,
+                    payload={
+                        'status': 'failed',
+                        'terminal_status': row.get('status'),
+                        'error_code': code,
+                        'error_kind': kind,
+                        'message': str(exc)})
+                ws = ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id'])
+                meta = thread_state.read_json(ws.thread_meta_path) or {}
+                if meta.get('mode') == 'auto':
+                    flow_label = _flow_label(row.get('flow'))
+                    content = f'AutoOperator：{flow_label}执行失败，已停止自动推进：{str(exc)}'
+                    _append_thread_message(ws.messages_path, 'assistant', content)
+                    EventLog(ws.events_path).append_event('message.assistant', payload={'content': content})
 
     def _on_success(self, tid: str, final_action: str = 'finish') -> None:
-        cur = store.get(self._store, tid)
-        if cur is None:
-            return
-        status = cur['status']
-        if status in ('running', 'stopping'):
-            store.transition(self._store, tid, final_action, error_code=None, error_kind=None)
+        if (row := store.get(self._store, tid)) and row.get('status') in {'running', 'stopping'}:
+            row = store.transition(self._store, tid, final_action, error_code=None, error_kind=None)
+            if row.get('thread_id'):
+                checkpoint = _checkpoint_after_success(self._cfg.storage.base_dir, row)
+                state = thread_state.THREAD_WAITING if checkpoint else thread_state.THREAD_IDLE
+                thread_state.save_thread(self._cfg.storage.base_dir, thread_state.ThreadRecord(
+                    id=row['thread_id'], state=state, current_flow=row.get('flow'), checkpoint=checkpoint))
+                if checkpoint:
+                    EventLog(ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id']).events_path).append_event(
+                        'checkpoint.wait', task_id=tid, payload=checkpoint)
+                else:
+                    ws = ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id'])
+                    meta = thread_state.read_json(ws.thread_meta_path) or {}
+                    if meta.get('mode') == 'auto':
+                        content = _auto_done_message(row)
+                        _append_thread_message(ws.messages_path, 'assistant', content)
+                        EventLog(ws.events_path).append_event('message.assistant', payload={'content': content})
+
+    def _stop_apply_candidate(self, row: dict) -> None:
+        chat_id = (((row.get('payload') or {}).get('result') or {}).get('candidate_chat_id'))
+        if chat_id:
+            self._chat_runner.stop(chat_id)
+            self._chat_registry.purge(chat_id)
 
 
 def build_manager(config: EvoConfig) -> JobManager:
-    st = store.open_db(config.storage.state_db_path)
-    return JobManager(st, config)
+    return JobManager(store.open_db(config.storage.state_db_path), config)
 
 
 def _default_chat_runner(cfg: EvoConfig) -> ChatRunner:
     return SubprocessChatRunner(
         log_dir=cfg.storage.base_dir / 'state' / 'chats',
-        health_path=os.getenv('EVO_CANDIDATE_CHAT_HEALTH_PATH', '/health'),
-        startup_timeout_s=float(os.getenv('EVO_CANDIDATE_CHAT_STARTUP_TIMEOUT_S', '120')),
-    )
+        health_path=EVO_CANDIDATE_CHAT_HEALTH_PATH,
+        startup_timeout_s=EVO_CANDIDATE_CHAT_STARTUP_TIMEOUT_S)
+
+
+def _attach(base_dir: Path, thread_id: str | None, kind: str | None, value: str) -> None:
+    if thread_id and kind:
+        ThreadWorkspace(base_dir, thread_id).attach_artifact(kind, value)
+
+
+def _artifact_kind(flow: str) -> str | None:
+    return {
+        'eval': 'eval_ids',
+        'run': 'run_ids',
+        'apply': 'apply_ids',
+        'abtest': 'abtest_ids',
+    }.get(flow)
+
+
+def _checkpoint_after_success(base_dir: Path, row: dict) -> dict | None:
+    thread_id = row.get('thread_id')
+    if not thread_id:
+        return None
+    ws = ThreadWorkspace(base_dir, thread_id)
+    next_op = _next_op(base_dir, ws, row)
+    flow = row.get('flow')
+    terminal = not bool(next_op)
+    return {
+        'checkpoint_id': f'ckpt_{uuid.uuid4().hex[:8]}',
+        'completed_flow': flow,
+        'completed_task_id': row.get('id'),
+        'next_op': next_op,
+        'terminal': terminal,
+        'allowed_stages': list(store.FLOWS),
+        'message': f'{_flow_label(flow)}已完成，{"当前流程已结束。" if terminal else "是否继续执行下一步？"}',
+    }
+
+
+def _next_op(base_dir: Path, ws: ThreadWorkspace, row: dict) -> dict | None:
+    payload = row.get('payload') or {}
+    inputs = (thread_state.read_json(ws.thread_meta_path) or {}).get('inputs') or {}
+    artifacts = ws.load_artifacts()
+    flow = row.get('flow')
+    if flow == 'dataset_gen':
+        dataset_id = payload.get('eval_name') or _latest_existing_dataset(base_dir, artifacts)
+        if not dataset_id:
+            return None
+        args: dict[str, Any] = {'dataset_id': dataset_id, 'target_chat_url': EVO_TARGET_CHAT_URL}
+        if inputs.get('dataset_name'):
+            args['options'] = {'dataset_name': inputs['dataset_name']}
+        return {'op': 'eval.run', 'args': args}
+    if flow == 'eval':
+        eval_id = payload.get('eval_id') or row.get('id')
+        return {'op': 'run.start', 'args': {'eval_id': eval_id}}
+    if flow == 'run':
+        report_id = payload.get('report_id') or row.get('report_id')
+        return {'op': 'apply.start', 'args': {'report_id': report_id}} if report_id else None
+    if flow == 'apply':
+        if not (row.get('final_commit') or ((row.get('payload') or {}).get('result') or {}).get('final_commit')):
+            return None
+        dataset_id = _latest_existing_dataset(base_dir, artifacts)
+        eval_id = _latest_value(artifacts, 'eval_ids')
+        if not dataset_id or not eval_id:
+            return None
+        args: dict[str, Any] = {
+            'apply_id': row.get('id'),
+            'baseline_eval_id': eval_id,
+            'dataset_id': dataset_id,
+            'target_chat_url': EVO_TARGET_CHAT_URL,
+        }
+        if inputs.get('dataset_name'):
+            args['eval_options'] = {'dataset_name': inputs['dataset_name']}
+        return {'op': 'abtest.create', 'args': args}
+    return None
+
+
+def _append_thread_message(path: Path, role: str, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'role': role, 'content': content, 'ts': time.time()}, ensure_ascii=False) + '\n')
+
+
+def _auto_done_message(row: dict) -> str:
+    flow = row.get('flow')
+    result = (row.get('payload') or {}).get('result') or {}
+    if flow == 'apply' and not (row.get('final_commit') or result.get('final_commit')):
+        return 'AutoOperator：分析报告未产生可执行代码修改，已跳过代码修改。'
+    return f'AutoOperator：{_flow_label(flow)}已完成，暂无下一步。'
+
+
+def _latest_existing_dataset(base_dir: Path, artifacts: dict) -> str | None:
+    for dataset_id in reversed(artifacts.get('dataset_ids') or []):
+        if (base_dir / 'datasets' / str(dataset_id) / 'eval_data.json').is_file():
+            return str(dataset_id)
+    return None
+
+
+def _latest_value(artifacts: dict, kind: str) -> str | None:
+    vals = artifacts.get(kind) or []
+    return str(vals[-1]) if vals else None
+
+
+def _flow_label(flow: str | None) -> str:
+    return {
+        'dataset_gen': '评测集生成',
+        'eval': '评测',
+        'run': '分析',
+        'apply': '代码修改',
+        'abtest': 'ABTest',
+    }.get(str(flow), '当前步骤')
 
 
 def _coerce_policy(policy: VerdictPolicy | dict | None) -> VerdictPolicy:
@@ -471,84 +446,14 @@ def _coerce_policy(policy: VerdictPolicy | dict | None) -> VerdictPolicy:
     if isinstance(policy, VerdictPolicy):
         return policy
     data = dict(policy)
-    if 'guard_metrics' in data and isinstance(data['guard_metrics'], list):
+    if isinstance(data.get('guard_metrics'), list):
         data['guard_metrics'] = tuple(data['guard_metrics'])
     return VerdictPolicy(**data)
 
 
-def _matching_apply(st: store.FsStateStore, thread_id: str | None, report_id: str, payload: dict | None = None) -> dict | None:  # noqa: E501
-    rows = store.list_flow_tasks_by_thread(st, 'apply', thread_id) if thread_id else store.list_recent(st, 'apply', 100)
-    reusable = {'queued', 'running', 'stopping', 'paused', 'failed_transient'}
-    for row in reversed(rows):
-        if (
-            row.get('report_id') == report_id
-            and row.get('status') in reusable
-            and ((row.get('payload') or {}) == (payload or {}))
-        ):
-            return row
-    return None
-
-
-def _matching_eval(st: store.FsStateStore, thread_id: str, payload: dict) -> dict | None:
-    reusable = {'queued', 'running', 'stopping', 'paused', 'failed_transient'}
-    for row in reversed(store.list_flow_tasks_by_thread(st, 'eval', thread_id)):
-        if row.get('status') in reusable and (row.get('payload') or {}) == payload:
-            return row
-    return None
-
-
-def _matching_abtest(
-    st: store.FsStateStore,
-    thread_id: str,
-    apply_id: str,
-    baseline_eval_id: str,
-    dataset_id: str,
-    eval_options: dict | None = None,
-) -> dict | None:
-    rows = store.list_flow_tasks_by_thread(st, 'abtest', thread_id)
-    reusable = {'queued', 'running', 'stopping', 'paused', 'failed_transient'}
-    for row in reversed(rows):
-        payload = row.get('payload') or {}
-        if (
-            row.get('status') in reusable
-            and payload.get('apply_id') == apply_id
-            and (payload.get('baseline_eval_id') == baseline_eval_id)
-            and (payload.get('dataset_id') == dataset_id)
-            and ((payload.get('eval_options') or {}) == (eval_options or {}))
-        ):
-            return row
-    return None
-
-
-def _matching_resumable_abtest(
-    st: store.FsStateStore, thread_id: str, apply_id: str, baseline_eval_id: str, dataset_id: str
-) -> dict | None:
-    rows = store.list_flow_tasks_by_thread(st, 'abtest', thread_id)
-    for row in reversed(rows):
-        if row.get('status') in {'failed_transient', 'paused'}:
-            return row
-    return None
-
-
-def _require_apply_ready_for_abtest(st: store.FsStateStore, apply_row: dict) -> None:
-    payload = apply_row.get('payload') or {}
-    result = payload.get('result') or {}
-    status = apply_row.get('status')
-    if status not in {'succeeded', 'accepted'}:
-        raise store.StateError(
-            'APPLY_NOT_READY_FOR_ABTEST', f"apply {apply_row.get('id')} must finish before abtest", {'status': status}
-        )
-    final_commit = apply_row.get('final_commit') or result.get('final_commit')
-    if result.get('status') != 'SUCCEEDED' or not final_commit:
-        raise store.StateError(
-            'APPLY_NOT_READY_FOR_ABTEST',
-            f"apply {apply_row.get('id')} has no successful final commit",
-            {'result_status': result.get('status'), 'final_commit': final_commit},
-        )
-    rounds = store.list_rounds(st, apply_row['id'])
-    if not rounds or rounds[-1].get('test_passed') != 1:
-        raise store.StateError(
-            'APPLY_TESTS_NOT_PASSED',
-            f"apply {apply_row.get('id')} final round did not pass tests",
-            {'round_count': len(rounds)},
-        )
+def _require_apply_ready_for_abtest(row: dict) -> None:
+    result = (row.get('payload') or {}).get('result') or {}
+    if row.get('status') not in {'succeeded', 'accepted'} or not (
+            row.get('final_commit') or result.get('final_commit')):
+        raise store.StateError('APPLY_NOT_READY_FOR_ABTEST',
+                               f"apply {row.get('id')} must finish before abtest", {'status': row.get('status')})

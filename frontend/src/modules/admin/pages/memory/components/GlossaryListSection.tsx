@@ -69,6 +69,7 @@ export default function GlossaryListSection(props: GlossaryListSectionProps) {
       <div className="memory-glossary-batch-toolbar">
         <span>
           {t("admin.memoryGlossaryBatchStats", {
+            defaultValue: "已选 {{selected}} 条 / 共 {{total}} 条",
             selected: selectedGlossaryAssets.length,
             total: assets.length,
           })}

@@ -150,7 +150,33 @@ def test_build_query_params_filters_history_and_modes(monkeypatch):
     assert params['priority'] == 8
     assert params['dataset'] == 'algo'
     assert params['session_id'] == 'sid-1'
+    assert params['user_id'] == ''
     assert 'document_url' in params
+
+
+def test_build_query_params_sets_user_id(monkeypatch):
+    module = _import_chat_service_module(monkeypatch)
+
+    params = module.build_query_params(
+        query='hello',
+        history=None,
+        filters=None,
+        other_files=[],
+        databases=None,
+        debug=False,
+        image_files=[],
+        priority=8,
+        dataset='algo',
+        session_id='sid-1',
+        available_tools=None,
+        available_skills=None,
+        memory=None,
+        user_preference=None,
+        use_memory=None,
+        user_id='user-1',
+    )
+
+    assert params['user_id'] == 'user-1'
 
 def test_handle_chat_rejects_unknown_dataset(monkeypatch):
     chat_server = SimpleNamespace(
@@ -219,8 +245,8 @@ def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
 
 def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     """_build_ppl_call with reasoning=True should use query_ppl_reasoning."""
-    def fake_reasoning(**kwargs):
-        return {'text': 'reasoned', 'kwargs': kwargs}
+    def fake_reasoning(params):
+        return {'text': 'reasoned'}
 
     chat_server = SimpleNamespace(
         sensitive_filter=SimpleNamespace(loaded=False, check=lambda query: (False, None)),
@@ -230,10 +256,18 @@ def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     )
     module = _import_chat_service_module(monkeypatch, chat_server=chat_server)
 
+    query_params = {
+        'query': 'hello',
+        'filters': {'scope': 'all'},
+        'files': [],
+        'stream': True,
+        'priority': 7,
+        'document_url': 'stale-url',
+    }
     ppl_call = module._build_ppl_call(
         True,
         'algo',
-        {'query': 'hello', 'filters': {'scope': 'all'}, 'priority': 7},
+        query_params,
         stream=False,
     )
 
@@ -242,9 +276,10 @@ def test_run_sync_ppl_uses_reasoning_pipeline(monkeypatch):
     assert ppl_call[1] == {
         'query': 'hello',
         'filters': {'scope': 'all'},
+        'files': [],
+        'stream': False,
         'priority': 7,
         'document_url': 'http://kb-service/algo',
-        'stream': False,
     }
 
 
@@ -327,6 +362,67 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
     ]
     assert any('KB_CHAT_STREAM_FIRST_FRAME' in message for message in first_frame_logs)
     assert init_calls == [('global', 'sid-1'), ('local', 'sid-1')]
+
+
+def test_handle_chat_stream_preserves_separate_think_and_text_frames(monkeypatch):
+    async def _stream():
+        yield {'think': '思考片段', 'text': None}
+        yield {'think': None, 'text': '正文片段'}
+
+    def _pipeline(query_params):
+        return _stream()
+
+    chat_server = SimpleNamespace(
+        sensitive_filter=SimpleNamespace(loaded=False, check=lambda query: (False, None)),
+        has_dataset=lambda dataset: dataset == 'algo',
+        get_query_pipeline=lambda dataset, stream=False: _pipeline,
+        query_ppl_reasoning='unused',
+    )
+    module = _import_chat_service_module(monkeypatch, chat_server=chat_server)
+
+    class _FakeStreamingResponse:
+        def __init__(self, body_iterator, media_type):
+            self.body_iterator = body_iterator
+            self.media_type = media_type
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: ([], []))
+    monkeypatch.setattr(module, 'StreamingResponse', _FakeStreamingResponse)
+    monkeypatch.setattr(module.asyncio, 'to_thread', fake_to_thread)
+
+    response = asyncio.run(
+        module.handle_chat(
+            query='hello',
+            history=[],
+            session_id='sid-1',
+            filters=None,
+            files=None,
+            debug=False,
+            reasoning=False,
+            databases=[],
+            dataset='algo',
+            priority=1,
+            available_tools=None,
+            available_skills=None,
+            memory=None,
+            user_preference=None,
+            use_memory=None,
+            is_stream=True,
+        )
+    )
+
+    async def _collect():
+        return [chunk async for chunk in response.body_iterator]
+
+    payloads = _decode_sse_payloads(asyncio.run(_collect()))
+
+    assert [payload['data'] for payload in payloads] == [
+        {'think': '思考片段', 'text': None},
+        {'think': None, 'text': '正文片段'},
+        {'status': 'FINISHED'},
+    ]
 
 
 def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkeypatch):

@@ -4,6 +4,7 @@ import {
   Button,
   Modal,
   Space,
+  Switch,
   Tag,
   Tooltip,
   Upload,
@@ -41,12 +42,11 @@ import {
   createSkillAsset,
   discardSkillDraft,
   generateSkillDraft,
-  getSkillShareDetail,
   getSkillAssetDetail,
   listIncomingSkillShares,
   listOutgoingSkillShares,
   listSkillShareTargets,
-  listSkillAssets,
+  listSkillAssetsPage,
   patchSkillAsset,
   previewSkillDraft,
   rejectSkillShare,
@@ -157,6 +157,23 @@ import {
 import "./index.scss";
 
 const backendSuggestionPageSize = 20;
+const defaultSkillListPageSize = 6;
+const isPendingReviewSuggestionStatus = (status?: string) =>
+  String(status || "").trim().toLowerCase() === "pending_review";
+const isSkillRemoveSuggestion = (suggestion: EvolutionSuggestionRecord) =>
+  String(suggestion.action || "").trim().toLowerCase() === "remove";
+const normalizeAutoEvoApplyStatus = (status?: string) =>
+  String(status || "").trim().toLowerCase();
+const getAutoEvoStatusMeta = (status?: string) => {
+  const normalizedStatus = normalizeAutoEvoApplyStatus(status);
+  if (normalizedStatus === "running") {
+    return { color: "blue" as const, text: "正在自动进化" };
+  }
+  if (normalizedStatus === "failed") {
+    return { color: "red" as const, text: "自动进化执行失败" };
+  }
+  return { color: "blue" as const, text: "等待进化建议" };
+};
 
 const mergeEvolutionSuggestionRecords = (
   current: EvolutionSuggestionRecord[],
@@ -214,10 +231,15 @@ export default function MemoryManagement() {
   const [toolAssets] = useState<StructuredAsset[]>(initialTools);
   const [skillAssets, setSkillAssets] = useState<StructuredAsset[]>(initialSkills);
   const [skillLoading, setSkillLoading] = useState(false);
+  const [skillAutoEvoLoading, setSkillAutoEvoLoading] = useState<Set<string>>(new Set());
   const [skillsInitialized, setSkillsInitialized] = useState(false);
+  const [skillListPage, setSkillListPage] = useState(1);
+  const [skillListPageSize, setSkillListPageSize] = useState(defaultSkillListPageSize);
+  const [skillListTotal, setSkillListTotal] = useState(initialSkills.length);
   const [experienceAssets, setExperienceAssets] = useState<ExperienceAsset[]>([]);
   const [experienceFeatureEnabled, setExperienceFeatureEnabled] = useState(true);
   const [experienceLoading, setExperienceLoading] = useState(false);
+  const [experienceAutoEvoLoading, setExperienceAutoEvoLoading] = useState<Set<string>>(new Set());
   const [experienceInitialized, setExperienceInitialized] = useState(false);
   const [experienceSaving, setExperienceSaving] = useState(false);
   const [experienceSettingSaving, setExperienceSettingSaving] = useState(false);
@@ -494,6 +516,10 @@ export default function MemoryManagement() {
             content: item.content,
             hasPendingReviewSuggestions: item.hasPendingReviewSuggestions,
             protect: item.protect,
+            autoEvo: item.autoEvo,
+            autoEvoApplyStatus: item.autoEvoApplyStatus,
+            autoEvoGeneration: item.autoEvoGeneration,
+            autoEvoError: item.autoEvoError,
             resourceType: item.resourceType,
             suggestionStatus: item.suggestionStatus,
           })),
@@ -567,15 +593,19 @@ export default function MemoryManagement() {
     [refreshExperienceAssets, refreshExperienceSetting, t],
   );
   const refreshSkillAssets = useCallback(async (
-    options: { preserveChangeProposals?: boolean } = {},
+    options: { page?: number; pageSize?: number; preserveChangeProposals?: boolean } = {},
   ) => {
     setSkillLoading(true);
 
     try {
-      const records = await listSkillAssets({
-        page: 1,
-        pageSize: 200,
+      const result = await listSkillAssetsPage({
+        page: options.page ?? skillListPage,
+        pageSize: options.pageSize ?? skillListPageSize,
       });
+      const records = result.records;
+      setSkillListTotal(result.total);
+      setSkillListPage(result.page);
+      setSkillListPageSize(result.pageSize);
       setSkillAssets(
         records.map((item) => ({
           id: item.id,
@@ -586,9 +616,14 @@ export default function MemoryManagement() {
           content: item.content,
           parentId: item.parentId,
           protect: item.protect,
+          autoEvo: item.autoEvo,
+          autoEvoApplyStatus: item.autoEvoApplyStatus,
+          autoEvoGeneration: item.autoEvoGeneration,
+          autoEvoError: item.autoEvoError,
           fileExt: item.fileExt,
           isEnabled: item.isEnabled,
           hasPendingReviewSuggestions: item.hasPendingReviewSuggestions,
+          hasPendingRemoveSuggestion: item.hasPendingRemoveSuggestion,
           suggestionStatus: item.suggestionStatus,
           nodeType: item.nodeType,
           updateStatus: item.updateStatus,
@@ -605,7 +640,7 @@ export default function MemoryManagement() {
       setSkillLoading(false);
       setSkillsInitialized(true);
     }
-  }, []);
+  }, [skillListPage, skillListPageSize]);
 
   const refreshGlossaryAssets = useCallback(
     async (options?: { keyword?: string; silent?: boolean; source?: GlossarySource }) => {
@@ -1114,12 +1149,44 @@ export default function MemoryManagement() {
     [activeProposalId, changeProposals],
   );
   const activeBackendSuggestions = useMemo(
-    () => activeProposal?.backendSuggestions || [],
+    () => {
+      const suggestions = activeProposal?.backendSuggestions || [];
+      if (activeProposal?.tab !== "skills") {
+        return suggestions;
+      }
+
+      return [...suggestions].sort((left, right) => {
+        const leftIsRemove = isSkillRemoveSuggestion(left);
+        const rightIsRemove = isSkillRemoveSuggestion(right);
+        if (leftIsRemove === rightIsRemove) {
+          return 0;
+        }
+        return leftIsRemove ? -1 : 1;
+      });
+    },
     [activeProposal],
   );
-  const activeBackendSuggestionIds = useMemo(
-    () => activeBackendSuggestions.map((item) => item.id),
-    [activeBackendSuggestions],
+  const activeSkillRemoveSuggestions = useMemo(
+    () =>
+      activeProposal?.tab === "skills"
+        ? activeBackendSuggestions.filter((item) => isSkillRemoveSuggestion(item))
+        : [],
+    [activeBackendSuggestions, activeProposal?.tab],
+  );
+  const hasPendingSkillRemoveSuggestion = activeSkillRemoveSuggestions.length > 0;
+  const isBackendSuggestionSelectable = useCallback(
+    (suggestion: EvolutionSuggestionRecord) =>
+      activeProposal?.tab !== "skills" ||
+      !hasPendingSkillRemoveSuggestion ||
+      isSkillRemoveSuggestion(suggestion),
+    [activeProposal?.tab, hasPendingSkillRemoveSuggestion],
+  );
+  const selectableBackendSuggestionIds = useMemo(
+    () =>
+      activeBackendSuggestions
+        .filter((item) => isBackendSuggestionSelectable(item))
+        .map((item) => item.id),
+    [activeBackendSuggestions, isBackendSuggestionSelectable],
   );
   const activeBackendSuggestionPage =
     activeProposal
@@ -1152,7 +1219,7 @@ export default function MemoryManagement() {
     }
 
     const commonLabels = {
-      protect: t("admin.memoryProtect"),
+      protect: t("admin.memoryProtect", { defaultValue: "保护" }),
       content: t("admin.memoryContent"),
       yes: t("admin.memoryDiffBoolYes"),
       no: t("admin.memoryDiffBoolNo"),
@@ -1247,7 +1314,7 @@ export default function MemoryManagement() {
         Boolean(activeProposal.before.protect) !== Boolean(activeProposal.after.protect)
           ? {
               key: "protect",
-              label: t("admin.memoryProtect"),
+              label: t("admin.memoryProtect", { defaultValue: "保护" }),
               before: toBoolText(Boolean(activeProposal.before.protect)),
               after: toBoolText(Boolean(activeProposal.after.protect)),
               backendSuggestionId:
@@ -1284,7 +1351,7 @@ export default function MemoryManagement() {
       Boolean(activeProposal.before.protect) !== Boolean(activeProposal.after.protect)
         ? {
             key: "protect",
-            label: t("admin.memoryProtect"),
+            label: t("admin.memoryProtect", { defaultValue: "保护" }),
             before: toBoolText(Boolean(activeProposal.before.protect)),
             after: toBoolText(Boolean(activeProposal.after.protect)),
             backendSuggestionId:
@@ -1365,9 +1432,9 @@ export default function MemoryManagement() {
   const selectedBackendSuggestionCount = selectedBackendSuggestionIds.length;
   const allBackendSuggestionsSelected = useMemo(
     () =>
-      activeBackendSuggestionIds.length > 0 &&
-      selectedBackendSuggestionCount === activeBackendSuggestionIds.length,
-    [activeBackendSuggestionIds.length, selectedBackendSuggestionCount],
+      selectableBackendSuggestionIds.length > 0 &&
+      selectedBackendSuggestionCount === selectableBackendSuggestionIds.length,
+    [selectableBackendSuggestionIds.length, selectedBackendSuggestionCount],
   );
   const hasPartialBackendSuggestionSelection =
     selectedBackendSuggestionCount > 0 && !allBackendSuggestionsSelected;
@@ -1384,9 +1451,9 @@ export default function MemoryManagement() {
 
   useEffect(() => {
     setSelectedBackendSuggestionIds((previous) =>
-      previous.filter((item) => activeBackendSuggestionIds.includes(item)),
+      previous.filter((item) => selectableBackendSuggestionIds.includes(item)),
     );
-  }, [activeBackendSuggestionIds]);
+  }, [selectableBackendSuggestionIds]);
 
   const activeProposalMerged = useMemo<StructuredAsset | ExperienceAsset | null>(() => {
     if (!activeProposal) {
@@ -1471,7 +1538,7 @@ export default function MemoryManagement() {
     }
 
     const commonLabels = {
-      protect: t("admin.memoryProtect"),
+      protect: t("admin.memoryProtect", { defaultValue: "保护" }),
       content: t("admin.memoryContent"),
       yes: t("admin.memoryDiffBoolYes"),
       no: t("admin.memoryDiffBoolNo"),
@@ -1704,10 +1771,9 @@ export default function MemoryManagement() {
     try {
       const content = await readFileAsText(file);
       const inferredName = getBaseName(file.name);
-      const frontMatter =
-        !childTempId && isMarkdownSkillFile(file.name)
-          ? parseMarkdownFrontMatter(content)
-          : null;
+      const frontMatter = isMarkdownSkillFile(file.name)
+        ? parseMarkdownFrontMatter(content)
+        : null;
       const hasFrontMatterMetadata = Boolean(
         frontMatter && (frontMatter.name || frontMatter.description),
       );
@@ -1755,6 +1821,7 @@ export default function MemoryManagement() {
               ? {
                   ...item,
                   name: item.name || inferredName,
+                  description: item.description || frontMatter?.description || "",
                   content: importedContent,
                 }
               : item,
@@ -1900,7 +1967,7 @@ export default function MemoryManagement() {
                   category: detail.category,
                   tags: detail.tags,
                   content: detail.content,
-                  parentId: detail.parentId,
+                  parentId: detail.parentId || previous.parentId,
                   protect: detail.protect,
                 },
                 { stripFrontMatter: true },
@@ -1957,7 +2024,7 @@ export default function MemoryManagement() {
   const buildStructuredAssetFromSkillShare = (
     share: SkillShareRecord,
   ): StructuredAsset => ({
-    id: share.skillId || share.id,
+    id: share.sourceSkillId || share.skillId || share.id,
     name: share.skillName || t("admin.memorySkillShareUnknownSkill"),
     description: share.skillDescription,
     category: share.category,
@@ -1970,14 +2037,14 @@ export default function MemoryManagement() {
     setSkillShareAction(share.id, "preview");
 
     try {
-      const detail = await getSkillShareDetail(share.id);
+      const detail = await getSkillAssetDetail(share.sourceSkillId || share.skillId || share.id);
       openModal(
         "view",
-        buildStructuredAssetFromSkillShare(detail || share),
+        detail || buildStructuredAssetFromSkillShare(share),
         { skipSkillDetailLoad: true },
       );
     } catch (error) {
-      console.error("Load skill share detail failed:", error);
+      console.error("Load skill detail failed:", error);
       openModal("view", buildStructuredAssetFromSkillShare(share), {
         skipSkillDetailLoad: true,
       });
@@ -2331,6 +2398,10 @@ export default function MemoryManagement() {
     });
   };
   const setBackendSuggestionSelected = (suggestionId: string, checked: boolean) => {
+    const suggestion = activeBackendSuggestions.find((item) => item.id === suggestionId);
+    if (suggestion && !isBackendSuggestionSelectable(suggestion)) {
+      return;
+    }
     setSelectedBackendSuggestionIds((previous) => {
       if (checked) {
         return previous.includes(suggestionId) ? previous : [...previous, suggestionId];
@@ -2339,7 +2410,7 @@ export default function MemoryManagement() {
     });
   };
   const setAllBackendSuggestionsSelected = (checked: boolean) => {
-    setSelectedBackendSuggestionIds(checked ? [...activeBackendSuggestionIds] : []);
+    setSelectedBackendSuggestionIds(checked ? [...selectableBackendSuggestionIds] : []);
   };
   const clearSelectedBackendSuggestions = () => {
     if (!selectedBackendSuggestionIds.length) {
@@ -2412,6 +2483,8 @@ export default function MemoryManagement() {
     }
 
     const suggestionId = suggestion.id;
+    const shouldDirectDeleteSkill =
+      activeProposal.tab === "skills" && decision === "accept" && isSkillRemoveSuggestion(suggestion);
     backendSuggestionMutationLockRef.current = true;
     setBackendSuggestionSubmitting((previous) => ({
       ...previous,
@@ -2419,6 +2492,19 @@ export default function MemoryManagement() {
     }));
 
     try {
+      if (shouldDirectDeleteSkill) {
+        await removeSkillAsset(activeProposal.targetId);
+        setChangeProposals((previous) =>
+          previous.filter((item) => item.id !== activeProposal.id),
+        );
+        setActiveProposalId(undefined);
+        setSelectedBackendSuggestionIds([]);
+        navigateToMemoryList("skills");
+        await refreshSkillAssets();
+        message.success(t("admin.memorySkillDeleteSuccess"));
+        return;
+      }
+
       const nextApprovedSuggestionIds =
         decision === "accept"
           ? approvedBackendSuggestionIds.includes(suggestionId)
@@ -2477,12 +2563,19 @@ export default function MemoryManagement() {
     }
 
     const suggestionIds = selectedBackendSuggestionIds.filter((item) =>
-      activeBackendSuggestionIds.includes(item),
+      selectableBackendSuggestionIds.includes(item),
     );
     if (!suggestionIds.length) {
       message.info(t("admin.memoryDiffSelectFieldFirst"));
       return;
     }
+    const selectedSuggestions = activeBackendSuggestions.filter((item) =>
+      suggestionIds.includes(item.id),
+    );
+    const shouldDirectDeleteSkill =
+      activeProposal.tab === "skills" &&
+      decision === "accept" &&
+      selectedSuggestions.some((item) => isSkillRemoveSuggestion(item));
 
     backendSuggestionMutationLockRef.current = true;
     setBackendSuggestionBatchSubmitting(decision);
@@ -2495,6 +2588,19 @@ export default function MemoryManagement() {
     }));
 
     try {
+      if (shouldDirectDeleteSkill) {
+        await removeSkillAsset(activeProposal.targetId);
+        setChangeProposals((previous) =>
+          previous.filter((item) => item.id !== activeProposal.id),
+        );
+        setActiveProposalId(undefined);
+        setSelectedBackendSuggestionIds([]);
+        navigateToMemoryList("skills");
+        await refreshSkillAssets();
+        message.success(t("admin.memorySkillDeleteSuccess"));
+        return;
+      }
+
       const nextApprovedSuggestionIds =
         decision === "accept"
           ? [
@@ -2558,6 +2664,13 @@ export default function MemoryManagement() {
     ].filter(Boolean);
     return instructions.join("\n");
   };
+  const startBackendDraftPreviewLoading = () => {
+    setActiveReviewStep(1);
+    setBackendDraftPreview(null);
+    setIsPreviewContentEditing(false);
+    setManualPreviewContentDraft("");
+    setBackendDraftLoading(true);
+  };
   const loadBackendDraftPreview = async (
     suggestionIds: string[],
     extraInstruction = "",
@@ -2570,8 +2683,7 @@ export default function MemoryManagement() {
       return false;
     }
 
-    setBackendDraftLoading(true);
-    setActiveReviewStep(1);
+    startBackendDraftPreviewLoading();
     try {
       const userInstruct = shouldOmitSuggestionIds
         ? extraInstruction.trim()
@@ -2828,23 +2940,22 @@ export default function MemoryManagement() {
       return;
     }
 
+    setQaQuestionDraft("");
+
     if (
       activeProposal?.backendSuggestions &&
-      activeReviewStep === 1 &&
-      backendDraftPreview
+      activeReviewStep === 1
     ) {
       const updated = await loadBackendDraftPreview(approvedBackendSuggestionIds, text, {
         omitSuggestionIds: true,
       });
       if (updated) {
         message.success(t("admin.memoryDiffQaSendSuccess"));
-        setQaQuestionDraft("");
       }
       return;
     }
 
     message.success(t("admin.memoryDiffQaSendSuccess"));
-    setQaQuestionDraft("");
   };
 
   const handleReviewQuestionKeyDown = (
@@ -3443,7 +3554,7 @@ export default function MemoryManagement() {
         message.warning(`${t("common.pleaseInput")}${t("admin.memoryName")}`);
         return;
       }
-      if (!isChildSkill && !draft.description.trim()) {
+      if (!draft.description.trim()) {
         message.warning(`${t("common.pleaseInput")}${t("admin.memoryDescription")}`);
         return;
       }
@@ -3452,9 +3563,7 @@ export default function MemoryManagement() {
         return;
       }
 
-      const normalizedSkillTags = isChildSkill
-        ? []
-        : normalizeTagValues(draft.tags);
+      const normalizedSkillTags = normalizeTagValues(draft.tags);
       if (activeTab === "skills" && normalizedSkillTags.length > SKILL_TAG_MAX_COUNT) {
         message.warning(
           t("admin.memorySkillTagMaxCount", {
@@ -3467,7 +3576,7 @@ export default function MemoryManagement() {
       const payload: StructuredAsset = {
         id: draft.id || createId(activeTab === "tools" ? "tool" : "skill"),
         name: draft.name.trim(),
-        description: isChildSkill ? "" : draft.description.trim(),
+        description: draft.description.trim(),
         category: isChildSkill ? "" : draft.category.trim(),
         tags: normalizedSkillTags,
         parentId: activeTab === "skills" ? draft.parentId || undefined : undefined,
@@ -3513,6 +3622,8 @@ export default function MemoryManagement() {
             };
 
             if (payload.parentId) {
+              patchPayload.description = payload.description;
+              patchPayload.tags = payload.tags;
               patchPayload.file_ext = payload.fileExt || inferSkillFileExt(undefined, payload.content);
             } else {
               patchPayload.description = payload.description;
@@ -3536,7 +3647,9 @@ export default function MemoryManagement() {
 
             await createSkillAsset({
               name: payload.name,
+              description: payload.description,
               category: parentSkill.category || draft.category.trim(),
+              tags: payload.tags,
               parent_skill_name: parentSkill.name,
               content: payload.content,
               file_ext: payload.fileExt || inferSkillFileExt(undefined, payload.content),
@@ -3549,7 +3662,10 @@ export default function MemoryManagement() {
 
             if (canCreateChildSkills) {
               const hasInvalidChild = draft.childSkills.some(
-                (child) => !child.name.trim() || !child.content.trim(),
+                (child) =>
+                  !child.name.trim() ||
+                  !child.description.trim() ||
+                  !child.content.trim(),
               );
               if (hasInvalidChild) {
                 message.warning(t("admin.memoryChildSkillRequired"));
@@ -3558,6 +3674,8 @@ export default function MemoryManagement() {
 
               childPayloads = draft.childSkills.map((child) => ({
                 name: child.name.trim(),
+                description: child.description.trim(),
+                tags: normalizeTagValues(child.tags),
                 content: child.content.trim(),
                 file_ext: inferSkillFileExt(undefined, child.content),
                 is_locked: Boolean(payload.protect),
@@ -3895,11 +4013,19 @@ export default function MemoryManagement() {
         const pendingProposal =
           activeTab === "skills" ? getPendingProposal("skills", record.id) : undefined;
         const hasBackendPendingReview =
-          activeTab === "skills" && Boolean(record.hasPendingReviewSuggestions);
+          activeTab === "skills" &&
+          !record.autoEvo &&
+          (Boolean(record.hasPendingReviewSuggestions) ||
+            isPendingReviewSuggestionStatus(record.suggestionStatus));
         const showPendingTag =
-          Boolean(pendingProposal) ||
-          isSkillUpdatePending(record.updateStatus) ||
-          hasBackendPendingReview;
+          !record.autoEvo &&
+          (Boolean(pendingProposal) ||
+            isSkillUpdatePending(record.updateStatus) ||
+            hasBackendPendingReview);
+        const autoEvoStatusMeta =
+          activeTab === "skills" && record.autoEvo
+            ? getAutoEvoStatusMeta(record.autoEvoApplyStatus)
+            : null;
 
         return (
           <div className="memory-table-main">
@@ -3915,13 +4041,19 @@ export default function MemoryManagement() {
               ) : (
                 <span>{record.name}</span>
               )}
+              {autoEvoStatusMeta ? (
+                <Tag color={autoEvoStatusMeta.color}>{autoEvoStatusMeta.text}</Tag>
+              ) : null}
               {showPendingTag ? (
                 <Tag color="orange">{t("admin.memoryDiffPendingTag")}</Tag>
+              ) : null}
+              {activeTab === "skills" && record.hasPendingRemoveSuggestion ? (
+                <Tag color="red">{t("admin.memorySkillPendingRemoveTag")}</Tag>
               ) : null}
               {record.protect ? (
                 <Tag className="memory-protect-tag" bordered={false}>
                   <LockOutlined />
-                  <span>{t("admin.memoryProtect")}</span>
+                  <span>{t("admin.memoryProtect", { defaultValue: "保护" })}</span>
                 </Tag>
               ) : null}
             </div>
@@ -3967,6 +4099,54 @@ export default function MemoryManagement() {
   const genericColumns: ColumnsType<StructuredAsset> = [
     ...structuredInfoColumns,
     {
+      title: t("admin.memoryAutoEvo"),
+      key: "autoEvo",
+      width: 90,
+      render: (_value, record) => {
+        const disabledByRemoveSuggestion =
+          activeTab === "skills" && Boolean(record.hasPendingRemoveSuggestion);
+        const switchNode = (
+          <Switch
+            checked={Boolean(record.autoEvo) && !disabledByRemoveSuggestion}
+            disabled={disabledByRemoveSuggestion}
+            loading={skillAutoEvoLoading.has(record.id)}
+            onChange={(checked) => {
+              if (checked && record.hasPendingRemoveSuggestion) {
+                message.warning(t("admin.memorySkillAutoEvoDisabledByRemove"));
+                void refreshSkillAssets({ preserveChangeProposals: true });
+                return;
+              }
+              void (async () => {
+                setSkillAutoEvoLoading((prev) => new Set(prev).add(record.id));
+                try {
+                  await patchSkillAsset(record.id, { auto_evo: checked });
+                  await refreshSkillAssets({ preserveChangeProposals: true });
+                } catch (error) {
+                  console.error("Toggle auto_evo failed:", error);
+                  await refreshSkillAssets({ preserveChangeProposals: true });
+                  message.error(
+                    getLocalizedErrorMessage(error, t("admin.memoryAutoEvoToggleFailed")) ||
+                      t("admin.memoryAutoEvoToggleFailed"),
+                  );
+                } finally {
+                  setSkillAutoEvoLoading((prev) => {
+                    const next = new Set(prev);
+                    next.delete(record.id);
+                    return next;
+                  });
+                }
+              })();
+            }}
+          />
+        );
+        return disabledByRemoveSuggestion ? (
+          <Tooltip title={t("admin.memorySkillAutoEvoDisabledByRemove")}>{switchNode}</Tooltip>
+        ) : (
+          switchNode
+        );
+      },
+    },
+    {
       title: t("admin.memoryOperations"),
       key: "actions",
       width: 250,
@@ -3975,12 +4155,17 @@ export default function MemoryManagement() {
         const pendingProposal =
           activeTab === "skills" ? getPendingProposal("skills", record.id) : undefined;
         const hasBackendPendingReview =
-          activeTab === "skills" && Boolean(record.hasPendingReviewSuggestions);
+          activeTab === "skills" &&
+          !record.autoEvo &&
+          Boolean(record.hasPendingReviewSuggestions);
         const canReviewChange =
-          Boolean(pendingProposal) ||
-          isSkillUpdatePending(record.updateStatus) ||
-          hasBackendPendingReview;
-        const reviewTooltip = pendingProposal
+          !record.autoEvo &&
+          (Boolean(pendingProposal) ||
+            isSkillUpdatePending(record.updateStatus) ||
+            hasBackendPendingReview);
+        const reviewTooltip = record.autoEvo
+          ? t("admin.memoryDiffNoPending")
+          : pendingProposal
           ? t("admin.memoryDiffReviewAction")
           : isSkillUpdatePending(record.updateStatus) || hasBackendPendingReview
             ? t("admin.memorySkillUpdateReviewAction")
@@ -4074,8 +4259,15 @@ export default function MemoryManagement() {
       width: 320,
       render: (_value, record) => {
         const pendingProposal = getPendingProposal("experience", record.id);
+        const hasBackendPendingReview =
+          !record.autoEvo &&
+          (Boolean(record.hasPendingReviewSuggestions) ||
+            isPendingReviewSuggestionStatus(record.suggestionStatus));
         const showPendingTag =
-          Boolean(pendingProposal) || Boolean(record.hasPendingReviewSuggestions);
+          !record.autoEvo && (Boolean(pendingProposal) || hasBackendPendingReview);
+        const autoEvoStatusMeta = record.autoEvo
+          ? getAutoEvoStatusMeta(record.autoEvoApplyStatus)
+          : null;
 
         return (
           <div className="memory-table-main">
@@ -4087,13 +4279,16 @@ export default function MemoryManagement() {
               >
                 {record.title}
               </button>
+              {autoEvoStatusMeta ? (
+                <Tag color={autoEvoStatusMeta.color}>{autoEvoStatusMeta.text}</Tag>
+              ) : null}
               {showPendingTag ? (
                 <Tag color="orange">{t("admin.memoryDiffPendingTag")}</Tag>
               ) : null}
               {record.protect ? (
                 <Tag className="memory-protect-tag" bordered={false}>
                   <LockOutlined />
-                  <span>{t("admin.memoryProtect")}</span>
+                  <span>{t("admin.memoryProtect", { defaultValue: "保护" })}</span>
                 </Tag>
               ) : null}
             </div>
@@ -4114,14 +4309,56 @@ export default function MemoryManagement() {
       ),
     },
     {
+      title: t("admin.memoryAutoEvo"),
+      key: "autoEvo",
+      width: 90,
+      render: (_value, record) => (
+        <Switch
+          checked={Boolean(record.autoEvo)}
+          loading={experienceAutoEvoLoading.has(record.id)}
+          onChange={(checked) => {
+            void (async () => {
+              setExperienceAutoEvoLoading((prev) => new Set(prev).add(record.id));
+              try {
+                await upsertPreferenceAsset({
+                  title: record.title,
+                  content: record.content,
+                  protect: Boolean(record.protect),
+                  autoEvo: checked,
+                  resourceType: record.resourceType,
+                });
+                await refreshExperienceSection({ silent: true });
+              } catch (error) {
+                console.error("Toggle auto_evo failed:", error);
+                await refreshExperienceSection({ silent: true });
+                message.error(
+                  getLocalizedErrorMessage(error, t("admin.memoryAutoEvoToggleFailed")) ||
+                    t("admin.memoryAutoEvoToggleFailed"),
+                );
+              } finally {
+                setExperienceAutoEvoLoading((prev) => {
+                  const next = new Set(prev);
+                  next.delete(record.id);
+                  return next;
+                });
+              }
+            })();
+          }}
+        />
+      ),
+    },
+    {
       title: t("admin.memoryOperations"),
       key: "actions",
       width: 210,
       render: (_value, record) => {
         const pendingProposal = getPendingProposal("experience", record.id);
-        const hasBackendPendingReview = Boolean(record.hasPendingReviewSuggestions);
+        const hasBackendPendingReview =
+          !record.autoEvo &&
+          (Boolean(record.hasPendingReviewSuggestions) ||
+            isPendingReviewSuggestionStatus(record.suggestionStatus));
         const canReviewChange =
-          Boolean(pendingProposal) || hasBackendPendingReview;
+          !record.autoEvo && (Boolean(pendingProposal) || hasBackendPendingReview);
         const reviewTooltip = canReviewChange
           ? t("admin.memoryDiffReviewAction")
           : t("admin.memoryDiffNoPending");
@@ -4168,7 +4405,7 @@ export default function MemoryManagement() {
             {record.protect ? (
               <Tag className="memory-protect-tag" bordered={false}>
                 <LockOutlined />
-                <span>{t("admin.memoryProtect")}</span>
+                <span>{t("admin.memoryProtect", { defaultValue: "保护" })}</span>
               </Tag>
             ) : null}
           </div>
@@ -4308,6 +4545,8 @@ export default function MemoryManagement() {
     experienceFeatureEnabled,
     experienceSettingSaving,
     handleExperienceFeatureToggle,
+    refreshSkillAssets,
+    refreshExperienceSection,
     searchInput,
     setSearchInput,
     query,
@@ -4335,6 +4574,11 @@ export default function MemoryManagement() {
     setSelectedGlossaryAssetIds,
     skillLoading,
     skillsInitialized,
+    skillListPage,
+    skillListPageSize,
+    skillListTotal,
+    setSkillListPage,
+    setSkillListPageSize,
     skillAssets,
     filteredSkillTree,
     filteredStructuredItems,
@@ -4373,6 +4617,7 @@ export default function MemoryManagement() {
     clearSelectedBackendSuggestions,
     backendSuggestionSubmitting,
     selectedBackendSuggestionIds,
+    isBackendSuggestionSelectable,
     setBackendSuggestionSelected,
     submitBackendSuggestionDecision,
     backendDraftDiffLines,

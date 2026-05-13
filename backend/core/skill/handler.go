@@ -1,9 +1,13 @@
 package skill
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -32,6 +36,7 @@ type removeRequest struct {
 	SessionID string `json:"session_id"`
 	Category  string `json:"category"`
 	SkillName string `json:"skill_name"`
+	Reason    string `json:"reason"`
 }
 
 func payloadForLog(v any) string {
@@ -167,6 +172,19 @@ func Suggestion(w http.ResponseWriter, r *http.Request) {
 		Str("skill_name", req.SkillName).
 		Int("created_count", len(rows)).
 		Msg("internal skill suggestion request persisted")
+
+	if state.Resource.AutoEvo && status != evolution.SuggestionStatusInvalid {
+		if scheduleErr := ensureSkillAutoEvolutionScheduled(*state.Resource); scheduleErr != nil {
+			appLog.Logger.Warn().
+				Err(scheduleErr).
+				Str("route", "/skill/suggestion").
+				Str("session_id", req.SessionID).
+				Str("user_id", userID).
+				Str("category", req.Category).
+				Str("skill_name", req.SkillName).
+				Msg("auto_evo schedule failed, suggestions kept for manual review")
+		}
+	}
 	common.ReplyOK(w, map[string]any{"items": result})
 }
 
@@ -283,6 +301,7 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 	req.SessionID = strings.TrimSpace(req.SessionID)
 	req.Category = strings.TrimSpace(req.Category)
 	req.SkillName = strings.TrimSpace(req.SkillName)
+	req.Reason = strings.TrimSpace(req.Reason)
 	appLog.Logger.Info().
 		Str("route", "/skill/remove").
 		Str("session_id", req.SessionID).
@@ -334,41 +353,150 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "session snapshot not found", http.StatusNotFound)
 		return
 	}
+
+	status := evolution.SuggestionStatusPendingReview
+	invalidReason := ""
 	if state.ContentHash != snapshot.SnapshotHash {
-		appLog.Logger.Warn().
+		status = evolution.SuggestionStatusInvalid
+		invalidReason = "snapshot hash mismatch"
+	}
+
+	now := time.Now()
+	title := fmt.Sprintf("删除技能: %s/%s", req.Category, req.SkillName)
+	parentSkillName := firstNonEmpty(strings.TrimSpace(state.Resource.ParentSkillName), strings.TrimSpace(state.Resource.SkillName))
+
+	var existingRow orm.ResourceSuggestion
+	upsertErr := db.WithContext(r.Context()).
+		Where("user_id = ? AND resource_type = ? AND action = ? AND resource_key = ? AND status = ?",
+			userID, evolution.ResourceTypeSkill, evolution.SuggestionActionRemove,
+			state.RelativePath, evolution.SuggestionStatusPendingReview).
+		Take(&existingRow).Error
+
+	var row orm.ResourceSuggestion
+	if upsertErr == nil {
+		row = existingRow
+		update := map[string]any{
+			"content":        req.Reason,
+			"reason":         req.Reason,
+			"snapshot_hash":  snapshot.SnapshotHash,
+			"status":         status,
+			"invalid_reason": invalidReason,
+			"title":          title,
+			"updated_at":     now,
+		}
+		if err := db.WithContext(r.Context()).Model(&orm.ResourceSuggestion{}).Where("id = ?", row.ID).Updates(update).Error; err != nil {
+			appLog.Logger.Error().
+				Err(err).
+				Str("route", "/skill/remove").
+				Str("session_id", req.SessionID).
+				Str("user_id", userID).
+				Str("suggestion_id", row.ID).
+				Msg("internal skill remove request failed to update existing suggestion")
+			common.ReplyErr(w, "update suggestion failed", http.StatusInternalServerError)
+			return
+		}
+		row.Content = req.Reason
+		row.Reason = req.Reason
+		row.SnapshotHash = snapshot.SnapshotHash
+		row.Status = status
+		row.InvalidReason = invalidReason
+		row.Title = title
+		row.UpdatedAt = now
+		appLog.Logger.Info().
 			Str("route", "/skill/remove").
 			Str("session_id", req.SessionID).
 			Str("user_id", userID).
-			Str("category", req.Category).
-			Str("skill_name", req.SkillName).
-			Str("current_hash", state.ContentHash).
-			Str("snapshot_hash", snapshot.SnapshotHash).
-			Msg("internal skill remove request rejected: snapshot hash mismatch")
-		common.ReplyErr(w, "skill snapshot hash mismatch", http.StatusConflict)
-		return
-	}
-	if err := deleteSkill(r.Context(), db, userID, state.Resource.ID); err != nil {
+			Str("suggestion_id", row.ID).
+			Msg("internal skill remove request updated existing suggestion")
+	} else if errors.Is(upsertErr, gorm.ErrRecordNotFound) {
+		row = evolution.BuildSuggestionRecord(userID, evolution.ResourceTypeSkill, state.RelativePath, evolution.SuggestionActionRemove, req.SessionID, status)
+		row.Category = req.Category
+		row.ParentSkillName = parentSkillName
+		row.SkillName = strings.TrimSpace(state.Resource.SkillName)
+		row.FileExt = firstNonEmpty(strings.TrimSpace(state.Resource.FileExt), "md")
+		row.RelativePath = state.RelativePath
+		row.SnapshotHash = snapshot.SnapshotHash
+		row.Title = title
+		row.Content = req.Reason
+		row.Reason = req.Reason
+		row.InvalidReason = invalidReason
+		if err := db.WithContext(r.Context()).Create(&row).Error; err != nil {
+			appLog.Logger.Error().
+				Err(err).
+				Str("route", "/skill/remove").
+				Str("session_id", req.SessionID).
+				Str("user_id", userID).
+				Str("category", req.Category).
+				Str("skill_name", req.SkillName).
+				Msg("internal skill remove request failed to persist suggestion")
+			common.ReplyErr(w, "create suggestion failed", http.StatusInternalServerError)
+			return
+		}
+		appLog.Logger.Info().
+			Str("route", "/skill/remove").
+			Str("session_id", req.SessionID).
+			Str("user_id", userID).
+			Str("suggestion_id", row.ID).
+			Msg("internal skill remove request created suggestion")
+	} else {
 		appLog.Logger.Error().
-			Err(err).
+			Err(upsertErr).
 			Str("route", "/skill/remove").
 			Str("session_id", req.SessionID).
 			Str("user_id", userID).
-			Str("category", req.Category).
-			Str("skill_name", req.SkillName).
-			Str("skill_id", state.Resource.ID).
-			Msg("internal skill remove request failed to delete skill directly")
-		replySkillError(w, err)
+			Msg("internal skill remove request failed to query existing suggestion")
+		common.ReplyErr(w, "query suggestion failed", http.StatusInternalServerError)
 		return
 	}
-	appLog.Logger.Info().
-		Str("route", "/skill/remove").
-		Str("session_id", req.SessionID).
-		Str("user_id", userID).
-		Str("category", req.Category).
-		Str("skill_name", req.SkillName).
-		Str("skill_id", state.Resource.ID).
-		Msg("internal skill remove request deleted skill directly")
-	common.ReplyOK(w, map[string]any{"deleted": true})
+
+	result := evolution.RecordedSuggestion{
+		ID:            row.ID,
+		Status:        row.Status,
+		InvalidReason: row.InvalidReason,
+	}
+
+	if state.Resource.AutoEvo && status != evolution.SuggestionStatusInvalid {
+		if err := disableSkillAutoEvoForPendingRemove(r.Context(), db, *state.Resource); err != nil {
+			appLog.Logger.Error().
+				Err(err).
+				Str("route", "/skill/remove").
+				Str("session_id", req.SessionID).
+				Str("user_id", userID).
+				Str("skill_id", state.Resource.ID).
+				Msg("auto_evo disable failed for pending remove suggestion")
+		} else {
+			appLog.Logger.Info().
+				Str("route", "/skill/remove").
+				Str("session_id", req.SessionID).
+				Str("user_id", userID).
+				Str("skill_id", state.Resource.ID).
+				Str("suggestion_id", row.ID).
+				Msg("auto_evo disabled for pending remove suggestion")
+		}
+	}
+
+	common.ReplyOK(w, map[string]any{"items": []evolution.RecordedSuggestion{result}})
+}
+
+func init() {
+	evolution.ApplyRemoveSuggestion = applyRemoveSuggestion
+}
+
+func applyRemoveSuggestion(ctx context.Context, db *gorm.DB, suggestion orm.ResourceSuggestion) error {
+	var skill orm.SkillResource
+	err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND relative_path = ?",
+			strings.TrimSpace(suggestion.UserID),
+			strings.TrimSpace(suggestion.RelativePath),
+		).
+		Take(&skill).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+		return err
+	}
+	return DeleteSkill(ctx, db, suggestion.UserID, skill.ID)
 }
 
 func firstNonEmpty(values ...string) string {

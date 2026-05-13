@@ -1,7 +1,8 @@
-FROM golang:1.24.6-alpine AS builder
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}golang:1.24.6-alpine AS builder
 WORKDIR /src
 
-ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
 
 COPY go.mod go.sum ./
@@ -10,7 +11,8 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /out/file_watcher ./cmd/main.go
 
-FROM alpine:3.19
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}alpine:3.19
 WORKDIR /app
 
 RUN apk add --no-cache ca-certificates tzdata

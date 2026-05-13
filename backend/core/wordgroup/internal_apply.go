@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	errApplyCreateUserID        = errors.New("create_user_id is required")
+	errApplyUserID              = errors.New("user_id is required")
 	errApplyWords               = errors.New("word is required")
 	errApplyGroupIDsAddToGroup  = errors.New("group_ids is required for add_to_group")
 	errApplyGroupIDsConflict    = errors.New("group_ids is required for conflict")
@@ -36,13 +36,13 @@ var (
 
 // ApplyWordGroupActionItem is one element of request body field action_list (algorithm → core contract).
 type ApplyWordGroupActionItem struct {
-	Reason       string   `json:"reason"`
-	Words        []string `json:"words"`
-	Description  string   `json:"description"`
-	GroupIDs     string   `json:"group_ids"` // JSON-serialized array, e.g. ["id1","id2"]
-	CreateUserID string   `json:"create_user_id"`
-	MessageIDs   string   `json:"message_ids"` // JSON-serialized array of message ids
-	Action       string   `json:"action"`
+	Reason      string   `json:"reason"`
+	Words       []string `json:"words"`
+	Description string   `json:"description"`
+	GroupIDs    string   `json:"group_ids"` // JSON-serialized array, e.g. ["id1","id2"]
+	UserID      string   `json:"user_id"`
+	MessageIDs  string   `json:"message_ids"` // JSON-serialized array of message ids
+	Action      string   `json:"action"`
 }
 
 // ApplyWordGroupActionRequest is the POST body for /inner/word_group:apply (algorithm → core contract).
@@ -87,7 +87,7 @@ type preparedAddRow struct {
 
 // ApplyWordGroupAction handles internal word-group ingest requests from algorithm service.
 // Request body JSON has key action_list (array of items). This endpoint does not read X-User-Id
-// and uses create_user_id from each item.
+// and uses user_id from each item.
 func ApplyWordGroupAction(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -142,9 +142,9 @@ func prepareApplyActions(items []ApplyWordGroupActionItem) (preparedApplyActions
 	for i := range items {
 		body := &items[i]
 
-		userID := strings.TrimSpace(body.CreateUserID)
+		userID := strings.TrimSpace(body.UserID)
 		if userID == "" {
-			return prepared, errApplyCreateUserID
+			return prepared, errApplyUserID
 		}
 		words := normalizeAliases(body.Words)
 		if len(words) == 0 {
@@ -301,7 +301,11 @@ func runAddToGroupBatch(db *gorm.DB, items []preparedAddRow, responses []ApplyWo
 			}
 
 			var existingRows []orm.Word
-			if err := tx.Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", k.GroupID, k.UserID).Find(&existingRows).Error; err != nil {
+			if err := tx.Where(
+				"group_id = ? AND create_user_id = ? AND deleted_at IS NULL",
+				k.GroupID,
+				k.UserID,
+			).Find(&existingRows).Error; err != nil {
 				return err
 			}
 			existing := make(map[string]struct{}, len(existingRows))
@@ -348,8 +352,8 @@ func runAddToGroupBatch(db *gorm.DB, items []preparedAddRow, responses []ApplyWo
 func replyApplyError(w http.ResponseWriter, err error) {
 	log.Logger.Error().Err(err).Msg("apply word_group action failed")
 	switch {
-	case errors.Is(err, errApplyCreateUserID):
-		common.ReplyErr(w, errApplyCreateUserID.Error(), http.StatusBadRequest)
+	case errors.Is(err, errApplyUserID):
+		common.ReplyErr(w, errApplyUserID.Error(), http.StatusBadRequest)
 	case errors.Is(err, errApplyWords):
 		common.ReplyErr(w, errApplyWords.Error(), http.StatusBadRequest)
 	case errors.Is(err, errApplyGroupIDsAddToGroup):
@@ -367,7 +371,7 @@ func replyApplyError(w http.ResponseWriter, err error) {
 	}
 }
 
-// notifyVocabReloadAfterApply collects create_user_id from creates and adds, dedupes, then notifies chat once per user.
+// notifyVocabReloadAfterApply collects user IDs from creates and adds, dedupes, then notifies chat once per user.
 func notifyVocabReloadAfterApply(ctx context.Context, prepared preparedApplyActions) {
 	seen := make(map[string]struct{})
 	for i := range prepared.Creates {

@@ -357,7 +357,10 @@ function buildDetailSummaryFromSource(
     targetType: binding?.target_type,
     sourceType: isFeishuSource ? "feishu" : "local",
     documentCount: summary?.total_document_count || documents.length,
-    status: normalizeDataSourceStatus(binding?.status || source.status, source.watch_enabled),
+    status: normalizeDataSourceStatus(
+      binding?.status || source.status,
+      isFeishuSource ? true : source.watch_enabled,
+    ),
     lastSync,
     addCount: summary?.new_count || 0,
     deleteCount: summary?.deleted_count || 0,

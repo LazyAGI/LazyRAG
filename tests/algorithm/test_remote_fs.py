@@ -45,7 +45,7 @@ def test_remote_fs_uses_core_readonly_api(monkeypatch):
 
     fs = RemoteFS(base_url='http://core:8000', timeout=3)
 
-    assert fs.ls('remotefs://skills') == [{'name': 'remote://skills/a', 'type': 'directory', 'size': 0}]
+    assert fs.ls('remote://skills') == [{'name': 'remote://skills/a', 'type': 'directory', 'size': 0}]
     assert fs.info('skills/a/SKILL.md')['size'] == 4
     assert fs.exists('skills/a/SKILL.md') is True
     assert fs.open('skills/a/SKILL.md', 'rb').read() == b'test'
@@ -157,11 +157,13 @@ def test_skill_manager_lists_remote_skills_from_mock_server(monkeypatch, mock_re
             'name': 'example',
             'category': 'writing',
             'path': 'remote://skills/writing/example',
+            'source': 'remote',
         },
         'ops/deploy-checklist': {
             'name': 'deploy-checklist',
             'category': 'ops',
             'path': 'remote://skills/ops/deploy-checklist',
+            'source': 'remote',
         },
     }
 
@@ -178,6 +180,7 @@ def test_skill_manager_reads_reference_from_remote_mock_server(monkeypatch, mock
 
     assert skill_doc['status'] == 'ok'
     assert 'Example Skill' in skill_doc['content']
+    assert '(source: remote,' in manager.build_prompt('use example')
     assert reference_doc == {
         'status': 'ok',
         'path': 'remote://skills/writing/example/references/examples/daily-update.md',

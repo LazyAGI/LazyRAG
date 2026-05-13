@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, Form, Input, Layout, Menu, Modal, Popover, message } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -16,9 +16,10 @@ import {
 } from "@ant-design/icons";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { UserDetailResponse } from "@/api/generated/auth-client";
-import { AgentAppsAuth } from "@/components/auth";
+import { AUTH_USER_CHANGE_EVENT, AgentAppsAuth } from "@/components/auth";
 import {
   changeCurrentUserPassword,
+  fetchCurrentUser,
   fetchCurrentUserDetail,
   updateCurrentUserProfile,
 } from "@/modules/signin/utils/request";
@@ -79,7 +80,7 @@ export default function MainLayout() {
   const { t } = useTranslation();
   const [profileForm] = Form.useForm<ProfileFormValues>();
 
-  const userInfo = AgentAppsAuth.getUserInfo();
+  const [userInfo, setUserInfo] = useState(() => AgentAppsAuth.getUserInfo());
   const isLoggedIn = Boolean(userInfo?.token);
   const userName = userInfo?.username || "";
   const isAdminUser = isAdminRole(userInfo?.role);
@@ -134,11 +135,15 @@ export default function MainLayout() {
       label: t("layout.systemManagement"),
       icon: <TeamOutlined className="settings-popover-icon" />,
     },
-    {
-      key: "developer-toggle",
-      label: t("layout.developer"),
-      icon: <CodeOutlined className="settings-popover-icon" />,
-    },
+    ...(isAdminUser
+      ? [
+          {
+            key: "developer-toggle",
+            label: t("layout.developer"),
+            icon: <CodeOutlined className="settings-popover-icon" />,
+          },
+        ]
+      : []),
   ];
   const logoSrc =
     (import.meta.env as ImportMetaEnv & { VITE_APP_LOGO?: string })
@@ -147,6 +152,61 @@ export default function MainLayout() {
   useEffect(() => {
     setDeveloperActive(isDeveloperModeActive());
   }, []);
+
+  const refreshLayoutUser = useCallback(async () => {
+    if (!AgentAppsAuth.isLoggedIn()) {
+      setUserInfo(AgentAppsAuth.getUserInfo());
+      return;
+    }
+
+    try {
+      await fetchCurrentUser();
+    } catch (error) {
+      console.error("Failed to refresh current user:", error);
+    } finally {
+      setUserInfo(AgentAppsAuth.getUserInfo());
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLayoutUser();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshLayoutUser();
+      }
+    };
+    const handleFocus = () => {
+      refreshLayoutUser();
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "lazyrag:user") {
+        setUserInfo(AgentAppsAuth.getUserInfo());
+      }
+    };
+    const handleUserChange = () => {
+      setUserInfo(AgentAppsAuth.getUserInfo());
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(AUTH_USER_CHANGE_EVENT, handleUserChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(AUTH_USER_CHANGE_EVENT, handleUserChange);
+    };
+  }, [refreshLayoutUser]);
+
+  useEffect(() => {
+    if (!isAdminUser && developerActive) {
+      setDeveloperActive(false);
+      setDeveloperModeActive(false);
+    }
+  }, [developerActive, isAdminUser]);
 
   useEffect(() => {
     let key = "/agent/chat";
@@ -313,6 +373,7 @@ export default function MainLayout() {
 
   const refreshCurrentProfile = async () => {
     const detail = await fetchCurrentUserDetail();
+    setUserInfo(AgentAppsAuth.getUserInfo());
     setProfileDetail(detail);
     applyProfileToForm(detail);
     return detail;

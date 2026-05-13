@@ -20,6 +20,10 @@ export interface BaseAsset {
   id: string;
   content: string;
   protect?: boolean;
+  autoEvo?: boolean;
+  autoEvoApplyStatus?: string;
+  autoEvoGeneration?: number;
+  autoEvoError?: string;
 }
 
 export interface StructuredAsset extends BaseAsset {
@@ -31,6 +35,7 @@ export interface StructuredAsset extends BaseAsset {
   fileExt?: string;
   isEnabled?: boolean;
   hasPendingReviewSuggestions?: boolean;
+  hasPendingRemoveSuggestion?: boolean;
   suggestionStatus?: string;
   updateStatus?: string;
   nodeType?: string;
@@ -97,6 +102,8 @@ export interface SkillTreeNode extends StructuredAsset {
 export interface ChildSkillDraft {
   tempId: string;
   name: string;
+  description: string;
+  tags: string[];
   content: string;
 }
 
@@ -301,6 +308,8 @@ export const createId = (prefix: string) =>
 export const createChildSkillDraft = (): ChildSkillDraft => ({
   tempId: createId("child-skill"),
   name: "",
+  description: "",
+  tags: [],
   content: "",
 });
 

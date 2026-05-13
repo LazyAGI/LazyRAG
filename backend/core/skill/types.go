@@ -1,10 +1,10 @@
 package skill
 
 type childSkillInput struct {
-	Name     string `json:"name"`
-	Content  string `json:"content"`
-	FileExt  string `json:"file_ext"`
-	IsLocked bool   `json:"is_locked"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	FileExt string `json:"file_ext"`
+	AutoEvo bool   `json:"auto_evo"`
 }
 
 type createSkillRequest struct {
@@ -15,7 +15,7 @@ type createSkillRequest struct {
 	Tags            []string          `json:"tags"`
 	Content         string            `json:"content"`
 	FileExt         string            `json:"file_ext"`
-	IsLocked        bool              `json:"is_locked"`
+	AutoEvo         bool              `json:"auto_evo"`
 	IsEnabled       *bool             `json:"is_enabled"`
 	Children        []childSkillInput `json:"children"`
 }
@@ -27,7 +27,7 @@ type updateSkillRequest struct {
 	Tags        *[]string `json:"tags"`
 	Content     *string   `json:"content"`
 	FileExt     *string   `json:"file_ext"`
-	IsLocked    *bool     `json:"is_locked"`
+	AutoEvo     *bool     `json:"auto_evo"`
 	IsEnabled   *bool     `json:"is_enabled"`
 }
 

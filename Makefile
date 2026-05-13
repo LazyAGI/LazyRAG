@@ -1,5 +1,5 @@
 # Code style: Python (flake8) + Go (gofmt). Mirrors algorithm/lazyllm Makefile pattern.
-.PHONY: help lint install-flake8 lint-python lint-go test build up up-build down clear file-watcher-dirs file-watcher-build file-watcher-run file-watcher-start file-watcher-stop
+.PHONY: help lint install-flake8 lint-python lint-go test build up up-build down clear reset-kb reset-all fresh-start file-watcher-dirs file-watcher-build file-watcher-run file-watcher-start file-watcher-stop
 .DEFAULT_GOAL := help
 
 # Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
@@ -31,25 +31,19 @@ endif
 # Keep its writable roots under the compose volume root by default.
 # RAGSCAN_BASE_ROOT is exported as a compose-friendly path; internal Makefile
 # bookkeeping uses the resolved absolute path below.
-RAGSCAN_BASE_ROOT ?= ./data/scan
+export RAGSCAN_BASE_ROOT ?= ./data/scan
 RAGSCAN_BASE_ROOT_ABS := $(abspath $(RAGSCAN_BASE_ROOT))
-RAGSCAN_BASE_ROOT_CONTAINER_DIR ?= /data/ragscan
-RAGSCAN_STAGING_CONTAINER_DIR ?= /data/staging
-RAGSCAN_FILE_WATCHER_MODE ?= container
-RAGSCAN_WATCH_HOST_DIR ?= ./data/watch
+export RAGSCAN_FILE_WATCHER_MODE ?= container
+export RAGSCAN_HOST_PATH_STYLE ?= posix
+export RAGSCAN_WATCH_HOST_DIR ?= ./data/watch
 RAGSCAN_WATCH_HOST_DIR_RAW := $(RAGSCAN_WATCH_HOST_DIR)
 RAGSCAN_WATCH_HOST_DIR_ABS := $(abspath $(RAGSCAN_WATCH_HOST_DIR_RAW))
-RAGSCAN_WATCH_CONTAINER_DIR ?= /watch/docs
-RAGSCAN_HOST_PATH_STYLE ?= posix
 override RAGSCAN_WATCH_HOST_DIR := $(if $(filter windows,$(RAGSCAN_HOST_PATH_STYLE)),$(RAGSCAN_WATCH_HOST_DIR_RAW),$(RAGSCAN_WATCH_HOST_DIR_ABS))
 RAGSCAN_FILE_WATCHER_DIR := backend/file-watcher
 RAGSCAN_FILE_WATCHER_BIN := $(RAGSCAN_FILE_WATCHER_DIR)/file_watcher
 RAGSCAN_FILE_WATCHER_CONFIG := $(RAGSCAN_FILE_WATCHER_DIR)/configs/agent.yaml
 RAGSCAN_FILE_WATCHER_PID := $(RAGSCAN_BASE_ROOT_ABS)/run/file_watcher.pid
 RAGSCAN_FILE_WATCHER_CONSOLE_LOG := $(RAGSCAN_BASE_ROOT_ABS)/logs/file_watcher.console.log
-export RAGSCAN_BASE_ROOT RAGSCAN_BASE_ROOT_CONTAINER_DIR RAGSCAN_STAGING_CONTAINER_DIR
-export RAGSCAN_FILE_WATCHER_MODE RAGSCAN_WATCH_HOST_DIR RAGSCAN_WATCH_CONTAINER_DIR
-export RAGSCAN_HOST_PATH_STYLE
 
 # ---------------------------------------------------------------------------
 # Environment variables (override via: make up VAR=value, or set in .env)
@@ -58,66 +52,53 @@ export RAGSCAN_HOST_PATH_STYLE
 # ---------------------------------------------------------------------------
 
 # Auth — credentials and secrets (change in production)
-LAZYRAG_DATABASE_URL ?= postgresql+psycopg://app:app@db:5432/app
-LAZYRAG_JWT_SECRET ?= dev-secret-change-me
-LAZYRAG_BOOTSTRAP_ADMIN_USERNAME ?= admin
-LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD ?= admin
-LAZYRAG_RESET_ALGO_ON_STARTUP ?= false
+export LAZYRAG_DATABASE_URL ?= postgresql+psycopg://app:app@db:5432/app
+export LAZYRAG_JWT_SECRET ?= dev-secret-change-me
+export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME ?= admin
+export LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD ?= admin
+export LAZYRAG_RESET_ALGO_ON_STARTUP ?= false
+export LAZYRAG_RESET_ALL_ON_STARTUP ?= false
 
 # Core database
-LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/core
+export LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/core
 
 # OCR backend selection (none=built-in PDFReader, mineru, paddleocr)
 # Auto-derives LAZYRAG_OCR_SERVER_URL when not set.
-LAZYRAG_OCR_SERVER_TYPE ?= none
-LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
+export LAZYRAG_OCR_SERVER_TYPE ?= none
+export LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
 
 # Vector / segment stores — override to use external services (skips built-in profile)
-LAZYRAG_MILVUS_URI ?= http://milvus:19530
-LAZYRAG_OPENSEARCH_URI ?= https://opensearch:9200
-LAZYRAG_OPENSEARCH_USER ?= admin
-LAZYRAG_OPENSEARCH_PASSWORD ?= LazyRAG_OpenSearch123!
+export LAZYRAG_MILVUS_URI ?= http://milvus:19530
+export LAZYRAG_OPENSEARCH_URI ?= https://opensearch:9200
+export LAZYRAG_OPENSEARCH_USER ?= admin
+export LAZYRAG_OPENSEARCH_PASSWORD ?= LazyRAG_OpenSearch123!
 
 # Dashboard toggles (set to 1 to enable Attu / OpenSearch Dashboards)
-LAZYRAG_ENABLE_STORE_DASHBOARDS ?= 0
-LAZYRAG_ENABLE_MILVUS_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
-LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
+export LAZYRAG_ENABLE_STORE_DASHBOARDS ?= 0
+export LAZYRAG_ENABLE_MILVUS_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
+export LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
 
 # Chat tuning
-LAZYRAG_MAX_CONCURRENCY ?= 10
-LAZYRAG_LLM_PRIORITY ?= 0
+export LAZYRAG_MAX_CONCURRENCY ?= 10
+export LAZYRAG_LLM_PRIORITY ?= 0
 
 # Tracing (set LAZYLLM_TRACE_ENABLED=0 to disable; requires LANGFUSE_* keys when enabled)
-LAZYLLM_TRACE_ENABLED ?= 1
-LAZYLLM_TRACE_BACKEND ?= langfuse
+export LAZYLLM_TRACE_ENABLED ?= 1
+export LAZYLLM_TRACE_BACKEND ?= langfuse
 
 # MinIO credentials (used by built-in Milvus profile)
-MINIO_ACCESS_KEY ?= minioadmin
-MINIO_SECRET_KEY ?= minioadmin
+export MINIO_ACCESS_KEY ?= minioadmin
+export MINIO_SECRET_KEY ?= minioadmin
 
 # pip timeout
-PIP_DEFAULT_TIMEOUT ?= 2400
-PIP_RETRIES ?= 10
+export PIP_DEFAULT_TIMEOUT ?= 2400
+export PIP_RETRIES ?= 10
 
 # model config path
-LAZYRAG_MODEL_CONFIG_PATH ?= online
+export LAZYRAG_MODEL_CONFIG_PATH ?= online
 
 # Frontend port (default 8090; override if the port is occupied, e.g. by Cursor)
-LAZYRAG_FRONTEND_PORT ?= 8090
-
-export LAZYRAG_DATABASE_URL LAZYRAG_JWT_SECRET
-export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD
-export LAZYRAG_CORE_DATABASE_URL
-export LAZYRAG_OCR_SERVER_TYPE LAZYRAG_OCR_SERVER_URL
-export LAZYRAG_MILVUS_URI LAZYRAG_OPENSEARCH_URI LAZYRAG_OPENSEARCH_USER LAZYRAG_OPENSEARCH_PASSWORD
-export LAZYRAG_ENABLE_STORE_DASHBOARDS LAZYRAG_ENABLE_MILVUS_DASHBOARD LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD
-export LAZYRAG_MAX_CONCURRENCY LAZYRAG_LLM_PRIORITY
-export LAZYLLM_TRACE_ENABLED LAZYLLM_TRACE_BACKEND
-export MINIO_ACCESS_KEY MINIO_SECRET_KEY
-export PIP_DEFAULT_TIMEOUT PIP_RETRIES
-export LAZYRAG_MODEL_CONFIG_PATH
-export LAZYRAG_RESET_ALGO_ON_STARTUP
-export LAZYRAG_FRONTEND_PORT
+export LAZYRAG_FRONTEND_PORT ?= 8090
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend evo
@@ -143,6 +124,11 @@ help:
 	@echo "  make lint       - Run Python flake8 and Go gofmt checks"
 	@echo "  make test       - Run project test script"
 	@echo "  make clear      - Stop services, remove volumes, clear Python cache"
+	@echo "  make reset-kb   - Stop services, wipe KB data (Milvus, OpenSearch, uploads, lazyllm DB tables)"
+	@echo "                    Set LAZYRAG_RESET_ALGO_ON_STARTUP=true to also clear algo state on next startup"
+	@echo "  make reset-all  - Stop services, wipe ALL persistent data (KB + users, auth, Redis, etc.)"
+	@echo "                    Equivalent to a clean first-run state"
+	@echo "  make fresh-start - reset-kb + up with LAZYRAG_RESET_ALGO_ON_STARTUP=true (standard clean restart)"
 
 # Require flake8 to be installed (e.g. in a venv). Do not auto pip-install to avoid PEP 668 errors.
 install-flake8:
@@ -305,3 +291,110 @@ clear:
 	@find . -type d -name '__pycache__' ! -path '*/\.git/*' -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name '*.pyc' ! -path '*/\.git/*' -delete 2>/dev/null || true
 	@echo "✅ Clear done."
+
+# ---------------------------------------------------------------------------
+# reset-kb: wipe knowledge-base data only (Milvus, OpenSearch, uploads, and
+#           KB-related PostgreSQL tables).  User accounts, auth tokens, Redis,
+#           conversations, and prompts are preserved.
+#
+# PostgreSQL tables cleared (core DB):
+#   datasets, default_datasets, documents, tasks, upload_sessions,
+#   uploaded_files, acl_kbs
+# PostgreSQL tables cleared (app/lazyllm DB — lazyllm-managed):
+#   lazyllm_documents, lazyllm_doc_service_tasks,
+#   lazyllm_kb_documents, lazyllm_kb_algorithm
+#
+# After this, run: make up LAZYRAG_RESET_ALGO_ON_STARTUP=true
+# ---------------------------------------------------------------------------
+_KB_VOLUMES := milvus-etcd milvus-minio milvus-data opensearch-data rag-uploads
+
+# SQL run inside the running db container (or via docker run if db is stopped).
+# TRUNCATE … CASCADE handles FK dependencies automatically.
+define _RESET_KB_SQL_CORE
+TRUNCATE TABLE
+  public.tasks,
+  public.upload_sessions,
+  public.uploaded_files,
+  public.documents,
+  public.acl_kbs,
+  public.default_datasets,
+  public.datasets
+CASCADE;
+endef
+export _RESET_KB_SQL_CORE
+
+# Drop all lazyllm-managed tables so SqlManager recreates them with the
+# latest schema on next startup.  Must be done via psql BEFORE processor-server
+# starts, because processor-server caches ORM metadata at startup and won't
+# pick up schema changes if tables are dropped after it has already launched.
+define _RESET_KB_SQL_APP
+DROP TABLE IF EXISTS
+  public.lazyllm_doc_node_group_status,
+  public.lazyllm_doc_parse_state,
+  public.lazyllm_kb_algorithm,
+  public.lazyllm_kb_documents,
+  public.lazyllm_knowledge_bases,
+  public.lazyllm_doc_path_locks,
+  public.lazyllm_documents,
+  public.lazyllm_doc_service_tasks,
+  public.lazyllm_callback_records,
+  public.lazyllm_idempotency_records,
+  public.lazyllm_node_group,
+  public.lazyllm_algorithm,
+  public.lazyllm_waiting_task_queue,
+  public.lazyllm_finished_task_queue
+CASCADE;
+endef
+export _RESET_KB_SQL_APP
+
+reset-kb:
+	@if [ "$(RAGSCAN_FILE_WATCHER_MODE)" != "container" ]; then \
+		$(MAKE) --no-print-directory file-watcher-stop; \
+	fi
+	@echo "⏹  Stopping all services (keeping db running for SQL cleanup)..."
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) stop \
+		lazyllm-algo lazyllm-doc-server lazyllm-parse-server lazyllm-parse-worker \
+		chat core frontend kong 2>/dev/null || true
+	@echo "🗑  Clearing KB tables in PostgreSQL (core DB)..."
+	@$(_COMPOSE) exec -T db psql -U root -d core -c "$$_RESET_KB_SQL_CORE" 2>&1 || \
+		echo "⚠️  core DB not running or tables not found — skipping"
+	@echo "🗑  Dropping lazyllm schema tables in PostgreSQL (app DB)..."
+	@$(_COMPOSE) exec -T db psql -U root -d app -c "$$_RESET_KB_SQL_APP" 2>&1 || \
+		echo "⚠️  app DB not running or tables not found — skipping"
+	@echo "⏹  Stopping remaining services..."
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down 2>/dev/null || true
+	@echo "🗑  Removing KB volumes: $(_KB_VOLUMES)..."
+	@for vol in $(_KB_VOLUMES); do \
+		full="$$(docker volume ls -q | grep -E "(^|_)$${vol}$$" | head -1)"; \
+		if [ -n "$$full" ]; then \
+			docker volume rm "$$full" && echo "  removed $$full" || echo "  skip $$full (in use?)"; \
+		else \
+			echo "  skip $$vol (not found)"; \
+		fi; \
+	done
+	@echo "🗑  Removing local upload cache..."
+	@rm -rf data/core/uploads 2>/dev/null || true
+	@echo "✅ KB data cleared."
+
+# ---------------------------------------------------------------------------
+# reset-all: wipe ALL persistent data — equivalent to a clean first-run state.
+#            Builds on reset-kb and additionally removes pgdata and redisdata.
+# ---------------------------------------------------------------------------
+reset-all: reset-kb
+	@echo "🗑  Removing all remaining persistent volumes (pgdata, redisdata, caches)..."
+	@$(_COMPOSE) $(_COMPOSE_PROFILES) down -v 2>/dev/null || true
+	@echo "🧹 Clearing Python cache..."
+	@find . -type d -name '__pycache__' ! -path '*/\.git/*' -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name '*.pyc' ! -path '*/\.git/*' -delete 2>/dev/null || true
+	@echo "✅ Full reset done. All persistent data removed."
+
+# ---------------------------------------------------------------------------
+# fresh-start: reset-kb + up with LAZYRAG_RESET_ALGO_ON_STARTUP=true.
+#
+# This is the standard "wipe everything KB-related and restart clean" flow.
+# reset-kb alone is not enough: lazyllm_* table schemas are only rebuilt by
+# the algo service on startup when LAZYRAG_RESET_ALGO_ON_STARTUP=true.
+# ---------------------------------------------------------------------------
+fresh-start: reset-kb
+	@echo "🚀 Rebuilding images and starting services with LAZYRAG_RESET_ALGO_ON_STARTUP=true..."
+	@$(MAKE) --no-print-directory up-build LAZYRAG_RESET_ALGO_ON_STARTUP=true

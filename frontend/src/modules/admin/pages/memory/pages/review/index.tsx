@@ -365,7 +365,22 @@ export default function MemoryReviewPage() {
               <div className="memory-review-column memory-review-column-full">
                 <div className="memory-diff-preview-body">
                   <div className="memory-diff-unified">
-                    {backendDraftDiffLines.length ? (
+                    {backendDraftLoading ? (
+                      <div className="memory-diff-loading-state" aria-live="polite">
+                        <div className="memory-diff-loading-copy">
+                          <strong className="memory-diff-loading-typing">
+                            <span className="memory-diff-loading-typing-text">
+                              {t("admin.memoryDiffPreviewGeneratingTitle")}
+                            </span>
+                          </strong>
+                        </div>
+                        <div className="memory-diff-loading-dots" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      </div>
+                    ) : backendDraftDiffLines.length ? (
                       backendDraftDiffLines.map((line: any, index: number) => (
                         <div
                           key={`backend-diff-${index}`}
