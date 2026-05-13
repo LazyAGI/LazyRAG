@@ -252,6 +252,7 @@ func buildLazyChatRequest(body map[string]any) *LazyChatRequest {
 	}
 	if environmentContext, ok := body["environment_context"].(map[string]any); ok {
 		req.EnvironmentContext = environmentContext
+	}
 	if userID, ok := body["user_id"].(string); ok {
 		req.UserID = strings.TrimSpace(userID)
 	}
