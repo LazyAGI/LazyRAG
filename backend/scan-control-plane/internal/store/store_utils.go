@@ -26,6 +26,23 @@ func cloudSyncRunID() string {
 	return fmt.Sprintf("csr_%d", time.Now().UnixNano())
 }
 
+func uniqueTrimmedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 func normalizeReconcilePolicy(reconcileSeconds int64, reconcileSchedule string, fallbackSeconds int64) (int64, string, error) {
 	schedule := strings.TrimSpace(reconcileSchedule)
 	if schedule == "" {
@@ -101,13 +118,19 @@ func parseHourMinuteToken(token string) (int, int, error) {
 	value = strings.ReplaceAll(value, "：", ":")
 	if strings.Contains(value, ":") {
 		parts := strings.Split(value, ":")
-		if len(parts) != 2 {
-			return 0, 0, fmt.Errorf("invalid hh:mm")
+		if len(parts) != 2 && len(parts) != 3 {
+			return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
 		}
 		h, errH := strconv.Atoi(strings.TrimSpace(parts[0]))
 		m, errM := strconv.Atoi(strings.TrimSpace(parts[1]))
 		if errH != nil || errM != nil {
-			return 0, 0, fmt.Errorf("invalid hh:mm")
+			return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
+		}
+		if len(parts) == 3 {
+			second, errS := strconv.Atoi(strings.TrimSpace(parts[2]))
+			if errS != nil || second < 0 || second > 59 {
+				return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
+			}
 		}
 		if h < 0 || h > 23 || m < 0 || m > 59 {
 			return 0, 0, fmt.Errorf("hour/minute out of range")
@@ -315,6 +338,10 @@ func normalizePathsUnderRoot(paths []string, root string) ([]string, int) {
 			skipped++
 			continue
 		}
+		if isTransientSourceFilePath(p, false) {
+			skipped++
+			continue
+		}
 		if _, ok := unique[p]; ok {
 			continue
 		}
@@ -322,6 +349,32 @@ func normalizePathsUnderRoot(paths []string, root string) ([]string, int) {
 		out = append(out, p)
 	}
 	return out, skipped
+}
+
+func applyTransientPathFilter(db *gorm.DB, column string) *gorm.DB {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		return db
+	}
+	lowerColumn := "LOWER(" + column + ")"
+	for ext := range transientSourceFileExtensions {
+		db = db.Where(lowerColumn+" NOT LIKE ?", "%"+ext)
+	}
+	db = db.Where(lowerColumn+" NOT LIKE ?", "%/~$%")
+	db = db.Where(lowerColumn+" NOT LIKE ?", `%\~$%`)
+	db = db.Where(lowerColumn+" NOT LIKE ?", "%/.#%")
+	db = db.Where(lowerColumn+" NOT LIKE ?", `%\.#%`)
+	db = db.Where(lowerColumn+" NOT LIKE ?", "%/#%#")
+	db = db.Where(lowerColumn+" NOT LIKE ?", `%\#%#`)
+	return db
+}
+
+func applyVisibleDocumentFilter(db *gorm.DB, parseStatusColumn string) *gorm.DB {
+	parseStatusColumn = strings.TrimSpace(parseStatusColumn)
+	if parseStatusColumn == "" {
+		return db
+	}
+	return db.Where("UPPER(COALESCE("+parseStatusColumn+", '')) <> ?", "DELETED")
 }
 
 func normalizeEventType(v string) string {

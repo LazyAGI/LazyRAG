@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,12 +47,43 @@ type CreateKnowledgeBaseResult struct {
 	Name      string
 }
 
+type KnowledgeBaseRef struct {
+	DatasetID   string
+	Name        string
+	ScanManaged bool
+}
+
 type Client interface {
 	Enabled() bool
 	SubmitParseTask(ctx context.Context, task store.PendingTask, stagedPath string, stagedURI string, stagedSize int64) (SubmitResult, error)
 	CreateKnowledgeBase(ctx context.Context, req CreateKnowledgeBaseRequest) (CreateKnowledgeBaseResult, error)
+	FindKnowledgeBaseByName(ctx context.Context, name, userID, userName string) (KnowledgeBaseRef, bool, error)
 	SearchTasks(ctx context.Context, taskIDs []string) (map[string]TaskState, error)
 	SearchTasksByDataset(ctx context.Context, datasetID string, taskIDs []string) (map[string]TaskState, error)
+}
+
+type HTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("core returned status=%d body=%s", e.StatusCode, strings.TrimSpace(e.Body))
+}
+
+func IsConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.StatusCode == http.StatusConflict
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "status=409") || strings.Contains(msg, "already exists")
 }
 
 type httpClient struct {
@@ -95,6 +127,10 @@ func (noopClient) SubmitParseTask(context.Context, store.PendingTask, string, st
 
 func (noopClient) CreateKnowledgeBase(context.Context, CreateKnowledgeBaseRequest) (CreateKnowledgeBaseResult, error) {
 	return CreateKnowledgeBaseResult{}, fmt.Errorf("core client is disabled")
+}
+
+func (noopClient) FindKnowledgeBaseByName(context.Context, string, string, string) (KnowledgeBaseRef, bool, error) {
+	return KnowledgeBaseRef{}, false, nil
 }
 
 func (noopClient) SearchTasks(context.Context, []string) (map[string]TaskState, error) {
@@ -245,8 +281,9 @@ func (c *httpClient) CreateKnowledgeBase(ctx context.Context, req CreateKnowledg
 	payload := map[string]any{
 		"display_name": name,
 		// Keep scan API contract simple: KB description follows KB name.
-		"desc": name,
-		"tags": []string{"scan"},
+		"desc":         name,
+		"tags":         []string{"scan"},
+		"scan_managed": true,
 		"algo": map[string]any{
 			"algo_id":      strings.TrimSpace(req.AlgoID),
 			"description":  strings.TrimSpace(req.AlgoDescription),
@@ -294,6 +331,43 @@ func (c *httpClient) CreateKnowledgeBase(ctx context.Context, req CreateKnowledg
 		DatasetID: datasetID,
 		Name:      firstNonEmpty(name, stringFromAny(createResp["display_name"])),
 	}, nil
+}
+
+func (c *httpClient) FindKnowledgeBaseByName(ctx context.Context, name, userID, userName string) (KnowledgeBaseRef, bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return KnowledgeBaseRef{}, false, fmt.Errorf("name is required")
+	}
+	listURL := c.path("/datasets") + "?page_size=100&keyword=" + url.QueryEscape(name)
+	var resp struct {
+		Datasets []struct {
+			DatasetID   string   `json:"dataset_id"`
+			DisplayName string   `json:"display_name"`
+			Tags        []string `json:"tags"`
+			ScanManaged bool     `json:"scan_managed"`
+		} `json:"datasets"`
+	}
+	if err := c.doJSONAs(ctx, http.MethodGet, listURL, nil, &resp, userID, userName); err != nil {
+		return KnowledgeBaseRef{}, false, err
+	}
+	for _, item := range resp.Datasets {
+		if strings.TrimSpace(item.DisplayName) != name {
+			continue
+		}
+		scanManaged := item.ScanManaged
+		for _, tag := range item.Tags {
+			if strings.EqualFold(strings.TrimSpace(tag), "scan") {
+				scanManaged = true
+				break
+			}
+		}
+		return KnowledgeBaseRef{
+			DatasetID:   strings.TrimSpace(item.DatasetID),
+			Name:        strings.TrimSpace(item.DisplayName),
+			ScanManaged: scanManaged,
+		}, true, nil
+	}
+	return KnowledgeBaseRef{}, false, nil
 }
 
 func (c *httpClient) SearchTasks(ctx context.Context, taskIDs []string) (map[string]TaskState, error) {
@@ -592,7 +666,7 @@ func (c *httpClient) doJSONAs(ctx context.Context, method, url string, payload a
 	defer httpResp.Body.Close()
 	if httpResp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("core returned status=%d body=%s", httpResp.StatusCode, strings.TrimSpace(string(raw)))
+		return &HTTPError{StatusCode: httpResp.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}
 	if out == nil {
 		return nil

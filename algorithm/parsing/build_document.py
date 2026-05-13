@@ -208,13 +208,10 @@ def build_document() -> Document:
     resolved_config_path = get_config_path()
     embed = {k: AutoModel(model=k, config=resolved_config_path) for k in embed_keys}
 
-    # After the node-group refactor, store_conf must be set on DocumentProcessor,
-    # not on Document (Document raises ValueError if both manager=DocumentProcessor
-    # and store_conf are provided simultaneously).
-    processor = DocumentProcessor(
-        url=processor_url,
-        store_conf=_build_store_config(get_embed_index_kwargs()),
-    )
+    # Current LazyLLM expects store_conf on DocumentProcessor when using DocumentProcessor,
+    # while Document receives only the remote processor manager.
+    # Document validates this manager/store_conf combination before wiring DocImpl.
+    processor = DocumentProcessor(url=processor_url, store_conf=_build_store_config(get_embed_index_kwargs()))
 
     docs = Document(
         dataset_path=None,

@@ -4,9 +4,23 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
+
+type authServiceGroupUserItem struct {
+	UserID string `json:"user_id"`
+}
+
+type authServiceGroupUsersResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
+		Users []authServiceGroupUserItem `json:"users"`
+	} `json:"data"`
+	Users []authServiceGroupUserItem `json:"users"`
+}
 
 // FetchUserNamesFromAuthService resolves user IDs to display names via auth-service.
 func FetchUserNamesFromAuthService(r *http.Request, userIDs []string) map[string]string {
@@ -58,6 +72,50 @@ func FetchGroupNamesFromAuthService(r *http.Request, groupIDs []string) map[stri
 	return out
 }
 
+// FetchGroupUserIDsFromAuthService resolves group IDs to member user IDs via auth-service.
+func FetchGroupUserIDsFromAuthService(r *http.Request, groupIDs []string) []string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, groupID := range compactNonEmptyStrings(groupIDs) {
+		groupPath := "/group/" + url.PathEscape(groupID) + "/user"
+		groupQuery := "?active_only=true"
+		endpoints := []struct {
+			path    string
+			headers map[string]string
+		}{
+			{path: groupPath + groupQuery, headers: authServiceRequestHeaders(r)},
+			{path: groupPath + "/internal" + groupQuery, headers: authServiceInternalRequestHeaders(r)},
+		}
+		users := []authServiceGroupUserItem{}
+		for _, endpoint := range endpoints {
+			var resp authServiceGroupUsersResponse
+			if err := ApiGet(requestContext(r), AuthServiceBaseURL()+endpoint.path, endpoint.headers, &resp, 3*time.Second); err != nil {
+				continue
+			}
+			users = resp.Users
+			if len(users) == 0 {
+				users = resp.Data.Users
+			}
+			break
+		}
+		if len(users) == 0 {
+			continue
+		}
+		for _, user := range users {
+			userID := strings.TrimSpace(user.UserID)
+			if userID == "" {
+				continue
+			}
+			if _, exists := seen[userID]; exists {
+				continue
+			}
+			seen[userID] = struct{}{}
+			out = append(out, userID)
+		}
+	}
+	return out
+}
+
 func authServiceRequestHeaders(r *http.Request) map[string]string {
 	headers := map[string]string{}
 	if r == nil {
@@ -71,6 +129,14 @@ func authServiceRequestHeaders(r *http.Request) map[string]string {
 	}
 	if value := UserName(r); value != "" {
 		headers["X-User-Name"] = value
+	}
+	return headers
+}
+
+func authServiceInternalRequestHeaders(r *http.Request) map[string]string {
+	headers := authServiceRequestHeaders(r)
+	if value := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN")); value != "" {
+		headers["X-LazyRAG-Internal-Token"] = value
 	}
 	return headers
 }

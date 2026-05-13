@@ -79,6 +79,61 @@ func newAgentTestDB(t *testing.T) *orm.DB {
 	return db
 }
 
+func TestBuildThreadCreateTitleUsesKnowledgeBaseDisplayNameAndDate(t *testing.T) {
+	db := newAgentTestDB(t)
+	if err := db.DB.AutoMigrate(&orm.Dataset{}); err != nil {
+		t.Fatalf("auto migrate dataset: %v", err)
+	}
+
+	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
+	if err := db.DB.Create(&orm.Dataset{
+		ID:                     "dataset-1",
+		KbID:                   "kb-1",
+		DisplayName:            "产品知识库",
+		ResourceUID:            "dataset-1",
+		DatasetInfo:            json.RawMessage(`{}`),
+		EmbeddingModel:         "default",
+		EmbeddingModelProvider: "default",
+		Type:                   1,
+		Ext:                    json.RawMessage(`{}`),
+		BaseModel: orm.BaseModel{
+			CreateUserID:   "user-1",
+			CreateUserName: "tester",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create dataset: %v", err)
+	}
+
+	payload := map[string]any{
+		"title": "old frontend title",
+		"inputs": map[string]any{
+			"kb_id": "kb-1",
+		},
+	}
+	applyThreadCreateTitle(context.Background(), db.DB, payload, now)
+
+	if got := payload["title"]; got != "产品知识库-2026-05-13" {
+		t.Fatalf("unexpected thread title: %#v", got)
+	}
+}
+
+func TestBuildThreadCreateTitleFallsBackToPayloadTitle(t *testing.T) {
+	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
+	payload := map[string]any{
+		"title": "前端传入名称",
+		"inputs": map[string]any{
+			"kb_id": "missing-kb",
+		},
+	}
+
+	got := buildThreadCreateTitle(context.Background(), nil, payload, now)
+	if got != "前端传入名称-2026-05-13" {
+		t.Fatalf("unexpected fallback thread title: %q", got)
+	}
+}
+
 func assertSignedStaticFileExists(t *testing.T, uploadRoot string, file *caseCSVFile) {
 	t.Helper()
 	if file == nil {
@@ -342,11 +397,41 @@ func TestBuildCaseCSVBytesJoinsListValues(t *testing.T) {
 	if strings.Join(records[0], ",") != strings.Join(expectedHeader, ",") {
 		t.Fatalf("unexpected header: %#v", records[0])
 	}
-	if records[1][3] != "a.pdf\nb.pdf" {
-		t.Fatalf("expected list cell to be joined with newlines, got %q", records[1][3])
+	if records[1][3] != "a.pdf; b.pdf" {
+		t.Fatalf("expected list cell to be joined inline, got %q", records[1][3])
 	}
 	if records[1][1] != `{"source":"doc"}` {
 		t.Fatalf("expected object cell to be json encoded, got %q", records[1][1])
+	}
+}
+
+func TestBuildCaseCSVBytesNormalizesMultilineCells(t *testing.T) {
+	csvBytes, rowCount, err := buildCaseCSVBytes([]any{
+		map[string]any{
+			"answer":   "line 1\r\nline 2\n\nline 3\x00\x01",
+			"segments": []any{"chunk 1\nchunk 2", "chunk 3"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildCaseCSVBytes returned error: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("expected row count 1, got %d", rowCount)
+	}
+	if bytes.ContainsAny(csvBytes, "\r\x00\x01") || bytes.Count(csvBytes, []byte("\n")) != 2 {
+		t.Fatalf("expected csv to contain record separators only and no control characters, got %q", string(csvBytes))
+	}
+
+	reader := csv.NewReader(bytes.NewReader(csvBytes))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v", err)
+	}
+	if records[1][0] != "line 1 line 2 line 3" {
+		t.Fatalf("expected multiline string to be normalized, got %q", records[1][0])
+	}
+	if records[1][1] != "chunk 1 chunk 2; chunk 3" {
+		t.Fatalf("expected multiline list values to be normalized, got %q", records[1][1])
 	}
 }
 
@@ -463,8 +548,8 @@ func TestBuildCaseDetailsCSVBytesUsesChineseHeadersAndQuestionTypeNames(t *testi
 	if records[1][2] != "单跳" {
 		t.Fatalf("expected question_type to be mapped to 单跳, got %q", records[1][2])
 	}
-	if records[1][3] != "要点一\n要点二" {
-		t.Fatalf("expected list value to be joined with newlines, got %q", records[1][3])
+	if records[1][3] != "要点一; 要点二" {
+		t.Fatalf("expected list value to be joined inline, got %q", records[1][3])
 	}
 }
 
@@ -912,6 +997,101 @@ func TestStreamMessageRecordsForwardsPublishedKeepalive(t *testing.T) {
 	}
 	if got := rec.String(); got != ": keepalive\n\n" {
 		t.Fatalf("unexpected message stream body: %q", got)
+	}
+}
+
+func TestStreamMessageRecordsReplaysOnlyActiveRound(t *testing.T) {
+	db := newAgentTestDB(t)
+	now := time.Now().UTC()
+	records := []orm.AgentThreadRecord{
+		{
+			ID:          "0001",
+			ThreadID:    "thr_1",
+			RoundID:     "round_old",
+			StreamKind:  streamKindMessage,
+			RecordKey:   "rk_old",
+			EventName:   "message",
+			PayloadText: `{"delta":"old"}`,
+			RawFrame:    `data: {"delta":"old"}`,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+		{
+			ID:          "0002",
+			ThreadID:    "thr_1",
+			RoundID:     "round_current",
+			StreamKind:  streamKindMessage,
+			RecordKey:   "rk_current",
+			EventName:   "message",
+			PayloadText: `{"delta":"current"}`,
+			RawFrame:    `data: {"delta":"current"}`,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+	}
+	if err := db.DB.Create(&records).Error; err != nil {
+		t.Fatalf("create records: %v", err)
+	}
+
+	done := make(chan struct{})
+	close(done)
+	session := &activeMessageStream{
+		threadID:    "thr_1",
+		roundID:     "round_current",
+		done:        done,
+		subscribers: make(map[*messageStreamSubscription]struct{}),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/agent/threads/thr_1:messages", nil)
+	rec := newTestSSERecorder()
+
+	streamMessageRecords(req, rec, rec, db.DB, "thr_1", "", session)
+
+	want := "data: {\"delta\":\"current\"}\n\n"
+	if got := rec.String(); got != want {
+		t.Fatalf("unexpected message replay:\nwant: %q\ngot:  %q", want, got)
+	}
+}
+
+func TestBuildThreadRoundResponsesOmitsHistoryInternalsAndBuildsAssistantMessage(t *testing.T) {
+	now := time.Now().UTC()
+	rounds := []orm.AgentThreadRound{
+		{
+			RoundID:          "round_1",
+			ThreadID:         "thr_1",
+			Status:           "completed",
+			UserMessage:      "hello",
+			AssistantMessage: "stored assistant message",
+			RequestPayload:   `{"message":"hello"}`,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}
+	recordsByRound := map[string][]orm.AgentThreadRecord{
+		"round_1": {
+			{ID: "0001", RoundID: "round_1", EventName: "answer_delta", PayloadText: `{"delta":"answer-1"}`},
+			{ID: "0002", RoundID: "round_1", EventName: "thinking_delta", PayloadText: `{"delta":"think-1"}`},
+			{ID: "0003", RoundID: "round_1", EventName: "thinking_delta", PayloadText: `{"delta":"think-2"}`},
+			{ID: "0004", RoundID: "round_1", EventName: "answer_delta", PayloadText: `{"delta":"answer-2"}`},
+			{ID: "0005", RoundID: "round_1", EventName: "other", PayloadText: `{"delta":"ignored"}`},
+		},
+	}
+
+	items := buildThreadRoundResponses(rounds, recordsByRound)
+	if len(items) != 1 {
+		t.Fatalf("expected one round response, got %d", len(items))
+	}
+	if got, want := items[0].AssistantMessage, "think-1think-2answer-1answer-2"; got != want {
+		t.Fatalf("unexpected assistant_message: want %q, got %q", want, got)
+	}
+
+	raw, err := json.Marshal(threadHistoryResponse{ThreadID: "thr_1", Rounds: items})
+	if err != nil {
+		t.Fatalf("marshal history response: %v", err)
+	}
+	for _, forbidden := range []string{"thread_events", "request_payload", "records"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("history response must not include %q: %s", forbidden, raw)
+		}
 	}
 }
 

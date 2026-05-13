@@ -192,7 +192,7 @@ export const normalizeGlossaryAsset = (value: unknown): GlossaryAsset | null => 
     aliases: toStringArray(raw.aliases),
     source: normalizeGlossarySource(raw.source),
     content: toStringValue(raw.description ?? raw.content ?? raw.summary, "").trim(),
-    protect: toBoolean(raw.lock ?? raw.is_locked ?? raw.protect, false),
+    autoEvo: toBoolean(raw.auto_evo ?? raw.lock ?? raw.is_locked, false),
   };
 };
 
@@ -316,7 +316,7 @@ export async function createGlossaryAsset(
     term: item.term,
     aliases: item.aliases,
     description: item.content,
-    lock: Boolean(item.protect),
+    lock: Boolean(item.autoEvo),
   });
   return normalizeGlossaryAsset(response.data);
 }
@@ -327,7 +327,7 @@ export async function updateGlossaryAsset(item: GlossaryAsset): Promise<Glossary
     term: item.term,
     aliases: item.aliases,
     description: item.content,
-    lock: Boolean(item.protect),
+    lock: Boolean(item.autoEvo),
   });
   return normalizeGlossaryAsset(response.data);
 }

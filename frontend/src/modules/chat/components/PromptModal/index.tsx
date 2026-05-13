@@ -277,7 +277,8 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
         <Modal
           title={t("chat.promptTemplateTitle")}
           className="prompt-modal"
-          width={624}
+          width="clamp(320px, 62vw, 624px)"
+          centered
           open={visible}
           maskClosable
           closable
@@ -298,6 +299,9 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
         </Modal>
         <Modal
           title={isEdit ? t("chat.editPromptTemplate") : t("chat.addPromptTemplate")}
+          className="prompt-edit-modal"
+          width="clamp(320px, 48vw, 520px)"
+          centered
           open={addModalVisible}
           maskClosable={false}
           closable

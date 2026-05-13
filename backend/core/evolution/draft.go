@@ -64,6 +64,21 @@ func LoadApprovedSuggestions(ctx context.Context, db *gorm.DB, userID, resourceT
 	return rows, nil
 }
 
+func LoadPendingReviewSuggestions(ctx context.Context, db *gorm.DB, userID, resourceType, resourceKey string) ([]orm.ResourceSuggestion, error) {
+	var rows []orm.ResourceSuggestion
+	if err := db.WithContext(ctx).Model(&orm.ResourceSuggestion{}).
+		Where("user_id = ? AND resource_type = ? AND resource_key = ? AND status = ?",
+			strings.TrimSpace(userID),
+			strings.TrimSpace(resourceType),
+			strings.TrimSpace(resourceKey),
+			SuggestionStatusPendingReview).
+		Order("created_at ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 func UpdateSuggestionStatus(ctx context.Context, db *gorm.DB, ids []string, status string) error {
 	if len(ids) == 0 {
 		return nil

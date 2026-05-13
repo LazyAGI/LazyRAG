@@ -1,0 +1,10 @@
+packages:
+  - "."
+
+allowBuilds:
+  "@nestjs/core": true
+  "@openapitools/openapi-generator-cli": true
+  "@parcel/watcher": true
+  core-js: true
+  es5-ext: true
+  esbuild: true

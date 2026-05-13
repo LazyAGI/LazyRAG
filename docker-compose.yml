@@ -1,3 +1,12 @@
+x-mirror-args: &mirror-args
+  DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io/library/}
+  PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+  PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
+  PIP_RETRIES: ${PIP_RETRIES:-10}
+  GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+  APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
+  APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+
 x-trace-config: &trace-config
   LANGFUSE_HOST: ""
   LANGFUSE_BASE_URL: ""
@@ -55,7 +64,11 @@ x-core-db-conn: &core-db-conn
 services:
 
   kong:
-    image: kong:3.6
+    build:
+      context: ./kong
+      dockerfile: Dockerfile
+      args:
+        DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io/library/}
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
@@ -116,6 +129,8 @@ services:
       network: host
       context: ./backend/scan-control-plane
       dockerfile: Dockerfile
+      args:
+        <<: *mirror-args
     command: ["-config", "/app/configs/control-plane.scan.yml"]
     volumes:
       - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
@@ -141,6 +156,8 @@ services:
       network: host
       context: ./backend/file-watcher
       dockerfile: Dockerfile
+      args:
+        <<: *mirror-args
     command: ["-config", "/app/configs/agent.yaml"]
     environment:
       RAGSCAN_AGENT_LISTEN_ADDR: "0.0.0.0:19090"
@@ -178,6 +195,8 @@ services:
       network: host
       context: ./backend
       dockerfile: auth-service/Dockerfile
+      args:
+        <<: *mirror-args
     volumes:
       - ./api/backend:/openapi-export
     expose:
@@ -211,6 +230,8 @@ services:
       network: host
       context: ./backend
       dockerfile: office-convert-service/Dockerfile
+      args:
+        <<: *mirror-args
     expose:
       - "8080"
     environment:
@@ -229,6 +250,8 @@ services:
       network: host
       context: ./backend
       dockerfile: core/Dockerfile
+      args:
+        <<: *mirror-args
     volumes:
       - ./api/backend:/openapi-export
       - /tmp/evo:/var/lib/lazyrag/evo
@@ -287,6 +310,8 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        <<: *mirror-args
     ports:
       - "${LAZYRAG_FRONTEND_PORT:-8080}:80"
     expose:
@@ -305,6 +330,8 @@ services:
       network: host
       context: .
       dockerfile: backend/core/doc/Dockerfile
+      args:
+        <<: *mirror-args
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -350,6 +377,7 @@ services:
       dockerfile: Dockerfile
       target: mineru
       args:
+        <<: *mirror-args
         MINERU_VERSION: 2.7.1
         MINERU_PACKAGE_VARIANT: pipeline
         MINERU_PREINSTALL_CPU_TORCH: "1"
@@ -357,7 +385,7 @@ services:
         MINERU_TORCHVISION_VERSION: 0.26.0
         MINERU_NUMPY_VERSION: 1.26.4
         MINERU_PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
-        MINERU_PYPI_INDEX_URL: https://mirrors.aliyun.com/pypi/simple/
+        MINERU_PYPI_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
     expose:
       - "8000"
     volumes:
@@ -435,6 +463,8 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        <<: *mirror-args
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -467,6 +497,8 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        <<: *mirror-args
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -505,6 +537,8 @@ services:
       context: ./algorithm
       dockerfile: Dockerfile
       target: default
+      args:
+        <<: *mirror-args
     expose:
       - "8000"
     healthcheck:
@@ -550,11 +584,7 @@ services:
       dockerfile: Dockerfile
       target: default
       args:
-        APT_MIRROR: http://mirrors.aliyun.com/debian
-        APT_SECURITY_MIRROR: http://mirrors.aliyun.com/debian-security
-        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
-        PIP_RETRIES: ${PIP_RETRIES:-10}
+        <<: *mirror-args
       secrets:
         - apt_http_proxy
         - apt_https_proxy
@@ -602,12 +632,8 @@ services:
       context: .
       dockerfile: evo/Dockerfile
       args:
+        <<: *mirror-args
         OPENCODE_VERSION: 1.14.28
-        APT_MIRROR: http://mirrors.aliyun.com/debian
-        APT_SECURITY_MIRROR: http://mirrors.aliyun.com/debian-security
-        PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple
-        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
-        PIP_RETRIES: ${PIP_RETRIES:-10}
       secrets:
         - apt_http_proxy
         - apt_https_proxy

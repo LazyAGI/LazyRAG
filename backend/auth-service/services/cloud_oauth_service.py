@@ -337,12 +337,18 @@ class CloudOAuthService:
             if not effective_redirect_uri:
                 raise_error(ErrorCodes.CLOUD_CREDENTIAL_INVALID, extra_msg='redirect_uri is required')
 
-            token = provider_impl.exchange_code(
-                client_id=(credential.get('client_id') or '').strip(),
-                client_secret=(credential.get('client_secret') or '').strip(),
-                code=code,
-                redirect_uri=effective_redirect_uri,
-            )
+            try:
+                token = provider_impl.exchange_code(
+                    client_id=(credential.get('client_id') or '').strip(),
+                    client_secret=(credential.get('client_secret') or '').strip(),
+                    code=code,
+                    redirect_uri=effective_redirect_uri,
+                )
+            except Exception as exc:
+                row.status = 'ERROR'
+                row.last_error = _truncate_error(exc)
+                CloudAuthConnectionRepository.save(db, row)
+                raise_error(ErrorCodes.CLOUD_TOKEN_UNAVAILABLE, extra_msg=_truncate_error(exc))
             if not token.access_token:
                 raise_error(ErrorCodes.CLOUD_TOKEN_UNAVAILABLE, extra_msg='empty access_token')
 

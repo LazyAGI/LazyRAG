@@ -7,11 +7,12 @@ backend/core/core
 __pycache__
 
 # python files
-__pycache__
+*__pycache__*
 *.pyc
 
 # temp files
 test/
+node_modules/
 dist/
 tmp/
 build
@@ -30,6 +31,8 @@ wget-log
 .claude
 .cursor
 .codex
+.codex-gocache/
+.codex-gomodcache/
 
 # docs
 lazyllm_chroma/

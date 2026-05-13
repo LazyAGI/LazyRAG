@@ -354,3 +354,63 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 		t.Fatalf("expected empty suggestions array, got %#v", algoBody["suggestions"])
 	}
 }
+
+func TestDiscardKeepsAcceptedSuggestionVisibleForRegeneration(t *testing.T) {
+	db := newMemoryTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	row := orm.SystemMemory{
+		ID:                 "memory-1",
+		UserID:             "u1",
+		Content:            "current memory",
+		ContentHash:        evolution.HashContent("current memory"),
+		Version:            3,
+		DraftContent:       "draft memory",
+		DraftSourceVersion: 3,
+		DraftStatus:        "pending_confirm",
+		Ext:                evolution.WithDraftSuggestionIDs(nil, []string{"suggestion-1"}),
+		UpdatedBy:          "u1",
+		UpdatedByName:      "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create memory: %v", err)
+	}
+	suggestion := orm.ResourceSuggestion{
+		ID:           "suggestion-1",
+		UserID:       "u1",
+		ResourceType: evolution.ResourceTypeMemory,
+		ResourceKey:  evolution.SystemResourceKey(evolution.ResourceTypeMemory),
+		Action:       evolution.SuggestionActionModify,
+		SessionID:    "session-1",
+		Title:        "memory suggestion",
+		Content:      "update memory",
+		Status:       evolution.SuggestionStatusAccepted,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := db.Create(&suggestion).Error; err != nil {
+		t.Fatalf("create suggestion: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/memory:discard", nil)
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	Discard(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated orm.ResourceSuggestion
+	if err := db.Where("id = ?", "suggestion-1").Take(&updated).Error; err != nil {
+		t.Fatalf("query suggestion: %v", err)
+	}
+	if updated.Status != evolution.SuggestionStatusAccepted {
+		t.Fatalf("expected suggestion to remain accepted after discard, got %q", updated.Status)
+	}
+}

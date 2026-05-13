@@ -13,6 +13,10 @@ interface ApiEnvelope<T> {
 }
 
 interface ManagedStateItem {
+  auto_evo?: boolean;
+  auto_evo_apply_status?: string;
+  auto_evo_generation?: number;
+  auto_evo_error?: string;
   content?: string;
   content_summary?: string;
   has_pending_review_suggestions?: boolean;
@@ -28,11 +32,14 @@ export interface PreferenceAssetRecord {
   id: string;
   title: string;
   content: string;
-  protect: boolean;
+  autoEvo: boolean;
   hasPendingReviewSuggestions?: boolean;
   resourceType?: string;
   summary?: string;
   suggestionStatus?: string;
+  autoEvoApplyStatus?: string;
+  autoEvoGeneration?: number;
+  autoEvoError?: string;
 }
 
 export interface PreferenceSuggestionPayload {
@@ -103,6 +110,7 @@ export interface EvolutionSuggestionRecord {
 export interface EvolutionSuggestionListOptions {
   page?: number;
   pageSize?: number;
+  statuses?: string[];
   evolutionId?: string;
   resourceId?: string;
   resourceType?: string;
@@ -119,11 +127,6 @@ export interface EvolutionSuggestionListResult {
   pageSize: number;
   total: number;
   hasMore: boolean;
-}
-
-interface PreferenceFrontMatter {
-  title?: string;
-  protect?: boolean;
 }
 
 const normalizeResourceType = (resourceType?: string) =>
@@ -282,51 +285,6 @@ const extractEvolutionSuggestionList = (
 
 const sanitizeInlineValue = (value: string) => value.replace(/\r?\n/g, " ").trim();
 
-const parsePreferenceFrontMatter = (rawContent: string) => {
-  const normalized = rawContent.replace(/\r\n/g, "\n");
-  if (!normalized.startsWith("---\n")) {
-    return {
-      frontMatter: {} as PreferenceFrontMatter,
-      body: normalized,
-    };
-  }
-
-  const endMarker = "\n---\n";
-  const endIndex = normalized.indexOf(endMarker, 4);
-  if (endIndex < 0) {
-    return {
-      frontMatter: {} as PreferenceFrontMatter,
-      body: normalized,
-    };
-  }
-
-  const metaBlock = normalized.slice(4, endIndex);
-  const body = normalized.slice(endIndex + endMarker.length);
-  const frontMatter: PreferenceFrontMatter = {};
-
-  metaBlock.split("\n").forEach((line) => {
-    const separatorIndex = line.indexOf(":");
-    if (separatorIndex < 0) {
-      return;
-    }
-
-    const key = line.slice(0, separatorIndex).trim().toLowerCase();
-    const value = line.slice(separatorIndex + 1).trim();
-
-    if (key === "title") {
-      frontMatter.title = value;
-    }
-    if (key === "protect") {
-      frontMatter.protect = toBoolean(value, false);
-    }
-  });
-
-  return {
-    frontMatter,
-    body,
-  };
-};
-
 const fallbackTitleFromContent = (content: string, fallback = "") => {
   const firstLine = content
     .split(/\r?\n/)
@@ -381,35 +339,22 @@ const isManagedStateLike = (item: RawObject) =>
     (key) => key in item,
   );
 
-export const serializePreferenceContent = (item: {
-  title: string;
-  content: string;
-  protect?: boolean;
-}) => {
-  const title = sanitizeInlineValue(item.title);
-  const content = item.content.trim();
-  const protect = item.protect ? "true" : "false";
-
-  return `---\ntitle: ${title}\nprotect: ${protect}\n---\n${content}`;
-};
-
 export const parsePreferenceContent = (
   rawContent: string,
   fallback?: Partial<PreferenceAssetRecord>,
 ): PreferenceAssetRecord => {
-  const normalizedContent = toStringValue(rawContent, "");
-  const { frontMatter, body } = parsePreferenceFrontMatter(normalizedContent);
-  const parsedBody = body.trim();
+  const body = toStringValue(rawContent, "").trim();
   const title =
-    sanitizeInlineValue(frontMatter.title || "") ||
+    fallbackTitleFromContent(body) ||
     sanitizeInlineValue(fallback?.title || "") ||
-    fallbackTitleFromContent(parsedBody, fallback?.id || "preference");
+    fallback?.id ||
+    "preference";
 
   return {
     id: fallback?.id || title,
     title,
-    content: parsedBody,
-    protect: frontMatter.protect ?? Boolean(fallback?.protect),
+    content: body,
+    autoEvo: Boolean(fallback?.autoEvo),
     resourceType: fallback?.resourceType,
     summary: fallback?.summary,
   };
@@ -435,11 +380,12 @@ const normalizeManagedPreference = (item: ManagedStateItem): PreferenceAssetReco
     return null;
   }
 
+  const backendAutoEvo = toBoolean(item.auto_evo, false);
   const parsed = parsePreferenceContent(content, {
     id: id || title || summary || "preference",
     title: title || summary || "",
     content,
-    protect: false,
+    autoEvo: backendAutoEvo,
     resourceType,
     summary,
   });
@@ -449,6 +395,9 @@ const normalizeManagedPreference = (item: ManagedStateItem): PreferenceAssetReco
     hasPendingReviewSuggestions,
     title: sanitizeInlineValue(title) || parsed.title,
     suggestionStatus,
+    autoEvoApplyStatus: toStringValue(item.auto_evo_apply_status, ""),
+    autoEvoGeneration: toNumberValue(item.auto_evo_generation, 0),
+    autoEvoError: toStringValue(item.auto_evo_error, ""),
   };
 };
 
@@ -523,6 +472,12 @@ export async function listEvolutionSuggestions(
   }
   if (options.keyword) {
     params.set("keyword", options.keyword);
+  }
+  if (options.statuses?.length) {
+    options.statuses
+      .map((status) => status.trim())
+      .filter(Boolean)
+      .forEach((status) => params.append("status", status));
   }
 
   const response = await axiosInstance.get(
@@ -613,22 +568,23 @@ export async function updatePersonalizationSetting(enabled: boolean): Promise<bo
 export async function upsertPreferenceAsset(item: {
   title: string;
   content: string;
-  protect?: boolean;
+  autoEvo?: boolean;
   resourceType?: string;
 }): Promise<PreferenceAssetRecord> {
   const endpoint = isMemoryResourceType(item.resourceType) ? "memory" : "user-preference";
   const response = await axiosInstance.put(`${coreBasePath}/${endpoint}`, {
-    content: serializePreferenceContent(item),
+    content: item.content.trim(),
+    auto_evo: Boolean(item.autoEvo),
   });
   const records = extractManagedPreferenceRecords(response.data);
   const payload = pickUpsertedPreferenceRecord(records, item);
 
   return (
     payload ||
-    parsePreferenceContent(serializePreferenceContent(item), {
+    parsePreferenceContent(item.content, {
       id: item.title,
       title: item.title,
-      protect: Boolean(item.protect),
+      autoEvo: Boolean(item.autoEvo),
       resourceType: item.resourceType,
     })
   );

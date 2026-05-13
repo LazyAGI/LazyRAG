@@ -41,9 +41,10 @@ class KBClient:
         items: list[dict] = []
         page_size = 100
         for page in range(1, 101):
-            params = {id_key: kb_id, 'page': page, 'page_size': page_size}
-            if id_key == 'kb_id':
-                params['algo_id'] = algo_id
+            # params = {id_key: kb_id, 'page': page, 'page_size': page_size}
+            params = {id_key: kb_id}
+            # if id_key == 'kb_id':
+            #     params['algo_id'] = algo_id
             r = self._http.get(f'{base}/v1/docs', params=params, timeout=self.timeout)
             r.raise_for_status()
             batch = r.json().get('data', {}).get('items', [])

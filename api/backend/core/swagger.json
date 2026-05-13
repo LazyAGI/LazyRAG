@@ -2951,6 +2951,19 @@
       },
       "managedStateOpenAPIResponse": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "content": {
             "type": "string"
           },
@@ -2974,6 +2987,10 @@
           }
         },
         "required": [
+          "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "content",
           "content_summary",
           "has_pending_review_suggestions",
@@ -2986,6 +3003,9 @@
       },
       "managedStateUpsertOpenAPIRequest": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
           "content": {
             "type": "string"
           }
@@ -3133,14 +3153,14 @@
       },
       "skillChildCreateOpenAPIRequest": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
           "content": {
             "type": "string"
           },
           "file_ext": {
             "type": "string"
-          },
-          "is_locked": {
-            "type": "boolean"
           },
           "name": {
             "type": "string"
@@ -3154,6 +3174,9 @@
       },
       "skillCreateManagedOpenAPIRequest": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
           "category": {
             "type": "string"
           },
@@ -3173,9 +3196,6 @@
             "type": "string"
           },
           "is_enabled": {
-            "type": "boolean"
-          },
-          "is_locked": {
             "type": "boolean"
           },
           "name": {
@@ -3211,6 +3231,19 @@
       },
       "skillDetailChildOpenAPIResponse": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "content": {
             "type": "string"
           },
@@ -3224,9 +3257,6 @@
             "type": "boolean"
           },
           "is_enabled": {
-            "type": "boolean"
-          },
-          "is_locked": {
             "type": "boolean"
           },
           "name": {
@@ -3249,12 +3279,15 @@
           }
         },
         "required": [
+          "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "content",
           "description",
           "file_ext",
           "has_pending_review_suggestions",
           "is_enabled",
-          "is_locked",
           "name",
           "node_type",
           "parent_skill_name",
@@ -3266,6 +3299,19 @@
       },
       "skillDetailOpenAPIResponse": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "category": {
             "type": "string"
           },
@@ -3288,9 +3334,6 @@
             "type": "boolean"
           },
           "is_enabled": {
-            "type": "boolean"
-          },
-          "is_locked": {
             "type": "boolean"
           },
           "name": {
@@ -3319,13 +3362,16 @@
           }
         },
         "required": [
+          "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "category",
           "content",
           "description",
           "file_ext",
           "has_pending_review_suggestions",
           "is_enabled",
-          "is_locked",
           "name",
           "node_type",
           "parent_skill_name",
@@ -3425,6 +3471,19 @@
       },
       "skillListChildOpenAPIResponse": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "description": {
             "type": "string"
           },
@@ -3435,9 +3494,6 @@
             "type": "boolean"
           },
           "is_enabled": {
-            "type": "boolean"
-          },
-          "is_locked": {
             "type": "boolean"
           },
           "name": {
@@ -3457,11 +3513,14 @@
           }
         },
         "required": [
+          "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "description",
           "file_ext",
           "has_pending_review_suggestions",
           "is_enabled",
-          "is_locked",
           "name",
           "node_type",
           "skill_id",
@@ -3472,6 +3531,19 @@
       },
       "skillListItemOpenAPIResponse": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
+          "auto_evo_apply_status": {
+            "type": "string"
+          },
+          "auto_evo_error": {
+            "type": "string"
+          },
+          "auto_evo_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
           "category": {
             "type": "string"
           },
@@ -3488,9 +3560,6 @@
             "type": "boolean"
           },
           "is_enabled": {
-            "type": "boolean"
-          },
-          "is_locked": {
             "type": "boolean"
           },
           "name": {
@@ -3516,11 +3585,14 @@
           }
         },
         "required": [
+          "auto_evo",
+          "auto_evo_apply_status",
+          "auto_evo_error",
+          "auto_evo_generation",
           "category",
           "description",
           "has_pending_review_suggestions",
           "is_enabled",
-          "is_locked",
           "name",
           "node_type",
           "skill_id",
@@ -3881,6 +3953,9 @@
       },
       "skillUpdateManagedOpenAPIRequest": {
         "properties": {
+          "auto_evo": {
+            "type": "boolean"
+          },
           "category": {
             "type": "string"
           },
@@ -3894,9 +3969,6 @@
             "type": "string"
           },
           "is_enabled": {
-            "type": "boolean"
-          },
-          "is_locked": {
             "type": "boolean"
           },
           "name": {

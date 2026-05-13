@@ -14,6 +14,7 @@ from chat.prompts.agentic import (
     _MEMORY_REVIEW_PROMPT,
     _SKILL_REVIEW_PROMPT,
 )
+from chat.utils.load_config import normalize_skill_fs_url
 
 DEFAULT_TOOLS = [
     'kb_search',
@@ -129,6 +130,7 @@ def _sync_request_context(config: dict) -> None:
         config['kb_url'] = kb_url
     if kb_name:
         config['kb_name'] = kb_name
+    config['skill_fs_url'] = normalize_skill_fs_url(config.get('skill_fs_url'))
 
 
 def _filter_tools_for_request(tools: list[str], config: dict) -> list[str]:

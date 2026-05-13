@@ -1,5 +1,6 @@
 import { type MouseEvent } from "react";
 import { Modal, Typography } from "antd";
+import { useTranslation } from "react-i18next";
 import {
   DeleteOutlined,
   HistoryOutlined,
@@ -23,23 +24,34 @@ export function HistorySessionItem({
   onSelect,
   onDelete,
 }: HistorySessionItemProps) {
+  const { t } = useTranslation();
   return (
-    <div className="self-evolution-history-modal-item" role="listitem">
+    <div
+      className={`self-evolution-history-modal-item${entry.isCurrent ? " is-current" : ""}`}
+      role="listitem"
+    >
       <button
         type="button"
         className="self-evolution-history-modal-item-select"
         onClick={() => onSelect(entry)}
-        disabled={isDeleting}
+        disabled={isDeleting || entry.isCurrent}
+        aria-current={entry.isCurrent ? "true" : undefined}
       >
         <div className="self-evolution-history-modal-item-main">
           <div className="self-evolution-history-modal-item-title-row">
             <strong>{entry.title}</strong>
+            {entry.isCurrent && (
+              <span className="self-evolution-history-modal-current-badge">
+                <span className="self-evolution-history-modal-current-dot" />
+                {t("selfEvolutionRun.currentSession")}
+              </span>
+            )}
             <span className={`self-evolution-history-modal-item-badge is-${entry.source}`}>
-              {entry.source === "thread" ? "线程会话" : "本地会话"}
+              {entry.source === "thread" ? t("selfEvolutionRun.threadSession") : t("selfEvolutionRun.localSession")}
             </span>
           </div>
           <span className="self-evolution-history-modal-item-meta">
-            {entry.threadId ? `线程 ID：${entry.threadId}` : `消息数：${entry.messageCount || 0}`}
+            {entry.threadId ? t("selfEvolutionRun.threadIdLabel", { id: entry.threadId }) : t("selfEvolutionRun.messageCount", { count: entry.messageCount || 0 })}
           </span>
         </div>
         <div className="self-evolution-history-modal-item-side">
@@ -47,7 +59,7 @@ export function HistorySessionItem({
             <span className="self-evolution-history-modal-item-status">{entry.status}</span>
           )}
           <span>{entry.updatedAt}</span>
-          <span>进入</span>
+          <span>{entry.isCurrent ? t("selfEvolutionRun.viewing") : t("selfEvolutionRun.enter")}</span>
         </div>
       </button>
       <button
@@ -55,8 +67,8 @@ export function HistorySessionItem({
         className="self-evolution-history-modal-item-delete"
         onClick={(event) => onDelete(entry, event)}
         disabled={isDeleting}
-        aria-label={`删除会话历史：${entry.title}`}
-        title="删除会话历史"
+        aria-label={t("selfEvolutionRun.deleteHistoryAria", { title: entry.title })}
+        title={t("selfEvolutionRun.deleteHistoryTitle")}
       >
         {isDeleting ? <LoadingOutlined spin /> : <DeleteOutlined />}
       </button>
@@ -77,6 +89,7 @@ export function HistorySessionTab({
   onSelect,
   onDelete,
 }: HistorySessionTabProps) {
+  const { t } = useTranslation();
   return (
     <div className="self-evolution-history-tab" title={entry.title}>
       <button
@@ -97,8 +110,8 @@ export function HistorySessionTab({
         className="self-evolution-history-tab-delete"
         onClick={(event) => onDelete(entry, event)}
         disabled={isDeleting}
-        aria-label={`删除会话历史：${entry.title}`}
-        title="删除会话历史"
+        aria-label={t("selfEvolutionRun.deleteHistoryAria", { title: entry.title })}
+        title={t("selfEvolutionRun.deleteHistoryTitle")}
       >
         {isDeleting ? <LoadingOutlined spin /> : <DeleteOutlined />}
       </button>
@@ -132,6 +145,7 @@ export function HistorySessionModal({
   onSelectHistorySession,
   onDeleteHistorySession,
 }: HistorySessionModalProps) {
+  const { t } = useTranslation();
   return (
     <Modal
       open={open}
@@ -142,15 +156,15 @@ export function HistorySessionModal({
       className="self-evolution-history-modal"
       title={null}
     >
-      <section className="self-evolution-history-modal-shell" aria-label="历史会话选择">
+      <section className="self-evolution-history-modal-shell" aria-label={t("selfEvolutionRun.historyModalAria")}>
         <header className="self-evolution-history-modal-head">
           <div className="self-evolution-history-modal-copy">
-            <Text className="self-evolution-history-modal-kicker">历史会话</Text>
+            <Text className="self-evolution-history-modal-kicker">{t("selfEvolutionRun.historySessions")}</Text>
             <Typography.Title level={4} className="self-evolution-history-modal-title">
-              选择要进入的会话
+              {t("selfEvolutionRun.historyModalTitle")}
             </Typography.Title>
             <Text className="self-evolution-history-modal-subtitle">
-              从服务端会话列表选择线程，进入后会自动恢复详情、历史消息与执行记录。
+              {t("selfEvolutionRun.historyModalSubtitle")}
             </Text>
           </div>
         </header>
@@ -159,16 +173,16 @@ export function HistorySessionModal({
           <div className="self-evolution-history-modal-alert">
             <span>{threadHistoryListError}</span>
             <button type="button" onClick={onRetry}>
-              重试
+              {t("selfEvolutionRun.retry")}
             </button>
           </div>
         )}
 
-        <div className="self-evolution-history-modal-list" role="list" aria-label="历史会话列表">
+        <div className="self-evolution-history-modal-list" role="list" aria-label={t("selfEvolutionRun.historyListAria")}>
           {isLoadingThreadHistoryList && historySessionEntries.length === 0 ? (
             <div className="self-evolution-history-modal-empty is-loading">
               <LoadingOutlined spin />
-              <Text>正在获取历史会话...</Text>
+              <Text>{t("selfEvolutionRun.loadingHistory")}</Text>
             </div>
           ) : historySessionEntries.length > 0 ? (
             historySessionEntries.map((entry) => (
@@ -182,7 +196,7 @@ export function HistorySessionModal({
             ))
           ) : (
             <div className="self-evolution-history-modal-empty">
-              <Text>还没有可选择的历史会话。</Text>
+              <Text>{t("selfEvolutionRun.noHistory")}</Text>
             </div>
           )}
         </div>

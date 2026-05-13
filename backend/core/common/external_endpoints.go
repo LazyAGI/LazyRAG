@@ -41,3 +41,11 @@ func AlgoServiceEndpoint() string {
 	}
 	return "http://10.119.24.129:8850"
 }
+
+// ParsingServiceEndpoint returns the base URL for the parsing/processor service.
+func ParsingServiceEndpoint() string {
+	if u := strings.TrimSpace(os.Getenv("LAZYRAG_PARSING_SERVICE_URL")); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return "http://localhost:8000"
+}

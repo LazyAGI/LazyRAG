@@ -74,12 +74,28 @@ def test_create_user_rejects_invalid_role_id():
 
 
 def test_list_users_returns_pagination_payload(monkeypatch):
-    monkeypatch.setattr(user_api.user_service, 'list_users', lambda **kwargs: (['u1'], 7))
+    calls = []
+    monkeypatch.setattr(user_api.user_service, 'list_users', lambda **kwargs: calls.append(kwargs) or (['u1'], 7))
 
-    result = _call(user_api.list_users, object(), page=2, page_size=5, search='ali', tenant_id='tenant-a')
+    result = _call(
+        user_api.list_users,
+        object(),
+        page=2,
+        page_size=5,
+        search='ali',
+        tenant_id='tenant-a',
+        active_only=True,
+    )
 
     assert isinstance(result, dict)
     assert result == {'users': ['u1'], 'total': 7, 'page': 2, 'page_size': 5}
+    assert calls == [{
+        'page': 2,
+        'page_size': 5,
+        'search': 'ali',
+        'tenant_id': 'tenant-a',
+        'active_only': True,
+    }]
 
 
 def test_create_user_passes_none_role_id_when_absent(monkeypatch):

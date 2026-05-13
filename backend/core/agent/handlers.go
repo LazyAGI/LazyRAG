@@ -134,6 +134,7 @@ func CreateThread(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid body", err), http.StatusBadRequest)
 		return
 	}
+	applyThreadCreateTitle(r.Context(), db, requestPayload, time.Now())
 
 	var creationGuard *userActiveThreadCreationGuard
 	// Temporary integration bypass: comment this guard block to disable single-active-thread enforcement.
@@ -1219,8 +1220,10 @@ func streamMessageRecords(
 	session *activeMessageStream,
 ) {
 	lastSent := afterID
+	replayRoundID := ""
 	var sub *messageStreamSubscription
 	if session != nil {
+		replayRoundID = session.roundID
 		sub = session.subscribe()
 		defer session.unsubscribe(sub)
 	}
@@ -1230,7 +1233,7 @@ func streamMessageRecords(
 			if r.Context().Err() != nil {
 				return false
 			}
-			records, err := listRecords(db, threadID, streamKindMessage, "", lastSent, 200)
+			records, err := listRecords(db, threadID, streamKindMessage, replayRoundID, lastSent, 200)
 			if err != nil {
 				log.Logger.Warn().Err(err).Str("thread_id", threadID).Str("stream_kind", streamKindMessage).Msg("load stored stream records failed")
 				time.Sleep(500 * time.Millisecond)
@@ -1359,6 +1362,82 @@ func decodeRequestBody(r *http.Request) (map[string]any, []byte, error) {
 		return nil, nil, err
 	}
 	return payload, bodyBytes, nil
+}
+
+func applyThreadCreateTitle(ctx context.Context, db *gorm.DB, payload map[string]any, now time.Time) {
+	title := buildThreadCreateTitle(ctx, db, payload, now)
+	if title == "" {
+		return
+	}
+	payload["title"] = title
+}
+
+func buildThreadCreateTitle(ctx context.Context, db *gorm.DB, payload map[string]any, now time.Time) string {
+	kbID := extractThreadCreateKnowledgeBaseID(payload)
+	kbName := lookupThreadCreateKnowledgeBaseName(ctx, db, kbID)
+	if kbName == "" {
+		kbName = strings.TrimSpace(extractThreadCreatePayloadTitle(payload))
+	}
+	if kbName == "" {
+		kbName = strings.TrimSpace(kbID)
+	}
+	if kbName == "" {
+		return ""
+	}
+
+	date := now.Format("2006-01-02")
+	suffix := "-" + date
+	if strings.HasSuffix(kbName, suffix) {
+		return kbName
+	}
+	return kbName + suffix
+}
+
+func extractThreadCreateKnowledgeBaseID(payload map[string]any) string {
+	for _, rootKey := range []string{"inputs", "input", "config"} {
+		if object, ok := payload[rootKey].(map[string]any); ok {
+			if value := firstThreadCreateString(object, "kb_id", "knowledge_base_id", "knowledgeBaseId", "dataset_id", "datasetId"); value != "" {
+				return value
+			}
+		}
+	}
+	return firstThreadCreateString(payload, "kb_id", "knowledge_base_id", "knowledgeBaseId", "dataset_id", "datasetId")
+}
+
+func extractThreadCreatePayloadTitle(payload map[string]any) string {
+	return firstThreadCreateString(payload, "title", "thread_name", "name", "display_name")
+}
+
+func firstThreadCreateString(payload map[string]any, keys ...string) string {
+	if payload == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value, ok := payload[key]; ok {
+			if result := stringifyMatchedString(value); result != "" {
+				return result
+			}
+		}
+	}
+	return ""
+}
+
+func lookupThreadCreateKnowledgeBaseName(ctx context.Context, db *gorm.DB, kbID string) string {
+	kbID = strings.TrimSpace(kbID)
+	if db == nil || kbID == "" {
+		return ""
+	}
+
+	var ds orm.Dataset
+	if err := db.WithContext(ctx).
+		Where("(id = ? OR kb_id = ?) AND deleted_at IS NULL", kbID, kbID).
+		First(&ds).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Logger.Warn().Err(err).Str("kb_id", kbID).Msg("lookup thread knowledge base name failed")
+		}
+		return ""
+	}
+	return strings.TrimSpace(ds.DisplayName)
 }
 
 func loadThread(db *gorm.DB, threadID string) (orm.AgentThread, error) {

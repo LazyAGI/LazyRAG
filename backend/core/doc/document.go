@@ -549,6 +549,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "delete document failed", http.StatusInternalServerError)
 		return
 	}
+	recalcAffectedFolderStats(r.Context(), datasetID, row.PID)
 	w.WriteHeader(http.StatusOK)
 }
 func UpdateDocument(w http.ResponseWriter, r *http.Request) {
@@ -983,6 +984,11 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "batch delete document failed", http.StatusInternalServerError)
 		return
 	}
+	pids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		pids = append(pids, row.PID)
+	}
+	recalcAffectedFolderStats(r.Context(), datasetID, pids...)
 	w.WriteHeader(http.StatusOK)
 }
 func AllDocumentCreators(w http.ResponseWriter, r *http.Request) {
@@ -1220,6 +1226,19 @@ type mergedDocRow struct {
 	RelPath          string
 	DocumentStage    string
 	PDFConvertResult string
+}
+
+func latestTime(values ...time.Time) time.Time {
+	var out time.Time
+	for _, value := range values {
+		if value.IsZero() {
+			continue
+		}
+		if out.IsZero() || value.After(out) {
+			out = value
+		}
+	}
+	return out
 }
 
 func loadDatasetDocuments(ctx context.Context, datasetID, keyword, pid string, applyPIDFilter bool, limit, offset int) ([]mergedDocRow, int64, error) {
@@ -1547,7 +1566,7 @@ func loadMergedDocumentsBySearch(ctx context.Context, datasetIDs []string, keywo
 			DatasetID:        doc.DatasetID,
 			DatasetDisplay:   datasetDisplay,
 			BaseCreatedAt:    base.CreatedAt,
-			BaseUpdatedAt:    base.UpdatedAt,
+			BaseUpdatedAt:    latestTime(base.UpdatedAt, doc.UpdatedAt),
 			DisplayName:      displayName,
 			PID:              doc.PID,
 			Tags:             doc.Tags,
@@ -1915,7 +1934,7 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 			DatasetID:        doc.DatasetID,
 			DatasetDisplay:   datasetDisplay,
 			BaseCreatedAt:    base.CreatedAt,
-			BaseUpdatedAt:    base.UpdatedAt,
+			BaseUpdatedAt:    latestTime(base.UpdatedAt, doc.UpdatedAt),
 			DisplayName:      displayName,
 			PID:              doc.PID,
 			Tags:             doc.Tags,

@@ -238,6 +238,7 @@ type StatFileResponse struct {
 
 type TreeRequest struct {
 	Path         string `json:"path"`
+	Keyword      string `json:"keyword,omitempty"`
 	MaxDepth     int    `json:"max_depth,omitempty"`
 	IncludeFiles bool   `json:"include_files,omitempty"`
 }

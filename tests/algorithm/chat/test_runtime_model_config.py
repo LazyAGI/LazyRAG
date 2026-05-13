@@ -2,8 +2,6 @@
 import textwrap
 from pathlib import Path
 
-import pytest
-
 from chat.utils.load_config import load_model_config, get_config_path
 
 

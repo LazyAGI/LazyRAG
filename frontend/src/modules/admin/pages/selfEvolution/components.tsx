@@ -235,7 +235,11 @@ export function ChatComposer({
             onChange={onInputChange}
             autoSize={{ minRows: 2, maxRows: 4 }}
             className="self-evolution-chatlike-input"
-            placeholder="继续输入指令，例如：请先扩展数据集样本，再进入评测阶段。"
+            placeholder={
+              isCheckpointWaiting
+                ? "可继续输入补充指令，或点击上方按钮继续执行。"
+                : "继续输入指令，例如：请先扩展数据集样本，再进入评测阶段。"
+            }
             aria-label="继续输入自进化指令"
             onPressEnter={onInputPressEnter}
           />

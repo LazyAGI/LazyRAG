@@ -715,10 +715,10 @@ type suggestionBatchReviewOpenAPIResponse struct {
 }
 
 type skillChildCreateOpenAPIRequest struct {
-	Name     string `json:"name"`
-	Content  string `json:"content"`
-	FileExt  string `json:"file_ext,omitempty"`
-	IsLocked *bool  `json:"is_locked,omitempty"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	FileExt string `json:"file_ext,omitempty"`
+	AutoEvo *bool  `json:"auto_evo,omitempty"`
 }
 
 type skillCreateManagedOpenAPIRequest struct {
@@ -729,20 +729,21 @@ type skillCreateManagedOpenAPIRequest struct {
 	Tags            []string                         `json:"tags,omitempty"`
 	Content         string                           `json:"content"`
 	FileExt         string                           `json:"file_ext,omitempty"`
-	IsLocked        *bool                            `json:"is_locked,omitempty"`
+	AutoEvo         *bool                            `json:"auto_evo,omitempty"`
 	IsEnabled       *bool                            `json:"is_enabled,omitempty"`
 	Children        []skillChildCreateOpenAPIRequest `json:"children,omitempty"`
 }
 
 type skillUpdateManagedOpenAPIRequest struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Category    *string  `json:"category,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Content     *string  `json:"content,omitempty"`
-	FileExt     *string  `json:"file_ext,omitempty"`
-	IsLocked    *bool    `json:"is_locked,omitempty"`
-	IsEnabled   *bool    `json:"is_enabled,omitempty"`
+	Name            *string  `json:"name,omitempty"`
+	Description     *string  `json:"description,omitempty"`
+	Category        *string  `json:"category,omitempty"`
+	ParentSkillName *string  `json:"parent_skill_name,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+	Content         *string  `json:"content,omitempty"`
+	FileExt         *string  `json:"file_ext,omitempty"`
+	AutoEvo         *bool    `json:"auto_evo,omitempty"`
+	IsEnabled       *bool    `json:"is_enabled,omitempty"`
 }
 
 type skillListChildOpenAPIResponse struct {
@@ -750,7 +751,10 @@ type skillListChildOpenAPIResponse struct {
 	Name                        string `json:"name"`
 	Description                 string `json:"description"`
 	FileExt                     string `json:"file_ext"`
-	IsLocked                    bool   `json:"is_locked"`
+	AutoEvo                     bool   `json:"auto_evo"`
+	AutoEvoApplyStatus          string `json:"auto_evo_apply_status"`
+	AutoEvoGeneration           int64  `json:"auto_evo_generation"`
+	AutoEvoError                string `json:"auto_evo_error"`
 	IsEnabled                   bool   `json:"is_enabled"`
 	UpdateStatus                string `json:"update_status"`
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
@@ -764,7 +768,10 @@ type skillListItemOpenAPIResponse struct {
 	Description                 string                          `json:"description"`
 	Category                    string                          `json:"category"`
 	Tags                        []string                        `json:"tags"`
-	IsLocked                    bool                            `json:"is_locked"`
+	AutoEvo                     bool                            `json:"auto_evo"`
+	AutoEvoApplyStatus          string                          `json:"auto_evo_apply_status"`
+	AutoEvoGeneration           int64                           `json:"auto_evo_generation"`
+	AutoEvoError                string                          `json:"auto_evo_error"`
 	IsEnabled                   bool                            `json:"is_enabled"`
 	UpdateStatus                string                          `json:"update_status"`
 	HasPendingReviewSuggestions bool                            `json:"has_pending_review_suggestions"`
@@ -785,7 +792,10 @@ type skillDetailChildOpenAPIResponse struct {
 	Name                        string `json:"name"`
 	Description                 string `json:"description"`
 	FileExt                     string `json:"file_ext"`
-	IsLocked                    bool   `json:"is_locked"`
+	AutoEvo                     bool   `json:"auto_evo"`
+	AutoEvoApplyStatus          string `json:"auto_evo_apply_status"`
+	AutoEvoGeneration           int64  `json:"auto_evo_generation"`
+	AutoEvoError                string `json:"auto_evo_error"`
 	IsEnabled                   bool   `json:"is_enabled"`
 	UpdateStatus                string `json:"update_status"`
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
@@ -801,7 +811,10 @@ type skillDetailOpenAPIResponse struct {
 	Description                 string                            `json:"description"`
 	Category                    string                            `json:"category"`
 	Tags                        []string                          `json:"tags"`
-	IsLocked                    bool                              `json:"is_locked"`
+	AutoEvo                     bool                              `json:"auto_evo"`
+	AutoEvoApplyStatus          string                            `json:"auto_evo_apply_status"`
+	AutoEvoGeneration           int64                             `json:"auto_evo_generation"`
+	AutoEvoError                string                            `json:"auto_evo_error"`
 	IsEnabled                   bool                              `json:"is_enabled"`
 	UpdateStatus                string                            `json:"update_status"`
 	HasPendingReviewSuggestions bool                              `json:"has_pending_review_suggestions"`
@@ -928,6 +941,7 @@ type systemSuggestionOpenAPIRequest struct {
 
 type managedStateUpsertOpenAPIRequest struct {
 	Content string `json:"content"`
+	AutoEvo *bool  `json:"auto_evo,omitempty"`
 }
 
 type managedStateOpenAPIResponse struct {
@@ -938,6 +952,10 @@ type managedStateOpenAPIResponse struct {
 	ContentSummary              string `json:"content_summary"`
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
 	SuggestionStatus            string `json:"suggestion_status"`
+	AutoEvo                     bool   `json:"auto_evo"`
+	AutoEvoApplyStatus          string `json:"auto_evo_apply_status"`
+	AutoEvoGeneration           int64  `json:"auto_evo_generation"`
+	AutoEvoError                string `json:"auto_evo_error"`
 }
 
 type managedStateListOpenAPIResponse struct {
@@ -991,9 +1009,7 @@ type internalSkillCreateOpenAPIRequest struct {
 }
 
 type internalSkillRemoveOpenAPIRequest struct {
-	SessionID string `json:"session_id"`
-	Category  string `json:"category"`
-	SkillName string `json:"skill_name"`
+	ID string `json:"id"`
 }
 
 func registeredCoreOperations() []openAPIOperation {
@@ -1479,7 +1495,7 @@ func registeredCoreOperations() []openAPIOperation {
 		{
 			Method:      "POST",
 			Path:        "/skill/remove",
-			Summary:     "Delete skill directly from internal request",
+			Summary:     "Delete skill by ID",
 			Tags:        []string{"skill-evolution"},
 			RequestBody: jsonBodyOf(internalSkillRemoveOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("Deleted skill", skillDeleteOpenAPIResponse{})},
@@ -1496,7 +1512,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "GET",
 			Path:        "/model_providers",
 			Summary:     "List user model providers",
-			Description: "Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).",
+			Description: "Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. The current user identity is injected by the auth gateway from the token. Query parameter keyword filters by provider name (SQL LIKE).",
 			Tags:        []string{"model_providers"},
 			QueryParams: listUserModelProvidersQueryParams{},
 			Responses:   map[int]openAPIResponse{200: resp("User model provider list", listUserModelProvidersOpenAPIResponse{})},
@@ -1505,7 +1521,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "GET",
 			Path:        "/model_providers:with_groups",
 			Summary:     "List user model providers that have groups",
-			Description: "Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.",
+			Description: "Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. The current user identity is injected by the auth gateway from the token. Same response shape as GET /model_providers.",
 			Tags:        []string{"model_providers"},
 			Responses:   map[int]openAPIResponse{200: resp("User model providers with groups", listUserModelProvidersOpenAPIResponse{})},
 		},
@@ -1513,7 +1529,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "POST",
 			Path:        "/model_providers/{model_provider_id}/groups/{group_id}:check",
 			Summary:     "Check model provider connectivity",
-			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.",
+			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.",
 			Tags:        []string{"model_providers"},
 			RequestBody: jsonBodyOf(checkModelProviderOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("data contains only success (bool), mapped from algorithm /api/model/check", modelprovider.CheckModelProviderData{})},
@@ -1577,7 +1593,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "DELETE",
 			Path:        "/model_providers/{model_provider_id}/groups/{group_id}",
 			Summary:     "Delete model provider connection group",
-			Description: "Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.",
+			Description: "Soft-deletes the group and its user_model_provider_group_models rows. The current user identity is injected by the auth gateway from the token.",
 			Tags:        []string{"model_providers"},
 			PathParams:  modelProviderGroupByIDPathParams{},
 			Responses:   map[int]openAPIResponse{200: resp("Deleted group", deleteModelProviderGroupOpenAPIResponse{})},
@@ -1605,7 +1621,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "DELETE",
 			Path:        "/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}",
 			Summary:     "Delete model under a connection group",
-			Description: "Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.",
+			Description: "Soft-deletes one user_model_provider_group_models row. The current user identity is injected by the auth gateway from the token.",
 			Tags:        []string{"model_providers"},
 			PathParams:  modelProviderGroupModelPathParams{},
 			Responses:   map[int]openAPIResponse{200: resp("Deleted group model", deleteModelProviderGroupModelOpenAPIResponse{})},
