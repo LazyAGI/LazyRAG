@@ -58,6 +58,7 @@ export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME ?= admin
 export LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD ?= admin
 export LAZYRAG_RESET_ALGO_ON_STARTUP ?= false
 export LAZYRAG_RESET_ALL_ON_STARTUP ?= false
+export LAZYLLM_ALGO_REGISTER_POLICY ?= none
 
 # Core database
 export LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/core
@@ -65,6 +66,7 @@ export LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/cor
 # OCR backend selection (none=built-in PDFReader, mineru, paddleocr)
 # Auto-derives LAZYRAG_OCR_SERVER_URL when not set.
 export LAZYRAG_OCR_SERVER_TYPE ?= none
+export LAZYRAG_OCR_SERVICE_VARIANT ?= online
 export LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
 
 # Vector / segment stores — override to use external services (skips built-in profile)
@@ -164,8 +166,14 @@ test:
 # Only build/start mineru/paddleocr when LAZYRAG_OCR_SERVER_TYPE is mineru/paddleocr
 # AND LAZYRAG_OCR_SERVER_URL points to the internal service (user has not specified external URL).
 # Only mineru has build:; paddleocr/milvus/opensearch use image: only, so only needed for up.
-_need_mineru := $(and $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYRAG_OCR_SERVER_URL)))
-_need_paddleocr := $(and $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYRAG_OCR_SERVER_URL)))
+#  OCR_SERVER_TYPE	OCR_SERVICE_VARIANT	     OCR_SERVER_URL	     _need_mineru
+# mineru/paddleocr         online                Any                 false
+#      mineru          offline or none     http://mineru:8000         true
+#     paddleocr        offline or none   http://paddleocr:8000        true
+# mineru/paddleocr         offline            external URL           false 
+
+_need_mineru := $(and $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYRAG_OCR_SERVER_URL)),$(filter-out online,$(LAZYRAG_OCR_SERVICE_VARIANT)))
+_need_paddleocr := $(and $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYRAG_OCR_SERVER_URL)),$(filter-out online,$(LAZYRAG_OCR_SERVICE_VARIANT)))
 # Deploy milvus/opensearch only when URI exactly matches the built-in services; external URIs = no deployment
 _builtin_milvus_uris := http://milvus:19530 http://milvus:19530/
 _builtin_opensearch_uris := https://opensearch:9200 https://opensearch:9200/
