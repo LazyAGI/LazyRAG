@@ -195,7 +195,7 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 				"timezone": "Asia/Shanghai",
 			},
 		},
-		"user_id":         "user-1",
+		"user_id": "user-1",
 	})
 
 	if req.Query != "hello" || req.SessionID != "conv-1" {
@@ -240,6 +240,7 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	timeContext, _ := req.EnvironmentContext["time"].(map[string]any)
 	if timeContext["now"] != "2026-05-11T11:48:00.000Z" || timeContext["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("unexpected environment_context: %#v", req.EnvironmentContext)
+	}
 	if req.UserID != "user-1" {
 		t.Fatalf("unexpected user_id: %q", req.UserID)
 	}
