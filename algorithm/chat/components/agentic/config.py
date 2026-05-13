@@ -4,7 +4,6 @@ from functools import lru_cache
 from typing import Any, Dict, Tuple
 
 from chat.prompts.agentic import (
-    CITATION_GUIDANCE,
     DEFAULT_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
     SEARCH_GUIDANCE,
@@ -229,12 +228,6 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
     if available_tools:
         prompt_parts.append(TOOL_CALL_STATUS_GUIDANCE)
     if any(tool.startswith('kb_') for tool in available_tools):
-        prompt_parts.append(CITATION_GUIDANCE)
-    if (
-        'web_search' in available_tools
-        or 'arxiv_search' in available_tools
-        or 'url_fetch' in available_tools
-    ):
         prompt_parts.append(SEARCH_GUIDANCE)
 
     return '\n\n'.join(prompt_parts)

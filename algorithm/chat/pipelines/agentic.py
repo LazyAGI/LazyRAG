@@ -155,7 +155,6 @@ class _StreamingReactAgent(lazyllm.tools.agent.ReactAgent):
                 stream=self._stream,
                 _tool_manager=self._tools_manager,
                 skill_manager=self._skill_manager,
-                workspace=self.workspace,
                 keep_full_turns=self._keep_full_turns,
                 stream_event_callback=self._stream_event_callback,
             ),

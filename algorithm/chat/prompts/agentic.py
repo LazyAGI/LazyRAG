@@ -106,17 +106,13 @@ SKILLS_GUIDANCE = (
     "max 5 per call). Existing skills are identified by the pair (`category`, `name`), "
     "not by `name` alone. Derive `category` from the directory immediately above "
     "the `skill_name` directory in the skill path. For example, in "
-    "`.../skills/<user_id>/testing/test-full-flow`, `name` is `test-full-flow` and "
-    "`category` is `testing`; ignore the UUID-like `<user_id>` segment.\n"
+    "`.../skills/testing/test-full-flow`, `name` is `test-full-flow` and "
+    "`category` is `testing`;\n"
     "- action='remove': when a skill is superseded or no longer correct, request "
     "its deletion by (`category`, `name`) (no `content` / `suggestions`).\n"
     "Only skills with `source=remote` are writable. Skills with `source=file` "
     "or any other source are read-only; do not use skill_manage to modify or remove them."
 )
-CITATION_GUIDANCE = '''# Citation Rules
-When using evidence returned by knowledge-base tools, cite it with the exact `ref` marker from the tool result, such as `[[1.2]]`.
-Put the citation immediately after the supported sentence or paragraph.
-Do not invent citation numbers. Do not rewrite `[[document.chunk]]` into links yourself.'''
 SEARCH_GUIDANCE = (
     "# Search Tool Rules (CRITICAL — follow strictly)\n"
     "You MUST call `kb_search` (or another `kb_*` tool) FIRST for every retrieval "
