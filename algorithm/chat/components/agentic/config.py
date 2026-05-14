@@ -240,7 +240,6 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
     return '\n\n'.join(prompt_parts)
 
 
-@lru_cache(maxsize=1)
 def _get_runtime_agent_defaults() -> Dict[str, Any]:
     from config import config as _cfg
     return {
