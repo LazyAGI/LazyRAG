@@ -18,9 +18,13 @@ from chat.components.agentic.tool_stream import (
 _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
-_CITATION_PATTERN = re.compile(r'\[\[(\d+)\]\]')
-_SOURCE_LINK_PATTERN = re.compile(r'\[(\d+)\]\(#source(?:\s+"[^"]*")?\)')
-_SOURCE_REF_PATTERN = re.compile(r'\[\[(\d+)\]\]')
+_CITATION_DOC_KEY_MAP_KEY = '_citation_doc_key_map'
+_CITATION_NEXT_DOC_KEY = '_citation_next_doc_index'
+_CITATION_DOC_CHUNK_NEXT_KEY = '_citation_next_chunk_index_map'
+_CITATION_INDEX_PATTERN = r'\d+\.\d+'
+_CITATION_PATTERN = re.compile(r'\[\[(' + _CITATION_INDEX_PATTERN + r')\]\]')
+_SOURCE_LINK_PATTERN = re.compile(r'\[(\d+)\]\(#source-(' + _CITATION_INDEX_PATTERN + r')(?:\s+"[^"]*")?\)')
+_SOURCE_REF_PATTERN = re.compile(r'\[\[(' + _CITATION_INDEX_PATTERN + r')\]\]')
 _THINK_BLOCK_PATTERN = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 _HISTORY_TAG_PATTERN = re.compile(
     r'<(?P<tag>tp|trp|tool_call|tool_result)(?P<attrs>[^>]*)>(?P<body>.*?)</(?P=tag)>',
@@ -59,10 +63,29 @@ def _history_citation_key(item: dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _history_source_node_from_item(index: int, item: dict[str, Any]) -> dict[str, Any]:
+def _history_document_citation_key(item: dict[str, Any]) -> Optional[str]:
+    metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
+    global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
+    docid = item.get('docid') or item.get('document_id') or global_md.get('docid')
+    if not docid:
+        return None
+    dataset_id = item.get('kb_id') or item.get('dataset_id') or global_md.get('kb_id') or metadata.get('kb_id') or ''
+    return f'doc:{dataset_id}:{docid}'
+
+
+def _split_citation_index(index: Any) -> tuple[int | None, int | None]:
+    if isinstance(index, str) and '.' in index:
+        document_index, chunk_index = index.split('.', 1)
+        if document_index.isdigit() and chunk_index.isdigit():
+            return int(document_index), int(chunk_index)
+    return None, None
+
+
+def _history_source_node_from_item(index: str, item: dict[str, Any]) -> dict[str, Any]:
     metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
     global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
     content = item.get('text') if item.get('text') is not None else item.get('content', '')
+    document_index, chunk_index = _split_citation_index(index)
     return {
         'file_id': '',
         'file_name': (
@@ -76,6 +99,9 @@ def _history_source_node_from_item(index: int, item: dict[str, Any]) -> dict[str
         'segement_id': item.get('uid') or item.get('segement_id') or '',
         'dataset_id': item.get('kb_id') or item.get('dataset_id') or global_md.get('kb_id', ''),
         'index': index,
+        'display_index': item.get('display_index') or document_index,
+        'document_index': item.get('document_index') or document_index,
+        'chunk_index': item.get('chunk_index') if item.get('chunk_index') is not None else chunk_index,
         'content': content or '',
         'group_name': item.get('group') or item.get('group_name') or '',
         'segment_number': (
@@ -90,18 +116,34 @@ def _history_source_node_from_item(index: int, item: dict[str, Any]) -> dict[str
     }
 
 
-def _history_citation_index(item: dict[str, Any]) -> Optional[int]:
+def _history_citation_index(item: dict[str, Any]) -> Optional[str]:
     raw_index = item.get('citation_index') or item.get('index')
-    if isinstance(raw_index, int) and raw_index > 0:
+    if isinstance(raw_index, str) and re.fullmatch(_CITATION_INDEX_PATTERN, raw_index):
         return raw_index
-    if isinstance(raw_index, str) and raw_index.isdigit():
-        return int(raw_index)
     ref = item.get('ref')
     if isinstance(ref, str):
         match = _SOURCE_REF_PATTERN.fullmatch(ref.strip())
         if match:
-            return int(match.group(1))
+            return match.group(1)
     return None
+
+
+def _restore_history_index_state(index: str, item: dict[str, Any], config: dict[str, Any]) -> None:
+    document_index, chunk_index = _split_citation_index(index)
+    if document_index is None or chunk_index is None:
+        return
+    doc_key = _history_document_citation_key(item)
+    if not doc_key:
+        return
+    doc_key_map = config.setdefault(_CITATION_DOC_KEY_MAP_KEY, {})
+    doc_chunk_next_map = config.setdefault(_CITATION_DOC_CHUNK_NEXT_KEY, {})
+    doc_key_map[doc_key] = document_index
+    next_doc_index = int(config.get(_CITATION_NEXT_DOC_KEY) or 1)
+    if document_index >= next_doc_index:
+        config[_CITATION_NEXT_DOC_KEY] = document_index + 1
+    next_chunk_index = int(doc_chunk_next_map.get(doc_key) or 1)
+    if chunk_index >= next_chunk_index:
+        doc_chunk_next_map[doc_key] = chunk_index + 1
 
 
 def _restore_history_citation_item(item: dict[str, Any], config: dict[str, Any]) -> None:
@@ -114,9 +156,7 @@ def _restore_history_citation_item(item: dict[str, Any], config: dict[str, Any])
 
     refs = config.setdefault(_CITATION_REFS_KEY, {})
     key_map = config.setdefault(_CITATION_KEY_MAP_KEY, {})
-    next_index = int(config.get(_CITATION_NEXT_KEY) or 1)
-    if index >= next_index:
-        config[_CITATION_NEXT_KEY] = index + 1
+    _restore_history_index_state(index, item, config)
 
     source = _history_source_node_from_item(index, item)
     existing = refs.get(index) or refs.get(str(index))
@@ -139,6 +179,10 @@ def _restore_history_citations(result: Any, config: Optional[dict[str, Any]]) ->
     if isinstance(result, list):
         for item in result:
             _restore_history_citation_item(item, config)
+
+
+def _restore_source_links_to_refs(text: str) -> str:
+    return _SOURCE_LINK_PATTERN.sub(lambda match: f'[[{match.group(2)}]]', text or '')
 
 
 def _parse_history_assistant_content(
@@ -267,7 +311,7 @@ def _normalize_history_for_agent(
                     saw_structured_segments = True
                     pending_reasoning_parts.append(seg['content'])
                 elif seg_type == 'text':
-                    pending_text_parts.append(seg['content'])
+                    pending_text_parts.append(_restore_source_links_to_refs(seg['content']))
                 elif seg_type == 'tool_call':
                     saw_structured_segments = True
                     pending_tool_calls.append({
@@ -331,9 +375,12 @@ def _reset_citation_state(config: dict) -> None:
     config[_CITATION_REFS_KEY] = {}
     config[_CITATION_KEY_MAP_KEY] = {}
     config[_CITATION_NEXT_KEY] = 1
+    config[_CITATION_DOC_KEY_MAP_KEY] = {}
+    config[_CITATION_NEXT_DOC_KEY] = 1
+    config[_CITATION_DOC_CHUNK_NEXT_KEY] = {}
 
 
-def _citation_source(config: dict, index: int) -> Optional[dict[str, Any]]:
+def _citation_source(config: dict, index: str) -> Optional[dict[str, Any]]:
     refs = config.get(_CITATION_REFS_KEY)
     if not isinstance(refs, dict):
         return None
@@ -341,22 +388,28 @@ def _citation_source(config: dict, index: int) -> Optional[dict[str, Any]]:
     return source if isinstance(source, dict) else None
 
 
+def _citation_link(index: str, source: dict[str, Any]) -> str:
+    document_index, _ = _split_citation_index(index)
+    display_index = source.get('display_index') or source.get('document_index') or document_index
+    title = escape(str(source.get('file_name') or 'title'), quote=True)
+    return f'[{display_index}](#source-{index} "{title}")'
+
+
 def _rewrite_citations(text: str, config: dict) -> tuple[str, list[dict[str, Any]]]:
-    collected: OrderedDict[int, dict[str, Any]] = OrderedDict()
+    collected: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
     def _replace(match: re.Match) -> str:
-        index = int(match.group(1))
+        index = match.group(1)
         source = _citation_source(config, index)
         if not source:
             return ''
         collected.setdefault(index, source)
-        title = escape(str(source.get('file_name') or 'title'), quote=True)
-        return f'[{index}](#source "{title}")'
+        return _citation_link(index, source)
 
     rewritten = _CITATION_PATTERN.sub(_replace, text)
 
     for match in _SOURCE_LINK_PATTERN.finditer(rewritten):
-        index = int(match.group(1))
+        index = match.group(2)
         source = _citation_source(config, index)
         if source:
             collected.setdefault(index, source)
@@ -410,17 +463,17 @@ def _format_non_stream_result(result: Any, config: dict) -> dict[str, Any]:
 
 class _ConfigCitationPlugin(BasePlugin):
     prefix_set = {'['}
-    _pat = re.compile(r'\[\[(\d+)\]\]')
-    _link_pat = re.compile(r'\[(\d+)\]\(#source(?:\s+"[^"]*")?\)')
+    _pat = _CITATION_PATTERN
+    _link_pat = _SOURCE_LINK_PATTERN
 
     def __init__(self, config: dict[str, Any]):
         self._config = config
-        self._collected: OrderedDict[int, dict[str, Any]] = OrderedDict()
+        self._collected: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
     def match(self, src: str, pos: int):
         link_match = self._link_pat.match(src, pos)
         if link_match:
-            index = int(link_match.group(1))
+            index = link_match.group(2)
             source = _citation_source(self._config, index)
             if source:
                 self._collected.setdefault(index, source)
@@ -429,13 +482,12 @@ class _ConfigCitationPlugin(BasePlugin):
         match = self._pat.match(src, pos)
         if not match:
             return None
-        index = int(match.group(1))
+        index = match.group(1)
         source = _citation_source(self._config, index)
         if not source:
             return (match.end(), '')
         self._collected.setdefault(index, source)
-        title = escape(str(source.get('file_name') or 'title'), quote=True)
-        return (match.end(), f'[{index}](#source "{title}")')
+        return (match.end(), _citation_link(index, source))
 
     def collect(self) -> list[dict[str, Any]]:
         return list(self._collected.values())

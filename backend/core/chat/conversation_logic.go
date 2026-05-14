@@ -299,6 +299,9 @@ func buildChatRequestBody(convID, sessionID, query string, histories []orm.ChatH
 		"use_memory":      useMemory,
 		"user_id":         strings.TrimSpace(userID),
 	}
+	if environmentContext, ok := raw["environment_context"].(map[string]any); ok {
+		body["environment_context"] = environmentContext
+	}
 	if resourceContext != nil {
 		body["available_tools"] = resourceContext.AvailableTools
 		body["available_skills"] = resourceContext.AvailableSkills
