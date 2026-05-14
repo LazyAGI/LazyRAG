@@ -116,7 +116,10 @@ def _run_libreoffice_convert(source: Path, target: Path) -> None:
     output_dir = target.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(dir=str(output_dir)) as tmpdir, tempfile.TemporaryDirectory(prefix='lo-profile-') as profile_dir:
+    with (
+        tempfile.TemporaryDirectory(dir=str(output_dir)) as tmpdir,
+        tempfile.TemporaryDirectory(prefix='lo-profile-') as profile_dir,
+    ):
         tmp_output_dir = Path(tmpdir)
         profile_uri = Path(profile_dir).resolve().as_uri()
         command = [
