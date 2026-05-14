@@ -141,6 +141,15 @@ class _FakeEngine:
 
 class TestVocabManagerBasic:
 
+    def test_discriminator_uses_evo_llm_role(self):
+        from vocab.vocab_manager import VocabManager
+
+        model, _ = _mock_llm_discriminator([True])
+        with patch('vocab.vocab_manager.get_automodel', return_value=model) as mocked:
+            VocabManager(user_id='role-check', data_source=[])
+
+        mocked.assert_called_once_with('llm')
+
     def test_empty_vocab_query_unchanged(self):
         mgr = _make_manager([])
         assert mgr('任意查询') == '任意查询'

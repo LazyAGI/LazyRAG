@@ -571,7 +571,7 @@ class ActionPlanningModule(ModuleBase):
     def _get_llm(self) -> Any:
         if self._llm is None:
             from chat.pipelines.builders import get_automodel
-            base_llm = self._base_llm or get_automodel('llm_instruct')
+            base_llm = self._base_llm or get_automodel('llm')
             self._llm = base_llm.share(
                 prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),
                 format=JsonFormatter(),
