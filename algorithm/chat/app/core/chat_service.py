@@ -224,7 +224,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         finally:
             cost = round(time.time() - start_time, 3)
             log_chat_request(
-                query, session_id, filters, other_files, image_files, databases, cost, result
+                query, session_id, filters, other_files, databases, image_files, cost, result
             )
     else:
         if sensitive_check_result:
@@ -286,7 +286,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             final_resp['cost'] = cost
             yield _sse_line(final_resp)
 
-            log_chat_request(query, session_id, filters, other_files, image_files, databases,
+            log_chat_request(query, session_id, filters, other_files, databases, image_files,
                              cost, '\n'.join(collected_chunks), 'KB_CHAT_STREAM_FINISH')
 
         return StreamingResponse(
