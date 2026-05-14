@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json
-import os
 from typing import Any, Callable
 
 try:
@@ -9,6 +8,7 @@ except ImportError:
     from jsonschema import Draft7Validator as _JsonSchemaValidator
 from evo.apply.errors import ApplyError
 from evo.harness.react import LLMInvoker
+from evo.runtime.config import EVO_MAX_SCHEMA_FAILURES
 from evo.runtime.session import AnalysisSession
 from evo.utils import strip_thinking
 
@@ -18,7 +18,7 @@ except ImportError:
     json_repair = None
 _ERROR_LIMIT = 20
 _PREVIEW_CHARS = 2000
-_MAX_SCHEMA_FAILURES = int(os.getenv('EVO_MAX_SCHEMA_FAILURES', '3'))
+_MAX_SCHEMA_FAILURES = EVO_MAX_SCHEMA_FAILURES
 _REPAIR_SYSTEM_PROMPT = (
     'You are a strict JSON formatter. Your ONLY job is to take the user message '
     '(which contains a previous bad model output, validation errors, and the required JSON schema) '
@@ -128,6 +128,17 @@ def _call_llm(session: AnalysisSession, *, producer: Callable[[], str], cache_ke
     return session.llm.call(producer=producer, cache_key=cache_key, use_cache=cache_key is not None, agent=agent)
 
 
+def _invoke(invoker: LLMInvoker, user: str, *, system_prompt: str | None = None) -> str:
+    if isinstance(invoker, LLMInvoker):
+        return invoker.invoke(user, system_prompt=system_prompt, gateway=False)
+    if system_prompt is None:
+        return invoker.invoke(user)
+    try:
+        return invoker.invoke(user, system_prompt=system_prompt)
+    except TypeError:
+        return invoker.invoke(user)
+
+
 def invoke_structured(
     session: AnalysisSession,
     invoker: LLMInvoker,
@@ -147,16 +158,16 @@ def invoke_structured(
     for attempt in range(max_repair + 1):
         agent_tag = agent if attempt == 0 else f'{agent}:repair{attempt}'
         if attempt == 0:
-            call = (
-                (lambda u=current_user: producer(u))
-                if producer is not None
-                else lambda u=current_user: invoker.invoke(u)
-            )
-            raw = _call_llm(session, producer=call, cache_key=cache_key, agent=agent_tag)
+            if producer is not None:
+                raw = producer(user_text)
+            else:
+                raw = _call_llm(
+                    session, producer=lambda u=current_user: _invoke(invoker, u), cache_key=cache_key, agent=agent_tag
+                )
         else:
             raw = _call_llm(
                 session,
-                producer=lambda u=current_user: invoker.invoke(u, system_prompt=_REPAIR_SYSTEM_PROMPT),
+                producer=lambda u=current_user: _invoke(invoker, u, system_prompt=_REPAIR_SYSTEM_PROMPT),
                 cache_key=None,
                 agent=agent_tag,
             )

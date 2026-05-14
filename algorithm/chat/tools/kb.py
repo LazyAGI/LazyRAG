@@ -466,6 +466,7 @@ def kb_search(
         'query': query,
         'filters': filters or {},
         'files': files,
+        'user_id': agentic_config.get('user_id', ''),
     }
     resolved_kb_id = _resolve_kb_id(agentic_config)
     if resolved_kb_id:

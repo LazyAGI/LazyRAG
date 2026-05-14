@@ -120,7 +120,7 @@ class TestInjectToGlobals:
             llm:
               source: dynamic
               type: llm
-            llm_instruct:
+            evo_llm:
               source: dynamic
               type: llm
             reranker:
@@ -133,14 +133,14 @@ class TestInjectToGlobals:
             with _clean_globals() as gcfg:
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',       'api_key': 'sk-a'},
-                    'llm_instruct': {'source': 'openai', 'model': 'gpt-4o-mini',  'api_key': 'sk-a'},
+                    'evo_llm': {'source': 'openai', 'model': 'gpt-4o-mini',  'api_key': 'sk-a'},
                     'reranker':     {'source': 'sf',     'model': 'bge-reranker', 'api_key': 'sk-b'},
                     'embed_main':   {'source': 'sf',     'model': 'bge-m3',       'api_key': 'sk-b'},
                 })
                 cfg = gcfg['dynamic_model_configs']
 
         assert cfg['llm']['chat']['model'] == 'gpt-4o'
-        assert cfg['llm_instruct']['chat']['model'] == 'gpt-4o-mini'
+        assert cfg['evo_llm']['chat']['model'] == 'gpt-4o-mini'
         assert cfg['reranker']['embed']['model'] == 'bge-reranker'
         assert cfg['embed_main']['embed']['model'] == 'bge-m3'
         assert 'default' not in cfg
@@ -207,18 +207,18 @@ class TestModuleReadsBucket:
             llm:
               source: dynamic
               type: llm
-            llm_instruct:
+            evo_llm:
               source: dynamic
               type: llm
         '''):
             with _clean_globals():
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',      'api_key': 'sk-x'},
-                    'llm_instruct': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-x'},
+                    'evo_llm': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-x'},
                 })
 
                 m_llm = OnlineChatModule(source='dynamic', name='llm', stream=False)
-                m_instruct = OnlineChatModule(source='dynamic', name='llm_instruct', stream=False)
+                m_instruct = OnlineChatModule(source='dynamic', name='evo_llm', stream=False)
 
                 bucket_llm = _get_bucket(m_llm)
                 bucket_instruct = _get_bucket(m_instruct)
@@ -227,26 +227,26 @@ class TestModuleReadsBucket:
         assert bucket_instruct['model'] == 'gpt-4o-mini'
 
     def test_module_identities_contain_role_name(self):
-        m = OnlineChatModule(source='dynamic', name='llm_instruct', stream=False)
-        assert m.identities[1] == 'llm_instruct'
+        m = OnlineChatModule(source='dynamic', name='evo_llm', stream=False)
+        assert m.identities[1] == 'evo_llm'
 
     def test_two_llm_roles_are_fully_isolated(self, tmp_path):
         with _runtime_models_yaml(tmp_path, '''
             llm:
               source: dynamic
               type: llm
-            llm_instruct:
+            evo_llm:
               source: dynamic
               type: llm
         '''):
             with _clean_globals():
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',    'api_key': 'sk-1'},
-                    'llm_instruct': {'source': 'qwen',   'model': 'qwen-plus', 'api_key': 'sk-2'},
+                    'evo_llm': {'source': 'qwen',   'model': 'qwen-plus', 'api_key': 'sk-2'},
                 })
 
                 m1 = OnlineChatModule(source='dynamic', name='llm', stream=False)
-                m2 = OnlineChatModule(source='dynamic', name='llm_instruct', stream=False)
+                m2 = OnlineChatModule(source='dynamic', name='evo_llm', stream=False)
 
                 b1 = _get_bucket(m1)
                 b2 = _get_bucket(m2)
@@ -333,18 +333,18 @@ class TestForwardUsesCorrectKeyAndModel:
             llm:
               source: dynamic
               type: llm
-            llm_instruct:
+            evo_llm:
               source: dynamic
               type: llm
         '''):
             with _clean_globals():
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',      'api_key': 'sk-llm'},
-                    'llm_instruct': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-instruct'},
+                    'evo_llm': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-instruct'},
                 })
 
                 m_llm = OnlineChatModule(source='dynamic', name='llm', stream=False)
-                m_instruct = OnlineChatModule(source='dynamic', name='llm_instruct', stream=False)
+                m_instruct = OnlineChatModule(source='dynamic', name='evo_llm', stream=False)
                 cap_llm, cap_instruct = [], []
 
                 with patch('requests.post', side_effect=_make_fake_post(cap_llm)):

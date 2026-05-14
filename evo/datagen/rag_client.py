@@ -1,11 +1,12 @@
 from __future__ import annotations
 import json
 import logging
-import os
+import time
 import uuid
 import urllib.error
 import urllib.request
 from typing import Any
+from evo.runtime.config import EVO_RAG_MAX_RETRIES, EVO_RAG_RETRY_BACKOFF_S, EVO_RAG_TIMEOUT_S
 
 _log = logging.getLogger('evo.datagen.rag_client')
 
@@ -44,18 +45,49 @@ def call_rag_chat(
     req = urllib.request.Request(
         target_chat_url, data=data, headers={'Content-Type': 'application/json'}, method='POST'
     )
+    attempts = max(1, EVO_RAG_MAX_RETRIES)
+    backoff_s = EVO_RAG_RETRY_BACKOFF_S
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            result = _open_rag_request(req)
+            if not isinstance(result, dict):
+                raise RAGCallFailed(f'RAG_CALL_FAILED: invalid response {type(result).__name__}')
+            code = result.get('code')
+            if code in (None, 200):
+                return _normalize_rag_result(result, require_trace=require_trace)
+            message = result.get('msg') or result
+            if not _is_retryable_chat_error(code, message) or attempt == attempts:
+                raise RAGCallFailed(f'RAG_CALL_FAILED: {message}')
+            last_error = RAGCallFailed(f'RAG_CALL_FAILED: {message}')
+        except (TimeoutError, urllib.error.URLError, json.JSONDecodeError, RAGCallFailed) as exc:
+            last_error = exc
+            if isinstance(exc, RAGCallFailed) and not _is_retryable_exception(exc):
+                raise
+            if attempt == attempts:
+                break
+        _log.warning(
+            'RAG callback attempt %s/%s failed for %s: %s',
+            attempt, attempts, target_chat_url, last_error,
+        )
+        time.sleep(backoff_s * attempt)
+    _log.warning('RAG callback failed for %s: %s', target_chat_url, last_error)
+    raise RAGCallFailed(f'RAG_CALL_FAILED: {last_error}') from last_error
+
+
+def _open_rag_request(req: urllib.request.Request) -> dict[str, Any]:
     try:
-        timeout = int(os.getenv('EVO_RAG_TIMEOUT_S', '120'))
+        timeout = EVO_RAG_TIMEOUT_S
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(req, timeout=timeout) as resp:
-            result = json.loads(resp.read().decode('utf-8'))
+            return json.loads(resp.read().decode('utf-8'))
     except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        _log.warning('RAG callback failed for %s: %s', target_chat_url, exc)
-        raise RAGCallFailed(f'RAG_CALL_FAILED: {exc}') from exc
+        raise exc
+
+
+def _normalize_rag_result(result: dict[str, Any], *, require_trace: bool) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise RAGCallFailed(f'RAG_CALL_FAILED: invalid response {type(result).__name__}')
-    if result.get('code') not in (None, 200):
-        raise RAGCallFailed(f"RAG_CALL_FAILED: {result.get('msg') or result}")
     data_obj = result.get('data') if isinstance(result.get('data'), dict) else {}
     sources = result.get('sources') or data_obj.get('sources') or data_obj.get('recall') or []
     trace = data_obj.get('trace') if isinstance(data_obj.get('trace'), dict) else None
@@ -73,6 +105,21 @@ def call_rag_chat(
         'trace_id': trace_id,
         'trace': trace,
     }
+
+
+def _is_retryable_chat_error(code: Any, message: Any) -> bool:
+    if isinstance(code, int) and code >= 500:
+        return True
+    return _is_retryable_message(str(message))
+
+
+def _is_retryable_exception(exc: Exception) -> bool:
+    return _is_retryable_message(str(exc))
+
+
+def _is_retryable_message(message: str) -> bool:
+    text = message.lower()
+    return any(token in text for token in ('timed out', 'ssleoferror', 'eof occurred', 'service of servermodule'))
 
 
 def _pluck_any(sources: Any, keys: tuple[str, ...]) -> list[Any]:

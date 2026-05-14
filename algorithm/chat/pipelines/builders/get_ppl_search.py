@@ -10,7 +10,7 @@ from vocab.vocab_manager import get_vocab_manager
 
 
 def parse_query(query_params: dict) -> str:
-    return get_vocab_manager(query_params.get('create_user_id', ''))(query_params['query'])
+    return get_vocab_manager(query_params['user_id'])(query_params['query'])
 
 
 def has_files(x: dict) -> bool:

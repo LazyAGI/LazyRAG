@@ -12,7 +12,10 @@ from evo.runtime.session import AnalysisSession
 
 _REACT_FORMAT = (
     '## 工具调用格式\n'
-    '需要使用工具时，严格使用以下格式（每次只调用一个工具）:\n\n'
+    '需要使用工具时，优先一次请求多个相互独立的工具，最多 4 个:\n\n'
+    'Thought: <你的思考>\n'
+    'Actions: [{"tool": "<工具名>", "args": {<JSON 参数>}}]\n\n'
+    '也兼容单工具格式:\n\n'
     'Thought: <你的思考>\n'
     'Action: <工具名>\n'
     'Action Input: <JSON 参数>\n\n'
@@ -20,6 +23,7 @@ _REACT_FORMAT = (
     'Observation: <结果>\n\n'
     '收集到足够证据后，直接输出最终 JSON 结果（不要再写 Action）。'
 )
+_MAX_TOOL_CALLS_PER_ROUND = 4
 
 
 @dataclass
@@ -134,6 +138,26 @@ _FORMAT_VIOLATION_RES: tuple[re.Pattern, ...] = (
 )
 
 
+def _parse_actions(text: str) -> list[tuple[str, dict[str, Any]]]:
+    multi = re.search('Actions\\s*:\\s*', text)
+    if multi is not None:
+        payload = _parse_json_value(text[multi.end():].strip())
+        raw_calls = payload.get('actions') if isinstance(payload, dict) else payload
+        if isinstance(raw_calls, list):
+            calls: list[tuple[str, dict[str, Any]]] = []
+            for item in raw_calls[:_MAX_TOOL_CALLS_PER_ROUND]:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get('tool') or item.get('name') or item.get('action') or item.get('tool_name')
+                args = item.get('args') or item.get('arguments') or item.get('input') or {}
+                if isinstance(name, str):
+                    calls.append((name, args if isinstance(args, dict) else {}))
+            if calls:
+                return calls
+    action = _parse_action(text)
+    return [action] if action is not None else []
+
+
 def _parse_action(text: str) -> tuple[str, dict[str, Any]] | None:
     m = re.search('Action:\\s*(\\w+)', text)
     if m is not None:
@@ -180,15 +204,25 @@ def _parse_minimax_args(text: str) -> dict[str, Any]:
 
 
 def _parse_json_object(text: str) -> dict[str, Any] | None:
+    obj = _parse_json_value(text)
+    return obj if isinstance(obj, dict) else None
+
+
+def _parse_json_value(text: str) -> Any:
     start = text.find('{')
-    if start < 0:
+    list_start = text.find('[')
+    if list_start >= 0 and (start < 0 or list_start < start):
+        start, opener, closer = (list_start, '[', ']')
+    elif start >= 0:
+        opener, closer = ('{', '}')
+    else:
         return None
     fragment = text[start:]
     depth, end = (0, 0)
     for i, ch in enumerate(fragment):
-        if ch == '{':
+        if ch == opener:
             depth += 1
-        elif ch == '}':
+        elif ch == closer:
             depth -= 1
             if depth == 0:
                 end = i + 1
@@ -196,10 +230,9 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
     if end == 0:
         return None
     try:
-        obj = json.loads(fragment[:end])
+        return json.loads(fragment[:end])
     except json.JSONDecodeError:
         return None
-    return obj if isinstance(obj, dict) else None
 
 
 def _normalize_args(spec: ToolSpec, args: dict[str, Any]) -> dict[str, Any]:
@@ -282,10 +315,9 @@ class ReActRunner:
             'researcher.started', actor=self.agent, task=task, tools=[s.name for s in self.specs]
         )
         for round_idx in range(self.cfg.max_rounds):
-            self.session.llm.acquire_slot()
             prompt = self._build_prompt(header, turns, hints, working_memory, round_idx)
             t0 = time.monotonic()
-            response = self.invoker.invoke(prompt)
+            response = self.invoker.invoke(prompt, agent=f'{self.agent}:round{round_idx + 1}')
             self.session.telemetry.emit(
                 'researcher.turn.completed',
                 actor=self.agent,
@@ -303,8 +335,8 @@ class ReActRunner:
                 len(turns),
             )
             last_response = response
-            action = _parse_action(response)
-            if action is None:
+            actions = _parse_actions(response)
+            if not actions:
                 violations = list(self._check_finish(self.stats))
                 if _looks_like_pseudo_tool_call(response):
                     violations.append('non-standard tool-call syntax')
@@ -327,100 +359,59 @@ class ReActRunner:
                     final_answer=response,
                 )
                 return response
-            tool_name, args = action
-            spec = spec_map.get(tool_name)
-            t_tool = time.monotonic()
-            if spec is None:
-                self.session.telemetry.emit(
-                    'researcher.tool_call.failed',
-                    actor=self.agent,
-                    round=round_idx + 1,
-                    tool=tool_name,
-                    args=args,
-                    error='unknown tool',
+            observations: list[dict[str, Any]] = []
+            call_args: list[dict[str, Any]] = []
+            summaries: list[str] = []
+            last_tool = None
+            round_ok = True
+            for tool_name, raw_args in actions:
+                obs_payload, args, summary, ok, handle = self._run_tool_call(
+                    spec_map, tool_name, raw_args, round_idx + 1
                 )
-                hints.clear()
-                hints.append(f'工具 `{tool_name}` 不在可用工具列表中。只能从这些工具中选择：{sorted(spec_map)}')
-                continue
-            else:
-                args = _normalize_args(spec, args)
-                self.session.telemetry.emit(
-                    'researcher.tool_call.started', actor=self.agent, round=round_idx + 1, tool=tool_name, args=args
-                )
-                result = spec.fn(**args) if args else spec.fn()
-            ok = result.ok
-            summary = spec.summarize_result(result) if spec else f'FAIL unknown tool {tool_name}'
+                observations.append(obs_payload)
+                call_args.append(args)
+                summaries.append(summary)
+                round_ok = round_ok and ok
+                last_tool = tool_name
+                if ok:
+                    self.stats.tool_calls[tool_name] = self.stats.tool_calls.get(tool_name, 0) + 1
+                if curator is not None:
+                    working_memory = curator.update(
+                        working_memory,
+                        tool=tool_name,
+                        args_brief=_args_brief(args),
+                        summary=summary,
+                        handle=handle,
+                        ok=ok,
+                    )
+            obs = json.dumps(observations if len(observations) > 1 else observations[0], ensure_ascii=False)
             self.session.telemetry.emit(
-                'researcher.tool_call.completed',
-                actor=self.agent,
-                round=round_idx + 1,
-                tool=tool_name,
-                args=args,
-                ok=ok,
-                handle=result.handle,
-                output=_tool_result_payload(result),
-                summary=summary,
-                elapsed_s=round(time.monotonic() - t_tool, 4),
+                'researcher.observation', actor=self.agent, round=round_idx + 1, observation=observations
             )
-            if not ok:
-                hints.clear()
+            turns.append(
+                _Turn(
+                    response=response,
+                    tool=', '.join((name for name, _ in actions)),
+                    args=call_args[0] if len(call_args) == 1 else {'calls': call_args},
+                    obs=obs,
+                    ok=round_ok,
+                    summary='; '.join(summaries),
+                )
+            )
+            same_streak = same_streak + 1 if last_tool == prev_tool else 1
+            fail_streak = fail_streak + 1 if not round_ok else 0
+            prev_tool = last_tool
+            hints.clear()
+            if not round_ok:
                 hints.append(
-                    f'工具 `{tool_name}` 参数无效或未命中：{summary}。'
-                    '请检查上一条 Observation 中的真实 handle/dataset_id/cluster_id，'
+                    '本轮存在工具失败。请检查 Observation 中的真实 handle/dataset_id/cluster_id，'
                     '或换用 list_bad_cases / list_cases_ranked / list_cluster_exemplars 获取真实 ID。'
                 )
-                turns.append(
-                    _Turn(
-                        response=response,
-                        tool=tool_name,
-                        args=args,
-                        obs=json.dumps({'ok': False, 'summary': summary}, ensure_ascii=False),
-                        ok=False,
-                        summary=summary,
-                    )
-                )
-                continue
-            obs_payload: dict[str, Any] = {'ok': ok, 'summary': summary}
-            if result.handle:
-                obs_payload['handle'] = result.handle
-            if not ok and result.error is not None:
-                obs_payload['error'] = result.error.message[:300]
-            obs = json.dumps(obs_payload, ensure_ascii=False)
-            self.session.telemetry.emit(
-                'researcher.observation', actor=self.agent, round=round_idx + 1, tool=tool_name, observation=obs_payload
-            )
-            truncated = False
-            self.stats.tool_calls[tool_name] = self.stats.tool_calls.get(tool_name, 0) + 1
-            self.log.info('Tool %s -> handle=%s ok=%s %s', tool_name, result.handle, ok, summary)
-            self.session.telemetry.emit(
-                'tool_call',
-                agent=self.agent,
-                tool=tool_name,
-                args_keys=sorted(args.keys()),
-                ok=ok,
-                handle=result.handle,
-                elapsed_s=round(time.monotonic() - t_tool, 4),
-                out_chars=len(obs),
-                truncated=truncated,
-            )
-            turns.append(_Turn(response=response, tool=tool_name, args=args, obs=obs, ok=ok, summary=summary))
-            if curator is not None:
-                working_memory = curator.update(
-                    working_memory,
-                    tool=tool_name,
-                    args_brief=_args_brief(args),
-                    summary=summary,
-                    handle=result.handle,
-                    ok=ok,
-                )
-            same_streak = same_streak + 1 if tool_name == prev_tool else 1
-            fail_streak = fail_streak + 1 if not ok else 0
-            prev_tool = tool_name
-            hints.clear()
             if same_streak >= self.cfg.same_streak_warn:
                 self.stats.same_streak_hits += 1
                 hints.append(
-                    f'提示：你已经连续 {same_streak} 次调用同一个工具 `{tool_name}`，再次调用前请改变参数或换一个工具。'
+                    f'提示：你已经连续 {same_streak} 次以 `{last_tool}` 结束工具调用，'
+                    '再次调用前请改变参数或换一个工具。'
                 )
             if fail_streak >= self.cfg.fail_streak_warn:
                 self.stats.fail_streak_hits += 1
@@ -435,6 +426,61 @@ class ReActRunner:
             exhausted=True,
         )
         return last_response
+
+    def _run_tool_call(
+        self, spec_map: dict[str, ToolSpec], tool_name: str, args: dict[str, Any], round_no: int
+    ) -> tuple[dict[str, Any], dict[str, Any], str, bool, str | None]:
+        spec = spec_map.get(tool_name)
+        if spec is None:
+            summary = f'FAIL unknown tool {tool_name}'
+            self.session.telemetry.emit(
+                'researcher.tool_call.failed',
+                actor=self.agent,
+                round=round_no,
+                tool=tool_name,
+                args=args,
+                error='unknown tool',
+            )
+            return ({'tool': tool_name, 'ok': False, 'summary': summary}, args, summary, False, None)
+        args = _normalize_args(spec, args)
+        t_tool = time.monotonic()
+        self.session.telemetry.emit(
+            'researcher.tool_call.started', actor=self.agent, round=round_no, tool=tool_name, args=args
+        )
+        result = spec.fn(**args) if args else spec.fn()
+        summary = spec.summarize_result(result)
+        payload = {'tool': tool_name, 'ok': result.ok, 'summary': summary}
+        if result.handle:
+            payload['handle'] = result.handle
+        if (not result.ok) and result.error is not None:
+            payload['error'] = result.error.message[:300]
+        obs = json.dumps(payload, ensure_ascii=False)
+        elapsed = round(time.monotonic() - t_tool, 4)
+        self.session.telemetry.emit(
+            'researcher.tool_call.completed',
+            actor=self.agent,
+            round=round_no,
+            tool=tool_name,
+            args=args,
+            ok=result.ok,
+            handle=result.handle,
+            output=_tool_result_payload(result),
+            summary=summary,
+            elapsed_s=elapsed,
+        )
+        self.session.telemetry.emit(
+            'tool_call',
+            agent=self.agent,
+            tool=tool_name,
+            args_keys=sorted(args.keys()),
+            ok=result.ok,
+            handle=result.handle,
+            elapsed_s=elapsed,
+            out_chars=len(obs),
+            truncated=False,
+        )
+        self.log.info('Tool %s -> handle=%s ok=%s %s', tool_name, result.handle, result.ok, summary)
+        return (payload, args, summary, result.ok, result.handle)
 
     def _check_finish(self, stats: ReActStats) -> list[str]:
         violations: list[str] = []
@@ -506,16 +552,7 @@ class LLMInvoker:
     def _build_llm(self) -> Any:
         if self._llm is not None:
             return self._llm
-        provider = self.session.llm_provider
-        if provider is None:
-            raise RuntimeError(
-                'No llm_provider on session; pass llm_provider=... to create_session() or RAGAnalysisPipeline.'
-            )
-        llm = provider()
-        if llm is None:
-            raise RuntimeError('llm_provider returned None.')
-        self._llm = llm
-        return llm
+        return self.session.get_llm_client()
 
     @staticmethod
     def _normalize(raw: Any) -> str:
@@ -530,12 +567,27 @@ class LLMInvoker:
             return json.dumps(raw, ensure_ascii=False)[:50000]
         return str(raw)
 
-    def invoke(self, user_text: str, *, system_prompt: str | None = None) -> str:
+    def invoke(
+        self,
+        user_text: str,
+        *,
+        system_prompt: str | None = None,
+        cache_key: str | None = None,
+        agent: str = 'llm',
+        gateway: bool = True,
+    ) -> str:
+        def call():
+            return self._invoke_raw(user_text, system_prompt=system_prompt, actor=agent)
+        if not gateway:
+            return call()
+        return self.session.llm.call(call, cache_key=cache_key, use_cache=cache_key is not None, agent=agent) or ''
+
+    def _invoke_raw(self, user_text: str, *, system_prompt: str | None, actor: str) -> str:
         llm = self._build_llm()
         sp = self.system_prompt if system_prompt is None else system_prompt
         full_prompt = f'{sp}\n\n---\n\n{user_text}'
         self.session.telemetry.emit(
-            'llm.prompt', actor='llm', system_prompt=sp, user_text=user_text, full_prompt=full_prompt
+            'llm.prompt', actor=actor, system_prompt=sp, user_text=user_text, full_prompt=full_prompt
         )
         t0 = time.monotonic()
         try:
@@ -546,6 +598,6 @@ class LLMInvoker:
             out = llm(full_prompt)
         normalized = self._normalize(out)
         self.session.telemetry.emit(
-            'llm.answer', actor='llm', answer=normalized, raw=out, elapsed_s=round(time.monotonic() - t0, 4)
+            'llm.answer', actor=actor, answer=normalized, raw=out, elapsed_s=round(time.monotonic() - t0, 4)
         )
         return normalized

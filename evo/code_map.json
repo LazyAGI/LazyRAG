@@ -2,9 +2,10 @@
   "code_map": {
     "/LazyRAG/algorithm/chat/pipelines/naive.py": "Naive RAG 入口：rewriter → search → generate；可改：是否启用多轮 rewriter、ifs 分支条件、bind 字段；retriever_configs 默认从 load_config 读",
     "/LazyRAG/algorithm/chat/pipelines/builders/get_ppl_search.py": "Search 子管道：parallel(KB retrievers) → RRFFusion(top_k=50) → Reranker(model='ModuleReranker', topk=20) → AdaptiveK(k_max=10, bias=2, gap_tau=0.2, max_tokens=2048) → ContextExpansion(token_budget=1500, score_decay=0.97, max_seeds=1)。所有数值都是关键可调参数",
-    "/LazyRAG/algorithm/chat/pipelines/builders/get_ppl_generate.py": "Generate 子管道：AggregateComponent → RAGContextFormatter → answer LLM(get_automodel('llm') + RAG_ANSWER_SYSTEM) → CustomOutputParser；可改：聚合策略、formatter 模板、answer 角色",
+    "/LazyRAG/algorithm/chat/pipelines/builders/get_ppl_generate.py": "Generate 子管道：AggregateComponent → RAGContextFormatter → answer LLM(Automodel('llm') + RAG_ANSWER_SYSTEM) → CustomOutputParser；可改：聚合策略、formatter 模板、answer 角色",
+    "/LazyRAG/algorithm/chat/components/generate/prompt_formatter.py": "RAGContextFormatter 真实实现：把召回 nodes 渲染为 LLM context；可改：上下文排序、token budget、字段裁剪和模板格式",
     "/LazyRAG/algorithm/chat/pipelines/builders/get_retriever.py": "Retriever 构造：基于 retriever_configs 创建多路 KB Retriever，加上 TempDocRetriever(name='block', topk=DEFAULT_TMP_BLOCK_TOPK)；可改：retriever_configs 列表、tmp_block_topk、temp_doc_embed_key",
-    "/LazyRAG/algorithm/chat/runtime_models.yaml": "运行时模型配置：llm/llm_instruct/reranker/embeddings 的 source/model/api_key；embed_1 的 index_type=IVF_FLAT/metric_type=COSINE/nlist=128 影响召回；reranker 默认 source=qwen, model=gte-rerank"
+    "/LazyRAG/algorithm/common/runtime_models.yaml": "运行时模型配置：llm/reranker/embeddings 的 source/model/api_key；embed_1 的 index_type=IVF_FLAT/metric_type=COSINE/nlist=128 影响召回；reranker 默认 source=qwen, model=gte-rerank"
   },
   "read_scope": {
     "project_roots": ["/LazyRAG"],
@@ -21,7 +22,7 @@
       "MultiturnQueryRewriter": {
         "file": "pipelines/naive.py", "line": 18,
         "symbol": "chat.components.process.multiturn_query_rewriter.MultiturnQueryRewriter",
-        "init_args": {"llm_role": "llm_instruct"}
+        "init_args": {"llm_role": "llm"}
       },
       "Retriever_KB": {
         "file": "pipelines/builders/get_retriever.py", "line": 29,
@@ -59,13 +60,13 @@
         "init_args": {}
       },
       "RAGContextFormatter": {
-        "file": "pipelines/builders/get_ppl_generate.py", "line": 21,
+        "file": "components/generate/prompt_formatter.py", "line": 65,
         "symbol": "chat.components.generate.RAGContextFormatter",
         "init_args": {}
       },
       "AnswerLLM": {
         "file": "pipelines/builders/get_ppl_generate.py", "line": 22,
-        "symbol": "lazyllm.AutoModel via get_automodel('llm')",
+        "symbol": "lazyllm.AutoModel via Automodel('llm')",
         "init_args": {"role": "llm", "system_prompt": "RAG_ANSWER_SYSTEM", "wrap_simple_llm": true}
       },
       "CustomOutputParser": {
@@ -74,12 +75,12 @@
         "init_args": {"llm_type_think": "LLM_TYPE_THINK"}
       },
       "Embed_embed_1": {
-        "file": "runtime_models.yaml", "line": 31,
+        "file": "../common/runtime_models.yaml", "line": 31,
         "symbol": "embeddings.embed_1",
         "init_args": {"source": "qwen", "model": "text-embedding-v3", "index_type": "IVF_FLAT", "metric_type": "COSINE", "nlist": 128}
       },
       "Reranker_Model": {
-        "file": "runtime_models.yaml", "line": 24,
+        "file": "../common/runtime_models.yaml", "line": 24,
         "symbol": "reranker",
         "init_args": {"source": "qwen", "type": "rerank", "model": "gte-rerank"}
       }
@@ -95,7 +96,7 @@
       "chat.components.generate.AggregateComponent": "聚合多路召回 nodes；可改聚合策略",
       "chat.components.generate.RAGContextFormatter": "把召回 nodes 渲染为给 LLM 的 context；模板与字段裁剪是关键",
       "chat.components.generate.CustomOutputParser": "解析 LLM 输出（含可选 think 块）",
-      "lazyllm.AutoModel": "根据 runtime_models.yaml 的角色 (llm/llm_instruct/reranker/embeddings) 路由 OnlineLLM/Rerank/Embed",
+      "lazyllm.AutoModel": "根据 runtime_models.yaml 的角色 (llm/reranker/embeddings) 路由 OnlineLLM/Rerank/Embed",
       "embeddings.embed_1": "向量索引参数（IVF_FLAT, COSINE, nlist=128）影响召回质量"
     }
   }
