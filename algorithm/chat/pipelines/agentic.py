@@ -362,6 +362,7 @@ async def _agentic_forward_stream(
                 for frame in _drain_stream_frames():
                     yield frame
                 tool_event = event.get('event') or {}
+                tool_event['preview_text'] = query
                 frame = _format_tool_stream_frame(tool_event)
                 if frame is None:
                     continue
