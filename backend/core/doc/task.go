@@ -2340,8 +2340,16 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 		var ext taskExt
 		_ = json.Unmarshal(taskRow.Ext, &ext)
 		ext.TaskState = string(TaskStateRunning)
+		lazyllmTaskID := ""
+		if i < len(lazyllmTaskIDs) {
+			lazyllmTaskID = strings.TrimSpace(lazyllmTaskIDs[i])
+		}
+		updates := map[string]any{"ext": mustJSON(ext), "updated_at": now}
+		if lazyllmTaskID != "" {
+			updates["lazyllm_task_id"] = lazyllmTaskID
+		}
 		_ = store.DB().WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(map[string]any{"ext": mustJSON(ext), "updated_at": now}).Error; err != nil {
+			if err := tx.Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(updates).Error; err != nil {
 				return err
 			}
 			if err := tx.Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docRows[i].ID, datasetID).Update("updated_at", now).Error; err != nil {
