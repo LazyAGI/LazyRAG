@@ -143,6 +143,18 @@
     }
   }
 
+  .record-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 96px;
+    padding: 16px;
+    color: #9ca3af;
+    font-size: 13px;
+    line-height: 20px;
+    text-align: center;
+  }
+
   .selected {
     padding-left: 16px;
   }

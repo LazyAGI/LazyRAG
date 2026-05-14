@@ -108,7 +108,8 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
             <label>{t("admin.memoryTitle")}</label>
             <Input
               value={draft.title}
-              readOnly={isReadOnly}
+              readOnly={isReadOnly || modalMode === "edit"}
+              className={modalMode === "edit" ? "memory-experience-title-readonly" : undefined}
               placeholder={t("common.pleaseInput") + t("admin.memoryTitle")}
               onChange={(event) =>
                 setDraft((previous: any) => ({ ...previous, title: event.target.value }))
@@ -191,7 +192,7 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
               }}
             />
           </div>
-          <div className="memory-form-field memory-form-field-full">
+          <div className="memory-form-field memory-form-field-full memory-glossary-content-field">
             <label>{t("admin.memoryContent")}</label>
             <Input.TextArea
               rows={10}
@@ -271,53 +272,29 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
             </div>
           ) : null}
           {!isChildSkillDraft ? (
-            <>
-              <div className="memory-form-field">
-                <label>{t("admin.memoryTagSet")}</label>
-                <Select
-                  mode="tags"
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  tokenSeparators={[",", "，"]}
-                  style={{ width: "100%" }}
-                  value={draft.tags}
-                  disabled={isReadOnly}
-                  placeholder={t("admin.memoryTagsPlaceholder")}
-                  onChange={(value) =>
-                    setDraft((previous: any) => ({
-                      ...previous,
-                      tags: normalizeTagValues(value),
-                    }))
-                  }
-                  options={tagOptions}
-                />
-                <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
-              </div>
-            </>
+            <div className="memory-form-field">
+              <label>{t("admin.memoryTagSet")}</label>
+              <Select
+                mode="tags"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                tokenSeparators={[",", "，"]}
+                style={{ width: "100%" }}
+                value={draft.tags}
+                disabled={isReadOnly}
+                placeholder={t("admin.memoryTagsPlaceholder")}
+                onChange={(value) =>
+                  setDraft((previous: any) => ({
+                    ...previous,
+                    tags: normalizeTagValues(value),
+                  }))
+                }
+                options={tagOptions}
+              />
+              <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
+            </div>
           ) : null}
-          <div className="memory-form-field">
-            <label>{t("admin.memoryTagSet")}</label>
-            <Select
-              mode="tags"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              tokenSeparators={[",", "，"]}
-              style={{ width: "100%" }}
-              value={draft.tags}
-              disabled={isReadOnly}
-              placeholder={t("admin.memoryTagsPlaceholder")}
-              onChange={(value) =>
-                setDraft((previous: any) => ({
-                  ...previous,
-                  tags: normalizeTagValues(value),
-                }))
-              }
-              options={tagOptions}
-            />
-            <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
-          </div>
           <div className="memory-form-field memory-form-field-full">
             <label>{t("admin.memoryMarkdown")}</label>
             <Input.TextArea

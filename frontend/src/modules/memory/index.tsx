@@ -202,6 +202,7 @@ export default function MemoryManagement() {
   const experienceDetailMatch = useMatch(`${MEMORY_BASE_PATH}/experience/:itemId`);
   const glossaryDetailMatch = useMatch(`${MEMORY_BASE_PATH}/glossary/:itemId`);
   const reviewRouteMatch = useMatch(`${MEMORY_BASE_PATH}/review/:tab/:itemId`);
+  const reviewRouteReloadKeyRef = useRef("");
   const routeListTab = parseMemoryTab(tabRouteMatch?.params.tab);
   const initialRouteTab =
     (skillDetailMatch?.params.itemId
@@ -233,6 +234,7 @@ export default function MemoryManagement() {
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillAutoEvoLoading, setSkillAutoEvoLoading] = useState<Set<string>>(new Set());
   const [skillsInitialized, setSkillsInitialized] = useState(false);
+  const skillListRequestIdRef = useRef(0);
   const [skillListPage, setSkillListPage] = useState(1);
   const [skillListPageSize, setSkillListPageSize] = useState(defaultSkillListPageSize);
   const [skillListTotal, setSkillListTotal] = useState(initialSkills.length);
@@ -252,6 +254,7 @@ export default function MemoryManagement() {
   const [searchInput, setSearchInput] = useState("");
   const [category, setCategory] = useState<string>();
   const [tag, setTag] = useState<string>();
+  const skillKeyword = query.trim();
   const [glossarySource, setGlossarySource] = useState<GlossarySource>();
   const [glossaryInboxOpen, setGlossaryInboxOpen] = useState(false);
   const [glossaryInboxLoading, setGlossaryInboxLoading] = useState(false);
@@ -595,14 +598,23 @@ export default function MemoryManagement() {
   const refreshSkillAssets = useCallback(async (
     options: { page?: number; pageSize?: number; preserveChangeProposals?: boolean } = {},
   ) => {
+    const requestId = skillListRequestIdRef.current + 1;
+    skillListRequestIdRef.current = requestId;
     setSkillLoading(true);
 
     try {
       const result = await listSkillAssetsPage({
+        keyword: skillKeyword,
+        category,
+        tags: tag ? [tag] : [],
         page: options.page ?? skillListPage,
         pageSize: options.pageSize ?? skillListPageSize,
       });
       const records = result.records;
+      if (skillListRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setSkillListTotal(result.total);
       setSkillListPage(result.page);
       setSkillListPageSize(result.pageSize);
@@ -635,12 +647,17 @@ export default function MemoryManagement() {
         );
       }
     } catch (error) {
+      if (skillListRequestIdRef.current !== requestId) {
+        return;
+      }
       console.error("Load skill assets failed:", error);
     } finally {
-      setSkillLoading(false);
-      setSkillsInitialized(true);
+      if (skillListRequestIdRef.current === requestId) {
+        setSkillLoading(false);
+        setSkillsInitialized(true);
+      }
     }
-  }, [skillListPage, skillListPageSize]);
+  }, [category, skillKeyword, skillListPage, skillListPageSize, tag]);
 
   const refreshGlossaryAssets = useCallback(
     async (options?: { keyword?: string; silent?: boolean; source?: GlossarySource }) => {
@@ -1095,6 +1112,7 @@ export default function MemoryManagement() {
   useEffect(() => {
     if (!reviewRouteTab || !reviewRouteItemId) {
       setActiveProposalId(undefined);
+      reviewRouteReloadKeyRef.current = "";
       return;
     }
 
@@ -1106,12 +1124,20 @@ export default function MemoryManagement() {
       return;
     }
 
+    const reviewRouteReloadKey = `${reviewRouteTab}:${reviewRouteItemId}`;
+    if (reviewRouteReloadKeyRef.current === reviewRouteReloadKey) {
+      return;
+    }
+    reviewRouteReloadKeyRef.current = reviewRouteReloadKey;
+
     void (async () => {
       const opened = await openChangeReview(reviewRouteTab, reviewRouteItemId, undefined, {
+        forceReload: true,
         syncRoute: false,
       });
 
       if (!opened) {
+        reviewRouteReloadKeyRef.current = "";
         navigateToMemoryList(reviewRouteTab, { replace: true });
       }
     })();
@@ -1621,8 +1647,13 @@ export default function MemoryManagement() {
 
   const keyword = query.trim().toLowerCase();
   const hasStructuredFilter = Boolean(keyword || category || tag);
+  const shouldFilterStructuredItemsLocally = activeTab !== "skills";
   const matchesStructuredFilter = useCallback(
     (item: StructuredAsset) => {
+      if (!shouldFilterStructuredItemsLocally) {
+        return true;
+      }
+
       const matchesKeyword =
         !keyword ||
         item.name.toLowerCase().includes(keyword) ||
@@ -1632,7 +1663,7 @@ export default function MemoryManagement() {
       const matchesTag = !tag || item.tags.includes(tag);
       return matchesKeyword && matchesCategory && matchesTag;
     },
-    [category, keyword, tag],
+    [category, keyword, shouldFilterStructuredItemsLocally, tag],
   );
 
   const filteredExperienceItems = experienceAssets;
@@ -2138,10 +2169,12 @@ export default function MemoryManagement() {
     try {
       const enabled = await updatePersonalizationSetting(checked);
       setExperienceFeatureEnabled(enabled);
+      await refreshExperienceSection({ silent: true });
       message.success(t("admin.memoryExperienceSettingSaveSuccess"));
     } catch (error) {
       console.error("Update preference setting failed:", error);
       setExperienceFeatureEnabled(previousValue);
+      await refreshExperienceSection({ silent: true });
       message.error(
         getLocalizedErrorMessage(error, t("admin.memoryExperienceSettingSaveFailed")) ||
           t("admin.memoryExperienceSettingSaveFailed"),
@@ -2213,17 +2246,22 @@ export default function MemoryManagement() {
     tab: ChangeProposalTab,
     itemId: string,
     skillUpdateStatus?: string,
-    options?: { syncRoute?: boolean },
+    options?: { forceReload?: boolean; syncRoute?: boolean },
   ): Promise<boolean> => {
     const proposal = getPendingProposal(tab, itemId);
-    if (!proposal) {
+    const shouldReloadProposal = options?.forceReload ?? true;
+    if (!proposal || shouldReloadProposal) {
       if (tab === "skills") {
         const matchedSkill = skillAssets.find((item) => item.id === itemId);
         const hasBackendPendingReview = Boolean(
           matchedSkill?.hasPendingReviewSuggestions,
         );
 
-        if (isSkillUpdatePending(skillUpdateStatus) || hasBackendPendingReview) {
+        if (
+          shouldReloadProposal ||
+          isSkillUpdatePending(skillUpdateStatus) ||
+          hasBackendPendingReview
+        ) {
           if (!matchedSkill) {
             message.warning(t("admin.memoryDiffTargetMissing"));
             return false;
@@ -2233,6 +2271,11 @@ export default function MemoryManagement() {
           try {
             const backendProposal = await loadSkillChangeProposal(matchedSkill);
             if (!backendProposal) {
+              setChangeProposals((previous) =>
+                previous.filter(
+                  (item) => !(item.tab === "skills" && item.targetId === itemId),
+                ),
+              );
               message.info(t("admin.memoryDiffNoPending"));
               return false;
             }
@@ -2246,6 +2289,7 @@ export default function MemoryManagement() {
             });
             setActiveProposalId(backendProposal.id);
             if (options?.syncRoute !== false) {
+              reviewRouteReloadKeyRef.current = `${tab}:${itemId}`;
               navigateToChangeReview(tab, itemId);
             }
           } catch (error) {
@@ -2264,9 +2308,10 @@ export default function MemoryManagement() {
 
       if (
         tab === "experience" &&
-        experienceAssets.some(
-          (item) => item.id === itemId && item.hasPendingReviewSuggestions,
-        )
+        (shouldReloadProposal ||
+          experienceAssets.some(
+            (item) => item.id === itemId && item.hasPendingReviewSuggestions,
+          ))
       ) {
         const matchedExperience = experienceAssets.find((item) => item.id === itemId);
         if (!matchedExperience) {
@@ -2278,6 +2323,11 @@ export default function MemoryManagement() {
         try {
           const backendProposal = await loadExperienceChangeProposal(matchedExperience);
           if (!backendProposal) {
+            setChangeProposals((previous) =>
+              previous.filter(
+                (item) => !(item.tab === "experience" && item.targetId === itemId),
+              ),
+            );
             message.info(t("admin.memoryDiffNoPending"));
             return false;
           }
@@ -2294,6 +2344,7 @@ export default function MemoryManagement() {
           });
           setActiveProposalId(backendProposal.id);
           if (options?.syncRoute !== false) {
+            reviewRouteReloadKeyRef.current = `${tab}:${itemId}`;
             navigateToChangeReview(tab, itemId);
           }
         } catch (error) {
@@ -2328,6 +2379,7 @@ export default function MemoryManagement() {
 
     setActiveProposalId(proposal.id);
     if (options?.syncRoute !== false) {
+      reviewRouteReloadKeyRef.current = `${tab}:${itemId}`;
       navigateToChangeReview(tab, itemId);
     }
     return true;
@@ -2422,6 +2474,27 @@ export default function MemoryManagement() {
           backendSuggestionPage: suggestionPage.page,
           backendSuggestionPageSize: suggestionPage.pageSize,
           backendSuggestionTotal: Math.max(mergedSuggestions.length, suggestionPage.total),
+        };
+      }),
+    );
+  };
+  const replaceBackendSuggestionPageInProposal = (
+    proposalId: string,
+    suggestionPage: EvolutionSuggestionListResult,
+  ) => {
+    setChangeProposals((previous) =>
+      previous.map((proposal) => {
+        if (proposal.id !== proposalId) {
+          return proposal;
+        }
+
+        return {
+          ...proposal,
+          backendSuggestionId: suggestionPage.items[0]?.id,
+          backendSuggestions: suggestionPage.items,
+          backendSuggestionPage: suggestionPage.page,
+          backendSuggestionPageSize: suggestionPage.pageSize,
+          backendSuggestionTotal: Math.max(suggestionPage.items.length, suggestionPage.total),
         };
       }),
     );
@@ -3018,12 +3091,33 @@ export default function MemoryManagement() {
 
   const goToReviewChoose = () => {
     setIsPreviewContentEditing(false);
-    setActiveReviewStep(0);
+    if (!activeProposal?.backendSuggestions) {
+      setActiveReviewStep(0);
+      return;
+    }
+
+    void (async () => {
+      const suggestionPage = await listEvolutionSuggestions({
+        page: 1,
+        pageSize: backendSuggestionPageSize,
+        ...(activeProposal.tab === "skills"
+          ? getSkillSuggestionResourceParam(activeProposal.before)
+          : getPreferenceSuggestionResourceParam(activeProposal.before)),
+      });
+
+      replaceBackendSuggestionPageInProposal(activeProposal.id, suggestionPage);
+      setSelectedBackendSuggestionIds((previous) => {
+        const latestIds = new Set(suggestionPage.items.map((item) => item.id));
+        return previous.filter((item) => latestIds.has(item));
+      });
+      setActiveReviewStep(0);
+    })();
   };
 
   const finishCloseChangeReview = () => {
     setIsPreviewContentEditing(false);
     setActiveProposalId(undefined);
+    reviewRouteReloadKeyRef.current = "";
     navigateToMemoryList(activeProposal?.tab || activeTab);
   };
   const closeChangeReview = () => {
@@ -4114,7 +4208,18 @@ export default function MemoryManagement() {
                 </Tag>
               ) : null}
             </div>
-            {!record.parentId ? (
+            {!record.parentId && record.description ? (
+              <Tooltip
+                title={
+                  <div className="memory-text-popover-content">{record.description}</div>
+                }
+                overlayClassName="memory-text-popover"
+                placement="topLeft"
+                trigger="hover"
+              >
+                <div className="memory-table-main-desc">{record.description}</div>
+              </Tooltip>
+            ) : !record.parentId ? (
               <div className="memory-table-main-desc">{record.description}</div>
             ) : null}
           </div>
@@ -4359,11 +4464,23 @@ export default function MemoryManagement() {
       key: "content",
       width: 520,
       className: "memory-content-summary-column",
-      render: (value: string) => (
-        <div className="memory-content-preview memory-content-preview-single-line">
-          {value}
-        </div>
-      ),
+      render: (value: string) =>
+        value ? (
+          <Tooltip
+            title={<div className="memory-text-popover-content">{value}</div>}
+            overlayClassName="memory-text-popover"
+            placement="topLeft"
+            trigger="hover"
+          >
+            <div className="memory-content-preview memory-content-preview-single-line">
+              {value}
+            </div>
+          </Tooltip>
+        ) : (
+          <div className="memory-content-preview memory-content-preview-single-line">
+            {value}
+          </div>
+        ),
     },
     {
       title: t("admin.memoryAutoEvo"),

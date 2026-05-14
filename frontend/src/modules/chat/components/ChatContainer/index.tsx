@@ -1074,7 +1074,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
                   icon={<EditOutlined />}
                   onClick={() => promptRef.current?.onOpen()}
                 >
-                  提示词模板
+                  常用话术
                 </Button>
                 <ImageUpload
                   updateFiles={updateImageList}
