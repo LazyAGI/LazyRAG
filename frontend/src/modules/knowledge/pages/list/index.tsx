@@ -560,7 +560,7 @@ const KnowledgePage: FC = () => {
 
   return (
     <div className="knowledge-list-page">
-      <div className="knowledge-title">{t("layout.knowledgeBase")}</div>
+      <h2 className="knowledge-title admin-page-title">{t("layout.knowledgeBase")}</h2>
       <Form className="list-header" form={form}>
         <ListPageHeader
           placeholder={

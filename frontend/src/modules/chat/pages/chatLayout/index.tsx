@@ -6,7 +6,6 @@ import {
   ChatConversationsRequestActionEnum,
   ChatConversationsResponseFinishReasonEnum,
   ChatHistory as BaseChatHistory,
-  Conversation,
   Query,
 } from "@/api/generated/chatbot-client";
 
@@ -18,7 +17,6 @@ import ChatContainerComponent, {
 } from "@/modules/chat/components/newChatContainer";
 import "./index.scss";
 import { RoleTypes } from "@/modules/chat/constants/common";
-import RecordList from "@/modules/chat/components/RecordList";
 import UIUtils from "@/modules/chat/utils/ui";
 import InitialCard from "@/modules/chat/components/InitialCard";
 import { ChatConfig } from "@/modules/chat/components/ChatConfigs";
@@ -28,7 +26,6 @@ import {
   CHAT_STREAM_URL,
   ChatServiceApi,
 } from "@/modules/chat/utils/request";
-import { CloseOutlined } from "@ant-design/icons";
 import { useChatMessageStore } from "@/modules/chat/store/chatMessage";
 import {
   useModelSelectionStore,
@@ -36,7 +33,10 @@ import {
   parseModelSelectionFromModels,
 } from "@/modules/chat/store/modelSelection";
 import { allowedUploadTypes } from "@/modules/chat/components/ImageUpload";
-import { CHAT_RESUME_CONVERSATION_KEY } from "@/modules/chat/constants/chat";
+import {
+  CHAT_RESUME_CONVERSATION_KEY,
+  CHAT_SELECT_CONVERSATION_EVENT,
+} from "@/modules/chat/constants/chat";
 import { normalizeMessageInputs } from "@/modules/chat/utils/message";
 import { splitThinkingContent } from "@/modules/chat/utils/thinking";
 interface IChatLayoutProps {
@@ -52,10 +52,17 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
   const [chatConfig, setChatConfig] = useState<ChatConfig>(
     initchatConfig || {},
   );
+  const [knowledgeRefreshKey, setKnowledgeRefreshKey] = useState(0);
+  const [isRestoringConversation, setIsRestoringConversation] = useState(() => {
+    try {
+      return Boolean(sessionStorage.getItem(CHAT_RESUME_CONVERSATION_KEY));
+    } catch {
+      return false;
+    }
+  });
 
   const { pendingMessage, clearPendingMessage } = useChatMessageStore();
   const { getModelSelection, setModelSelection } = useModelSelectionStore();
-  const [showHistoryList, setShowHistoryList] = useState(true);
 
   const chatRef = useRef<ChatImperativeProps>(null);
 
@@ -84,6 +91,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     if (!conversationId) {
       return;
     }
+    setIsRestoringConversation(true);
     const resolveConversationId = (id: string): Promise<string> => {
       if (!id || !id.startsWith("temp_")) {
         return Promise.resolve(id);
@@ -132,7 +140,8 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         };
         setChatConfig(tempData);
         setChatConfigFn(tempData);
-        setSessionId(resolvedId);
+        setKnowledgeRefreshKey((key) => key + 1);
+        setConversationId(resolvedId);
 
         const modelSelection = parseModelSelectionFromModels(
           (conversation as any)?.models,
@@ -268,9 +277,11 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         } else {
           sessionStorage.removeItem(CHAT_RESUME_CONVERSATION_KEY);
         }
+        setIsRestoringConversation(false);
       })
       .catch(() => {
         sessionStorage.removeItem(CHAT_RESUME_CONVERSATION_KEY);
+        setIsRestoringConversation(false);
       });
   }, []);
 
@@ -349,12 +360,18 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
       return;
     }
     setSessionId(id);
+    window.dispatchEvent(
+      new CustomEvent(CHAT_SELECT_CONVERSATION_EVENT, {
+        detail: { conversationId: id, source: "chat" },
+      }),
+    );
   }
 
-  function onRecordSelected(data: Conversation) {
+  function loadConversation(conversationId: string) {
+    setIsRestoringConversation(true);
     ChatServiceApi()
       .conversationServiceGetConversationDetail({
-        conversation: data.conversation_id || "",
+        conversation: conversationId,
       })
       .then((res) => {
         const conversation = res.data.conversation;
@@ -368,6 +385,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         };
         setChatConfig(tempData);
         setChatConfigFn(tempData);
+        setKnowledgeRefreshKey((key) => key + 1);
 
         const modelSelection = parseModelSelectionFromModels(
           (conversation as any)?.models,
@@ -475,14 +493,44 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
           conversation?.conversation_id || "",
           list,
         );
+      })
+      .finally(() => {
+        setIsRestoringConversation(false);
       });
   }
 
-  function deleteHistory(data: Conversation) {
-    if (data.conversation_id === sessionId) {
-      chatRef.current?.createNewChat();
-    }
-  }
+  useEffect(() => {
+    const handleConversationSelect = (event: Event) => {
+      const detail =
+        (event as CustomEvent<{ conversationId?: string; source?: string }>)
+          .detail || {};
+      if (detail.source !== "sidebar") {
+        return;
+      }
+      const conversationId = detail.conversationId || "";
+      if (!conversationId) {
+        setIsRestoringConversation(false);
+        chatRef.current?.createNewChat();
+        return;
+      }
+      if (conversationId === sessionId) {
+        return;
+      }
+      setIsChatContent(true);
+      loadConversation(conversationId);
+    };
+
+    window.addEventListener(
+      CHAT_SELECT_CONVERSATION_EVENT,
+      handleConversationSelect,
+    );
+    return () => {
+      window.removeEventListener(
+        CHAT_SELECT_CONVERSATION_EVENT,
+        handleConversationSelect,
+      );
+    };
+  }, [sessionId, setIsChatContent]);
 
   function parseErrorData(data: string) {
     const dataObject = UIUtils.jsonParser(data) || {};
@@ -559,41 +607,19 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
       )}
       <ChatContainerComponent
         ref={chatRef}
-        initialCard={<InitialCard />}
+        initialCard={isRestoringConversation ? null : <InitialCard />}
         sessionId={sessionId}
         onOpenSSE={onOpenSSE}
         onOpenResumeSSE={onOpenResumeSSE}
         onConversationIdChange={setConversationId}
         parseErrorData={parseErrorData}
-        setShowHistoryList={() => setShowHistoryList(!showHistoryList)}
-        showHistoryList={showHistoryList}
+        showHistoryButton={false}
         setIsChatContent={setIsChatContent}
         chatConfig={chatConfig}
         setChatConfig={setChatConfig}
         setChatConfigFn={setChatConfigFn}
+        knowledgeRefreshKey={knowledgeRefreshKey}
       />
-      {showHistoryList && (
-        <div className="right-box">
-          <CloseOutlined
-            style={{
-              position: "absolute",
-              top: 12,
-              right: 12,
-              fontSize: 20,
-              cursor: "pointer",
-              opacity: 0.45,
-            }}
-            onClick={() => {
-              setShowHistoryList(false);
-            }}
-          />
-          <RecordList
-            currentSessionId={sessionId}
-            onSelected={onRecordSelected}
-            onRemove={deleteHistory}
-          />
-        </div>
-      )}
     </div>
   );
 };

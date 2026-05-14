@@ -50,7 +50,7 @@
   gap: 18px;
   margin-bottom: 14px;
 
-  h2 {
+  .model-provider-section-title {
     margin: 0;
     color: #0f172a;
     font-size: 21px;
@@ -58,7 +58,7 @@
     line-height: 1.25;
   }
 
-  p {
+  .model-provider-section-subtitle {
     margin: 7px 0 0;
     color: #64748b;
     font-size: 13px;
@@ -288,7 +288,7 @@
 .model-provider-panel-heading {
   margin-bottom: 12px;
 
-  h2 {
+  .model-provider-section-title {
     margin: 0;
     color: #101828;
     font-size: 21px;
@@ -296,7 +296,7 @@
     line-height: 1.25;
   }
 
-  p {
+  .model-provider-section-subtitle {
     margin: 7px 0 0;
     color: #64748b;
     font-size: 13px;
@@ -664,7 +664,7 @@
 .model-provider-side-header {
   margin-bottom: 16px;
 
-  h2 {
+  .model-provider-section-title {
     margin: 0;
     color: #101828;
     font-size: 22px;
@@ -672,7 +672,7 @@
     line-height: 1.25;
   }
 
-  p {
+  .model-provider-section-subtitle {
     margin: 8px 0 0;
     color: #64748b;
     font-size: 13px;
