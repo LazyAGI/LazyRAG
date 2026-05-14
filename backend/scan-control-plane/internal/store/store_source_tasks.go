@@ -106,6 +106,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		displayMeta := metadata[doc.ID]
 		resp.Items = append(resp.Items, model.SourceDocumentItem{
 			DocumentID:              doc.ID,
+			SourceCreateUserID:      strings.TrimSpace(src.CreateUserID),
 			Name:                    filepath.Base(doc.SourceObjectID),
 			Path:                    doc.SourceObjectID,
 			Directory:               filepath.Base(filepath.Dir(doc.SourceObjectID)),
@@ -201,7 +202,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		case "DELETED":
 			delCount++
 		}
-		if strings.TrimSpace(doc.CurrentVersionID) != "" && strings.ToUpper(strings.TrimSpace(doc.ParseStatus)) != "DELETED" {
+		if strings.TrimSpace(doc.CurrentVersionID) != "" {
 			parsedCount++
 		}
 		if latest == nil {
@@ -309,7 +310,7 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		Select(`
 			source_id,
 			COUNT(*) AS total_document_count,
-			SUM(CASE WHEN COALESCE(current_version_id, '') <> '' AND UPPER(COALESCE(parse_status, '')) <> 'DELETED' THEN 1 ELSE 0 END) AS parsed_document_count,
+			SUM(CASE WHEN COALESCE(current_version_id, '') <> '' THEN 1 ELSE 0 END) AS parsed_document_count,
 			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') = '' THEN 1 ELSE 0 END) AS new_count,
 			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') <> '' AND desired_version_id <> current_version_id THEN 1 ELSE 0 END) AS modified_count,
 			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) = 'DELETED' THEN 1 ELSE 0 END) AS deleted_count`).
@@ -438,6 +439,7 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		resp.Items = []model.SourceDocumentItem{
 			{
 				DocumentID:              doc.ID,
+				SourceCreateUserID:      strings.TrimSpace(sourceByID[doc.SourceID].CreateUserID),
 				Name:                    filepath.Base(doc.SourceObjectID),
 				Path:                    doc.SourceObjectID,
 				Directory:               filepath.Base(filepath.Dir(doc.SourceObjectID)),
@@ -514,7 +516,7 @@ func (s *Store) sourceDocumentDisplayMetadata(ctx context.Context, src sourceEnt
 		}
 		return result, nil
 	}
-	if err := s.applyLocalDocumentDisplayMetadata(ctx, src.ID, docs, result); err != nil {
+	if err := s.applyLocalDocumentDisplayMetadata(ctx, src, docs, result); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -634,8 +636,8 @@ func (s *Store) applyCloudDocumentDisplayMetadata(ctx context.Context, sourceID 
 	return nil
 }
 
-func (s *Store) applyLocalDocumentDisplayMetadata(ctx context.Context, sourceID string, docs []sourceDocumentMetaInput, result map[int64]sourceDocumentDisplayMeta) error {
-	items, err := s.latestSourceSnapshotItemsForDisplay(ctx, sourceID)
+func (s *Store) applyLocalDocumentDisplayMetadata(ctx context.Context, src sourceEntity, docs []sourceDocumentMetaInput, result map[int64]sourceDocumentDisplayMeta) error {
+	items, err := s.latestSourceSnapshotItemsForDisplay(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -658,8 +660,8 @@ func (s *Store) applyLocalDocumentDisplayMetadata(ctx context.Context, sourceID 
 	return nil
 }
 
-func (s *Store) latestSourceSnapshotItemsForDisplay(ctx context.Context, sourceID string) (map[string]sourceFileSnapshotItemEntity, error) {
-	sourceID = strings.TrimSpace(sourceID)
+func (s *Store) latestSourceSnapshotItemsForDisplay(ctx context.Context, src sourceEntity) (map[string]sourceFileSnapshotItemEntity, error) {
+	sourceID := strings.TrimSpace(src.ID)
 	if sourceID == "" {
 		return map[string]sourceFileSnapshotItemEntity{}, nil
 	}
@@ -685,7 +687,7 @@ func (s *Store) latestSourceSnapshotItemsForDisplay(ctx context.Context, sourceI
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
-		if err == nil && strings.EqualFold(strings.TrimSpace(preview.SnapshotType), "PREVIEW") && preview.ConsumedAt == nil {
+		if err == nil && strings.EqualFold(strings.TrimSpace(preview.SnapshotType), "PREVIEW") && (preview.ConsumedAt == nil || src.WatchEnabled) {
 			items, err := s.snapshotItemsByPath(ctx, previewID)
 			if err != nil {
 				return nil, err
@@ -852,6 +854,7 @@ func (s *Store) ListSourceDocumentCoreRefs(ctx context.Context, sourceID, tenant
 		Table("documents d").
 		Select(`
 			d.id AS document_id,
+			? AS source_create_user_id,
 			d.source_object_id AS source_object_id,
 			d.parse_status AS parse_status,
 			d.desired_version_id AS desired_version_id,
@@ -864,7 +867,7 @@ func (s *Store) ListSourceDocumentCoreRefs(ctx context.Context, sourceID, tenant
 			d.core_document_id AS core_document_id,
 			pt.core_task_id AS core_task_id,
 			pt.scan_orchestration_status AS scan_orchestration_status
-		`).
+		`, strings.TrimSpace(src.CreateUserID)).
 		Joins("LEFT JOIN (?) latest ON latest.document_id = d.id", sub).
 		Joins("LEFT JOIN parse_tasks pt ON pt.id = latest.max_id").
 		Where("d.tenant_id = ? AND d.source_id = ?", tenantID, src.ID).
@@ -1236,7 +1239,7 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 		}
 	}
 
-	if req.UpdatedOnly {
+	if req.UpdatedOnly || selectedPreview != nil {
 		if selectedPreview != nil {
 			if src.WatchEnabled {
 				filtered, ignored, err := s.filterPathsByUpdatedOnly(ctx, src.ID, paths)

@@ -16,7 +16,8 @@ import (
 func TestTreeFiltersByKeyword(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), "release-root")
+	mustMkdir(t, root)
 	mustMkdir(t, filepath.Join(root, "docs"))
 	mustMkdir(t, filepath.Join(root, "assets"))
 	mustWriteFile(t, filepath.Join(root, "docs", "ReleaseNotes.md"), "notes")

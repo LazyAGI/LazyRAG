@@ -295,8 +295,7 @@ func filterTreeNodesByKeyword(items []internal.TreeNode, keyword string) []inter
 }
 
 func treeNodeMatchesKeyword(node internal.TreeNode, normalizedKeyword string) bool {
-	return strings.Contains(strings.ToLower(node.Title), normalizedKeyword) ||
-		strings.Contains(strings.ToLower(node.Key), normalizedKeyword)
+	return strings.Contains(strings.ToLower(node.Title), normalizedKeyword)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

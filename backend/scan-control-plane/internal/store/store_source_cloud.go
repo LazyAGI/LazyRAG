@@ -141,6 +141,7 @@ func (s *Store) ensureSourceByRootPath(ctx context.Context, req model.CreateSour
 			existing.DefaultOriginType = defaultOriginType
 			existing.DefaultOriginPlatform = defaultOriginPlatform
 			existing.DefaultTriggerPolicy = defaultTriggerPolicy
+			existing.CreatedAt = now
 			existing.UpdatedAt = now
 			if req.WatchEnabled {
 				existing.WatchEnabled = true
@@ -522,15 +523,22 @@ func (s *Store) UpsertCloudSourceBinding(ctx context.Context, sourceID string, r
 			}
 		}
 
-		scheduleExpr := strings.TrimSpace(req.ScheduleExpr)
-		if scheduleExpr == "" {
-			scheduleExpr = strings.TrimSpace(existing.ScheduleExpr)
+		rawScheduleExpr := strings.TrimSpace(req.ScheduleExpr)
+		manualScheduleRequested := isManualCloudScheduleExpr(rawScheduleExpr)
+		scheduleExpr := rawScheduleExpr
+		if manualScheduleRequested {
+			scheduleExpr = ""
 		}
-		if scheduleExpr == "" {
+		if scheduleExpr == "" && !manualScheduleRequested {
+			scheduleExpr = normalizeStoredCloudScheduleExpr(existing.ScheduleExpr)
+		}
+		if scheduleExpr == "" && !manualScheduleRequested && !found {
 			scheduleExpr = "daily@02:00"
 		}
-		if _, _, _, err := parseReconcileScheduleExpr(scheduleExpr); err != nil {
-			return fmt.Errorf("invalid schedule_expr: %w", err)
+		if scheduleExpr != "" {
+			if _, _, _, err := parseReconcileScheduleExpr(scheduleExpr); err != nil {
+				return fmt.Errorf("invalid schedule_expr: %w", err)
+			}
 		}
 		scheduleTZ := strings.TrimSpace(req.ScheduleTZ)
 		if scheduleTZ == "" {

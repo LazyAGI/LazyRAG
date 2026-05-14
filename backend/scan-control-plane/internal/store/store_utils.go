@@ -60,6 +60,18 @@ func normalizeReconcilePolicy(reconcileSeconds int64, reconcileSchedule string, 
 	return reconcileSeconds, schedule, nil
 }
 
+func isManualCloudScheduleExpr(expr string) bool {
+	return strings.EqualFold(strings.TrimSpace(expr), "manual")
+}
+
+func normalizeStoredCloudScheduleExpr(expr string) string {
+	expr = strings.TrimSpace(expr)
+	if isManualCloudScheduleExpr(expr) {
+		return ""
+	}
+	return expr
+}
+
 func parseReconcileScheduleExpr(expr string) (everyDays int, hour int, minute int, err error) {
 	raw := strings.TrimSpace(expr)
 	if raw == "" {
@@ -374,7 +386,37 @@ func applyVisibleDocumentFilter(db *gorm.DB, parseStatusColumn string) *gorm.DB 
 	if parseStatusColumn == "" {
 		return db
 	}
-	return db.Where("UPPER(COALESCE("+parseStatusColumn+", '')) <> ?", "DELETED")
+	currentVersionColumn := siblingDocumentColumn(parseStatusColumn, "current_version_id")
+	coreDocumentColumn := siblingDocumentColumn(parseStatusColumn, "core_document_id")
+	return db.Where(
+		"(UPPER(COALESCE("+parseStatusColumn+", '')) <> ? OR COALESCE("+currentVersionColumn+", '') <> '' OR COALESCE("+coreDocumentColumn+", '') <> '')",
+		"DELETED",
+	)
+}
+
+func applyPendingDeletedDocumentFilter(db *gorm.DB, parseStatusColumn string) *gorm.DB {
+	parseStatusColumn = strings.TrimSpace(parseStatusColumn)
+	if parseStatusColumn == "" {
+		return db
+	}
+	currentVersionColumn := siblingDocumentColumn(parseStatusColumn, "current_version_id")
+	coreDocumentColumn := siblingDocumentColumn(parseStatusColumn, "core_document_id")
+	return db.Where(
+		"UPPER(COALESCE("+parseStatusColumn+", '')) = ? AND (COALESCE("+currentVersionColumn+", '') <> '' OR COALESCE("+coreDocumentColumn+", '') <> '')",
+		"DELETED",
+	)
+}
+
+func siblingDocumentColumn(referenceColumn, sibling string) string {
+	referenceColumn = strings.TrimSpace(referenceColumn)
+	sibling = strings.TrimSpace(sibling)
+	if referenceColumn == "" || sibling == "" {
+		return sibling
+	}
+	if idx := strings.LastIndex(referenceColumn, "."); idx >= 0 {
+		return referenceColumn[:idx+1] + sibling
+	}
+	return sibling
 }
 
 func normalizeEventType(v string) string {
@@ -502,7 +544,7 @@ func applyUpdateTypeFilter(db *gorm.DB, updateType string) *gorm.DB {
 	case "MODIFIED":
 		return db.Where("parse_status <> ? AND desired_version_id IS NOT NULL AND desired_version_id <> '' AND current_version_id IS NOT NULL AND current_version_id <> '' AND desired_version_id <> current_version_id", "DELETED")
 	case "DELETED":
-		return db.Where("parse_status = ?", "DELETED")
+		return applyPendingDeletedDocumentFilter(db, "parse_status")
 	case "UNCHANGED":
 		return db.Where("parse_status <> ? AND desired_version_id IS NOT NULL AND desired_version_id <> '' AND desired_version_id = current_version_id", "DELETED")
 	default:

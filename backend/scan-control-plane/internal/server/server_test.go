@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/lazyrag/scan_control_plane/internal/coreclient"
 	"github.com/lazyrag/scan_control_plane/internal/model"
@@ -136,6 +139,89 @@ func TestDecodeJSONRejectsMultipleJSONValues(t *testing.T) {
 	}
 }
 
+type applyingScanResultMerger struct {
+	st     *store.Store
+	events []model.FileEvent
+	err    error
+}
+
+func (m *applyingScanResultMerger) Ingest(events []model.FileEvent) {
+	m.events = append(m.events, events...)
+	mutations, err := m.st.BuildMutationsFromEvents(context.Background(), events)
+	if err != nil {
+		m.err = err
+		return
+	}
+	m.err = m.st.BatchApplyDocumentMutations(context.Background(), mutations)
+}
+
+func TestReportScanResultsPersistsMetadataWhenMergerEnabled(t *testing.T) {
+	t.Parallel()
+
+	st := newServerTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-scan-result-metadata",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      true,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+
+	merger := &applyingScanResultMerger{st: st}
+	h := &Handler{store: st, merger: merger, core: coreclient.NewNoop(), log: zap.NewNop()}
+	path := "/tmp/watch/server.txt"
+	modAt := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second)
+	payload, err := json.Marshal(model.ReportScanResultsRequest{
+		SourceID: src.ID,
+		Mode:     "full",
+		Records: []model.ScanRecord{
+			{Path: path, Size: 2048, ModTime: modAt},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal scan result request failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/scan-results", strings.NewReader(string(payload)))
+	w := httptest.NewRecorder()
+	h.reportScanResults(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if merger.err != nil {
+		t.Fatalf("merger apply failed: %v", merger.err)
+	}
+	if len(merger.events) != 1 || merger.events[0].SourceID != src.ID {
+		t.Fatalf("expected scan result event to use request source_id fallback, got %#v", merger.events)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	}
+	if resp.Items[0].SizeBytes != 2048 {
+		t.Fatalf("expected size_bytes=2048 from merger scan metadata, got %d", resp.Items[0].SizeBytes)
+	}
+	if resp.Summary.StorageBytes != 2048 {
+		t.Fatalf("expected storage_bytes=2048 from merger scan metadata, got %d", resp.Summary.StorageBytes)
+	}
+	if resp.Items[0].SourceUpdatedAt == nil || !resp.Items[0].SourceUpdatedAt.Equal(modAt) {
+		t.Fatalf("expected source_updated_at=%v, got %v", modAt, resp.Items[0].SourceUpdatedAt)
+	}
+}
+
 func TestOpenAPISpecHidesAgentFSCompatAliases(t *testing.T) {
 	t.Parallel()
 
@@ -164,32 +250,65 @@ func TestOpenAPISpecHidesAgentFSCompatAliases(t *testing.T) {
 }
 
 type fakeKnowledgeBaseCore struct {
-	createResult coreclient.CreateKnowledgeBaseResult
-	createErr    error
-	foundKB      coreclient.KnowledgeBaseRef
-	found        bool
-	findErr      error
+	createResult    coreclient.CreateKnowledgeBaseResult
+	createErr       error
+	foundKB         coreclient.KnowledgeBaseRef
+	found           bool
+	findErr         error
+	deleteDatasetID string
+	deleteUserID    string
+	deleteUserName  string
+	deleteErr       error
+	searchCalls     []fakeSearchCall
+	searchStates    map[string]coreclient.TaskState
 }
 
-func (f fakeKnowledgeBaseCore) Enabled() bool { return true }
+type fakeSearchCall struct {
+	datasetID string
+	taskIDs   []string
+	userID    string
+	userName  string
+}
 
-func (f fakeKnowledgeBaseCore) SubmitParseTask(context.Context, store.PendingTask, string, string, int64) (coreclient.SubmitResult, error) {
+func (f *fakeKnowledgeBaseCore) Enabled() bool { return true }
+
+func (f *fakeKnowledgeBaseCore) SubmitParseTask(context.Context, store.PendingTask, string, string, int64) (coreclient.SubmitResult, error) {
 	return coreclient.SubmitResult{}, nil
 }
 
-func (f fakeKnowledgeBaseCore) CreateKnowledgeBase(context.Context, coreclient.CreateKnowledgeBaseRequest) (coreclient.CreateKnowledgeBaseResult, error) {
+func (f *fakeKnowledgeBaseCore) CreateKnowledgeBase(context.Context, coreclient.CreateKnowledgeBaseRequest) (coreclient.CreateKnowledgeBaseResult, error) {
 	return f.createResult, f.createErr
 }
 
-func (f fakeKnowledgeBaseCore) FindKnowledgeBaseByName(context.Context, string, string, string) (coreclient.KnowledgeBaseRef, bool, error) {
+func (f *fakeKnowledgeBaseCore) FindKnowledgeBaseByName(context.Context, string, string, string) (coreclient.KnowledgeBaseRef, bool, error) {
 	return f.foundKB, f.found, f.findErr
 }
 
-func (f fakeKnowledgeBaseCore) SearchTasks(context.Context, []string) (map[string]coreclient.TaskState, error) {
+func (f *fakeKnowledgeBaseCore) DeleteDataset(_ context.Context, datasetID, userID, userName string) error {
+	f.deleteDatasetID = datasetID
+	f.deleteUserID = userID
+	f.deleteUserName = userName
+	return f.deleteErr
+}
+
+func (f *fakeKnowledgeBaseCore) SearchTasks(context.Context, []string) (map[string]coreclient.TaskState, error) {
 	return map[string]coreclient.TaskState{}, nil
 }
 
-func (f fakeKnowledgeBaseCore) SearchTasksByDataset(context.Context, string, []string) (map[string]coreclient.TaskState, error) {
+func (f *fakeKnowledgeBaseCore) SearchTasksByDataset(context.Context, string, []string) (map[string]coreclient.TaskState, error) {
+	return map[string]coreclient.TaskState{}, nil
+}
+
+func (f *fakeKnowledgeBaseCore) SearchTasksByDatasetAs(_ context.Context, datasetID string, taskIDs []string, userID string, userName string) (map[string]coreclient.TaskState, error) {
+	f.searchCalls = append(f.searchCalls, fakeSearchCall{
+		datasetID: datasetID,
+		taskIDs:   append([]string(nil), taskIDs...),
+		userID:    userID,
+		userName:  userName,
+	})
+	if f.searchStates != nil {
+		return f.searchStates, nil
+	}
 	return map[string]coreclient.TaskState{}, nil
 }
 
@@ -197,18 +316,19 @@ func TestCreateKnowledgeBaseReusesUnboundScanManagedDataset(t *testing.T) {
 	t.Parallel()
 
 	st := newServerTestStore(t)
+	core := &fakeKnowledgeBaseCore{
+		createErr: &coreclient.HTTPError{StatusCode: http.StatusConflict, Body: "dataset name already exists"},
+		foundKB: coreclient.KnowledgeBaseRef{
+			DatasetID:   "ds_scan_half_created",
+			Name:        "local kb",
+			ScanManaged: true,
+		},
+		found: true,
+	}
 	h := &Handler{
 		store: st,
-		core: fakeKnowledgeBaseCore{
-			createErr: &coreclient.HTTPError{StatusCode: http.StatusConflict, Body: "dataset name already exists"},
-			foundKB: coreclient.KnowledgeBaseRef{
-				DatasetID:   "ds_scan_half_created",
-				Name:        "local kb",
-				ScanManaged: true,
-			},
-			found: true,
-		},
-		log: zap.NewNop(),
+		core:  core,
+		log:   zap.NewNop(),
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/scan/knowledge-bases", strings.NewReader(`{"name":"local kb","algo":{"algo_id":"algo-1"}}`))
@@ -255,7 +375,7 @@ func TestCreateKnowledgeBaseDoesNotReuseBoundScanManagedDataset(t *testing.T) {
 
 	h := &Handler{
 		store: st,
-		core: fakeKnowledgeBaseCore{
+		core: &fakeKnowledgeBaseCore{
 			createErr: &coreclient.HTTPError{StatusCode: http.StatusConflict, Body: "dataset name already exists"},
 			foundKB: coreclient.KnowledgeBaseRef{
 				DatasetID:   "ds_scan_bound",
@@ -278,6 +398,99 @@ func TestCreateKnowledgeBaseDoesNotReuseBoundScanManagedDataset(t *testing.T) {
 	}
 }
 
+func TestDeleteSourceDeletesBoundCoreDataset(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	if err := st.RegisterAgent(ctx, model.RegisterAgentRequest{
+		AgentID:  "agent-1",
+		TenantID: "tenant-1",
+		Hostname: "test",
+		Version:  "v1",
+	}); err != nil {
+		t.Fatalf("register agent failed: %v", err)
+	}
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:     "tenant-1",
+		CreateUserID: "owner-1",
+		Name:         "source with kb",
+		AgentID:      "agent-1",
+		RootPath:     "/tmp/source-with-kb",
+		DatasetID:    "ds-bound",
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	core := &fakeKnowledgeBaseCore{}
+	h := &Handler{store: st, core: core, log: zap.NewNop()}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/scan/sources/"+src.ID, nil)
+	req.SetPathValue("id", src.ID)
+	req.Header.Set("X-User-Id", "operator-1")
+	req.Header.Set("X-User-Name", "Operator One")
+	w := httptest.NewRecorder()
+
+	h.deleteSource(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if core.deleteDatasetID != "ds-bound" {
+		t.Fatalf("expected bound dataset to be deleted, got %q", core.deleteDatasetID)
+	}
+	if core.deleteUserID != "owner-1" || core.deleteUserName != "Operator One" {
+		t.Fatalf("unexpected delete user headers: user_id=%q user_name=%q", core.deleteUserID, core.deleteUserName)
+	}
+	if _, err := st.GetSource(ctx, src.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected source to be deleted, got err=%v", err)
+	}
+}
+
+func TestDeleteSourceKeepsSourceWhenCoreDatasetDeleteFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	if err := st.RegisterAgent(ctx, model.RegisterAgentRequest{
+		AgentID:  "agent-1",
+		TenantID: "tenant-1",
+		Hostname: "test",
+		Version:  "v1",
+	}); err != nil {
+		t.Fatalf("register agent failed: %v", err)
+	}
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:     "tenant-1",
+		CreateUserID: "owner-1",
+		Name:         "source with failing kb delete",
+		AgentID:      "agent-1",
+		RootPath:     "/tmp/source-with-failing-kb-delete",
+		DatasetID:    "ds-bound",
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	core := &fakeKnowledgeBaseCore{deleteErr: fmt.Errorf("core unavailable")}
+	h := &Handler{store: st, core: core, log: zap.NewNop()}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/scan/sources/"+src.ID, nil)
+	req.SetPathValue("id", src.ID)
+	w := httptest.NewRecorder()
+
+	h.deleteSource(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected status 502, got %d body=%s", w.Code, w.Body.String())
+	}
+	if core.deleteDatasetID != "ds-bound" || core.deleteUserID != "owner-1" {
+		t.Fatalf("unexpected core delete call: dataset=%q user=%q", core.deleteDatasetID, core.deleteUserID)
+	}
+	if _, err := st.GetSource(ctx, src.ID); err != nil {
+		t.Fatalf("expected source to remain when core delete fails, got %v", err)
+	}
+}
+
 func TestFilterTreeByKeywordKeepsMatchingAncestors(t *testing.T) {
 	t.Parallel()
 
@@ -285,7 +498,7 @@ func TestFilterTreeByKeywordKeepsMatchingAncestors(t *testing.T) {
 		{Title: "root", Key: "/root", IsDir: true, Children: []model.TreeNode{
 			{Title: "docs", Key: "/root/docs", IsDir: true, Children: []model.TreeNode{
 				{Title: "ReleaseNotes.md", Key: "/root/docs/ReleaseNotes.md", IsDir: false},
-				{Title: "guide.txt", Key: "/root/docs/guide.txt", IsDir: false},
+				{Title: "guide.txt", Key: "/root/release-path-only/guide.txt", IsDir: false},
 			}},
 			{Title: "assets", Key: "/root/assets", IsDir: true, Children: []model.TreeNode{
 				{Title: "logo.png", Key: "/root/assets/logo.png", IsDir: false},
@@ -332,7 +545,7 @@ func TestPathTreeByAgentFiltersKeywordWhenAgentReturnsFullTree(t *testing.T) {
 				Items: []model.TreeNode{
 					{Title: "root", Key: "/root", IsDir: true, Children: []model.TreeNode{
 						{Title: "ReleaseNotes.md", Key: "/root/ReleaseNotes.md", IsDir: false},
-						{Title: "guide.txt", Key: "/root/guide.txt", IsDir: false},
+						{Title: "guide.txt", Key: "/root/release-path-only/guide.txt", IsDir: false},
 					}},
 				},
 			})
@@ -750,5 +963,53 @@ func TestBuildSourceDocumentsSummaryWithCoreIgnoresStaleFailure(t *testing.T) {
 	}
 	if summary.ParsedDocumentCount != 1 {
 		t.Fatalf("expected stale failure not to hide current parsed version, got parsed_document_count=%d", summary.ParsedDocumentCount)
+	}
+}
+
+func TestSearchCoreTaskStatesUsesSourceCreatorContext(t *testing.T) {
+	t.Parallel()
+
+	core := &fakeKnowledgeBaseCore{
+		searchStates: map[string]coreclient.TaskState{
+			"task-1": {TaskID: "task-1", TaskState: "SUCCEEDED"},
+			"task-2": {TaskID: "task-2", TaskState: "FAILED"},
+		},
+	}
+	h := &Handler{core: core, log: zap.NewNop()}
+	refs := []store.SourceDocumentCoreRef{
+		{
+			CoreDatasetID:      "ds-1",
+			CoreTaskID:         "task-1",
+			SourceCreateUserID: "owner-1",
+		},
+		{
+			CoreDatasetID:      "ds-1",
+			CoreTaskID:         "task-2",
+			SourceCreateUserID: "owner-2",
+		},
+	}
+
+	states, err := h.searchCoreTaskStates(context.Background(), refs)
+	if err != nil {
+		t.Fatalf("search core task states failed: %v", err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("expected two states, got %#v", states)
+	}
+	if len(core.searchCalls) != 2 {
+		t.Fatalf("expected calls grouped by dataset and source creator, got %#v", core.searchCalls)
+	}
+	seen := map[string]bool{}
+	for _, call := range core.searchCalls {
+		if call.datasetID != "ds-1" {
+			t.Fatalf("unexpected dataset id %q", call.datasetID)
+		}
+		if len(call.taskIDs) != 1 {
+			t.Fatalf("expected one task per owner call, got %#v", call.taskIDs)
+		}
+		seen[call.userID] = true
+	}
+	if !seen["owner-1"] || !seen["owner-2"] {
+		t.Fatalf("expected owner contexts owner-1 and owner-2, got %#v", core.searchCalls)
 	}
 }

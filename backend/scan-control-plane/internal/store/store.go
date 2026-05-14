@@ -36,25 +36,27 @@ type DocumentMutation struct {
 }
 
 type PendingTask struct {
-	TaskID           int64
-	TenantID         string
-	DocumentID       int64
-	TaskAction       string
-	TargetVersionID  string
-	IdempotencyKey   string
-	RetryCount       int
-	MaxRetryCount    int
-	OriginType       string
-	OriginPlatform   string
-	TriggerPolicy    string
-	SourceID         string
-	SourceRootPath   string
-	SourceDatasetID  string
-	CoreDocumentID   string
-	SourceObjectID   string
-	DesiredVersionID string
-	AgentID          string
-	AgentListenAddr  string
+	TaskID               int64
+	TenantID             string
+	DocumentID           int64
+	TaskAction           string
+	TargetVersionID      string
+	IdempotencyKey       string
+	RetryCount           int
+	MaxRetryCount        int
+	OriginType           string
+	OriginPlatform       string
+	TriggerPolicy        string
+	SourceID             string
+	SourceRootPath       string
+	SourceDatasetID      string
+	SourceCreateUserID   string
+	SourceCreateUserName string
+	CoreDocumentID       string
+	SourceObjectID       string
+	DesiredVersionID     string
+	AgentID              string
+	AgentListenAddr      string
 }
 
 type StageCommandPayload struct {
@@ -97,6 +99,8 @@ type parseTaskDocJoin struct {
 type SourceDocumentCoreRef struct {
 	DocumentID              int64
 	SourceObjectID          string
+	SourceCreateUserID      string
+	SourceCreateUserName    string
 	ParseStatus             string
 	DesiredVersionID        string
 	CurrentVersionID        string

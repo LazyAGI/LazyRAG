@@ -719,6 +719,20 @@ func isDefaultDatasetForUser(ctx context.Context, userID, datasetID string) bool
 	return n > 0
 }
 
+func algoDatasetDisplayName(userID, displayName string) string {
+	return fmt.Sprintf("user@%s@%s", strings.TrimSpace(userID), strings.TrimSpace(displayName))
+}
+
+func hasReservedDatasetDisplayNamePrefix(displayName string) bool {
+	name := strings.ToLower(strings.TrimSpace(displayName))
+	for _, prefix := range []string{"user@", "feishu@", "local@"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 type kbCreateRequest struct {
 	KbID           string         `json:"kb_id"`
 	DisplayName    string         `json:"display_name"`
@@ -763,6 +777,10 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	if displayName == "" {
 		displayName = datasetID
 	}
+	if hasReservedDatasetDisplayNamePrefix(displayName) {
+		common.ReplyErr(w, "dataset name uses reserved prefix", http.StatusBadRequest)
+		return
+	}
 	// Provide explicit feedback for duplicate dataset names under the same user.
 	var existed int64
 	if err := corestore.DB().
@@ -785,7 +803,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	req := kbCreateRequest{
 		KbID:        datasetID,
-		DisplayName: displayName,
+		DisplayName: algoDatasetDisplayName(userID, displayName),
 		OwnerID:     userID,
 		AlgoID:      algoID, // omitempty: not sent when empty; DocServer will not bind any algo
 		Meta:        map[string]any{"tags": body.Tags},
@@ -1086,6 +1104,10 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	if newDisplay == "" {
 		newDisplay = ds.DisplayName
 	}
+	if hasReservedDatasetDisplayNamePrefix(newDisplay) {
+		common.ReplyErr(w, "dataset name uses reserved prefix", http.StatusBadRequest)
+		return
+	}
 	if newDesc == "" {
 		newDesc = ds.Desc
 	}
@@ -1124,8 +1146,9 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	kbURL := common.JoinURL(common.AlgoServiceEndpoint(), "/v1/kbs/"+kbID+"/update")
 	extMeta := map[string]any{"tags": body.Tags}
+	algoDisplayName := algoDatasetDisplayName(userID, newDisplay)
 	req := kbUpdateRequest{
-		DisplayName: &newDisplay,
+		DisplayName: &algoDisplayName,
 		Description: &newDesc,
 		OwnerID:     &userID,
 		Meta:        extMeta,

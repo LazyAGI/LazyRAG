@@ -350,6 +350,8 @@ type ParseTaskListItem struct {
 	TenantID                string     `json:"tenant_id"`
 	SourceID                string     `json:"source_id"`
 	SourceName              string     `json:"source_name"`
+	SourceCreateUserID      string     `json:"-"`
+	SourceCreateUserName    string     `json:"-"`
 	DocumentID              int64      `json:"document_id"`
 	SourceObjectID          string     `json:"source_object_id"`
 	TaskAction              string     `json:"task_action,omitempty"`
@@ -427,6 +429,8 @@ type SourceDocumentsSummary struct {
 
 type SourceDocumentItem struct {
 	DocumentID              int64      `json:"document_id"`
+	SourceCreateUserID      string     `json:"-"`
+	SourceCreateUserName    string     `json:"-"`
 	Name                    string     `json:"name"`
 	Path                    string     `json:"path"`
 	Directory               string     `json:"directory"`

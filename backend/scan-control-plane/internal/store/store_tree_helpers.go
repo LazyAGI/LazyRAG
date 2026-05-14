@@ -206,7 +206,8 @@ func (s *Store) deletedDocumentPathSet(ctx context.Context, sourceID string, pat
 	query := s.db.WithContext(ctx).
 		Table("documents").
 		Select("source_object_id").
-		Where("source_id = ? AND source_object_id IN ? AND parse_status = ?", sourceID, normalized, "DELETED")
+		Where("source_id = ? AND source_object_id IN ?", sourceID, normalized)
+	query = applyPendingDeletedDocumentFilter(query, "parse_status")
 	query = applyTransientPathFilter(query, "source_object_id")
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
@@ -668,7 +669,8 @@ func (s *Store) deletedDocumentPaths(ctx context.Context, sourceID string, scope
 	query := s.db.WithContext(ctx).
 		Table("documents").
 		Select("source_object_id").
-		Where("source_id = ? AND parse_status = ?", sourceID, "DELETED")
+		Where("source_id = ?", sourceID)
+	query = applyPendingDeletedDocumentFilter(query, "parse_status")
 	query = applyTransientPathFilter(query, "source_object_id")
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err
