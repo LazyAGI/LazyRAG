@@ -140,6 +140,7 @@ export async function fetchCurrentUserDetail(): Promise<UserDetailResponse> {
     email: userDetail.email || undefined,
     displayName: userDetail.display_name || undefined,
     phone: userDetail.phone || undefined,
+    role: userDetail.role_name,
   });
 
   return userDetail;

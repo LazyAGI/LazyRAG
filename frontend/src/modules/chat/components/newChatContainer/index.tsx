@@ -43,6 +43,10 @@ import { useChatMessageStore } from "@/modules/chat/store/chatMessage";
 import { CHAT_RESUME_CONVERSATION_KEY } from "@/modules/chat/constants/chat";
 import { useTranslation } from "react-i18next";
 import { getRegenerationInputs } from "@/modules/chat/utils/message";
+import {
+  splitThinkingContent,
+  formatThinkingForDisplay,
+} from "@/modules/chat/utils/thinking";
 
 const ThinkIcon = new URL("../../assets/images/think.png", import.meta.url)
   .href;
@@ -81,6 +85,7 @@ interface Props {
 export interface ChatMessage {
   role?: string;
   delta?: string;
+  raw_delta?: string;
   images?: {
     base64?: string;
     uid?: string;
@@ -99,6 +104,7 @@ export interface ChatMessage {
     content: string;
     index: number;
     history_id?: string;
+    raw_content?: string;
     reasoning_content?: string;
     sources?: Source[];
     thinking_duration_s?: string;
@@ -151,6 +157,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       useChatMessageStore();
     const isMouseScrollingRef = useRef(false);
     const sseRef = useRef<any>(null);
+    const activeStreamRef = useRef(false);
     const fileRef = useRef<any>(null);
     const chatContentRef = useRef<HTMLDivElement>(null);
     const currentConversationIdRef = useRef<string>("");
@@ -225,7 +232,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
 
     function sendMessage(params: SendMessageParams) {
       const { text, clearInput = true, create_time } = params;
-      if (loading || !canChat || !text) {
+      if (activeStreamRef.current || loading || !canChat || !text) {
         return;
       }
 
@@ -314,6 +321,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       input: any[],
       action: ChatConversationsRequestActionEnum,
     ) => {
+      activeStreamRef.current = true;
       setLoading(true);
       setIS_STREAMING(true);
 
@@ -366,6 +374,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       if (!onOpenResumeSSE) {
         return;
       }
+      activeStreamRef.current = true;
       setLoading(true);
       setIS_STREAMING(true);
       currentConversationIdRef.current = conversationId;
@@ -388,6 +397,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
 
     function closeSSE() {
       sseRef.current = null;
+      activeStreamRef.current = false;
       setLoading(false);
       setIS_STREAMING(false);
     }
@@ -590,16 +600,22 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
               content: "",
               index: answerIndex,
               history_id: result.history_id,
+              raw_content: "",
               reasoning_content: "",
               sources: [],
             };
             assistantMessage.answers.push(targetAnswer);
           }
 
-          targetAnswer.content += result.delta || "";
-          targetAnswer.reasoning_content =
-            (targetAnswer.reasoning_content || "") +
-            (result.reasoning_content || "");
+          targetAnswer.raw_content =
+            (targetAnswer.raw_content || targetAnswer.content || "") +
+            (result.delta || "");
+          const answerSplitResult = splitThinkingContent(
+            targetAnswer.raw_content,
+            targetAnswer.reasoning_content || "",
+          );
+          targetAnswer.content = answerSplitResult.content;
+          targetAnswer.reasoning_content = answerSplitResult.reasoning_content;
 
           if (result.sources && result.sources.length > 0) {
             targetAnswer.sources = result.sources;
@@ -618,17 +634,21 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
             id: result.messageId || assistantMessage.id,
           };
         } else {
-          const previousDelta = assistantMessage.delta || "";
-          const previousReasoningContent =
-            assistantMessage.reasoning_content || "";
+          const previousRawDelta =
+            assistantMessage.raw_delta || assistantMessage.delta || "";
+          const mergedRawDelta = previousRawDelta + (result.delta || "");
+          const splitResult = splitThinkingContent(
+            mergedRawDelta,
+            assistantMessage.reasoning_content || "",
+          );
 
           assistantMessage = {
             ...assistantMessage,
             ...result,
             id: result.messageId,
-            delta: previousDelta + (result.delta || ""),
-            reasoning_content:
-              previousReasoningContent + (result.reasoning_content || ""),
+            raw_delta: mergedRawDelta,
+            delta: splitResult.content,
+            reasoning_content: splitResult.reasoning_content,
             sources:
               result.sources && result.sources.length > 0
                 ? result.sources
@@ -797,6 +817,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       streamManager.setActiveConversation(id || null);
 
       if (id && streamManager.hasActiveStream(id)) {
+        activeStreamRef.current = true;
         const callbacks: Record<string, (event: CustomEvent) => void> = {
           message: (event) => onMessage(event),
           error: (event) => onError(event),
@@ -1065,7 +1086,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
                       ChatConversationsResponseFinishReasonEnum.FinishReasonStop
                     }
                   >
-                    {item.reasoning_content}
+                    {formatThinkingForDisplay(item.reasoning_content)}
                   </MarkdownViewer>
                 </div>
                 {!item.delta &&

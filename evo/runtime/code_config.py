@@ -1,9 +1,9 @@
 from __future__ import annotations
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from algorithm.config import config
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,7 @@ def _resolve(p: str | Path, base: Path) -> Path:
 def _container_path(path: Path) -> Path:
     if path.exists():
         return path
-    chat_source = os.getenv('EVO_CHAT_SOURCE')
+    chat_source = config['evo_chat_source']
     if not chat_source:
         return path
     parts = path.parts

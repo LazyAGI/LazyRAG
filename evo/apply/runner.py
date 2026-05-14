@@ -14,6 +14,7 @@ from evo.apply.git_workspace import GitWorkspace
 from evo.apply.tests import TestOutcome, run_tests
 from evo.harness.plan import StopRequested
 from evo.runtime.config import EvoConfig
+from algorithm.config import config
 
 _NO_CHANGES_FEEDBACK = (
     '上一轮 opencode 未对任何 allowlist 中的文件做出修改。本轮必须实际改动至少一个允许文件，否则任务无法收尾。'
@@ -27,6 +28,7 @@ class RoundResult:
     files_changed: list[str] = field(default_factory=list)
     commit_sha: str | None = None
     test_passed: bool | None = None
+    deploy_passed: bool | None = None
     error: dict | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
@@ -40,6 +42,7 @@ class ApplyResult:
     status: Literal['SUCCEEDED', 'FAILED']
     rounds: list[RoundResult] = field(default_factory=list)
     final_commit: str | None = None
+    deployment: dict | None = None
     error: dict | None = None
     diff_index_path: Path | None = None
 
@@ -48,17 +51,18 @@ class ApplyResult:
 class ApplyOptions:
     max_rounds: int = 3
     test_command: tuple[str, ...] = field(
-        default_factory=lambda: tuple(shlex.split(os.getenv('EVO_APPLY_TEST_CMD', 'bash tests/run-all.sh')))
+        default_factory=lambda: tuple(shlex.split(config['evo_apply_test_command']))
     )
     instruction: str = '根据 report 完成代码修改'
     opencode_options: oc.OpencodeOptions = field(
         default_factory=lambda: oc.OpencodeOptions(
-            model=os.getenv('EVO_OPENCODE_MODEL') or None,
-            agent=os.getenv('EVO_OPENCODE_AGENT') or None,
-            variant=os.getenv('EVO_OPENCODE_VARIANT') or None,
-            timeout_s=int(os.getenv('EVO_OPENCODE_TIMEOUT_S', '600')),
+            model=config['evo_code_model'] or None,
+            agent=config['evo_code_agent'] or None,
+            variant=config['evo_code_variant'] or None,
+            timeout_s=int(config['evo_code_timeout_s']),
         )
     )
+    deploy_check: Callable[[Path, str | None], dict] | None = None
 
 
 def _check(token: Any | None, at: str | None = None) -> None:
@@ -97,8 +101,8 @@ def _filter_actions(report: dict) -> list[dict]:
     if not isinstance(actions, list):
         raise ApplyError('REPORT_INVALID', 'report.actions must be a list', {'actual_type': type(actions).__name__})
     in_scope = [a for a in actions if isinstance(a, dict) and a.get('code_map_in_scope') and a.get('code_map_target')]
-    min_confidence = float(os.getenv('EVO_APPLY_MIN_ACTION_CONFIDENCE', '0.5'))
-    min_validity = float(os.getenv('EVO_APPLY_MIN_ACTION_VALIDITY', '0.5'))
+    min_confidence = float(config['evo_apply_min_action_confidence'])
+    min_validity = float(config['evo_apply_min_action_validity'])
     ready = [
         a
         for a in in_scope
@@ -245,6 +249,11 @@ def _exhausted_error(rounds: list[RoundResult], max_rounds: int) -> dict:
             'message': f'allowlist 越界在 {max_rounds} 轮内未解决',
             'details': dict(det),
         }
+    if last and last.error:
+        err = dict(last.error)
+        err.setdefault('kind', 'transient')
+        err.setdefault('details', {})
+        return err
     return {
         'code': 'MAX_ROUNDS_EXCEEDED',
         'kind': 'transient',
@@ -267,6 +276,30 @@ def _opencode_api_error(last_error: dict) -> dict:
     }
 
 
+def _mark_round(
+    cp: dict,
+    rounds: list[RoundResult],
+    rr: RoundResult,
+    *,
+    error: dict | None = None,
+    prior_failure: str = '',
+    on_round: Callable[[RoundResult], None] | None = None,
+) -> str:
+    rr.error = error
+    rr.finished_at = time.time()
+    rounds.append(rr)
+    _append_checkpoint_round(cp, rr)
+    if prior_failure:
+        cp['prior_failure'] = prior_failure
+    if on_round:
+        on_round(rr)
+    return cp.get('prior_failure', '')
+
+
+def _retry_error(code: str, message: str, details: dict | None = None) -> dict:
+    return {'code': code, 'kind': 'transient', 'message': message, 'details': details or {}}
+
+
 def execute_apply(
     *,
     apply_id: str,
@@ -277,6 +310,7 @@ def execute_apply(
     options: ApplyOptions | None = None,
     cancel_token: Any | None = None,
     on_round: Callable[[RoundResult], None] | None = None,
+    on_round_start: Callable[[RoundResult], None] | None = None,
     on_proc: Callable[[Any], None] | None = None,
     resume: bool = False,
 ) -> ApplyResult:
@@ -309,7 +343,18 @@ def execute_apply(
         base_commit = None
     actions = _filter_actions(report)
     if not actions:
-        raise ApplyError('REPORT_INVALID', 'report has no in-scope actions')
+        workspace.ensure_bare()
+        worktree, wt_head = workspace.get_or_create_worktree(apply_id)
+        branch = GitWorkspace.branch_name(apply_id)
+        cp = _build_initial_checkpoint(apply_id, wt_head, branch, str(worktree))
+        cp.update({'status': 'succeeded', 'preview_ready': False, 'no_actions': True})
+        _write_checkpoint(cp_path, cp)
+        return ApplyResult(
+            apply_id=apply_id,
+            base_commit=wt_head,
+            branch_name=branch,
+            status='SUCCEEDED',
+        )
     allow_files, new_roots = _allow_spec(config)
     if not allow_files and (not new_roots):
         raise ApplyError('CODE_MAP_EMPTY', 'code_map is empty; nothing modifiable')
@@ -336,116 +381,79 @@ def execute_apply(
     final_status: Literal['SUCCEEDED', 'FAILED'] = 'FAILED'
     final_error: dict | None = None
     final_commit: str | None = None
-    for i in range(start_round, options.max_rounds + 1):
-        _check(cancel_token, at=f'round_{i:03d}.start')
-        cp['next_round'] = i
-        _write_checkpoint(cp_path, cp)
-        round_dir = apply_dir / 'rounds' / f'round_{i:03d}'
-        if round_dir.exists():
-            shutil.rmtree(round_dir)
-        (round_dir / 'input').mkdir(parents=True, exist_ok=True)
-        rr = RoundResult(index=i, started_at=time.time())
-        prompt = _build_prompt(options.instruction, plan, allow_lines, prior_failure)
-        (round_dir / 'input' / 'prompt.txt').write_text(prompt, encoding='utf-8')
-        try:
-            outcome = oc.run_opencode(
-                prompt,
-                cwd=worktree,
-                artifact_dir=round_dir / 'opencode',
-                binary=binary,
-                options=options.opencode_options,
-                on_proc=on_proc,
-            )
-        except ApplyError as exc:
-            rr.error = exc.to_payload()
-            rr.finished_at = time.time()
-            rounds.append(rr)
-            _append_checkpoint_round(cp, rr)
+    deployment: dict | None = None
+    session = oc.OpencodeSession(cwd=worktree, binary=binary, options=options.opencode_options, on_proc=on_proc)
+    try:
+        for i in range(start_round, options.max_rounds + 1):
+            _check(cancel_token, at=f'round_{i:03d}.start')
+            cp['next_round'] = i
             _write_checkpoint(cp_path, cp)
-            if on_round:
-                on_round(rr)
-            final_error = rr.error
-            break
-        if outcome.returncode != 0:
-            rr.error = {
-                'code': 'OPENCODE_RUN_FAILED',
-                'kind': 'transient',
-                'message': f'opencode exit={outcome.returncode}',
-                'details': {'last_error': outcome.last_error},
-            }
-            rr.finished_at = time.time()
-            rounds.append(rr)
-            _append_checkpoint_round(cp, rr)
-            _write_checkpoint(cp_path, cp)
-            if on_round:
-                on_round(rr)
-            final_error = rr.error
-            break
-        if outcome.last_error:
-            rr.error = _opencode_api_error(outcome.last_error)
-            rr.finished_at = time.time()
-            rounds.append(rr)
-            _append_checkpoint_round(cp, rr)
-            _write_checkpoint(cp_path, cp)
-            if on_round:
-                on_round(rr)
-            final_error = rr.error
-            break
-        _check(cancel_token, at=f'round_{i:03d}.opencode_done')
-        sha, oob = workspace.commit_allowlisted(worktree, _commit_subj(apply_id, thread_id, i), allow_files, new_roots)
-        rr.commit_sha = sha
-        if oob is not None:
-            rr.test_passed = False
-            rr.error = {
-                'code': 'APPLY_PATH_OUT_OF_ALLOWLIST',
-                'kind': 'transient',
-                'message': 'changes outside allowlist were reverted',
-                'details': {'paths': oob},
-            }
-            rr.finished_at = time.time()
-            rounds.append(rr)
-            _append_checkpoint_round(cp, rr)
-            cp['prior_failure'] = _allowlist_violation_context(oob)
-            _write_checkpoint(cp_path, cp)
-            if on_round:
-                on_round(rr)
-            prior_failure = cp['prior_failure']
-            continue
-        if sha is None:
-            rr.test_passed = False
-            rr.error = {
-                'code': 'OPENCODE_NO_CHANGES',
-                'kind': 'permanent',
-                'message': 'opencode 本轮未修改任何允许文件',
-                'details': {},
-            }
-            rr.finished_at = time.time()
-            rounds.append(rr)
-            _append_checkpoint_round(cp, rr)
-            cp['prior_failure'] = _NO_CHANGES_FEEDBACK
-            _write_checkpoint(cp_path, cp)
-            if on_round:
-                on_round(rr)
-            prior_failure = cp['prior_failure']
-            continue
-        diffs = workspace.diff(worktree, base_commit)
-        rr.files_changed = [d.path for d in diffs]
-        _check(cancel_token, at=f'round_{i:03d}.diff_done')
-        test_outcome = run_tests(worktree, round_dir / 'tests', command=options.test_command, on_proc=on_proc)
-        rr.test_passed = test_outcome.passed
-        rr.finished_at = time.time()
-        rounds.append(rr)
-        _append_checkpoint_round(cp, rr)
-        if on_round:
-            on_round(rr)
-        if test_outcome.passed:
+            round_dir = apply_dir / 'rounds' / f'round_{i:03d}'
+            if round_dir.exists():
+                shutil.rmtree(round_dir)
+            (round_dir / 'input').mkdir(parents=True, exist_ok=True)
+            rr = RoundResult(index=i, started_at=time.time())
+            prompt = _build_prompt(options.instruction, plan, allow_lines, prior_failure)
+            (round_dir / 'input' / 'prompt.txt').write_text(prompt, encoding='utf-8')
+            if on_round_start:
+                on_round_start(rr)
+            try:
+                outcome = session.run(prompt, round_dir / 'opencode')
+            except ApplyError as exc:
+                prior_failure = _mark_round(cp, rounds, rr, error=exc.to_payload(), on_round=on_round)
+                _write_checkpoint(cp_path, cp)
+                continue
+            if outcome.returncode != 0 or outcome.last_error:
+                err = _opencode_api_error(outcome.last_error) if outcome.last_error else _retry_error(
+                    'OPENCODE_RUN_FAILED', f'opencode exit={outcome.returncode}', {'last_error': outcome.last_error}
+                )
+                prior_failure = _mark_round(cp, rounds, rr, error=err, prior_failure=err['message'], on_round=on_round)
+                _write_checkpoint(cp_path, cp)
+                continue
+            _check(cancel_token, at=f'round_{i:03d}.opencode_done')
+            sha, oob = workspace.commit_allowlisted(worktree, _commit_subj(
+                apply_id, thread_id, i), allow_files, new_roots)
+            rr.commit_sha = sha
+            if oob is not None:
+                err = _retry_error('APPLY_PATH_OUT_OF_ALLOWLIST',
+                                   'changes outside allowlist were reverted', {'paths': oob})
+                prior_failure = _mark_round(cp, rounds, rr, error=err, prior_failure=_allowlist_violation_context(oob),
+                                            on_round=on_round)
+                _write_checkpoint(cp_path, cp)
+                continue
+            if sha is None:
+                err = {'code': 'OPENCODE_NO_CHANGES', 'kind': 'permanent',
+                       'message': 'opencode 本轮未修改任何允许文件', 'details': {}}
+                prior_failure = _mark_round(cp, rounds, rr, error=err, prior_failure=_NO_CHANGES_FEEDBACK,
+                                            on_round=on_round)
+                _write_checkpoint(cp_path, cp)
+                continue
+            rr.files_changed = [d.path for d in workspace.diff(worktree, base_commit)]
+            _check(cancel_token, at=f'round_{i:03d}.diff_done')
+            test_outcome = run_tests(worktree, round_dir / 'tests', command=options.test_command, on_proc=on_proc)
+            rr.test_passed = test_outcome.passed
+            if not test_outcome.passed:
+                prior_failure = _mark_round(
+                    cp, rounds, rr, prior_failure=_failure_context(
+                        rr.files_changed, test_outcome), on_round=on_round)
+                _write_checkpoint(cp_path, cp)
+                continue
+            try:
+                deployment = options.deploy_check(worktree, thread_id) if options.deploy_check else None
+                rr.deploy_passed = True
+            except Exception as exc:
+                rr.deploy_passed = False
+                err = _retry_error('APPLY_DEPLOY_FAILED', f'candidate deploy/smoke failed: {exc}')
+                prior_failure = _mark_round(cp, rounds, rr, error=err, prior_failure=err['message'], on_round=on_round)
+                _write_checkpoint(cp_path, cp)
+                continue
+            _mark_round(cp, rounds, rr, on_round=on_round)
             final_status = 'SUCCEEDED'
             final_commit = sha
             break
-        prior_failure = _failure_context(rr.files_changed, test_outcome)
-        cp['prior_failure'] = prior_failure
-        _write_checkpoint(cp_path, cp)
-    else:
+    finally:
+        session.close()
+    if final_status != 'SUCCEEDED':
         final_error = _exhausted_error(rounds, options.max_rounds)
     diff_index_path: Path | None = None
     preview_dir = apply_dir / 'preview'
@@ -469,6 +477,7 @@ def execute_apply(
         status=final_status,
         rounds=rounds,
         final_commit=final_commit,
+        deployment=deployment,
         error=final_error,
         diff_index_path=diff_index_path,
     )

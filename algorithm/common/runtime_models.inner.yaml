@@ -8,7 +8,7 @@ llm:
     url: http://106.75.235.251:9000/v1/
     api_key: ${LAZYLLM_MINIMAX_API_KEY}
 
-llm_instruct:
+evo_llm:
   - source: openai
     type: llm
     name: lazyllm

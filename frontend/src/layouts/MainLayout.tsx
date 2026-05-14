@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, Form, Input, Layout, Menu, Modal, Popover, message } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -10,14 +10,16 @@ import {
   TeamOutlined,
   GlobalOutlined,
   DatabaseOutlined,
+  ApiOutlined,
   LeftOutlined,
   RightOutlined,
 } from "@ant-design/icons";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { UserDetailResponse } from "@/api/generated/auth-client";
-import { AgentAppsAuth } from "@/components/auth";
+import { AUTH_USER_CHANGE_EVENT, AgentAppsAuth } from "@/components/auth";
 import {
   changeCurrentUserPassword,
+  fetchCurrentUser,
   fetchCurrentUserDetail,
   updateCurrentUserProfile,
 } from "@/modules/signin/utils/request";
@@ -34,6 +36,14 @@ import "./index.scss";
 const { Content, Sider } = Layout;
 const MAINLAND_CHINA_PHONE_REGEX = /^1[3-9]\d{9}$/;
 const MAIN_MENU_COLLAPSED_STORAGE_KEY = "lazyrag:main-menu-collapsed";
+
+function readStoredMainMenuCollapsed() {
+  try {
+    return localStorage.getItem(MAIN_MENU_COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 type MenuItem = Required<MenuProps>["items"][number];
 
@@ -70,7 +80,7 @@ export default function MainLayout() {
   const { t } = useTranslation();
   const [profileForm] = Form.useForm<ProfileFormValues>();
 
-  const userInfo = AgentAppsAuth.getUserInfo();
+  const [userInfo, setUserInfo] = useState(() => AgentAppsAuth.getUserInfo());
   const isLoggedIn = Boolean(userInfo?.token);
   const userName = userInfo?.username || "";
   const isAdminUser = isAdminRole(userInfo?.role);
@@ -80,7 +90,7 @@ export default function MainLayout() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [isMenuCollapsed, setIsMenuCollapsed] = useState(false);
+  const [isMenuCollapsed, setIsMenuCollapsed] = useState(readStoredMainMenuCollapsed);
   const [developerActive, setDeveloperActive] = useState(isDeveloperModeActive);
   const [profileDetail, setProfileDetail] = useState<UserDetailResponse | null>(null);
   const aiEvolutionMenuChildren: MenuItem[] = [
@@ -105,6 +115,7 @@ export default function MainLayout() {
       children: [
         { key: "/lib/knowledge", label: t("layout.knowledgeBase"), icon: <AppstoreOutlined /> },
         { key: "/data-sources", label: t("layout.dataSourceManagement"), icon: <DatabaseOutlined /> },
+        { key: "/model-providers", label: t("layout.modelProviderManagement"), icon: <ApiOutlined /> },
       ],
     },
     {
@@ -124,11 +135,15 @@ export default function MainLayout() {
       label: t("layout.systemManagement"),
       icon: <TeamOutlined className="settings-popover-icon" />,
     },
-    {
-      key: "developer-toggle",
-      label: t("layout.developer"),
-      icon: <CodeOutlined className="settings-popover-icon" />,
-    },
+    ...(isAdminUser
+      ? [
+          {
+            key: "developer-toggle",
+            label: t("layout.developer"),
+            icon: <CodeOutlined className="settings-popover-icon" />,
+          },
+        ]
+      : []),
   ];
   const logoSrc =
     (import.meta.env as ImportMetaEnv & { VITE_APP_LOGO?: string })
@@ -138,12 +153,69 @@ export default function MainLayout() {
     setDeveloperActive(isDeveloperModeActive());
   }, []);
 
+  const refreshLayoutUser = useCallback(async () => {
+    if (!AgentAppsAuth.isLoggedIn()) {
+      setUserInfo(AgentAppsAuth.getUserInfo());
+      return;
+    }
+
+    try {
+      await fetchCurrentUser();
+    } catch (error) {
+      console.error("Failed to refresh current user:", error);
+    } finally {
+      setUserInfo(AgentAppsAuth.getUserInfo());
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLayoutUser();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshLayoutUser();
+      }
+    };
+    const handleFocus = () => {
+      refreshLayoutUser();
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "lazyrag:user") {
+        setUserInfo(AgentAppsAuth.getUserInfo());
+      }
+    };
+    const handleUserChange = () => {
+      setUserInfo(AgentAppsAuth.getUserInfo());
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(AUTH_USER_CHANGE_EVENT, handleUserChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(AUTH_USER_CHANGE_EVENT, handleUserChange);
+    };
+  }, [refreshLayoutUser]);
+
+  useEffect(() => {
+    if (!isAdminUser && developerActive) {
+      setDeveloperActive(false);
+      setDeveloperModeActive(false);
+    }
+  }, [developerActive, isAdminUser]);
+
   useEffect(() => {
     let key = "/agent/chat";
     if (pathname.startsWith("/lib")) {
       key = "/lib/knowledge";
     } else if (pathname.startsWith("/data-sources")) {
       key = "/data-sources";
+    } else if (pathname.startsWith("/model-providers")) {
+      key = "/model-providers";
     } else if (pathname.startsWith("/memory-management")) {
       key = "/memory-management";
     } else if (pathname.startsWith("/self-evolution")) {
@@ -159,12 +231,7 @@ export default function MainLayout() {
   }, [pathname, isAdminUser, developerActive, navigate]);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(MAIN_MENU_COLLAPSED_STORAGE_KEY);
-      setIsMenuCollapsed(stored === "1");
-    } catch {
-      setIsMenuCollapsed(false);
-    }
+    setIsMenuCollapsed(readStoredMainMenuCollapsed());
   }, []);
 
   useEffect(() => {
@@ -306,6 +373,7 @@ export default function MainLayout() {
 
   const refreshCurrentProfile = async () => {
     const detail = await fetchCurrentUserDetail();
+    setUserInfo(AgentAppsAuth.getUserInfo());
     setProfileDetail(detail);
     applyProfileToForm(detail);
     return detail;

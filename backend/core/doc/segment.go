@@ -329,12 +329,18 @@ func fetchChunkGroupName(r *http.Request, algoID string) string {
 	return ""
 }
 
+// buildChunksURL constructs the /v1/chunks query URL.
+// algoID is now optional: when non-empty it is forwarded as a hint so DocServer
+// can use the algo-specific retriever; when empty DocServer resolves the algo
+// automatically via _find_algo_for_group (node-group refactor).
 func buildChunksURL(kbID, algoID, lazyDocID, group string, page, pageSize int) string {
 	params := url.Values{}
 	params.Set("kb_id", kbID)
 	params.Set("doc_id", lazyDocID)
 	params.Set("group", firstNonEmpty(group, "Chunk"))
-	params.Set("algo_id", firstNonEmpty(algoID, "__default__"))
+	if strings.TrimSpace(algoID) != "" {
+		params.Set("algo_id", algoID)
+	}
 	params.Set("page", strconv.Itoa(page))
 	params.Set("page_size", strconv.Itoa(pageSize))
 	return common.JoinURL(common.AlgoServiceEndpoint(), "/v1/chunks") + "?" + params.Encode()

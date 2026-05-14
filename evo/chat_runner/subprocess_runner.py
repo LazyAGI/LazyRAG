@@ -36,13 +36,16 @@ class SubprocessChatRunner:
     def launch(
         self, *, source_dir: Path, label: str, env: dict | None = None, owner_thread_id: str | None = None
     ) -> ChatInstance:
-        _ensure_chat_import_alias(Path(source_dir))
+        child_env = {**os.environ, **(env or {})}
+        cwd = Path(child_env.pop('LAZYRAG_EVO_CANDIDATE_CWD', source_dir))
+        if cwd.resolve() == Path(source_dir).resolve():
+            _ensure_chat_import_alias(Path(source_dir))
         port = _free_port()
         chat_id = f'chat-{label}-{uuid.uuid4().hex[:6]}'
         log_path = self.log_dir / f'{chat_id}.log'
         cmd = [*self.command, '--port', str(port)]
         log_fp = open(log_path, 'ab')
-        proc = subprocess.Popen(cmd, cwd=source_dir, env={**os.environ, **(env or {})}, stdout=log_fp, stderr=log_fp)
+        proc = subprocess.Popen(cmd, cwd=cwd, env=child_env, stdout=log_fp, stderr=log_fp)
         self._procs[chat_id] = proc
         base_url = f'http://127.0.0.1:{port}'
         instance = ChatInstance(

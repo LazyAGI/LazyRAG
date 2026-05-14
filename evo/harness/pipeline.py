@@ -87,7 +87,13 @@ def build_standard_plan(
             Step('load', _load, description='Load corpus (judge+trace)'),
             Step('features', _features, description='Compute per-case step features'),
             Step('cluster_global', _cluster_global, description='Global badcase clustering'),
-            Step('cluster_per_step', _cluster_per_step, optional=True, description='Per-step clustering'),
+            Step(
+                'cluster_per_step',
+                _cluster_per_step,
+                optional=True,
+                description='Per-step clustering',
+                skip_if=lambda ctx: not ctx.session.case_step_features,
+            ),
             Step(
                 'flow',
                 _flow,

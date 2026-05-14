@@ -3,11 +3,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
+from lazyllm.tools.agent.skill_manager import SkillManager as LazySkillManager
 
-_CHAT_DIR = Path(__file__).resolve().parents[1]
-_INNER_CONFIG_PATH = _CHAT_DIR / 'runtime_models.inner.yaml'
-_ONLINE_CONFIG_PATH = _CHAT_DIR / 'runtime_models.online.yaml'
-_DYNAMIC_CONFIG_PATH = _CHAT_DIR / 'runtime_models.yaml'
+_COMMON_DIR = Path(__file__).resolve().parents[2] / 'common'
+_INNER_CONFIG_PATH = _COMMON_DIR / 'runtime_models.inner.yaml'
+_ONLINE_CONFIG_PATH = _COMMON_DIR / 'runtime_models.online.yaml'
+_DYNAMIC_CONFIG_PATH = _COMMON_DIR / 'runtime_models.yaml'
 
 # Maps runtime_models.yaml type values to _dynamic_module_slot names used by
 # _DynamicSourceRouterMixin subclasses (OnlineChatModule / OnlineEmbeddingModule).
@@ -49,8 +50,10 @@ def get_config_path() -> str:
     from config import config as _cfg
     raw = _cfg['model_config_path']
     if raw in aliases:
-        return str(aliases[raw])
-    return raw
+        path = str(aliases[raw])
+    else:
+        path = raw
+    return path
 
 
 def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
@@ -63,6 +66,28 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def normalize_skill_fs_url(value: Any) -> str:
+    raw = str(value or '').strip()
+    if not raw:
+        return ''
+    parts = [part.strip() for part in raw.split(',') if part.strip()]
+    if not parts:
+        return ''
+    if parts[0].startswith('remote://') and '.agentic/skills' not in parts:
+        parts.append('.agentic/skills')
+    return ','.join(parts)
+
+
+def extract_skill_fs_source(path: Any) -> str:
+    raw = str(path or '').strip()
+    if not raw:
+        return 'file'
+    protocol = LazySkillManager._extract_protocol(raw)
+    if protocol == 'remote':
+        return 'remote'
+    return protocol or 'file'
+
+
 @lru_cache(maxsize=1)
 def get_dynamic_role_slot_map(config_path: Optional[str] = None) -> Dict[str, str]:
     '''Return a mapping of {role_name: slot} for all roles with source=dynamic.
@@ -73,7 +98,6 @@ def get_dynamic_role_slot_map(config_path: Optional[str] = None) -> Dict[str, st
     Example result for the default runtime_models.yaml:
         {
             'llm':        'chat',
-            'llm_instruct': 'chat',
             'reranker':   'embed',
             'embed_main': 'embed',
         }
@@ -126,7 +150,6 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     with source=dynamic are relevant).  Each value is a config dict for that role:
         {
             "llm":        {"source": "openai",      "model": "gpt-4o",      "api_key": "sk-..."},
-            "llm_instruct": {"source": "openai",    "model": "gpt-4o-mini", "api_key": "sk-..."},
             "embed_main": {"source": "siliconflow", "model": "BAAI/bge-m3", "api_key": "..."},
             "reranker":   {"source": "siliconflow", "model": "BAAI/bge-reranker-v2-m3", "api_key": "..."},
         }
@@ -135,7 +158,6 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
 
         globals['config']['dynamic_model_configs'] = ConfigsDict({
             'llm':          {'chat':  {'source': 'openai',      'model': 'gpt-4o',      ...}},
-            'llm_instruct': {'chat':  {'source': 'openai',      'model': 'gpt-4o-mini', ...}},
             'embed_main':   {'embed': {'source': 'siliconflow', 'model': 'bge-m3',       ...}},
             'reranker':     {'embed': {'source': 'siliconflow', 'model': 'bge-reranker', ...}},
         })
@@ -144,7 +166,6 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
         # dynamically via the stack lookup (stack = [config_id, role_name, group_id]):
         globals['config']['openai_api_key'] = ConfigsDict({
             'llm':          'sk-...',
-            'llm_instruct': 'sk-...',
         })
         globals['config']['siliconflow_api_key'] = ConfigsDict({
             'embed_main': 'sk-...',
@@ -161,7 +182,7 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
                   → globals.config['openai_api_key']
                       → ConfigsDict lookup hits cfg['llm'] = 'sk-...'  ✓
 
-    Two roles with the same source but different keys (e.g. llm / llm_instruct)
+    Two roles with the same source but different keys (e.g. llm / evo_llm)
     are fully isolated because the ConfigsDict is keyed by role name, and each
     module's stack contains its own role name.
 

@@ -1,5 +1,16 @@
 package evolution
 
+import (
+	"context"
+	"strings"
+
+	"gorm.io/gorm"
+
+	"lazyrag/core/common/orm"
+)
+
+var ApplyRemoveSuggestion func(ctx context.Context, db *gorm.DB, suggestion orm.ResourceSuggestion) error
+
 const (
 	ResourceTypeSkill          = "skill"
 	ResourceTypeMemory         = "memory"
@@ -21,6 +32,10 @@ const (
 	SuggestionStatusNone          = "none"
 
 	UpdateStatusUpToDate = "up_to_date"
+
+	AutoEvoApplyStatusIdle    = "idle"
+	AutoEvoApplyStatusRunning = "running"
+	AutoEvoApplyStatusFailed  = "failed"
 )
 
 type ChatResourceContext struct {
@@ -82,4 +97,15 @@ func MergeSuggestionStatus(current, candidate string) string {
 		return SuggestionStatusAccepted
 	}
 	return SuggestionStatusNone
+}
+
+func NormalizeAutoEvoApplyStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case AutoEvoApplyStatusRunning:
+		return AutoEvoApplyStatusRunning
+	case AutoEvoApplyStatusFailed:
+		return AutoEvoApplyStatusFailed
+	default:
+		return AutoEvoApplyStatusIdle
+	}
 }

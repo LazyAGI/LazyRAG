@@ -2,9 +2,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError, ThreadPoolExecutor, as_completed
 from typing import Any
 from evo.datagen.llm import chat
+from evo.runtime.config import EVO_EVAL_JUDGE_TIMEOUT_S
 from evo.datagen.prompts import prompt_evaluate
 
 _log = logging.getLogger('evo.datagen.evaluate')
@@ -69,7 +70,9 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
     result_list: list[dict] = []
     done = 0
     total = len(eval_queue)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    timeout_s = EVO_EVAL_JUDGE_TIMEOUT_S
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         future_map = {
             executor.submit(
                 evaluate_answer,
@@ -82,7 +85,7 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
             ): item
             for item in eval_queue
         }
-        for future in as_completed(future_map):
+        for future in as_completed(future_map, timeout=timeout_s):
             item = future_map[future]
             try:
                 evaluate_result = future.result()
@@ -93,4 +96,10 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
             done += 1
             if on_progress:
                 on_progress(done, total)
+    except TimeoutError as exc:
+        for future in future_map:
+            future.cancel()
+        raise RuntimeError(f'evaluate judge timed out after {timeout_s:.0f}s ({done}/{total} done)') from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
     return result_list

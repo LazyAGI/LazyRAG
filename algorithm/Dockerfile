@@ -1,5 +1,6 @@
 # Stage: base - lazyllm[rag] only. Rebuilt only when upgrading lazyllm version.
-FROM python:3.11-slim AS base
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}python:3.11-slim AS base
 WORKDIR /app
 
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
@@ -7,7 +8,7 @@ ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG LAZYLLM_GITHUB_REF=main
 ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
-ARG PIP_DEFAULT_TIMEOUT=300
+ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
 
 RUN --mount=type=secret,id=apt_http_proxy,required=false \
@@ -76,9 +77,7 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     printf '%s\n' '#!/usr/bin/env sh' \
       'PYTHONPATH="/opt/lazyllm:${PYTHONPATH:-}" exec python -m lazyllm.cli.main "$@"' \
       > /usr/local/bin/lazyllm; \
-    chmod 0755 /usr/local/bin/lazyllm; \
-    cd /opt/lazyllm; \
-    lazyllm install rag
+    chmod 0755 /usr/local/bin/lazyllm
 
 # Stage: default - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
 # Use the LazyLLM runtime installed under /opt/lazyllm so tracing behavior matches Evo/chat images.
@@ -93,12 +92,13 @@ ARG LAZYRAG_PRELOAD_WHISPER_MODEL=0
 ARG LAZYRAG_WHISPER_MODEL=base
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN cd /opt/lazyllm && lazyllm install rag
 RUN if [ "$LAZYRAG_PRELOAD_WHISPER_MODEL" = "1" ]; then \
         python -c "import whisper; whisper.load_model('${LAZYRAG_WHISPER_MODEL}')"; \
     fi
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/app/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
 ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
 ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
@@ -111,7 +111,8 @@ ENV LAZYRAG_REVIEW_MAX_RETRIES=5
 ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
 ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
 ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
-ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+ENV LAZYRAG_USE_INNER_MODEL=true
+ENV LAZYRAG_MODEL_CONFIG_PATH=/app/common/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 

@@ -1,7 +1,8 @@
-FROM golang:1.24.6-alpine AS builder
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}golang:1.24.6-alpine AS builder
 WORKDIR /build
 
-ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
 RUN apk add --no-cache build-base
 
@@ -11,7 +12,8 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o /out/scan-control-plane ./cmd/main.go
 
-FROM alpine:3.19
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}alpine:3.19
 RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 

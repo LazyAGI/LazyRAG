@@ -1248,9 +1248,8 @@ func startTasksInternal(r *http.Request, datasetID string, taskIDs []string) ([]
 
 func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string) ([]StartTaskResult, error) {
 	kbID := datasetKbIDByID(datasetID)
-	algoID := datasetAlgoIDByID(datasetID)
-	if kbID == "" || algoID == "" {
-		return nil, fmt.Errorf("dataset kb/algo mapping not found")
+	if kbID == "" {
+		return nil, fmt.Errorf("dataset kb mapping not found")
 	}
 	resultsByTaskID := make(map[string]StartTaskResult, len(taskIDs))
 	orderedUniqueIDs := make([]string, 0, len(taskIDs))
@@ -1319,7 +1318,7 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 			items = append(items, buildAddFileItem(datasetID, candidate.task, candidate.doc, candidate.docExt, parsePath))
 		}
 		if len(baseTasks) > 0 {
-			extResults, err := callExternalAddDocs(r, addRequest{Items: items, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
+			extResults, err := callExternalAddDocs(r, addRequest{Items: items, KbID: kbID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 			if err != nil {
 				for i, taskRow := range baseTasks {
 					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
@@ -1367,7 +1366,7 @@ func startParseTasksInternal(r *http.Request, datasetID string, taskIDs []string
 					return
 				}
 				item := buildAddFileItem(datasetID, candidate.task, candidate.doc, dExt, parsePath)
-				extResults, err := callExternalAddDocs(r, addRequest{Items: []addFileItem{item}, KbID: kbID, AlgoID: algoID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
+				extResults, err := callExternalAddDocs(r, addRequest{Items: []addFileItem{item}, KbID: kbID, SourceType: "EXTERNAL", IdempotencyKey: newTaskID()})
 				if err != nil {
 					resolved := common.ResolveAppError(err.Error(), http.StatusBadGateway)
 					outcomes[idx] = officeOutcome{task: candidate.task, doc: candidate.doc, docExt: dExt, result: StartTaskResult{TaskID: candidate.task.ID, DocumentID: candidate.doc.ID, DisplayName: candidate.doc.DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: resolved.Message, Detail: fmt.Sprint(resolved.Detail)}}
@@ -1452,7 +1451,7 @@ func buildTaskResponse(r *http.Request, row orm.Task) TaskResponse {
 			extTaskFound = true
 		}
 	}
-	if !extTaskFound && lazyDoc != "" {
+	if !extTaskFound && lazyDoc != "" && TaskType(strings.TrimSpace(row.TaskType)) != TaskTypeReparse {
 		if err := store.LazyLLMDB().WithContext(r.Context()).Table((readonlyorm.LazyLLMDocServiceTaskRow{}).TableName()).Where("doc_id = ?", lazyDoc).Order("updated_at DESC").Take(&extTask).Error; err == nil {
 			extTaskFound = true
 		}
@@ -2267,7 +2266,7 @@ func createTaskFromExistingDocument(r *http.Request, datasetID, userID, userName
 	if len(tFiles) == 0 && (strings.TrimSpace(dExt.StoredPath) != "" || strings.TrimSpace(dExt.ParseStoredPath) != "") {
 		tFiles = []TaskFile{{DisplayName: displayName, StoredName: dExt.StoredName, StoredPath: dExt.StoredPath, ParseStoredPath: dExt.ParseStoredPath, FileSize: dExt.FileSize, RelativePath: dExt.RelativePath, ContentType: dExt.ContentType}}
 	}
-	tExt := taskExt{TaskType: tType, DocumentPID: documentPID, DisplayName: displayName, TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetPath: strings.TrimSpace(item.Task.TargetPath), DataSourceType: firstNonEmpty(strings.TrimSpace(item.Task.DataSourceType), "LOCAL_FILE"), Files: tFiles, DocumentTags: tags}
+	tExt := taskExt{TaskType: tType, DocumentPID: documentPID, DisplayName: displayName, TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetPath: strings.TrimSpace(item.Task.TargetPath), DataSourceType: firstNonEmpty(strings.TrimSpace(item.Task.DataSourceType), "LOCAL_FILE"), Files: tFiles, DocumentTags: tags, ReparseGroups: item.Task.ReparseGroups}
 	now := time.Now().UTC()
 	taskRow := orm.Task{ID: taskID, LazyllmTaskID: "", DocID: baseDoc.ID, KbID: datasetKbIDByID(datasetID), AlgoID: datasetAlgoIDByID(datasetID), DatasetID: datasetID, TaskType: tType, DocumentPID: documentPID, TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), DisplayName: displayName, Ext: mustJSON(tExt), BaseModel: orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now}}
 	if err := store.DB().WithContext(r.Context()).Create(&taskRow).Error; err != nil {
@@ -2278,7 +2277,6 @@ func createTaskFromExistingDocument(r *http.Request, datasetID, userID, userName
 
 func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []string) ([]StartTaskResult, error) {
 	kbID := datasetKbIDByID(datasetID)
-	algoID := datasetAlgoIDByID(datasetID)
 	results := make([]StartTaskResult, 0, len(taskIDs))
 	docIDs := make([]string, 0, len(taskIDs))
 	taskRows := make([]orm.Task, 0, len(taskIDs))
@@ -2309,7 +2307,19 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 	if len(taskRows) == 0 {
 		return results, fmt.Errorf("no valid tasks to start")
 	}
-	if err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, AlgoID: algoID, IdempotencyKey: newTaskID()}); err != nil {
+	// Collect ng_names from the first task that has ReparseGroups set.
+	// All tasks in a single reparse batch share the same reparse_groups selection.
+	var ngNames []string
+	for _, taskRow := range taskRows {
+		var ext taskExt
+		_ = json.Unmarshal(taskRow.Ext, &ext)
+		if len(ext.ReparseGroups) > 0 {
+			ngNames = ext.ReparseGroups
+			break
+		}
+	}
+	lazyllmTaskIDs, err := callExternalReparseDocs(r, reparseRequest{DocIDs: docIDs, KbID: kbID, NgNames: ngNames, IdempotencyKey: newTaskID()})
+	if err != nil {
 		for i, taskRow := range taskRows {
 			results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "FAILED", SubmitStatus: "FAILED", Message: common.ResolveAppError(err.Error(), http.StatusBadGateway).Message, Detail: fmt.Sprint(common.ResolveAppError(err.Error(), http.StatusBadGateway).Detail)})
 		}
@@ -2320,7 +2330,15 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 		var ext taskExt
 		_ = json.Unmarshal(taskRow.Ext, &ext)
 		ext.TaskState = string(TaskStateRunning)
-		_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(map[string]any{"ext": mustJSON(ext), "updated_at": now}).Error
+		lazyllmTaskID := ""
+		if i < len(lazyllmTaskIDs) {
+			lazyllmTaskID = strings.TrimSpace(lazyllmTaskIDs[i])
+		}
+		updates := map[string]any{"ext": mustJSON(ext), "updated_at": now}
+		if lazyllmTaskID != "" {
+			updates["lazyllm_task_id"] = lazyllmTaskID
+		}
+		_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(updates).Error
 		results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "STARTED", SubmitStatus: "SUBMITTED"})
 	}
 	return results, nil
@@ -2553,7 +2571,7 @@ func prepareTransferTargets(ctx context.Context, taskRow orm.Task, rootDoc orm.D
 			log.Printf("[transfer] skip item task=%s source_doc=%s reason=%s", taskRow.ID, node.ID, map[bool]string{true: "folder or empty source lazy doc id", false: ""}[isFolder || sourceLazyDocID == ""])
 			continue
 		}
-		items = append(items, transferItem{DocID: sourceLazyDocID, TargetDocID: newID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), SourceAlgoID: datasetAlgoIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), TargetAlgoID: datasetAlgoIDByID(targetDatasetID), Mode: mode})
+		items = append(items, transferItem{DocID: sourceLazyDocID, TargetDocID: newID, SourceKbID: datasetKbIDByID(taskRow.DatasetID), TargetKbID: datasetKbIDByID(targetDatasetID), Mode: mode})
 		log.Printf("[transfer] add item task=%s source_doc=%s source_lazy_doc=%s target_doc=%s", taskRow.ID, node.ID, sourceLazyDocID, newID)
 	}
 	log.Printf("[transfer] prepare done task=%s bindings=%d items=%d", taskRow.ID, len(bindings), len(items))
