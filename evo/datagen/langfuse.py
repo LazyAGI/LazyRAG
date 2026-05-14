@@ -41,11 +41,15 @@ def normalize_trace(raw: dict) -> dict[str, Any]:
     return trace
 
 
-def fetch_langfuse_trace(trace_id: str, *, attempts: int = 6, delay_s: float = 2.0) -> dict[str, Any]:
+def fetch_langfuse_trace(
+    trace_id: str, *, attempts: int = 12, delay_s: float = 3.0, timeout_s: float = 10.0
+) -> dict[str, Any]:
     last_exc: Exception | None = None
+    last_trace: dict[str, Any] | None = None
     for attempt in range(attempts):
         try:
-            trace = _fetch_trace_consume(trace_id)
+            trace = _fetch_trace_consume_timeout(trace_id, timeout_s)
+            last_trace = trace
             _assert_trace_complete(trace)
             return trace
         except Exception as exc:
@@ -53,7 +57,19 @@ def fetch_langfuse_trace(trace_id: str, *, attempts: int = 6, delay_s: float = 2
             if attempt + 1 >= attempts:
                 break
             time.sleep(delay_s)
+    if last_trace:
+        last_trace.setdefault('metadata', {})['evo_trace_incomplete'] = str(last_exc or 'trace incomplete')
+        return last_trace
     raise last_exc or RuntimeError(f'trace fetch failed for {trace_id}')
+
+
+def _fetch_trace_consume_timeout(trace_id: str, timeout_s: float) -> dict[str, Any]:
+    pool = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(_fetch_trace_consume, trace_id)
+    try:
+        return future.result(timeout=timeout_s)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _fetch_trace_consume(trace_id: str) -> dict[str, Any]:
@@ -108,9 +124,16 @@ def fetch_traces_for_report(report: dict, max_workers: int = 8) -> dict[str, Any
             continue
         if isinstance(case.get('rag_trace'), dict):
             trace = normalize_trace(case['rag_trace'])
-            _assert_trace_complete(trace)
-            out[trace_id] = trace
-            continue
+            try:
+                _assert_trace_complete(trace)
+                out[trace_id] = trace
+                continue
+            except RuntimeError:
+                trace.setdefault('metadata', {})['evo_trace_incomplete'] = 'using inline incomplete rag_trace'
+                out[trace_id] = trace
+                continue
+            except Exception:
+                pass
         cases_by_trace[trace_id] = case
         trace_ids.append(trace_id)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:

@@ -122,6 +122,36 @@ def test_runner_disable_curator() -> None:
     print("  -> OK")
 
 
+def test_runner_executes_multi_tool_actions() -> None:
+    _h("ReActRunner: executes JSON-array multi-tool calls in one round")
+    session = create_session(load_config())
+    with session_scope(session):
+        invoker = MagicMock()
+        invoker.invoke.side_effect = [
+            'Thought: batch\nActions: ['
+            '{"tool": "summarize_metrics", "args": {}}, '
+            '{"tool": "list_cases_ranked", "args": {"limit": 2}}'
+            ']',
+            "FINAL",
+        ]
+        runner = ReActRunner(
+            session=session,
+            tool_names=["summarize_metrics", "list_cases_ranked"],
+            invoker=invoker,
+            cfg=ReActConfig(max_rounds=3, min_tool_calls=0, use_memory_curator=False),
+        )
+        from evo.tools import register_all
+        register_all()
+        from evo.harness import data_loader
+        data_loader.load_corpus(session)
+        assert runner.run("t") == "FINAL"
+    assert runner.stats.total_tool_calls == 2
+    second_prompt = invoker.invoke.call_args_list[1][0][0]
+    assert '"tool": "summarize_metrics"' in second_prompt
+    assert '"tool": "list_cases_ranked"' in second_prompt
+    print("  -> OK")
+
+
 def _run(tests: list[Callable[[], None]]) -> int:
     failures = 0
     for t in tests:
@@ -142,6 +172,7 @@ def main() -> int:
         test_curator_returns_llm_markdown,
         test_runner_threads_working_memory_into_prompt,
         test_runner_disable_curator,
+        test_runner_executes_multi_tool_actions,
     ])
 
 

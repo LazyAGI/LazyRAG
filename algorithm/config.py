@@ -102,3 +102,27 @@ config.add('word_group_apply_url', str, None, 'WORD_GROUP_APPLY_URL', descriptio
 config.add('core_service_url', str, None, 'CORE_SERVICE_URL', description='Core service base URL.')
 # ACL_DB_DSN: now requires LAZYRAG_ACL_DB_DSN prefix.
 config.add('acl_db_dsn', str, None, 'ACL_DB_DSN', description='ACL database DSN (PostgreSQL connection string).')
+
+# ---------------------------------------------------------------------------
+# Evo
+# ---------------------------------------------------------------------------
+config.add('evo_code_provider', str, 'qwen', 'EVO_CODE_PROVIDER', description='Evo code provider.')
+config.add('evo_code_model', str, 'qwen3-max', 'EVO_CODE_MODEL', description='Evo code model.')
+config.add('evo_code_api_key', str, '', 'EVO_CODE_API_KEY', description='Evo code API key.')
+config.add('evo_code_base_url', str, '', 'EVO_CODE_BASE_URL', description='Evo code provider base URL.')
+config.add('evo_code_label', str, 'qwen', 'EVO_CODE_LABEL', description='Evo code provider display label.')
+config.add('evo_code_agent', str, None, 'EVO_CODE_AGENT', description='Evo code agent.')
+config.add('evo_code_variant', str, None, 'EVO_CODE_VARIANT', description='Evo code variant.')
+config.add('evo_code_timeout_s', str, '600', 'EVO_CODE_TIMEOUT_S', description='Evo code timeout seconds.')
+config.add('evo_code_data_dir', str, None, 'EVO_CODE_DATA_DIR', description='Evo code data directory.')
+config.add('evo_code_binary', str, None, 'EVO_CODE_BINARY', description='Evo code binary.')
+config.add('evo_code_skip_permissions', bool, True, 'EVO_CODE_SKIP_PERMISSIONS', description='Evo code skip permissions.')
+config.add('evo_apply_test_command', str, 'bash tests/run-all.sh', 'EVO_APPLY_TEST_COMMAND', description='Evo apply test command.')
+config.add('evo_apply_min_action_confidence', str, '0.5', 'EVO_APPLY_MIN_ACTION_CONFIDENCE', description='Evo apply minimum action confidence.')
+config.add('evo_apply_min_action_validity', str, '0.5', 'EVO_APPLY_MIN_ACTION_VALIDITY', description='Evo apply minimum action validity.')
+config.add('evo_llm_role', str, 'evo_llm', 'EVO_LLM_ROLE', description='Evo LLM AutoModel role.')
+config.add('evo_auto_user_role', str, 'evo_llm', 'EVO_AUTO_USER_ROLE', description='Evo auto-user AutoModel role.')
+config.add('evo_data_dir', str, None, 'EVO_DATA_DIR', description='Evo static data directory.')
+config.add('evo_base_dir', str, None, 'EVO_BASE_DIR', description='Evo runtime storage directory.')
+config.add('evo_code_map', str, None, 'EVO_CODE_MAP', description='Evo code map path.')
+config.add('evo_chat_source', str, None, 'EVO_CHAT_SOURCE', description='Evo chat source directory.')

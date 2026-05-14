@@ -280,7 +280,7 @@ func upstreamSessionID(convID string) string {
 	return fmt.Sprintf("%s_%d", convID, time.Now().UnixMilli())
 }
 
-func buildChatRequestBody(convID, sessionID, query string, histories []orm.ChatHistory, raw map[string]any, resourceContext *evolution.ChatResourceContext) map[string]any {
+func buildChatRequestBody(convID, sessionID, query string, histories []orm.ChatHistory, raw map[string]any, resourceContext *evolution.ChatResourceContext, userID string) map[string]any {
 	if strings.TrimSpace(sessionID) == "" {
 		sessionID = upstreamSessionID(convID)
 	}
@@ -297,6 +297,7 @@ func buildChatRequestBody(convID, sessionID, query string, histories []orm.ChatH
 		"priority":        raw["priority"],
 		"enable_thinking": raw["enable_thinking"],
 		"use_memory":      useMemory,
+		"user_id":         strings.TrimSpace(userID),
 	}
 	if resourceContext != nil {
 		body["available_tools"] = resourceContext.AvailableTools

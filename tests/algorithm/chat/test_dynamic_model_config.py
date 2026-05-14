@@ -229,10 +229,6 @@ class TestInjectModelConfig:
               source: dynamic
               dynamic_auth: true
               type: llm
-            llm_instruct:
-              source: dynamic
-              dynamic_auth: true
-              type: llm
             reranker:
               source: dynamic
               dynamic_auth: true
@@ -251,7 +247,6 @@ class TestInjectModelConfig:
             with _globals_config_patch('dynamic_model_configs', None) as gcfg:
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',       'api_key': 'sk-chat'},
-                    'llm_instruct': {'source': 'openai', 'model': 'gpt-4o-mini',  'api_key': 'sk-chat'},
                     'embed_main':   {'source': 'sf',     'model': 'bge-m3',       'api_key': 'sk-embed'},
                     'reranker':     {'source': 'sf',     'model': 'bge-reranker', 'api_key': 'sk-embed'},
                 })
@@ -259,7 +254,6 @@ class TestInjectModelConfig:
 
             assert isinstance(cfg, ConfigsDict)
             assert cfg['llm']['chat']['model'] == 'gpt-4o'
-            assert cfg['llm_instruct']['chat']['model'] == 'gpt-4o-mini'
             assert cfg['embed_main']['embed']['model'] == 'bge-m3'
             assert cfg['reranker']['embed']['model'] == 'bge-reranker'
             assert 'default' not in cfg
@@ -268,7 +262,7 @@ class TestInjectModelConfig:
             get_dynamic_role_slot_map.cache_clear()
 
     def test_same_slot_different_roles_independent(self, monkeypatch, tmp_path):
-        '''Two roles sharing the same slot (e.g. llm and llm_instruct) can have independent configs.'''
+        '''Two roles sharing the same slot (e.g. llm and evo_llm) can have independent configs.'''
         import textwrap
         from chat.utils.load_config import inject_model_config
         from chat.utils.load_config import get_dynamic_role_slot_map
@@ -278,7 +272,7 @@ class TestInjectModelConfig:
             llm:
               source: dynamic
               type: llm
-            llm_instruct:
+            evo_llm:
               source: dynamic
               type: llm
         '''), encoding='utf-8')
@@ -288,12 +282,12 @@ class TestInjectModelConfig:
         with _globals_config_patch('dynamic_model_configs', None) as gcfg:
             inject_model_config({
                 'llm':          {'source': 'openai', 'model': 'gpt-4o',      'api_key': 'sk-x'},
-                'llm_instruct': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-x'},
+                'evo_llm': {'source': 'openai', 'model': 'gpt-4o-mini', 'api_key': 'sk-x'},
             })
             cfg = gcfg.get('dynamic_model_configs')
 
         assert cfg['llm']['chat']['model'] == 'gpt-4o'
-        assert cfg['llm_instruct']['chat']['model'] == 'gpt-4o-mini'
+        assert cfg['evo_llm']['chat']['model'] == 'gpt-4o-mini'
         get_dynamic_role_slot_map.cache_clear()
 
     def test_noop_when_no_dynamic_roles(self, monkeypatch, tmp_path):
@@ -441,7 +435,7 @@ class TestGetDynamicRoleSlotMap:
             llm:
               source: dynamic
               type: llm
-            llm_instruct:
+            evo_llm:
               source: dynamic
               type: llm
             reranker:
@@ -457,7 +451,7 @@ class TestGetDynamicRoleSlotMap:
 
         assert result == {
             'llm': 'chat',
-            'llm_instruct': 'chat',
+            'evo_llm': 'chat',
             'reranker': 'embed',
             'embed_main': 'embed',
         }

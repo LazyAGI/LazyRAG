@@ -11,14 +11,14 @@ _log = logging.getLogger('evo.harness.analysis')
 def _make_session_embed_fn(session: AnalysisSession):
     if not session.config.enable_embed_features:
         return None
-    if session.embed is None or session.embed_provider is None:
+    if session.embed is None:
         return None
 
     def embed(text: str) -> 'np.ndarray | None':
         cache_key = hashlib.sha1(text.encode('utf-8')).hexdigest()[:16]
 
         def _produce() -> np.ndarray:
-            return np.asarray(session.embed_provider()(text), dtype=np.float64).ravel()
+            return np.asarray(session.get_embed_client()(text), dtype=np.float64).ravel()
 
         return session.embed.call(producer=_produce, cache_key=cache_key)
 

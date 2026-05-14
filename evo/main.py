@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 from evo.runtime.config import EvoConfig, load_config
+from evo.orchestrator.llm import default_embed_provider, default_llm_provider
 
 _ROOT_SUBCOMMANDS = frozenset({'pipeline', 'thread'})
 _GLOBAL_ONE_ARG = frozenset({'--data-dir', '--base-dir', '--code-map'})
@@ -17,18 +18,6 @@ def setup_logging(verbose: bool = False) -> None:
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
     )
-
-
-def default_llm_provider(cfg: EvoConfig) -> Any:
-    from chat.pipelines.builders.get_models import get_automodel
-
-    return lambda: get_automodel(cfg.model_config.llm_role)
-
-
-def default_embed_provider(cfg: EvoConfig) -> Any:
-    from chat.pipelines.builders.get_models import get_automodel
-
-    return lambda: get_automodel(cfg.model_config.embed_role)
 
 
 def prepend_pipeline_argv(argv: Sequence[str]) -> list[str]:

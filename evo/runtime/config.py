@@ -1,9 +1,30 @@
 from __future__ import annotations
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+from algorithm.config import config
 from evo.runtime.code_config import CodeAccessConfig, load_code_access
+
+EVO_LLM_HTTP_TIMEOUT_S = 300
+EVO_LLM_PRODUCER_TIMEOUT_S = 600.0
+EVO_BADCASE_SCORE_FIELD = 'answer_correctness'
+EVO_DATASETGEN_MAX_WORKERS = 5
+EVO_EVAL_MAX_WORKERS = 3
+EVO_EVAL_JUDGE_TIMEOUT_S = 120.0
+EVO_EVAL_JUDGE_MAX_RETRIES = 1
+EVO_KB_BASE_URL = 'http://doc-server:8000'
+EVO_CHUNK_BASE_URL = 'http://doc-server:8000'
+EVO_TARGET_CHAT_URL = 'http://chat:8046/api/chat'
+EVO_CANDIDATE_CHAT_HEALTH_PATH = '/health'
+EVO_CANDIDATE_CHAT_STARTUP_TIMEOUT_S = 120.0
+EVO_EVENT_MAX_INLINE_CHARS = 60000
+EVO_MAX_SCHEMA_FAILURES = 3
+EVO_RAG_MAX_RETRIES = 3
+EVO_RAG_RETRY_BACKOFF_S = 2.0
+EVO_RAG_TIMEOUT_S = 120
+EVO_NODE_HTTP_TIMEOUT_S = 20.0
+EVO_NODE_HTTP_MAX_PAGES = 5
+EVO_NODE_HTTP_DIRECT = False
 
 
 @dataclass(frozen=True)
@@ -22,8 +43,8 @@ class ModelGovernanceConfig:
 def _default_llm_governance() -> ModelGovernanceConfig:
     return ModelGovernanceConfig(
         on_failure='raise',
-        http_timeout_s=int(os.getenv('EVO_LLM_HTTP_TIMEOUT_S', '300')),
-        producer_timeout_s=float(os.getenv('EVO_LLM_PRODUCER_TIMEOUT_S', '600')),
+        http_timeout_s=EVO_LLM_HTTP_TIMEOUT_S,
+        producer_timeout_s=EVO_LLM_PRODUCER_TIMEOUT_S,
     )
 
 
@@ -35,8 +56,6 @@ def _default_embed_governance() -> ModelGovernanceConfig:
         max_retries=3,
         retry_base_seconds=2.0,
         on_failure='disable',
-        http_timeout_s=int(os.getenv('EVO_EMBED_HTTP_TIMEOUT_S', '60')),
-        producer_timeout_s=float(os.getenv('EVO_EMBED_PRODUCER_TIMEOUT_S', '120')),
     )
 
 
@@ -51,7 +70,7 @@ class AnalysisConfig:
 @dataclass(frozen=True)
 class EvoModelConfig:
     llm_role: str = 'evo_llm'
-    embed_role: str = 'evo_embed'
+    embed_role: str = 'embed_main'
     auto_user_role: str = 'evo_llm'
 
 
@@ -161,40 +180,34 @@ def load_config(
 ) -> EvoConfig:
     evo_root = Path(__file__).resolve().parent.parent
     project_root = evo_root.parent
-    data_dir = Path(data_dir or os.getenv('EVO_DATA_DIR', str(evo_root / 'data')))
-    base_dir = Path(base_dir or os.getenv('EVO_BASE_DIR', str(project_root / 'data' / 'evo')))
-    score_field = badcase_score_field or os.getenv('EVO_BADCASE_SCORE_FIELD', 'answer_correctness')
+    data_dir = Path(data_dir or config['evo_data_dir'] or (evo_root / 'data'))
+    base_dir = Path(base_dir or config['evo_base_dir'] or (project_root / 'data' / 'evo'))
+    score_field = badcase_score_field or EVO_BADCASE_SCORE_FIELD
     if code_map_path is None:
-        env_cm = os.getenv('EVO_CODE_MAP')
-        code_map_path = Path(env_cm) if env_cm else None
+        code_map_path = Path(config['evo_code_map'] or (evo_root / 'code_map.json'))
     code_access = load_code_access(code_map_path)
-    eval_file = os.getenv('EVO_EVAL_FILE', '')
-    judge_path = Path(eval_file) if eval_file else data_dir / 'eval_mock.json'
+    judge_path = data_dir / 'eval_mock.json'
     model_config = EvoModelConfig(
-        llm_role=os.getenv('EVO_LLM_ROLE', 'evo_llm'),
-        embed_role=os.getenv('EVO_EMBED_ROLE', 'evo_embed'),
-        auto_user_role=os.getenv('EVO_AUTO_USER_ROLE', 'evo_llm'),
+        llm_role=config['evo_llm_role'],
+        embed_role='embed_main',
+        auto_user_role=config['evo_auto_user_role'],
     )
     storage = StorageConfig(base_dir=base_dir)
     storage.ensure()
     analysis = AnalysisConfig(
         badcase_score_field=score_field,
-        enable_embed_features=os.getenv('EVO_ANALYSIS_ENABLE_EMBED_FEATURES', '').lower() in {'1', 'true', 'yes', 'on'},
+        enable_embed_features=False,
     )
-    chat_source = Path(os.getenv('EVO_CHAT_SOURCE', str(project_root / 'algorithm' / 'chat')))
+    chat_source = Path(config['evo_chat_source'] or (project_root / 'algorithm' / 'chat'))
     dataset_gen = DatasetGenConfig(
-        kb_base_url=os.getenv('EVO_KB_BASE_URL', 'http://localhost:8055'),
-        chunk_base_url=os.getenv('EVO_CHUNK_BASE_URL', 'http://localhost:8055'),
-        max_workers=int(os.getenv('EVO_DATASETGEN_MAX_WORKERS', '5')),
+        kb_base_url=EVO_KB_BASE_URL,
+        chunk_base_url=EVO_CHUNK_BASE_URL,
+        max_workers=EVO_DATASETGEN_MAX_WORKERS,
     )
     eval_run = EvalRunConfig(
-        provider=os.getenv('EVO_EVAL_PROVIDER', ''),
-        base_url=os.getenv('EVO_EVAL_BASE_URL', ''),
-        token=os.getenv('EVO_EVAL_TOKEN', ''),
-        mock_path=os.getenv('EVO_EVAL_MOCK_PATH', ''),
-        target_chat_url=os.getenv('EVO_TARGET_CHAT_URL', ''),
+        target_chat_url=EVO_TARGET_CHAT_URL,
     )
-    profile = os.getenv('EVO_PROFILE', 'dev')
+    profile = 'dev'
     cfg = EvoConfig(
         data_dir=data_dir,
         storage=storage,
@@ -208,15 +221,4 @@ def load_config(
         eval_run=eval_run,
         profile=profile,
     )
-    if profile == 'prod':
-        missing = []
-        if not os.getenv('EVO_EVAL_PROVIDER'):
-            missing.append('EVO_EVAL_PROVIDER')
-        if not os.getenv('EVO_TRACE_PROVIDER'):
-            missing.append('EVO_TRACE_PROVIDER')
-        if not os.getenv('EVO_CHAT_SOURCE'):
-            missing.append('EVO_CHAT_SOURCE')
-        if missing:
-            raise RuntimeError(f"EVO_PROFILE=prod missing required env vars: {', '.join(missing)}")
-        storage.ensure()
     return cfg

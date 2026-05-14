@@ -388,6 +388,36 @@ def test_llm_provider_injection() -> None:
     print("  -> OK")
 
 
+def test_llm_invoker_uses_gateway_and_reuses_provider_client() -> None:
+    _header("LLMInvoker: gateway call + session-level client reuse")
+    from evo.harness.react import LLMInvoker
+
+    provider_calls = 0
+    model_calls = 0
+
+    class FakeModel:
+        def __call__(self, prompt: str) -> str:
+            nonlocal model_calls
+            model_calls += 1
+            return f"ok:{len(prompt)}"
+
+    def fake_provider() -> Any:
+        nonlocal provider_calls
+        provider_calls += 1
+        return FakeModel()
+
+    session = create_session(load_config(), llm_provider=fake_provider)
+    inv = LLMInvoker(session=session, system_prompt="system")
+    with session_scope(session):
+        first = inv.invoke("hello", cache_key="same", agent="test")
+        second = inv.invoke("hello", cache_key="same", agent="test")
+    assert first == second
+    assert provider_calls == 1
+    assert model_calls == 1
+    assert any(e.type == "llm_call" and e.payload.get("cache_hit") for e in session.telemetry.history)
+    print("  -> OK")
+
+
 # ---------------------------------------------------------------------------
 # ModelGateway ContextVar propagation (regression: ReAct tools were getting
 # DATA_NOT_LOADED because _run_with_timeout submitted to a raw ThreadPoolExecutor
@@ -521,6 +551,7 @@ def main() -> int:
         test_registry_lazy_autodiscovery,
         test_tools_have_llm_json_view,
         test_llm_provider_injection,
+        test_llm_invoker_uses_gateway_and_reuses_provider_client,
         test_session_handle_store_attached_and_used,
         test_session_world_store_attached,
         test_react_config_uses_memory_curator_by_default,

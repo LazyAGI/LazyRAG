@@ -191,11 +191,6 @@ def create_task(
     if flow not in FLOWS:
         raise StateError('INVALID_FLOW', f'unknown flow {flow}')
     with _flock(store._create_lock):
-        active = has_active(store, flow, scope='thread' if thread_id else 'global', thread_id=thread_id)
-        if active:
-            raise StateError(
-                'ACTIVE_TASK_EXISTS', f'{flow} task {active} is not terminal', {'active_id': active, 'flow': flow}
-            )
         tid = _new_id(flow)
         now = time.time()
         rec = {
@@ -362,5 +357,3 @@ def _read_task(path: Path) -> dict | None:
 def _write_task(store: FsStateStore, rec: dict) -> None:
     text = json.dumps(rec, ensure_ascii=False, indent=2)
     _atomic_write(store.task_path(rec['id']), text)
-    if rec.get('thread_id'):
-        _atomic_write(store.base_dir / 'threads' / rec['thread_id'] / 'tasks' / f"{rec['id']}.json", text)

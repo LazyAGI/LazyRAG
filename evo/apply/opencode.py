@@ -5,191 +5,173 @@ import os
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from collections import namedtuple
+from contextlib import suppress
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 from evo.apply.errors import ApplyError
 
+from algorithm.config import config
+
 log = logging.getLogger('evo.apply.opencode')
+PERMISSIONS = {
+    **dict.fromkeys(('read', 'grep', 'glob', 'list', 'bash', 'edit', 'external_directory'), 'allow'),
+    **dict.fromkeys(('question', 'plan_enter', 'plan_exit', 'todowrite', 'task'), 'deny'),
+}
+
+OpencodeProviderConfig = namedtuple('OpencodeProviderConfig', 'provider model api_key base_url label', defaults=[''])
+
+PROVIDER_BASE_URLS = {
+    'qwen': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    'deepseek': 'https://api.deepseek.com',
+    'openai': 'https://api.openai.com/v1',
+}
 
 
-@dataclass(frozen=True)
-class OpencodeProviderConfig:
-    provider: str
-    model: str
-    api_key: str
-    base_url: str
-    label: str = ''
-
-
-def _default_model() -> str | None:
-    model = os.getenv('EVO_OPENCODE_MODEL') or os.getenv('OPENCODE_MODEL')
-    if not model and os.getenv('LAZYRAG_MAAS_API_KEY') and os.getenv('MAAS_MODEL_NAME'):
-        return f"maas/{os.getenv('MAAS_MODEL_NAME')}"
-    return normalize_model(model)
-
-
-def normalize_model(model: str | None) -> str | None:
-    provider = os.getenv('EVO_OPENCODE_PROVIDER') or os.getenv('OPENCODE_PROVIDER')
-    if model and provider and ('/' not in model):
-        return f'{provider}/{model}'
-    if model and '/' not in model and model.startswith('deepseek'):
-        return f'deepseek/{model}'
-    if model and '/' not in model and os.getenv('LAZYRAG_MAAS_API_KEY'):
-        return f'maas/{model}'
-    return model
+def apply_model() -> OpencodeProviderConfig:
+    provider = str(config['evo_code_provider'] or '').strip()
+    base_url = str(config['evo_code_base_url'] or '').strip() or PROVIDER_BASE_URLS.get(provider, '')
+    label = str(config['evo_code_label'] or provider).strip()
+    return OpencodeProviderConfig(
+        _provider_id(provider, base_url, label),
+        str(config['evo_code_model'] or '').strip(),
+        str(config['evo_code_api_key'] or '').strip() or _provider_api_key(provider),
+        base_url,
+        label,
+    )
 
 
 @dataclass
 class OpencodeOptions:
     binary: str | None = None
-    model: str | None = _default_model()
+    model: str | None = None
     agent: str | None = None
     variant: str | None = None
     timeout_s: int = 600
-    provider_config: OpencodeProviderConfig | None = None
+    skip_permissions: bool = config['evo_code_skip_permissions']
+    provider_config: OpencodeProviderConfig | None = field(default_factory=apply_model)
 
 
-@dataclass
-class OpencodeOutcome:
-    returncode: int
-    text_summary: str
-    last_error: dict | None
-    events_path: Path
-    stdout_path: Path
-    stderr_path: Path
+OpencodeOutcome = namedtuple(
+    'OpencodeOutcome', 'returncode text_summary last_error events_path stdout_path stderr_path')
+
+
+class OpencodeSession:
+    def __init__(self, *, cwd: Path, binary: str, options: OpencodeOptions,
+                 on_proc: Callable[[subprocess.Popen], None] | None = None) -> None:
+        self.cwd, self.binary, self.options, self.on_proc = cwd, binary, options, on_proc
+        self.provider_config = options.provider_config
+        self.model = (
+            f'{self.provider_config.provider}/{self.provider_config.model}'
+            if self.provider_config else options.model
+        )
+        self.temp_config = None
+        self._sync_project_provider_config()
+        self.home = _prepare_opencode_home(default_auth_dir())
+        self.env = {**os.environ, 'HOME': str(self.home)}
+        if self.provider_config:
+            self.env[_api_key_env(self.provider_config.provider)] = self.provider_config.api_key
+            _append_no_proxy(self.env, self.provider_config.base_url)
+            _write_provider_auth(self.home, self.provider_config)
+
+    def close(self) -> None:
+        _cleanup_temp(self.temp_config, unlink=True)
+        _cleanup_temp(self.home)
+
+    def run(self, prompt: str, artifact_dir: Path) -> OpencodeOutcome:
+        self._sync_project_provider_config()
+        try:
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            cmd = [self.binary, 'run', '--format', 'json']
+            if self.options.skip_permissions:
+                cmd.append('--dangerously-skip-permissions')
+            for flag, value in (
+                ('--model', self.model), ('--agent', self.options.agent), ('--variant', self.options.variant)
+            ):
+                if value:
+                    cmd.extend([flag, value])
+            cmd.append(prompt)
+            log.info('opencode run: cwd=%s timeout_s=%d model=%s', self.cwd, self.options.timeout_s, self.model)
+            proc = subprocess.Popen(
+                cmd, cwd=str(self.cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=self.env
+            )
+            if self.on_proc:
+                self.on_proc(proc)
+            try:
+                stdout, stderr = proc.communicate(timeout=self.options.timeout_s)
+            except subprocess.TimeoutExpired:
+                _terminate(proc)
+                raise ApplyError('OPENCODE_TIMEOUT', 'opencode run timed out',
+                                 {'timeout_s': self.options.timeout_s, 'cwd': str(self.cwd)})
+            return _write_outcome(artifact_dir, proc.returncode, stdout or '', stderr or '')
+        finally:
+            _cleanup_temp(self.temp_config, unlink=True)
+            self.temp_config = None
+
+    def _sync_project_provider_config(self) -> None:
+        """Rewrite project opencode.json when missing — opencode may delete it between rounds."""
+        path = _ensure_project_provider_config(self.cwd, self.provider_config)
+        if path is not None:
+            self.temp_config = path
 
 
 def resolve_binary(binary: str | None) -> str:
-    candidate = (binary or os.getenv('OPENCODE_BIN') or shutil.which('opencode') or '').strip()
+    candidate = (binary or config['evo_code_binary'] or shutil.which('opencode') or '').strip()
     if not candidate:
         raise ApplyError('OPENCODE_BIN_MISSING', 'opencode binary not found on PATH')
     return candidate
 
 
 def default_auth_dir() -> Path:
-    env = os.getenv('OPENCODE_DATA_DIR')
-    if env:
-        return Path(env)
+    if data_dir := config['evo_code_data_dir']:
+        return Path(data_dir)
     return Path.home() / '.local' / 'share' / 'opencode'
 
 
 def preflight(binary: str | None, *, auth_dir: Path | None = None, options: OpencodeOptions | None = None) -> str:
     resolved = resolve_binary(binary)
+    _validate_provider_config((options or OpencodeOptions()).provider_config)
     if not shutil.which('rg'):
-        raise ApplyError(
-            'OPENCODE_SEARCH_TOOL_MISSING',
-            'ripgrep (rg) is required for opencode global search tools',
-        )
+        raise ApplyError('OPENCODE_SEARCH_TOOL_MISSING', 'ripgrep (rg) is required for opencode global search tools')
     try:
         r = subprocess.run([resolved, '--version'], capture_output=True, text=True, timeout=15, check=False)
-    except FileNotFoundError as exc:
-        raise ApplyError('OPENCODE_BIN_MISSING', 'opencode binary not executable', {'binary': resolved}) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise ApplyError('OPENCODE_BIN_MISSING', 'opencode --version timed out', {'binary': resolved}) from exc
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        msg = (
+            'opencode --version timed out'
+            if isinstance(exc, subprocess.TimeoutExpired)
+            else 'opencode binary not executable'
+        )
+        raise ApplyError('OPENCODE_BIN_MISSING', msg, {'binary': resolved}) from exc
     if r.returncode != 0:
         raise ApplyError('OPENCODE_BIN_MISSING', 'opencode --version failed', {'stderr': r.stderr[-500:]})
-    state_dir = auth_dir or default_auth_dir()
-    opts = options or OpencodeOptions()
-    cfg = opts.provider_config
-    model = _option_model(opts)
-    has_provider_key = (
-        bool(cfg and cfg.api_key)
-        or ((model or '').startswith('deepseek/') and bool(os.getenv('DEEPSEEK_API_KEY')))
-        or ((model or '').startswith('maas/') and bool(os.getenv('LAZYRAG_MAAS_API_KEY')))
-    )
-    if not has_provider_key and (not _has_auth_state(state_dir)):
-        raise ApplyError('OPENCODE_AUTH_MISSING', 'opencode auth state missing or empty', {'path': str(state_dir)})
     return resolved
 
 
-def _has_auth_state(state_dir: Path) -> bool:
-    auth_json = state_dir / 'auth.json'
-    if auth_json.is_file() and auth_json.stat().st_size > 0:
-        return True
-    db = state_dir / 'opencode.db'
-    return db.is_file() and db.stat().st_size > 0
-
-
-ProcSink = Callable[[subprocess.Popen], None]
-
-
 def run_opencode(
-    prompt: str,
-    *,
-    cwd: Path,
-    artifact_dir: Path,
-    binary: str,
-    options: OpencodeOptions,
-    on_proc: ProcSink | None = None,
+    prompt: str, *, cwd: Path, artifact_dir: Path, binary: str, options: OpencodeOptions,
+    on_proc: Callable[[subprocess.Popen], None] | None = None,
 ) -> OpencodeOutcome:
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    cmd: list[str] = [binary, 'run', '--format', 'json']
-    model = _option_model(options)
-    for flag, value in (('--model', model), ('--agent', options.agent), ('--variant', options.variant)):
-        if value:
-            cmd.extend([flag, value])
-    cmd.append(prompt)
-    temp_config = _ensure_project_provider_config(cwd, model, options.provider_config)
-    temp_home = _prepare_opencode_home(default_auth_dir())
-    env = dict(os.environ)
-    env['HOME'] = str(temp_home)
-    if options.provider_config:
-        env[_api_key_env(options.provider_config.provider)] = options.provider_config.api_key
-    else:
-        api_key = _auth_api_key('deepseek')
-        if api_key and (model or '').startswith('deepseek/'):
-            env.setdefault('DEEPSEEK_API_KEY', api_key)
-    if (model or '').startswith('maas/'):
-        _disable_proxy(env)
-    log.info(
-        'opencode run: cwd=%s timeout_s=%d model=%s agent=%s variant=%s',
-        cwd,
-        options.timeout_s,
-        model,
-        options.agent,
-        options.variant,
-    )
-    proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
-    if on_proc:
-        on_proc(proc)
+    session = None
     try:
-        stdout, stderr = proc.communicate(timeout=options.timeout_s)
-    except subprocess.TimeoutExpired:
-        _terminate(proc)
-        _cleanup_temp_config(temp_config)
-        _cleanup_temp_home(temp_home)
-        raise ApplyError(
-            'OPENCODE_TIMEOUT', 'opencode run timed out', {'timeout_s': options.timeout_s, 'cwd': str(cwd)}
-        )
+        session = OpencodeSession(cwd=cwd, binary=binary, options=options, on_proc=on_proc)
+        return session.run(prompt, artifact_dir)
     finally:
-        _cleanup_temp_config(temp_config)
-        _cleanup_temp_home(temp_home)
-    stdout_path = artifact_dir / 'stdout.log'
-    stderr_path = artifact_dir / 'stderr.log'
-    events_path = artifact_dir / 'events.jsonl'
-    summary_path = artifact_dir / 'text_summary.md'
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+        if session:
+            session.close()
+
+
+def _write_outcome(artifact_dir: Path, returncode: int, stdout: str, stderr: str) -> OpencodeOutcome:
+    events, text_chunks, last_error = _parse_event_stream(stdout or '')
+    stdout_path, stderr_path, events_path = (
+        artifact_dir / name for name in ('stdout.log', 'stderr.log', 'events.jsonl'))
     stdout_path.write_text(stdout or '', encoding='utf-8')
     stderr_path.write_text(stderr or '', encoding='utf-8')
-    events, text_chunks, last_error = _parse_event_stream(stdout or '')
-    events_path.write_text(''.join((json.dumps(e, ensure_ascii=False) + '\n' for e in events)), encoding='utf-8')
+    events_path.write_text(''.join(json.dumps(e, ensure_ascii=False) + '\n' for e in events), encoding='utf-8')
     text_summary = '\n'.join(text_chunks).strip()
-    summary_path.write_text(text_summary or '_(no text events)_\n', encoding='utf-8')
-    return OpencodeOutcome(
-        returncode=proc.returncode,
-        text_summary=text_summary,
-        last_error=last_error,
-        events_path=events_path,
-        stdout_path=stdout_path,
-        stderr_path=stderr_path,
-    )
-
-
-def _option_model(options: OpencodeOptions) -> str | None:
-    if options.provider_config:
-        return f'{options.provider_config.provider}/{options.provider_config.model}'
-    return normalize_model(options.model)
+    (artifact_dir / 'text_summary.md').write_text(text_summary or '_(no text events)_\n', encoding='utf-8')
+    return OpencodeOutcome(returncode, text_summary, last_error, events_path, stdout_path, stderr_path)
 
 
 def _prepare_opencode_home(auth_dir: Path) -> Path:
@@ -201,36 +183,27 @@ def _prepare_opencode_home(auth_dir: Path) -> Path:
     return home
 
 
-def _cleanup_temp_home(path: Path | None) -> None:
-    if path is None:
+def _write_provider_auth(home: Path, provider_config: OpencodeProviderConfig) -> None:
+    if not provider_config.api_key:
         return
-    shutil.rmtree(path, ignore_errors=True)
+    auth_path = home / '.local' / 'share' / 'opencode' / 'auth.json'
+    auth_path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, Any] = {}
+    if auth_path.exists():
+        with suppress(Exception):
+            loaded = json.loads(auth_path.read_text(encoding='utf-8'))
+            if isinstance(loaded, dict):
+                data = loaded
+    data[provider_config.provider] = {'type': 'api', 'key': provider_config.api_key}
+    auth_path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
 
 
-def _disable_proxy(env: dict[str, str]) -> None:
-    for key in (
-        'http_proxy',
-        'https_proxy',
-        'all_proxy',
-        'no_proxy',
-        'HTTP_PROXY',
-        'HTTPS_PROXY',
-        'ALL_PROXY',
-        'NO_PROXY',
-    ):
-        env[key] = ''
-
-
-def _auth_api_key(provider: str) -> str | None:
-    path = default_auth_dir() / 'auth.json'
-    try:
-        data = json.loads(path.read_text(encoding='utf-8'))
-    except Exception:
-        return None
-    entry = data.get(provider) if isinstance(data, dict) else None
-    if isinstance(entry, dict) and isinstance(entry.get('key'), str):
-        return entry['key']
-    return None
+def _cleanup_temp(path: Path | None, *, unlink: bool = False) -> None:
+    if path and unlink:
+        with suppress(FileNotFoundError):
+            path.unlink()
+    elif path:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _api_key_env(provider: str) -> str:
@@ -238,90 +211,87 @@ def _api_key_env(provider: str) -> str:
     return f'OPENCODE_{safe}_API_KEY'
 
 
-def _ensure_project_provider_config(
-    cwd: Path, model: str | None, provider_config: OpencodeProviderConfig | None = None
-) -> Path | None:
-    model = model or ''
-    if provider_config is not None:
-        provider = provider_config.provider
-        path = cwd / 'opencode.json'
-        if path.exists():
-            return None
-        config = {
-            '$schema': 'https://opencode.ai/config.json',
-            'provider': {
-                provider: {
-                    'npm': '@ai-sdk/openai-compatible',
-                    'name': provider_config.label or provider,
-                    'options': {
-                        'baseURL': provider_config.base_url.rstrip('/'),
-                        'apiKey': f'{{env:{_api_key_env(provider)}}}',
-                    },
-                    'models': {provider_config.model: {'name': provider_config.model}},
-                }
-            },
-        }
-        path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
-        return path
-    if not (model.startswith('deepseek/') or model.startswith('maas/')):
-        return None
-    path = cwd / 'opencode.json'
-    if path.exists():
-        return None
-    if model.startswith('maas/'):
-        model_name = model.split('/', 1)[1]
-        base_url = os.getenv('MAAS_BASE_URL') or 'http://106.75.235.251:9000/v1/'
-        config = {
-            '$schema': 'https://opencode.ai/config.json',
-            'provider': {
-                'maas': {
-                    'npm': '@ai-sdk/openai-compatible',
-                    'name': 'MAAS',
-                    'options': {'baseURL': base_url.rstrip('/'), 'apiKey': '{env:LAZYRAG_MAAS_API_KEY}'},
-                    'models': {model_name: {'name': model_name}},
-                }
-            },
-        }
-        path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
-        return path
-    config = {
-        '$schema': 'https://opencode.ai/config.json',
-        'provider': {
-            'deepseek': {
-                'npm': '@ai-sdk/openai-compatible',
-                'name': 'DeepSeek',
-                'options': {'baseURL': 'https://api.deepseek.com', 'apiKey': '{env:DEEPSEEK_API_KEY}'},
-                'models': {
-                    'deepseek-chat': {'name': 'DeepSeek Chat'},
-                    'deepseek-v4-flash': {'name': 'DeepSeek V4 Flash'},
-                    'deepseek-v4-pro': {'name': 'DeepSeek V4 Pro'},
-                },
-            }
-        },
-    }
-    path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
-    return path
-
-
-def _cleanup_temp_config(path: Path | None) -> None:
-    if path is None:
+def _append_no_proxy(env: dict[str, str], base_url: str) -> None:
+    parsed = urlparse(base_url)
+    if not parsed.hostname:
         return
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
+    for key in ('NO_PROXY', 'no_proxy'):
+        values = [part.strip() for part in (env.get(key) or '').split(',') if part.strip()]
+        if parsed.hostname not in values:
+            values.append(parsed.hostname)
+        env[key] = ','.join(values)
+
+
+def _provider_api_key(provider: str) -> str:
+    safe = ''.join((ch if ch.isalnum() else '_' for ch in provider.upper()))
+    return os.environ.get(f'LAZYLLM_{safe}_API_KEY', '') or os.environ.get(f'{safe}_API_KEY', '')
+
+
+def _provider_id(provider: str, base_url: str, label: str) -> str:
+    if provider == 'openai' and base_url.rstrip('/') != PROVIDER_BASE_URLS['openai'].rstrip('/'):
+        return _safe_provider_id(label or 'openai_compatible')
+    return provider
+
+
+def _safe_provider_id(value: str) -> str:
+    out = ''.join(ch.lower() if ch.isalnum() else '_' for ch in value.strip())
+    return out.strip('_') or 'openai_compatible'
+
+
+def _validate_provider_config(provider_config: OpencodeProviderConfig | None) -> None:
+    if provider_config is None:
+        return
+    missing = [
+        name for name, value in (
+            ('provider', provider_config.provider),
+            ('model', provider_config.model),
+            ('api_key', provider_config.api_key),
+            ('base_url', provider_config.base_url),
+        )
+        if not str(value or '').strip()
+    ]
+    if missing:
+        raise ApplyError(
+            'OPENCODE_CONFIG_INVALID',
+            f'opencode provider config missing: {", ".join(missing)}',
+            {'missing': missing, 'provider': provider_config.provider, 'model': provider_config.model},
+        )
+    parsed = urlparse(provider_config.base_url)
+    if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
+        raise ApplyError(
+            'OPENCODE_CONFIG_INVALID',
+            'opencode provider base_url must be an absolute http(s) URL',
+            {'base_url': provider_config.base_url, 'provider': provider_config.provider},
+        )
+
+
+def _ensure_project_provider_config(cwd: Path, provider_config: OpencodeProviderConfig | None = None) -> Path | None:
+    path = cwd / 'opencode.json'
+    if provider_config is None or path.exists():
+        return None
+    provider = provider_config.provider
+    data = {
+        '$schema': 'https://opencode.ai/config.json',
+        'permission': PERMISSIONS,
+        'provider': {provider: {
+            'npm': '@ai-sdk/openai-compatible',
+            'name': provider_config.label or provider,
+            'options': {'baseURL': provider_config.base_url.rstrip('/'), 'apiKey': f'{{env:{_api_key_env(provider)}}}'},
+            'models': {provider_config.model: {'name': provider_config.model}},
+        }},
+    }
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    return path
 
 
 def _terminate(proc: subprocess.Popen, grace_s: float = 5.0) -> None:
     if proc.poll() is not None:
         return
-    proc.terminate()
-    try:
-        proc.wait(timeout=grace_s)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    for stop in (proc.terminate, proc.kill):
+        stop()
         try:
             proc.wait(timeout=grace_s)
+            return
         except subprocess.TimeoutExpired:
             pass
 
@@ -331,8 +301,7 @@ def _parse_event_stream(raw: str) -> tuple[list[dict], list[str], dict | None]:
     text_chunks: list[str] = []
     last_error: dict | None = None
     for line in raw.splitlines():
-        stripped = line.strip()
-        if not stripped:
+        if not (stripped := line.strip()):
             continue
         try:
             obj: Any = json.loads(stripped)
@@ -344,10 +313,9 @@ def _parse_event_stream(raw: str) -> tuple[list[dict], list[str], dict | None]:
         etype = obj.get('type')
         if etype == 'text':
             part = obj.get('part')
-            if isinstance(part, dict):
-                text = part.get('text')
-                if isinstance(text, str) and text.strip():
-                    text_chunks.append(text.strip())
+            text = part.get('text') if isinstance(part, dict) else None
+            if isinstance(text, str) and text.strip():
+                text_chunks.append(text.strip())
         elif etype == 'error':
             last_error = obj
     return (events, text_chunks, last_error)

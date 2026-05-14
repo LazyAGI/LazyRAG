@@ -37,7 +37,11 @@ def _build_review_decision(
     )
     skill_due = skill_due_by_tool_turns or skill_due_by_user_turns
 
-    if memory_due and skill_due:
+    debug_force_combined = bool(_cfg['skill_review_debug'])
+
+    if debug_force_combined:
+        mode = 'combined'
+    elif memory_due and skill_due:
         mode = 'combined'
     elif memory_due:
         mode = 'memory'
@@ -52,6 +56,7 @@ def _build_review_decision(
         'skill_due': skill_due,
         'skill_due_by_tool_turns': skill_due_by_tool_turns,
         'skill_due_by_user_turns': skill_due_by_user_turns,
+        'debug_force_combined': debug_force_combined,
         'tool_turns': tool_turns,
         'user_turns': user_turns,
         'memory_review_interval': memory_review_interval,
@@ -101,6 +106,8 @@ def _spawn_background_review(
     if not review_tools:
         print(f'[bg-review:{review_mode}] SKIP no review tools')
         return
+
+    from chat.tools import vocab as _review_vocab_tool  # noqa: F401
 
     # existing_context = _build_existing_state_context(config, review_mode)
     # review_prompt = base_prompt + existing_context
@@ -164,6 +171,10 @@ def _spawn_background_review(
         finally:
             lazyllm.locals.clear()
             print(f'[bg-review:{review_mode}] EXIT thread={tname}')
+
+    if _cfg['review_debug'] in {'1', 'true', 'yes'}:
+        _worker()
+        return
 
     thread = threading.Thread(target=_worker, daemon=True)
     print(
