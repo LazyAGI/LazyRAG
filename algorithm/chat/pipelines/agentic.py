@@ -7,7 +7,6 @@ import json
 import os
 import re
 import threading
-import time
 from functools import lru_cache
 from pathlib import Path
 from queue import Empty, Queue
@@ -283,8 +282,6 @@ async def _agentic_forward_stream(
     event_queue: Queue = Queue()
     sentinel = object()
     closed = threading.Event()
-    worker_done = threading.Event()
-    output_lock = threading.Lock()
     streamed_text = False
     text_scanner, citation_plugin = _build_stream_citation_scanner(runtime_params)
 
@@ -293,6 +290,10 @@ async def _agentic_forward_stream(
     _clear_orphaned_lazyllm_queue_lock()
     lazyllm.FileSystemQueue().clear()
     lazyllm.FileSystemQueue.get_instance('think').clear()
+
+    def _emit_event(event: dict[str, Any]) -> None:
+        if not closed.is_set():
+            event_queue.put({'type': 'tool_event', 'event': event})
 
     def _drain_stream_frames() -> list[dict[str, Any]]:
         nonlocal streamed_text
@@ -319,29 +320,6 @@ async def _agentic_forward_stream(
 
         return frames
 
-    def _flush_stream_frames_to_queue() -> None:
-        if closed.is_set():
-            return
-        for frame in _drain_stream_frames():
-            event_queue.put({'type': 'frame', 'frame': frame})
-
-    def _emit_event(event: dict[str, Any]) -> None:
-        if closed.is_set():
-            return
-        with output_lock:
-            _flush_stream_frames_to_queue()
-            frame = _format_tool_stream_frame(event)
-            if frame is not None:
-                event_queue.put({'type': 'frame', 'frame': frame})
-
-    def _stream_monitor() -> None:
-        lazyllm.globals._init_sid(global_sid)
-        lazyllm.locals._init_sid(local_sid)
-        while not worker_done.is_set() and not closed.is_set():
-            with output_lock:
-                _flush_stream_frames_to_queue()
-            time.sleep(0.02)
-
     def _worker() -> None:
         lazyllm.globals._init_sid(global_sid)
         lazyllm.locals._init_sid(local_sid)
@@ -353,24 +331,22 @@ async def _agentic_forward_stream(
                 stream_event_callback=_emit_event,
             )
             if not closed.is_set():
-                with output_lock:
-                    _flush_stream_frames_to_queue()
-                    event_queue.put({'type': 'final', 'result': result})
+                event_queue.put({'type': 'final', 'result': result})
         except Exception as exc:
             if not closed.is_set():
                 event_queue.put(exc)
         finally:
-            worker_done.set()
             if not closed.is_set():
                 event_queue.put(sentinel)
 
     worker = threading.Thread(target=_worker, daemon=True)
-    monitor = threading.Thread(target=_stream_monitor, daemon=True)
     worker.start()
-    monitor.start()
     final_result = None
     try:
         while True:
+            for frame in _drain_stream_frames():
+                yield frame
+
             try:
                 event = await asyncio.to_thread(event_queue.get, True, 0.05)
             except Empty:
@@ -380,16 +356,19 @@ async def _agentic_forward_stream(
                 break
             if isinstance(event, Exception):
                 raise event
-            if isinstance(event, dict) and event.get('type') == 'frame':
-                frame = event.get('frame')
-                if isinstance(frame, dict):
-                    yield frame
-            elif isinstance(event, dict) and event.get('type') == 'final':
+            if isinstance(event, dict) and event.get('type') == 'final':
                 final_result = event.get('result')
+            elif isinstance(event, dict) and event.get('type') == 'tool_event':
+                for frame in _drain_stream_frames():
+                    yield frame
+                tool_event = event.get('event') or {}
+                tool_event['preview_text'] = query
+                frame = _format_tool_stream_frame(tool_event)
+                if frame is None:
+                    continue
+                yield frame
 
-        with output_lock:
-            trailing_frames = _drain_stream_frames()
-        for frame in trailing_frames:
+        for frame in _drain_stream_frames():
             yield frame
         for field, seg in text_scanner.flush():
             if not seg:
@@ -421,7 +400,6 @@ async def _agentic_forward_stream(
     finally:
         closed.set()
         worker.join(timeout=0)
-        monitor.join(timeout=0)
 
 
 def _ensure_tools_registered() -> None:
