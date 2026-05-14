@@ -27,3 +27,8 @@ embed_image:
   source: dynamic
   dynamic_auth: true
   type: cross_modal_embed
+
+vlm:
+  source: dynamic
+  dynamic_auth: true
+  type: vlm

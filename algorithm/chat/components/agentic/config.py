@@ -25,6 +25,7 @@ DEFAULT_TOOLS = [
     'web_search',
     'url_fetch',
     'arxiv_search',
+    'vision_extractor',
     'vocab_manage',
     'memory',
     'skill_manage',

@@ -16,6 +16,18 @@ _IMAGE_DESCRIBE_PROMPT = (
 _REMOTE_SCHEMES = ('http', 'https', 'file')
 
 
+def extract_text_from_model_output(model_output: Any) -> str:
+    '''Normalize string/dict outputs from chat or VLM modules into plain text.'''
+    if isinstance(model_output, str):
+        return model_output.strip()
+    if isinstance(model_output, dict):
+        for key in ('text', 'content', 'answer'):
+            value = model_output.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return str(model_output).strip()
+
+
 class QueryImageRewriter(ModuleBase):
     '''Augment the user query with VLM-derived descriptions of attached images.
 
@@ -23,11 +35,14 @@ class QueryImageRewriter(ModuleBase):
     are passed through untouched.  When all paths are filtered out, the query
     is returned unchanged so the downstream pipeline behaves as if no images
     were attached.
+
+    Uses a VLM (vision-language model) so image bytes are understood; a plain LLM
+    role cannot consume ``encode_query_with_filepaths`` multimodal payloads.
     '''
 
-    def __init__(self, llm: Any, return_trace: bool = False, **kwargs):
+    def __init__(self, vlm: Any, return_trace: bool = False, **kwargs):
         super().__init__(return_trace=return_trace, **kwargs)
-        self.llm = llm
+        self.vlm = vlm
 
     def _extract_paths(self, payload: Dict[str, Any]) -> List[str]:
         paths = payload.get('image_files') or []
@@ -55,16 +70,6 @@ class QueryImageRewriter(ModuleBase):
                 LOG.warning(f'[QueryImageRewriter] skip inaccessible image path: {p}')
         return valid
 
-    def _extract_text(self, llm_output: Any) -> str:
-        if isinstance(llm_output, str):
-            return llm_output.strip()
-        if isinstance(llm_output, dict):
-            for key in ('text', 'content', 'answer'):
-                value = llm_output.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-        return str(llm_output).strip()
-
     def forward(self, input: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         payload = dict(input or {})
         query = str(payload.get('query', '')).strip()
@@ -75,14 +80,14 @@ class QueryImageRewriter(ModuleBase):
         prompt_query = f'User query: {query}\nInstruction: {_IMAGE_DESCRIBE_PROMPT}'
         encoded_query = encode_query_with_filepaths(prompt_query, image_paths)
         priority = payload.get('priority', 0)
-        llm_output = self.llm(
+        vlm_output = self.vlm(
             encoded_query,
             stream_output=False,
             llm_chat_history=[],
             lazyllm_files=None,
             priority=priority,
         )
-        image_desc = self._extract_text(llm_output)
+        image_desc = extract_text_from_model_output(vlm_output)
         if image_desc:
             payload['query'] = f'{query}\nImage context: {image_desc}'
         return payload

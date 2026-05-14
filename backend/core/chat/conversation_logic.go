@@ -280,6 +280,67 @@ func upstreamSessionID(convID string) string {
 	return fmt.Sprintf("%s_%d", convID, time.Now().UnixMilli())
 }
 
+// filePathsForUpstreamChat merges top-level `files` with local filesystem paths taken from
+// `input` items whose input_type is `image` or `file` and `uri` is set. HTTP(S) URIs are
+// skipped because the algorithm chat service only accepts on-disk paths under MOUNT_BASE_DIR.
+func filePathsForUpstreamChat(raw map[string]any) any {
+	seen := make(map[string]struct{})
+	out := make([]any, 0, 4)
+
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		lower := strings.ToLower(s)
+		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+			return
+		}
+		if _, dup := seen[s]; dup {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+
+	if v, ok := raw["files"]; ok && v != nil {
+		switch xs := v.(type) {
+		case []any:
+			for _, it := range xs {
+				if s, ok := it.(string); ok {
+					add(s)
+				}
+			}
+		case []string:
+			for _, s := range xs {
+				add(s)
+			}
+		}
+	}
+
+	in, ok := raw["input"].([]any)
+	if ok {
+		for _, it := range in {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			typ, _ := m["input_type"].(string)
+			typ = strings.ToLower(strings.TrimSpace(typ))
+			if typ != "image" && typ != "file" {
+				continue
+			}
+			uri, _ := m["uri"].(string)
+			add(uri)
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func buildChatRequestBody(convID, sessionID, query string, histories []orm.ChatHistory, raw map[string]any, resourceContext *evolution.ChatResourceContext, userID string) map[string]any {
 	if strings.TrimSpace(sessionID) == "" {
 		sessionID = upstreamSessionID(convID)
@@ -290,7 +351,7 @@ func buildChatRequestBody(convID, sessionID, query string, histories []orm.ChatH
 		"session_id":      sessionID,
 		"history":         buildHistoryMessages(histories),
 		"filters":         raw["filters"],
-		"files":           raw["files"],
+		"files":           filePathsForUpstreamChat(raw),
 		"databases":       raw["databases"],
 		"debug":           raw["debug"],
 		"reasoning":       resolveReasoning(raw),

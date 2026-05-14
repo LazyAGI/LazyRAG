@@ -53,6 +53,39 @@ from lazyllm import AutoModel  # noqa: E402
 from chat.utils.load_config import get_config_path  # noqa: E402
 
 
+def _augment_query_with_attached_images(query: str, config: dict[str, Any]) -> str:
+    '''Run VLM once on ``config['image_files']`` and merge summaries into ``query``.
+
+    The main chat LLM stays text-only; paths remain in ``config`` for
+    ``vision_extractor`` and image-node retrieval.
+    '''
+    raw_paths = config.get('image_files') or []
+    if not isinstance(raw_paths, list) or not raw_paths:
+        return query
+    clean = [str(p).strip() for p in raw_paths if str(p).strip()]
+    if not clean:
+        return query
+    try:
+        from chat.components.process.query_image_rewriter import QueryImageRewriter
+
+        payload: dict[str, Any] = {
+            'query': query,
+            'image_files': clean,
+            'priority': int(config.get('priority', 0) or 0),
+        }
+        rewriter = QueryImageRewriter(
+            vlm=AutoModel(model='vlm', config=get_config_path()),
+        )
+        out = rewriter.forward(payload)
+        if isinstance(out, dict):
+            nq = out.get('query')
+            if isinstance(nq, str) and nq.strip():
+                return nq.strip()
+    except Exception as exc:
+        lazyllm.LOG.warning(f'[agentic] attached-image VLM rewrite skipped: {exc}')
+    return query
+
+
 class _StreamingFunctionCall(FunctionCall):
     def __init__(self, *args: Any, stream_event_callback=None, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -155,7 +188,6 @@ class _StreamingReactAgent(lazyllm.tools.agent.ReactAgent):
                 stream=self._stream,
                 _tool_manager=self._tools_manager,
                 skill_manager=self._skill_manager,
-                workspace=self.workspace,
                 keep_full_turns=self._keep_full_turns,
                 stream_event_callback=self._stream_event_callback,
             ),
@@ -171,7 +203,6 @@ def agentic_forward(
     stream_event_callback=None,
 ) -> Any:
     config = lazyllm.globals['agentic_config'] or {}
-    lazyllm.LOG.warning(f'config: {config}')
     if not isinstance(config, dict):
         config = {}
 
@@ -184,6 +215,9 @@ def agentic_forward(
     skills_dir = config.get('skill_fs_url') or ''
     config['available_tools'] = available_tools
     config['available_skills'] = available_skills
+
+    original_query = query.strip()
+    agent_query = _augment_query_with_attached_images(original_query, config)
 
     keep_full_turns = config.get('keep_full_turns', 3)
     runtime_prompt = _build_runtime_system_prompt(config, available_tools)
@@ -202,7 +236,7 @@ def agentic_forward(
         'skills_dir': skills_dir,
         'enable_builtin_tools': False,
         'force_summarize': True,
-        'force_summarize_context': query,
+        'force_summarize_context': agent_query,
     }
     if stream_event_callback:
         agent_kwargs['stream_event_callback'] = stream_event_callback
@@ -213,7 +247,7 @@ def agentic_forward(
 
     request_global_sid = lazyllm.globals._sid
     lazyllm.globals['agentic_config'] = config
-    agent_output = react_agent(query, llm_chat_history=history)
+    agent_output = react_agent(agent_query, llm_chat_history=history)
     agent_history = lazyllm.locals.get('_lazyllm_agent', {}).get('history', [])
     history_snapshot = agent_history
     if runtime_prompt and (not history_snapshot or history_snapshot[0].get('role') != 'system'):
@@ -223,7 +257,7 @@ def agentic_forward(
             + [{'role': 'assistant', 'content': agent_output}]
         )
     tool_turns = _count_tool_turns(agent_history)
-    user_turns = _count_user_turns(history, query)
+    user_turns = _count_user_turns(history, original_query)
     memory_review_interval = _cfg['memory_review_interval']
     skill_review_interval = _cfg['skill_review_interval']
     review_decision = _build_review_decision(
@@ -404,7 +438,7 @@ async def _agentic_forward_stream(
 
 def _ensure_tools_registered() -> None:
     # Trigger @fc_register side effects once so ReactAgent can resolve tool names.
-    from chat.tools import kb, memory, skill_manager, vocab, web_search  # noqa: F401
+    from chat.tools import kb, memory, skill_manager, vocab, vision_extractor, web_search  # noqa: F401
 
 
 @lru_cache(maxsize=1)

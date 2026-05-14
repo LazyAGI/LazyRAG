@@ -43,3 +43,11 @@ embed_image:
     name: siglip
     url: http://10.119.21.178:34335/embeddings
     skip_auth: true
+
+# Vision-language model for image-aware query rewriting and vision_extractor tool.
+vlm:
+  - source: openai
+    type: vlm
+    name: qwen2.5-vl-32b-instruct
+    url: http://10.119.21.178:36517/v1/
+    skip_auth: true
