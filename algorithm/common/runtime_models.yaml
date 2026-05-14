@@ -7,7 +7,7 @@ llm:
   dynamic_auth: true
   type: llm
 
-llm_instruct:
+evo_llm:
   source: dynamic
   dynamic_auth: true
   type: llm

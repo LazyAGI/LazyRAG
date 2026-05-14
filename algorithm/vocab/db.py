@@ -199,8 +199,8 @@ def _ensure_table_once(db_url: Optional[str] = None) -> None:
 # Public query API
 # ---------------------------------------------------------------------------
 
-def fetch_vocab_for_create_user_id(create_user_id: str) -> List[Dict[str, Any]]:
-    """Return all vocab rows for *create_user_id* as a list of ``{'word': ..., 'cluster_id': ...}`` dicts.
+def fetch_vocab_for_user_id(user_id: str) -> List[Dict[str, Any]]:
+    """Return all vocab rows for *user_id* as a list of ``{'word': ..., 'cluster_id': ...}`` dicts.
 
     Returns an empty list when the DB is unavailable or user has no entries.
     The ``cluster_id`` key matches the default ``cluster_key`` of
@@ -209,7 +209,7 @@ def fetch_vocab_for_create_user_id(create_user_id: str) -> List[Dict[str, Any]]:
     _ensure_table_once()
     if not _has_vocab_conn_target():
         LOG.warning(
-            f'[VocabDB] {_VOCAB_DB_ENV_HINT} not set; returning empty vocab for create_user_id={create_user_id!r}.'
+            f'[VocabDB] {_VOCAB_DB_ENV_HINT} not set; returning empty vocab for user_id={user_id!r}.'
         )
         return []
     try:
@@ -219,27 +219,27 @@ def fetch_vocab_for_create_user_id(create_user_id: str) -> List[Dict[str, Any]]:
                 text(
                     f"""SELECT word, group_id
                           FROM {VOCAB_TABLE_QUALIFIED}
-                         WHERE create_user_id = :create_user_id
+                         WHERE create_user_id = :user_id
                            AND deleted_at IS NULL"""
                 ),
-                {'create_user_id': create_user_id},
+                {'user_id': user_id},
             ).mappings().all()
         result = [{'word': row['word'], 'cluster_id': row['group_id']} for row in rows]
-        LOG.info(f'[VocabDB] fetched {len(result)} vocab entries for create_user_id={create_user_id!r}.')
+        LOG.info(f'[VocabDB] fetched {len(result)} vocab entries for user_id={user_id!r}.')
         return result
     except Exception as exc:
-        LOG.error(f'[VocabDB] fetch_vocab_for_create_user_id({create_user_id!r}) failed: {exc}')
+        LOG.error(f'[VocabDB] fetch_vocab_for_user_id({user_id!r}) failed: {exc}')
         return []
 
 
-def fetch_vocab_groups_for_create_user_id(
-        create_user_id: str, *, db_url: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+def fetch_vocab_groups_for_user_id(
+        user_id: str, *, db_url: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """Return existing vocab groups for a user keyed by ``group_id``."""
     _ensure_table_once(db_url=db_url)
     if not _has_vocab_conn_target(db_url=db_url):
         LOG.warning(
             f'[VocabDB] {_VOCAB_DB_ENV_HINT} not set; returning empty vocab groups '
-            f'for create_user_id={create_user_id!r}.'
+            f'for user_id={user_id!r}.'
         )
         return {}
     try:
@@ -252,14 +252,14 @@ def fetch_vocab_groups_for_create_user_id(
                                COALESCE(description, '') AS description,
                                COALESCE({VOCAB_REFERENCE_COLUMN}, '') AS reference
                           FROM {VOCAB_TABLE_QUALIFIED}
-                         WHERE create_user_id = :create_user_id
+                                                 WHERE create_user_id = :user_id
                            AND deleted_at IS NULL
                          ORDER BY group_id, id"""
                 ),
-                {'create_user_id': create_user_id},
+                {'user_id': user_id},
             ).mappings().all()
     except Exception as exc:
-        LOG.error(f'[VocabDB] fetch_vocab_groups_for_create_user_id({create_user_id!r}) failed: {exc}')
+        LOG.error(f'[VocabDB] fetch_vocab_groups_for_user_id({user_id!r}) failed: {exc}')
         return {}
 
     groups: Dict[str, Dict[str, Any]] = {}
@@ -300,11 +300,11 @@ def list_chat_users(
         where.append('h.create_time <= :end_time')
         params['end_time'] = end_time
     sql = f"""
-        SELECT DISTINCT c.create_user_id
+        SELECT DISTINCT c.create_user_id AS user_id
         FROM conversations c
         JOIN chat_histories h ON h.conversation_id = c.id
         WHERE {' AND '.join(where)}
-        ORDER BY c.create_user_id
+        ORDER BY user_id
     """
     try:
         engine = _get_core_conn(db_dsn=db_dsn, db_url=db_url)
@@ -316,8 +316,8 @@ def list_chat_users(
         return []
 
 
-def fetch_chat_histories_for_create_user_id(
-    create_user_id: str,
+def fetch_chat_histories_for_user_id(
+    user_id: str,
     *,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
@@ -325,8 +325,8 @@ def fetch_chat_histories_for_create_user_id(
     db_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Return chat histories for one user ordered by time and sequence."""
-    params: Dict[str, Any] = {'create_user_id': create_user_id}
-    where = ['c.create_user_id = :create_user_id', 'c.deleted_at IS NULL']
+    params: Dict[str, Any] = {'user_id': user_id}
+    where = ['c.create_user_id = :user_id', 'c.deleted_at IS NULL']
     if start_time is not None:
         where.append('h.create_time >= :start_time')
         params['start_time'] = start_time
@@ -334,7 +334,7 @@ def fetch_chat_histories_for_create_user_id(
         where.append('h.create_time <= :end_time')
         params['end_time'] = end_time
     sql = f"""
-        SELECT c.create_user_id,
+        SELECT c.create_user_id AS user_id,
                c.id AS conversation_id,
                h.id AS message_id,
                h.seq,
@@ -352,12 +352,65 @@ def fetch_chat_histories_for_create_user_id(
         with engine.connect() as conn:
             rows = conn.execute(text(sql), params).mappings().all()
     except Exception as exc:
-        LOG.error(f'[VocabDB] fetch_chat_histories_for_create_user_id({create_user_id!r}) failed: {exc}')
+        LOG.error(f'[VocabDB] fetch_chat_histories_for_user_id({user_id!r}) failed: {exc}')
         return []
 
     return [
         {
-            'create_user_id': row['create_user_id'],
+            'user_id': row['user_id'],
+            'conversation_id': row['conversation_id'],
+            'message_id': row['message_id'],
+            'seq': row['seq'],
+            'raw_content': row['raw_content'],
+            'content': row['content'],
+            'result': row['result'],
+            'create_time': row['create_time'],
+        }
+        for row in rows
+    ]
+
+
+def fetch_chat_histories_for_session(
+    session_id: str,
+    *,
+    db_dsn: Optional[str] = None,
+    db_url: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return chat histories for the conversation identified by a session id."""
+    session_id = str(session_id or '').strip()
+    if not session_id:
+        return []
+
+    conversation_id = session_id.rsplit('_', 1)[0].strip() if '_' in session_id else session_id
+    if not conversation_id:
+        return []
+
+    sql = """
+        SELECT c.create_user_id AS user_id,
+               c.id AS conversation_id,
+               h.id AS message_id,
+               h.seq,
+               COALESCE(h.raw_content, '') AS raw_content,
+               COALESCE(h.content, '') AS content,
+               COALESCE(h.result, '') AS result,
+               h.create_time
+        FROM conversations c
+        JOIN chat_histories h ON h.conversation_id = c.id
+        WHERE c.id = :conversation_id
+          AND c.deleted_at IS NULL
+        ORDER BY h.create_time ASC, h.seq ASC, h.id ASC
+    """
+    try:
+        engine = _get_core_conn(db_dsn=db_dsn, db_url=db_url)
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), {'conversation_id': conversation_id}).mappings().all()
+    except Exception as exc:
+        LOG.error(f'[VocabDB] fetch_chat_histories_for_session({session_id!r}) failed: {exc}')
+        return []
+
+    return [
+        {
+            'user_id': row['user_id'],
             'conversation_id': row['conversation_id'],
             'message_id': row['message_id'],
             'seq': row['seq'],

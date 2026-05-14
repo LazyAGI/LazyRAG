@@ -45,7 +45,7 @@ func listThreadHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
-	if _, err := loadThread(db, threadID); err != nil {
+	if _, err := loadUserThread(db, r, threadID); err != nil {
 		replyThreadLoadError(w, err)
 		return
 	}
@@ -79,7 +79,7 @@ func DeleteThreadHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
-	if _, err := loadThread(db, threadID); err != nil {
+	if _, err := loadUserThread(db, r, threadID); err != nil {
 		replyThreadLoadError(w, err)
 		return
 	}

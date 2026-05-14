@@ -1,39 +1,27 @@
 from __future__ import annotations
 import json
-import logging
 import os
 import shutil
-import subprocess
+from pathlib import Path
 from evo.apply import GitWorkspace
 from evo.apply.errors import classify
 from evo.apply.runner import ApplyOptions, RoundResult, execute_apply
 from evo.harness.plan import StopRequested
 from evo.runtime.fs import load_json
-from evo.service import opencode_admin
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
 from .context import CancelToken, ExecCtx
 
-log = logging.getLogger('evo.service.executors.apply')
-
 
 def execute(ctx: ExecCtx, tid: str) -> None:
-    cur = _store.get(ctx.store, tid)
-    if cur is None:
+    row = _store.get(ctx.store, tid)
+    if not row:
         return
-    is_resume = cur['status'] != 'queued'
-    if not is_resume:
+    if row['status'] == 'queued':
         ctx.report_start(tid)
-    token = CancelToken(ctx, tid)
     try:
-        _do_apply(ctx, tid, token, resume=is_resume)
+        _run(ctx, tid, row, resume=row['status'] != 'queued')
     except StopRequested as exc:
-        cur = _store.get(ctx.store, tid) or {}
-        thread_id = cur.get('thread_id')
-        if thread_id:
-            EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path).append_event(
-                'apply.cancel', task_id=tid, payload={'at_step': exc.at_step}
-            )
         ctx.on_stop(tid, exc.at_step)
     except Exception as exc:
         ctx.on_failure(tid, exc)
@@ -42,43 +30,31 @@ def execute(ctx: ExecCtx, tid: str) -> None:
         ctx.pop_procs(tid)
 
 
-def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = False) -> None:
-    cur = _store.get(ctx.store, tid)
-    report_id = cur['report_id']
-    report = load_json(_report_path(ctx, report_id, cur.get('thread_id')))
-    workspace = GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source)
-    opts = _apply_options(ctx, cur)
-    thread_id = cur.get('thread_id')
-    elog = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).events_path) if thread_id else None
+def _run(ctx: ExecCtx, tid: str, row: dict, *, resume: bool) -> None:
+    report_id = row['report_id']
+    thread_id = row.get('thread_id')
+    ws = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id) if thread_id else None
+    elog = EventLog(ws.events_path) if ws else None
     if elog:
-        elog.append_event(
-            'apply.resume' if resume else 'apply.start', task_id=tid, payload={'apply_id': tid, 'report_id': report_id}
-        )
-
-    def on_round(rr: RoundResult) -> None:
-        _record_round(ctx, tid, rr)
-
-    def on_proc(proc: subprocess.Popen) -> None:
-        ctx.register_proc(tid, proc)
-
+        elog.append_event('apply.resume' if resume else 'apply.start', task_id=tid,
+                          payload={'apply_id': tid, 'report_id': report_id})
     result = execute_apply(
         apply_id=tid,
-        report=report,
+        report=load_json(_report_path(ctx, report_id, thread_id)),
         config=ctx.cfg,
-        workspace=workspace,
+        workspace=GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source),
         thread_id=thread_id,
-        options=opts,
-        cancel_token=token,
-        on_round=on_round,
-        on_proc=on_proc,
+        options=_apply_options(ctx, row),
+        cancel_token=CancelToken(ctx, tid),
+        on_round_start=lambda rr: _record_round(ctx, tid, rr, phase='running', elog=elog),
+        on_round=lambda rr: _record_round(ctx, tid, rr, phase='completed', elog=elog),
+        on_proc=lambda proc: ctx.register_proc(tid, proc),
         resume=resume,
     )
     preview_dir = ctx.cfg.storage.applies_dir / tid / 'preview'
-    diff_index_path = preview_dir / tid / 'index.json'
-    diff_index = str(diff_index_path) if diff_index_path.is_file() else None
-    _store.patch(
-        ctx.store, tid, base_commit=result.base_commit, branch_name=result.branch_name, final_commit=result.final_commit
-    )
+    diff_index = preview_dir / tid / 'index.json'
+    _store.patch(ctx.store, tid, base_commit=result.base_commit,
+                 branch_name=result.branch_name, final_commit=result.final_commit)
     ctx.update_payload(
         tid,
         {
@@ -87,76 +63,32 @@ def _do_apply(ctx: ExecCtx, tid: str, token: CancelToken, *, resume: bool = Fals
                 'branch_name': result.branch_name,
                 'final_commit': result.final_commit,
                 'preview_dir': str(preview_dir),
-                'diff_index': diff_index,
+                'diff_index': str(diff_index) if diff_index.is_file() else None,
                 'round_count': len(result.rounds),
                 'status': result.status,
             }
         },
     )
-    cur = _store.get(ctx.store, tid)
-    if cur['status'] not in ('running', 'stopping'):
-        return
     if result.status == 'SUCCEEDED':
-        candidate = None
-        try:
-            candidate = _launch_candidate_chat(ctx, tid, cur.get('thread_id'), workspace.worktree_path(tid))
-            ctx.update_payload(
-                tid,
-                {
-                    'result': {
-                        **(((_store.get(ctx.store, tid) or {}).get('payload') or {}).get('result') or {}),
-                        **_candidate_payload(candidate),
-                    }
-                },
-            )
-        except Exception as exc:
-            ctx.update_payload(
-                tid,
-                {
-                    'result': {
-                        **(((_store.get(ctx.store, tid) or {}).get('payload') or {}).get('result') or {}),
-                        'candidate_error': str(exc),
-                    }
-                },
-            )
-            raise
-        ctx.on_success(tid)
-        c2 = _store.get(ctx.store, tid) or {}
-        w2 = c2.get('thread_id')
-        if w2:
-            ws = ThreadWorkspace(ctx.cfg.storage.base_dir, w2)
-            if candidate:
-                ws.attach_artifact('chat_ids', candidate.chat_id)
-            data = {'apply_id': tid}
-            if candidate:
-                data.update(_candidate_payload(candidate))
-            EventLog(ws.events_path).append_event('apply.finish', task_id=tid, payload=data)
-    else:
-        err = result.error or {}
-        code = err.get('code', 'UNKNOWN')
-        kind = err.get('kind') or classify(code)
-        action = 'fail_permanent' if kind == 'permanent' else 'fail_transient'
-        row = _store.transition(ctx.store, tid, action, error_code=code, error_kind=kind)
         if elog:
-            elog.append_event(
-                'apply.finish',
-                task_id=tid,
-                payload={
-                    'apply_id': tid,
-                    'status': result.status,
-                    'terminal_status': row.get('status'),
-                    'error_code': code,
-                    'error_kind': kind,
-                    'message': err.get('message'),
-                    'round_count': len(result.rounds),
-                    'preview_dir': str(preview_dir),
-                    'diff_index': diff_index,
-                },
-            )
+            elog.append_event('apply.finish', task_id=tid, payload={'apply_id': tid, **(result.deployment or {})})
+        ctx.report_success(tid)
+        if ws and result.deployment and result.deployment.get('candidate_chat_id'):
+            ws.attach_artifact('chat_ids', result.deployment['candidate_chat_id'])
+        return
+    err = result.error or {}
+    code = err.get('code', 'UNKNOWN')
+    kind = err.get('kind') or classify(code)
+    ctx.on_failure(tid, _store.StateError(code, err.get('message') or 'apply failed', kind=kind))
 
 
-def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
-    _store.append_round(ctx.store, tid, rr.index, phase='running')
+def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult, *, phase: str, elog: EventLog | None = None) -> None:
+    if phase == 'running':
+        _store.append_round(ctx.store, tid, rr.index, phase='running')
+        _store.patch(ctx.store, tid, current_round=rr.index, current_step=f'round_{rr.index:03d}.opencode')
+        if elog:
+            elog.append_event('apply.round.start', task_id=tid, payload={'apply_id': tid, 'round': rr.index})
+        return
     _store.update_round(
         ctx.store,
         tid,
@@ -168,248 +100,107 @@ def _record_round(ctx: ExecCtx, tid: str, rr: RoundResult) -> None:
         error_json=json.dumps(rr.error, ensure_ascii=False) if rr.error else None,
         finished_at=rr.finished_at,
     )
-    _store.patch(ctx.store, tid, current_round=rr.index)
-    c = _store.get(ctx.store, tid) or {}
-    wid = c.get('thread_id')
-    if wid:
-        el = EventLog(ThreadWorkspace(ctx.cfg.storage.base_dir, wid).events_path)
-        el.append_event(
-            'apply.round.diff',
-            task_id=tid,
-            payload={
-                'round': rr.index,
-                'files_changed': rr.files_changed,
-                'diff_summary': _diff_summary(rr),
-                'diff_artifact': str(ctx.cfg.storage.applies_dir / tid / 'preview' / tid / 'index.json'),
-                'commit_sha': rr.commit_sha,
-            },
-        )
+    if elog:
+        elog.append_event('apply.round.diff', task_id=tid, payload={
+            'apply_id': tid,
+            'round': rr.index,
+            'files_changed': rr.files_changed,
+            'commit_sha': rr.commit_sha,
+            'test_passed': rr.test_passed,
+            'error': rr.error,
+            'diff_summary': _round_summary(rr),
+        })
 
 
-def _diff_summary(rr: RoundResult) -> str:
-    count = len(rr.files_changed)
-    tests = 'tests passed' if rr.test_passed else 'tests failed' if rr.test_passed is False else 'tests not run'
-    return f'Round {rr.index}: {count} file(s) changed; {tests}.'
+def _round_summary(rr: RoundResult) -> str:
+    if rr.error:
+        return f"round failed: {rr.error.get('code') or 'UNKNOWN'}"
+    if rr.test_passed is False:
+        return 'tests failed'
+    if rr.test_passed is True:
+        return 'tests passed'
+    return 'tests not run'
 
 
-def _launch_candidate_chat(ctx: ExecCtx, apply_id: str, thread_id: str | None, worktree) -> object:
-    _ensure_chat_package_alias(worktree)
-    runner = ctx.chat_runner_factory()
-    env = candidate_launch_env(worktree)
-    model_config = _candidate_model_config(ctx, worktree)
-    if model_config:
-        env['LAZYRAG_MODEL_CONFIG_PATH'] = model_config
-    candidate = runner.launch(source_dir=worktree, label=f'apply-{apply_id[-6:]}', env=env, owner_thread_id=thread_id)
-    ctx.chat_registry.register(candidate)
-    return candidate
-
-
-def _candidate_payload(candidate) -> dict:
-    return {
-        'candidate_chat_id': candidate.chat_id,
-        'candidate_chat_url': candidate.base_url,
-        'candidate_health_url': candidate.health_url,
-        'candidate_status': candidate.status,
-    }
-
-
-def _candidate_model_config(ctx: ExecCtx, worktree) -> str | None:
-    from pathlib import Path
-
-    wt = Path(worktree)
-    sources = [Path(os.getenv('LAZYRAG_MODEL_CONFIG_PATH', '')), Path(ctx.cfg.chat_source) / 'runtime_models.yaml']
-    src = next((p for p in sources if str(p) and p.is_file()), None)
-    if src is None:
-        local = wt / 'runtime_models.yaml'
-        return str(local) if local.is_file() else None
-    dst = wt / '.evo' / 'runtime_models.yaml'
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dst)
-    return str(dst)
-
-
-def candidate_launch_env(worktree) -> dict[str, str]:
-    return {'PYTHONPATH': _candidate_pythonpath(worktree), **_chat_env()}
-
-
-def _chat_env() -> dict[str, str]:
-    keys = (
-        'LAZYRAG_MODEL_CONFIG_PATH',
-        'LAZYRAG_ALGO_SERVICE_URL',
-        'LAZYRAG_ALGO_DATASET_NAME',
-        'LAZYRAG_MAAS_API_KEY',
-        'MAAS_BASE_URL',
-        'MAAS_MODEL_NAME',
-        'LANGFUSE_HOST',
-        'LANGFUSE_BASE_URL',
-        'LANGFUSE_PUBLIC_KEY',
-        'LANGFUSE_SECRET_KEY',
-        'LAZYLLM_TRACE_BACKEND',
-        'http_proxy',
-        'https_proxy',
-        'HTTP_PROXY',
-        'HTTPS_PROXY',
-        'no_proxy',
-        'NO_PROXY',
-    )
-    env = {k: v for k in keys if (v := os.getenv(k))}
-    env.update(_candidate_env_overrides())
-    if not env.get('LAZYRAG_ALGO_SERVICE_URL'):
-        algo_url = os.getenv('EVO_CANDIDATE_ALGO_SERVICE_URL') or os.getenv('EVO_ALGO_SERVICE_URL')
-        if algo_url:
-            env['LAZYRAG_ALGO_SERVICE_URL'] = algo_url.rstrip('/')
-    env.update({k: v for (k, v) in os.environ.items() if k.startswith('LAZYLLM_') and v})
-    internal = (
-        '127.0.0.1',
-        'localhost',
-        '::1',
-        'chat',
-        'evo-chat',
-        'evo-api',
-        'doc-server',
-        'lazyllm-algo',
-        'lazyllm-doc-server',
-        'parsing',
-        '10.0.0.0/8',
-        '172.16.0.0/12',
-        '192.168.0.0/16',
-    )
-    merged = _merge_csv(env.get('no_proxy') or env.get('NO_PROXY') or '', internal)
-    env['no_proxy'] = merged
-    env['NO_PROXY'] = merged
-    env['LAZYRAG_SKIP_STARTUP_PIPELINE'] = '1'
+def candidate_launch_env(worktree, alias_root=None) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k.startswith(('LAZYRAG_', 'EVO_', 'MAAS_'))}
+    env['PYTHONPATH'] = _candidate_pythonpath(worktree, alias_root)
     return env
 
 
-def _candidate_env_overrides() -> dict[str, str]:
-    from pathlib import Path
-
-    path = Path(os.getenv('EVO_CANDIDATE_ENV_PATH', os.getenv('EVO_BASE_DIR', '/var/lib/lazyrag/evo')))
-    if path.is_dir() or path.suffix != '.json':
-        path = path / 'state' / 'candidate_env.json'
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding='utf-8'))
-    except Exception as exc:
-        log.warning('failed to read candidate env overrides %s: %s', path, exc)
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {str(k): str(v) for (k, v) in data.items() if v is not None}
+def _ensure_chat_package_alias(ctx: ExecCtx, apply_id: str, worktree):
+    alias = ctx.cfg.storage.applies_dir / apply_id / 'chat_alias'
+    target = Path(worktree) / 'algorithm' / 'chat'
+    if alias.is_symlink():
+        if Path(os.readlink(alias)) == target:
+            return alias
+        alias.unlink()
+    elif alias.exists():
+        return alias
+    elif os.path.lexists(alias):
+        alias.unlink()
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    alias.symlink_to(target, target_is_directory=True)
+    return alias
 
 
-def _merge_csv(existing: str, extra: tuple[str, ...]) -> str:
-    parts = [p.strip() for p in existing.split(',') if p.strip()]
-    parts.extend(extra)
-    return ','.join(dict.fromkeys(parts))
-
-
-def _ensure_chat_package_alias(worktree) -> None:
-    from pathlib import Path
-
-    wt = Path(worktree)
-    alias = wt / 'chat'
-    if alias.exists():
-        return
-    if (wt / 'app' / 'chat.py').is_file():
-        alias.symlink_to(wt, target_is_directory=True)
-
-
-def _candidate_pythonpath(worktree) -> str:
-    existing = os.getenv('PYTHONPATH', '')
-    parts = [str(worktree), '/app', '/opt/lazyllm']
-    parts.extend((p for p in existing.split(':') if p))
-    return ':'.join(dict.fromkeys(parts))
+def _candidate_pythonpath(worktree, alias_root=None) -> str:
+    paths = [str(worktree), str(Path(worktree) / 'algorithm')]
+    if alias_root:
+        paths.append(str(alias_root))
+    return os.pathsep.join(paths + ([os.environ['PYTHONPATH']] if os.environ.get('PYTHONPATH') else []))
 
 
 def cleanup(ctx: ExecCtx, tid: str, *, drop_logs: bool, drop_diffs: bool) -> None:
-    ws = GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source)
-    try:
-        ws.remove_worktree(tid)
-    except Exception as exc:
-        log.warning('worktree cleanup failed for %s: %s', tid, exc)
     if drop_logs:
         shutil.rmtree(ctx.cfg.storage.applies_dir / tid, ignore_errors=True)
     if drop_diffs:
         shutil.rmtree(ctx.cfg.storage.diffs_dir / tid, ignore_errors=True)
-        preview_dir = ctx.cfg.storage.applies_dir / tid / 'preview'
-        shutil.rmtree(preview_dir, ignore_errors=True)
 
 
 def resolve_report(ctx: ExecCtx, report_id: str | None, *, thread_id: str | None = None) -> tuple[str, str, dict]:
-    if report_id is not None:
-        report_path = _report_path(ctx, report_id, thread_id)
-        if not report_path.is_file() and thread_id:
-            report_path = _report_for_run(ctx, thread_id, report_id)
-        if not report_path.is_file():
-            raise _store.StateError('NO_REPORT_AVAILABLE', f'report {report_id} not found', {'path': str(report_path)})
-        return _read_report(report_path)
-    if thread_id:
-        ws = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id)
-        for rid in reversed(ws.load_artifacts().get('run_ids') or []):
-            rec = _store.get(ctx.store, rid)
-            if not (rec and rec['status'] == 'succeeded'):
-                continue
-            report_path = (
-                _report_path(ctx, rec['report_id'], thread_id)
-                if rec.get('report_id')
-                else _report_for_run(ctx, thread_id, rid)
-            )
-            if report_path.is_file():
-                return _read_report(report_path)
-        raise _store.StateError('NO_REPORT_AVAILABLE', f'thread {thread_id} has no succeeded run with report')
-    run_row = _store.latest_succeeded_run(ctx.store)
-    if run_row is None:
-        raise _store.StateError('NO_REPORT_AVAILABLE', 'no succeeded run with a report')
-    run_id = run_row['id']
-    reports_dir = ctx.cfg.storage.reports_dir
-    cands = sorted(reports_dir.glob(f'*{run_id[-8:]}*.json'))
-    if not cands:
-        cands = sorted(reports_dir.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not cands:
-        raise _store.StateError('NO_REPORT_AVAILABLE', 'no report file found', {'run_id': run_id})
-    return _read_report(cands[0])
+    if report_id:
+        return _read_report(_report_path(ctx, report_id, thread_id))
+    run = _latest_run(ctx, thread_id)
+    if not run:
+        raise _store.StateError('REPORT_NOT_FOUND', 'no succeeded run with report_id')
+    rid = (run.get('payload') or {}).get('report_id')
+    return _read_report(_report_path(ctx, rid, thread_id))
 
 
-def _read_report(report_path) -> tuple[str, str, dict]:
-    data = load_json(report_path)
-    rid = data.get('report_id') or report_path.stem
-    parent_run_id = (data.get('metadata') or {}).get('run_id', '')
-    return (rid, parent_run_id, data)
+def resolve_worktree(ctx: ExecCtx, apply_id: str):
+    result = ((_store.must_get(ctx.store, apply_id).get('payload') or {}).get('result') or {})
+    path = result.get('worktree') or result.get('apply_worktree')
+    if path:
+        return Path(path)
+    return ctx.cfg.storage.git_dir / 'worktrees' / f'apply_{apply_id}'
 
 
-def _report_path(ctx: ExecCtx, report_id: str, thread_id: str | None = None):
+def _read_report(path: Path) -> tuple[str, str, dict]:
+    data = load_json(path)
+    return str(data.get('report_id') or path.stem), str(data.get('run_id') or ''), data
+
+
+def _report_path(ctx: ExecCtx, report_id: str, thread_id: str | None = None) -> Path:
     if thread_id:
         p = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).outputs_dir / 'reports' / f'{report_id}.json'
-        if p.is_file():
+        if p.exists():
             return p
     return ctx.cfg.storage.reports_dir / f'{report_id}.json'
 
 
-def _report_for_run(ctx: ExecCtx, thread_id: str, run_id: str):
-    reports_dir = ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).outputs_dir / 'reports'
-    for path in sorted(reports_dir.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            data = load_json(path)
-        except Exception:
-            continue
-        if (data.get('metadata') or {}).get('run_id') == run_id:
-            return path
-    return ctx.cfg.storage.reports_dir / f'{run_id}.json'
-
-
-def resolve_worktree(ctx: ExecCtx, apply_id: str):
-    return GitWorkspace(ctx.cfg.storage.git_dir, ctx.cfg.chat_source).worktree_path(apply_id)
+def _latest_run(ctx: ExecCtx, thread_id: str | None) -> dict | None:
+    rows = _store.list_flow_tasks_by_thread(
+        ctx.store, 'run', thread_id) if thread_id else _store.list_recent(ctx.store, 'run', 50)
+    for row in reversed(rows):
+        if row.get('status') == 'succeeded' and (row.get('payload') or {}).get('report_id'):
+            return row
+    return None
 
 
 def _apply_options(ctx: ExecCtx, task: dict | None = None) -> ApplyOptions:
-    base = ctx.apply_opts or ApplyOptions()
+    opts = ctx.apply_opts or ApplyOptions()
     extra = ((task or {}).get('payload') or {}).get('extra_instructions')
-    instruction = base.instruction if not extra else f'{base.instruction}\n\n额外修改要求：{extra}'
-    return ApplyOptions(
-        max_rounds=base.max_rounds,
-        test_command=base.test_command,
-        instruction=instruction,
-        opencode_options=opencode_admin.apply_options(ctx.cfg, base.opencode_options),
-    )
+    if extra:
+        opts.extra_instructions = extra
+    return opts

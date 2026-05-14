@@ -88,7 +88,14 @@ MEMORY_GUIDANCE = (
     "SOPs, or task-specific conventions to memory or user_preference; those belong in skills. "
     "Do NOT save trivial details, one-off task state, prompt-like instructions, "
     "or obvious facts derivable from the codebase. "
-    "Only save what is genuinely important and will matter in future sessions."
+    "Only save what is genuinely important and will matter in future sessions. "
+    "Do not use memory for explicit user-specific vocabulary or terminology mappings; use vocab_manage instead."
+)
+VOCAB_GUIDANCE = (
+    "Use vocab_manage for explicit user-specific vocabulary or terminology mappings. "
+    "When the user asks to remember a mapping in a vocabulary, glossary, domain terminology, synonym list, "
+    "or says that one term means / equals / is another term in a domain, prefer vocab_manage over memory. "
+    "Pass each mapping as one suggestion with word, synonym, description, and reason."
 )
 SKILLS_GUIDANCE = (
     "Use skill_manage to curate reusable skills. It has three actions:\n"
@@ -242,7 +249,9 @@ _MEMORY_REVIEW_PROMPT = (
     "memory or user_preference proposal is warranted."
 )
 _COMBINED_REVIEW_PROMPT = (
-    "Review the conversation above and consider both memory and skill updates.\n\n"
+    "Review the conversation above and decide whether exactly one durable update should be saved.\n\n"
+    "You have exactly three tool choices, and you must call at most one of them: memory, skill_manage, or vocab_manage. "
+    "Choose the single best tool for this conversation. Do not call multiple tools in the same review.\n\n"
     "# Memory updates\n"
     "Be very conservative with memory and user_preference updates. Save only very general, "
     "stable preferences, habits, or environment/project constraints that should affect "
@@ -299,12 +308,16 @@ _COMBINED_REVIEW_PROMPT = (
     "Before removing a skill, you MUST call get_skill() first to confirm the content matches "
     "what you intend to delete. "
     "When calling skill_manage, identify the target skill by both `category` and `name`.\n\n"
+    "# Vocabulary updates\n"
+    "Use vocab_manage only for clear, user-specific vocabulary or terminology mappings explicitly established in the conversation. "
+    "Use it when the user says one term means, equals, aliases, or should be remembered as another term in their domain. "
+    "Do not use vocab_manage for vague paraphrases, temporary nicknames, or general world-knowledge synonyms.\n\n"
     "When in doubt, do NOT save. Only write when you are confident the information "
     "is durable and will matter in future sessions.\n"
     "Do not save ephemeral task state.\n"
-    "If there is a worthwhile skill, memory, or user_preference change, directly call the appropriate tool to submit the proposal. "
+    "If there is a worthwhile memory, user_preference, skill, or vocabulary change, directly call the appropriate single tool to submit the proposal. "
     "If nothing is worth saving, reply with `Nothing to save` and a brief reason explaining why no skill, memory, "
-    "or user_preference proposal is warranted."
+    "user_preference, or vocabulary proposal is warranted."
 )
 _MEMORY_FLUSH_MESSAGES = {
     "compression": (

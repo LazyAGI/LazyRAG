@@ -10,6 +10,7 @@ from chat.prompts.agentic import (
     SEARCH_GUIDANCE,
     SKILLS_GUIDANCE,
     TOOL_CALL_STATUS_GUIDANCE,
+    VOCAB_GUIDANCE,
     _COMBINED_REVIEW_PROMPT,
     _MEMORY_REVIEW_PROMPT,
     _SKILL_REVIEW_PROMPT,
@@ -24,6 +25,7 @@ DEFAULT_TOOLS = [
     'web_search',
     'url_fetch',
     'arxiv_search',
+    'vocab_manage',
     'memory',
     'skill_manage',
 ]
@@ -41,7 +43,7 @@ BUILTIN_FILE_TOOLS = (
 REVIEW_TOOLS: dict[str, list[str]] = {
     'memory': ['memory'],
     'skill': ['skill_manage'],
-    'combined': ['memory', 'skill_manage'],
+    'combined': ['memory', 'skill_manage', 'vocab_manage'],
 }
 
 REVIEW_PROMPTS: dict[str, str] = {
@@ -60,7 +62,10 @@ def _normalize_available_tools(tools: Any) -> list[str]:
         return list(DEFAULT_TOOLS)
     if any(isinstance(t, str) and t.lower() == 'all' for t in tools):
         return list(DEFAULT_TOOLS)
-    return [t for t in tools if isinstance(t, str) and t]
+    normalized = [t for t in tools if isinstance(t, str) and t]
+    if 'vocab_manage' not in normalized and any(t in normalized for t in ('memory', 'skill_manage')):
+        normalized.append('vocab_manage')
+    return normalized
 
 
 def _merge_builtin_file_tools(tools: list[str]) -> list[str]:
@@ -151,6 +156,8 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
     prompt_parts = [DEFAULT_SYSTEM_PROMPT]
 
     tool_guidance: list[str] = []
+    if 'vocab_manage' in available_tools:
+        tool_guidance.append(VOCAB_GUIDANCE)
     if 'memory' in available_tools and config.get('use_memory', True):
         tool_guidance.append(MEMORY_GUIDANCE)
     if 'skill_manage' in available_tools:

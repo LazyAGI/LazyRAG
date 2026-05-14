@@ -31,8 +31,8 @@ const vocabReloadPath = "/api/vocab/reload"
 
 func notifyVocabReload(ctx context.Context, userID string) {
 	reloadURL := common.JoinURL(wordGroupServiceURL(), vocabReloadPath)
-	if err := common.ApiPost(ctx, reloadURL, map[string]string{"create_user_id": userID}, nil, nil, 15*time.Second); err != nil {
-		log.Logger.Warn().Err(err).Str("url", reloadURL).Str("create_user_id", userID).Msg("vocab reload notify failed")
+	if err := common.ApiPost(ctx, reloadURL, map[string]string{"user_id": userID}, nil, nil, 15*time.Second); err != nil {
+		log.Logger.Warn().Err(err).Str("url", reloadURL).Str("user_id", userID).Msg("vocab reload notify failed")
 	}
 }
 

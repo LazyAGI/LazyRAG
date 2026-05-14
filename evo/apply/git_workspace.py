@@ -1,4 +1,6 @@
 from __future__ import annotations
+import fnmatch
+import json
 import os
 import shutil
 import subprocess
@@ -10,6 +12,7 @@ from evo.apply.errors import ApplyError
 _IGNORE = ('__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '*.pyc', '*.pyo', '.DS_Store', '.git')
 _RUNTIME_CACHE_DIRS = frozenset({'__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache'})
 _RUNTIME_CACHE_SUFFIXES = ('.pyc', '.pyo')
+_RUNTIME_ARTIFACTS = frozenset({'opencode.json', '.evo', 'chat'})
 _GIT_USER = ['-c', 'user.email=evo@local', '-c', 'user.name=evo']
 
 
@@ -95,7 +98,7 @@ def _porcelain_rows(worktree: Path) -> list[tuple[str, bool]]:
     seen: dict[str, bool] = {}
     for p, u in out:
         pp = _norm_relpath(p)
-        if _is_runtime_cache(pp):
+        if _is_runtime_cache(pp) or _is_runtime_artifact(pp):
             continue
         if pp not in seen or u:
             seen[pp] = u
@@ -108,7 +111,18 @@ def _is_runtime_cache(path: str) -> bool:
     return any(part in _RUNTIME_CACHE_DIRS for part in parts) or p.endswith(_RUNTIME_CACHE_SUFFIXES)
 
 
+def _is_runtime_artifact(path: str) -> bool:
+    p = _norm_relpath(path)
+    return p in _RUNTIME_ARTIFACTS or p.startswith('.evo/')
+
+
 def _clean_runtime_caches(worktree: Path) -> None:
+    for rel in _RUNTIME_ARTIFACTS:
+        path = worktree / rel
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
     for root, dirs, files in os.walk(worktree):
         root_path = Path(root)
         if '.git' in root_path.parts:
@@ -124,6 +138,36 @@ def _clean_runtime_caches(worktree: Path) -> None:
                     (root_path / name).unlink()
                 except OSError:
                     pass
+
+
+def _read_manifest(path: Path) -> list[list[int | str]] | None:
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, list) else None
+
+
+def _source_manifest(root: Path) -> list[list[int | str]]:
+    rows: list[list[int | str]] = []
+    for cur, dirs, files in os.walk(root):
+        cur_path = Path(cur)
+        dirs[:] = [d for d in dirs if not _ignored(d)]
+        for name in files:
+            if _ignored(name):
+                continue
+            path = cur_path / name
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            rel = path.relative_to(root).as_posix()
+            rows.append([rel, int(st.st_size), int(st.st_mtime_ns)])
+    return sorted(rows)
+
+
+def _ignored(name: str) -> bool:
+    return any(fnmatch.fnmatch(name, pat) for pat in _IGNORE)
 
 
 def _revert_outside(worktree: Path, outside: list[tuple[str, bool]]) -> None:
@@ -177,8 +221,11 @@ class GitWorkspace:
         return f'evo/apply/{apply_id}'
 
     def ensure_bare(self) -> None:
-        if (self._bare / 'HEAD').exists():
+        manifest = _source_manifest(self._chat_source)
+        manifest_path = self._root / 'chat_source_manifest.json'
+        if (self._bare / 'HEAD').exists() and _read_manifest(manifest_path) == manifest:
             return
+        shutil.rmtree(self._worktrees, ignore_errors=True)
         self._bare.parent.mkdir(parents=True, exist_ok=True)
         if self._bare.exists():
             shutil.rmtree(self._bare, ignore_errors=True)
@@ -198,13 +245,19 @@ class GitWorkspace:
             _git(['add', '-A'], tmp_repo)
             _git(_GIT_USER + ['commit', '-m', 'initial chat snapshot'], tmp_repo)
             _git(['clone', '--bare', str(tmp_repo), str(self._bare)], Path(tmp))
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding='utf-8')
 
     def create_worktree(self, apply_id: str, base_ref: str = 'main') -> tuple[Path, str]:
         self._worktrees.mkdir(parents=True, exist_ok=True)
         wt = self.worktree_path(apply_id)
         if wt.exists():
             shutil.rmtree(wt, ignore_errors=True)
-        _git(['worktree', 'add', '-b', self.branch_name(apply_id), str(wt), base_ref], self._bare)
+        _git(['worktree', 'prune'], self._bare)
+        branch = self.branch_name(apply_id)
+        if self._branch_exists(branch):
+            _git(['worktree', 'add', str(wt), branch], self._bare)
+        else:
+            _git(['worktree', 'add', '-b', branch, str(wt), base_ref], self._bare)
         sha = self.head_commit(wt)
         return (wt, sha)
 
@@ -244,6 +297,13 @@ class GitWorkspace:
 
     def head_commit(self, worktree: Path) -> str:
         return _git(['rev-parse', 'HEAD'], worktree).strip()
+
+    def _branch_exists(self, branch: str) -> bool:
+        try:
+            _git(['rev-parse', '--verify', f'refs/heads/{branch}'], self._bare)
+            return True
+        except ApplyError:
+            return False
 
     def remove_worktree(self, apply_id: str) -> None:
         wt = self.worktree_path(apply_id)

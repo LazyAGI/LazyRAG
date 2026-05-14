@@ -2,14 +2,33 @@ package doc
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"lazyrag/core/acl"
 	"lazyrag/core/common/orm"
+
+	"github.com/gorilla/mux"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func testJSONResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
 
 func TestListDatasetsKeywordMatchesTags(t *testing.T) {
 	db := newDocumentTestDB(t)
@@ -76,6 +95,155 @@ func TestListDatasetsKeywordMatchesTags(t *testing.T) {
 	}
 	if got := resp.Datasets[0].DatasetID; got != "ds-tag" {
 		t.Fatalf("expected ds-tag, got %q", got)
+	}
+}
+
+func TestCreateDatasetUsesNamespacedAlgoDisplayName(t *testing.T) {
+	db := newDocumentTestDB(t)
+	if err := db.AutoMigrate(&orm.DefaultDataset{}, &orm.ACLModel{}, &orm.KBModel{}, &orm.VisibilityModel{}); err != nil {
+		t.Fatalf("auto migrate acl tables: %v", err)
+	}
+	acl.InitStore(db)
+
+	var got kbCreateRequest
+	prevTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/v1/kbs":
+			if r.Method != http.MethodPost {
+				t.Errorf("expected POST /v1/kbs, got %s", r.Method)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+				t.Errorf("decode kb create request: %v", err)
+				return testJSONResponse(http.StatusBadRequest, `{"message":"bad request"}`), nil
+			}
+			return testJSONResponse(http.StatusOK, `{"kb_id":"kb-returned"}`), nil
+		case "/v1/algo/general_algo/groups":
+			return testJSONResponse(http.StatusOK, `{"code":200,"data":[]}`), nil
+		default:
+			t.Errorf("unexpected algo request path %q", r.URL.Path)
+			return testJSONResponse(http.StatusNotFound, `{"message":"not found"}`), nil
+		}
+	})
+	t.Cleanup(func() { http.DefaultTransport = prevTransport })
+	t.Setenv("LAZYRAG_ALGO_SERVICE_URL", "http://algo.test")
+
+	body := `{"display_name":"datasource-bendi","desc":"local data","algo":{"algo_id":"general_algo","display_name":"General"},"tags":["local"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/core/datasets?dataset_id=ds_test", strings.NewReader(body))
+	req.Header.Set("X-User-Id", "user-123")
+	req.Header.Set("X-User-Name", "Alice")
+	rec := httptest.NewRecorder()
+
+	CreateDataset(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got.DisplayName != "user@user-123@datasource-bendi" {
+		t.Fatalf("expected namespaced algo display name, got %q", got.DisplayName)
+	}
+	if got.OwnerID != "user-123" {
+		t.Fatalf("expected owner id user-123, got %q", got.OwnerID)
+	}
+
+	var row orm.Dataset
+	if err := db.First(&row, "id = ?", "ds_test").Error; err != nil {
+		t.Fatalf("query created dataset: %v", err)
+	}
+	if row.DisplayName != "datasource-bendi" {
+		t.Fatalf("core dataset display name should stay unchanged, got %q", row.DisplayName)
+	}
+	if row.KbID != "kb-returned" {
+		t.Fatalf("expected returned kb id to be stored, got %q", row.KbID)
+	}
+}
+
+func TestCreateDatasetRejectsReservedDisplayNamePrefixes(t *testing.T) {
+	newDocumentTestDB(t)
+	called := false
+	prevTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		called = true
+		return testJSONResponse(http.StatusInternalServerError, `{"message":"unexpected call"}`), nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = prevTransport })
+	t.Setenv("LAZYRAG_ALGO_SERVICE_URL", "http://algo.test")
+
+	for _, name := range []string{"user@abc", "feishu@abc", "local@abc", " User@abc"} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/core/datasets", strings.NewReader(`{"display_name":`+strconv.Quote(name)+`}`))
+			req.Header.Set("X-User-Id", "user-123")
+			rec := httptest.NewRecorder()
+
+			CreateDataset(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+	if called {
+		t.Fatalf("algo service must not be called for reserved display names")
+	}
+}
+
+func TestUpdateDatasetUsesNamespacedAlgoDisplayName(t *testing.T) {
+	db := newDocumentTestDB(t)
+	now := time.Date(2026, 5, 14, 10, 0, 0, 0, time.UTC)
+	if err := db.Create(&orm.Dataset{
+		ID:           "ds-update",
+		KbID:         "kb-update",
+		DisplayName:  "old name",
+		DatasetState: 0,
+		ShareType:    0,
+		Type:         1,
+		Ext:          json.RawMessage(`{}`),
+		BaseModel: orm.BaseModel{
+			CreateUserID:   "user-123",
+			CreateUserName: "Alice",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create dataset: %v", err)
+	}
+
+	var got kbUpdateRequest
+	prevTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/kbs/kb-update/update" {
+			t.Errorf("unexpected algo request path %q", r.URL.Path)
+			return testJSONResponse(http.StatusNotFound, `{"message":"not found"}`), nil
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode kb update request: %v", err)
+			return testJSONResponse(http.StatusBadRequest, `{"message":"bad request"}`), nil
+		}
+		return testJSONResponse(http.StatusOK, `{}`), nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = prevTransport })
+	t.Setenv("LAZYRAG_ALGO_SERVICE_URL", "http://algo.test")
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/core/datasets/ds-update", strings.NewReader(`{"display_name":"new name"}`))
+	req = mux.SetURLVars(req, map[string]string{"dataset": "ds-update"})
+	req.Header.Set("X-User-Id", "user-123")
+	req.Header.Set("X-User-Name", "Alice")
+	rec := httptest.NewRecorder()
+
+	UpdateDataset(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got.DisplayName == nil || *got.DisplayName != "user@user-123@new name" {
+		t.Fatalf("expected namespaced algo display name, got %#v", got.DisplayName)
+	}
+	var row orm.Dataset
+	if err := db.First(&row, "id = ?", "ds-update").Error; err != nil {
+		t.Fatalf("query updated dataset: %v", err)
+	}
+	if row.DisplayName != "new name" {
+		t.Fatalf("core dataset display name should stay unchanged, got %q", row.DisplayName)
 	}
 }
 

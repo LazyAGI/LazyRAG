@@ -9,7 +9,7 @@ import (
 )
 
 func TestBuildChatRequestBodyUsesConversationIDDerivedSessionID(t *testing.T) {
-	body := buildChatRequestBody("conv-1", "", "hello", nil, map[string]any{}, nil)
+	body := buildChatRequestBody("conv-1", "", "hello", nil, map[string]any{}, nil, "")
 	sessionID, ok := body["session_id"].(string)
 	if !ok {
 		t.Fatalf("expected session_id string, got %T", body["session_id"])
@@ -38,7 +38,7 @@ func TestBuildChatRequestBodyUsesDatasetListFilters(t *testing.T) {
 				"tags":     []any{"tag_a", "tag_b"},
 			},
 		},
-	}, nil)
+	}, nil, "")
 
 	filters, ok := body["filters"].(map[string]any)
 	if !ok {
@@ -79,7 +79,7 @@ func TestBuildChatRequestBodyKeepsExistingFilters(t *testing.T) {
 				"dataset_list": []any{map[string]any{"id": "ds_1"}},
 			},
 		},
-	}, nil)
+	}, nil, "")
 
 	filters, ok := body["filters"].(map[string]any)
 	if !ok {
@@ -103,10 +103,13 @@ func TestBuildChatRequestBodyAddsEvolutionContext(t *testing.T) {
 		UserPreference:     "preference-content",
 		UsePersonalization: true,
 	}
-	body := buildChatRequestBody("conv-1", "session-1", "hello", nil, map[string]any{}, ctx)
+	body := buildChatRequestBody("conv-1", "session-1", "hello", nil, map[string]any{}, ctx, "user-1")
 
 	if got := body["session_id"]; got != "session-1" {
 		t.Fatalf("expected session_id to be preserved, got %#v", got)
+	}
+	if got := body["user_id"]; got != "user-1" {
+		t.Fatalf("expected user_id to be forwarded, got %#v", got)
 	}
 	if got, ok := body["available_tools"].([]string); !ok || len(got) != 1 || got[0] != "all" {
 		t.Fatalf("unexpected available_tools: %#v", body["available_tools"])
@@ -139,7 +142,7 @@ func TestBuildChatRequestBodySkipsMemoryAndPreferenceWhenPersonalizationDisabled
 		UserPreference:     "preference-content",
 		UsePersonalization: false,
 	}
-	body := buildChatRequestBody("conv-1", "session-1", "hello", nil, map[string]any{}, ctx)
+	body := buildChatRequestBody("conv-1", "session-1", "hello", nil, map[string]any{}, ctx, "")
 
 	if got, ok := body["use_memory"].(bool); !ok || got {
 		t.Fatalf("expected use_memory false, got %#v", body["use_memory"])
@@ -155,7 +158,7 @@ func TestBuildChatRequestBodySkipsMemoryAndPreferenceWhenPersonalizationDisabled
 func TestBuildChatRequestBodyPreservesExplicitReasoningFalse(t *testing.T) {
 	body := buildChatRequestBody("conv-1", "", "hello", nil, map[string]any{
 		"reasoning": false,
-	}, nil)
+	}, nil, "")
 
 	if got, ok := body["reasoning"].(bool); !ok || got {
 		t.Fatalf("expected reasoning false, got %#v", body["reasoning"])
@@ -186,6 +189,7 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 		"memory":          "memory-content",
 		"user_preference": "preference-content",
 		"use_memory":      true,
+		"user_id":         "user-1",
 	})
 
 	if req.Query != "hello" || req.SessionID != "conv-1" {
@@ -226,6 +230,9 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	}
 	if !req.UseMemory {
 		t.Fatalf("expected use_memory to be true")
+	}
+	if req.UserID != "user-1" {
+		t.Fatalf("unexpected user_id: %q", req.UserID)
 	}
 }
 

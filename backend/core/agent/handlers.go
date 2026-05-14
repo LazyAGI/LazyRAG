@@ -188,7 +188,7 @@ func GetThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
-	thread, err := loadThread(db, threadID)
+	thread, err := loadUserThread(db, r, threadID)
 	if err != nil {
 		replyThreadLoadError(w, err)
 		return
@@ -203,7 +203,7 @@ func ListThreadRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
-	if _, err := loadThread(db, threadID); err != nil {
+	if _, err := loadUserThread(db, r, threadID); err != nil {
 		replyThreadLoadError(w, err)
 		return
 	}
@@ -249,7 +249,7 @@ func StreamThreadMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
-	thread, err := loadThread(db, threadID)
+	thread, err := loadUserThread(db, r, threadID)
 	if err != nil {
 		replyThreadLoadError(w, err)
 		return
@@ -268,6 +268,11 @@ func StreamThreadMessages(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(requestBytes) == 0 || string(requestBytes) == "{}" {
 			common.ReplyErr(w, "messages request body required", http.StatusBadRequest)
+			return
+		}
+
+		if err := ensureUserCanActivateThread(r.Context(), db, r, threadID); err != nil {
+			writeUserActiveThreadSSEError(w, threadID, err)
 			return
 		}
 
@@ -299,6 +304,17 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
+	loadThreadStarted := time.Now()
+	if _, err := loadUserThread(db, r, threadID); err != nil {
+		log.Logger.Warn().
+			Err(err).
+			Str("thread_id", threadID).
+			Dur("load_thread_elapsed", time.Since(loadThreadStarted)).
+			Dur("request_elapsed", time.Since(requestStarted)).
+			Msg("agent thread events load user thread failed")
+		replyThreadLoadError(w, err)
+		return
+	}
 	writeHeaderStarted := time.Now()
 	flusher, ok := ensureSSEHeaders(w)
 	if !ok {
@@ -313,38 +329,11 @@ func StreamThreadEvents(w http.ResponseWriter, r *http.Request) {
 		Dur("request_elapsed", time.Since(requestStarted)).
 		Msg("agent thread events response header written")
 
-	loadThreadStarted := time.Now()
-	if _, err := loadThread(db, threadID); err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Logger.Warn().
-				Err(err).
-				Str("thread_id", threadID).
-				Dur("load_thread_elapsed", time.Since(loadThreadStarted)).
-				Dur("request_elapsed", time.Since(requestStarted)).
-				Msg("agent thread events load thread failed")
-			writeNamedSSE(w, flusher, "", map[string]any{"message": "load thread failed", "detail": err.Error()})
-			return
-		}
-		log.Logger.Warn().
-			Err(err).
-			Str("thread_id", threadID).
-			Dur("load_thread_elapsed", time.Since(loadThreadStarted)).
-			Dur("request_elapsed", time.Since(requestStarted)).
-			Msg("agent thread events local thread missing; continue with upstream")
-		if _, upsertErr := upsertThread(db, threadID, "", "event_streaming", "", "", store.UserID(r), store.UserName(r)); upsertErr != nil {
-			log.Logger.Warn().
-				Err(upsertErr).
-				Str("thread_id", threadID).
-				Dur("request_elapsed", time.Since(requestStarted)).
-				Msg("agent thread events create local thread placeholder failed")
-		}
-	} else {
-		log.Logger.Info().
-			Str("thread_id", threadID).
-			Dur("load_thread_elapsed", time.Since(loadThreadStarted)).
-			Dur("request_elapsed", time.Since(requestStarted)).
-			Msg("agent thread events load thread completed")
-	}
+	log.Logger.Info().
+		Str("thread_id", threadID).
+		Dur("load_thread_elapsed", time.Since(loadThreadStarted)).
+		Dur("request_elapsed", time.Since(requestStarted)).
+		Msg("agent thread events load thread completed")
 
 	upstreamURL := threadEventsURL(threadID)
 	lastUpstreamEventID := ""
@@ -448,6 +437,33 @@ func PauseThread(w http.ResponseWriter, r *http.Request)  { postThreadAction(w, 
 func CancelThread(w http.ResponseWriter, r *http.Request) { postThreadAction(w, r, "cancel") }
 func RetryThread(w http.ResponseWriter, r *http.Request)  { postThreadAction(w, r, "retry") }
 
+func writeUserActiveThreadSSEError(w http.ResponseWriter, threadID string, err error) {
+	var activeErr *userActiveThreadError
+	if !errors.As(err, &activeErr) || activeErr.data["type"] != userActiveThreadExistsType {
+		replyUserActiveThreadError(w, err)
+		return
+	}
+
+	flusher, ok := ensureSSEHeaders(w)
+	if !ok {
+		replyUserActiveThreadError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+
+	message := userActiveThreadExistsMessage
+	if strings.TrimSpace(activeErr.message) != "" {
+		message = activeErr.message
+	}
+	writeNamedSSE(w, flusher, userActiveThreadExistsType, map[string]any{
+		"type":       userActiveThreadExistsType,
+		"thread_id":  threadID,
+		"message_id": fmt.Sprintf("msg_%s_%s", threadID, newStreamRecordID()),
+		"message":    message,
+		"delta":      message,
+	})
+}
+
 func GetReportContent(w http.ResponseWriter, r *http.Request) {
 	reportID := strings.TrimSpace(mux.Vars(r)["report_id"])
 	if reportID == "" {
@@ -500,6 +516,10 @@ func getThreadResults(w http.ResponseWriter, r *http.Request, resultKind string)
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
 	if threadID == "" {
 		common.ReplyErr(w, "thread_id required", http.StatusBadRequest)
+		return
+	}
+	if _, err := loadUserThread(store.DB(), r, threadID); err != nil {
+		replyThreadLoadError(w, err)
 		return
 	}
 	proxy, statusCode, err := fetchUpstreamProxy(r.Context(), r, threadResultsURL(threadID, resultKind))
@@ -558,6 +578,16 @@ func postThreadAction(w http.ResponseWriter, r *http.Request, action string) {
 	if threadID == "" {
 		common.ReplyErr(w, "thread_id required", http.StatusBadRequest)
 		return
+	}
+	if _, err := loadUserThread(store.DB(), r, threadID); err != nil {
+		replyThreadLoadError(w, err)
+		return
+	}
+	if action == "start" || action == "retry" {
+		if err := ensureUserCanActivateThread(r.Context(), store.DB(), r, threadID); err != nil {
+			replyUserActiveThreadError(w, err)
+			return
+		}
 	}
 	proxy, statusCode, err := postUpstreamProxy(r.Context(), r, threadActionURL(threadID, action))
 	if err != nil {
@@ -1441,12 +1471,30 @@ func lookupThreadCreateKnowledgeBaseName(ctx context.Context, db *gorm.DB, kbID 
 }
 
 func loadThread(db *gorm.DB, threadID string) (orm.AgentThread, error) {
+	if db == nil {
+		return orm.AgentThread{}, errors.New("store not initialized")
+	}
 	if threadID == "" {
 		return orm.AgentThread{}, errors.New("thread_id required")
 	}
 	var thread orm.AgentThread
 	if err := db.Where("thread_id = ?", threadID).First(&thread).Error; err != nil {
 		return orm.AgentThread{}, err
+	}
+	return thread, nil
+}
+
+func loadUserThread(db *gorm.DB, r *http.Request, threadID string) (orm.AgentThread, error) {
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		return orm.AgentThread{}, errors.New("missing X-User-Id")
+	}
+	thread, err := loadThread(db, threadID)
+	if err != nil {
+		return orm.AgentThread{}, err
+	}
+	if strings.TrimSpace(thread.CreateUserID) != userID {
+		return orm.AgentThread{}, gorm.ErrRecordNotFound
 	}
 	return thread, nil
 }
@@ -1558,6 +1606,10 @@ func replyThreadLoadError(w http.ResponseWriter, err error) {
 		common.ReplyErr(w, "thread not found", http.StatusNotFound)
 	case err.Error() == "thread_id required":
 		common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+	case err.Error() == "missing X-User-Id":
+		common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+	case err.Error() == "store not initialized":
+		common.ReplyErr(w, err.Error(), http.StatusInternalServerError)
 	default:
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "load thread failed", err), http.StatusInternalServerError)
 	}

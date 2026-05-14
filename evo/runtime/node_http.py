@@ -1,19 +1,26 @@
 from __future__ import annotations
 import logging
-import os
 from functools import lru_cache
 from typing import Any
 import requests
+from algorithm.config import config
 from evo.domain.node import NodeInfo
+from evo.runtime.config import (
+    EVO_CHUNK_BASE_URL,
+    EVO_KB_BASE_URL,
+    EVO_NODE_HTTP_DIRECT,
+    EVO_NODE_HTTP_MAX_PAGES,
+    EVO_NODE_HTTP_TIMEOUT_S,
+)
 
 _log = logging.getLogger('evo.runtime.node_http')
 
 
-def http_get_node(node_id: str) -> NodeInfo | None:
+def http_get_node(node_id: str, *, kb_ids: tuple[str, ...] | None = None) -> NodeInfo | None:
     nid = str(node_id or '').strip()
     if not _looks_like_node_id(nid):
         return None
-    return _cached_get_node(nid, _base_url(), tuple(_candidate_kb_ids()))
+    return _cached_get_node(nid, _base_url(), tuple(kb_ids or _candidate_kb_ids()))
 
 
 def _looks_like_node_id(value: str) -> bool:
@@ -28,7 +35,7 @@ def _looks_like_node_id(value: str) -> bool:
 def _cached_get_node(node_id: str, base: str, kb_ids: tuple[str, ...]) -> NodeInfo | None:
     if not base:
         return None
-    if os.getenv('EVO_NODE_HTTP_DIRECT', '').lower() in {'1', 'true', 'yes'}:
+    if EVO_NODE_HTTP_DIRECT:
         direct = _try_direct_node(base, node_id)
         if direct:
             return direct
@@ -49,28 +56,11 @@ def _session() -> requests.Session:
 
 
 def _base_url() -> str:
-    return (
-        os.getenv('EVO_CHUNK_BASE_URL')
-        or os.getenv('EVO_KB_BASE_URL')
-        or os.getenv('LAZYRAG_DOCUMENT_SERVER_URL')
-        or ''
-    ).rstrip('/')
+    return (EVO_CHUNK_BASE_URL or EVO_KB_BASE_URL or config['document_server_url'] or '').rstrip('/')
 
 
 def _candidate_kb_ids() -> list[str]:
-    raw = ','.join(
-        (
-            v
-            for v in (
-                os.getenv('EVO_NODE_KB_IDS', ''),
-                os.getenv('EVO_NODE_KB_ID', ''),
-                os.getenv('EVO_KB_ID', ''),
-                os.getenv('LAZYRAG_KB_ID', ''),
-            )
-            if v
-        )
-    )
-    return [x.strip() for x in raw.split(',') if x.strip()]
+    return []
 
 
 def _try_direct_node(base: str, node_id: str) -> NodeInfo | None:
@@ -80,7 +70,7 @@ def _try_direct_node(base: str, node_id: str) -> NodeInfo | None:
         ('/v1/chunks', {'uid': node_id}),
     ):
         try:
-            r = _session().get(f'{base}{path}', params=params, timeout=_timeout())
+            r = _session().get(f'{base}{path}', params=params, timeout=EVO_NODE_HTTP_TIMEOUT_S)
             if not r.ok:
                 continue
             items = _items(r.json())
@@ -94,12 +84,12 @@ def _try_direct_node(base: str, node_id: str) -> NodeInfo | None:
 
 
 def _find_doc(base: str, kb_id: str, node_id: str) -> NodeInfo | None:
-    for page in range(1, _max_pages() + 1):
+    for page in range(1, EVO_NODE_HTTP_MAX_PAGES + 1):
         try:
             r = _session().get(
                 f'{base}/v1/docs',
                 params={'kb_id': kb_id, 'algo_id': _algo_id(), 'page': page, 'page_size': 100},
-                timeout=_timeout(),
+                timeout=EVO_NODE_HTTP_TIMEOUT_S,
             )
             if not r.ok:
                 return None
@@ -131,7 +121,7 @@ def _find_chunk(base: str, kb_id: str, node_id: str) -> NodeInfo | None:
         if not doc_id:
             continue
         for group in ('block', 'line'):
-            for page in range(1, _max_pages() + 1):
+            for page in range(1, EVO_NODE_HTTP_MAX_PAGES + 1):
                 try:
                     r = _session().get(
                         f'{base}/v1/chunks',
@@ -143,7 +133,7 @@ def _find_chunk(base: str, kb_id: str, node_id: str) -> NodeInfo | None:
                             'page': page,
                             'page_size': 100,
                         },
-                        timeout=_timeout(),
+                        timeout=EVO_NODE_HTTP_TIMEOUT_S,
                     )
                     if not r.ok:
                         break
@@ -162,12 +152,12 @@ def _find_chunk(base: str, kb_id: str, node_id: str) -> NodeInfo | None:
 
 def _iter_docs(base: str, kb_id: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for page in range(1, _max_pages() + 1):
+    for page in range(1, EVO_NODE_HTTP_MAX_PAGES + 1):
         try:
             r = _session().get(
                 f'{base}/v1/docs',
                 params={'kb_id': kb_id, 'algo_id': _algo_id(), 'page': page, 'page_size': 100},
-                timeout=_timeout(),
+                timeout=EVO_NODE_HTTP_TIMEOUT_S,
             )
             if not r.ok:
                 break
@@ -229,13 +219,5 @@ def _int_or_none(v: Any) -> int | None:
     return int(v) if isinstance(v, (int, float)) else None
 
 
-def _timeout() -> float:
-    return float(os.getenv('EVO_NODE_HTTP_TIMEOUT_S', '20'))
-
-
-def _max_pages() -> int:
-    return int(os.getenv('EVO_NODE_HTTP_MAX_PAGES', '5'))
-
-
 def _algo_id() -> str:
-    return os.getenv('EVO_NODE_ALGO_ID', os.getenv('EVO_ALGO_ID', 'general_algo'))
+    return config['algo_dataset_name'] or config['default_algo_id']
