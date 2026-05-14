@@ -549,6 +549,7 @@ func DeleteDocument(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "delete document failed", http.StatusInternalServerError)
 		return
 	}
+	recalcAffectedFolderStats(r.Context(), datasetID, row.PID)
 	w.WriteHeader(http.StatusOK)
 }
 func UpdateDocument(w http.ResponseWriter, r *http.Request) {
@@ -983,6 +984,11 @@ func BatchDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "batch delete document failed", http.StatusInternalServerError)
 		return
 	}
+	pids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		pids = append(pids, row.PID)
+	}
+	recalcAffectedFolderStats(r.Context(), datasetID, pids...)
 	w.WriteHeader(http.StatusOK)
 }
 func AllDocumentCreators(w http.ResponseWriter, r *http.Request) {
@@ -1222,19 +1228,51 @@ type mergedDocRow struct {
 	PDFConvertResult string
 }
 
+func latestTime(values ...time.Time) time.Time {
+	var out time.Time
+	for _, value := range values {
+		if value.IsZero() {
+			continue
+		}
+		if out.IsZero() || value.After(out) {
+			out = value
+		}
+	}
+	return out
+}
+
 func loadDatasetDocuments(ctx context.Context, datasetID, keyword, pid string, applyPIDFilter bool, limit, offset int) ([]mergedDocRow, int64, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 
+	keyTrim := strings.TrimSpace(keyword)
+	// Listing uses direct children only; keyword search must include nested documents under pid.
+	mergedPIDFilter := applyPIDFilter
 	var docs []orm.Document
-	db := store.DB().WithContext(ctx).
-		Where("dataset_id = ? AND deleted_at IS NULL", datasetID)
-	if applyPIDFilter {
-		db = db.Where("COALESCE(p_id, '') = ?", pid)
-	}
-	if err := db.Order("updated_at DESC").Find(&docs).Error; err != nil {
-		return nil, 0, err
+	if applyPIDFilter && keyTrim != "" {
+		mergedPIDFilter = false
+		var err error
+		if pid == "" {
+			err = store.DB().WithContext(ctx).
+				Where("dataset_id = ? AND deleted_at IS NULL", datasetID).
+				Order("updated_at DESC").
+				Find(&docs).Error
+		} else {
+			docs, err = loadDocumentSubtree(ctx, datasetID, pid)
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+	} else {
+		db := store.DB().WithContext(ctx).
+			Where("dataset_id = ? AND deleted_at IS NULL", datasetID)
+		if applyPIDFilter {
+			db = db.Where("COALESCE(p_id, '') = ?", pid)
+		}
+		if err := db.Order("updated_at DESC").Find(&docs).Error; err != nil {
+			return nil, 0, err
+		}
 	}
 	if len(docs) == 0 {
 		return []mergedDocRow{}, 0, nil
@@ -1244,7 +1282,7 @@ func loadDatasetDocuments(ctx context.Context, datasetID, keyword, pid string, a
 	for _, doc := range docs {
 		docIDs = append(docIDs, doc.ID)
 	}
-	return loadMergedDocumentsByDocIDs(ctx, docIDs, datasetID, keyword, pid, applyPIDFilter, limit, offset)
+	return loadMergedDocumentsByDocIDs(ctx, docIDs, datasetID, keyword, pid, mergedPIDFilter, limit, offset)
 }
 
 func mergedDocRowFromCoreOnlyWithDatasetDisplay(row orm.Document, datasetDisplay string) mergedDocRow {
@@ -1528,7 +1566,7 @@ func loadMergedDocumentsBySearch(ctx context.Context, datasetIDs []string, keywo
 			DatasetID:        doc.DatasetID,
 			DatasetDisplay:   datasetDisplay,
 			BaseCreatedAt:    base.CreatedAt,
-			BaseUpdatedAt:    base.UpdatedAt,
+			BaseUpdatedAt:    latestTime(base.UpdatedAt, doc.UpdatedAt),
 			DisplayName:      displayName,
 			PID:              doc.PID,
 			Tags:             doc.Tags,
@@ -1896,7 +1934,7 @@ func loadMergedDocumentsByDocIDs(ctx context.Context, docIDs []string, datasetID
 			DatasetID:        doc.DatasetID,
 			DatasetDisplay:   datasetDisplay,
 			BaseCreatedAt:    base.CreatedAt,
-			BaseUpdatedAt:    base.UpdatedAt,
+			BaseUpdatedAt:    latestTime(base.UpdatedAt, doc.UpdatedAt),
 			DisplayName:      displayName,
 			PID:              doc.PID,
 			Tags:             doc.Tags,

@@ -53,12 +53,14 @@ def list_users(
     page_size: int = Query(20, ge=1, le=200),  # noqa: B008
     search: str | None = None,
     tenant_id: str | None = None,
+    active_only: bool = False,
 ):
     items, total = user_service.list_users(
         page=page,
         page_size=page_size,
         search=search,
         tenant_id=tenant_id,
+        active_only=active_only,
     )
     return {'users': items, 'total': total, 'page': page, 'page_size': page_size}
 

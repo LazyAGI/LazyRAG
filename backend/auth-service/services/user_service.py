@@ -75,10 +75,13 @@ class UserService:
         page_size: int = 20,
         search: str | None = None,
         tenant_id: str | None = None,
+        active_only: bool = False,
     ) -> tuple[list[dict], int]:
         """Paginated user list. Returns (items, total)."""
         with SessionLocal() as db:
-            users, total = UserRepository.list_paginated(db, page, page_size, search, tenant_id)
+            users, total = UserRepository.list_paginated(
+                db, page, page_size, search, tenant_id, active_only=active_only
+            )
             items = [
                 {
                     'user_id': str(u.id),

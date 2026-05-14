@@ -33,19 +33,31 @@ def test_parse_group_and_user_ids_raise_expected_errors():
 
 
 def test_list_groups_returns_pagination_payload(monkeypatch):
-    monkeypatch.setattr(group_api.group_service, 'list_groups', lambda **kwargs: (['g1'], 3))
+    calls = []
+    monkeypatch.setattr(group_api.group_service, 'list_groups', lambda **kwargs: calls.append(kwargs) or (['g1'], 3))
+    user_id = uuid.uuid4()
 
     result = _call(
         group_api.list_groups,
-        SimpleNamespace(id=uuid.uuid4(), role=SimpleNamespace(name='user')),
+        SimpleNamespace(id=user_id, role=SimpleNamespace(name='user')),
         page=2,
         page_size=10,
         search='team',
         tenant_id='tenant-a',
+        active_members_only=True,
     )
 
     assert isinstance(result, dict)
     assert result == {'groups': ['g1'], 'total': 3, 'page': 2, 'page_size': 10}
+    assert calls == [{
+        'page': 2,
+        'page_size': 10,
+        'search': 'team',
+        'tenant_id': 'tenant-a',
+        'current_user_id': user_id,
+        'is_system_admin': False,
+        'active_members_only': True,
+    }]
 
 
 def test_create_group_strips_name_and_uses_user_tenant(monkeypatch):
@@ -124,6 +136,17 @@ def test_add_group_users_defaults_role_to_member(monkeypatch):
     assert calls == [(group_id, [user_id], 'member', operator.id)]
 
 
+def test_list_group_users_internal_delegates_to_service(monkeypatch):
+    group_id = uuid.uuid4()
+    calls = []
+    monkeypatch.setattr(group_api.group_service, 'list_group_users', lambda gid, **kwargs: calls.append((gid, kwargs)) or ['u1'])
+
+    result = _call(group_api.list_group_users_internal, str(group_id), None, active_only=True)
+
+    assert result == {'users': ['u1']}
+    assert calls == [(group_id, {'active_only': True})]
+
+
 def test_update_group_passes_none_when_group_name_is_missing(monkeypatch):
     group_id = uuid.uuid4()
     calls = []
@@ -148,7 +171,7 @@ def test_group_crud_and_member_endpoints_delegate_to_service(monkeypatch):
     monkeypatch.setattr(group_api.group_service, 'get_group', lambda gid: calls.append(('get', gid)) or {'group_id': str(gid)})
     monkeypatch.setattr(group_api.group_service, 'update_group', lambda gid, **kwargs: calls.append(('update', gid, kwargs)))
     monkeypatch.setattr(group_api.group_service, 'delete_group', lambda gid: calls.append(('delete', gid)))
-    monkeypatch.setattr(group_api.group_service, 'list_group_users', lambda gid: calls.append(('list_users', gid)) or ['u1'])
+    monkeypatch.setattr(group_api.group_service, 'list_group_users', lambda gid, **kwargs: calls.append(('list_users', gid, kwargs)) or ['u1'])
     monkeypatch.setattr(
         group_api.group_service,
         'add_group_users',
@@ -173,7 +196,7 @@ def test_group_crud_and_member_endpoints_delegate_to_service(monkeypatch):
         object(),
     ) == {'ok': True}
     assert _call(group_api.delete_group, str(group_id), object()) == {'ok': True}
-    assert _call(group_api.list_group_users, str(group_id), object()) == {'users': ['u1']}
+    assert _call(group_api.list_group_users, str(group_id), object(), active_only=True) == {'users': ['u1']}
     assert _call(
         group_api.add_group_users,
         str(group_id),
@@ -197,7 +220,7 @@ def test_group_crud_and_member_endpoints_delegate_to_service(monkeypatch):
         ('get', group_id),
         ('update', group_id, {'group_name': 'renamed', 'remark': 'r', 'tenant_id': 'tenant-b'}),
         ('delete', group_id),
-        ('list_users', group_id),
+        ('list_users', group_id, {'active_only': True}),
         ('add', group_id, user_ids, 'owner', operator.id),
         ('remove', group_id, user_ids),
         ('roles', group_id, user_ids, 'member'),
