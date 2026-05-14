@@ -971,6 +971,9 @@ func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 			}).Error; err != nil {
 			return err
 		}
+		if err := remapWordGroupConflictsSlaveGroupIDs(tx, userID, masterGID, slaveGIDs, now); err != nil {
+			return err
+		}
 		return nil
 	})
 	if errors.Is(err, errWordGroupNotFound) {
@@ -1197,6 +1200,60 @@ func uniqueWordCandidates(term string, aliases []string) []string {
 		seen[a] = struct{}{}
 	}
 	return out
+}
+
+// remapWordGroupConflictsSlaveGroupIDs replaces every slave group id in conflict rows' group_ids JSON
+// with masterGID for the given user (active rows only). Preserves order and dedupes after replacement.
+func remapWordGroupConflictsSlaveGroupIDs(tx *gorm.DB, userID, masterGID string, slaveGIDs []string, now time.Time) error {
+	slaveSet := make(map[string]struct{}, len(slaveGIDs))
+	for _, id := range slaveGIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		slaveSet[id] = struct{}{}
+	}
+	if len(slaveSet) == 0 {
+		return nil
+	}
+	var conflictRows []orm.WordGroupConflict
+	if err := tx.Where("create_user_id = ? AND deleted_at IS NULL", userID).Find(&conflictRows).Error; err != nil {
+		return err
+	}
+	for i := range conflictRows {
+		cr := &conflictRows[i]
+		gids, err := parseJSONStringSliceField(cr.GroupIDs)
+		if err != nil {
+			return err
+		}
+		if len(gids) == 0 {
+			continue
+		}
+		changed := false
+		newGids := make([]string, len(gids))
+		copy(newGids, gids)
+		for j := range newGids {
+			if _, ok := slaveSet[strings.TrimSpace(newGids[j])]; ok {
+				newGids[j] = masterGID
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		newGids = dedupeGroupIDsPreserveOrder(newGids)
+		outJSON, err := json.Marshal(newGids)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&orm.WordGroupConflict{}).Where("id = ?", cr.ID).Updates(map[string]interface{}{
+			"group_ids":  string(outJSON),
+			"updated_at": now,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func dedupeGroupIDsPreserveOrder(raw []string) []string {
