@@ -247,8 +247,8 @@ class TestInjectModelConfig:
             with _globals_config_patch('dynamic_model_configs', None) as gcfg:
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',       'api_key': 'sk-chat'},
-                    'embed_main':   {'source': 'sf',     'model': 'bge-m3',       'api_key': 'sk-embed'},
-                    'reranker':     {'source': 'sf',     'model': 'bge-reranker', 'api_key': 'sk-embed'},
+                    'embed_main':   {'source': 'siliconflow', 'model': 'bge-m3',       'api_key': 'sk-embed'},
+                    'reranker':     {'source': 'siliconflow', 'model': 'bge-reranker', 'api_key': 'sk-embed'},
                 })
                 cfg = gcfg.get('dynamic_model_configs')
 

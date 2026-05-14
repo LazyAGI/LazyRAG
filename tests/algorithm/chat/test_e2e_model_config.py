@@ -134,8 +134,8 @@ class TestInjectToGlobals:
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',       'api_key': 'sk-a'},
                     'evo_llm': {'source': 'openai', 'model': 'gpt-4o-mini',  'api_key': 'sk-a'},
-                    'reranker':     {'source': 'sf',     'model': 'bge-reranker', 'api_key': 'sk-b'},
-                    'embed_main':   {'source': 'sf',     'model': 'bge-m3',       'api_key': 'sk-b'},
+                    'reranker':     {'source': 'siliconflow', 'model': 'bge-reranker', 'api_key': 'sk-b'},
+                    'embed_main':   {'source': 'siliconflow', 'model': 'bge-m3',       'api_key': 'sk-b'},
                 })
                 cfg = gcfg['dynamic_model_configs']
 

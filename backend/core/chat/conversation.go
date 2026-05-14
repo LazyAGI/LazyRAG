@@ -204,6 +204,14 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reqBody := buildChatRequestBody(convID, sessionID, query, upstreamHistories, raw, resourceContext, userID)
+	llmConfig, err := loadLLMConfig(r.Context(), db, userID)
+	if err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "load llm config failed", err), http.StatusInternalServerError)
+		return
+	}
+	if len(llmConfig) > 0 {
+		reqBody["llm_config"] = llmConfig
+	}
 	baseURL := chatServiceURL()
 	reqCtx := r.Context()
 	rdb := store.Redis()

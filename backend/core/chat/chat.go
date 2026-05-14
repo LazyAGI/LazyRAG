@@ -50,6 +50,7 @@ type LazyChatRequest struct {
 	UserPreference  string          `json:"user_preference,omitempty"`
 	UseMemory       bool            `json:"use_memory"`
 	UserID          string          `json:"user_id"`
+	LLMConfig       map[string]any  `json:"llm_config,omitempty"`
 }
 
 // LazyChatData text data text。
@@ -251,6 +252,9 @@ func buildLazyChatRequest(body map[string]any) *LazyChatRequest {
 	}
 	if userID, ok := body["user_id"].(string); ok {
 		req.UserID = strings.TrimSpace(userID)
+	}
+	if llmConfig, ok := body["llm_config"].(map[string]any); ok {
+		req.LLMConfig = llmConfig
 	}
 	return req
 }

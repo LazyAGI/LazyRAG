@@ -154,7 +154,7 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
 
     After this call, globals has the following structure:
 
-        globals['config']['dynamic_model_configs'] = ConfigsDict({
+        globals.config['dynamic_model_configs'] = ConfigsDict({
             'llm':          {'chat':  {'source': 'openai',      'model': 'gpt-4o',      ...}},
             'embed_main':   {'embed': {'source': 'siliconflow', 'model': 'bge-m3',       ...}},
             'reranker':     {'embed': {'source': 'siliconflow', 'model': 'bge-reranker', ...}},
@@ -162,10 +162,10 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
         # api_key is NOT stored in dynamic_model_configs.  It lives in the
         # per-source config key so that _GlobalConfig.__getitem__ can resolve it
         # dynamically via the stack lookup (stack = [config_id, role_name, group_id]):
-        globals['config']['openai_api_key'] = ConfigsDict({
+        globals.config['openai_api_key'] = ConfigsDict({
             'llm':          'sk-...',
         })
-        globals['config']['siliconflow_api_key'] = ConfigsDict({
+        globals.config['siliconflow_api_key'] = ConfigsDict({
             'embed_main': 'sk-...',
             'reranker':   'sk-...',
         })
@@ -213,13 +213,12 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
             f'All dynamic roles must be provided: {sorted(role_slot_map)}'
         )
 
-    # Build the new dynamic_model_configs ConfigsDict (source/model/url/skip_auth only).
-    # We read the existing value directly from the underlying globals['config'] dict
-    # (not via globals.config[...]) because the latter requires a non-empty stack and
-    # is intended for per-forward reads, not for the write path here.
-    cfg = lazyllm.globals['config'].get('dynamic_model_configs') or ConfigsDict()
-    if not isinstance(cfg, ConfigsDict):
-        cfg = ConfigsDict(cfg)
+    # Build the per-request dynamic_model_configs ConfigsDict (source/model/url/skip_auth only).
+    # Use globals.config[...] for writes so LazyLLM's supported-config registry is respected.
+    # We avoid reading existing ConfigsDict via globals.config[...] here because stack-based
+    # lookup is for per-forward reads; this request supplies the full dynamic role set.
+    cfg = ConfigsDict()
+    api_key_configs: Dict[str, Any] = {}
 
     for role, role_cfg in model_config.items():
         if role not in role_slot_map:
@@ -243,18 +242,13 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
         # lookup in _GlobalConfig.__getitem__, so each role gets its own key even
         # when multiple roles share the same source.
         #
-        # We write to globals['config'] directly (bypassing _GlobalConfig.__setitem__)
-        # because {source}_api_key may not yet be in _supported_configs at call time
-        # (it is added lazily when the supplier class is first registered).
         if (api_key := role_cfg.get('api_key')) and (source := role_cfg.get('source')):
             config_key = f'{source}_api_key'
-            existing = lazyllm.globals['config'].get(config_key)
-            if not isinstance(existing, ConfigsDict):
-                existing = ConfigsDict({'default': existing} if existing else {})
-            existing[role] = api_key
-            lazyllm.globals['config'][config_key] = existing
+            api_key_configs.setdefault(config_key, ConfigsDict())[role] = api_key
 
-    lazyllm.globals['config']['dynamic_model_configs'] = cfg
+    for config_key, api_key_cfg in api_key_configs.items():
+        lazyllm.globals.config[config_key] = api_key_cfg
+    lazyllm.globals.config['dynamic_model_configs'] = cfg
 
 
 @lru_cache(maxsize=1)
