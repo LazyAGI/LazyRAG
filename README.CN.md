@@ -129,7 +129,10 @@ make up
 
 ## 模型配置
 
-通过 `LAZYRAG_MODEL_CONFIG_PATH` 选择配置文件，支持三种内置模式：
+chat 服务默认使用动态配置，以便前端的用户级模型/API-key 选择可以随请求注入。
+仅在需要强制 chat 使用静态配置时设置 `LAZYRAG_CHAT_MODEL_CONFIG_PATH`。
+
+其它算法服务通过 `LAZYRAG_MODEL_CONFIG_PATH` 选择配置文件，支持三种内置模式：
 
 | 值 | 说明 |
 |----|------|

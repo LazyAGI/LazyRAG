@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"strings"
 
 	"gorm.io/gorm"
@@ -44,7 +46,9 @@ func loadLLMConfig(ctx context.Context, db *gorm.DB, userID string) (map[string]
 		return nil, err
 	}
 
-	return buildLLMConfig(rows), nil
+	config := buildLLMConfig(rows)
+	fmt.Printf("[Core] [LLM_CONFIG_LOADED] [user_id=%s] [%s]\n", strings.TrimSpace(userID), summarizeLLMConfigForLog(config))
+	return config, nil
 }
 
 func buildLLMConfig(rows []selectedRuntimeModel) map[string]any {
@@ -76,4 +80,46 @@ func buildLLMConfig(rows []selectedRuntimeModel) map[string]any {
 		return nil
 	}
 	return out
+}
+
+func summarizeLLMConfigForLog(config map[string]any) string {
+	if len(config) == 0 {
+		return "roles=[]"
+	}
+	roles := make([]string, 0, len(config))
+	for role := range config {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
+
+	parts := make([]string, 0, len(roles)+1)
+	parts = append(parts, "roles=["+strings.Join(roles, ",")+"]")
+	for _, role := range roles {
+		roleConfig, _ := config[role].(map[string]any)
+		if roleConfig == nil {
+			parts = append(parts, fmt.Sprintf("%s(type=%T)", role, config[role]))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf(
+			"%s(source=%s, model=%s, base_url=%s, api_key=%s)",
+			role,
+			stringValue(roleConfig["source"]),
+			stringValue(roleConfig["model"]),
+			stringValue(roleConfig["base_url"]),
+			apiKeyState(roleConfig["api_key"]),
+		))
+	}
+	return strings.Join(parts, " ")
+}
+
+func stringValue(value any) string {
+	s, _ := value.(string)
+	return s
+}
+
+func apiKeyState(value any) string {
+	if strings.TrimSpace(stringValue(value)) == "" {
+		return "empty"
+	}
+	return "set"
 }

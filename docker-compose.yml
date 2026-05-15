@@ -365,7 +365,8 @@ services:
       test: ['CMD-SHELL', 'curl -f http://localhost:8000/v1/health && curl -f http://lazyllm-parse-server:8000/health || exit 1']
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 120s
     depends_on:
       db:
         condition: service_healthy
@@ -494,7 +495,8 @@ services:
       test: ['CMD-SHELL', 'curl -f http://localhost:8000/health || exit 1']
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 90s
     depends_on:
       db:
         condition: service_healthy
@@ -533,7 +535,8 @@ services:
       test: ['CMD-SHELL', 'curl -f http://localhost:8001/health || exit 1']
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 90s
     depends_on:
       db:
         condition: service_healthy
@@ -637,7 +640,9 @@ services:
       LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
       LAZYRAG_SKILL_REVIEW_DEBUG: "false"
       LAZYRAG_SKIP_STARTUP_PIPELINE: "1"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
+      # Chat must use the dynamic runtime config for per-user model/API-key selection from core.
+      # Set LAZYRAG_CHAT_MODEL_CONFIG_PATH=/app/common/runtime_models.online.yaml only when forcing static online mode.
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_CHAT_MODEL_CONFIG_PATH:-/app/common/runtime_models.yaml}
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]

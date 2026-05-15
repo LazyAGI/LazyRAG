@@ -128,7 +128,12 @@ For environment setup and detailed examples, see [`docs/quick_start.md`](docs/qu
 
 ## Model Configuration
 
-Select a config file via `LAZYRAG_MODEL_CONFIG_PATH`. Three built-in modes:
+Chat uses the dynamic config by default so the frontend's per-user model/API-key
+selection can be injected per request. Set `LAZYRAG_CHAT_MODEL_CONFIG_PATH` only
+when forcing chat to a static config.
+
+Other algorithm services select a config file via `LAZYRAG_MODEL_CONFIG_PATH`.
+Three built-in modes:
 
 | Value | Description |
 |-------|-------------|
