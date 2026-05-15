@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from html import escape
 from typing import Any, Optional
 
@@ -8,6 +9,7 @@ _TOOL_PREVIEW_TAG = 'tp'
 _TOOL_RESULT_PREVIEW_TAG = 'trp'
 _TOOL_CALL_TAG = 'tool_call'
 _TOOL_RESULT_TAG = 'tool_result'
+_PENDING_TOOL_PREVIEW_VALUES: dict[str, str] = {}
 
 _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'kb_search': 'query',
@@ -17,9 +19,10 @@ _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'web_search': 'query',
     'url_fetch': 'url',
     'arxiv_search': 'query',
+    'memory': 'suggestions.title',
+    'vocab_manage': 'suggestions <-> synonym',
     'vision_extractor': 'url',
-    'memory': 'target',
-    'skill_manage': 'name',
+    'skill_manage': 'category/name',
     'get_skill': 'name',
     'read_reference': 'rel_path',
     'run_script': 'rel_path',
@@ -31,6 +34,14 @@ _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'delete_file': 'path',
     'move_file': 'src',
     'download_file': 'url',
+}
+
+_TOOL_ARGUMENT_LIST_COERCIONS: dict[str, dict[str, Any]] = {
+    'vocab_manage': {
+        'field': 'suggestions',
+        'item_fields': ('word', 'synonym', 'description', 'reason'),
+        'aliases': {'word': ('word', 'suggestions')},
+    },
 }
 
 _REPRESENTATIVE_TOOL_RESULTS: dict[str, str] = {
@@ -60,6 +71,7 @@ _TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
     'arxiv_search': 'Searching arXiv papers for {value}.',
     'vision_extractor': 'Extracting information from the image.',
     'memory': 'Saving {value} as useful long term memory now.',
+    'vocab_manage': 'Updating vocabulary entries for {value} now.',
     'skill_manage': 'Updating reusable skill notes related to {value} now.',
     'get_skill': 'Opening skill details for {value} before continuing now.',
     'read_reference': 'Reading skill reference material from {value} for review.',
@@ -75,28 +87,80 @@ _TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
 }
 _TOOL_CALL_FALLBACK_TEMPLATE = 'Preparing the requested tool action for {value}.'
 
+_ZH_TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
+    'kb_search': '正在知识库中检索与 {value} 相关的知识。',
+    'kb_get_parent_node': '正在加载 {value} 的相关上下文。',
+    'kb_get_window_nodes': '正在扩展 {value} 附近的相关片段。',
+    'kb_keyword_search': '正在目标文档中搜索关键词 {value}。',
+    'web_search': '正在联网搜索 {value}。',
+    'url_fetch': '正在读取网页 {value} 。',
+    'arxiv_search': '正在 arXiv 中搜索论文 {value}。',
+    'vision_extractor': '正在提取图像信息。',
+    'memory': '正在将 {value} 保存为长期记忆。',
+    'vocab_manage': '正在更新与 {value} 相关的词汇表。',
+    'skill_manage': '正在更新与 {value} 相关的技能。',
+    'get_skill': '正在打开 {value} 的技能详情。',
+    'read_reference': '正在读取 {value} 技能的参考资料。',
+    'run_script': '正在运行技能 {value} 的预定义脚本。',
+    'read_file': '正在读取文件 {value}。',
+    'list_dir': '正在列出文件夹 {value} 的内容。',
+    'search_in_files': '正在项目文件中搜索 {value} 的相关内容。',
+    'make_dir': '正在创建文件夹 {value}。',
+    'write_file': '正在向文件 {value} 中写入内容。',
+    'delete_file': '正在准备删除文件 {value}。',
+    'move_file': '正在准备移动文件 {value}。',
+    'download_file': '正在从 {value} 下载文件。',
+}
+_ZH_TOOL_CALL_FALLBACK_TEMPLATE = '正在准备执行与 {value} 相关的工具操作...'
+
 _TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
-    'kb_search': 'Knowledge base results are ready now.',
-    'kb_get_parent_node': 'Surrounding context was loaded successfully now.',
-    'kb_get_window_nodes': 'Nearby related segments were expanded successfully.',
-    'kb_keyword_search': 'Document keyword results were found successfully.',
-    'web_search': 'Web results are ready now.',
-    'url_fetch': 'Page content was loaded successfully.',
-    'arxiv_search': 'arXiv results are ready now.',
+    'kb_search': 'Knowledge base results for {value} are ready now.',
+    'kb_get_parent_node': 'Surrounding context for {value} was loaded successfully now.',
+    'kb_get_window_nodes': 'Nearby related segments around {value} were expanded successfully.',
+    'kb_keyword_search': 'Document results for keyword {value} were found successfully.',
+    'web_search': 'Web results for {value} are ready now.',
+    'url_fetch': 'Page content from {value} was loaded successfully.',
+    'arxiv_search': 'arXiv results for {value} are ready now.',
     'vision_extractor': 'Image information has been extracted.',
-    'memory': 'Long term memory was saved successfully.',
-    'skill_manage': 'Reusable skill notes were updated successfully.',
-    'get_skill': 'Skill details were loaded successfully now.',
-    'read_reference': 'Skill reference material was loaded successfully.',
-    'run_script': 'Skill helper script finished running successfully.',
-    'read_file': 'File content was loaded successfully now.',
-    'list_dir': 'Folder contents were retrieved successfully now.',
-    'search_in_files': 'Project file matches were found successfully.',
-    'make_dir': 'Folder is ready for the requested use.',
-    'write_file': 'Requested content was written successfully.',
-    'delete_file': 'Requested deletion completed successfully now.',
-    'move_file': 'Requested file move completed successfully now.',
-    'download_file': 'Requested file was downloaded successfully now.',
+    'memory': 'Long term memory for {value} was saved successfully.',
+    'vocab_manage': 'Vocabulary entries for {value} were updated successfully.',
+    'skill_manage': 'Reusable skill notes for {value} were updated successfully.',
+    'get_skill': 'Skill details for {value} were loaded successfully now.',
+    'read_reference': 'Skill reference material from {value} was loaded successfully.',
+    'run_script': 'Skill helper script at {value} finished running successfully.',
+    'read_file': 'File content from {value} was loaded successfully now.',
+    'list_dir': 'Folder contents from {value} were retrieved successfully now.',
+    'search_in_files': 'Project file matches for {value} were found successfully.',
+    'make_dir': 'Folder {value} is ready for the requested use.',
+    'write_file': 'Requested content was written into {value} successfully.',
+    'delete_file': 'Requested deletion for file {value} completed successfully now.',
+    'move_file': 'Requested file move from {value} completed successfully now.',
+    'download_file': 'Requested file from {value} was downloaded successfully now.',
+}
+
+_ZH_TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
+    'kb_search': '已查询到 {value} 的知识库结果。',
+    'kb_get_parent_node': '已成功加载 {value} 的相关上下文。',
+    'kb_get_window_nodes': '已成功扩展 {value} 附近的相关片段。',
+    'kb_keyword_search': '已找到关键词 {value} 的文档结果。',
+    'web_search': '已找到 {value} 的网页搜索结果。',
+    'url_fetch': '已成功加载 {value} 的网页内容。',
+    'arxiv_search': '已找到 {value} 的 arXiv 结果。',
+    'vision_extractor': '已成功提取图像信息。',
+    'memory': '已成功保存 {value} 的长期记忆。',
+    'vocab_manage': '已成功更新 {value} 的词汇表。',
+    'skill_manage': '已成功更新 {value} 的技能。',
+    'get_skill': '已成功加载 {value} 的技能详情。',
+    'read_reference': '已成功加载 {value} 技能的参考资料。',
+    'run_script': '技能 {value} 的预定义脚本已成功运行。',
+    'read_file': '已成功加载文件 {value} 的内容。',
+    'list_dir': '已成功获取文件夹 {value} 的内容。',
+    'search_in_files': '已找到项目文件中与 {value} 匹配的内容。',
+    'make_dir': '文件夹 {value} 已准备好。',
+    'write_file': '已成功向 {value} 写入内容。',
+    'delete_file': '已成功完成文件 {value} 的删除操作。',
+    'move_file': '已成功完成从 {value} 开始的文件移动操作。',
+    'download_file': '已成功下载来自 {value} 的文件。',
 }
 
 _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
@@ -109,6 +173,7 @@ _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
     'arxiv_search': 'arXiv results for {value} could not be retrieved.',
     'vision_extractor': 'Vision extraction for {value} could not be completed.',
     'memory': 'Long term memory for {value} could not be saved.',
+    'vocab_manage': 'Vocabulary entries for {value} could not be updated.',
     'skill_manage': 'Reusable skill notes for {value} could not be updated.',
     'get_skill': 'Skill details for {value} could not be loaded.',
     'read_reference': 'Skill reference material from {value} could not be read.',
@@ -123,6 +188,30 @@ _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
     'download_file': 'Requested file from {value} could not be downloaded.',
 }
 
+_ZH_TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
+    'kb_search': '未能找到 {value} 的知识库结果。',
+    'kb_get_parent_node': '未能加载 {value} 的相关上下文。',
+    'kb_get_window_nodes': '未能扩展 {value} 附近的相关片段。',
+    'kb_keyword_search': '未能找到关键词 {value} 的文档结果。',
+    'web_search': '未能获取 {value} 的网页搜索结果。',
+    'url_fetch': '未能加载网页 {value} 的内容。',
+    'arxiv_search': '未能获取 {value} 的 arXiv 结果。',
+    'memory': '未能保存 {value} 的长期记忆。',
+    'vocab_manage': '未能更新 {value} 的词汇表。',
+    'skill_manage': '未能更新 {value} 的技能。',
+    'get_skill': '未能加载 {value} 的技能详情。',
+    'read_reference': '未能读取 {value} 技能参考资料。',
+    'run_script': '技能 {value} 的预定义脚本未能运行完成。',
+    'read_file': '未能读取文件 {value} 的内容。',
+    'list_dir': '未能列出文件夹 {value} 的内容。',
+    'search_in_files': '未能完成项目文件中与 {value} 相关的搜索。',
+    'make_dir': '未能创建文件夹 {value}。',
+    'write_file': '未能向 {value} 写入内容。',
+    'delete_file': '未能完成文件 {value} 的删除操作。',
+    'move_file': '未能完成从 {value} 开始的文件移动操作。',
+    'download_file': '未能下载来自 {value} 的文件。',
+}
+
 _TOOL_RESULT_APPROVAL_TEMPLATES: dict[str, str] = {
     'delete_file': 'Please review the confirmation note "{value}" before deleting this file.',
     'move_file': 'Please review the confirmation note "{value}" before moving this file.',
@@ -130,9 +219,19 @@ _TOOL_RESULT_APPROVAL_TEMPLATES: dict[str, str] = {
     'download_file': 'Please review the confirmation note "{value}" before downloading this file.',
 }
 
+_ZH_TOOL_RESULT_APPROVAL_TEMPLATES: dict[str, str] = {
+    'delete_file': '删除这个文件前，请先确认提示“{value}”。',
+    'move_file': '移动这个文件前，请先确认提示“{value}”。',
+    'write_file': '写入这个文件前，请先确认提示“{value}”。',
+    'download_file': '下载这个文件前，请先确认提示“{value}”。',
+}
+
 _TOOL_RESULT_FALLBACK_TEMPLATE = 'Tool results for {value} were received successfully.'
 _TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE = 'The step for {value} could not be completed.'
 _TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE = 'Please review the confirmation note "{value}" before continuing.'
+_ZH_TOOL_RESULT_FALLBACK_TEMPLATE = '已成功收到工具结果，为 {value} 。'
+_ZH_TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE = '未能完成与 {value} 相关的步骤。'
+_ZH_TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE = '继续前，请先确认提示“{value}”。'
 
 _FALLBACK_REPRESENTATIVE_RESULT_KEYS = (
     'result',
@@ -186,29 +285,100 @@ _MAX_REPRESENTATIVE_RESULT_LENGTH = 200
 _MAX_TOOL_RESULT_PREVIEW_LENGTH = 50
 
 _STREAM_CHUNK_SIZE = 24
+_ZH_PREVIEW_RE = re.compile('[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]')
 
 
-def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
+def _parse_tool_arguments(arguments: Any) -> Any:
+    if not isinstance(arguments, str):
+        return arguments
+    text = arguments.strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    try:
+        from json_repair import loads as repair_json_loads  # type: ignore
+
+        repaired = repair_json_loads(text)
+        if isinstance(repaired, (dict, list)):
+            return repaired
+    except Exception:
+        pass
+    return arguments
+
+
+def _coerce_tool_arguments_for_execution(tool_name: str, arguments: Any) -> Any:
+    coercion = _TOOL_ARGUMENT_LIST_COERCIONS.get(tool_name)
+    if not isinstance(arguments, dict) or not isinstance(coercion, dict):
+        return arguments
+
+    list_field = str(coercion.get('field') or '')
+    current_value = arguments.get(list_field)
+    if not list_field or isinstance(current_value, list):
+        return arguments
+
+    item: dict[str, Any] = {}
+    aliases = coercion.get('aliases') or {}
+    for field in tuple(coercion.get('item_fields') or ()):
+        candidates = tuple(aliases.get(field) or (field,))
+        for candidate in candidates:
+            value = arguments.get(candidate)
+            if _is_meaningful_preview_value(value) and not isinstance(
+                value,
+                (list, tuple, set, dict),
+            ):
+                item[field] = value
+                break
+    if not item:
+        return arguments
+    return {list_field: [item]}
+
+
+def _normalize_tool_call(tool_call: dict[str, Any], *, coerce_arguments: bool = False) -> dict[str, Any]:
     function = tool_call.get('function') or {}
-    arguments = function.get('arguments', {})
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except json.JSONDecodeError:
-            pass
+    if function:
+        tool_name = function.get('name', '')
+        arguments = function.get('arguments', {})
+    else:
+        tool_name = tool_call.get('name', '')
+        arguments = tool_call.get('arguments', {})
+    arguments = _parse_tool_arguments(arguments)
+    if coerce_arguments:
+        arguments = _coerce_tool_arguments_for_execution(str(tool_name), arguments)
     return {
         'id': tool_call.get('id', ''),
-        'name': function.get('name', ''),
+        'name': tool_name,
         'arguments': arguments,
     }
 
 
+def _preview_language(value: Any) -> str:
+    text = '' if value is None else str(value)
+    return 'zh' if _ZH_PREVIEW_RE.search(text) else 'en'
+
+
+def _language_templates(
+    language: str,
+    en_templates: dict[str, str],
+    zh_templates: dict[str, str],
+) -> dict[str, str]:
+    return zh_templates if language == 'zh' else en_templates
+
+
+def _language_fallback(language: str, en_fallback: str, zh_fallback: str) -> str:
+    return zh_fallback if language == 'zh' else en_fallback
+
+
 def _representative_tool_argument(tool_name: str, arguments: Any) -> Any:
-    key = _REPRESENTATIVE_TOOL_ARGUMENTS.get(tool_name)
+    expression = _REPRESENTATIVE_TOOL_ARGUMENTS.get(tool_name)
     if not isinstance(arguments, dict):
         return arguments
-    if key and arguments.get(key) is not None:
-        return arguments.get(key)
+    if expression:
+        value = _representative_expression_value(arguments, expression)
+        if _is_meaningful_preview_value(value):
+            return value
     return _representative_mapping_value(arguments, _FALLBACK_REPRESENTATIVE_ARGUMENT_KEYS)
 
 
@@ -247,6 +417,65 @@ def _representative_mapping_value(mapping: dict[str, Any], preferred_keys: tuple
         if _is_meaningful_preview_value(value):
             return value
     return ''
+
+
+def _resolve_representative_path(value: Any, path: str) -> Any:
+    if not path:
+        return value
+    current = value
+    parts = path.split('.')
+    for index, part in enumerate(parts):
+        if isinstance(current, list):
+            remaining_path = '.'.join(parts[index:])
+            return [
+                resolved for item in current
+                if _is_meaningful_preview_value(
+                    resolved := _resolve_representative_path(item, remaining_path)
+                )
+            ]
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _representative_expression_value(arguments: dict[str, Any], expression: str) -> Any:
+    def expression_part_value(part: str) -> Any:
+        value = _resolve_representative_path(arguments, part)
+        if _is_meaningful_preview_value(value) or '.' not in part:
+            return value
+        head, leaf = part.split('.', 1)
+        return (
+            _resolve_representative_path(arguments, leaf)
+            or _resolve_representative_path(arguments, head)
+        )
+
+    for separator in (' <-> ', '/'):
+        if separator not in expression:
+            continue
+        parts = [part.strip() for part in expression.split(separator)]
+        values = [expression_part_value(part) for part in parts]
+        if any(isinstance(value, list) for value in values):
+            max_count = max((len(value) for value in values if isinstance(value, list)), default=0)
+            previews = []
+            for index in range(min(max_count, 2)):
+                item_parts = [
+                    _tool_preview_value(value[index] if isinstance(value, list) and index < len(value) else value)
+                    for value in values
+                ]
+                item_parts = [part for part in item_parts if part]
+                if item_parts:
+                    previews.append(separator.join(item_parts))
+            if previews:
+                text = ', '.join(previews)
+                if max_count > 2:
+                    return f'{text} and {max_count - 2} more'
+                return text
+        item_parts = [_tool_preview_value(value) for value in values]
+        item_parts = [part for part in item_parts if part]
+        if item_parts:
+            return separator.join(item_parts)
+    return _resolve_representative_path(arguments, expression)
 
 
 def _friendly_preview_text(value: Any) -> str:
@@ -312,6 +541,13 @@ def _tool_preview_value(value: Any) -> str:
     return text.replace('\n', ' ').strip()
 
 
+def _tool_call_preview_value(tool_name: str, arguments: Any, language: str = 'en') -> str:
+    preview = _tool_preview_value(_representative_tool_argument(tool_name, arguments))
+    if tool_name == 'memory' and not preview:
+        return '待保存内容' if language == 'zh' else 'memory update'
+    return preview
+
+
 def _truncate_tool_result_preview(value: Any) -> str:
     text = _tool_preview_value(value)
     if len(text) <= _MAX_TOOL_RESULT_PREVIEW_LENGTH:
@@ -329,6 +565,10 @@ def _tool_result_status(result: Any) -> str:
             return 'needs_approval'
         if status in ('error', 'missing', 'failed', 'fail'):
             return 'failed'
+    elif isinstance(result, str):
+        text = result.strip().lower()
+        if any(marker in text for marker in ('error', 'failed', 'parameters error')):
+            return 'failed'
     return 'ok'
 
 
@@ -341,6 +581,10 @@ def _tool_result_failure_detail(result: Any) -> str:
     return _truncate_tool_result_preview(result)
 
 
+def _ensure_trailing_newline(text: str) -> str:
+    return text if text.endswith('\n') else f'{text}\n'
+
+
 def _render_preview_template(
     tool_name: str,
     value: str,
@@ -349,81 +593,103 @@ def _render_preview_template(
 ) -> str:
     template = template_map.get(tool_name) or fallback_template
     if '{value}' not in template:
-        return template
+        return _ensure_trailing_newline(template)
     preview_value = value or 'the current item'
-    return template.format(value=f'**{preview_value}**')
+    return _ensure_trailing_newline(template.format(value=f'**{preview_value}**'))
 
 
-def _tool_call_preview(tool_name: str, arguments: Any) -> str:
-    representative_argument = _representative_tool_argument(tool_name, arguments)
-    preview = _tool_preview_value(representative_argument)
+def _tool_call_preview(tool_name: str, arguments: Any, language: str = 'en') -> str:
+    preview = _tool_call_preview_value(tool_name, arguments, language)
     return _render_preview_template(
         tool_name,
         preview,
-        _TOOL_CALL_PREVIEW_TEMPLATES,
-        _TOOL_CALL_FALLBACK_TEMPLATE,
+        _language_templates(language, _TOOL_CALL_PREVIEW_TEMPLATES, _ZH_TOOL_CALL_PREVIEW_TEMPLATES),
+        _language_fallback(language, _TOOL_CALL_FALLBACK_TEMPLATE, _ZH_TOOL_CALL_FALLBACK_TEMPLATE),
     )
 
 
-def _tool_result_preview(tool_name: str, result: Any) -> str:
+def _tool_result_preview(tool_name: str, result: Any, value: str = '', language: str = 'en') -> str:
     status = _tool_result_status(result)
     if status == 'needs_approval':
         return _render_preview_template(
             tool_name,
-            _tool_result_failure_detail(result),
-            _TOOL_RESULT_APPROVAL_TEMPLATES,
-            _TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE,
+            value or _tool_result_failure_detail(result),
+            _language_templates(language, _TOOL_RESULT_APPROVAL_TEMPLATES, _ZH_TOOL_RESULT_APPROVAL_TEMPLATES),
+            _language_fallback(
+                language,
+                _TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE,
+                _ZH_TOOL_RESULT_APPROVAL_FALLBACK_TEMPLATE,
+            ),
         )
     if status == 'failed':
         return _render_preview_template(
             tool_name,
-            _tool_result_failure_detail(result),
-            _TOOL_RESULT_FAILURE_TEMPLATES,
-            _TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE,
+            value or _tool_result_failure_detail(result),
+            _language_templates(language, _TOOL_RESULT_FAILURE_TEMPLATES, _ZH_TOOL_RESULT_FAILURE_TEMPLATES),
+            _language_fallback(
+                language,
+                _TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE,
+                _ZH_TOOL_RESULT_FAILURE_FALLBACK_TEMPLATE,
+            ),
         )
     if isinstance(result, dict) and result.get('total') == 0 and tool_name.startswith('kb_'):
-        if tool_name == 'kb_search':
-            return 'Knowledge base search finished with no matching results'
-        if tool_name == 'kb_get_parent_node':
-            return 'No parent context was found for the requested node'
-        if tool_name == 'kb_get_window_nodes':
-            return 'No nearby knowledge base segments were found'
-        if tool_name == 'kb_keyword_search':
-            return 'Keyword search finished with no matching document segments'
+        if language == 'zh':
+            if tool_name == 'kb_search':
+                return _ensure_trailing_newline('知识库搜索已完成，但没有找到匹配结果')
+            if tool_name == 'kb_get_parent_node':
+                return _ensure_trailing_newline('未找到请求节点的上级上下文')
+            if tool_name == 'kb_get_window_nodes':
+                return _ensure_trailing_newline('未找到附近的知识库片段')
+            if tool_name == 'kb_keyword_search':
+                return _ensure_trailing_newline('关键词搜索已完成，但没有找到匹配的文档片段')
+        else:
+            if tool_name == 'kb_search':
+                return _ensure_trailing_newline('Knowledge base search finished with no matching results')
+            if tool_name == 'kb_get_parent_node':
+                return _ensure_trailing_newline('No parent context was found for the requested node')
+            if tool_name == 'kb_get_window_nodes':
+                return _ensure_trailing_newline('No nearby knowledge base segments were found')
+            if tool_name == 'kb_keyword_search':
+                return _ensure_trailing_newline('Keyword search finished with no matching document segments')
     return _render_preview_template(
         tool_name,
-        _truncate_tool_result_preview(_representative_tool_result(tool_name, result)),
-        _TOOL_RESULT_PREVIEW_TEMPLATES,
-        _TOOL_RESULT_FALLBACK_TEMPLATE,
+        value or _truncate_tool_result_preview(_representative_tool_result(tool_name, result)),
+        _language_templates(language, _TOOL_RESULT_PREVIEW_TEMPLATES, _ZH_TOOL_RESULT_PREVIEW_TEMPLATES),
+        _language_fallback(language, _TOOL_RESULT_FALLBACK_TEMPLATE, _ZH_TOOL_RESULT_FALLBACK_TEMPLATE),
     )
 
 
-def _tool_call_frame_text(tool_call: dict[str, Any]) -> str:
+def _tool_call_frame_text(tool_call: dict[str, Any], language: str = 'en') -> str:
+    tool_call = _normalize_tool_call(tool_call, coerce_arguments=False)
     tool_call_id = str(tool_call.get('id') or '')
     tool_name = str(tool_call.get('name', ''))
     arguments = tool_call.get('arguments', {})
+    preview_value = _tool_call_preview_value(tool_name, arguments, language)
+    if tool_call_id and preview_value:
+        _PENDING_TOOL_PREVIEW_VALUES[tool_call_id] = preview_value
     payload = {
         'id': tool_call_id,
         'name': tool_name,
         'arguments': arguments if isinstance(arguments, dict) else {},
     }
-    preview = _tool_call_preview(tool_name, arguments)
+    preview = _tool_call_preview(tool_name, arguments, language)
     return (
         f'<{_TOOL_PREVIEW_TAG} id="{escape(tool_call_id, quote=True)}">{preview}</{_TOOL_PREVIEW_TAG}>'
         f'<{_TOOL_CALL_TAG}>{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}</{_TOOL_CALL_TAG}>'
     )
 
 
-def _tool_result_frame_text(tool_result: dict[str, Any]) -> str:
+def _tool_result_frame_text(tool_result: dict[str, Any], language: str = 'en') -> str:
     tool_call_id = str(tool_result.get('id') or '')
     tool_name = str(tool_result.get('tool_name', ''))
     result = tool_result.get('result')
+    preview_value = _PENDING_TOOL_PREVIEW_VALUES.pop(tool_call_id, '') if tool_call_id else ''
     payload = {
         'id': tool_call_id,
         'name': tool_name,
         'result': result,
     }
-    preview = _tool_result_preview(tool_name, result)
+    preview = _tool_result_preview(tool_name, result, preview_value, language)
     return (
         f'<{_TOOL_RESULT_PREVIEW_TAG} id="{escape(tool_call_id, quote=True)}">{preview}</{_TOOL_RESULT_PREVIEW_TAG}>'
         f'<{_TOOL_RESULT_TAG}>{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}</{_TOOL_RESULT_TAG}>'
@@ -452,14 +718,15 @@ def _format_tool_stream_frame(tool_event: dict[str, Any]) -> Optional[dict[str, 
     tool_results = tool_event.get('tool_results') or []
     if not tool_calls and not tool_results:
         return None
+    language = _preview_language(tool_event.get('preview_text') or tool_event.get('query') or '')
 
     frame_parts: list[str] = []
     for tool_call in tool_calls:
         if isinstance(tool_call, dict):
-            frame_parts.append(_tool_call_frame_text(tool_call))
+            frame_parts.append(_tool_call_frame_text(tool_call, language))
     for tool_result in tool_results:
         if isinstance(tool_result, dict):
-            frame_parts.append(_tool_result_frame_text(tool_result))
+            frame_parts.append(_tool_result_frame_text(tool_result, language))
     return _stream_frame(text=''.join(frame_parts))
 
 

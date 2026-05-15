@@ -19,7 +19,7 @@ _LIFECYCLE: dict[str, dict[str, str]] = {
         'fail_transient': 'failed_transient',
         'fail_permanent': 'failed_permanent',
     },
-    'stopping': {'ack': 'paused', 'cancel': 'cancelled'},
+    'stopping': {'ack': 'paused', 'continue': 'running', 'cancel': 'cancelled'},
     'paused': {'continue': 'running', 'cancel': 'cancelled'},
     'failed_transient': {'continue': 'running', 'cancel': 'cancelled'},
     'failed_permanent': {},
@@ -243,10 +243,13 @@ def transition(store: FsStateStore, task_id: str, action: str, **fields: Any) ->
             rec['terminal_at'] = now
         if action == 'stop':
             rec['request_stop'] = 1
+            rec['request_cancel'] = 0
         elif action == 'cancel':
-            rec['request_cancel'] = 1
-        elif action == 'ack':
             rec['request_stop'] = 0
+            rec['request_cancel'] = 1
+        elif action in {'ack', 'continue'}:
+            rec['request_stop'] = 0
+            rec['request_cancel'] = 0
         for k, v in fields.items():
             if k not in _PATCH_FIELDS:
                 raise ValueError(f'unsupported field {k}')

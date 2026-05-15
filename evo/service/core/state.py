@@ -59,13 +59,22 @@ def load_thread(base_dir: Path, thread_id: str, task_rows: list[dict] | None = N
         return ThreadRecord(thread_id, THREAD_RUNNING, task.get('flow'), task.get('id'), None, None, time.time())
     if meta.get('state') == THREAD_RUNNING:
         return derive_from_legacy(base_dir, thread_id, rows)
+    checkpoint = meta.get('checkpoint') if isinstance(meta.get('checkpoint'), dict) else _pending_checkpoint(thread_dir)
+    if _is_terminal_checkpoint(checkpoint):
+        return ThreadRecord(
+            id=thread_id,
+            state=THREAD_SUCCEEDED,
+            current_flow=checkpoint.get('completed_flow') or meta.get('current_flow'),
+            checkpoint=checkpoint,
+            updated_at=float(meta.get('updated_at') or 0.0),
+        )
     if meta.get('state'):
         return ThreadRecord(
             id=thread_id,
             state=str(meta.get('state') or THREAD_IDLE),
             current_flow=meta.get('current_flow'),
             active_task_id=meta.get('active_task_id'),
-            checkpoint=meta.get('checkpoint') if isinstance(meta.get('checkpoint'), dict) else None,
+            checkpoint=checkpoint,
             error=meta.get('error') if isinstance(meta.get('error'), dict) else None,
             updated_at=float(meta.get('updated_at') or 0.0),
         )
@@ -91,6 +100,8 @@ def save_thread(base_dir: Path, record: ThreadRecord) -> None:
     atomic_write_json(path, meta)
     if record.state == THREAD_CANCELLED:
         atomic_write_json(path.parent / 'cancelled.json', {'status': 'cancelled', 'updated_at': meta['updated_at']})
+    else:
+        (path.parent / 'cancelled.json').unlink(missing_ok=True)
     if record.checkpoint:
         checkpoint = {'status': 'pending', **record.checkpoint}
         meta['checkpoint'] = checkpoint
@@ -181,7 +192,11 @@ def _pending_checkpoint(thread_dir: Path) -> dict | None:
 
 
 def _is_terminal_checkpoint(checkpoint: dict | None) -> bool:
-    return bool(checkpoint and checkpoint.get('stage') == 'abtest' and not checkpoint.get('next_op'))
+    return bool(checkpoint and (
+        checkpoint.get('terminal')
+        or (checkpoint.get('completed_flow') == 'abtest' and not checkpoint.get('next_op'))
+        or (checkpoint.get('stage') == 'abtest' and not checkpoint.get('next_op'))
+    ))
 
 
 def _public_flow_status(record: ThreadRecord) -> str:
