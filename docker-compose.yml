@@ -339,7 +339,8 @@ services:
     build:
       network: host
       context: .
-      dockerfile: backend/core/doc/Dockerfile
+      dockerfile: algorithm/Dockerfile
+      target: doc
       args:
         <<: *mirror-args
     extra_hosts:
@@ -471,9 +472,9 @@ services:
   lazyllm-parse-server:
     build:
       network: host
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+      context: .
+      dockerfile: algorithm/Dockerfile
+      target: algorithm
       args:
         <<: *mirror-args
     extra_hosts:
@@ -506,9 +507,9 @@ services:
   lazyllm-parse-worker:
     build:
       network: host
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+      context: .
+      dockerfile: algorithm/Dockerfile
+      target: algorithm
       args:
         <<: *mirror-args
     extra_hosts:
@@ -547,9 +548,9 @@ services:
   lazyllm-algo:
     build:
       network: host
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+      context: .
+      dockerfile: algorithm/Dockerfile
+      target: algorithm
       args:
         <<: *mirror-args
     expose:
@@ -604,9 +605,9 @@ services:
   chat:
     build:
       network: host
-      context: ./algorithm
-      dockerfile: Dockerfile
-      target: default
+      context: .
+      dockerfile: algorithm/Dockerfile
+      target: algorithm
       args:
         <<: *mirror-args
     expose:
@@ -654,7 +655,8 @@ services:
     build:
       network: host
       context: .
-      dockerfile: evo/Dockerfile
+      dockerfile: algorithm/Dockerfile
+      target: evo
       args:
         <<: *mirror-args
         OPENCODE_VERSION: 1.14.28

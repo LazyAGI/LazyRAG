@@ -10,6 +10,7 @@ ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
 ARG LAZYLLM_GITHUB_REF=main
 ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
+ARG GITHUB_PROXY=https://gh-proxy.com/
 
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
@@ -52,18 +53,23 @@ RUN set -eu; \
       > /usr/local/bin/lazyllm; \
     chmod 0755 /usr/local/bin/lazyllm
 
-# Stage: default - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-FROM base AS default
+
+# Stage: base_lazyrag - base.
+FROM base AS base_lazyrag
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
 LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
 LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 RUN cd /opt/lazyllm && lazyllm install rag
-COPY . .
+
+
+# Stage: algorithm - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
+FROM base_lazyrag AS algorithm
+COPY algorithm/requirements.txt /app/algorithm/requirements.txt
+RUN pip install --no-cache-dir -r algorithm/requirements.txt
+COPY algorithm/ /app/algorithm/
 RUN chmod +x /app/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/lazyllm:/app
 ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
@@ -83,6 +89,70 @@ ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
+
+# Stage: doc - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
+FROM algorithm AS doc
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm:/app
+COPY backend/core/doc /app/backend/core/doc
+CMD ["python", "backend/core/doc/doc_server.py"]
+
+
+# Stage: evo - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
+FROM algorithm AS evo
+ARG APT_MIRROR=http://mirrors.aliyun.com/debian
+ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
+ARG GITHUB_PROXY=https://gh-proxy.com/
+ARG OPENCODE_VERSION=1.14.28
+ARG TARGETARCH
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    LAZYRAG_EVO_CODE_BINARY=/usr/local/bin/opencode \
+    LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
+    LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
+    LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
+    LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
+    PYTHONPATH=/opt/lazyllm:/app
+  
+RUN set -eu; \
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+  [ -f "$f" ] || continue; \
+  sed -i \
+    -e "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${APT_MIRROR}|g" \
+    "$f"; \
+done; \
+apt-get update && apt-get install -y --no-install-recommends \
+    ripgrep cmake ninja-build \
+&& rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+  case "${TARGETARCH:-amd64}" in \
+    amd64) ARCH=x64 ;; \
+    arm64) ARCH=arm64 ;; \
+    *) echo "unsupported arch ${TARGETARCH}" && exit 1 ;; \
+  esac; \
+  curl -fL "${GITHUB_PROXY}https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
+  tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
+  chmod 0755 /usr/local/bin/opencode; \
+  rm /tmp/opencode.tar.gz; \
+  opencode --version
+
+COPY evo/requirements.txt /tmp/evo-requirements.txt
+
+RUN pip install --no-cache-dir -r /tmp/evo-requirements.txt python-dotenv
+
+COPY evo/ /app/evo/
+
+RUN ln -s /app/algorithm/chat /app/chat && \
+    ln -s /app/algorithm/common /app/common && \
+    ln -s /app/algorithm/vocab /app/vocab && \
+    ln -s /app/algorithm/processor /app/processor
+RUN chmod +x /app/evo/service/entrypoint.sh
+
+EXPOSE 8047
+ENTRYPOINT ["/app/evo/service/entrypoint.sh"]
+
 # Stage: mineru - base + requirements.txt + configurable mineru extra + code.
 FROM base AS mineru
 ARG LAZYRAG_GIT_SHA=unknown
@@ -98,8 +168,8 @@ ARG MINERU_TORCH_VERSION=2.11.0
 ARG MINERU_TORCHVISION_VERSION=0.26.0
 ARG MINERU_NUMPY_VERSION=1.26.4
 ARG MINERU_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY algorithm/requirements.txt /app/algorithm/requirements.txt
+RUN pip install --no-cache-dir -r algorithm/requirements.txt
 RUN if [ "$MINERU_PREINSTALL_CPU_TORCH" = "1" ]; then \
         pip install --no-cache-dir \
         --index-url "$MINERU_PYTORCH_INDEX_URL" \
@@ -110,6 +180,6 @@ RUN pip install --no-cache-dir "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERS
 RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
-COPY . .
+COPY algorithm/ /app/algorithm/
 ENV PYTHONPATH=/opt/lazyllm:/app
 CMD ["python", "parsing/mineru.py"]
