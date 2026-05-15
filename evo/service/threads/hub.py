@@ -195,7 +195,7 @@ class ThreadHub:
         status = self.flow_status(thread_id)
         msg = _auto_message(status)
         if not msg:
-            return {'status': 'idle', 'thread_id': thread_id}
+            return {'status': status.get('status', 'idle'), 'thread_id': thread_id}
         checkpoint = status.get('pending_checkpoint') or {}
         checkpoint_id = checkpoint.get('checkpoint_id') or checkpoint.get('completed_task_id')
         with self._lock:
@@ -232,7 +232,8 @@ class ThreadHub:
 
     def _auto_loop(self, thread_id: str, interval_s: float, stop: threading.Event) -> None:
         while not stop.is_set():
-            self.auto_step(thread_id)
+            if self.auto_step(thread_id).get('status') in {'ended', 'cancelled'}:
+                break
             stop.wait(interval_s)
 
     def _run_ops(self, thread_id: str, ops: list[dict]) -> dict:
@@ -241,7 +242,12 @@ class ThreadHub:
             self._save_record(thread_id, thread_state.THREAD_RUNNING)
         results = self.ops.execute([Op(op=o['op'], args=o.get('args', {})) for o in ops], thread_id=thread_id)
         task_id = next((r.task_id for r in results if r.task_id), None)
-        if task_id:
+        statuses = {r.status for r in results}
+        if statuses & {'stopped'}:
+            self._save_record(thread_id, thread_state.THREAD_PAUSED, active_task_id=task_id)
+        elif statuses & {'cancelled'}:
+            self._save_record(thread_id, thread_state.THREAD_CANCELLED)
+        elif task_id and statuses & {'submitted', 'continued'}:
             self._save_record(thread_id, thread_state.THREAD_RUNNING, active_task_id=task_id)
         if any(r.error for r in results):
             self._save_record(thread_id, thread_state.THREAD_FAILED, error=next(r.error for r in results if r.error))
@@ -289,7 +295,8 @@ class ThreadHub:
 def _auto_message(status: dict) -> str | None:
     if status.get('status') in {'running', 'cancelled', 'ended'}:
         return None
-    return '继续执行' if status.get('pending_checkpoint') else None
+    checkpoint = status.get('pending_checkpoint') or {}
+    return '继续执行' if checkpoint and not checkpoint.get('terminal') else None
 
 
 def _append_message(path, role: str, content: str) -> None:

@@ -62,6 +62,8 @@ def build_corpus_index(
             data = json.loads(cache.read_text(encoding='utf-8'))
             idx = CorpusIndex.from_dict(data)
             if idx.chunks and _same_doc_set(idx.docs, docs):
+                if _repair_chunk_filenames(idx.chunks, docs) and cache:
+                    atomic_write_json(cache, idx.to_dict())
                 _log.info('loaded corpus index cache chunks=%s docs=%s', len(idx.chunks), len(idx.docs))
                 return idx
         except Exception as exc:
@@ -98,7 +100,7 @@ def _doc_chunks(ds: KBClient, kb_id: str, algo_id: str, item: dict) -> list[dict
     doc_id = doc.get('doc_id', '')
     if not doc_id:
         return []
-    filename = doc.get('filename') or doc.get('name') or doc_id
+    filename = _doc_filename(doc) or doc_id
     rows = []
     for chunk in ds.get_all_chunks(kb_id, doc_id, algo_id):
         content = str(chunk.get('content') or '').strip()
@@ -110,7 +112,7 @@ def _doc_chunks(ds: KBClient, kb_id: str, algo_id: str, item: dict) -> list[dict
                 'chunk_id': chunk.get('chunk_id') or chunk.get('uid', ''),
                 'uid': chunk.get('uid') or chunk.get('chunk_id') or '',
                 'doc_id': chunk.get('doc_id') or doc_id,
-                'filename': chunk.get('filename') or filename,
+                'filename': _clean_name(chunk.get('filename')) or filename,
             }
         )
     return rows
@@ -129,3 +131,32 @@ def _same_doc_set(a: list[dict], b: list[dict]) -> bool:
 
 def _doc_ids(rows: list[dict]) -> set[str]:
     return {str((r.get('doc') or r).get('doc_id') or '') for r in rows if (r.get('doc') or r).get('doc_id')}
+
+
+def _repair_chunk_filenames(chunks: list[dict], docs: list[dict]) -> bool:
+    names = {
+        str(doc.get('doc_id') or ''): name
+        for row in docs
+        for doc in [row.get('doc') or row]
+        for name in [_doc_filename(doc)]
+        if doc.get('doc_id') and name
+    }
+    changed = False
+    for chunk in chunks:
+        if _clean_name(chunk.get('filename')):
+            continue
+        name = names.get(str(chunk.get('doc_id') or ''))
+        if name:
+            chunk['filename'] = name
+            changed = True
+    return changed
+
+
+def _doc_filename(doc: dict) -> str:
+    meta = doc.get('metadata') or {}
+    return _clean_name(doc.get('filename') or doc.get('name') or meta.get('display_name') or meta.get('file_name'))
+
+
+def _clean_name(value) -> str:
+    text = str(value or '').strip()
+    return '' if text.lower() in {'unknown', 'unknown.pdf', 'none', 'null'} else text

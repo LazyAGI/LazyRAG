@@ -147,9 +147,23 @@ class JobManager:
 
     def cont(self, tid: str) -> dict:
         row = store.must_get(self._store, tid)
-        store.transition(self._store, tid, 'continue', error_code=None, error_kind=None)
-        self._spawn(tid, row['flow'])
+        fields: dict[str, Any] = {'error_code': None, 'error_kind': None}
+        if row.get('flow') in {'dataset_gen', 'eval'}:
+            fields['payload'] = self._continue_payload(row)
+        store.transition(self._store, tid, 'continue', **fields)
+        if row.get('status') != 'stopping':
+            self._spawn(tid, row['flow'])
         return store.must_get(self._store, tid)
+
+    def _continue_payload(self, row: dict) -> dict:
+        payload = dict(row.get('payload') or {})
+        payload['resume'] = True
+        if row.get('flow') == 'dataset_gen' and not payload.get('num_cases') and row.get('thread_id'):
+            ws = ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id'], create=False)
+            inputs = thread_state.read_json(ws.thread_meta_path) or {}
+            if num_cases := (inputs.get('inputs') or {}).get('num_cases'):
+                payload['num_cases'] = num_cases
+        return payload
 
     def accept(self, tid: str, auto_next: str | bool = 'none') -> dict:
         row = store.transition(self._store, tid, 'accept')
@@ -254,7 +268,11 @@ class JobManager:
 
     def _on_stop(self, tid: str, at: str | None) -> None:
         if (row := store.get(self._store, tid)) and row.get('status') == 'stopping':
-            store.transition(self._store, tid, 'ack', **({'current_step': at} if row.get('flow') == 'run' else {}))
+            row = store.transition(
+                self._store, tid, 'ack', **({'current_step': at} if row.get('flow') == 'run' else {}))
+            if row.get('thread_id'):
+                EventLog(ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id']).events_path).append_event(
+                    f"{row['flow']}.pause", task_id=tid, payload={'at': at})
 
     def _on_failure(self, tid: str, exc: Exception) -> None:
         code = getattr(exc, 'code', type(exc).__name__)
@@ -301,13 +319,16 @@ class JobManager:
             row = store.transition(self._store, tid, final_action, error_code=None, error_kind=None)
             if row.get('thread_id'):
                 checkpoint = _checkpoint_after_success(self._cfg.storage.base_dir, row)
-                state = thread_state.THREAD_WAITING if checkpoint else thread_state.THREAD_IDLE
+                terminal = bool(checkpoint and checkpoint.get('terminal'))
+                state = thread_state.THREAD_SUCCEEDED if terminal else (
+                    thread_state.THREAD_WAITING if checkpoint else thread_state.THREAD_IDLE
+                )
                 thread_state.save_thread(self._cfg.storage.base_dir, thread_state.ThreadRecord(
                     id=row['thread_id'], state=state, current_flow=row.get('flow'), checkpoint=checkpoint))
                 if checkpoint:
                     EventLog(ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id']).events_path).append_event(
                         'checkpoint.wait', task_id=tid, payload=checkpoint)
-                else:
+                if terminal or not checkpoint:
                     ws = ThreadWorkspace(self._cfg.storage.base_dir, row['thread_id'])
                     meta = thread_state.read_json(ws.thread_meta_path) or {}
                     if meta.get('mode') == 'auto':

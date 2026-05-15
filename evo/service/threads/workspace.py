@@ -14,12 +14,13 @@ ARTIFACT_KINDS = ('run_ids', 'apply_ids', 'eval_ids', 'abtest_ids', 'chat_ids', 
 _MAX_INLINE_CHARS = EVO_EVENT_MAX_INLINE_CHARS
 EVENT_TAGS = frozenset({
     'dataset_gen.start', 'dataset_gen.progress', 'dataset_gen.finish', 'dataset_gen.failed', 'dataset_gen.cancel',
-    'eval.start', 'eval.progress', 'eval.finish', 'eval.failed', 'eval.cancel',
+    'dataset_gen.pause',
+    'eval.start', 'eval.progress', 'eval.finish', 'eval.failed', 'eval.cancel', 'eval.pause',
     'run.start', 'run.progress', 'run.finish', 'run.failed', 'run.cancel', 'run.pause', 'run.resume',
     'run.indexer.result', 'run.conductor.result', 'run.researcher.result', 'run.tool.used',
     'apply.start', 'apply.finish', 'apply.failed', 'apply.cancel', 'apply.pause', 'apply.resume',
     'apply.round.start', 'apply.round.finish', 'apply.round.diff',
-    'abtest.start', 'abtest.progress', 'abtest.finish', 'abtest.failed',
+    'abtest.start', 'abtest.progress', 'abtest.finish', 'abtest.failed', 'abtest.pause',
     'message.user', 'message.assistant', 'intent.thought', 'intent.reply',
     'checkpoint.wait', 'checkpoint.continue', 'checkpoint.rewind', 'checkpoint.answer', 'checkpoint.cancel',
 })
@@ -268,8 +269,9 @@ def _shape_runtime_payload(kind: str, actor: str, payload: dict) -> dict:
                 shaped.setdefault(key, out[key])
         if 'final_answer' in out:
             shaped.setdefault('final_answer', out['final_answer'])
-            if summary:
-                shaped.setdefault('result_summary', summary)
+        summary = _complete_researcher_summary(summary, agent, out)
+        if summary:
+            shaped.setdefault('result_summary', summary)
     elif kind == 'conductor.stage_advanced':
         out = output if isinstance(output, dict) else {}
         for key in ('iteration', 'actions_run'):
@@ -303,6 +305,25 @@ def _parse_json_object(value: Any) -> dict | None:
         if isinstance(parsed, dict):
             return parsed
     return None
+
+
+def _complete_researcher_summary(summary: dict | None, agent: str, out: dict) -> dict | None:
+    hid = (summary or {}).get('hypothesis_id') or (agent.split(':', 1)[1] if agent.startswith('researcher:') else '')
+    if summary and summary.get('verdict'):
+        if hid and not summary.get('hypothesis_id'):
+            summary = {**summary, 'hypothesis_id': hid}
+        return summary
+    if not hid or not out.get('final_answer'):
+        return summary
+    return {
+        'hypothesis_id': hid,
+        'verdict': 'inconclusive',
+        'confidence': 0.0,
+        'refined_claim': '研究员未返回标准JSON结论，已按未收敛处理。',
+        'evidence_handles': [],
+        'suggested_action': '重新执行分析或调整研究员输出约束。',
+        'reasoning': 'final_answer 缺少可解析的 verdict 结构。',
+    }
 
 
 def _redact(value: Any) -> Any:

@@ -2,11 +2,12 @@ from __future__ import annotations
 import logging
 import random
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Callable
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_generate_list, prompt_generate_table
 from evo.datagen.validate import normalize_qa_json
+from evo.harness.plan import StopRequested
 
 _log = logging.getLogger('evo.datagen.structured')
 _TABLE_RE = re.compile(
@@ -19,7 +20,9 @@ _LIST_RE = re.compile(
 PromptBuilder = Callable[[list[str]], str]
 
 
-def generate_table_questions(chunks: list[dict], *, count: int, max_workers: int, llm_factory=None) -> list[dict]:
+def generate_table_questions(
+    chunks: list[dict], *, count: int, max_workers: int, llm_factory=None, cancel=None
+) -> list[dict]:
     return _generate_structured(
         _candidate_chunks(chunks, _looks_like_table),
         count=count,
@@ -27,11 +30,14 @@ def generate_table_questions(chunks: list[dict], *, count: int, max_workers: int
         prompt_builder=prompt_generate_table,
         max_workers=max_workers,
         llm_factory=llm_factory,
+        cancel=cancel,
         label='table',
     )
 
 
-def generate_list_questions(chunks: list[dict], *, count: int, max_workers: int, llm_factory=None) -> list[dict]:
+def generate_list_questions(
+    chunks: list[dict], *, count: int, max_workers: int, llm_factory=None, cancel=None
+) -> list[dict]:
     return _generate_structured(
         _candidate_chunks(chunks, _looks_like_list),
         count=count,
@@ -39,6 +45,7 @@ def generate_list_questions(chunks: list[dict], *, count: int, max_workers: int,
         prompt_builder=prompt_generate_list,
         max_workers=max_workers,
         llm_factory=llm_factory,
+        cancel=cancel,
         label='list',
     )
 
@@ -66,6 +73,7 @@ def _generate_structured(
     max_workers: int,
     llm_factory=None,
     label: str,
+    cancel=None,
 ) -> list[dict]:
     if count <= 0:
         return []
@@ -74,6 +82,8 @@ def _generate_structured(
         return []
 
     def one(chunk: dict) -> dict | None:
+        if cancel and cancel():
+            return None
         try:
             qa = chat(prompt_builder([chunk['content']]), llm_factory=llm_factory)
         except Exception as exc:
@@ -95,19 +105,41 @@ def _generate_structured(
 
     results: list[dict] = []
     executor = ThreadPoolExecutor(max_workers=max(1, max_workers))
-    futures = [executor.submit(one, c) for c in chunks[: max(count * 3, count)]]
+    pending = {}
+    iterator = iter(chunks[: max(count * 3, count)])
+
+    def submit_next() -> bool:
+        if cancel and cancel():
+            return False
+        try:
+            chunk = next(iterator)
+        except StopIteration:
+            return False
+        pending[executor.submit(one, chunk)] = chunk
+        return True
+
     try:
-        for f in as_completed(futures):
+        while len(pending) < max(1, max_workers) and submit_next():
+            pass
+        while pending:
+            if cancel and cancel():
+                raise StopRequested(at_step='case')
             if len(results) >= count:
                 break
+            done, _ = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+            if not done:
+                continue
+            f = done.pop()
+            pending.pop(f, None)
             item = f.result()
             if item:
                 results.append(item)
             if len(results) >= count:
                 break
+            submit_next()
     finally:
-        for pending in futures:
-            pending.cancel()
+        for future in pending:
+            future.cancel()
         executor.shutdown(wait=False, cancel_futures=True)
     _log.info('%s generation done: %s/%s', label, len(results), count)
     return results

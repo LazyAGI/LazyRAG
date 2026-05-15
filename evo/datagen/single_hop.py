@@ -2,17 +2,18 @@ from __future__ import annotations
 import logging
 import random
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_generate_single_hop
 from evo.datagen.validate import normalize_qa_json
 from evo.datagen.kb_client import KBClient
+from evo.harness.plan import StopRequested
 
 _log = logging.getLogger('evo.datagen.single_hop')
 
 
 def generate_single_hop(
-    ds: KBClient, kb_id: str, algo_id: str, *, count: int, max_workers: int, llm_factory=None
+    ds: KBClient, kb_id: str, algo_id: str, *, count: int, max_workers: int, llm_factory=None, cancel=None
 ) -> list[dict]:
     if count <= 0:
         return []
@@ -25,7 +26,7 @@ def generate_single_hop(
 
     def run_single() -> dict | None:
         nonlocal no_doc_flag
-        if no_doc_flag:
+        if no_doc_flag or (cancel and cancel()):
             return None
         try:
             doc_list = ds.get_doc_list(kb_id, algo_id)
@@ -64,10 +65,19 @@ def generate_single_hop(
 
     executor = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        while len(result_list) < count and retry_count < max_retries and (not no_doc_flag):
+        while (
+            len(result_list) < count and retry_count < max_retries and (not no_doc_flag) and not (cancel and cancel())
+        ):
             tasks = min(max_workers, count - len(result_list))
-            futures = [executor.submit(run_single) for _ in range(tasks)]
-            for f in as_completed(futures):
+            futures = {executor.submit(run_single) for _ in range(tasks)}
+            while futures:
+                if cancel and cancel():
+                    raise StopRequested(at_step='case')
+                done, _ = wait(futures, timeout=0.2, return_when=FIRST_COMPLETED)
+                if not done:
+                    continue
+                f = done.pop()
+                futures.remove(f)
                 res = f.result()
                 with lock:
                     if no_doc_flag:
@@ -95,7 +105,7 @@ def generate_single_hop(
 
 
 def generate_single_hop_from_chunks(
-    chunks: list[dict], *, count: int, max_workers: int, llm_factory=None
+    chunks: list[dict], *, count: int, max_workers: int, llm_factory=None, cancel=None
 ) -> list[dict]:
     if count <= 0:
         return []
@@ -105,6 +115,8 @@ def generate_single_hop_from_chunks(
     lock = threading.Lock()
 
     def run_one(chunk: dict) -> dict | None:
+        if cancel and cancel():
+            return None
         prompt = prompt_generate_single_hop(
             chunk['content'], chunk.get('filename', 'unknown'), chunk.get('doc_id', ''), chunk.get('chunk_id', '')
         )
@@ -124,9 +136,30 @@ def generate_single_hop_from_chunks(
         return {'qa': qa_json}
 
     executor = ThreadPoolExecutor(max_workers=max(1, max_workers))
-    futures = [executor.submit(run_one, c) for c in rows[: max(count * 3, count)]]
+    pending = {}
+    iterator = iter(rows[: max(count * 3, count)])
+
+    def submit_next() -> bool:
+        if cancel and cancel():
+            return False
+        try:
+            chunk = next(iterator)
+        except StopIteration:
+            return False
+        pending[executor.submit(run_one, chunk)] = chunk
+        return True
+
     try:
-        for f in as_completed(futures):
+        while len(pending) < max(1, max_workers) and submit_next():
+            pass
+        while pending:
+            if cancel and cancel():
+                raise StopRequested(at_step='case')
+            done, _ = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+            if not done:
+                continue
+            f = done.pop()
+            pending.pop(f, None)
             item = f.result()
             if not item:
                 continue
@@ -135,9 +168,10 @@ def generate_single_hop_from_chunks(
                     result_list.append(item)
             if len(result_list) >= count:
                 break
+            submit_next()
     finally:
-        for pending in futures:
-            pending.cancel()
+        for future in pending:
+            future.cancel()
         executor.shutdown(wait=False, cancel_futures=True)
     _log.info('single-hop from chunks done: %s/%s', len(result_list), count)
     return result_list
