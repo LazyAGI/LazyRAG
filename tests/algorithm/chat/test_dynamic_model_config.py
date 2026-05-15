@@ -95,6 +95,27 @@ class TestAutoModelDynamic:
         assert shared.name == 'llm'
         assert shared._api_key == 'dynamic'
 
+    def test_dynamic_embedding_module_is_cloudpickle_safe(self, tmp_path):
+        '''Document server deployment cloudpickles dynamic embedding modules.'''
+        import cloudpickle
+        import threading
+        from lazyllm import AutoModel
+        from lazyllm.module.llms.onlinemodule.embedding import OnlineEmbeddingModule
+
+        config_path = write_yaml(tmp_path, """
+            embed_main:
+              source: dynamic
+              dynamic_auth: true
+              type: embed
+        """)
+
+        module = AutoModel(model='embed_main', config=str(config_path))
+        restored = cloudpickle.loads(cloudpickle.dumps(module))
+
+        assert isinstance(restored, OnlineEmbeddingModule)
+        assert isinstance(restored._lock, type(threading.Lock()))
+        assert restored._suppliers == {}
+
     def test_shared_dynamic_chat_uses_injected_supplier(self, monkeypatch, tmp_path):
         '''A shared dynamic llm should still route to the per-request supplier/key/model.'''
         import json

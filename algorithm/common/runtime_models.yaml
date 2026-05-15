@@ -1,6 +1,6 @@
 # Runtime model roles for LazyRAG (online/cloud deployment).
-# All roles use source=dynamic: model config is injected per-request via globals.config.
-# No API keys or URLs here — they are provided by the frontend at runtime.
+# Chat/rerank roles use source=dynamic: model config is injected per-request via globals.config.
+# Embedding roles stay static so lazyllm-algo can initialize vector-store schema at startup.
 
 llm:
   source: dynamic
@@ -18,15 +18,14 @@ reranker:
   type: rerank
 
 embed_main:
-  source: dynamic
-  dynamic_auth: true
-  type: embed
+  - source: qwen
+    name: text-embedding-v3
 
-# Cross-modal (image) embed; remove this block to disable the image retrieval branch.
+# Cross-modal (image) embed; used by image nodes and image-only retrieval branch.
 embed_image:
-  source: dynamic
-  dynamic_auth: true
-  type: cross_modal_embed
+  - source: qwen
+    type: cross_modal_embed
+    name: qwen2.5-vl-embedding
 
 vlm:
   source: dynamic
