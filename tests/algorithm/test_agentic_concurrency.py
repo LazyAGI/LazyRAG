@@ -286,7 +286,7 @@ def test_request_does_not_override_runtime_agent_defaults(fake_pipeline, monkeyp
 
 def test_stream_rewrites_citations_like_naive(fake_pipeline, monkeypatch):
     class _FakeQueue:
-        _default_values = [['事实 [['], ['1]]']]
+        _default_values = [['事实 [['], ['1.1]]']]
         _named_values = {'think': []}
 
         def __init__(self, name=None):
@@ -307,7 +307,10 @@ def test_stream_rewrites_citations_like_naive(fake_pipeline, monkeypatch):
             return cls(name)
 
     source = {
-        'index': 1,
+        'index': '1.1',
+        'display_index': 1,
+        'document_index': 1,
+        'chunk_index': 1,
         'segment_number': 21,
         'document_id': 'doc-1',
         'page': -1,
@@ -321,8 +324,8 @@ def test_stream_rewrites_citations_like_naive(fake_pipeline, monkeypatch):
 
     def _fake_agentic_forward(*, query, history, stream_event_callback=None):
         config = lazyllm.globals.get('agentic_config')
-        config['_citation_sources'] = {1: source}
-        return {'text': '事实 [[1]]', 'sources': []}
+        config['_citation_sources'] = {'1.1': source}
+        return {'text': '事实 [[1.1]]', 'sources': []}
 
     monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
     monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
@@ -338,14 +341,14 @@ def test_stream_rewrites_citations_like_naive(fake_pipeline, monkeypatch):
 
     assert frames == [
         {'think': None, 'text': '事实 ', 'sources': []},
-        {'think': None, 'text': '[1](#source "Doc.md")', 'sources': []},
+        {'think': None, 'text': '[1](#source-1.1 "Doc.md")', 'sources': []},
         {'think': None, 'text': '', 'sources': [source]},
     ]
 
 
 def test_stream_keeps_sources_when_final_result_already_contains_links(fake_pipeline, monkeypatch):
     class _FakeQueue:
-        _default_values = [['事实 [['], ['1]]']]
+        _default_values = [['事实 ['], ['1](#source-1.1 "Doc.md")']]
         _named_values = {'think': []}
 
         def __init__(self, name=None):
@@ -366,7 +369,10 @@ def test_stream_keeps_sources_when_final_result_already_contains_links(fake_pipe
             return cls(name)
 
     source = {
-        'index': 1,
+        'index': '1.1',
+        'display_index': 1,
+        'document_index': 1,
+        'chunk_index': 1,
         'segment_number': 21,
         'document_id': 'doc-1',
         'page': -1,
@@ -380,8 +386,8 @@ def test_stream_keeps_sources_when_final_result_already_contains_links(fake_pipe
 
     def _fake_agentic_forward(*, query, history, stream_event_callback=None):
         config = lazyllm.globals.get('agentic_config')
-        config['_citation_sources'] = {1: source}
-        return {'text': '事实 [1](#source "Doc.md")', 'sources': []}
+        config['_citation_sources'] = {'1.1': source}
+        return {'text': '事实 [1](#source-1.1 "Doc.md")', 'sources': []}
 
     monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
     monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
@@ -397,14 +403,17 @@ def test_stream_keeps_sources_when_final_result_already_contains_links(fake_pipe
 
     assert frames == [
         {'think': None, 'text': '事实 ', 'sources': []},
-        {'think': None, 'text': '[1](#source "Doc.md")', 'sources': []},
+        {'think': None, 'text': '[1](#source-1.1 "Doc.md")', 'sources': []},
         {'think': None, 'text': '', 'sources': [source]},
     ]
 
 
 def test_format_non_stream_result_collects_existing_source_links(fake_pipeline):
     source = {
-        'index': 2,
+        'index': '2.1',
+        'display_index': 2,
+        'document_index': 2,
+        'chunk_index': 1,
         'segment_number': 15,
         'document_id': 'doc-2',
         'page': -1,
@@ -417,12 +426,12 @@ def test_format_non_stream_result_collects_existing_source_links(fake_pipeline):
     }
 
     output = agentic._format_non_stream_result(
-        {'text': '答案 [2](#source "Doc.md")'},
-        {'_citation_sources': {2: source}},
+        {'text': '答案 [2](#source-2.1 "Doc.md")'},
+        {'_citation_sources': {'2.1': source}},
     )
 
     assert output == {
-        'text': '答案 [2](#source "Doc.md")',
+        'text': '答案 [2](#source-2.1 "Doc.md")',
         'think': '',
         'sources': [source],
     }
@@ -749,7 +758,7 @@ def test_normalize_history_restores_citations_from_tool_result():
             '这里是总结。'
             '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
             '<tool_result>{"id":"toolcall-1-1","name":"kb_search","result":{"status":"success","items":['
-            '{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
+            '{"citation_index":"1.1","ref":"[[1.1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
             ']}}</tool_result>'
         ),
     }]
@@ -774,17 +783,20 @@ def test_normalize_history_restores_citations_from_tool_result():
             'role': 'tool',
             'tool_call_id': 'toolcall-1-1',
             'name': 'kb_search',
-            'content': '{"status":"success","items":[{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}]}',
+            'content': '{"status":"success","items":[{"citation_index":"1.1","ref":"[[1.1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}]}',
         },
     ]
     assert config['_citation_sources'] == {
-        1: {
+        '1.1': {
             'file_id': '',
             'file_name': 'DeepSeek_V4.pdf',
             'document_id': 'doc-1',
             'segement_id': 'seg-1',
             'dataset_id': 'kb-1',
-            'index': 1,
+            'index': '1.1',
+            'display_index': 1,
+            'document_index': 1,
+            'chunk_index': 1,
             'content': 'HCA body',
             'group_name': 'block',
             'segment_number': 21,
@@ -792,8 +804,9 @@ def test_normalize_history_restores_citations_from_tool_result():
             'bbox': [],
         },
     }
-    assert config['_citation_key_map'] == {'uid:seg-1': 1}
-    assert config['_citation_next_index'] == 2
+    assert config['_citation_key_map'] == {'uid:seg-1': '1.1'}
+    assert config['_citation_next_doc_index'] == 2
+    assert config['_citation_next_chunk_index_map'] == {'doc:kb-1:doc-1': 2}
 
 
 def test_normalize_history_skips_citation_restore_for_non_kb_tool_result():
@@ -881,7 +894,7 @@ def test_normalize_history_keeps_reasoning_aligned_with_assistant_segments():
 
 def test_stream_uses_citations_restored_from_history(fake_pipeline, monkeypatch):
     class _FakeQueue:
-        _default_values = [['延续上一轮知识。[['], ['1]]']]
+        _default_values = [['延续上一轮知识。[['], ['1.1]]']]
         _named_values = {'think': []}
 
         def __init__(self, name=None):
@@ -907,13 +920,13 @@ def test_stream_uses_citations_restored_from_history(fake_pipeline, monkeypatch)
             '上一轮总结。'
             '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"HCA"}}</tool_call>'
             '<tool_result>{"id":"toolcall-1-1","name":"kb_search","result":{"status":"success","items":['
-            '{"citation_index":1,"ref":"[[1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
+            '{"citation_index":"1.1","ref":"[[1.1]]","file_name":"DeepSeek_V4.pdf","docid":"doc-1","uid":"seg-1","text":"HCA body","group":"block","number":21,"kb_id":"kb-1"}'
             ']}}</tool_result>'
         ),
     }]
 
     def _fake_agentic_forward(*, query, history, stream_event_callback=None):
-        return {'text': '延续上一轮知识。[1](#source "DeepSeek_V4.pdf")', 'sources': []}
+        return {'text': '延续上一轮知识。[1](#source-1.1 "DeepSeek_V4.pdf")', 'sources': []}
 
     monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _FakeQueue)
     monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
@@ -929,7 +942,7 @@ def test_stream_uses_citations_restored_from_history(fake_pipeline, monkeypatch)
 
     assert frames == [
         {'think': None, 'text': '延续上一轮知识。', 'sources': []},
-        {'think': None, 'text': '[1](#source "DeepSeek_V4.pdf")', 'sources': []},
+        {'think': None, 'text': '[1](#source-1.1 "DeepSeek_V4.pdf")', 'sources': []},
         {
             'think': None,
             'text': '',
@@ -939,7 +952,10 @@ def test_stream_uses_citations_restored_from_history(fake_pipeline, monkeypatch)
                 'document_id': 'doc-1',
                 'segement_id': 'seg-1',
                 'dataset_id': 'kb-1',
-                'index': 1,
+                'index': '1.1',
+                'display_index': 1,
+                'document_index': 1,
+                'chunk_index': 1,
                 'content': 'HCA body',
                 'group_name': 'block',
                 'segment_number': 21,

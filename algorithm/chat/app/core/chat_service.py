@@ -105,6 +105,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        memory: Optional[str],
                        user_preference: Optional[str],
                        use_memory: Optional[bool],
+                       environment_context: Optional[Dict[str, Any]] = None,
                        user_id: Optional[str] = None) -> Dict[str, Any]:
     hist = [
         {
@@ -126,6 +127,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         'memory': memory,
         'user_preference': user_preference,
         'use_memory': use_memory,
+        'environment_context': environment_context if isinstance(environment_context, dict) else {},
         'user_id': user_id or '',
     }
 
@@ -174,6 +176,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       available_skills: Optional[List[str]], memory: Optional[str],
                       user_preference: Optional[str], use_memory: Optional[bool],
                       is_stream: bool, trace: bool = False,
+                      environment_context: Optional[Dict[str, Any]] = None,
                       user_id: Optional[str] = None,
                       model_config: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
@@ -189,10 +192,23 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
     other_files, image_files = validate_and_resolve_files(files)
     query_params = build_query_params(
-        query, history, filters, other_files, databases,
-        debug or False, image_files, priority, dataset, session_id,
-        available_tools, available_skills, memory, user_preference,
-        use_memory, user_id,
+        query=query,
+        history=history,
+        filters=filters,
+        other_files=other_files,
+        databases=databases,
+        debug=debug or False,
+        image_files=image_files,
+        priority=priority,
+        dataset=dataset,
+        session_id=session_id,
+        available_tools=available_tools,
+        available_skills=available_skills,
+        memory=memory,
+        user_preference=user_preference,
+        use_memory=use_memory,
+        environment_context=environment_context,
+        user_id=user_id,
     )
 
     def _init_session():

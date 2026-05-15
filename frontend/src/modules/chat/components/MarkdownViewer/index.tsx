@@ -12,6 +12,16 @@ import { useEffect, useState } from "react";
 import { customSchema } from "./config";
 import rehypeRaw from "rehype-raw";
 
+const SOURCE_PREFIXES = ["#source-", "#user-content-source-"];
+
+function getSourceIndex(href: any) {
+  if (typeof href !== "string") {
+    return "";
+  }
+  const prefix = SOURCE_PREFIXES.find((item) => href.startsWith(item));
+  return prefix ? href.slice(prefix.length) : "";
+}
+
 const ImageComponent = (props: any) => {
   const [imageLoadError, setImageLoadError] = useState(false);
   if (imageLoadError) {
@@ -55,7 +65,8 @@ const MarkdownViewer = (props: any) => {
         components={{
           a(props: any) {
             const href = props.href;
-            if (href === "#source") {
+            const sourceIndex = getSourceIndex(href);
+            if (sourceIndex) {
               if (IS_STREAMING) {
                 return (
                   <span
@@ -75,7 +86,7 @@ const MarkdownViewer = (props: any) => {
                         <MarkdownViewer>
                           {
                             markSources.find(
-                              (source) => source.index == props.children,
+                              (source) => String(source.index) === sourceIndex,
                             )?.content
                           }
                         </MarkdownViewer>

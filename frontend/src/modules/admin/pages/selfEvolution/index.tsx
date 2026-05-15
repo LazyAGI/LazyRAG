@@ -3015,6 +3015,39 @@ export default function SelfEvolutionPage() {
     () => buildCoreDownloadUrl(getResultDownloadPath(workflowResults.abtests.data)),
     [workflowResults.abtests.data],
   );
+  const fetchDiffDownloadText = useCallback(
+    async (resultData: unknown, signal?: AbortSignal) => {
+      const directDiffText = getResultStringField(resultData, ["diff", "patch", "content", "text"]);
+      if (directDiffText) {
+        return directDiffText;
+      }
+
+      const diffFiles = getDiffArtifactFiles(resultData);
+      if (diffFiles.length === 0) {
+        return "";
+      }
+
+      const contents = await Promise.all(
+        diffFiles.map(async (file) => {
+          const response = await axiosInstance.post(
+            `${AGENT_API_BASE}/files:content`,
+            { path: file.diffPath },
+            { signal },
+          );
+          const responseData = response.data;
+          const content =
+            typeof responseData === "string"
+              ? responseData
+              : getResultStringField(responseData, ["content", "diff", "patch", "text"]) ||
+                stringifyResultPayload(responseData);
+          return normalizeFetchedDiffArtifact(file, content);
+        }),
+      );
+
+      return contents.filter(Boolean).join("\n\n");
+    },
+    [],
+  );
 
   useEffect(() => {
     if (directFetchedDiffText) {
@@ -3035,25 +3068,8 @@ export default function SelfEvolutionPage() {
       error: undefined,
     }));
 
-    Promise.all(
-      diffArtifactFiles.map(async (file) => {
-        const response = await axiosInstance.post(
-          `${AGENT_API_BASE}/files:content`,
-          { path: file.diffPath },
-          {
-            signal: controller.signal,
-          },
-        );
-        const responseData = response.data;
-        const content =
-          typeof responseData === "string"
-            ? responseData
-            : getResultStringField(responseData, ["content", "diff", "patch", "text"]) ||
-              stringifyResultPayload(responseData);
-        return normalizeFetchedDiffArtifact(file, content);
-      }),
-    )
-      .then((contents) => {
+    fetchDiffDownloadText(workflowResults.diffs.data, controller.signal)
+      .then((content) => {
         if (controller.signal.aborted) {
           return;
         }
@@ -3061,7 +3077,7 @@ export default function SelfEvolutionPage() {
         setDiffArtifactContent({
           loading: false,
           key: diffArtifactKey,
-          content: contents.filter(Boolean).join("\n\n"),
+          content,
         });
       })
       .catch((error) => {
@@ -3080,7 +3096,7 @@ export default function SelfEvolutionPage() {
     return () => {
       controller.abort();
     };
-  }, [diffArtifactFiles, diffArtifactKey, directFetchedDiffText]);
+  }, [diffArtifactFiles, diffArtifactKey, directFetchedDiffText, fetchDiffDownloadText, workflowResults.diffs.data]);
 
   const historySessionEntries = useMemo<HistorySessionEntry[]>(() => {
     const sessionEntries = chatSessions
@@ -3180,9 +3196,20 @@ export default function SelfEvolutionPage() {
 
       const currentData = workflowResults[kind].data;
       const nextData = currentData ?? (await fetchWorkflowResult(kind));
-      const downloadUrl = kind === "diffs"
-        ? fallbackUrl
-        : buildCoreDownloadUrl(getResultDownloadPath(nextData)) || fallbackUrl;
+      let downloadUrl = buildCoreDownloadUrl(getResultDownloadPath(nextData)) || fallbackUrl;
+      let temporaryDownloadUrl = "";
+
+      if (kind === "diffs" && !downloadUrl) {
+        const diffText = await fetchDiffDownloadText(nextData);
+        if (diffText && typeof window !== "undefined") {
+          temporaryDownloadUrl = URL.createObjectURL(
+            new Blob([diffText], {
+              type: "text/x-diff;charset=utf-8",
+            }),
+          );
+          downloadUrl = temporaryDownloadUrl;
+        }
+      }
 
       if (!downloadUrl) {
         message.warning(`${workflowResultLabels[kind]}暂无可下载文件。`, 1.5);
@@ -3190,8 +3217,14 @@ export default function SelfEvolutionPage() {
       }
 
       triggerBrowserDownload(downloadUrl, getDownloadFileName(downloadUrl, fallbackFileName));
+
+      if (temporaryDownloadUrl) {
+        window.setTimeout(() => {
+          URL.revokeObjectURL(temporaryDownloadUrl);
+        }, 0);
+      }
     },
-    [fetchWorkflowResult, workflowResults],
+    [fetchDiffDownloadText, fetchWorkflowResult, workflowResults],
   );
   const handleWorkflowResultCollapseChange = useCallback(
     (kind: WorkflowResultKind) => (activeKeys: string | string[]) => {
@@ -5745,7 +5778,7 @@ export default function SelfEvolutionPage() {
                                 <span className="self-evolution-dataset-collapse-label">
                                   <span>
                                     {pxReportCategoryMetrics.length === 0
-                                      ? "查看评测图表（暂无有效数据）"
+                                      ? "查看评测图表"
                                       : isSinglePxCategory
                                         ? "查看评测图表（单分类饼图）"
                                         : "查看评测图表（多分类折线图）"}

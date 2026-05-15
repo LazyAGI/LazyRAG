@@ -28,7 +28,8 @@ function isPopupWindow() {
   return Boolean(window.opener && !window.opener.closed);
 }
 
-const CALLBACK_REDIRECT_DELAY_MS = 800;
+const CALLBACK_REDIRECT_DELAY_MS = 100;
+const POPUP_CLOSE_FALLBACK_DELAY_MS = 150;
 
 export default function FeishuDataSourceCallback() {
   const { t } = useTranslation();
@@ -40,6 +41,23 @@ export default function FeishuDataSourceCallback() {
   });
 
   useEffect(() => {
+    const returnToDataSourcePage = (returnUrl: string) => {
+      window.setTimeout(() => {
+        if (isPopupWindow()) {
+          window.close();
+
+          window.setTimeout(() => {
+            if (!window.closed) {
+              window.location.replace(returnUrl);
+            }
+          }, POPUP_CLOSE_FALLBACK_DELAY_MS);
+          return;
+        }
+
+        window.location.replace(returnUrl);
+      }, CALLBACK_REDIRECT_DELAY_MS);
+    };
+
     const finalize = (payload: FeishuDataSourceOAuthMessage) => {
       saveFeishuDataSourceOAuthResult(payload);
 
@@ -106,11 +124,7 @@ export default function FeishuDataSourceCallback() {
           connection,
         });
 
-        if (!isPopupWindow()) {
-          window.setTimeout(() => {
-            window.location.replace(returnUrl);
-          }, CALLBACK_REDIRECT_DELAY_MS);
-        }
+        returnToDataSourcePage(returnUrl);
       } catch (error: any) {
         const message = error?.message || t("admin.dataSourceOauthFailedRetry");
         setViewState({
