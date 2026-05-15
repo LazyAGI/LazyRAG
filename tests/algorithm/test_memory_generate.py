@@ -1,16 +1,59 @@
 import importlib.util
 import sys
 from pathlib import Path
+from types import ModuleType
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from chat.pipelines.memory_generate import (
-    BadRequestError,
-    _build_generate_prompt,
-    _format_inputs_block,
-    generate_memory_content,
-)
+
+def _load_memory_generate_module():
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / 'algorithm/chat/pipelines/memory_generate.py'
+    )
+    spec = importlib.util.spec_from_file_location('test_memory_generate_module', module_path)
+    assert spec is not None
+    assert spec.loader is not None
+
+    fake_lazyllm = ModuleType('lazyllm')
+    fake_lazyllm.AutoModel = lambda *args, **kwargs: object()
+
+    fake_skill_manager = ModuleType('chat.tools.skill_manager')
+    fake_skill_manager._validate_skill_content = lambda *_args, **_kwargs: None
+
+    fake_load_config = ModuleType('chat.utils.load_config')
+    fake_load_config.get_config_path = lambda: ''
+
+    original_modules = {
+        'lazyllm': sys.modules.get('lazyllm'),
+        'chat.tools.skill_manager': sys.modules.get('chat.tools.skill_manager'),
+        'chat.utils.load_config': sys.modules.get('chat.utils.load_config'),
+    }
+
+    module = importlib.util.module_from_spec(spec)
+    try:
+        sys.modules['lazyllm'] = fake_lazyllm
+        sys.modules['chat.tools.skill_manager'] = fake_skill_manager
+        sys.modules['chat.utils.load_config'] = fake_load_config
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in original_modules.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
+
+
+memory_generate = _load_memory_generate_module()
+BadRequestError = memory_generate.BadRequestError
+_apply_memory_edit_operations = memory_generate._apply_memory_edit_operations
+_apply_user_preference_edit_operations = memory_generate._apply_user_preference_edit_operations
+_build_generate_prompt = memory_generate._build_generate_prompt
+_format_inputs_block = memory_generate._format_inputs_block
+generate_memory_content = memory_generate.generate_memory_content
 
 
 def _load_memory_generate_routes_module():
@@ -22,11 +65,28 @@ def _load_memory_generate_routes_module():
     assert spec is not None
     assert spec.loader is not None
 
+    fake_pipelines_pkg = ModuleType('chat.pipelines')
+    fake_pipelines_pkg.__path__ = []
+
+    original_modules = {
+        'chat.pipelines': sys.modules.get('chat.pipelines'),
+        'chat.pipelines.memory_generate': sys.modules.get('chat.pipelines.memory_generate'),
+    }
+
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    module.GeneratePayload.model_rebuild()
-    return module
+    try:
+        sys.modules['chat.pipelines'] = fake_pipelines_pkg
+        sys.modules['chat.pipelines.memory_generate'] = memory_generate
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        module.GeneratePayload.model_rebuild()
+        return module
+    finally:
+        for name, original in original_modules.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 def test_format_inputs_block_includes_only_suggestions_when_user_instruct_missing():
@@ -88,6 +148,85 @@ def test_generate_prompts_include_stale_content_governance():
         assert 'proactively compress, consolidate, or delete stale information' in prompt
         assert 'Current content length after removing whitespace' in prompt
         assert 'Remaining budget before merging suggestions' in prompt
+
+
+def test_memory_edit_operations_preserve_upsert_day_before_replace_text():
+    current = (
+        '- 2026-05-14\n'
+        '  用户在做:\n'
+        '  - old task\n'
+        '  状态/冲突:\n'
+        '  - likes tea'
+    )
+
+    edited = _apply_memory_edit_operations(
+        current,
+        {
+            'operations': [
+                {
+                    'op': 'upsert_day',
+                    'date': '2026-05-15',
+                    'doing': ['new task'],
+                },
+                {
+                    'op': 'replace_text',
+                    'old': 'likes tea',
+                    'new': 'likes coffee',
+                },
+            ],
+        },
+    )
+
+    assert edited == (
+        '- 2026-05-14\n'
+        '  用户在做:\n'
+        '  - old task\n'
+        '  状态/冲突:\n'
+        '  - likes coffee\n'
+        '- 2026-05-15\n'
+        '  用户在做:\n'
+        '  - new task'
+    )
+
+
+def test_memory_edit_operations_can_clear_all_memory_via_upsert_replace():
+    current = (
+        '- 2026-05-14\n'
+        '  用户在做:\n'
+        '  - old task'
+    )
+
+    edited = _apply_memory_edit_operations(
+        current,
+        {
+            'operations': [
+                {
+                    'op': 'upsert_day',
+                    'date': '2026-05-14',
+                    'replace': ['doing'],
+                    'doing': [],
+                },
+            ],
+        },
+    )
+
+    assert edited == ''
+
+
+def test_user_preference_edit_operations_can_clear_all_content_via_replace_all():
+    edited = _apply_user_preference_edit_operations(
+        'Prefers concise replies',
+        {
+            'operations': [
+                {
+                    'op': 'replace_all',
+                    'content': '',
+                },
+            ],
+        },
+    )
+
+    assert edited == ''
 
 
 def test_memory_generate_route_accepts_suggestions_without_user_instruct(monkeypatch):
