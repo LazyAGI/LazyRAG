@@ -51,6 +51,7 @@ CONTROL = {
     'apply.cancel': ('cancel', 'cancelled'),
     'apply.accept': ('accept', 'accepted'),
     'apply.reject': ('reject', 'rejected'),
+    'eval.stop': ('stop', 'stopped'),
     'eval.cancel': ('cancel', 'cancelled'),
     'abtest.stop': ('stop', 'stopped'),
     'abtest.continue': ('cont', 'continued'),
@@ -191,7 +192,7 @@ def _wait_resumable(jm: 'JobManager', args: dict[str, Any]) -> str:
             )
             candidates.extend(
                 r for r in rows
-                if r.get('status') in {'paused', 'failed_transient'}
+                if r.get('status') in {'stopping', 'paused', 'failed_transient'}
                 and float(r.get('updated_at') or 0) > latest_success_at
             )
         if candidates:
@@ -216,6 +217,7 @@ def _rewind_op(jm: 'JobManager', thread_id: str, checkpoint: dict, args: dict[st
                 'kb_id': patch.get('kb_id') or inputs.get('kb_id'),
                 'algo_id': patch.get('algo_id') or inputs.get('algo_id') or 'general_algo',
                 'eval_name': patch.get('eval_name') or inputs.get('eval_name') or f'{thread_id}_eval',
+                'resume': patch.get('resume', False),
                 **({'num_cases': num_cases} if num_cases else {}),
             },
         }
@@ -223,7 +225,11 @@ def _rewind_op(jm: 'JobManager', thread_id: str, checkpoint: dict, args: dict[st
         dataset_id = _latest_artifact(ws, 'dataset_ids')
         if not dataset_id:
             return None
-        args: dict[str, Any] = {'dataset_id': dataset_id, 'target_chat_url': EVO_TARGET_CHAT_URL}
+        args: dict[str, Any] = {
+            'dataset_id': dataset_id,
+            'target_chat_url': EVO_TARGET_CHAT_URL,
+            'resume': patch.get('resume', False),
+        }
         if inputs.get('dataset_name'):
             args['options'] = {'dataset_name': inputs['dataset_name']}
         return {'op': 'eval.run', 'args': args}

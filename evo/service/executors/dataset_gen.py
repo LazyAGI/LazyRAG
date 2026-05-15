@@ -4,6 +4,7 @@ from lazyllm import AutoModel
 from algorithm.chat.utils.load_config import get_config_path
 from evo.datagen import run_generate_pipeline
 from evo.datagen.kb_client import KBClient
+from evo.harness.plan import StopRequested
 from evo.runtime.model_gateway import ModelGateway
 from evo.service.core import store as _store
 from evo.service.threads.workspace import EventLog, ThreadWorkspace
@@ -31,6 +32,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
     algo_id = payload.get('algo_id', 'general_algo')
     eval_name = payload.get('eval_name', tid)
     num_cases = payload.get('num_cases')
+    resume = bool(payload.get('resume', True))
     if not kb_id:
         ctx.on_failure(tid, _store.StateError('DATASET_NO_KB', '生成评测集失败，因为知识库是空的', kind='permanent'))
         return
@@ -55,6 +57,8 @@ def execute(ctx: ExecCtx, tid: str) -> None:
             llm_factory=llm_factory,
             cancel=token.requested,
             num_cases=num_cases,
+            attempt_id=tid,
+            resume=resume,
             on_progress=lambda current, total: (
                 elog.append_event(
                     'dataset_gen.progress',
@@ -74,8 +78,15 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 payload={'dataset_id': eval_name, 'path': path, 'cases': data.get('total_nums')},
             )
         ctx.on_success(tid)
+    except StopRequested as exc:
+        if elog and token.cancel_requested():
+            elog.append_event('dataset_gen.cancel', task_id=tid, payload={'dataset_id': eval_name})
+        ctx.on_stop(tid, exc.at_step)
     except Exception as exc:
-        if elog and token.requested():
+        if token.stop_requested():
+            ctx.on_stop(tid, 'case')
+            return
+        if elog and token.cancel_requested():
             elog.append_event('dataset_gen.cancel', task_id=tid, payload={'dataset_id': eval_name})
         log.exception('dataset_gen %s failed: %s', tid, exc)
         ctx.on_failure(tid, exc)

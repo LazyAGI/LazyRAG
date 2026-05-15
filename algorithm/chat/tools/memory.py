@@ -105,7 +105,7 @@ def memory(
     target: Literal['memory', 'user'],
     suggestions: List[Suggestion],
 ) -> Dict[str, Any]:
-    """Record natural-language edit suggestions for the user's long-term
+    """Record natural-language edit suggestions for the user's
     memory (``target='memory'``) or user profile / preference
     (``target='user'``).
 
@@ -116,18 +116,22 @@ def memory(
 
     Each call accepts a batch of at most 5 suggestions; every suggestion
     describes ONE proposed change in natural language and will be reviewed
-    before being merged.
+    before being merged. For ``target='memory'``, suggestions should describe
+    atomic memory events or updates, not the final merged memory text.
 
     Args:
         target: Which buffer the suggestions belong to. ``'memory'`` is the
-            agent's own long-term working memory; ``'user'`` is the user
+            agent's own working memory about the user's ongoing context and
+            prior discussions; ``'user'`` is the user
             profile / preference text.
         suggestions: Ordered list of suggestions (max 5 per call). Each
             item is a dict with the following fields:
 
             - ``title`` (str, required): short label summarising the change.
             - ``content`` (str, required): natural-language description of
-              the modification.
+              the modification. For ``target='memory'``, this should usually
+              be one timestamped memory event, one same-day update, or one
+              correction to an existing memory thread.
             - ``reason`` (str, optional): rationale for the change.
     """
     def _ok(result: Dict[str, Any]) -> Dict[str, Any]:

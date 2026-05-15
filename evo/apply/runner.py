@@ -97,37 +97,35 @@ def _build_initial_checkpoint(apply_id: str, base_commit: str, branch_name: str,
 
 
 def _filter_actions(report: dict) -> list[dict]:
-    actions = report.get('actions') or []
+    actions = report.get('actions', [])
+    actions = [] if actions is None else actions
     if not isinstance(actions, list):
         raise ApplyError('REPORT_INVALID', 'report.actions must be a list', {'actual_type': type(actions).__name__})
-    in_scope = [a for a in actions if isinstance(a, dict) and a.get('code_map_in_scope') and a.get('code_map_target')]
-    min_confidence = float(config['evo_apply_min_action_confidence'])
-    min_validity = float(config['evo_apply_min_action_validity'])
     ready = [
-        a
-        for a in in_scope
-        if float(a.get('confidence') or 0.0) >= min_confidence
-        and float(a.get('validity_score') or 0.0) >= min_validity
+        _mark_action_risk(a)
+        for a in actions
+        if isinstance(a, dict) and a.get('code_map_in_scope') and a.get('code_map_target')
     ]
-    if in_scope and not ready:
-        raise ApplyError(
-            'REPORT_ACTIONS_NOT_READY',
-            'report actions are below apply confidence/validity thresholds',
-            {
-                'min_confidence': min_confidence,
-                'min_validity': min_validity,
-                'actions': [
-                    {
-                        'id': a.get('id'),
-                        'confidence': a.get('confidence'),
-                        'validity_score': a.get('validity_score'),
-                        'title': a.get('title'),
-                    }
-                    for a in in_scope
-                ],
-            },
-        )
-    return ready
+    return sorted(ready, key=lambda a: (_action_score(a), str(a.get('priority') or '')), reverse=True)
+
+
+def _mark_action_risk(action: dict) -> dict:
+    out = dict(action)
+    weak = _score(out.get('confidence')) < 0.5 or _score(out.get('validity_score')) < 0.5
+    out['apply_risk'] = 'low_confidence' if weak else 'normal'
+    out['evidence_status'] = 'weak' if weak else 'usable'
+    return out
+
+
+def _score(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _action_score(action: dict) -> float:
+    return _score(action.get('confidence')) + _score(action.get('validity_score'))
 
 
 def _rel_under_chat(key: str, base: Path) -> str:
@@ -188,6 +186,8 @@ def _build_modification_plan(actions: list[dict], chat_source: Path) -> list[dic
             'priority': str(a.get('priority', '')),
             'confidence': a.get('confidence'),
             'validity_score': a.get('validity_score'),
+            'risk_level': a.get('apply_risk', 'normal'),
+            'evidence_status': a.get('evidence_status', 'usable'),
             'verifier_notes': a.get('verifier_notes') or [],
             'contradicting_evidence': a.get('contradicting_evidence') or [],
             'files': [_rel_under_chat(str(a.get('code_map_target', '')), chat_source)],
@@ -204,6 +204,7 @@ def _build_prompt(instruction: str, plan: list[dict], allow_lines: list[str], pr
     parts.append(
         '所有文件读写都必须使用上述相对路径；不要访问或修改 worktree 外的绝对路径，也不要修改未列出的依赖实现文件。'
     )
+    parts.append('risk_level=low_confidence 的计划仍需执行，但必须采用最小、保守、可测试的修改；如果证据不足，只修复明确落在 files 中的问题。')
     parts.append('')
     parts.append('修改计划（JSON）：')
     parts.append(json.dumps(plan, ensure_ascii=False, indent=2))

@@ -164,10 +164,14 @@ _add(
         'eval.run',
         'eval',
         '在指定数据集上跑一次评测并拉 trace',
-        params_schema={'required': ['dataset_id'], 'optional': ['target_chat_url', 'options']},
+        params_schema={'required': ['dataset_id'], 'optional': ['target_chat_url', 'options', 'resume']},
         blocking=True,
         safety='long_running',
     )
+)
+_add(
+    Capability('eval.stop', 'eval', '暂停评测任务', params_schema=_required('task_id'), idempotent=True,
+               safety='destructive')
 )
 _add(
     Capability(
@@ -222,7 +226,7 @@ _add(
         'dataset_gen.start',
         'dataset_gen',
         '从知识库生成评测集',
-        params_schema={'optional': ['kb_id', 'algo_id', 'eval_name', 'num_cases']},
+        params_schema={'optional': ['kb_id', 'algo_id', 'eval_name', 'num_cases', 'resume']},
         blocking=True,
         safety='long_running',
     )
