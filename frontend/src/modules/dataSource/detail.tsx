@@ -381,11 +381,8 @@ function collectScanTreeFileKeys(nodes: ScanTreeNode[]): string[] {
   const keys: string[] = [];
   const walk = (items: ScanTreeNode[]) => {
     items.forEach((node) => {
-      if (node.is_dir) {
-        if (node.children?.length) {
-          walk(node.children);
-        }
-        return;
+      if (node.children?.length) {
+        walk(node.children);
       }
       if (node.selectable === false) {
         return;

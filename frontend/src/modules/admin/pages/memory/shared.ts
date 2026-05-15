@@ -73,6 +73,8 @@ export type GlossaryConflictResolveMode = "separate" | "merge" | "create";
 export interface GlossaryConflictResolution {
   mode: GlossaryConflictResolveMode;
   selectedGroupIds: string[];
+  mergeGroupIds?: string[];
+  writeGroupIds?: string[];
   newGroupTerm: string;
   newGroupAliases?: string[];
   newGroupContent?: string;

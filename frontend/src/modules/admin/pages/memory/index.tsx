@@ -157,6 +157,9 @@ import "./index.scss";
 const backendSuggestionPageSize = 20;
 const defaultSkillListPageSize = 6;
 const reviewSuggestionStatuses = ["pending_review"];
+const showGlossaryInboxUi = true;
+const MERGED_GLOSSARY_GROUP_OPTION_ID = "__merged_glossary_group__";
+const NEW_GLOSSARY_GROUP_OPTION_ID = "__new_glossary_group__";
 const isPendingReviewSuggestionStatus = (status?: string) =>
   String(status || "").trim().toLowerCase() === "pending_review";
 const normalizeAutoEvoApplyStatus = (status?: string) =>
@@ -3929,7 +3932,9 @@ export default function MemoryManagement() {
             const resolution = resolutions[proposal.id];
             const mode =
               resolution?.mode || (proposal.backendConflictGroupIds?.length ? "separate" : "create");
-            const selectedGroupIds = resolution?.selectedGroupIds?.length
+            const selectedGroupIds = resolution?.mergeGroupIds?.length
+              ? resolution.mergeGroupIds
+              : resolution?.selectedGroupIds?.length
               ? resolution.selectedGroupIds
               : proposal.backendConflictGroupIds || [];
 
@@ -3938,29 +3943,51 @@ export default function MemoryManagement() {
                 throw new Error(t("admin.memoryGlossaryInboxMergeSelectAtLeastTwo"));
               }
 
-              return mergeGlossaryAssetsAndAddConflictWord({
-                id: conflictId,
-                word: conflictWord,
-                groupIds: selectedGroupIds,
-              }).then((merged) => {
-                if (!merged || !resolution?.mergedGroupTerm?.trim()) {
-                  return merged;
-                }
+              const shouldWriteConflictWordToMergedGroup =
+                !(resolution?.writeGroupIds) ||
+                resolution.writeGroupIds.includes(MERGED_GLOSSARY_GROUP_OPTION_ID);
+              const mergeGlossaryGroups = shouldWriteConflictWordToMergedGroup
+                ? mergeGlossaryAssetsAndAddConflictWord({
+                    id: conflictId,
+                    word: conflictWord,
+                    groupIds: selectedGroupIds,
+                  })
+                : mergeGlossaryAssets(selectedGroupIds);
 
-                return updateGlossaryAsset({
-                  ...merged,
-                  term: resolution.mergedGroupTerm.trim(),
-                  aliases: [
-                    ...new Set(
-                      (resolution.mergedGroupAliases?.length
-                        ? resolution.mergedGroupAliases
-                        : merged.aliases
-                      )
-                        .map((item) => item.trim())
-                        .filter(Boolean),
-                    ),
-                  ],
-                  content: (resolution.mergedGroupContent ?? merged.content).trim(),
+              return mergeGlossaryGroups.then((merged) => {
+                const updateMergedAsset =
+                  merged && resolution?.mergedGroupTerm?.trim()
+                    ? updateGlossaryAsset({
+                        ...merged,
+                        term: resolution.mergedGroupTerm.trim(),
+                        aliases: [
+                          ...new Set(
+                            (resolution.mergedGroupAliases?.length
+                              ? resolution.mergedGroupAliases
+                              : merged.aliases
+                            )
+                              .map((item) => item.trim())
+                              .filter(Boolean),
+                          ),
+                        ],
+                        content: (resolution.mergedGroupContent ?? merged.content).trim(),
+                      })
+                    : Promise.resolve(merged);
+                const extraWriteGroupIds = (resolution?.writeGroupIds || []).filter(
+                  (groupId) =>
+                    groupId !== MERGED_GLOSSARY_GROUP_OPTION_ID &&
+                    !selectedGroupIds.includes(groupId),
+                );
+
+                return updateMergedAsset.then((updatedMerged) => {
+                  if (!extraWriteGroupIds.length) {
+                    return updatedMerged;
+                  }
+                  return addGlossaryConflictToGroups({
+                    id: conflictId,
+                    word: conflictWord,
+                    groupIds: extraWriteGroupIds,
+                  }).then(() => updatedMerged);
                 });
               });
             }
@@ -3982,14 +4009,21 @@ export default function MemoryManagement() {
               throw new Error(t("admin.memoryGlossaryInboxNewGroupRequired"));
             }
 
+            const shouldWriteConflictWordToNewGroup =
+              !(resolution?.writeGroupIds) ||
+              resolution.writeGroupIds.includes(NEW_GLOSSARY_GROUP_OPTION_ID);
             const aliases = [
-              conflictWord,
+              ...(shouldWriteConflictWordToNewGroup ? [conflictWord] : []),
               ...(resolution?.newGroupAliases?.length
                 ? resolution.newGroupAliases
                 : proposal.after.aliases),
             ]
               .map((item) => item.trim())
               .filter(Boolean);
+
+            const extraWriteGroupIds = (resolution?.writeGroupIds || []).filter(
+              (groupId) => groupId !== NEW_GLOSSARY_GROUP_OPTION_ID,
+            );
 
             return createGlossaryAsset(
               {
@@ -3999,7 +4033,16 @@ export default function MemoryManagement() {
                 content: (resolution?.newGroupContent ?? proposal.after.content).trim(),
               },
               { conflictId },
-            );
+            ).then((created) => {
+              if (!extraWriteGroupIds.length) {
+                return created;
+              }
+              return addGlossaryConflictToGroups({
+                id: conflictId,
+                word: conflictWord,
+                groupIds: extraWriteGroupIds,
+              }).then(() => created);
+            });
           }),
         );
         await Promise.all([
@@ -4761,26 +4804,28 @@ export default function MemoryManagement() {
     <div className={`admin-page memory-page ${isReviewMode ? "is-review-mode" : ""}`}>
       <Outlet context={outletContext} />
 
-      <GlossaryInboxModal
-        t={t}
-        glossaryInboxOpen={glossaryInboxOpen}
-        setGlossaryInboxOpen={setGlossaryInboxOpen}
-        rejectSelectedGlossaryProposals={rejectSelectedGlossaryProposals}
-        glossaryChangeProposals={glossaryChangeProposals}
-        glossaryInboxLoading={glossaryInboxLoading}
-        glossaryInboxError={glossaryInboxError}
-        glossaryInboxSubmitting={glossaryInboxSubmitting}
-        refreshGlossaryConflicts={refreshGlossaryConflicts}
-        isAllGlossaryProposalsSelected={isAllGlossaryProposalsSelected}
-        isPartialGlossaryProposalSelected={isPartialGlossaryProposalSelected}
-        setSelectedGlossaryProposalIds={setSelectedGlossaryProposalIds}
-        glossaryProposalIds={glossaryProposalIds}
-        selectedGlossaryProposalIds={selectedGlossaryProposalIds}
-        glossarySourceColorMap={glossarySourceColorMap}
-        glossarySourceLabelMap={glossarySourceLabelMap}
-        rejectGlossaryProposals={rejectGlossaryProposals}
-        applyGlossaryProposals={applyGlossaryProposals}
-      />
+      {showGlossaryInboxUi ? (
+        <GlossaryInboxModal
+          t={t}
+          glossaryInboxOpen={glossaryInboxOpen}
+          setGlossaryInboxOpen={setGlossaryInboxOpen}
+          rejectSelectedGlossaryProposals={rejectSelectedGlossaryProposals}
+          glossaryChangeProposals={glossaryChangeProposals}
+          glossaryInboxLoading={glossaryInboxLoading}
+          glossaryInboxError={glossaryInboxError}
+          glossaryInboxSubmitting={glossaryInboxSubmitting}
+          refreshGlossaryConflicts={refreshGlossaryConflicts}
+          isAllGlossaryProposalsSelected={isAllGlossaryProposalsSelected}
+          isPartialGlossaryProposalSelected={isPartialGlossaryProposalSelected}
+          setSelectedGlossaryProposalIds={setSelectedGlossaryProposalIds}
+          glossaryProposalIds={glossaryProposalIds}
+          selectedGlossaryProposalIds={selectedGlossaryProposalIds}
+          glossarySourceColorMap={glossarySourceColorMap}
+          glossarySourceLabelMap={glossarySourceLabelMap}
+          rejectGlossaryProposals={rejectGlossaryProposals}
+          applyGlossaryProposals={applyGlossaryProposals}
+        />
+      ) : null}
 
       <MemoryDraftModal
         t={t}
