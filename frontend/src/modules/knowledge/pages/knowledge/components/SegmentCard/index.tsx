@@ -19,6 +19,7 @@ interface IProps {
     apiPromise: Promise<void>,
   ) => void;
   contentReadOnly: boolean;
+  showNumber?: boolean;
 }
 
 const SegmentCard = (props: IProps) => {
@@ -31,6 +32,7 @@ const SegmentCard = (props: IProps) => {
     onRefresh,
     onUpdateStatus,
     contentReadOnly = false,
+    showNumber = true,
   } = props;
 
   function onChange(checked: boolean) {
@@ -66,6 +68,11 @@ const SegmentCard = (props: IProps) => {
       id={segment.segment_id}
       key={segment.segment_id}
     >
+      {showNumber && (
+        <div className="segment-number">
+          #{segment.number}
+        </div>
+      )}
       <div className="content" onClick={onOpenDetail}>
         <div
           className={`contentInner ${contentReadOnly ? "contentReadOnly" : ""}`}
@@ -78,7 +85,6 @@ const SegmentCard = (props: IProps) => {
         </div>
       </div>
       <div className="footer">
-        <span>#{segment.number}</span>
         <span style={{ flex: 1 }} />
         {editable ? (
           <>
