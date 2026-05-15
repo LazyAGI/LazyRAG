@@ -152,6 +152,36 @@ def test_group_repository_list_create_get_and_delete(db_session, seeded_entities
     assert total == 1
     assert [item.group_name for item in groups] == ['alpha']
 
+    active_groups, active_total = GroupRepository.list_paginated(
+        db_session,
+        page=1,
+        page_size=10,
+        search='a',
+        tenant_id='tenant-a',
+        active_members_only=True,
+    )
+    assert active_total == 0
+    assert active_groups == []
+
+    UserGroupRepository.add(
+        db_session,
+        tenant_id='tenant-a',
+        user_id=seeded_entities['alice'].id,
+        group_id=group_a.id,
+        role='member',
+        creator_user_id=seeded_entities['alice'].id,
+    )
+    active_groups, active_total = GroupRepository.list_paginated(
+        db_session,
+        page=1,
+        page_size=10,
+        search='a',
+        tenant_id='tenant-a',
+        active_members_only=True,
+    )
+    assert active_total == 1
+    assert [item.group_name for item in active_groups] == ['alpha']
+
     GroupRepository.delete(db_session, group_b)
     assert GroupRepository.get_by_id(db_session, group_b.id) is None
 
@@ -234,6 +264,9 @@ def test_user_repository_load_options_pagination_and_profile_update(db_session, 
     )
     GroupPermissionRepository.replace_permissions(db_session, group_a.id, {read_pg.id})
 
+    bob.disabled = True
+    db_session.commit()
+
     loaded = UserRepository.get_by_id(
         db_session,
         alice.id,
@@ -256,6 +289,17 @@ def test_user_repository_load_options_pagination_and_profile_update(db_session, 
     )
     assert total == 1
     assert [item.username for item in page_items] == ['bob']
+
+    active_page_items, active_total = UserRepository.list_paginated(
+        db_session,
+        page=1,
+        page_size=1,
+        search='bo',
+        tenant_id='tenant-b',
+        active_only=True,
+    )
+    assert active_total == 0
+    assert active_page_items == []
 
     updated = UserRepository.update_profile(
         db_session,

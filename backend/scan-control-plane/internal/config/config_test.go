@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -68,6 +70,39 @@ func TestValidateAllowsDeprecatedParserConfigWithoutEndpoint(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected deprecated parser config to be ignored, got %v", err)
+	}
+}
+
+func TestLoadOverridesAuthServiceInternalTokenFromEnv(t *testing.T) {
+	t.Setenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN", "env-internal-token")
+
+	cfgPath := filepath.Join(t.TempDir(), "control-plane.yml")
+	if err := os.WriteFile(cfgPath, []byte(`
+listen_addr: "127.0.0.1:18080"
+database_driver: "sqlite"
+database_dsn: ":memory:"
+cloud_sync:
+  enabled: true
+  tick: "30s"
+  max_concurrent: 1
+  lock_ttl: "20m"
+  default_schedule_tz: "Asia/Shanghai"
+  http_timeout: "30s"
+  retry_max_attempts: 1
+  retry_base_backoff: "1s"
+  retry_max_backoff: "30s"
+  auth_service_base_url: "http://auth-service:8000"
+  auth_service_internal_token: "file-internal-token"
+`), 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config failed: %v", err)
+	}
+	if cfg.CloudSync.AuthServiceInternalToken != "env-internal-token" {
+		t.Fatalf("expected env token override, got %q", cfg.CloudSync.AuthServiceInternalToken)
 	}
 }
 

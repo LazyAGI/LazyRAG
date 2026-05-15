@@ -78,6 +78,7 @@ class UserRepository:
         page_size: int = 20,
         search: str | None = None,
         tenant_id: str | None = None,
+        active_only: bool = False,
     ) -> tuple[list[User], int]:
         q = session.query(self.model).options(joinedload(User.role)).order_by(self.model.id)
         count_q = session.query(self.model)
@@ -92,6 +93,9 @@ class UserRepository:
         if tenant_id is not None:
             q = q.filter(self.model.tenant_id == tenant_id)
             count_q = count_q.filter(self.model.tenant_id == tenant_id)
+        if active_only:
+            q = q.filter(self.model.disabled.is_(False))
+            count_q = count_q.filter(self.model.disabled.is_(False))
         total = count_q.count()
         users = q.offset((page - 1) * page_size).limit(page_size).all()
         return users, total
@@ -153,8 +157,9 @@ class UserRepository:
         page_size: int = 20,
         search: str | None = None,
         tenant_id: str | None = None,
+        active_only: bool = False,
     ) -> tuple[list[User], int]:
-        return cls()._list_paginated(session, page, page_size, search, tenant_id)
+        return cls()._list_paginated(session, page, page_size, search, tenant_id, active_only)
 
     @classmethod
     def update_profile(

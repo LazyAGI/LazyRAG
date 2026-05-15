@@ -104,6 +104,7 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	cfg.applyEnvOverrides()
 	cfg.normalizeDatabaseConfig()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -220,6 +221,12 @@ func (c *Config) normalizeDatabaseConfig() {
 	c.CloudSync.AuthServiceBaseURL = strings.TrimSpace(c.CloudSync.AuthServiceBaseURL)
 	c.CloudSync.AuthServiceInternalToken = strings.TrimSpace(c.CloudSync.AuthServiceInternalToken)
 	c.CloudSync.TempDir = strings.TrimSpace(c.CloudSync.TempDir)
+}
+
+func (c *Config) applyEnvOverrides() {
+	if value := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN")); value != "" {
+		c.CloudSync.AuthServiceInternalToken = value
+	}
 }
 
 func (c *Config) Validate() error {

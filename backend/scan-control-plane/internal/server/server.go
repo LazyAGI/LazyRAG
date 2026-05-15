@@ -263,6 +263,11 @@ func (h *Handler) createSource(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	req.CreateUserID = strings.TrimSpace(r.Header.Get("X-User-Id"))
+	if req.CreateUserID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_CURRENT_USER", "missing X-User-Id")
+		return
+	}
 	req.DatasetID = strings.TrimSpace(req.DatasetID)
 	if h.core != nil && h.core.Enabled() {
 		// In core-task mode each source should have a concrete dataset binding.
@@ -315,6 +320,22 @@ func (h *Handler) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		CurrentUserName: currentUserName,
 	})
 	if err != nil {
+		if coreclient.IsConflictError(err) {
+			result, ok, reuseErr := h.reuseUnboundScanKnowledgeBase(r.Context(), strings.TrimSpace(req.Name), currentUserID, currentUserName)
+			if reuseErr != nil {
+				writeError(w, http.StatusInternalServerError, "REUSE_KNOWLEDGE_BASE_FAILED", reuseErr.Error())
+				return
+			}
+			if ok {
+				writeJSON(w, http.StatusOK, model.CreateKnowledgeBaseResponse{
+					DatasetID: result.DatasetID,
+					Name:      result.Name,
+				})
+				return
+			}
+			writeError(w, http.StatusConflict, "KNOWLEDGE_BASE_ALREADY_EXISTS", "knowledge base already exists")
+			return
+		}
 		writeError(w, http.StatusBadGateway, "CREATE_KNOWLEDGE_BASE_FAILED", err.Error())
 		return
 	}
@@ -324,16 +345,75 @@ func (h *Handler) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) reuseUnboundScanKnowledgeBase(ctx context.Context, name, userID, userName string) (coreclient.CreateKnowledgeBaseResult, bool, error) {
+	if h.core == nil || h.store == nil {
+		return coreclient.CreateKnowledgeBaseResult{}, false, nil
+	}
+	kb, found, err := h.core.FindKnowledgeBaseByName(ctx, name, userID, userName)
+	if err != nil {
+		return coreclient.CreateKnowledgeBaseResult{}, false, err
+	}
+	if !found || !kb.ScanManaged || strings.TrimSpace(kb.DatasetID) == "" {
+		return coreclient.CreateKnowledgeBaseResult{}, false, nil
+	}
+	bound, err := h.store.SourceExistsByDatasetID(ctx, kb.DatasetID)
+	if err != nil {
+		return coreclient.CreateKnowledgeBaseResult{}, false, err
+	}
+	if bound {
+		return coreclient.CreateKnowledgeBaseResult{}, false, nil
+	}
+	resultName := strings.TrimSpace(kb.Name)
+	if resultName == "" {
+		resultName = strings.TrimSpace(name)
+	}
+	return coreclient.CreateKnowledgeBaseResult{
+		DatasetID: strings.TrimSpace(kb.DatasetID),
+		Name:      resultName,
+	}, true, nil
+}
+
 func (h *Handler) listSources(w http.ResponseWriter, r *http.Request) {
 	tenantID := strings.TrimSpace(r.URL.Query().Get("tenant_id"))
-	sources, err := h.store.ListSources(r.Context(), tenantID)
+	currentUserID := strings.TrimSpace(r.Header.Get("X-User-Id"))
+	if currentUserID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_CURRENT_USER", "missing X-User-Id")
+		return
+	}
+	sources, err := h.store.ListSources(r.Context(), tenantID, currentUserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "LIST_SOURCES_FAILED", err.Error())
 		return
 	}
+
+	sourceIDs := make([]string, 0, len(sources))
+	for _, src := range sources {
+		sourceIDs = append(sourceIDs, src.ID)
+	}
+	bindings, err := h.store.ListCloudSourceBindingsBySourceIDs(r.Context(), sourceIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "LIST_SOURCE_BINDINGS_FAILED", err.Error())
+		return
+	}
+	documentOverviews, err := h.store.ListSourceDocumentOverviews(r.Context(), sources)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "LIST_SOURCE_DOCUMENTS_FAILED", err.Error())
+		return
+	}
+
 	items := make([]model.Source, 0, len(sources))
 	for _, src := range sources {
-		items = append(items, publicSourceModel(src))
+		item := publicSourceModel(src)
+		if binding, ok := bindings[src.ID]; ok {
+			binding := binding
+			item.CloudBinding = &binding
+		}
+		if docs, ok := documentOverviews[src.ID]; ok {
+			docs := docs
+			docs.Source.RootPath = item.RootPath
+			item.Documents = &docs
+		}
+		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -372,6 +452,34 @@ func (h *Handler) updateSource(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) deleteSource(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "DELETE_SOURCE_FAILED", "source_id is required")
+		return
+	}
+	src, err := h.store.GetSource(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
+			return
+		}
+		if isBadRequestError(err) {
+			writeError(w, http.StatusBadRequest, "DELETE_SOURCE_FAILED", err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "DELETE_SOURCE_FAILED", err.Error())
+		return
+	}
+	if h.core != nil && h.core.Enabled() {
+		datasetID := strings.TrimSpace(src.DatasetID)
+		if datasetID != "" {
+			userID := firstNonEmptyString(src.CreateUserID, r.Header.Get("X-User-Id"))
+			userName := strings.TrimSpace(r.Header.Get("X-User-Name"))
+			if err := h.core.DeleteDataset(r.Context(), datasetID, userID, userName); err != nil {
+				writeError(w, http.StatusBadGateway, "DELETE_BOUND_KNOWLEDGE_BASE_FAILED", err.Error())
+				return
+			}
+		}
+	}
 	if err := h.store.DeleteSource(r.Context(), id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			writeError(w, http.StatusNotFound, "SOURCE_NOT_FOUND", "source not found")
@@ -928,8 +1036,12 @@ func (h *Handler) reportScanResults(w http.ResponseWriter, r *http.Request) {
 	)
 	events := make([]model.FileEvent, 0, len(req.Records))
 	for _, rec := range req.Records {
+		sourceID := strings.TrimSpace(rec.SourceID)
+		if sourceID == "" {
+			sourceID = strings.TrimSpace(req.SourceID)
+		}
 		events = append(events, model.FileEvent{
-			SourceID:       rec.SourceID,
+			SourceID:       sourceID,
 			EventType:      "modified",
 			Path:           rec.Path,
 			IsDir:          rec.IsDir,
@@ -941,6 +1053,10 @@ func (h *Handler) reportScanResults(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if h.merger != nil {
+		if err := h.store.PersistScanResultSnapshotMetadata(r.Context(), req); err != nil {
+			writeError(w, http.StatusInternalServerError, "INGEST_SCAN_RESULT_METADATA_FAILED", err.Error())
+			return
+		}
 		h.merger.Ingest(events)
 	} else {
 		if err := h.store.IngestScanResults(r.Context(), req); err != nil {
@@ -1071,6 +1187,7 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 			var treeResp model.AgentPathTreeResponse
 			payload := map[string]any{
 				"path":          treePath,
+				"keyword":       req.Keyword,
 				"max_depth":     req.MaxDepth,
 				"include_files": req.IncludeFiles,
 			}
@@ -1078,13 +1195,14 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadGateway, "AGENT_TREE_FAILED", err.Error())
 				return
 			}
-			fileStats, err = h.fetchTreeFileStats(r.Context(), agent.ListenAddr, treeResp.Items)
+			treeItems = filterTreeByKeyword(treeResp.Items, req.Keyword)
+			fileStats, err = h.fetchTreeFileStats(r.Context(), agent.ListenAddr, treeItems)
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "AGENT_TREE_STAT_FAILED", err.Error())
 				return
 			}
-			treeItems = treeResp.Items
 		}
+		treeItems = filterTreeByKeyword(treeItems, req.Keyword)
 
 		items, token, err := h.store.BuildTreeUpdateState(r.Context(), sourceID, treeItems, fileStats)
 		if err != nil {
@@ -1101,6 +1219,7 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 		if req.ChangesOnly || req.UpdatedOnly {
 			items = filterTreeToChanged(items)
 		}
+		items = filterTreeByKeyword(items, req.Keyword)
 		items = normalizeTreeParseQueueStatesForResponse(items)
 		writeJSON(w, http.StatusOK, model.AgentPathTreeResponse{
 			Items:          items,
@@ -1122,6 +1241,7 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 	var treeResp model.AgentPathTreeResponse
 	payload := map[string]any{
 		"path":          req.Path,
+		"keyword":       req.Keyword,
 		"max_depth":     req.MaxDepth,
 		"include_files": req.IncludeFiles,
 	}
@@ -1129,6 +1249,7 @@ func (h *Handler) pathTreeByAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "AGENT_TREE_FAILED", err.Error())
 		return
 	}
+	treeResp.Items = filterTreeByKeyword(treeResp.Items, req.Keyword)
 	writeJSON(w, http.StatusOK, treeResp)
 }
 
@@ -1246,6 +1367,15 @@ func isBadRequestError(err error) bool {
 	return strings.Contains(msg, "required") ||
 		strings.Contains(msg, "must be >") ||
 		strings.Contains(msg, "does not support retry")
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func pathInSourceRoot(path, root string) bool {
@@ -2187,6 +2317,26 @@ func filterTreeToChanged(items []model.TreeNode) []model.TreeNode {
 	return out
 }
 
+func filterTreeByKeyword(items []model.TreeNode, keyword string) []model.TreeNode {
+	normalized := strings.ToLower(strings.TrimSpace(keyword))
+	if normalized == "" {
+		return items
+	}
+	out := make([]model.TreeNode, 0, len(items))
+	for _, node := range items {
+		item := node
+		item.Children = filterTreeByKeyword(item.Children, normalized)
+		if treeNodeMatchesKeyword(item, normalized) || len(item.Children) > 0 {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func treeNodeMatchesKeyword(node model.TreeNode, normalizedKeyword string) bool {
+	return strings.Contains(strings.ToLower(node.Title), normalizedKeyword)
+}
+
 func nodeHasChanged(node model.TreeNode) bool {
 	if node.HasUpdate != nil {
 		return *node.HasUpdate
@@ -2204,8 +2354,13 @@ func (h *Handler) searchCoreTaskStates(ctx context.Context, refs []store.SourceD
 	if len(refs) == 0 {
 		return states, nil
 	}
-	byDataset := make(map[string][]string, 4)
-	seenByDataset := make(map[string]map[string]struct{}, 4)
+	type datasetUserKey struct {
+		datasetID string
+		userID    string
+		userName  string
+	}
+	byDatasetUser := make(map[datasetUserKey][]string, 4)
+	seenByDatasetUser := make(map[datasetUserKey]map[string]struct{}, 4)
 	legacyIDs := make([]string, 0, len(refs))
 	legacySeen := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
@@ -2222,19 +2377,24 @@ func (h *Handler) searchCoreTaskStates(ctx context.Context, refs []store.SourceD
 			legacyIDs = append(legacyIDs, taskID)
 			continue
 		}
-		if _, ok := seenByDataset[datasetID]; !ok {
-			seenByDataset[datasetID] = make(map[string]struct{}, 16)
+		key := datasetUserKey{
+			datasetID: datasetID,
+			userID:    strings.TrimSpace(ref.SourceCreateUserID),
+			userName:  strings.TrimSpace(ref.SourceCreateUserName),
 		}
-		if _, ok := seenByDataset[datasetID][taskID]; ok {
+		if _, ok := seenByDatasetUser[key]; !ok {
+			seenByDatasetUser[key] = make(map[string]struct{}, 16)
+		}
+		if _, ok := seenByDatasetUser[key][taskID]; ok {
 			continue
 		}
-		seenByDataset[datasetID][taskID] = struct{}{}
-		byDataset[datasetID] = append(byDataset[datasetID], taskID)
+		seenByDatasetUser[key][taskID] = struct{}{}
+		byDatasetUser[key] = append(byDatasetUser[key], taskID)
 	}
-	for datasetID, taskIDs := range byDataset {
-		datasetStates, err := h.core.SearchTasksByDataset(ctx, datasetID, taskIDs)
+	for key, taskIDs := range byDatasetUser {
+		datasetStates, err := h.core.SearchTasksByDatasetAs(ctx, key.datasetID, taskIDs, key.userID, key.userName)
 		if err != nil {
-			return nil, fmt.Errorf("dataset %s search failed: %w", datasetID, err)
+			return nil, fmt.Errorf("dataset %s search failed: %w", key.datasetID, err)
 		}
 		for taskID, st := range datasetStates {
 			states[taskID] = st
@@ -2306,15 +2466,17 @@ func sourceDocumentItemsCoreRefs(items []model.SourceDocumentItem) []store.Sourc
 			continue
 		}
 		refs = append(refs, store.SourceDocumentCoreRef{
-			DocumentID:       item.DocumentID,
-			ParseStatus:      item.ParseState,
-			DesiredVersionID: item.DesiredVersionID,
-			CurrentVersionID: item.CurrentVersionID,
-			TaskID:           item.ParseTaskID,
-			TaskAction:       item.ParseTaskAction,
-			TargetVersionID:  item.ParseTaskTargetVersion,
-			CoreDatasetID:    strings.TrimSpace(item.CoreDatasetID),
-			CoreTaskID:       taskID,
+			DocumentID:           item.DocumentID,
+			SourceCreateUserID:   strings.TrimSpace(item.SourceCreateUserID),
+			SourceCreateUserName: strings.TrimSpace(item.SourceCreateUserName),
+			ParseStatus:          item.ParseState,
+			DesiredVersionID:     item.DesiredVersionID,
+			CurrentVersionID:     item.CurrentVersionID,
+			TaskID:               item.ParseTaskID,
+			TaskAction:           item.ParseTaskAction,
+			TargetVersionID:      item.ParseTaskTargetVersion,
+			CoreDatasetID:        strings.TrimSpace(item.CoreDatasetID),
+			CoreTaskID:           taskID,
 		})
 	}
 	return refs
@@ -2328,12 +2490,14 @@ func parseTaskItemsCoreRefs(items []model.ParseTaskListItem) []store.SourceDocum
 			continue
 		}
 		refs = append(refs, store.SourceDocumentCoreRef{
-			DocumentID:      item.DocumentID,
-			TaskID:          item.TaskID,
-			TaskAction:      item.TaskAction,
-			TargetVersionID: item.TargetVersionID,
-			CoreDatasetID:   strings.TrimSpace(item.CoreDatasetID),
-			CoreTaskID:      taskID,
+			DocumentID:           item.DocumentID,
+			SourceCreateUserID:   strings.TrimSpace(item.SourceCreateUserID),
+			SourceCreateUserName: strings.TrimSpace(item.SourceCreateUserName),
+			TaskID:               item.TaskID,
+			TaskAction:           item.TaskAction,
+			TargetVersionID:      item.TargetVersionID,
+			CoreDatasetID:        strings.TrimSpace(item.CoreDatasetID),
+			CoreTaskID:           taskID,
 		})
 	}
 	return refs

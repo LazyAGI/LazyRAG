@@ -15,30 +15,19 @@ import (
 )
 
 type threadRoundResponse struct {
-	RoundID          string           `json:"round_id"`
-	ThreadID         string           `json:"thread_id"`
-	TaskID           string           `json:"task_id,omitempty"`
-	Status           string           `json:"status"`
-	UserMessage      string           `json:"user_message,omitempty"`
-	AssistantMessage string           `json:"assistant_message,omitempty"`
-	RequestPayload   any              `json:"request_payload,omitempty"`
-	Records          []recordResponse `json:"records,omitempty"`
-	CreatedAt        time.Time        `json:"created_at"`
-	UpdatedAt        time.Time        `json:"updated_at"`
-}
-
-type threadEventHistoryResponse struct {
-	ThreadID  string `json:"thread_id"`
-	TaskID    string `json:"task_id,omitempty"`
-	EventName string `json:"event_name,omitempty"`
-	Payload   any    `json:"payload"`
-	RawFrame  string `json:"raw_frame"`
+	RoundID          string    `json:"round_id"`
+	ThreadID         string    `json:"thread_id"`
+	TaskID           string    `json:"task_id,omitempty"`
+	Status           string    `json:"status"`
+	UserMessage      string    `json:"user_message,omitempty"`
+	AssistantMessage string    `json:"assistant_message,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type threadHistoryResponse struct {
-	ThreadID     string                       `json:"thread_id"`
-	Rounds       []threadRoundResponse        `json:"rounds"`
-	ThreadEvents []threadEventHistoryResponse `json:"thread_events"`
+	ThreadID string                `json:"thread_id"`
+	Rounds   []threadRoundResponse `json:"rounds"`
 }
 
 func GetThreadHistory(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +45,7 @@ func listThreadHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
-	if _, err := loadThread(db, threadID); err != nil {
+	if _, err := loadUserThread(db, r, threadID); err != nil {
 		replyThreadLoadError(w, err)
 		return
 	}
@@ -77,33 +66,9 @@ func listThreadHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]threadRoundResponse, 0, len(rounds))
-	for _, round := range rounds {
-		records := recordsByRound[round.RoundID]
-		recordItems := make([]recordResponse, 0, len(records))
-		for _, record := range records {
-			recordItems = append(recordItems, toRecordResponse(record))
-		}
-		items = append(items, threadRoundResponse{
-			RoundID:          round.RoundID,
-			ThreadID:         round.ThreadID,
-			TaskID:           round.TaskID,
-			Status:           round.Status,
-			UserMessage:      round.UserMessage,
-			AssistantMessage: round.AssistantMessage,
-			RequestPayload:   parseJSONValue(round.RequestPayload),
-			Records:          recordItems,
-			CreatedAt:        round.CreatedAt,
-			UpdatedAt:        round.UpdatedAt,
-		})
-	}
-
-	threadEvents := loadThreadHistoryEvents(db, threadID)
-
 	common.ReplyOK(w, threadHistoryResponse{
-		ThreadID:     threadID,
-		Rounds:       items,
-		ThreadEvents: threadEvents,
+		ThreadID: threadID,
+		Rounds:   buildThreadRoundResponses(rounds, recordsByRound),
 	})
 }
 
@@ -114,7 +79,7 @@ func DeleteThreadHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := strings.TrimSpace(mux.Vars(r)["thread_id"])
-	if _, err := loadThread(db, threadID); err != nil {
+	if _, err := loadUserThread(db, r, threadID); err != nil {
 		replyThreadLoadError(w, err)
 		return
 	}
@@ -183,22 +148,71 @@ func listThreadRounds(db *gorm.DB, threadID string) ([]orm.AgentThreadRound, err
 	return rounds, nil
 }
 
-func loadThreadHistoryEvents(db *gorm.DB, threadID string) []threadEventHistoryResponse {
-	var records []orm.AgentThreadRecord
-	if dbErr := db.Where("thread_id = ? AND stream_kind = ?", threadID, streamKindThreadEvent).Order("id ASC").Find(&records).Error; dbErr != nil {
-		return nil
-	}
-	items := make([]threadEventHistoryResponse, 0, len(records))
-	for _, record := range records {
-		items = append(items, threadEventHistoryResponse{
-			ThreadID:  threadID,
-			TaskID:    record.TaskID,
-			EventName: record.EventName,
-			Payload:   recordPayloadValue(record),
-			RawFrame:  record.RawFrame,
+func buildThreadRoundResponses(rounds []orm.AgentThreadRound, recordsByRound map[string][]orm.AgentThreadRecord) []threadRoundResponse {
+	items := make([]threadRoundResponse, 0, len(rounds))
+	for _, round := range rounds {
+		items = append(items, threadRoundResponse{
+			RoundID:          round.RoundID,
+			ThreadID:         round.ThreadID,
+			TaskID:           round.TaskID,
+			Status:           round.Status,
+			UserMessage:      round.UserMessage,
+			AssistantMessage: buildRoundAssistantMessage(recordsByRound[round.RoundID]),
+			CreatedAt:        round.CreatedAt,
+			UpdatedAt:        round.UpdatedAt,
 		})
 	}
 	return items
+}
+
+func buildRoundAssistantMessage(records []orm.AgentThreadRecord) string {
+	var thinking strings.Builder
+	var answer strings.Builder
+	for _, record := range records {
+		delta := extractDeltaValue(recordPayloadValue(record))
+		if delta == "" {
+			continue
+		}
+		switch record.EventName {
+		case "thinking_delta":
+			thinking.WriteString(delta)
+		case "answer_delta":
+			answer.WriteString(delta)
+		}
+	}
+	return thinking.String() + answer.String()
+}
+
+func extractDeltaValue(root any) string {
+	switch value := root.(type) {
+	case map[string]any:
+		if child, ok := value["delta"]; ok {
+			return stringifyDeltaValue(child)
+		}
+		for _, child := range value {
+			if result := extractDeltaValue(child); result != "" {
+				return result
+			}
+		}
+	case []any:
+		for _, child := range value {
+			if result := extractDeltaValue(child); result != "" {
+				return result
+			}
+		}
+	}
+	return ""
+}
+
+func stringifyDeltaValue(root any) string {
+	switch value := root.(type) {
+	case string:
+		return value
+	case float64, bool, int, int64, uint64:
+		return fmt.Sprint(value)
+	default:
+		return ""
+	}
 }
 
 func deleteThreadHistory(db *gorm.DB, threadID string) (map[string]any, error) {

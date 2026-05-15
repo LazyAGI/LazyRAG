@@ -176,21 +176,6 @@ func TestInternalRemoveCreatesRemoveSuggestion(t *testing.T) {
 	store.Init(db.DB, nil, nil)
 	t.Cleanup(func() { store.Init(nil, nil, nil) })
 
-	now := time.Now()
-	conversation := orm.Conversation{
-		ID:        "conv-remove",
-		ChannelID: "default",
-		BaseModel: orm.BaseModel{
-			CreateUserID:   "u1",
-			CreateUserName: "User 1",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		},
-	}
-	if err := db.Create(&conversation).Error; err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-
 	createReq := createSkillRequest{
 		Name:        "release-check",
 		Description: "Release checklist",
@@ -206,28 +191,9 @@ func TestInternalRemoveCreatesRemoveSuggestion(t *testing.T) {
 	if err := db.Where("owner_user_id = ? AND relative_path = ?", "u1", relativePath).Take(&row).Error; err != nil {
 		t.Fatalf("query created skill: %v", err)
 	}
-	snapshot := orm.ResourceSessionSnapshot{
-		ID:              "snapshot-remove",
-		SessionID:       "conv-remove_1",
-		UserID:          "u1",
-		ResourceType:    evolution.ResourceTypeSkill,
-		ResourceKey:     relativePath,
-		Category:        "coding",
-		ParentSkillName: "release-check",
-		SkillName:       "release-check",
-		FileExt:         "md",
-		RelativePath:    relativePath,
-		SnapshotHash:    row.ContentHash,
-		CreatedAt:       now,
-	}
-	if err := db.Create(&snapshot).Error; err != nil {
-		t.Fatalf("create snapshot: %v", err)
-	}
 
 	body, err := json.Marshal(map[string]string{
-		"session_id": "conv-remove_1",
-		"category":   "coding",
-		"skill_name": "release-check",
+		"id": row.ID,
 	})
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
@@ -235,6 +201,8 @@ func TestInternalRemoveCreatesRemoveSuggestion(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/skill/remove", strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
 	rec := httptest.NewRecorder()
 
 	Remove(rec, req)
@@ -274,6 +242,42 @@ func TestInternalRemoveCreatesRemoveSuggestion(t *testing.T) {
 		t.Fatalf("expected one resource suggestion, got %d", suggestionCount)
 	}
 
+}
+
+func TestRemoveRejectsLegacySessionPayload(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	body, err := json.Marshal(map[string]string{
+		"session_id": "conv-remove_1",
+		"category":   "coding",
+		"skill_name": "release-check",
+	})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/skill/remove", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+
+	Remove(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Message != "id required" {
+		t.Fatalf("expected id required, got code=%d message=%q", resp.Code, resp.Message)
+	}
 }
 
 func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing.T) {
@@ -477,6 +481,87 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	suggestions, ok := algoBody["suggestions"].([]any)
 	if !ok || len(suggestions) != 0 {
 		t.Fatalf("expected empty suggestions array, got %#v", algoBody["suggestions"])
+	}
+}
+
+func TestDiscardKeepsAcceptedSuggestionVisibleForRegeneration(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
+	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	now := time.Now()
+	skillRow := orm.SkillResource{
+		ID:                 "skill-1",
+		OwnerUserID:        "u1",
+		OwnerUserName:      "User 1",
+		Category:           "coding",
+		ParentSkillName:    "git-workflow",
+		SkillName:          "git-workflow",
+		NodeType:           evolution.SkillNodeTypeParent,
+		Description:        "git workflow",
+		FileExt:            "md",
+		RelativePath:       relativePath,
+		Content:            currentContent,
+		ContentSize:        int64(len([]byte(currentContent))),
+		MimeType:           "text/markdown; charset=utf-8",
+		ContentHash:        evolution.HashContent(currentContent),
+		Version:            1,
+		DraftContent:       "---\nname: git-workflow\ndescription: git workflow\n---\ndraft body",
+		DraftSourceVersion: 1,
+		DraftStatus:        "pending_confirm",
+		Ext:                evolution.WithDraftSuggestionIDs(nil, []string{"suggestion-1"}),
+		IsEnabled:          true,
+		UpdateStatus:       "pending_confirm",
+		CreateUserID:       "u1",
+		CreateUserName:     "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&skillRow).Error; err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	suggestion := orm.ResourceSuggestion{
+		ID:              "suggestion-1",
+		UserID:          "u1",
+		ResourceType:    evolution.ResourceTypeSkill,
+		ResourceKey:     relativePath,
+		Category:        "coding",
+		ParentSkillName: "git-workflow",
+		SkillName:       "git-workflow",
+		FileExt:         "md",
+		RelativePath:    relativePath,
+		Action:          evolution.SuggestionActionModify,
+		SessionID:       "session-1",
+		SnapshotHash:    evolution.HashContent("older body"),
+		Title:           "update workflow",
+		Content:         "update skill body",
+		Status:          evolution.SuggestionStatusAccepted,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(&suggestion).Error; err != nil {
+		t.Fatalf("create suggestion: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/skills/skill-1:discard", nil)
+	req = mux.SetURLVars(req, map[string]string{"skill_id": "skill-1"})
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+
+	Discard(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated orm.ResourceSuggestion
+	if err := db.Where("id = ?", "suggestion-1").Take(&updated).Error; err != nil {
+		t.Fatalf("query suggestion: %v", err)
+	}
+	if updated.Status != evolution.SuggestionStatusAccepted {
+		t.Fatalf("expected suggestion to remain accepted after discard, got %q", updated.Status)
 	}
 }
 
@@ -1148,6 +1233,291 @@ func TestGetChildDetailInheritsPendingReviewSuggestionsFromParent(t *testing.T) 
 	}
 }
 
+func TestGetSharedSourceSkillDetailAllowsTargetUser(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now().UTC()
+	parentContent := "---\nname: release-check\ndescription: Release checklist\n---\nsource body"
+	parent := orm.SkillResource{
+		ID:              "skill-source",
+		OwnerUserID:     "u1",
+		OwnerUserName:   "User 1",
+		Category:        "coding",
+		ParentSkillName: "",
+		SkillName:       "release-check",
+		NodeType:        evolution.SkillNodeTypeParent,
+		Description:     "Release checklist",
+		FileExt:         "md",
+		RelativePath:    evolution.ParentSkillRelativePath("coding", "release-check"),
+		Content:         parentContent,
+		ContentSize:     int64(len([]byte(parentContent))),
+		MimeType:        "text/markdown; charset=utf-8",
+		ContentHash:     evolution.HashContent(parentContent),
+		Version:         1,
+		IsEnabled:       true,
+		UpdateStatus:    evolution.UpdateStatusUpToDate,
+		CreateUserID:    "u1",
+		CreateUserName:  "User 1",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	childContent := "child body"
+	child := orm.SkillResource{
+		ID:              "skill-source-child",
+		OwnerUserID:     "u1",
+		OwnerUserName:   "User 1",
+		Category:        "coding",
+		ParentSkillName: "release-check",
+		SkillName:       "rules",
+		NodeType:        evolution.SkillNodeTypeChild,
+		FileExt:         "md",
+		RelativePath:    "coding/release-check/rules.md",
+		Content:         childContent,
+		ContentSize:     int64(len([]byte(childContent))),
+		MimeType:        "text/markdown; charset=utf-8",
+		ContentHash:     evolution.HashContent(childContent),
+		Version:         1,
+		IsEnabled:       true,
+		UpdateStatus:    evolution.UpdateStatusUpToDate,
+		CreateUserID:    "u1",
+		CreateUserName:  "User 1",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(&[]orm.SkillResource{parent, child}).Error; err != nil {
+		t.Fatalf("create source skills: %v", err)
+	}
+	if err := db.Create(&orm.SkillShareTask{
+		ID:                    "share-task",
+		SourceUserID:          "u1",
+		SourceUserName:        "User 1",
+		SourceSkillID:         parent.ID,
+		SourceCategory:        parent.Category,
+		SourceParentSkillName: parent.SkillName,
+		SourceRelativeRoot:    "coding/release-check",
+		Message:               "please review",
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}).Error; err != nil {
+		t.Fatalf("create share task: %v", err)
+	}
+	if err := db.Create(&orm.SkillShareItem{
+		ID:             "share-item",
+		ShareTaskID:    "share-task",
+		TargetUserID:   "u2",
+		TargetUserName: "User 2",
+		Status:         shareStatusPendingAccept,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create share item: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/skills/skill-source", nil)
+	req = mux.SetURLVars(req, map[string]string{"skill_id": parent.ID})
+	req.Header.Set("X-User-Id", "u2")
+	rec := httptest.NewRecorder()
+
+	Get(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			SkillID  string `json:"skill_id"`
+			Content  string `json:"content"`
+			Children []struct {
+				SkillID string `json:"skill_id"`
+				Content string `json:"content"`
+			} `json:"children"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Code != 0 {
+		t.Fatalf("expected code 0, got %d", resp.Code)
+	}
+	if resp.Data.SkillID != parent.ID || resp.Data.Content != parentContent {
+		t.Fatalf("expected shared source parent detail, got %#v", resp.Data)
+	}
+	if len(resp.Data.Children) != 1 || resp.Data.Children[0].SkillID != child.ID || resp.Data.Children[0].Content != childContent {
+		t.Fatalf("expected shared source child detail, got %#v", resp.Data.Children)
+	}
+
+	childReq := httptest.NewRequest(http.MethodGet, "/api/core/skills/skill-source-child", nil)
+	childReq = mux.SetURLVars(childReq, map[string]string{"skill_id": child.ID})
+	childReq.Header.Set("X-User-Id", "u2")
+	childRec := httptest.NewRecorder()
+
+	Get(childRec, childReq)
+
+	if childRec.Code != http.StatusOK {
+		t.Fatalf("expected child status 200, got %d body=%s", childRec.Code, childRec.Body.String())
+	}
+	var childResp struct {
+		Code int `json:"code"`
+		Data struct {
+			SkillID string `json:"skill_id"`
+			Content string `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(childRec.Body.Bytes(), &childResp); err != nil {
+		t.Fatalf("decode child response: %v", err)
+	}
+	if childResp.Code != 0 || childResp.Data.SkillID != child.ID || childResp.Data.Content != childContent {
+		t.Fatalf("expected shared source child detail, got %#v", childResp)
+	}
+}
+
+func TestGetSharedSourceSkillDetailHidesFromUnsharedUser(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now().UTC()
+	parentContent := "---\nname: release-check\ndescription: Release checklist\n---\nsource body"
+	parent := orm.SkillResource{
+		ID:           "skill-source",
+		OwnerUserID:  "u1",
+		Category:     "coding",
+		SkillName:    "release-check",
+		NodeType:     evolution.SkillNodeTypeParent,
+		FileExt:      "md",
+		RelativePath: evolution.ParentSkillRelativePath("coding", "release-check"),
+		Content:      parentContent,
+		ContentSize:  int64(len([]byte(parentContent))),
+		ContentHash:  evolution.HashContent(parentContent),
+		Version:      1,
+		IsEnabled:    true,
+		UpdateStatus: evolution.UpdateStatusUpToDate,
+		CreateUserID: "u1",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create source skill: %v", err)
+	}
+	if err := db.Create(&orm.SkillShareTask{
+		ID:            "share-task",
+		SourceUserID:  "u1",
+		SourceSkillID: parent.ID,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}).Error; err != nil {
+		t.Fatalf("create share task: %v", err)
+	}
+	if err := db.Create(&orm.SkillShareItem{
+		ID:           "share-item",
+		ShareTaskID:  "share-task",
+		TargetUserID: "u2",
+		Status:       shareStatusPendingAccept,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create share item: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/skills/skill-source", nil)
+	req = mux.SetURLVars(req, map[string]string{"skill_id": parent.ID})
+	req.Header.Set("X-User-Id", "u3")
+	rec := httptest.NewRecorder()
+
+	Get(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetSharedSourceSkillDetailAllowsLegacyRelativeRootMatch(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now().UTC()
+	parentContent := "---\nname: release-check\ndescription: Release checklist\n---\nsource body"
+	parent := orm.SkillResource{
+		ID:              "skill-source-current",
+		OwnerUserID:     "u1",
+		OwnerUserName:   "User 1",
+		Category:        "coding",
+		ParentSkillName: "",
+		SkillName:       "release-check",
+		NodeType:        evolution.SkillNodeTypeParent,
+		Description:     "Release checklist",
+		FileExt:         "md",
+		RelativePath:    evolution.ParentSkillRelativePath("coding", "release-check"),
+		Content:         parentContent,
+		ContentSize:     int64(len([]byte(parentContent))),
+		MimeType:        "text/markdown; charset=utf-8",
+		ContentHash:     evolution.HashContent(parentContent),
+		Version:         1,
+		IsEnabled:       true,
+		UpdateStatus:    evolution.UpdateStatusUpToDate,
+		CreateUserID:    "u1",
+		CreateUserName:  "User 1",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create source skill: %v", err)
+	}
+	if err := db.Create(&orm.SkillShareTask{
+		ID:                    "share-task",
+		SourceUserID:          "u1",
+		SourceUserName:        "User 1",
+		SourceSkillID:         "skill-source-old",
+		SourceCategory:        parent.Category,
+		SourceParentSkillName: parent.SkillName,
+		SourceRelativeRoot:    "coding/release-check",
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}).Error; err != nil {
+		t.Fatalf("create share task: %v", err)
+	}
+	if err := db.Create(&orm.SkillShareItem{
+		ID:             "share-item",
+		ShareTaskID:    "share-task",
+		TargetUserID:   "u2",
+		TargetUserName: "User 2",
+		Status:         shareStatusPendingAccept,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create share item: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/skills/skill-source-current", nil)
+	req = mux.SetURLVars(req, map[string]string{"skill_id": parent.ID})
+	req.Header.Set("X-User-Id", "u2")
+	rec := httptest.NewRecorder()
+
+	Get(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Code int `json:"code"`
+		Data struct {
+			SkillID string `json:"skill_id"`
+			Content string `json:"content"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Code != 0 || resp.Data.SkillID != parent.ID || resp.Data.Content != parentContent {
+		t.Fatalf("expected shared source detail, got %#v", resp)
+	}
+}
+
 func TestCreateParentSkillBuildsFrontmatterFromBodyOnlyContent(t *testing.T) {
 	db := newSkillTestDB(t)
 
@@ -1183,6 +1553,38 @@ func TestCreateParentSkillBuildsFrontmatterFromBodyOnlyContent(t *testing.T) {
 
 	if row.Content != expectedContent {
 		t.Fatalf("unexpected DB content: %q", row.Content)
+	}
+}
+
+func TestCreateParentSkillRejectsDuplicateParentNameAcrossCategories(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	req := createSkillRequest{
+		Name:        "git-workflow",
+		Description: "Git workflow for postman test",
+		Category:    "coding",
+		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", req); err != nil {
+		t.Fatalf("create parent skill: %v", err)
+	}
+
+	duplicateReq := createSkillRequest{
+		Name:        "git-workflow",
+		Description: "Same name in another category",
+		Category:    "ops",
+		Content:     "# Git Workflow\n\nDuplicate name should be rejected.",
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", duplicateReq); !errors.Is(err, gorm.ErrDuplicatedKey) {
+		t.Fatalf("expected duplicate parent skill name error, got %v", err)
+	}
+
+	var count int64
+	if err := db.Model(&orm.SkillResource{}).Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", "u1", evolution.SkillNodeTypeParent, "git-workflow").Count(&count).Error; err != nil {
+		t.Fatalf("count parent skills: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one parent skill named git-workflow, got %d", count)
 	}
 }
 
@@ -1226,6 +1628,117 @@ func TestUpdateParentSkillRebuildsContentFromBodyOnlyPayload(t *testing.T) {
 	}
 	if updated.Content != expectedContent {
 		t.Fatalf("unexpected updated DB content: %q", updated.Content)
+	}
+}
+
+func TestUpdateParentSkillRejectsDuplicateParentNameAcrossCategories(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	firstReq := createSkillRequest{
+		Name:        "git-workflow",
+		Description: "Git workflow for postman test",
+		Category:    "coding",
+		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", firstReq); err != nil {
+		t.Fatalf("create first parent skill: %v", err)
+	}
+	secondReq := createSkillRequest{
+		Name:        "release-check",
+		Description: "Release checklist",
+		Category:    "ops",
+		Content:     "# Release Checklist\n\nRun release checks.",
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", secondReq); err != nil {
+		t.Fatalf("create second parent skill: %v", err)
+	}
+
+	var second orm.SkillResource
+	if err := db.Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", "u1", evolution.SkillNodeTypeParent, "release-check").Take(&second).Error; err != nil {
+		t.Fatalf("query second parent skill: %v", err)
+	}
+
+	updateReq := updateSkillRequest{Name: stringPtr("git-workflow")}
+	if err := updateSkill(context.Background(), db.DB, "u1", "User 1", second.ID, updateReq); !errors.Is(err, gorm.ErrDuplicatedKey) {
+		t.Fatalf("expected duplicate parent skill name error, got %v", err)
+	}
+
+	var unchanged orm.SkillResource
+	if err := db.Where("id = ?", second.ID).Take(&unchanged).Error; err != nil {
+		t.Fatalf("query unchanged parent skill: %v", err)
+	}
+	if unchanged.SkillName != "release-check" {
+		t.Fatalf("expected skill name to remain release-check, got %q", unchanged.SkillName)
+	}
+}
+
+func TestUpdateParentSkillRejectsParentSkillName(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	createReq := createSkillRequest{
+		Name:        "git-workflow",
+		Description: "Git workflow for postman test",
+		Category:    "coding",
+		Content:     "# Git Workflow\n\nKeep commit history clean and easy to review.",
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", createReq); err != nil {
+		t.Fatalf("create parent skill: %v", err)
+	}
+	otherReq := createSkillRequest{
+		Name:        "release-check",
+		Description: "Release checklist",
+		Category:    "coding",
+		Content:     "# Release Checklist\n\nRun release checks.",
+	}
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", otherReq); err != nil {
+		t.Fatalf("create other parent skill: %v", err)
+	}
+
+	var parent orm.SkillResource
+	if err := db.Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", "u1", evolution.SkillNodeTypeParent, "git-workflow").Take(&parent).Error; err != nil {
+		t.Fatalf("query parent skill: %v", err)
+	}
+
+	req := mux.SetURLVars(
+		httptest.NewRequest(
+			http.MethodPatch,
+			"/api/core/skills/"+parent.ID,
+			strings.NewReader(`{"parent_skill_name":"release-check"}`),
+		),
+		map[string]string{"skill_id": parent.ID},
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	UpdateManaged(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp.Message, "parent skill cannot be converted to child skill") {
+		t.Fatalf("expected parent-to-child error, got code=%d message=%q", resp.Code, resp.Message)
+	}
+
+	var unchanged orm.SkillResource
+	if err := db.Where("id = ?", parent.ID).Take(&unchanged).Error; err != nil {
+		t.Fatalf("query unchanged parent skill: %v", err)
+	}
+	if unchanged.NodeType != evolution.SkillNodeTypeParent {
+		t.Fatalf("expected skill to remain parent, got %q", unchanged.NodeType)
+	}
+	if unchanged.ParentSkillName != "" {
+		t.Fatalf("expected parent_skill_name to remain empty, got %q", unchanged.ParentSkillName)
 	}
 }
 

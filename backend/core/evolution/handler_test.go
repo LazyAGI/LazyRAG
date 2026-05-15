@@ -1025,6 +1025,94 @@ func TestListSuggestionsStatusQueryFiltering(t *testing.T) {
 	}
 }
 
+func TestListSuggestionsIncludesAcceptedAfterApproveForEvolutionID(t *testing.T) {
+	db := newTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	preference := orm.SystemUserPreference{
+		ID:            "preference-1",
+		UserID:        "u1",
+		Content:       "",
+		ContentHash:   HashContent(""),
+		Version:       1,
+		UpdatedBy:     "system",
+		UpdatedByName: "system",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := db.Create(&preference).Error; err != nil {
+		t.Fatalf("create preference: %v", err)
+	}
+
+	suggestion := orm.ResourceSuggestion{
+		ID:           "suggestion-1",
+		UserID:       "u1",
+		ResourceType: ResourceTypeUserPreference,
+		ResourceKey:  SystemResourceKey(ResourceTypeUserPreference),
+		Action:       SuggestionActionModify,
+		SessionID:    "session-1",
+		Title:        "preference suggestion",
+		Content:      "update preference",
+		Status:       SuggestionStatusPendingReview,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := db.Create(&suggestion).Error; err != nil {
+		t.Fatalf("create suggestion: %v", err)
+	}
+
+	approveReq := mux.SetURLVars(
+		httptest.NewRequest(http.MethodPost, "/api/core/evolution/suggestions/suggestion-1:approve", nil),
+		map[string]string{"id": "suggestion-1"},
+	)
+	approveReq.Header.Set("X-User-Id", "reviewer-1")
+	approveReq.Header.Set("X-User-Name", "Reviewer One")
+	approveRec := httptest.NewRecorder()
+
+	ApproveSuggestion(approveRec, approveReq)
+
+	if approveRec.Code != http.StatusOK {
+		t.Fatalf("expected approve status 200, got %d body=%s", approveRec.Code, approveRec.Body.String())
+	}
+
+	listReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/core/evolution/suggestions?page=1&page_size=20&evolution_id=user_preference:preference-1",
+		nil,
+	)
+	listRec := httptest.NewRecorder()
+
+	ListSuggestions(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list status 200, got %d body=%s", listRec.Code, listRec.Body.String())
+	}
+	var listResp struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if listResp.Code != 0 {
+		t.Fatalf("expected list code 0, got %d", listResp.Code)
+	}
+	if listResp.Data.Total != 1 || len(listResp.Data.Items) != 1 {
+		t.Fatalf("expected one accepted suggestion to remain visible, total=%d items=%d", listResp.Data.Total, len(listResp.Data.Items))
+	}
+	if listResp.Data.Items[0].ID != "suggestion-1" || listResp.Data.Items[0].Status != SuggestionStatusAccepted {
+		t.Fatalf("expected accepted suggestion-1, got %#v", listResp.Data.Items[0])
+	}
+}
+
 func TestSuggestionDetailAndReviewIncludeOutdated(t *testing.T) {
 	db := newTestDB(t)
 	store.Init(db.DB, nil, nil)

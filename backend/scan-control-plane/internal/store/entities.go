@@ -4,17 +4,18 @@ import "time"
 
 type sourceEntity struct {
 	ID                    string     `gorm:"column:id;type:text;primaryKey"`
-	TenantID              string     `gorm:"column:tenant_id;type:text;not null;index:idx_sources_tenant;uniqueIndex:uk_sources_tenant_agent_root,priority:1"`
+	TenantID              string     `gorm:"column:tenant_id;type:text;not null;index:idx_sources_tenant;index:idx_sources_tenant_creator,priority:1;uniqueIndex:uk_sources_tenant_agent_root,priority:1"`
+	CreateUserID          string     `gorm:"column:create_user_id;type:text;not null;default:'';index:idx_sources_tenant_creator,priority:2;uniqueIndex:uk_sources_tenant_agent_root,priority:2"`
 	Name                  string     `gorm:"column:name;type:text;not null"`
 	SourceType            string     `gorm:"column:source_type;type:text;not null"`
-	RootPath              string     `gorm:"column:root_path;type:text;not null;uniqueIndex:uk_sources_tenant_agent_root,priority:3"`
+	RootPath              string     `gorm:"column:root_path;type:text;not null;uniqueIndex:uk_sources_tenant_agent_root,priority:4"`
 	Status                string     `gorm:"column:status;type:text;not null"`
 	WatchEnabled          bool       `gorm:"column:watch_enabled;not null;default:false"`
 	WatchUpdatedAt        *time.Time `gorm:"column:watch_updated_at"`
 	IdleWindowSeconds     int64      `gorm:"column:idle_window_seconds;not null"`
 	ReconcileSeconds      int64      `gorm:"column:reconcile_seconds;not null"`
 	ReconcileSchedule     string     `gorm:"column:reconcile_schedule;type:text"`
-	AgentID               string     `gorm:"column:agent_id;type:text;not null;uniqueIndex:uk_sources_tenant_agent_root,priority:2"`
+	AgentID               string     `gorm:"column:agent_id;type:text;not null;uniqueIndex:uk_sources_tenant_agent_root,priority:3"`
 	DatasetID             string     `gorm:"column:dataset_id;type:text"`
 	DefaultOriginType     string     `gorm:"column:default_origin_type;type:text;not null;default:LOCAL_FS"`
 	DefaultOriginPlatform string     `gorm:"column:default_origin_platform;type:text;not null;default:LOCAL"`
