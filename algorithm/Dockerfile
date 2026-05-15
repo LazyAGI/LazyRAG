@@ -54,7 +54,8 @@ RUN set -eu; \
 
 
 # Stage: base_lazyrag - base.
-FROM base AS base_lazyrag
+ARG BASE_LAZYLLM_IMAGE=base
+FROM ${BASE_LAZYLLM_IMAGE} AS base_lazyrag
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
 LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
@@ -65,12 +66,13 @@ RUN cd /opt/lazyllm && lazyllm install rag
 
 
 # Stage: algorithm - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-FROM base_lazyrag AS algorithm
+ARG BASE_LAZYRAG_IMAGE=base_lazyrag
+FROM ${BASE_LAZYRAG_IMAGE} AS algorithm
 COPY algorithm/requirements.txt /app/algorithm/requirements.txt
 RUN pip install --no-cache-dir -r algorithm/requirements.txt
 COPY algorithm/ /app/algorithm/
 RUN chmod +x /app/algorithm/docker-entrypoint.sh
-ENV PYTHONPATH=/opt/lazyllm:/app \
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
   LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000 \
   LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads \
   LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads \
@@ -84,20 +86,23 @@ ENV PYTHONPATH=/opt/lazyllm:/app \
   LAZYRAG_SKILL_REVIEW_INTERVAL=5 \
   LAZYRAG_SKILL_REVIEW_DEBUG=false \
   LAZYRAG_USE_INNER_MODEL=true \
-  LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+  LAZYRAG_MODEL_CONFIG_PATH=/app/algorithm/chat/runtime_models.inner.yaml
+WORKDIR /app/algorithm
 ENTRYPOINT ["/app/algorithm/docker-entrypoint.sh"]
-CMD ["python", "algorithm/parsing/parsing.py"]
+CMD ["python", "parsing/parsing.py"]
 
 
 # Stage: doc - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
 FROM algorithm AS doc
-ENV PYTHONPATH=/opt/lazyllm:/app/algorithm:/app
+WORKDIR /app
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm
 COPY backend/core/doc /app/backend/core/doc
 CMD ["python", "backend/core/doc/doc_server.py"]
 
 
 # Stage: evo - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
 FROM algorithm AS evo
+WORKDIR /app
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG GITHUB_PROXY=https://gh-proxy.com/
@@ -109,8 +114,8 @@ ENV PYTHONUNBUFFERED=1 \
     LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
     LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
     LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
-    LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
-    PYTHONPATH=/opt/lazyllm:/app
+    LAZYRAG_MODEL_CONFIG_PATH=/app/algorithm/chat/runtime_models.inner.yaml \
+    PYTHONPATH=/opt/lazyllm:/app/algorithm
   
 RUN set -eu; \
 for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
@@ -182,5 +187,6 @@ RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
 COPY algorithm/ /app/algorithm/
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm
+WORKDIR /app/algorithm
 CMD ["python", "parsing/mineru.py"]

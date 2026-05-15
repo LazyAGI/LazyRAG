@@ -106,9 +106,23 @@ export ALPINE_MIRROR ?= https://mirrors.aliyun.com/alpine
 export NPM_REGISTRY ?= https://registry.npmmirror.com
 export GOPROXY ?= https://goproxy.cn,direct
 export GOSUMDB ?= sum.golang.google.cn
-# GitHub release/source proxy used when GitHub raw / luarocks.org are blocked.
+# GitHub release/source proxy used when GitHub raw / luarocks.org / codeload
+# / raw.githubusercontent are blocked.
 export GITHUB_PROXY ?= https://gh-proxy.com/
-# GitHub release/source proxy used when codeload/raw.githubusercontent are blocked.
+
+# Pluggable parent images for the algorithm Dockerfile's multi-stage chain:
+#
+#   FROM ${BASE_LAZYLLM_IMAGE}  AS base_lazyrag    # adds `lazyllm install rag`
+#   FROM ${BASE_LAZYRAG_IMAGE}  AS algorithm       # adds algorithm code + reqs
+#
+# Defaults wire up the in-tree chain: base -> base_lazyrag -> algorithm.
+# Override either variable with an external prebuilt image tag to skip the
+# corresponding stage's heavy build (useful for CI cache reuse), e.g.:
+#   BASE_LAZYRAG_IMAGE=registry.example.com/lazyrag/base_lazyrag:latest
+# Or set BASE_LAZYRAG_IMAGE=base to skip the rag install layer entirely for
+# fast dev builds when RAG extras are not needed.
+export BASE_LAZYLLM_IMAGE ?= base
+export BASE_LAZYRAG_IMAGE ?= base_lazyrag
 
 # model config path
 export LAZYRAG_MODEL_CONFIG_PATH ?= online
