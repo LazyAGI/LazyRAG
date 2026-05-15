@@ -85,6 +85,12 @@
     overflow-x: hidden;
   }
 
+  &.segmentCard-no-number {
+    .contentReadOnly {
+      padding-top: 10px;
+    }
+  }
+
   .contentInner {
     height: 100%;
     overflow: hidden;

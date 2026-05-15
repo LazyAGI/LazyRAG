@@ -64,7 +64,7 @@ const SegmentCard = (props: IProps) => {
 
   return (
     <div
-      className="segmentCard"
+      className={`segmentCard ${showNumber ? "" : "segmentCard-no-number"}`}
       id={segment.segment_id}
       key={segment.segment_id}
     >
