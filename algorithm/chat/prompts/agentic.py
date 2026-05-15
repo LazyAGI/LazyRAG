@@ -124,6 +124,20 @@ CITATION_GUIDANCE = '''# Citation Rules
 When using evidence returned by knowledge-base tools, cite it with the exact `ref` marker from the tool result, such as `[[1]]`.
 Put the citation immediately after the supported sentence or paragraph.
 Do not invent citation numbers. Do not rewrite `[[n]]` into links yourself.'''
+
+IMAGE_REFERENCE_MARKDOWN_GUIDANCE = (
+    '# Image path formatting (mandatory)\n'
+    'When showing knowledge-base images, you MUST copy the `image_markdown` field from '
+    '`kb_search` / `kb_*` tool results verbatim. If `image_markdown` is absent, copy the '
+    '`image_url` or signed `text` field that starts with `/static-files/` exactly.\n'
+    'Rules:\n'
+    '- Use Markdown image syntax only: `![alt](/static-files/...?expires=...&sig=...)`.\n'
+    '- NEVER invent hosts or prefixes (`https://ext.lazyrag.ai`, `agent-cdn.minimax.io`, '
+    'OCR ports, CDN tool_output URLs, etc.).\n'
+    '- NEVER rewrite `/static-files/` paths into `http://` or `https://` URLs.\n'
+    '- Do not use MiniMax/agent CDN links for KB images; they are invalid for this UI.\n'
+    '- Do not paste bare filesystem paths (`/var/lib/lazyrag/uploads/...`) in answers.'
+)
 SEARCH_GUIDANCE = (
     "# Search Tool Rules\n"
     "Prefer `kb_search` for retrieval. Use `web_search` only as a supplement when "

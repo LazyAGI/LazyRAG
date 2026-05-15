@@ -1,9 +1,7 @@
 from parsing.readers.imageEmbReader import ImageEmbReader
-from parsing.readers.videoAudioReader import VideoAudioReader
-from parsing.readers.videoFrameReader import VideoFrameReader
+from parsing.readers.videoReader import VideoReader
 
 __all__ = [
     'ImageEmbReader',
-    'VideoAudioReader',
-    'VideoFrameReader',
+    'VideoReader',
 ]

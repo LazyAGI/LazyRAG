@@ -64,18 +64,4 @@ type DiffEntry = {
 //   return formatDiffArray(diffRes);
 // }
 
-export function replaceImagesWithKeys(srcText: string, keys: string[]) {
-  if (typeof srcText !== "string" || !Array.isArray(keys)) {
-    return srcText;
-  }
-
-  const imageRE = /!\[(.*?)\]\((.*?)\)/g;
-
-  return srcText.replace(imageRE, (match, alt, url) => {
-    const found = keys.find((k) => url.indexOf(k) !== -1);
-    if (found) {
-      return `![${alt}](${found})`;
-    }
-    return match;
-  });
-}
+export { collapseImagesToKeys as replaceImagesWithKeys } from '@/modules/knowledge/utils/imageUrl';

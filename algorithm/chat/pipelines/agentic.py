@@ -41,6 +41,7 @@ from chat.components.agentic.review import (  # noqa: E402
     _build_review_decision,
     _spawn_background_review,
 )
+from chat.utils.markdown_images import rewrite_markdown_image_urls  # noqa: E402
 from chat.components.agentic.tool_stream import (  # noqa: E402
     _STREAM_CHUNK_SIZE,
     _format_tool_stream_frame,
@@ -351,6 +352,7 @@ async def _agentic_forward_stream(
                         frames.append(_stream_frame(think=seg))
                     else:
                         streamed_text = True
+                        seg = rewrite_markdown_image_urls(seg, config=runtime_params)
                         frames.append(_stream_frame(text=seg))
 
         return frames
@@ -411,6 +413,7 @@ async def _agentic_forward_stream(
                 yield _stream_frame(think=seg)
             else:
                 streamed_text = True
+                seg = rewrite_markdown_image_urls(seg, config=runtime_params)
                 yield _stream_frame(text=seg)
 
         output = _format_non_stream_result(final_result, runtime_params)
@@ -420,7 +423,10 @@ async def _agentic_forward_stream(
             if think:
                 for chunk in _iter_text_chunks(think, chunk_size):
                     yield _stream_frame(think=chunk)
-            for chunk in _iter_text_chunks(str(output.get('text') or ''), chunk_size):
+            final_text = rewrite_markdown_image_urls(
+                str(output.get('text') or ''), config=runtime_params,
+            )
+            for chunk in _iter_text_chunks(final_text, chunk_size):
                 yield _stream_frame(
                     text=chunk,
                 )

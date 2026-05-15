@@ -8,6 +8,7 @@ import requests
 from lazyllm import fc_register
 
 from chat.pipelines.builders.get_ppl_search import get_ppl_search
+from chat.utils.static_file_url import basename_from_path, static_file_url_from_any
 from config import config as _cfg
 
 _MAX_TEXT_LEN = 1200
@@ -19,6 +20,7 @@ _DEFAULT_ES_PASSWORD = _cfg['opensearch_password']
 _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
+_IMAGE_URL_REGISTRY_KEY = '_image_url_registry'
 
 
 def _tool_failure(tool_name: str, exc: Exception) -> Dict[str, Any]:
@@ -102,19 +104,55 @@ def _serialize_doc_node_like(node: Any) -> Dict[str, Any]:
         )
         if k in metadata
     }
-    return {
+    group = _safe_getattr(node, 'group', None) or _safe_getattr(node, '_group', None)
+    text = _safe_getattr(node, 'text', '') or ''
+    if group == 'image' or (
+        isinstance(text, str)
+        and text.strip().startswith('/var/lib/lazyrag/uploads/')
+        and text.strip().lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'))
+    ):
+        signed = static_file_url_from_any(text.strip())
+        if signed:
+            text = signed
+            compact_metadata = dict(compact_metadata)
+            compact_metadata['image_url'] = signed
+            file_label = (
+                compact_metadata.get('file_name')
+                or global_md.get('file_name')
+                or basename_from_path(signed)
+            )
+            image_markdown = f'![{file_label}]({signed})'
+    else:
+        image_markdown = None
+
+    serialized = {
         'uid': _safe_getattr(node, 'uid', None) or _safe_getattr(node, '_uid', None),
         'number': _safe_getattr(node, 'number', metadata.get('index')),
-        'group': _safe_getattr(node, 'group', None) or _safe_getattr(node, '_group', None),
+        'group': group,
         'parent': _safe_getattr(node, '_parent', None),
         'score': _safe_getattr(node, 'relevance_score', None),
-        'text': _truncate_text(_safe_getattr(node, 'text', '')),
+        'text': _truncate_text(text),
         'docid': global_md.get('docid'),
         'kb_id': global_md.get('kb_id'),
         'file_name': compact_metadata.get('file_name') or global_md.get('file_name'),
         'metadata': compact_metadata,
         'global_metadata': global_md,
     }
+    if image_markdown:
+        serialized['image_markdown'] = image_markdown
+        _register_image_url(_agentic_config(), text)
+    return serialized
+
+
+def _register_image_url(config: Dict[str, Any], path_or_url: str) -> None:
+    signed = static_file_url_from_any(path_or_url)
+    if not signed:
+        return
+    registry = config.setdefault(_IMAGE_URL_REGISTRY_KEY, {})
+    registry[signed] = signed
+    base = basename_from_path(signed)
+    if base:
+        registry[base] = signed
 
 
 def _agentic_config() -> Dict[str, Any]:
@@ -259,7 +297,7 @@ def _source_node_from_item(index: int, item: Dict[str, Any]) -> Dict[str, Any]:
     metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
     global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
     content = item.get('text') if item.get('text') is not None else item.get('content', '')
-    return {
+    source = {
         'file_id': '',
         'file_name': _file_name_from_item(item),
         'document_id': item.get('docid') or item.get('document_id') or global_md.get('docid', ''),
@@ -277,7 +315,15 @@ def _source_node_from_item(index: int, item: Dict[str, Any]) -> Dict[str, Any]:
         ),
         'page': metadata.get('page', -1),
         'bbox': metadata.get('bbox', []),
+        'metadata': metadata,
     }
+    image_url = metadata.get('image_url') or item.get('image_url')
+    if isinstance(image_url, str) and image_url.strip():
+        source['image_url'] = image_url.strip()
+    image_markdown = item.get('image_markdown')
+    if isinstance(image_markdown, str) and image_markdown.strip():
+        source['image_markdown'] = image_markdown.strip()
+    return source
 
 
 def _register_citation_item(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -298,6 +344,9 @@ def _register_citation_item(item: Dict[str, Any]) -> Dict[str, Any]:
         config[_CITATION_NEXT_KEY] = index + 1
         key_map[key] = index
         refs[index] = _source_node_from_item(index, item)
+        signed = static_file_url_from_any(str(text))
+        if signed:
+            _register_image_url(config, signed)
 
     item['citation_index'] = index
     item['ref'] = f'[[{index}]]'

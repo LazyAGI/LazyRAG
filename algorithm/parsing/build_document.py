@@ -14,7 +14,7 @@ from chat.utils.load_config import (
     get_text_embed_keys,
 )
 from config import config as _cfg
-from parsing.readers import ImageEmbReader, VideoAudioReader, VideoFrameReader
+from parsing.readers import ImageEmbReader, VideoReader
 from parsing.transform import GeneralParser, LineSplitter, NodeParser
 
 ALGO_ID = 'general_algo'
@@ -234,12 +234,11 @@ def build_document() -> Document:
 
     image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif')
     image_reader = ImageEmbReader()
-    audio_reader = VideoAudioReader(time_segment=True)
-    video_frame_reader = VideoFrameReader()
+    media_reader = VideoReader()
     for ext in image_extensions:
         docs.add_reader(f'*{ext}', image_reader)
-    docs.add_reader('*.mp3', audio_reader)
-    docs.add_reader('*.mp4', video_frame_reader)
+    docs.add_reader('*.mp3', media_reader)
+    docs.add_reader('*.mp4', media_reader)
 
     docs.create_node_group(name='block', display_name='paragraph slice',
                            group_type=NodeGroupType.CHUNK, transform=GeneralParser(max_length=2048, split_by='\n'))
