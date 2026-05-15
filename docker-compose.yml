@@ -3,9 +3,14 @@ x-mirror-args: &mirror-args
   PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
   PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-2400}
   PIP_RETRIES: ${PIP_RETRIES:-10}
-  GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
   APT_MIRROR: ${APT_MIRROR:-http://mirrors.aliyun.com/debian}
   APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
+  APT_UBUNTU_MIRROR: ${APT_UBUNTU_MIRROR:-http://mirrors.aliyun.com/ubuntu}
+  ALPINE_MIRROR: ${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}
+  NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+  GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+  GOSUMDB: ${GOSUMDB:-sum.golang.google.cn}
+  GITHUB_PROXY: ${GITHUB_PROXY:-https://gh-proxy.com/}
 
 x-trace-config: &trace-config
   LANGFUSE_HOST: ${LANGFUSE_HOST:-}
@@ -68,10 +73,11 @@ services:
 
   kong:
     build:
+      network: host
       context: ./kong
       dockerfile: Dockerfile
       args:
-        DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io/library/}
+        <<: *mirror-args
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /kong/kong.yml
@@ -182,7 +188,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: docker.m.daocloud.io/redis:7
+    image: ${DOCKER_MIRROR:-docker.m.daocloud.io/library/}redis:7
     command: ["redis-server", "--appendonly", "yes", "--aclfile", "/usr/local/etc/redis/users.acl"]
     volumes:
       - ./data/state/redis:/data
@@ -216,7 +222,7 @@ services:
       LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: ${LAZYRAG_BOOTSTRAP_ADMIN_USERNAME:-admin}
       LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD:-admin}
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/health')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -312,6 +318,7 @@ services:
 
   frontend:
     build:
+      network: host
       context: ./frontend
       args:
         <<: *mirror-args
@@ -389,7 +396,6 @@ services:
         MINERU_TORCHVISION_VERSION: 0.26.0
         MINERU_NUMPY_VERSION: 1.26.4
         MINERU_PYTORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
-        MINERU_PYPI_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
     expose:
       - "8000"
     volumes:
@@ -553,6 +559,7 @@ services:
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
       - ./algorithm/parsing:/app/parsing:ro
+      - ./algorithm/processor:/app/processor:ro
       - ./algorithm/config.py:/app/config.py:ro
       - ./algorithm/config.py:/app/algorithm/config.py:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
@@ -602,9 +609,6 @@ services:
       target: default
       args:
         <<: *mirror-args
-      secrets:
-        - apt_http_proxy
-        - apt_https_proxy
     expose:
       - "8046"
     volumes:
@@ -612,6 +616,8 @@ services:
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
+      - ./algorithm/parsing:/app/parsing:ro
+      - ./algorithm/processor:/app/processor:ro
       - ./algorithm/config.py:/app/config.py:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     healthcheck:
@@ -652,9 +658,6 @@ services:
       args:
         <<: *mirror-args
         OPENCODE_VERSION: 1.14.28
-      secrets:
-        - apt_http_proxy
-        - apt_https_proxy
     expose:
       - "8047"
     ports:
@@ -812,12 +815,6 @@ services:
     depends_on:
       opensearch:
         condition: service_healthy
-
-secrets:
-  apt_http_proxy:
-    environment: http_proxy
-  apt_https_proxy:
-    environment: https_proxy
 
 volumes:
   pgdata:

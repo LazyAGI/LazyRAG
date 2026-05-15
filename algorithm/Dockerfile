@@ -5,59 +5,33 @@ WORKDIR /app
 
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
-ARG LAZYLLM_GITHUB_REF=main
-ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
+ARG LAZYLLM_GITHUB_REF=main
+ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    apt_http_proxy="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    apt_https_proxy="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
-      [ -f "$source_file" ] || continue; \
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
+    PIP_RETRIES=${PIP_RETRIES} \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN set -eu; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+      [ -f "$f" ] || continue; \
       sed -i \
         -e "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
         -e "s|http://deb.debian.org/debian|${APT_MIRROR}|g" \
-        "$source_file"; \
+        "$f"; \
     done; \
-    if [ -n "$apt_http_proxy" ] || [ -n "$apt_https_proxy" ]; then \
-      { \
-        [ -z "$apt_http_proxy" ] || printf 'Acquire::http::Proxy "%s";\n' "$apt_http_proxy"; \
-        [ -z "$apt_https_proxy" ] || printf 'Acquire::https::Proxy "%s";\n' "$apt_https_proxy"; \
-        printf 'Acquire::Retries "5";\n'; \
-        printf 'Acquire::http::Timeout "120";\n'; \
-        printf 'Acquire::https::Timeout "120";\n'; \
-        printf 'Acquire::ForceIPv4 "true";\n'; \
-      } > /etc/apt/apt.conf.d/99proxy; \
-    fi; \
-    apt-get update && apt-get install -y \
-        ca-certificates \
-        curl \
-        build-essential \
-        gcc \
-        libgl1 \
-        libglib2.0-0 \
-        libsm6 \
-        libxext6 \
-        libxrender1 \
-        libxcb1 \
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl build-essential gcc \
+        libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1 \
         python3-dev \
     && update-ca-certificates \
-    && rm -f /etc/apt/apt.conf.d/99proxy \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    proxy_http="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    proxy_https="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    export http_proxy="$proxy_http" https_proxy="$proxy_https"; \
-    export HTTP_PROXY="$proxy_http" HTTPS_PROXY="$proxy_https"; \
-    export PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT}" PIP_RETRIES="${PIP_RETRIES}"; \
-    export PIP_DISABLE_PIP_VERSION_CHECK=1; \
+RUN set -eu; \
     curl -fL --http1.1 --no-progress-meter \
       --retry 8 --retry-all-errors --retry-delay 3 \
       --connect-timeout 30 --speed-limit 1024 --speed-time 60 --max-time 900 \
@@ -79,7 +53,6 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     chmod 0755 /usr/local/bin/lazyllm
 
 # Stage: default - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-# Use the LazyLLM runtime installed under /opt/lazyllm so tracing behavior matches Evo/chat images.
 FROM base AS default
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
@@ -111,7 +84,6 @@ ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
 # Stage: mineru - base + requirements.txt + configurable mineru extra + code.
-# Use the same LazyLLM runtime as the default stage.
 FROM base AS mineru
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
@@ -126,7 +98,6 @@ ARG MINERU_TORCH_VERSION=2.11.0
 ARG MINERU_TORCHVISION_VERSION=0.26.0
 ARG MINERU_NUMPY_VERSION=1.26.4
 ARG MINERU_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
-ARG MINERU_PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN if [ "$MINERU_PREINSTALL_CPU_TORCH" = "1" ]; then \
@@ -135,7 +106,7 @@ RUN if [ "$MINERU_PREINSTALL_CPU_TORCH" = "1" ]; then \
         "torch==${MINERU_TORCH_VERSION}+cpu" \
         "torchvision==${MINERU_TORCHVISION_VERSION}+cpu"; \
     fi
-RUN pip install --no-cache-dir "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERSION}" -i "$MINERU_PYPI_INDEX_URL"
+RUN pip install --no-cache-dir "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERSION}"
 RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
