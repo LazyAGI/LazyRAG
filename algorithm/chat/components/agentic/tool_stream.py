@@ -19,8 +19,9 @@ _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'web_search': 'query',
     'url_fetch': 'url',
     'arxiv_search': 'query',
-    'memory': 'suggestions',
-    'skill_manage': 'name',
+    'memory': 'suggestions.title',
+    'vocab_manage': 'suggestions <-> synonym',
+    'skill_manage': 'category/name',
     'get_skill': 'name',
     'read_reference': 'rel_path',
     'run_script': 'rel_path',
@@ -32,6 +33,14 @@ _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'delete_file': 'path',
     'move_file': 'src',
     'download_file': 'url',
+}
+
+_TOOL_ARGUMENT_LIST_COERCIONS: dict[str, dict[str, Any]] = {
+    'vocab_manage': {
+        'field': 'suggestions',
+        'item_fields': ('word', 'synonym', 'description', 'reason'),
+        'aliases': {'word': ('word', 'suggestions')},
+    },
 }
 
 _REPRESENTATIVE_TOOL_RESULTS: dict[str, str] = {
@@ -59,6 +68,7 @@ _TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
     'url_fetch': 'Reading page content from {value}.',
     'arxiv_search': 'Searching arXiv papers for {value}.',
     'memory': 'Saving {value} as useful long term memory now.',
+    'vocab_manage': 'Updating vocabulary entries for {value} now.',
     'skill_manage': 'Updating reusable skill notes related to {value} now.',
     'get_skill': 'Opening skill details for {value} before continuing now.',
     'read_reference': 'Reading skill reference material from {value} for review.',
@@ -83,6 +93,7 @@ _ZH_TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
     'url_fetch': '正在读取网页 {value} 。',
     'arxiv_search': '正在 arXiv 中搜索论文 {value}。',
     'memory': '正在将 {value} 保存为长期记忆。',
+    'vocab_manage': '正在更新与 {value} 相关的词汇表。',
     'skill_manage': '正在更新与 {value} 相关的技能。',
     'get_skill': '正在打开 {value} 的技能详情。',
     'read_reference': '正在读取 {value} 技能的参考资料。',
@@ -107,6 +118,7 @@ _TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
     'url_fetch': 'Page content from {value} was loaded successfully.',
     'arxiv_search': 'arXiv results for {value} are ready now.',
     'memory': 'Long term memory for {value} was saved successfully.',
+    'vocab_manage': 'Vocabulary entries for {value} were updated successfully.',
     'skill_manage': 'Reusable skill notes for {value} were updated successfully.',
     'get_skill': 'Skill details for {value} were loaded successfully now.',
     'read_reference': 'Skill reference material from {value} was loaded successfully.',
@@ -130,6 +142,7 @@ _ZH_TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
     'url_fetch': '已成功加载 {value} 的网页内容。',
     'arxiv_search': '已找到 {value} 的 arXiv 结果。',
     'memory': '已成功保存 {value} 的长期记忆。',
+    'vocab_manage': '已成功更新 {value} 的词汇表。',
     'skill_manage': '已成功更新 {value} 的技能。',
     'get_skill': '已成功加载 {value} 的技能详情。',
     'read_reference': '已成功加载 {value} 技能的参考资料。',
@@ -153,6 +166,7 @@ _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
     'url_fetch': 'Page content from {value} could not be loaded.',
     'arxiv_search': 'arXiv results for {value} could not be retrieved.',
     'memory': 'Long term memory for {value} could not be saved.',
+    'vocab_manage': 'Vocabulary entries for {value} could not be updated.',
     'skill_manage': 'Reusable skill notes for {value} could not be updated.',
     'get_skill': 'Skill details for {value} could not be loaded.',
     'read_reference': 'Skill reference material from {value} could not be read.',
@@ -176,6 +190,7 @@ _ZH_TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
     'url_fetch': '未能加载网页 {value} 的内容。',
     'arxiv_search': '未能获取 {value} 的 arXiv 结果。',
     'memory': '未能保存 {value} 的长期记忆。',
+    'vocab_manage': '未能更新 {value} 的词汇表。',
     'skill_manage': '未能更新 {value} 的技能。',
     'get_skill': '未能加载 {value} 的技能详情。',
     'read_reference': '未能读取 {value} 技能参考资料。',
@@ -266,17 +281,68 @@ _STREAM_CHUNK_SIZE = 24
 _ZH_PREVIEW_RE = re.compile('[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]')
 
 
-def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
+def _parse_tool_arguments(arguments: Any) -> Any:
+    if not isinstance(arguments, str):
+        return arguments
+    text = arguments.strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    try:
+        from json_repair import loads as repair_json_loads  # type: ignore
+
+        repaired = repair_json_loads(text)
+        if isinstance(repaired, (dict, list)):
+            return repaired
+    except Exception:
+        pass
+    return arguments
+
+
+def _coerce_tool_arguments_for_execution(tool_name: str, arguments: Any) -> Any:
+    coercion = _TOOL_ARGUMENT_LIST_COERCIONS.get(tool_name)
+    if not isinstance(arguments, dict) or not isinstance(coercion, dict):
+        return arguments
+
+    list_field = str(coercion.get('field') or '')
+    current_value = arguments.get(list_field)
+    if not list_field or isinstance(current_value, list):
+        return arguments
+
+    item: dict[str, Any] = {}
+    aliases = coercion.get('aliases') or {}
+    for field in tuple(coercion.get('item_fields') or ()):
+        candidates = tuple(aliases.get(field) or (field,))
+        for candidate in candidates:
+            value = arguments.get(candidate)
+            if _is_meaningful_preview_value(value) and not isinstance(
+                value,
+                (list, tuple, set, dict),
+            ):
+                item[field] = value
+                break
+    if not item:
+        return arguments
+    return {list_field: [item]}
+
+
+def _normalize_tool_call(tool_call: dict[str, Any], *, coerce_arguments: bool = False) -> dict[str, Any]:
     function = tool_call.get('function') or {}
-    arguments = function.get('arguments', {})
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except json.JSONDecodeError:
-            pass
+    if function:
+        tool_name = function.get('name', '')
+        arguments = function.get('arguments', {})
+    else:
+        tool_name = tool_call.get('name', '')
+        arguments = tool_call.get('arguments', {})
+    arguments = _parse_tool_arguments(arguments)
+    if coerce_arguments:
+        arguments = _coerce_tool_arguments_for_execution(str(tool_name), arguments)
     return {
         'id': tool_call.get('id', ''),
-        'name': function.get('name', ''),
+        'name': tool_name,
         'arguments': arguments,
     }
 
@@ -299,11 +365,13 @@ def _language_fallback(language: str, en_fallback: str, zh_fallback: str) -> str
 
 
 def _representative_tool_argument(tool_name: str, arguments: Any) -> Any:
-    key = _REPRESENTATIVE_TOOL_ARGUMENTS.get(tool_name)
+    expression = _REPRESENTATIVE_TOOL_ARGUMENTS.get(tool_name)
     if not isinstance(arguments, dict):
         return arguments
-    if key and arguments.get(key) is not None:
-        return arguments.get(key)
+    if expression:
+        value = _representative_expression_value(arguments, expression)
+        if _is_meaningful_preview_value(value):
+            return value
     return _representative_mapping_value(arguments, _FALLBACK_REPRESENTATIVE_ARGUMENT_KEYS)
 
 
@@ -342,6 +410,65 @@ def _representative_mapping_value(mapping: dict[str, Any], preferred_keys: tuple
         if _is_meaningful_preview_value(value):
             return value
     return ''
+
+
+def _resolve_representative_path(value: Any, path: str) -> Any:
+    if not path:
+        return value
+    current = value
+    parts = path.split('.')
+    for index, part in enumerate(parts):
+        if isinstance(current, list):
+            remaining_path = '.'.join(parts[index:])
+            return [
+                resolved for item in current
+                if _is_meaningful_preview_value(
+                    resolved := _resolve_representative_path(item, remaining_path)
+                )
+            ]
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _representative_expression_value(arguments: dict[str, Any], expression: str) -> Any:
+    def expression_part_value(part: str) -> Any:
+        value = _resolve_representative_path(arguments, part)
+        if _is_meaningful_preview_value(value) or '.' not in part:
+            return value
+        head, leaf = part.split('.', 1)
+        return (
+            _resolve_representative_path(arguments, leaf)
+            or _resolve_representative_path(arguments, head)
+        )
+
+    for separator in (' <-> ', '/'):
+        if separator not in expression:
+            continue
+        parts = [part.strip() for part in expression.split(separator)]
+        values = [expression_part_value(part) for part in parts]
+        if any(isinstance(value, list) for value in values):
+            max_count = max((len(value) for value in values if isinstance(value, list)), default=0)
+            previews = []
+            for index in range(min(max_count, 2)):
+                item_parts = [
+                    _tool_preview_value(value[index] if isinstance(value, list) and index < len(value) else value)
+                    for value in values
+                ]
+                item_parts = [part for part in item_parts if part]
+                if item_parts:
+                    previews.append(separator.join(item_parts))
+            if previews:
+                text = ', '.join(previews)
+                if max_count > 2:
+                    return f'{text} and {max_count - 2} more'
+                return text
+        item_parts = [_tool_preview_value(value) for value in values]
+        item_parts = [part for part in item_parts if part]
+        if item_parts:
+            return separator.join(item_parts)
+    return _resolve_representative_path(arguments, expression)
 
 
 def _friendly_preview_text(value: Any) -> str:
@@ -409,7 +536,7 @@ def _tool_preview_value(value: Any) -> str:
 
 def _tool_call_preview_value(tool_name: str, arguments: Any, language: str = 'en') -> str:
     preview = _tool_preview_value(_representative_tool_argument(tool_name, arguments))
-    if tool_name == 'memory' and preview in ('', 'memory', 'user'):
+    if tool_name == 'memory' and not preview:
         return '待保存内容' if language == 'zh' else 'memory update'
     return preview
 
@@ -430,6 +557,10 @@ def _tool_result_status(result: Any) -> str:
         if status == 'needs_approval':
             return 'needs_approval'
         if status in ('error', 'missing', 'failed', 'fail'):
+            return 'failed'
+    elif isinstance(result, str):
+        text = result.strip().lower()
+        if any(marker in text for marker in ('error', 'failed', 'parameters error')):
             return 'failed'
     return 'ok'
 
@@ -522,6 +653,7 @@ def _tool_result_preview(tool_name: str, result: Any, value: str = '', language:
 
 
 def _tool_call_frame_text(tool_call: dict[str, Any], language: str = 'en') -> str:
+    tool_call = _normalize_tool_call(tool_call, coerce_arguments=False)
     tool_call_id = str(tool_call.get('id') or '')
     tool_name = str(tool_call.get('name', ''))
     arguments = tool_call.get('arguments', {})

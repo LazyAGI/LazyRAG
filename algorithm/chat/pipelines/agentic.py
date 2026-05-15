@@ -86,12 +86,16 @@ class _StreamingFunctionCall(FunctionCall):
             for idx, tc in enumerate((llm_output.get('tool_calls') or []), start=1):
                 if not isinstance(tc, dict):
                     continue
-                normalized_tool_call = _normalize_tool_call(tc)
+                normalized_tool_call = _normalize_tool_call(tc, coerce_arguments=False)
                 normalized_tool_call['id'] = _tool_call_id(
                     normalized_tool_call, self._round_index, idx
                 )
                 tool_calls.append(normalized_tool_call)
             if tool_calls:
+                execution_tool_calls = [
+                    _normalize_tool_call(tool_call, coerce_arguments=True)
+                    for tool_call in tool_calls
+                ]
                 llm_output['tool_calls'] = [
                     {
                         'id': tool_call['id'],
@@ -104,7 +108,7 @@ class _StreamingFunctionCall(FunctionCall):
                             ),
                         },
                     }
-                    for tool_call in tool_calls
+                    for tool_call in execution_tool_calls
                 ]
 
         if self._stream_event_callback and isinstance(llm_output, dict) and tool_calls:
