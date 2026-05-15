@@ -335,6 +335,8 @@ async def _agentic_forward_stream(
                 event_queue.put({'type': 'frame', 'frame': frame})
 
     def _stream_monitor() -> None:
+        lazyllm.globals._init_sid(global_sid)
+        lazyllm.locals._init_sid(local_sid)
         while not worker_done.is_set() and not closed.is_set():
             with output_lock:
                 _flush_stream_frames_to_queue()

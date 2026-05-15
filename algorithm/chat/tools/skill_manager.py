@@ -114,7 +114,7 @@ def _validate_skill_name(name: str) -> Optional[str]:
     if name in {'.', '..'} or not _PATH_SEGMENT_RE.match(name):
         return (
             f'Skill name {name!r} is invalid; whitespace and slashes '
-            "are not allowed."
+            'are not allowed.'
         )
     return None
 

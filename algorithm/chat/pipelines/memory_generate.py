@@ -313,7 +313,7 @@ def _build_memory_prompt(
     return (
         'You are an agent memory editor. Generate the complete new memory content based on the input; no explanations or summaries.\n'  # noqa: E501
         'memory type: memory\n'
-        'memory stores the agent\'s own working memory about the user across sessions, such as: when a discussion happened, '  # noqa: E501
+        "memory stores the agent's own working memory about the user across sessions, such as: when a discussion happened, "  # noqa: E501
         'what the user and agent discussed, what the user was working on, ongoing context the agent may need to recall later, and other concise session-history facts.\n'  # noqa: E501
         'The input suggestions are candidate memory events, not final text patches. Your job is to merge those events into the existing memory and regenerate the full compact memory.\n'  # noqa: E501
         '\n'
@@ -324,7 +324,7 @@ def _build_memory_prompt(
         '\n'
         '[Writing and merging rules]\n'
         '- You do NOT output final memory text directly unless you must use replace_all. Normally you output edit operations that will be applied to the existing memory inside the generate endpoint.\n'  # noqa: E501
-        '- If the current memory has local wording problems, slight format drift, or a user-edited phrase that should be corrected without rewriting the whole day structure, you may use `replace_text` for a local fix.\n'
+        '- If the current memory has local wording problems, slight format drift, or a user-edited phrase that should be corrected without rewriting the whole day structure, you may use `replace_text` for a local fix.\n'  # noqa: E501
         '- Preferred final format after editing: group by day. Use one top-level bullet per day, ideally `- YYYY-MM-DD`, then summarize that day under concise sub-lines such as `用户在做:`, `我们讨论了:`, and `状态/冲突:` when needed.\n'  # noqa: E501
         '- If the exact date is unknown, use the best available time anchor such as month, week, or relative session marker, but still merge nearby events together when they clearly belong to the same day or session window.\n'  # noqa: E501
         '- Treat each suggestion as one atomic memory event to absorb into the day summary, not as a ready-made final line that must be copied verbatim.\n'  # noqa: E501
@@ -334,9 +334,9 @@ def _build_memory_prompt(
         '- When merging, deduplicate and consolidate: combine same or similar working-memory items into a more accurate statement; do not stack duplicates.\n'  # noqa: E501
         '- Conflict handling: if a new suggestion clearly supersedes an older memory on the same topic, keep only the new conclusion and record it under `状态/冲突:` as `已更新:` or `已废弃旧方案:` when useful.\n'  # noqa: E501
         '- If conflicting information is still unresolved, keep only the current best summary and mark it as `待定:` or `当前倾向:` under `状态/冲突:`.\n'  # noqa: E501
-        '- Keep language concise and objective; compress aggressively so memory remains a compact aide-memoire rather than a diary.\n'
-        '- `replace_text` always replaces the first matching occurrence only. If first-match replacement is unsafe or too ambiguous, use `replace_all` instead of trying to target a later occurrence.\n'
-        '- Use `replace_all` only when the current content cannot be edited safely with local text replacement or day-level operations.\n'
+        '- Keep language concise and objective; compress aggressively so memory remains a compact aide-memoire rather than a diary.\n'  # noqa: E501
+        '- `replace_text` always replaces the first matching occurrence only. If first-match replacement is unsafe or too ambiguous, use `replace_all` instead of trying to target a later occurrence.\n'  # noqa: E501
+        '- Use `replace_all` only when the current content cannot be edited safely with local text replacement or day-level operations.\n'  # noqa: E501
         '\n'
         f'{_COMMON_LANGUAGE_RULES}'
         '\n'
@@ -369,12 +369,12 @@ def _build_user_preference_prompt(
         '\n'
         '[Writing and merging rules]\n'
         '- You do NOT output final user_preference text directly unless you must use replace_all. Normally you output edit operations that will be applied to the existing user_preference inside the generate endpoint.\n'  # noqa: E501
-        '- If the current text is free-form, paragraph-based, or otherwise not clearly section-structured, prefer `replace_text` with an exact old substring and the desired new substring so the user\'s own writing structure is preserved.\n'  # noqa: E501
-        '- `replace_text` always replaces the first matching occurrence only. If first-match replacement is unsafe or not enough, use `replace_all` instead.\n'
-        '- Prefer small, local `replace_text` edits over rewriting the whole text. Keep untouched user-authored wording and structure exactly as-is whenever possible.\n'
+        "- If the current text is free-form, paragraph-based, or otherwise not clearly section-structured, prefer `replace_text` with an exact old substring and the desired new substring so the user's own writing structure is preserved.\n"  # noqa: E501
+        '- `replace_text` always replaces the first matching occurrence only. If first-match replacement is unsafe or not enough, use `replace_all` instead.\n'  # noqa: E501
+        '- Prefer small, local `replace_text` edits over rewriting the whole text. Keep untouched user-authored wording and structure exactly as-is whenever possible.\n'  # noqa: E501
         '- When preferences conflict, the new preference should replace the old text directly, and user_instruct takes precedence.\n'  # noqa: E501
         '- Keep language concise and neutral; no anthropomorphic comments; only state factual user profile entries.\n'
-        '- Use `replace_all` only when the current content cannot be edited safely with local text replacement operations.\n'
+        '- Use `replace_all` only when the current content cannot be edited safely with local text replacement operations.\n'  # noqa: E501
         '\n'
         f'{_COMMON_LANGUAGE_RULES}'
         '\n'
@@ -509,8 +509,8 @@ def _parse_memory_operations(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         op_name = str(raw_op.get('op') or '').strip()
         if op_name == 'replace_all':
             content = raw_op.get('content')
-            if not isinstance(content, str) or not content.strip():
-                raise UnprocessableContentError("replace_all requires a non-empty string field 'content'.")
+            if not isinstance(content, str):
+                raise UnprocessableContentError("replace_all requires a string field 'content'.")
             if len(operations) != 1:
                 raise UnprocessableContentError('replace_all must be the only operation when used.')
             return [{'op': 'replace_all', 'content': content.strip()}]
@@ -638,6 +638,9 @@ def _apply_memory_edit_operations(current_content: str, payload: Dict[str, Any])
     days: Optional['OrderedDict[str, Dict[str, List[str]]]'] = None
     for op in operations:
         if op['op'] == 'replace_text':
+            if days is not None:
+                # Flush pending day-level edits before applying free-form text replacement.
+                current = _render_memory(days)
             current = _apply_replace_text(current, op['old'], op['new'], entity_name='memory')
             days = None
             continue
@@ -659,8 +662,7 @@ def _apply_memory_edit_operations(current_content: str, payload: Dict[str, Any])
     if days is None:
         return current.strip()
 
-    rendered = _render_memory(days)
-    return rendered or current.strip()
+    return _render_memory(days)
 
 
 def _parse_user_preference_operations(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -675,8 +677,8 @@ def _parse_user_preference_operations(payload: Dict[str, Any]) -> List[Dict[str,
         op_name = str(raw_op.get('op') or '').strip()
         if op_name == 'replace_all':
             content = raw_op.get('content')
-            if not isinstance(content, str) or not content.strip():
-                raise UnprocessableContentError("replace_all requires a non-empty string field 'content'.")
+            if not isinstance(content, str):
+                raise UnprocessableContentError("replace_all requires a string field 'content'.")
             if len(operations) != 1:
                 raise UnprocessableContentError('replace_all must be the only operation when used.')
             return [{'op': 'replace_all', 'content': content.strip()}]
@@ -715,6 +717,6 @@ def _apply_replace_text(current: str, old: str, new: str, *, entity_name: str) -
     if old not in current:
         raise UnprocessableContentError(
             f"replace_text could not find the requested 'old' substring in current {entity_name} content. "
-            "Please correct the old text or use replace_all if necessary."
+            'Please correct the old text or use replace_all if necessary.'
         )
     return current.replace(old, new, 1)

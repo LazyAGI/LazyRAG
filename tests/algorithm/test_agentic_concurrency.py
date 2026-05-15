@@ -207,6 +207,183 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
         )
 
 
+def test_stream_monitor_uses_request_sid_for_realtime_flush(fake_pipeline, monkeypatch):
+    class _RecordingQueue:
+        _items: dict[str, list[str]] = {}
+        _log: list[tuple[str, str, str, list[str] | str | None, float]] = []
+        _lock = threading.Lock()
+
+        def __init__(self, klass='__default__'):
+            self._class = klass
+
+        @classmethod
+        def get_instance(cls, klass):
+            return cls(klass=klass)
+
+        @property
+        def sid(self) -> str:
+            return f'{lazyllm.globals._sid}-{self._class}'
+
+        def clear(self):
+            with type(self)._lock:
+                type(self)._items[self.sid] = []
+                type(self)._log.append(('clear', threading.current_thread().name, self.sid, None, time.perf_counter()))
+
+        def enqueue(self, message):
+            with type(self)._lock:
+                type(self)._items.setdefault(self.sid, []).append(message)
+                type(self)._log.append((
+                    'enqueue',
+                    threading.current_thread().name,
+                    self.sid,
+                    str(message),
+                    time.perf_counter(),
+                ))
+
+        def dequeue(self, limit=None):
+            del limit
+            with type(self)._lock:
+                values = list(type(self)._items.get(self.sid, []))
+                type(self)._items[self.sid] = []
+                type(self)._log.append((
+                    'dequeue',
+                    threading.current_thread().name,
+                    self.sid,
+                    list(values),
+                    time.perf_counter(),
+                ))
+                return values
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        del query, history, stream_event_callback
+        lazyllm.FileSystemQueue().enqueue('hello')
+        time.sleep(0.12)
+        lazyllm.FileSystemQueue().enqueue(' world')
+        time.sleep(0.12)
+        return {'text': 'hello world', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _RecordingQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    lazyllm.globals._init_sid(sid='stream-monitor-session')
+    lazyllm.locals._init_sid(sid='stream-monitor-session')
+
+    async def _collect():
+        started = time.perf_counter()
+        frames = []
+        async for item in agentic.agentic_rag({'query': 'hello'}, stream=True):
+            frames.append((time.perf_counter() - started, item))
+        return frames
+
+    frames = asyncio.run(_collect())
+
+    assert frames
+    assert frames[0][0] < 0.2, f'expected realtime flush before worker exit, got {frames!r}'
+    assert frames[0][1]['text'] == 'hello'
+    assert frames[-1][1]['text'] == ' world'
+
+    monitor_dequeues = [
+        log for log in _RecordingQueue._log
+        if log[0] == 'dequeue' and '_stream_monitor' in log[1]
+    ]
+    assert monitor_dequeues, 'expected monitor thread to poll the stream queue'
+    assert all(log[2].startswith('stream-monitor-session-') for log in monitor_dequeues), monitor_dequeues
+    assert not any(log[2].startswith('tid-') for log in monitor_dequeues), monitor_dequeues
+
+
+def test_stream_monitor_does_not_cross_read_other_sessions(fake_pipeline, monkeypatch):
+    class _RecordingQueue:
+        _items: dict[str, list[str]] = {}
+        _log: list[tuple[str, str, str, list[str] | str | None, float]] = []
+        _lock = threading.Lock()
+
+        def __init__(self, klass='__default__'):
+            self._class = klass
+
+        @classmethod
+        def get_instance(cls, klass):
+            return cls(klass=klass)
+
+        @property
+        def sid(self) -> str:
+            return f'{lazyllm.globals._sid}-{self._class}'
+
+        def clear(self):
+            with type(self)._lock:
+                type(self)._items[self.sid] = []
+                type(self)._log.append(('clear', threading.current_thread().name, self.sid, None, time.perf_counter()))
+
+        def enqueue(self, message):
+            with type(self)._lock:
+                type(self)._items.setdefault(self.sid, []).append(message)
+                type(self)._log.append((
+                    'enqueue',
+                    threading.current_thread().name,
+                    self.sid,
+                    str(message),
+                    time.perf_counter(),
+                ))
+
+        def dequeue(self, limit=None):
+            del limit
+            with type(self)._lock:
+                values = list(type(self)._items.get(self.sid, []))
+                type(self)._items[self.sid] = []
+                type(self)._log.append((
+                    'dequeue',
+                    threading.current_thread().name,
+                    self.sid,
+                    list(values),
+                    time.perf_counter(),
+                ))
+                return values
+
+    def _fake_agentic_forward(*, query, history, stream_event_callback=None):
+        del history, stream_event_callback
+        lazyllm.FileSystemQueue().enqueue(f'{query}:1')
+        time.sleep(0.06)
+        lazyllm.FileSystemQueue().enqueue(f'{query}:2')
+        time.sleep(0.06)
+        return {'text': f'{query}:1{query}:2', 'sources': []}
+
+    monkeypatch.setattr(agentic.lazyllm, 'FileSystemQueue', _RecordingQueue)
+    monkeypatch.setattr(agentic, 'agentic_forward', _fake_agentic_forward)
+
+    async def _consume(i: int):
+        session_id = f'monitor-cross-session-{i}'
+        lazyllm.globals._init_sid(sid=session_id)
+        lazyllm.locals._init_sid(sid=session_id)
+        frames = []
+        async for item in agentic.agentic_rag({'query': f'q{i}'}, stream=True):
+            frames.append(item['text'])
+        return session_id, frames
+
+    async def _run_all():
+        return await asyncio.gather(*(_consume(i) for i in range(6)))
+
+    results = asyncio.run(_run_all())
+
+    for i, (session_id, frames) in enumerate(results):
+        assert session_id == f'monitor-cross-session-{i}'
+        assert frames == [f'q{i}:1', f'q{i}:2']
+
+    monitor_dequeues = [
+        log for log in _RecordingQueue._log
+        if log[0] == 'dequeue' and '_stream_monitor' in log[1]
+    ]
+    assert monitor_dequeues, 'expected monitor threads to drain queues'
+    for thread_name, touched_sids in {
+        name: {log[2] for log in monitor_dequeues if log[1] == name}
+        for name in {log[1] for log in monitor_dequeues}
+    }.items():
+        session_sids = {sid for sid in touched_sids if sid.endswith('-__default__') or sid.endswith('-think')}
+        prefixes = {
+            sid[:-len('-__default__')] if sid.endswith('-__default__') else sid[:-len('-think')]
+            for sid in session_sids
+        }
+        assert len(prefixes) == 1, f'{thread_name} touched multiple session prefixes: {sorted(session_sids)!r}'
+
+
 def test_stream_clears_orphaned_lazyllm_queue_lock(fake_pipeline, monkeypatch, tmp_path):
     fake_home = tmp_path / 'lazy-home'
     fake_home.mkdir()
