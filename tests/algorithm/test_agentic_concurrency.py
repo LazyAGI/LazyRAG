@@ -22,6 +22,7 @@ import pytest
 import lazyllm
 
 from chat.pipelines import agentic
+from chat.components.agentic import tool_stream
 from chat.components.agentic import review as agentic_review
 from chat.components.agentic.config import (
     DEFAULT_TOOLS,
@@ -676,6 +677,212 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
         ),
         'sources': [],
     }
+
+
+def test_tool_stream_frame_uses_vocab_mapping_preview_value():
+    frame = agentic._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'preview_text': 'remember vocabulary',
+        'tool_calls': [{
+            'id': 'toolcall-vocab-1',
+            'name': 'vocab_manage',
+            'arguments': {
+                'suggestions': [{
+                    'word': 'HCA',
+                    'synonym': 'hardened cement aggregate',
+                    'reason': 'The user explicitly defined the acronym.',
+                }],
+            },
+        }],
+    })
+
+    assert frame['think'] is None
+    assert frame['sources'] == []
+    preview = frame['text'].split('</tp>', 1)[0]
+    assert 'Updating vocabulary entries for **HCA <-> hardened cement aggregate** now.' in preview
+    assert 'The user explicitly defined the acronym.' not in preview
+    assert '<tool_call>{"id":"toolcall-vocab-1","name":"vocab_manage"' in frame['text']
+
+
+def test_tool_stream_zh_and_en_preview_template_keys_match():
+    assert set(tool_stream._TOOL_CALL_PREVIEW_TEMPLATES) == set(tool_stream._ZH_TOOL_CALL_PREVIEW_TEMPLATES)
+    assert set(tool_stream._TOOL_RESULT_PREVIEW_TEMPLATES) == set(tool_stream._ZH_TOOL_RESULT_PREVIEW_TEMPLATES)
+    assert set(tool_stream._TOOL_RESULT_FAILURE_TEMPLATES) == set(tool_stream._ZH_TOOL_RESULT_FAILURE_TEMPLATES)
+    assert set(tool_stream._TOOL_RESULT_APPROVAL_TEMPLATES) == set(tool_stream._ZH_TOOL_RESULT_APPROVAL_TEMPLATES)
+
+
+def test_tool_stream_frame_handles_flat_vocab_arguments_preview_value():
+    frame = agentic._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'preview_text': '更新词汇表',
+        'tool_calls': [{
+            'id': 'toolcall-vocab-flat-1',
+            'name': 'vocab_manage',
+            'arguments': {
+                'suggestions': 'AI',
+                'synonym': 'artificial intelligence',
+                'reason': 'Standard synonym mapping for clarity',
+            },
+        }],
+    })
+
+    assert frame['think'] is None
+    assert frame['sources'] == []
+    preview = frame['text'].split('</tp>', 1)[0]
+    assert '正在更新与 **AI <-> artificial intelligence** 相关的词汇表。' in preview
+    assert 'AI <-> artificial intelligence' in preview
+    assert '{"suggestions"' not in preview
+    assert 'Standard synonym mapping for clarity' not in preview
+    assert '<tool_call>{"id":"toolcall-vocab-flat-1","name":"vocab_manage"' in frame['text']
+    assert '"arguments":{"suggestions":"AI","synonym":"artificial intelligence","reason":"Standard synonym mapping for clarity"}' in frame['text']
+
+
+def test_tool_call_normalization_coerces_vocab_arguments_only_for_execution():
+    tool_call = {
+        'id': 'toolcall-vocab-flat-1',
+        'name': 'vocab_manage',
+        'arguments': {
+            'suggestions': 'AI',
+            'synonym': 'artificial intelligence',
+            'reason': 'Standard synonym mapping for clarity',
+        },
+    }
+
+    display_call = tool_stream._normalize_tool_call(tool_call, coerce_arguments=False)
+    execution_call = tool_stream._normalize_tool_call(tool_call, coerce_arguments=True)
+
+    assert display_call['arguments'] == {
+        'suggestions': 'AI',
+        'synonym': 'artificial intelligence',
+        'reason': 'Standard synonym mapping for clarity',
+    }
+    assert execution_call['arguments'] == {
+        'suggestions': [{
+            'word': 'AI',
+            'synonym': 'artificial intelligence',
+            'reason': 'Standard synonym mapping for clarity',
+        }],
+    }
+
+
+def test_tool_stream_frame_repairs_stringified_vocab_arguments_preview_value():
+    frame = agentic._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'preview_text': '更新词汇表',
+        'tool_calls': [{
+            'id': 'toolcall-vocab-string-1',
+            'name': 'vocab_manage',
+            'arguments': (
+                '{"suggestions": "AI", "synonym": "artificial intelligence", '
+                '"reason": "Standard synonym mapping"]}'
+            ),
+        }],
+    })
+
+    preview = frame['text'].split('</tp>', 1)[0]
+    assert 'AI <-> artificial intelligence' in preview
+    assert '{"suggestions"' not in preview
+    assert 'Standard synonym mapping' not in preview
+    assert '"arguments":{"suggestions":"AI","synonym":"artificial intelligence","reason":"Standard synonym mapping"}' in frame['text']
+
+
+def test_tool_stream_frame_treats_string_parameter_errors_as_failed():
+    frame = agentic._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'preview_text': '',
+        'tool_results': [{
+            'id': 'toolcall-vocab-error-1',
+            'tool_name': 'vocab_manage',
+            'result': 'Tool [vocab_manage] parameters error.',
+        }],
+    })
+
+    preview = frame['text'].split('</trp>', 1)[0]
+    assert 'could not be updated' in preview
+    assert 'updated successfully' not in preview
+
+
+def test_tool_stream_frame_uses_memory_suggestion_title_preview_value():
+    frame = agentic._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'preview_text': 'remember preference',
+        'tool_calls': [{
+            'id': 'toolcall-memory-1',
+            'name': 'memory',
+            'arguments': {
+                'target': 'user',
+                'suggestions': [{
+                    'title': 'Language preference',
+                    'content': 'The user prefers Chinese responses.',
+                    'reason': 'The user explicitly asked to use Chinese.',
+                }],
+            },
+        }],
+    })
+
+    assert frame['think'] is None
+    assert frame['sources'] == []
+    preview = frame['text'].split('</tp>', 1)[0]
+    assert 'Saving **Language preference** as useful long term memory now.' in preview
+    assert 'The user prefers Chinese responses.' not in preview
+    assert 'The user explicitly asked to use Chinese.' not in preview
+    assert '<tool_call>{"id":"toolcall-memory-1","name":"memory"' in frame['text']
+
+
+def test_tool_stream_frame_repairs_stringified_memory_arguments_preview_value():
+    frame = agentic._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'preview_text': '保存记忆',
+        'tool_calls': [{
+            'id': 'toolcall-memory-string-1',
+            'name': 'memory',
+            'arguments': (
+                '{"target": "memory", "suggestions": [{"title": "System status", '
+                '"content": "All tools are functional and ready for use.", '
+                '"reason": "Initial system validation"]}'
+            ),
+        }],
+    })
+
+    preview = frame['text'].split('</tp>', 1)[0]
+    assert 'System status' in preview
+    assert 'All tools are functional and ready for use.' not in preview
+    assert 'Initial system validation' not in preview
+    assert '"arguments":{"target":"memory","suggestions":[{"title":"System status","content":"All tools are functional and ready for use.","reason":"Initial system validation"}]}' in frame['text']
+
+
+def test_tool_stream_frame_uses_skill_category_and_name_preview_value():
+    frame = agentic._format_tool_stream_frame({
+        'round': 1,
+        'content': '',
+        'preview_text': 'update skill',
+        'tool_calls': [{
+            'id': 'toolcall-skill-1',
+            'name': 'skill_manage',
+            'arguments': {
+                'action': 'modify',
+                'category': 'writing',
+                'name': 'report-review',
+                'suggestions': [{
+                    'title': 'Tighten verification',
+                    'content': 'Add a final evidence check before summarizing.',
+                }],
+            },
+        }],
+    })
+
+    assert frame['think'] is None
+    assert frame['sources'] == []
+    preview = frame['text'].split('</tp>', 1)[0]
+    assert 'Updating reusable skill notes related to **writing/report-review** now.' in preview
+    assert 'Tighten verification' not in preview
+    assert '<tool_call>{"id":"toolcall-skill-1","name":"skill_manage"' in frame['text']
 
 
 def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
