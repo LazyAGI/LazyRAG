@@ -1341,6 +1341,15 @@ func dedupeGroupIDsPreserveOrder(raw []string) []string {
 	return out
 }
 
+func aliasesContainWord(aliases []string, word string) bool {
+	for _, a := range aliases {
+		if a == word {
+			return true
+		}
+	}
+	return false
+}
+
 // validateTermAndAliases returns a non-empty API error message if term equals any alias
 // or if aliases contain duplicates (after trimming, same as normalizeAliases).
 func validateTermAndAliases(term string, aliases []string) string {

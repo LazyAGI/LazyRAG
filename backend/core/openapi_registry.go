@@ -1884,6 +1884,17 @@ func registeredCoreOperations() []openAPIOperation {
 			},
 		},
 		{
+			Method:      "POST",
+			Path:        "/word_group_conflict:createGroup",
+			Summary:     "Create word group from conflict and optionally add conflict word to existing groups",
+			Description: "Creates a new word group (term, aliases, description). If group_ids is non-empty, inserts the conflict word as alias into each existing group (skips duplicates). Soft-deletes the conflict row by id.",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CreateWordGroupFromConflictRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Created word group from conflict", wordgroup.CreateWordGroupFromConflictResponse{}),
+			},
+		},
+		{
 			Method:  "DELETE",
 			Path:    "/word_group_conflict/{id}",
 			Summary: "Soft-delete a word group conflict by id",
