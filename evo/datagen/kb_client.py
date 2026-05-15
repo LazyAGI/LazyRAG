@@ -46,6 +46,8 @@ class KBClient:
                 rel = item.get('relation') or {}
                 snap = item.get('snapshot') or {}
                 chunk_kb = snap.get('kb_id') or rel.get('kb_id')
+                if chunk_kb and str(chunk_kb) != str(kb_id):
+                    continue
                 if chunk_kb:
                     doc['_chunk_kb_id'] = chunk_kb
                 items.append(item)
@@ -60,9 +62,11 @@ class KBClient:
         return self._get_chunks(kb_id, doc_id, algo_id, rich=True)
 
     def _get_chunks(self, kb_id: str, doc_id: str, algo_id: str, *, rich: bool) -> list[dict]:
-        chunk_kb_id = self._chunk_kb_id(kb_id, algo_id, doc_id)
+        doc = self._find_doc(kb_id, algo_id, doc_id)
+        chunk_kb_id = str(doc.get('_chunk_kb_id') or kb_id)
+        filename = _doc_filename(doc)
         for group in ('block', 'line'):
-            chunks = self._get_chunks_by_group(chunk_kb_id, doc_id, algo_id, group, rich=rich)
+            chunks = self._get_chunks_by_group(chunk_kb_id, doc_id, algo_id, group, rich=rich, filename=filename)
             if chunks:
                 return chunks
         return []
@@ -71,7 +75,9 @@ class KBClient:
         doc = self._find_doc(kb_id, algo_id, doc_id)
         return str(doc.get('_chunk_kb_id') or kb_id)
 
-    def _get_chunks_by_group(self, kb_id: str, doc_id: str, algo_id: str, group: str, *, rich: bool) -> list[dict]:
+    def _get_chunks_by_group(
+        self, kb_id: str, doc_id: str, algo_id: str, group: str, *, rich: bool, filename: str
+    ) -> list[dict]:
         for base in _base_candidates(self.chunk_base_url):
             try:
                 chunks = []
@@ -100,7 +106,7 @@ class KBClient:
                                 {
                                     'content': content,
                                     'chunk_id': c.get('uid', ''),
-                                    'filename': c.get('metadata', {}).get('file_name', 'unknown'),
+                                    'filename': _chunk_filename(c) or filename or doc_id,
                                     'uid': c.get('uid', ''),
                                     'doc_id': c.get('doc_id', doc_id),
                                 }
@@ -133,3 +139,26 @@ def _base_candidates(base: str) -> list[str]:
     if '127.0.0.1' in base or 'localhost' in base:
         out.extend(['http://127.0.0.1:18055', 'http://127.0.0.1:28055'])
     return list(dict.fromkeys(out))
+
+
+def _chunk_filename(chunk: dict) -> str:
+    meta = chunk.get('metadata') or {}
+    global_meta = chunk.get('global_metadata') or {}
+    return _clean_name(
+        meta.get('file_name')
+        or meta.get('filename')
+        or meta.get('display_name')
+        or global_meta.get('file_name')
+        or global_meta.get('filename')
+        or global_meta.get('display_name')
+    )
+
+
+def _doc_filename(doc: dict) -> str:
+    meta = doc.get('metadata') or {}
+    return _clean_name(doc.get('filename') or doc.get('name') or meta.get('display_name') or meta.get('file_name'))
+
+
+def _clean_name(value) -> str:
+    text = str(value or '').strip()
+    return '' if text.lower() in {'unknown', 'unknown.pdf', 'none', 'null'} else text

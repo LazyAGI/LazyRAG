@@ -31,6 +31,7 @@ class DatasetGenCreate(BaseModel):
     algo_id: str = 'general_algo'
     eval_name: str | None = None
     num_cases: int | None = Field(default=None, ge=1, le=200)
+    resume: bool = True
 
 
 class EvalCreate(BaseModel):
@@ -38,6 +39,7 @@ class EvalCreate(BaseModel):
     dataset_id: str | None = None
     eval_id: str | None = None
     target_chat_url: str | None = None
+    resume: bool = True
     options: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode='after')
