@@ -51,7 +51,7 @@ type LazyChatRequest struct {
 	UseMemory          bool            `json:"use_memory"`
 	UserID             string          `json:"user_id"`
 	EnvironmentContext map[string]any  `json:"environment_context,omitempty"`
-	LLMConfig       map[string]any  `json:"llm_config,omitempty"`
+	LLMConfig          map[string]any  `json:"llm_config,omitempty"`
 }
 
 // LazyChatData text data text。
