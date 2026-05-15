@@ -3,7 +3,7 @@ import hmac
 import os
 import time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from config import config as _cfg
 
@@ -76,6 +76,54 @@ def basename_from_path(path: str) -> str:
     without_query = (path or '').split('?')[0]
     parts = without_query.split('/')
     return parts[-1] if parts else without_query
+
+
+def local_path_from_static_file_url(path_or_url: str) -> str:
+    raw = (path_or_url or '').strip()
+    if not raw:
+        return ''
+    root = Path(_upload_root()).resolve()
+    if raw.startswith('/static-files/'):
+        path_only = raw.split('?', 1)[0]
+        rel_encoded = path_only[len('/static-files/'):].lstrip('/')
+        if not rel_encoded:
+            return ''
+        rel = '/'.join(unquote(part) for part in rel_encoded.split('/'))
+        return str((root / rel).resolve())
+    marker = '/var/lib/lazyrag/uploads/'
+    if raw.startswith(marker):
+        return str(Path(raw.split('?', 1)[0]).resolve())
+    try:
+        resolved_root = str(root)
+        if raw.startswith(resolved_root):
+            return str(Path(raw.split('?', 1)[0]).resolve())
+    except OSError:
+        pass
+    if raw.startswith('http://') or raw.startswith('https://'):
+        idx = raw.find(marker)
+        if idx >= 0:
+            return str(Path(raw[idx:].split('?', 1)[0]).resolve())
+        idx = raw.find(str(root))
+        if idx >= 0:
+            return str(Path(raw[idx:].split('?', 1)[0]).resolve())
+    if not raw.startswith(('http://', 'https://', '/static-files/')):
+        candidate = (root / raw.lstrip('/')).resolve()
+        if candidate.is_file():
+            return str(candidate)
+    return ''
+
+
+def resolve_local_image_path(path_or_url: str) -> str:
+    raw = (path_or_url or '').strip()
+    if not raw:
+        return ''
+    local = local_path_from_static_file_url(raw)
+    if local:
+        return local
+    path = Path(raw.split('?', 1)[0])
+    if path.is_file():
+        return str(path.resolve())
+    return raw
 
 
 def static_file_url_from_any(path: str) -> str:

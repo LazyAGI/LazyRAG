@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple
 from chat.prompts.agentic import (
     DEFAULT_SYSTEM_PROMPT,
     IMAGE_REFERENCE_MARKDOWN_GUIDANCE,
+    VISION_EXTRACTOR_GUIDANCE,
     MEMORY_GUIDANCE,
     SEARCH_GUIDANCE,
     SKILLS_GUIDANCE,
@@ -239,10 +240,11 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
         prompt_parts.append(SEARCH_GUIDANCE)
     if (
         any(tool.startswith('kb_') for tool in available_tools)
-        or 'vision_extractor' in available_tools
         or (config.get('image_files') or [])
     ):
         prompt_parts.append(IMAGE_REFERENCE_MARKDOWN_GUIDANCE)
+    if 'vision_extractor' in available_tools:
+        prompt_parts.append(VISION_EXTRACTOR_GUIDANCE)
 
     return '\n\n'.join(prompt_parts)
 

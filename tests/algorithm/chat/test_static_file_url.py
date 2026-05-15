@@ -1,6 +1,11 @@
 import os
 
-from chat.utils.static_file_url import static_file_url_from_any, static_file_url_from_full_path
+from chat.utils.static_file_url import (
+    local_path_from_static_file_url,
+    resolve_local_image_path,
+    static_file_url_from_any,
+    static_file_url_from_full_path,
+)
 
 
 def test_static_file_url_from_full_path_signs_upload_relative_path(tmp_path, monkeypatch):
@@ -33,3 +38,7 @@ def test_static_file_url_from_any_strips_external_host_prefix(tmp_path, monkeypa
     )
     signed = static_file_url_from_any(raw)
     assert signed.startswith('/static-files/normalized_images/exp9/frame.jpg?')
+
+    local = local_path_from_static_file_url(signed)
+    assert local == str(image.resolve())
+    assert resolve_local_image_path(signed) == str(image.resolve())

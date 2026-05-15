@@ -576,10 +576,10 @@ services:
       start_period: 120s
     environment:
       LAZYRAG_UPLOAD_ROOT: /var/lib/lazyrag/uploads
-      <<: [*upload-paths, *llm-api-keys]
+      <<: [*upload-paths, *llm-api-keys, *ocr-env]
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
       PYTHONPATH: /opt/lazyllm:/app
       LAZYLLM_ALGO_REGISTER_POLICY: ${LAZYLLM_ALGO_REGISTER_POLICY:-}
       LAZYRAG_USE_INNER_MODEL: "true"
@@ -589,7 +589,6 @@ services:
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
       LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
       LAZYRAG_RESET_ALL_ON_STARTUP: ${LAZYRAG_RESET_ALL_ON_STARTUP:-false}
-      <<: [*ocr-env]
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
       lazyllm-parse-server:
@@ -645,7 +644,7 @@ services:
       LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
       LAZYRAG_SKILL_REVIEW_DEBUG: "false"
       LAZYRAG_SKIP_STARTUP_PIPELINE: "1"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
@@ -684,7 +683,7 @@ services:
       LAZYRAG_EVO_KB_BASE_URL: http://doc-server:8000
       LAZYRAG_EVO_CHUNK_BASE_URL: http://doc-server:8000
       LAZYRAG_EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.inner.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
       <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazyrag/evo

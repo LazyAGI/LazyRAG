@@ -8,7 +8,11 @@ import requests
 from lazyllm import fc_register
 
 from chat.pipelines.builders.get_ppl_search import get_ppl_search
-from chat.utils.static_file_url import basename_from_path, static_file_url_from_any
+from chat.utils.static_file_url import (
+    basename_from_path,
+    local_path_from_static_file_url,
+    static_file_url_from_any,
+)
 from config import config as _cfg
 
 _MAX_TEXT_LEN = 1200
@@ -109,16 +113,24 @@ def _serialize_doc_node_like(node: Any) -> Dict[str, Any]:
     }
     group = _safe_getattr(node, 'group', None) or _safe_getattr(node, '_group', None)
     text = _safe_getattr(node, 'text', '') or ''
-    if group == 'image' or (
-        isinstance(text, str)
-        and text.strip().startswith('/var/lib/lazyrag/uploads/')
-        and text.strip().lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'))
-    ):
-        signed = static_file_url_from_any(text.strip())
+    raw_text = text.strip() if isinstance(text, str) else ''
+    local_path = raw_text
+    if raw_text.startswith('/static-files/'):
+        resolved = local_path_from_static_file_url(raw_text)
+        if resolved:
+            local_path = resolved
+    is_image = group == 'image' or (
+        local_path.startswith('/var/lib/lazyrag/uploads/')
+        and local_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'))
+    )
+    image_markdown = None
+    if is_image and local_path:
+        signed = static_file_url_from_any(local_path)
         if signed:
             text = signed
             compact_metadata = dict(compact_metadata)
             compact_metadata['image_url'] = signed
+            compact_metadata['local_path'] = local_path
             file_label = (
                 compact_metadata.get('file_name')
                 or global_md.get('file_name')
@@ -126,7 +138,7 @@ def _serialize_doc_node_like(node: Any) -> Dict[str, Any]:
             )
             image_markdown = f'![{file_label}]({signed})'
     else:
-        image_markdown = None
+        local_path = ''
 
     serialized = {
         'uid': _safe_getattr(node, 'uid', None) or _safe_getattr(node, '_uid', None),
@@ -143,6 +155,7 @@ def _serialize_doc_node_like(node: Any) -> Dict[str, Any]:
     }
     if image_markdown:
         serialized['image_markdown'] = image_markdown
+        serialized['local_path'] = local_path
         _register_image_url(_agentic_config(), text)
     return serialized
 

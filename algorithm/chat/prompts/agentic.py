@@ -133,6 +133,11 @@ IMAGE_REFERENCE_MARKDOWN_GUIDANCE = (
     '- Do not use MiniMax/agent CDN links for KB images; they are invalid for this UI.\n'
     '- Do not paste bare filesystem paths (`/var/lib/lazyrag/uploads/...`) in answers.'
 )
+VISION_EXTRACTOR_GUIDANCE = (
+    'When calling vision_extractor on knowledge-base images, pass the `local_path` field '
+    'from kb_search results (filesystem path under /var/lib/lazyrag/uploads/). '
+    'Do NOT pass `/static-files/` signed URLs to vision_extractor.'
+)
 
 SEARCH_GUIDANCE = (
     "# Search Tool Rules (CRITICAL — follow strictly)\n"
