@@ -152,6 +152,10 @@ func CreateWordGroup(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "term is required", http.StatusBadRequest)
 		return
 	}
+	if msg := validateTermAndAliases(term, aliases); msg != "" {
+		common.ReplyErr(w, msg, http.StatusBadRequest)
+		return
+	}
 	if body.Conflict && conflictID == "" {
 		common.ReplyErr(w, "id is required when conflict is true", http.StatusBadRequest)
 		return
@@ -273,6 +277,10 @@ func UpdateWordGroup(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "term is required", http.StatusBadRequest)
 		return
 	}
+	if msg := validateTermAndAliases(termText, aliases); msg != "" {
+		common.ReplyErr(w, msg, http.StatusBadRequest)
+		return
+	}
 
 	userID := store.UserID(r)
 	if userID == "" {
@@ -374,6 +382,26 @@ var errWordGroupConflictNotFound = errors.New("word group conflict not found")
 // errInvalidWordGroupSource indicates an unsupported source filter value.
 var errInvalidWordGroupSource = errors.New("invalid source")
 
+// escapeLikePatternForBangEscape quotes LIKE wildcards for "... LIKE ? ESCAPE '!'".
+// Backslashes stay literal, so substring search for `\` works on MySQL (where `\` is otherwise LIKE's default escape).
+func escapeLikePatternForBangEscape(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for _, r := range s {
+		switch r {
+		case '!':
+			b.WriteString("!!")
+		case '%':
+			b.WriteString("!%")
+		case '_':
+			b.WriteString("!_")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // wordGroupMatchQuery scopes to active word rows for userID (term and alias rows; no word_kind filter).
 // Keyword matches word as substring (LIKE); uses original input without lowercasing; source filters by the row's source column.
 func wordGroupMatchQuery(db *gorm.DB, userID, keyword, sourceRaw string) (*gorm.DB, error) {
@@ -387,8 +415,8 @@ func wordGroupMatchQuery(db *gorm.DB, userID, keyword, sourceRaw string) (*gorm.
 		q = q.Where("source = ?", src)
 	}
 	if kw := strings.TrimSpace(keyword); kw != "" {
-		like := "%" + kw + "%"
-		q = q.Where("word LIKE ?", like)
+		like := "%" + escapeLikePatternForBangEscape(kw) + "%"
+		q = q.Where("word LIKE ? ESCAPE '!'", like)
 	}
 	return q, nil
 }
@@ -1186,6 +1214,22 @@ func dedupeGroupIDsPreserveOrder(raw []string) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+// validateTermAndAliases returns a non-empty API error message if term equals any alias
+// or if aliases contain duplicates (after trimming, same as normalizeAliases).
+func validateTermAndAliases(term string, aliases []string) string {
+	seen := make(map[string]struct{}, len(aliases))
+	for _, a := range aliases {
+		if a == term {
+			return "term must not match any alias"
+		}
+		if _, ok := seen[a]; ok {
+			return "aliases must be unique"
+		}
+		seen[a] = struct{}{}
+	}
+	return ""
 }
 
 func normalizeAliases(raw []string) []string {

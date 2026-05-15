@@ -34,6 +34,71 @@ export interface ChangePasswordBody {
     'old_password': string;
     'new_password': string;
 }
+export interface CloudConnectionCreateBody {
+    'tenant_id': string;
+    'auth_mode'?: string;
+    'client_id': string;
+    'client_secret': string;
+    'provider_options'?: { [key: string]: any; } | null;
+}
+export interface CloudConnectionCreateResponse {
+    'connection_id': string;
+    'tenant_id': string;
+    'provider': string;
+    'auth_mode': string;
+    'status'?: string;
+}
+export interface CloudConnectionResponse {
+    'connection_id': string;
+    'tenant_id': string;
+    'provider': string;
+    'auth_mode': string;
+    'status': string;
+    'last_error'?: string;
+    'created_at': string;
+    'updated_at'?: string | null;
+}
+export interface CloudConnectionTokenResponse {
+    'connection_id': string;
+    'provider': string;
+    'access_token': string;
+    'token_type'?: string;
+    'expires_at'?: string | null;
+    'status'?: string;
+}
+export interface CloudOAuthAuthorizeURLBody {
+    'tenant_id': string;
+    'auth_mode'?: string;
+    'client_id': string;
+    'client_secret': string;
+    'redirect_uri'?: string | null;
+    'scope'?: string | null;
+    'state'?: string | null;
+    'provider_options'?: { [key: string]: any; } | null;
+}
+export interface CloudOAuthAuthorizeURLResponse {
+    'connection_id': string;
+    'tenant_id': string;
+    'provider': string;
+    'auth_mode': string;
+    'authorize_url': string;
+    'state': string;
+}
+export interface CloudOAuthCallbackBody {
+    'tenant_id': string;
+    'connection_id': string;
+    'code': string;
+    'state'?: string | null;
+    'redirect_uri'?: string | null;
+}
+export interface CloudOAuthCallbackResponse {
+    'connection_id': string;
+    'tenant_id': string;
+    'provider': string;
+    'status': string;
+    'expires_at'?: string | null;
+    'refresh_token_bound'?: boolean;
+}
 export interface CreateUserBody {
     'username': string;
     'password': string;
@@ -153,6 +218,7 @@ export interface MeResponse {
     'username': string;
     'display_name'?: string;
     'email'?: string | null;
+    'remark'?: string | null;
     'status': string;
     'role': string;
     'permissions': Array<string>;
@@ -243,10 +309,21 @@ export interface UserDetailResponse {
     'display_name'?: string;
     'email'?: string | null;
     'phone'?: string | null;
+    'remark'?: string | null;
     'status': string;
     'tenant_id'?: string | null;
     'role_id': string;
     'role_name': string;
+    'is_bootstrap_admin'?: boolean;
+}
+export interface UserGroupItem {
+    'user_id': string;
+    'group_id': string;
+    'group_name': string;
+    'tenant_id'?: string | null;
+}
+export interface UserGroupListResponse {
+    'groups': Array<UserGroupItem>;
 }
 /**
  * User list item
@@ -261,6 +338,7 @@ export interface UserItem {
     'tenant_id'?: string | null;
     'role_id': string;
     'role_name': string;
+    'is_bootstrap_admin'?: boolean;
 }
 /**
  * User list
@@ -1095,6 +1173,438 @@ export class AuthorizationApi extends BaseAPI {
 
 
 /**
+ * CloudOauthApi - axios parameter creator
+ */
+export const CloudOauthApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        /**
+         * 
+         * @summary Create Connection
+         * @param {string} provider 
+         * @param {CloudConnectionCreateBody} cloudConnectionCreateBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createConnectionApiAuthserviceV1CloudProviderConnectionsPost: async (provider: string, cloudConnectionCreateBody: CloudConnectionCreateBody, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'provider' is not null or undefined
+            assertParamExists('createConnectionApiAuthserviceV1CloudProviderConnectionsPost', 'provider', provider)
+            // verify required parameter 'cloudConnectionCreateBody' is not null or undefined
+            assertParamExists('createConnectionApiAuthserviceV1CloudProviderConnectionsPost', 'cloudConnectionCreateBody', cloudConnectionCreateBody)
+            const localVarPath = `/api/authservice/v1/cloud/{provider}/connections`
+                .replace(`{${"provider"}}`, encodeURIComponent(String(provider)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(cloudConnectionCreateBody, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Get Connection
+         * @param {string} connectionId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet: async (connectionId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'connectionId' is not null or undefined
+            assertParamExists('getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet', 'connectionId', connectionId)
+            const localVarPath = `/api/authservice/v1/cloud/connections/{connection_id}`
+                .replace(`{${"connection_id"}}`, encodeURIComponent(String(connectionId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Get Connection Token
+         * @param {string} connectionId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet: async (connectionId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'connectionId' is not null or undefined
+            assertParamExists('getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet', 'connectionId', connectionId)
+            const localVarPath = `/api/authservice/v1/cloud/connections/{connection_id}/token`
+                .replace(`{${"connection_id"}}`, encodeURIComponent(String(connectionId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Oauth Authorize Url
+         * @param {string} provider 
+         * @param {CloudOAuthAuthorizeURLBody} cloudOAuthAuthorizeURLBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost: async (provider: string, cloudOAuthAuthorizeURLBody: CloudOAuthAuthorizeURLBody, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'provider' is not null or undefined
+            assertParamExists('oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost', 'provider', provider)
+            // verify required parameter 'cloudOAuthAuthorizeURLBody' is not null or undefined
+            assertParamExists('oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost', 'cloudOAuthAuthorizeURLBody', cloudOAuthAuthorizeURLBody)
+            const localVarPath = `/api/authservice/v1/cloud/{provider}/oauth/authorize-url`
+                .replace(`{${"provider"}}`, encodeURIComponent(String(provider)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(cloudOAuthAuthorizeURLBody, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Oauth Callback
+         * @param {string} provider 
+         * @param {CloudOAuthCallbackBody} cloudOAuthCallbackBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost: async (provider: string, cloudOAuthCallbackBody: CloudOAuthCallbackBody, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'provider' is not null or undefined
+            assertParamExists('oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost', 'provider', provider)
+            // verify required parameter 'cloudOAuthCallbackBody' is not null or undefined
+            assertParamExists('oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost', 'cloudOAuthCallbackBody', cloudOAuthCallbackBody)
+            const localVarPath = `/api/authservice/v1/cloud/{provider}/oauth/callback`
+                .replace(`{${"provider"}}`, encodeURIComponent(String(provider)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(cloudOAuthCallbackBody, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+    }
+};
+
+/**
+ * CloudOauthApi - functional programming interface
+ */
+export const CloudOauthApiFp = function(configuration?: Configuration) {
+    const localVarAxiosParamCreator = CloudOauthApiAxiosParamCreator(configuration)
+    return {
+        /**
+         * 
+         * @summary Create Connection
+         * @param {string} provider 
+         * @param {CloudConnectionCreateBody} cloudConnectionCreateBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async createConnectionApiAuthserviceV1CloudProviderConnectionsPost(provider: string, cloudConnectionCreateBody: CloudConnectionCreateBody, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CloudConnectionCreateResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.createConnectionApiAuthserviceV1CloudProviderConnectionsPost(provider, cloudConnectionCreateBody, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['CloudOauthApi.createConnectionApiAuthserviceV1CloudProviderConnectionsPost']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Get Connection
+         * @param {string} connectionId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet(connectionId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CloudConnectionResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet(connectionId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['CloudOauthApi.getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Get Connection Token
+         * @param {string} connectionId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet(connectionId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CloudConnectionTokenResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet(connectionId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['CloudOauthApi.getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Oauth Authorize Url
+         * @param {string} provider 
+         * @param {CloudOAuthAuthorizeURLBody} cloudOAuthAuthorizeURLBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost(provider: string, cloudOAuthAuthorizeURLBody: CloudOAuthAuthorizeURLBody, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CloudOAuthAuthorizeURLResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost(provider, cloudOAuthAuthorizeURLBody, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['CloudOauthApi.oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Oauth Callback
+         * @param {string} provider 
+         * @param {CloudOAuthCallbackBody} cloudOAuthCallbackBody 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost(provider: string, cloudOAuthCallbackBody: CloudOAuthCallbackBody, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CloudOAuthCallbackResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost(provider, cloudOAuthCallbackBody, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['CloudOauthApi.oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+    }
+};
+
+/**
+ * CloudOauthApi - factory interface
+ */
+export const CloudOauthApiFactory = function (configuration?: Configuration, basePath?: string, axios?: AxiosInstance) {
+    const localVarFp = CloudOauthApiFp(configuration)
+    return {
+        /**
+         * 
+         * @summary Create Connection
+         * @param {CloudOauthApiCreateConnectionApiAuthserviceV1CloudProviderConnectionsPostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        createConnectionApiAuthserviceV1CloudProviderConnectionsPost(requestParameters: CloudOauthApiCreateConnectionApiAuthserviceV1CloudProviderConnectionsPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<CloudConnectionCreateResponse> {
+            return localVarFp.createConnectionApiAuthserviceV1CloudProviderConnectionsPost(requestParameters.provider, requestParameters.cloudConnectionCreateBody, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Get Connection
+         * @param {CloudOauthApiGetConnectionApiAuthserviceV1CloudConnectionsConnectionIdGetRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet(requestParameters: CloudOauthApiGetConnectionApiAuthserviceV1CloudConnectionsConnectionIdGetRequest, options?: RawAxiosRequestConfig): AxiosPromise<CloudConnectionResponse> {
+            return localVarFp.getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet(requestParameters.connectionId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Get Connection Token
+         * @param {CloudOauthApiGetConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGetRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet(requestParameters: CloudOauthApiGetConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGetRequest, options?: RawAxiosRequestConfig): AxiosPromise<CloudConnectionTokenResponse> {
+            return localVarFp.getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet(requestParameters.connectionId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Oauth Authorize Url
+         * @param {CloudOauthApiOauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost(requestParameters: CloudOauthApiOauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<CloudOAuthAuthorizeURLResponse> {
+            return localVarFp.oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost(requestParameters.provider, requestParameters.cloudOAuthAuthorizeURLBody, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Oauth Callback
+         * @param {CloudOauthApiOauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost(requestParameters: CloudOauthApiOauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<CloudOAuthCallbackResponse> {
+            return localVarFp.oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost(requestParameters.provider, requestParameters.cloudOAuthCallbackBody, options).then((request) => request(axios, basePath));
+        },
+    };
+};
+
+/**
+ * Request parameters for createConnectionApiAuthserviceV1CloudProviderConnectionsPost operation in CloudOauthApi.
+ */
+export interface CloudOauthApiCreateConnectionApiAuthserviceV1CloudProviderConnectionsPostRequest {
+    readonly provider: string
+
+    readonly cloudConnectionCreateBody: CloudConnectionCreateBody
+}
+
+/**
+ * Request parameters for getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet operation in CloudOauthApi.
+ */
+export interface CloudOauthApiGetConnectionApiAuthserviceV1CloudConnectionsConnectionIdGetRequest {
+    readonly connectionId: string
+}
+
+/**
+ * Request parameters for getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet operation in CloudOauthApi.
+ */
+export interface CloudOauthApiGetConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGetRequest {
+    readonly connectionId: string
+}
+
+/**
+ * Request parameters for oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost operation in CloudOauthApi.
+ */
+export interface CloudOauthApiOauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPostRequest {
+    readonly provider: string
+
+    readonly cloudOAuthAuthorizeURLBody: CloudOAuthAuthorizeURLBody
+}
+
+/**
+ * Request parameters for oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost operation in CloudOauthApi.
+ */
+export interface CloudOauthApiOauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPostRequest {
+    readonly provider: string
+
+    readonly cloudOAuthCallbackBody: CloudOAuthCallbackBody
+}
+
+/**
+ * CloudOauthApi - object-oriented interface
+ */
+export class CloudOauthApi extends BaseAPI {
+    /**
+     * 
+     * @summary Create Connection
+     * @param {CloudOauthApiCreateConnectionApiAuthserviceV1CloudProviderConnectionsPostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public createConnectionApiAuthserviceV1CloudProviderConnectionsPost(requestParameters: CloudOauthApiCreateConnectionApiAuthserviceV1CloudProviderConnectionsPostRequest, options?: RawAxiosRequestConfig) {
+        return CloudOauthApiFp(this.configuration).createConnectionApiAuthserviceV1CloudProviderConnectionsPost(requestParameters.provider, requestParameters.cloudConnectionCreateBody, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Get Connection
+     * @param {CloudOauthApiGetConnectionApiAuthserviceV1CloudConnectionsConnectionIdGetRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet(requestParameters: CloudOauthApiGetConnectionApiAuthserviceV1CloudConnectionsConnectionIdGetRequest, options?: RawAxiosRequestConfig) {
+        return CloudOauthApiFp(this.configuration).getConnectionApiAuthserviceV1CloudConnectionsConnectionIdGet(requestParameters.connectionId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Get Connection Token
+     * @param {CloudOauthApiGetConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGetRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet(requestParameters: CloudOauthApiGetConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGetRequest, options?: RawAxiosRequestConfig) {
+        return CloudOauthApiFp(this.configuration).getConnectionTokenApiAuthserviceV1CloudConnectionsConnectionIdTokenGet(requestParameters.connectionId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Oauth Authorize Url
+     * @param {CloudOauthApiOauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost(requestParameters: CloudOauthApiOauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPostRequest, options?: RawAxiosRequestConfig) {
+        return CloudOauthApiFp(this.configuration).oauthAuthorizeUrlApiAuthserviceV1CloudProviderOauthAuthorizeUrlPost(requestParameters.provider, requestParameters.cloudOAuthAuthorizeURLBody, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Oauth Callback
+     * @param {CloudOauthApiOauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost(requestParameters: CloudOauthApiOauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPostRequest, options?: RawAxiosRequestConfig) {
+        return CloudOauthApiFp(this.configuration).oauthCallbackApiAuthserviceV1CloudProviderOauthCallbackPost(requestParameters.provider, requestParameters.cloudOAuthCallbackBody, options).then((request) => request(this.axios, this.basePath));
+    }
+}
+
+
+
+/**
  * GroupApi - axios parameter creator
  */
 export const GroupApiAxiosParamCreator = function (configuration?: Configuration) {
@@ -1261,10 +1771,11 @@ export const GroupApiAxiosParamCreator = function (configuration?: Configuration
          * 
          * @summary List Group Users
          * @param {string} groupId 
+         * @param {boolean} [activeOnly] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listGroupUsersApiAuthserviceGroupGroupIdUserGet: async (groupId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        listGroupUsersApiAuthserviceGroupGroupIdUserGet: async (groupId: string, activeOnly?: boolean, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             // verify required parameter 'groupId' is not null or undefined
             assertParamExists('listGroupUsersApiAuthserviceGroupGroupIdUserGet', 'groupId', groupId)
             const localVarPath = `/api/authservice/group/{group_id}/user`
@@ -1284,6 +1795,49 @@ export const GroupApiAxiosParamCreator = function (configuration?: Configuration
             // http bearer authentication required
             await setBearerAuthToObject(localVarHeaderParameter, configuration)
 
+            if (activeOnly !== undefined) {
+                localVarQueryParameter['active_only'] = activeOnly;
+            }
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary List Group Users Internal
+         * @param {string} groupId 
+         * @param {boolean} [activeOnly] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet: async (groupId: string, activeOnly?: boolean, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'groupId' is not null or undefined
+            assertParamExists('listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet', 'groupId', groupId)
+            const localVarPath = `/api/authservice/group/{group_id}/user/internal`
+                .replace(`{${"group_id"}}`, encodeURIComponent(String(groupId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            if (activeOnly !== undefined) {
+                localVarQueryParameter['active_only'] = activeOnly;
+            }
+
             localVarHeaderParameter['Accept'] = 'application/json';
 
             setSearchParams(localVarUrlObj, localVarQueryParameter);
@@ -1302,10 +1856,11 @@ export const GroupApiAxiosParamCreator = function (configuration?: Configuration
          * @param {number} [pageSize] 
          * @param {string | null} [search] 
          * @param {string | null} [tenantId] 
+         * @param {boolean} [activeMembersOnly] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listGroupsApiAuthserviceGroupGet: async (page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        listGroupsApiAuthserviceGroupGet: async (page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, activeMembersOnly?: boolean, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/authservice/group`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -1336,6 +1891,10 @@ export const GroupApiAxiosParamCreator = function (configuration?: Configuration
 
             if (tenantId !== undefined) {
                 localVarQueryParameter['tenant_id'] = tenantId;
+            }
+
+            if (activeMembersOnly !== undefined) {
+                localVarQueryParameter['active_members_only'] = activeMembersOnly;
             }
 
             localVarHeaderParameter['Accept'] = 'application/json';
@@ -1544,13 +2103,28 @@ export const GroupApiFp = function(configuration?: Configuration) {
          * 
          * @summary List Group Users
          * @param {string} groupId 
+         * @param {boolean} [activeOnly] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async listGroupUsersApiAuthserviceGroupGroupIdUserGet(groupId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GroupUserListResponse>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listGroupUsersApiAuthserviceGroupGroupIdUserGet(groupId, options);
+        async listGroupUsersApiAuthserviceGroupGroupIdUserGet(groupId: string, activeOnly?: boolean, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GroupUserListResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listGroupUsersApiAuthserviceGroupGroupIdUserGet(groupId, activeOnly, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['GroupApi.listGroupUsersApiAuthserviceGroupGroupIdUserGet']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary List Group Users Internal
+         * @param {string} groupId 
+         * @param {boolean} [activeOnly] 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet(groupId: string, activeOnly?: boolean, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GroupUserListResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet(groupId, activeOnly, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['GroupApi.listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -1560,11 +2134,12 @@ export const GroupApiFp = function(configuration?: Configuration) {
          * @param {number} [pageSize] 
          * @param {string | null} [search] 
          * @param {string | null} [tenantId] 
+         * @param {boolean} [activeMembersOnly] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async listGroupsApiAuthserviceGroupGet(page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GroupListResponse>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listGroupsApiAuthserviceGroupGet(page, pageSize, search, tenantId, options);
+        async listGroupsApiAuthserviceGroupGet(page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, activeMembersOnly?: boolean, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<GroupListResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listGroupsApiAuthserviceGroupGet(page, pageSize, search, tenantId, activeMembersOnly, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['GroupApi.listGroupsApiAuthserviceGroupGet']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -1668,7 +2243,17 @@ export const GroupApiFactory = function (configuration?: Configuration, basePath
          * @throws {RequiredError}
          */
         listGroupUsersApiAuthserviceGroupGroupIdUserGet(requestParameters: GroupApiListGroupUsersApiAuthserviceGroupGroupIdUserGetRequest, options?: RawAxiosRequestConfig): AxiosPromise<GroupUserListResponse> {
-            return localVarFp.listGroupUsersApiAuthserviceGroupGroupIdUserGet(requestParameters.groupId, options).then((request) => request(axios, basePath));
+            return localVarFp.listGroupUsersApiAuthserviceGroupGroupIdUserGet(requestParameters.groupId, requestParameters.activeOnly, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary List Group Users Internal
+         * @param {GroupApiListGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGetRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet(requestParameters: GroupApiListGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGetRequest, options?: RawAxiosRequestConfig): AxiosPromise<GroupUserListResponse> {
+            return localVarFp.listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet(requestParameters.groupId, requestParameters.activeOnly, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -1678,7 +2263,7 @@ export const GroupApiFactory = function (configuration?: Configuration, basePath
          * @throws {RequiredError}
          */
         listGroupsApiAuthserviceGroupGet(requestParameters: GroupApiListGroupsApiAuthserviceGroupGetRequest = {}, options?: RawAxiosRequestConfig): AxiosPromise<GroupListResponse> {
-            return localVarFp.listGroupsApiAuthserviceGroupGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, options).then((request) => request(axios, basePath));
+            return localVarFp.listGroupsApiAuthserviceGroupGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, requestParameters.activeMembersOnly, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -1748,6 +2333,17 @@ export interface GroupApiGetGroupApiAuthserviceGroupGroupIdGetRequest {
  */
 export interface GroupApiListGroupUsersApiAuthserviceGroupGroupIdUserGetRequest {
     readonly groupId: string
+
+    readonly activeOnly?: boolean
+}
+
+/**
+ * Request parameters for listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet operation in GroupApi.
+ */
+export interface GroupApiListGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGetRequest {
+    readonly groupId: string
+
+    readonly activeOnly?: boolean
 }
 
 /**
@@ -1761,6 +2357,8 @@ export interface GroupApiListGroupsApiAuthserviceGroupGetRequest {
     readonly search?: string | null
 
     readonly tenantId?: string | null
+
+    readonly activeMembersOnly?: boolean
 }
 
 /**
@@ -1846,7 +2444,18 @@ export class GroupApi extends BaseAPI {
      * @throws {RequiredError}
      */
     public listGroupUsersApiAuthserviceGroupGroupIdUserGet(requestParameters: GroupApiListGroupUsersApiAuthserviceGroupGroupIdUserGetRequest, options?: RawAxiosRequestConfig) {
-        return GroupApiFp(this.configuration).listGroupUsersApiAuthserviceGroupGroupIdUserGet(requestParameters.groupId, options).then((request) => request(this.axios, this.basePath));
+        return GroupApiFp(this.configuration).listGroupUsersApiAuthserviceGroupGroupIdUserGet(requestParameters.groupId, requestParameters.activeOnly, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary List Group Users Internal
+     * @param {GroupApiListGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGetRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet(requestParameters: GroupApiListGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGetRequest, options?: RawAxiosRequestConfig) {
+        return GroupApiFp(this.configuration).listGroupUsersInternalApiAuthserviceGroupGroupIdUserInternalGet(requestParameters.groupId, requestParameters.activeOnly, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -1857,7 +2466,7 @@ export class GroupApi extends BaseAPI {
      * @throws {RequiredError}
      */
     public listGroupsApiAuthserviceGroupGet(requestParameters: GroupApiListGroupsApiAuthserviceGroupGetRequest = {}, options?: RawAxiosRequestConfig) {
-        return GroupApiFp(this.configuration).listGroupsApiAuthserviceGroupGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, options).then((request) => request(this.axios, this.basePath));
+        return GroupApiFp(this.configuration).listGroupsApiAuthserviceGroupGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, requestParameters.activeMembersOnly, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -2511,15 +3120,50 @@ export const UserApiAxiosParamCreator = function (configuration?: Configuration)
         },
         /**
          * 
+         * @summary List User Groups Internal
+         * @param {string} userId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet: async (userId: string, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'userId' is not null or undefined
+            assertParamExists('listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet', 'userId', userId)
+            const localVarPath = `/api/authservice/user/{user_id}/groups/internal`
+                .replace(`{${"user_id"}}`, encodeURIComponent(String(userId)));
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'GET', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
          * @summary List Users
          * @param {number} [page] 
          * @param {number} [pageSize] 
          * @param {string | null} [search] 
          * @param {string | null} [tenantId] 
+         * @param {boolean} [activeOnly] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        listUsersApiAuthserviceUserGet: async (page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+        listUsersApiAuthserviceUserGet: async (page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, activeOnly?: boolean, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
             const localVarPath = `/api/authservice/user`;
             // use dummy base URL string because the URL constructor only accepts absolute URLs.
             const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
@@ -2550,6 +3194,10 @@ export const UserApiAxiosParamCreator = function (configuration?: Configuration)
 
             if (tenantId !== undefined) {
                 localVarQueryParameter['tenant_id'] = tenantId;
+            }
+
+            if (activeOnly !== undefined) {
+                localVarQueryParameter['active_only'] = activeOnly;
             }
 
             localVarHeaderParameter['Accept'] = 'application/json';
@@ -2739,16 +3387,30 @@ export const UserApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
+         * @summary List User Groups Internal
+         * @param {string} userId 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet(userId: string, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<UserGroupListResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet(userId, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['UserApi.listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @summary List Users
          * @param {number} [page] 
          * @param {number} [pageSize] 
          * @param {string | null} [search] 
          * @param {string | null} [tenantId] 
+         * @param {boolean} [activeOnly] 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
-        async listUsersApiAuthserviceUserGet(page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<UserListResponse>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.listUsersApiAuthserviceUserGet(page, pageSize, search, tenantId, options);
+        async listUsersApiAuthserviceUserGet(page?: number, pageSize?: number, search?: string | null, tenantId?: string | null, activeOnly?: boolean, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<UserListResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.listUsersApiAuthserviceUserGet(page, pageSize, search, tenantId, activeOnly, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['UserApi.listUsersApiAuthserviceUserGet']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
@@ -2835,13 +3497,23 @@ export const UserApiFactory = function (configuration?: Configuration, basePath?
         },
         /**
          * 
+         * @summary List User Groups Internal
+         * @param {UserApiListUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGetRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet(requestParameters: UserApiListUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGetRequest, options?: RawAxiosRequestConfig): AxiosPromise<UserGroupListResponse> {
+            return localVarFp.listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet(requestParameters.userId, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @summary List Users
          * @param {UserApiListUsersApiAuthserviceUserGetRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
          */
         listUsersApiAuthserviceUserGet(requestParameters: UserApiListUsersApiAuthserviceUserGetRequest = {}, options?: RawAxiosRequestConfig): AxiosPromise<UserListResponse> {
-            return localVarFp.listUsersApiAuthserviceUserGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, options).then((request) => request(axios, basePath));
+            return localVarFp.listUsersApiAuthserviceUserGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, requestParameters.activeOnly, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -2900,6 +3572,13 @@ export interface UserApiGetUserApiAuthserviceUserUserIdGetRequest {
 }
 
 /**
+ * Request parameters for listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet operation in UserApi.
+ */
+export interface UserApiListUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGetRequest {
+    readonly userId: string
+}
+
+/**
  * Request parameters for listUsersApiAuthserviceUserGet operation in UserApi.
  */
 export interface UserApiListUsersApiAuthserviceUserGetRequest {
@@ -2910,6 +3589,8 @@ export interface UserApiListUsersApiAuthserviceUserGetRequest {
     readonly search?: string | null
 
     readonly tenantId?: string | null
+
+    readonly activeOnly?: boolean
 }
 
 /**
@@ -2976,13 +3657,24 @@ export class UserApi extends BaseAPI {
 
     /**
      * 
+     * @summary List User Groups Internal
+     * @param {UserApiListUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGetRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet(requestParameters: UserApiListUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGetRequest, options?: RawAxiosRequestConfig) {
+        return UserApiFp(this.configuration).listUserGroupsInternalApiAuthserviceUserUserIdGroupsInternalGet(requestParameters.userId, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
      * @summary List Users
      * @param {UserApiListUsersApiAuthserviceUserGetRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
      */
     public listUsersApiAuthserviceUserGet(requestParameters: UserApiListUsersApiAuthserviceUserGetRequest = {}, options?: RawAxiosRequestConfig) {
-        return UserApiFp(this.configuration).listUsersApiAuthserviceUserGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, options).then((request) => request(this.axios, this.basePath));
+        return UserApiFp(this.configuration).listUsersApiAuthserviceUserGet(requestParameters.page, requestParameters.pageSize, requestParameters.search, requestParameters.tenantId, requestParameters.activeOnly, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

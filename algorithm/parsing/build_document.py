@@ -6,9 +6,16 @@ from lazyllm.tools.rag.doc_impl import NodeGroupType
 from lazyllm.tools.rag.parsing_service import DocumentProcessor
 from lazyllm.tools.rag.readers import PaddleOCRPDFReader
 
-from chat.utils.load_config import get_embed_keys, get_embed_index_kwargs, get_config_path
+from chat.utils.load_config import (
+    get_embed_keys,
+    get_embed_index_kwargs,
+    get_config_path,
+    get_image_embed_key,
+    get_text_embed_keys,
+)
 from config import config as _cfg
-from parsing.transform import GeneralParser, LineSplitter
+from parsing.readers import ImageEmbReader, VideoReader
+from parsing.transform import GeneralParser, LineSplitter, NodeParser
 
 ALGO_ID = 'general_algo'
 
@@ -85,6 +92,7 @@ def _build_pdf_reader():
             url=ocr_url,
             backend=_cfg['mineru_backend'],
             upload_mode=upload_mode,
+            post_func=NodeParser(),
             timeout=3600,
             patch_applied=patch_applied,
             service_variant=service_variant,
@@ -124,7 +132,7 @@ def reset_stores() -> None:
     def _col(group: str) -> str:
         return _pat.sub('_', f'col_{group}'.lower()).strip('_')
 
-    activated_groups = ['block', 'line', '__lazyllm_root__', '__lazyllm_image__']
+    activated_groups = ['block', 'line', 'image', '__lazyllm_root__', '__lazyllm_image__']
     store_conf = _build_store_config(get_embed_index_kwargs())
 
     milvus_cfg = (store_conf.get('vector_store') or {}).get('kwargs', {})
@@ -223,10 +231,24 @@ def build_document() -> Document:
     )
 
     docs.add_reader('*.pdf', _build_pdf_reader())
+
+    image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif')
+    image_reader = ImageEmbReader()
+    media_reader = VideoReader()
+    for ext in image_extensions:
+        docs.add_reader(f'*{ext}', image_reader)
+    docs.add_reader('*.mp3', media_reader)
+    docs.add_reader('*.mp4', media_reader)
+
     docs.create_node_group(name='block', display_name='paragraph slice',
                            group_type=NodeGroupType.CHUNK, transform=GeneralParser(max_length=2048, split_by='\n'))
     docs.create_node_group(name='line', display_name='sentence slice',
                            group_type=NodeGroupType.CHUNK, transform=LineSplitter, parent='block')
-    docs.activate_group('block', embed_keys=embed_keys)
-    docs.activate_group('line', embed_keys=embed_keys)
+
+    text_embed_keys = get_text_embed_keys() or embed_keys
+    image_embed_key = get_image_embed_key()
+    if image_embed_key:
+        docs.activate_group('image', embed_keys=image_embed_key)
+    docs.activate_group('block', embed_keys=text_embed_keys)
+    docs.activate_group('line', embed_keys=text_embed_keys)
     return docs

@@ -25,8 +25,8 @@ x-proxy-env: &proxy-env
   https_proxy: ${https_proxy:-}
   HTTP_PROXY: ${HTTP_PROXY:-}
   HTTPS_PROXY: ${HTTPS_PROXY:-}
-  no_proxy: 127.0.0.1,localhost,::1,chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-  NO_PROXY: 127.0.0.1,localhost,::1,chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  no_proxy: 127.0.0.1,localhost,::1,core,chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  NO_PROXY: 127.0.0.1,localhost,::1,core,chat,evo-api,doc-server,lazyllm-algo,parsing,milvus,opensearch,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
 
 x-core-env: &core-env
   ACL_DB_DRIVER: postgres
@@ -51,7 +51,6 @@ x-llm-api-keys: &llm-api-keys
   LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
   LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
   LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
-  LAZYLLM_MINERU_API_KEY: ${LAZYLLM_MINERU_API_KEY:-}
 
 
 x-upload-paths: &upload-paths
@@ -63,6 +62,15 @@ x-db-conn: &db-conn
 
 x-core-db-conn: &core-db-conn
   LAZYRAG_CORE_DATABASE_URL: ${LAZYRAG_CORE_DATABASE_URL:-postgresql+psycopg://root:123456@db:5432/core}
+
+x-ocr-env: &ocr-env
+  LAZYRAG_OCR_SERVICE_VARIANT: online
+  LAZYRAG_OCR_SERVER_TYPE: mineru
+  LAZYRAG_MINERU_UPLOAD_MODE: "True"
+  LAZYRAG_OCR_PATCH_APPLIED: "True"
+  LAZYLLM_MINERU_API_KEY: ${LAZYLLM_MINERU_API_KEY:-}
+  LAZYLLM_PADDLE_API_KEY: ${LAZYLLM_PADDLE_API_KEY:-}
+  LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://host.docker.internal:8000/api/v1/pdf_parse}
 
 services:
 
@@ -341,6 +349,9 @@ services:
       - "8000"
     volumes:
       - ./data/core/uploads:/var/lib/lazyrag/uploads
+      # Image bakes /app/algorithm; Python may import lazyllm from there (not /opt/lazyllm). Mount repo
+      # so doc_manager matches Core /v1/docs/add (kb bound to general_algo, no algo_id in body).
+      - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       <<: [*db-conn, *upload-paths, *llm-api-keys]
@@ -518,7 +529,7 @@ services:
       LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ""
       LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: "false"
       LAZYRAG_DOCUMENT_WORKER_POLL_MODE: direct
-      <<: [*db-conn, *upload-paths, *llm-api-keys]
+      <<: [*db-conn, *upload-paths, *llm-api-keys, *ocr-env]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/worker.py"]
     healthcheck:
@@ -549,6 +560,7 @@ services:
     expose:
       - "8000"
     volumes:
+      - ./data/core/uploads:/var/lib/lazyrag/uploads
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
@@ -563,17 +575,12 @@ services:
       retries: 10
       start_period: 120s
     environment:
+      LAZYRAG_UPLOAD_ROOT: /var/lib/lazyrag/uploads
+      <<: [*upload-paths, *llm-api-keys, *ocr-env]
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
-      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
       PYTHONPATH: /opt/lazyllm:/app
-      # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
-      # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
-      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
-      LAZYRAG_MINERU_UPLOAD_MODE: ""
-      LAZYRAG_OCR_PATCH_APPLIED: "true"
-      LAZYRAG_OCR_SERVICE_VARIANT: ${LAZYRAG_OCR_SERVICE_VARIANT:-online}
       LAZYLLM_ALGO_REGISTER_POLICY: ${LAZYLLM_ALGO_REGISTER_POLICY:-}
       LAZYRAG_USE_INNER_MODEL: "true"
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
@@ -582,7 +589,6 @@ services:
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
       LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
       LAZYRAG_RESET_ALL_ON_STARTUP: ${LAZYRAG_RESET_ALL_ON_STARTUP:-false}
-      <<: *llm-api-keys
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
       lazyllm-parse-server:
@@ -630,6 +636,8 @@ services:
       LAZYRAG_LLM_PRIORITY: ${LAZYRAG_LLM_PRIORITY:-0}
       LAZYRAG_DEFAULT_CHAT_DATASET: algo
       LAZYRAG_CORE_API_URL: http://core:8000
+      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
+      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
       LAZYRAG_MAX_RETRIES: "20"
       LAZYRAG_REVIEW_MAX_RETRIES: "5"
       LAZYRAG_MEMORY_REVIEW_INTERVAL: "1"
@@ -675,7 +683,7 @@ services:
       LAZYRAG_EVO_KB_BASE_URL: http://doc-server:8000
       LAZYRAG_EVO_CHUNK_BASE_URL: http://doc-server:8000
       LAZYRAG_EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/algorithm/common/runtime_models.online.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
       <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazyrag/evo

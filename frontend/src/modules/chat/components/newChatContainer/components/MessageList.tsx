@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 
 interface MessageListProps {
   messageList: any[];
-  initialCard?: React.ReactElement | string;
+  initialCard?: React.ReactNode;
   sendMessage: (text: string, clearInput?: boolean) => void;
   regenerate: () => void;
   stopGeneration: () => void;

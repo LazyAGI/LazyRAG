@@ -143,7 +143,7 @@ def _import_agentic_module(monkeypatch):
         'model_config_path': 'dynamic',
     }
 
-    # Fake chat.pipelines package to prevent __init__.py from importing naive/memory_generate
+    # Fake chat.pipelines package for isolated agentic import
     import importlib.util
     real_pipelines_spec = importlib.util.find_spec('chat.pipelines')
     fake_pipelines_pkg = ModuleType('chat.pipelines')

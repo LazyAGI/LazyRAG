@@ -17,6 +17,7 @@ _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'web_search': 'query',
     'url_fetch': 'url',
     'arxiv_search': 'query',
+    'vision_extractor': 'url',
     'memory': 'target',
     'skill_manage': 'name',
     'get_skill': 'name',
@@ -36,6 +37,7 @@ _REPRESENTATIVE_TOOL_RESULTS: dict[str, str] = {
     'web_search': 'query',
     'url_fetch': 'final_url',
     'arxiv_search': 'query',
+    'vision_extractor': 'description',
     'skill_manage': 'reason',
     'run_script': 'stdout',
     'read_file': 'content',
@@ -56,6 +58,7 @@ _TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
     'web_search': 'Searching the web for {value}.',
     'url_fetch': 'Reading page content from {value}.',
     'arxiv_search': 'Searching arXiv papers for {value}.',
+    'vision_extractor': 'Extracting information from the image.',
     'memory': 'Saving {value} as useful long term memory now.',
     'skill_manage': 'Updating reusable skill notes related to {value} now.',
     'get_skill': 'Opening skill details for {value} before continuing now.',
@@ -80,6 +83,7 @@ _TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
     'web_search': 'Web results are ready now.',
     'url_fetch': 'Page content was loaded successfully.',
     'arxiv_search': 'arXiv results are ready now.',
+    'vision_extractor': 'Image information has been extracted.',
     'memory': 'Long term memory was saved successfully.',
     'skill_manage': 'Reusable skill notes were updated successfully.',
     'get_skill': 'Skill details were loaded successfully now.',
@@ -103,6 +107,7 @@ _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
     'web_search': 'Web results for {value} could not be retrieved.',
     'url_fetch': 'Page content from {value} could not be loaded.',
     'arxiv_search': 'arXiv results for {value} could not be retrieved.',
+    'vision_extractor': 'Vision extraction for {value} could not be completed.',
     'memory': 'Long term memory for {value} could not be saved.',
     'skill_manage': 'Reusable skill notes for {value} could not be updated.',
     'get_skill': 'Skill details for {value} could not be loaded.',
@@ -460,6 +465,9 @@ def _format_tool_stream_frame(tool_event: dict[str, Any]) -> Optional[dict[str, 
 
 def _iter_text_chunks(text: str, chunk_size: int = _STREAM_CHUNK_SIZE):
     if not text:
+        return
+    if '![' in text:
+        yield text
         return
     chunk_size = max(1, int(chunk_size or _STREAM_CHUNK_SIZE))
     for start in range(0, len(text), chunk_size):

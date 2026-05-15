@@ -31,6 +31,8 @@ wget-log
 .claude
 .cursor
 .codex
+.codex-gocache/
+.codex-gomodcache/
 
 # docs
 lazyllm_chroma/

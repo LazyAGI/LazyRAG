@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Iterable
 
@@ -26,6 +27,7 @@ app = FastAPI(
 OFFICE_EXTENSIONS = {'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'}
 DEFAULT_ALLOWED_ROOTS = '/var/lib/lazyrag/uploads'
 DEFAULT_TIMEOUT_SECONDS = 900
+DEFAULT_CONCURRENCY = 4
 
 
 class ConvertRequest(BaseModel):
@@ -60,6 +62,22 @@ def _timeout_seconds() -> int:
     if value <= 0:
         return DEFAULT_TIMEOUT_SECONDS
     return value
+
+
+def _concurrency() -> int:
+    raw = (os.getenv('OFFICE_CONVERT_CONCURRENCY') or '').strip()
+    if not raw:
+        return DEFAULT_CONCURRENCY
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_CONCURRENCY
+    if value <= 0:
+        return DEFAULT_CONCURRENCY
+    return value
+
+
+_convert_semaphore = threading.BoundedSemaphore(_concurrency())
 
 
 def _is_under_any_root(path: Path, roots: Iterable[Path]) -> bool:
@@ -98,11 +116,20 @@ def _run_libreoffice_convert(source: Path, target: Path) -> None:
     output_dir = target.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(dir=str(output_dir)) as tmpdir:
+    with (
+        tempfile.TemporaryDirectory(dir=str(output_dir)) as tmpdir,
+        tempfile.TemporaryDirectory(prefix='lo-profile-') as profile_dir,
+    ):
         tmp_output_dir = Path(tmpdir)
+        profile_uri = Path(profile_dir).resolve().as_uri()
         command = [
             'libreoffice',
+            f'-env:UserInstallation={profile_uri}',
             '--headless',
+            '--nologo',
+            '--nofirststartwizard',
+            '--nolockcheck',
+            '--nodefault',
             '--convert-to',
             'pdf',
             str(source),
@@ -150,7 +177,9 @@ def convert_office_to_pdf(req: ConvertRequest) -> ConvertResponse:
         logger.info('reuse converted pdf source=%s target=%s', source, target)
         return ConvertResponse(pdf_path=str(target), reused=True)
 
-    _run_libreoffice_convert(source, target)
+    logger.info('waiting for convert slot source=%s concurrency=%d', source, _concurrency())
+    with _convert_semaphore:
+        _run_libreoffice_convert(source, target)
     if not target.exists() or target.stat().st_size <= 0:
         raise HTTPException(status_code=500, detail='converted pdf not found after libreoffice run')
 

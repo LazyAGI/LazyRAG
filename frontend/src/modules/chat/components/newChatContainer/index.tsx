@@ -5,7 +5,7 @@ import {
   forwardRef,
   useImperativeHandle,
   useCallback,
-  ReactElement,
+  ReactNode,
 } from "react";
 import { Spin, Flex, message } from "antd";
 import {
@@ -61,7 +61,7 @@ export interface ChatImperativeProps {
 
 interface Props {
   canChat?: boolean;
-  initialCard?: ReactElement | string;
+  initialCard?: ReactNode;
   sessionId?: string;
   onOpenSSE: (
     input: any[],
@@ -74,12 +74,14 @@ interface Props {
   ) => any;
   onConversationIdChange?: (conversationId: string) => void;
   parseErrorData: (data: string) => string;
-  setShowHistoryList: (show: boolean) => void;
-  showHistoryList: boolean;
+  setShowHistoryList?: (show: boolean) => void;
+  showHistoryList?: boolean;
+  showHistoryButton?: boolean;
   setIsChatContent: (isChatContent: boolean) => void;
   chatConfig?: ChatConfig;
   setChatConfig?: (chatConfig: ChatConfig) => void;
   setChatConfigFn: (chatConfig: ChatConfig) => void;
+  knowledgeRefreshKey?: number | string;
 }
 
 export interface ChatMessage {
@@ -127,10 +129,12 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       parseErrorData,
       setShowHistoryList,
       showHistoryList,
+      showHistoryButton = true,
       setIsChatContent,
       chatConfig,
       setChatConfig,
       setChatConfigFn,
+      knowledgeRefreshKey,
     } = props;
     const { getModelSelection, setModelSelection, resetForNewChat } =
       useModelSelectionStore();
@@ -232,7 +236,8 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
 
     function sendMessage(params: SendMessageParams) {
       const { text, clearInput = true, create_time } = params;
-      if (activeStreamRef.current || loading || !canChat || !text) {
+      const normalizedText = text.trim();
+      if (activeStreamRef.current || loading || !canChat || !normalizedText) {
         return;
       }
 
@@ -259,7 +264,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
         }) ?? {};
 
       const inputs = [
-        { input_type: "text", text },
+        { input_type: "text", text: normalizedText },
         ...getFileUrls(tempFileGroup?.image, tempGroup?.image).map((image) => {
           return {
             input_type: "image",
@@ -281,7 +286,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       );
 
       const userMessage = {
-        delta: text,
+        delta: normalizedText,
         role: RoleTypes.USER,
         images: tempGroup?.image,
         files: tempGroup?.file,
@@ -1255,15 +1260,19 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
             value={content}
             onChange={setContent}
             onSend={sendMessage}
-            openHistory={() => setShowHistoryList(true)}
+            openHistory={
+              setShowHistoryList ? () => setShowHistoryList(true) : undefined
+            }
             isChatContent={true}
             showHistoryList={showHistoryList}
+            showHistoryButton={showHistoryButton}
             openNewChat={createNewChat}
             ref={chatInputRef}
             onHeightChange={handleInputHeightChange}
             chatConfig={chatConfig}
             setChatConfig={setChatConfig}
             setChatConfigFn={setChatConfigFn}
+            knowledgeRefreshKey={knowledgeRefreshKey}
             sessionId={sessionId}
             isStreaming={IS_STREAMING}
           />

@@ -36,6 +36,7 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
     apt-get update && apt-get install -y \
         ca-certificates \
         curl \
+        ffmpeg \
         build-essential \
         gcc \
         libgl1 \
@@ -87,9 +88,14 @@ LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
 LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
+ARG LAZYRAG_PRELOAD_WHISPER_MODEL=0
+ARG LAZYRAG_WHISPER_MODEL=base
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN cd /opt/lazyllm && lazyllm install rag
+RUN if [ "$LAZYRAG_PRELOAD_WHISPER_MODEL" = "1" ]; then \
+        python -c "import whisper; whisper.load_model('${LAZYRAG_WHISPER_MODEL}')"; \
+    fi
 COPY . .
 RUN chmod +x /app/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/lazyllm:/app
@@ -106,7 +112,7 @@ ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
 ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
 ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
 ENV LAZYRAG_USE_INNER_MODEL=true
-ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+ENV LAZYRAG_MODEL_CONFIG_PATH=/app/common/runtime_models.inner.yaml
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
