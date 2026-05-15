@@ -1,5 +1,3 @@
-import asyncio
-import importlib
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -11,7 +9,6 @@ def _import_agentic_module(monkeypatch):
         debug=lambda *args, **kwargs: None,
         warning=lambda *args, **kwargs: None,
         error=lambda *args, **kwargs: None,
-        warning=lambda *args, **kwargs: None,
     )
     fake_lazyllm.bind = lambda *args, **kwargs: ('bind', args, kwargs)
     fake_lazyllm.loop = lambda *args, **kwargs: ('loop', args, kwargs)
@@ -69,6 +66,7 @@ def _import_agentic_module(monkeypatch):
     fake_prompts._COMBINED_REVIEW_PROMPT = ''
     fake_prompts._MEMORY_REVIEW_PROMPT = ''
     fake_prompts._SKILL_REVIEW_PROMPT = ''
+    fake_prompts.VOCAB_GUIDANCE = ''
     fake_prompts._MEMORY_FLUSH_MESSAGES = []
 
     fake_tool_registry = ModuleType('chat.components.tmp.tool_registry')
@@ -97,10 +95,15 @@ def _import_agentic_module(monkeypatch):
     fake_helpers = ModuleType('chat.utils.helpers')
     fake_helpers.tool_schema_to_string = lambda schema, include_params=True: 'tool-schema'
 
+    fake_stream_scanner = ModuleType('chat.utils.stream_scanner')
+    fake_stream_scanner.BasePlugin = object
+    fake_stream_scanner.IncrementalScanner = object
+
     fake_utils_pkg = ModuleType('chat.utils')
     fake_utils_pkg.__path__ = []
     fake_load_config = ModuleType('chat.utils.load_config')
     fake_load_config.get_config_path = lambda: 'runtime_models.yaml'
+    fake_load_config.normalize_skill_fs_url = lambda url: url
 
     fake_schema = ModuleType('chat.utils.schema')
 
@@ -187,6 +190,7 @@ def _import_agentic_module(monkeypatch):
     monkeypatch.setitem(sys.modules, 'chat.utils', fake_utils_pkg)
     monkeypatch.setitem(sys.modules, 'chat.utils.load_config', fake_load_config)
     monkeypatch.setitem(sys.modules, 'chat.utils.helpers', fake_helpers)
+    monkeypatch.setitem(sys.modules, 'chat.utils.stream_scanner', fake_stream_scanner)
     monkeypatch.setitem(sys.modules, 'chat.utils.schema', fake_schema)
 
     return importlib.import_module('chat.pipelines.agentic')
@@ -263,6 +267,7 @@ def test_agentic_forward_uses_automodel(monkeypatch):
 
     monkeypatch.setattr(module, 'AutoModel', lambda model, config=False: f'model:{model}')
     # Patch lazyllm.globals and lazyllm.tools.agent.ReactAgent on the fake lazyllm
+
     class _FakeGlobals:
         _sid = 'test-sid'
 
