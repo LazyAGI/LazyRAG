@@ -4,7 +4,7 @@
 
 # Use legacy Docker builder by default to avoid pulling moby/buildkit:buildx-stable-1 from Docker Hub
 # (which often times out in restricted networks). Override with: make up DOCKER_BUILDKIT=1
-export DOCKER_BUILDKIT ?= 0
+export DOCKER_BUILDKIT ?= 1
 PYTHON ?= python3
 PIP ?= $(PYTHON) -m pip
 GO ?= go
@@ -123,6 +123,7 @@ export GITHUB_PROXY ?= https://gh-proxy.com/
 # fast dev builds when RAG extras are not needed.
 export BASE_LAZYLLM_IMAGE ?= base
 export BASE_LAZYRAG_IMAGE ?= base_lazyrag
+# export BASE_LAZYRAG_IMAGE ?= registry.cn-sh-01.sensecore.cn/ai-expert-service/lazyrag-base:2026.05.15.beta
 
 # model config path
 export LAZYRAG_MODEL_CONFIG_PATH ?= online
