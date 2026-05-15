@@ -75,6 +75,117 @@ class TestAutoModelDynamic:
 
         assert config['llm'][0]['api_key'] == 'secret-key'
 
+    def test_dynamic_chat_share_preserves_dynamic_router(self, tmp_path):
+        '''share() must not re-resolve a dynamic OnlineChatModule to a static provider.'''
+        from lazyllm import AutoModel
+        from lazyllm.module.llms.onlinemodule.chat import OnlineChatModule
+
+        config_path = write_yaml(tmp_path, """
+            llm:
+              source: dynamic
+              dynamic_auth: true
+              type: llm
+        """)
+
+        module = AutoModel(model='llm', config=str(config_path))
+        shared = module.share(stream=True)
+
+        assert isinstance(shared, OnlineChatModule)
+        assert type(shared).__name__ == 'OnlineChatModule'
+        assert shared.name == 'llm'
+        assert shared._api_key == 'dynamic'
+
+    def test_dynamic_embedding_module_is_cloudpickle_safe(self, tmp_path):
+        '''Document server deployment cloudpickles dynamic embedding modules.'''
+        import cloudpickle
+        import threading
+        from lazyllm import AutoModel
+        from lazyllm.module.llms.onlinemodule.embedding import OnlineEmbeddingModule
+
+        config_path = write_yaml(tmp_path, """
+            embed_main:
+              source: dynamic
+              dynamic_auth: true
+              type: embed
+        """)
+
+        module = AutoModel(model='embed_main', config=str(config_path))
+        restored = cloudpickle.loads(cloudpickle.dumps(module))
+
+        assert isinstance(restored, OnlineEmbeddingModule)
+        assert isinstance(restored._lock, type(threading.Lock()))
+        assert restored._suppliers == {}
+
+    def test_shared_dynamic_chat_uses_injected_supplier(self, monkeypatch, tmp_path):
+        '''A shared dynamic llm should still route to the per-request supplier/key/model.'''
+        import json
+        import lazyllm
+        import requests
+        from lazyllm import AutoModel
+        from lazyllm.components.prompter import ChatPrompter
+        from lazyllm.module.llms.onlinemodule.dynamic_router import ConfigsDict
+
+        config_path = write_yaml(tmp_path, """
+            llm:
+              source: dynamic
+              dynamic_auth: true
+              type: llm
+        """)
+        sid = 'test-shared-dynamic-chat'
+        lazyllm.globals._init_sid(sid)
+        lazyllm.locals._init_sid(sid)
+        lazyllm.globals.config['dynamic_model_configs'] = ConfigsDict({
+            'llm': {
+                'chat': {
+                    'source': 'kimi',
+                    'model': 'kimi-k2-0711-preview',
+                    'url': 'https://api.moonshot.cn/',
+                }
+            }
+        })
+        lazyllm.globals.config['kimi_api_key'] = ConfigsDict({'llm': 'sk-test'})
+
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+            text = json.dumps({'choices': [{'message': {'content': 'ok'}}], 'usage': {}})
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def iter_content(self, *args, **kwargs):
+                return []
+
+            def iter_lines(self):
+                return []
+
+        def fake_post(url, **kwargs):
+            calls.append({'url': url, 'headers': kwargs.get('headers') or {}, 'json': kwargs.get('json') or {}})
+            return FakeResponse()
+
+        monkeypatch.setattr(requests, 'post', fake_post)
+
+        prompter = ChatPrompter(instruction='system prompt')
+        module = AutoModel(model='llm', config=str(config_path))
+        shared = module.share(prompt=prompter, stream=False)
+        with lazyllm.globals.stack_enter(shared.identities):
+            supplier = shared._get_supplier()
+
+        assert type(supplier).__name__ == 'KimiChat'
+        assert supplier._prompt is prompter
+
+        assert shared('hello', stream_output=False) == {'content': 'ok'}
+        assert calls[0]['url'] == 'https://api.moonshot.cn/v1/chat/completions'
+        assert calls[0]['headers'].get('Authorization') == 'Bearer sk-test'
+        assert calls[0]['json'].get('model') == 'kimi-k2-0711-preview'
+
+        lazyllm.locals.clear()
+        lazyllm.globals.clear()
+
 
 # ---------------------------------------------------------------------------
 # Task 2: StreamCallHelper.astream
@@ -262,8 +373,8 @@ class TestInjectModelConfig:
             with _globals_config_patch('dynamic_model_configs', None) as gcfg:
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',       'api_key': 'sk-chat'},
-                    'embed_main':   {'source': 'sf',     'model': 'bge-m3',       'api_key': 'sk-embed'},
-                    'reranker':     {'source': 'sf',     'model': 'bge-reranker', 'api_key': 'sk-embed'},
+                    'embed_main':   {'source': 'siliconflow', 'model': 'bge-m3',       'api_key': 'sk-embed'},
+                    'reranker':     {'source': 'siliconflow', 'model': 'bge-reranker', 'api_key': 'sk-embed'},
                 })
                 cfg = gcfg.get('dynamic_model_configs')
 
@@ -346,9 +457,10 @@ class TestInjectModelConfig:
             inject_model_config({})
         get_dynamic_role_slot_map.cache_clear()
 
-    def test_raises_on_missing_roles(self, monkeypatch, tmp_path):
-        '''Raises ValueError when model_config omits one or more dynamic roles.'''
+    def test_missing_roles_are_left_unconfigured(self, monkeypatch, tmp_path):
+        '''When model_config omits dynamic roles, provided roles are still injected.'''
         import textwrap
+        from lazyllm.module.llms.onlinemodule.dynamic_router import ConfigsDict
         from chat.utils.load_config import inject_model_config
         from chat.utils.load_config import get_dynamic_role_slot_map
 
@@ -364,8 +476,13 @@ class TestInjectModelConfig:
         get_dynamic_role_slot_map.cache_clear()
         monkeypatch.setattr('chat.utils.load_config._DYNAMIC_CONFIG_PATH', config_path)
 
-        with pytest.raises(ValueError, match='missing required dynamic roles'):
+        with _globals_config_patch('dynamic_model_configs', None) as gcfg:
             inject_model_config({'llm': {'source': 'openai', 'model': 'gpt-4o', 'api_key': 'sk-x'}})
+            cfg = gcfg.get('dynamic_model_configs')
+
+        assert isinstance(cfg, ConfigsDict)
+        assert cfg['llm']['chat']['model'] == 'gpt-4o'
+        assert 'embed_main' not in cfg
         get_dynamic_role_slot_map.cache_clear()
 
     def test_raises_on_empty_bucket(self, monkeypatch, tmp_path):

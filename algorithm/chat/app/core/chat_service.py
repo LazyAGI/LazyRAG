@@ -15,7 +15,7 @@ from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          URL_MAP, resolve_dataset_url)
 from chat.utils.helpers import validate_and_resolve_files
 from chat.app.core.chat_server import chat_server
-from chat.utils.load_config import inject_model_config
+from chat.utils.load_config import get_config_path, inject_model_config, summarize_model_config_for_log
 from chat.utils.markdown_images import rewrite_markdown_image_urls
 
 
@@ -190,6 +190,10 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
     sensitive_check_result = check_sensitive_content(query, session_id, start_time)
     log_tag = 'KB_CHAT_STREAM' if is_stream else 'KB_CHAT'
     LOG.info(f'[ChatServer] [{log_tag}] [query={query}] [sid={session_id}]')
+    LOG.info(
+        f'[ChatServer] [MODEL_CONFIG_RECEIVED] [sid={session_id}] [user_id={user_id or ""}] '
+        f'[active_config={get_config_path()}] [{summarize_model_config_for_log(model_config)}]'
+    )
 
     other_files, image_files = validate_and_resolve_files(files)
     query_params = build_query_params(

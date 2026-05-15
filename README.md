@@ -128,13 +128,15 @@ For environment setup and detailed examples, see [`docs/quick_start.md`](docs/qu
 
 ## Model Configuration
 
-Select a config file via `LAZYRAG_MODEL_CONFIG_PATH`. Three built-in modes:
+All algorithm services use `LAZYRAG_MODEL_CONFIG_PATH`. The default is `dynamic`,
+so the frontend's per-user model/API-key selection can be injected per request.
+Set `online` or `inner` only when forcing a static config.
 
 | Value | Description |
 |-------|-------------|
-| `inner` (default) | On-premises / intranet deployment |
+| `inner` | On-premises / intranet deployment |
 | `online` | Public cloud API |
-| `dynamic` | Key injected per request |
+| `dynamic` (default) | Key injected per request |
 
 Configure `llm`, `reranker`, and `embed_1~embed_3`. If only `embed_1` is set, single-embedding mode activates automatically.
 

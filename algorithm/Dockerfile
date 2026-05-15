@@ -97,7 +97,7 @@ ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
   LAZYRAG_SKILL_REVIEW_INTERVAL=5 \
   LAZYRAG_SKILL_REVIEW_DEBUG=false \
   LAZYRAG_USE_INNER_MODEL=true \
-  LAZYRAG_MODEL_CONFIG_PATH=/app/common/runtime_models.inner.yaml
+  LAZYRAG_MODEL_CONFIG_PATH=dynamic
 WORKDIR /app/algorithm
 ENTRYPOINT ["/app/algorithm/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
@@ -125,7 +125,7 @@ ENV PYTHONUNBUFFERED=1 \
     LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
     LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
     LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
-    LAZYRAG_MODEL_CONFIG_PATH=/app/algorithm/chat/runtime_models.inner.yaml \
+    LAZYRAG_MODEL_CONFIG_PATH=dynamic \
     PYTHONPATH=/opt/lazyllm:/app/algorithm
   
 RUN set -eu; \

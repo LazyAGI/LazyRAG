@@ -143,6 +143,33 @@ def _make_bucket(cfg: Dict[str, Any]) -> Dict[str, Any]:
                               'skip_auth': coerce_bool(cfg.get('skip_auth'))}.items() if v is not None}
 
 
+def _api_key_state(value: Any) -> str:
+    return 'set' if value else 'empty'
+
+
+def summarize_model_config_for_log(model_config: Optional[Dict[str, Any]]) -> str:
+    '''Return a deterministic, API-key-safe summary for model_config logs.'''
+    if not model_config:
+        return 'roles=[]'
+
+    parts = []
+    for role in sorted(str(k) for k in model_config.keys()):
+        role_cfg = model_config.get(role)
+        if not isinstance(role_cfg, dict):
+            parts.append(f'{role}(type={type(role_cfg).__name__})')
+            continue
+        fields = [
+            f'source={role_cfg.get("source", "")}',
+            f'model={role_cfg.get("model", "")}',
+            f'base_url={role_cfg.get("base_url", "")}',
+            f'api_key={_api_key_state(role_cfg.get("api_key"))}',
+        ]
+        if 'skip_auth' in role_cfg:
+            fields.append(f'skip_auth={coerce_bool(role_cfg.get("skip_auth"))}')
+        parts.append(f'{role}(' + ', '.join(fields) + ')')
+    return f'roles={sorted(str(k) for k in model_config.keys())} ' + '; '.join(parts)
+
+
 def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     '''Inject per-request model configuration into lazyllm globals.
 
@@ -156,7 +183,7 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
 
     After this call, globals has the following structure:
 
-        globals['config']['dynamic_model_configs'] = ConfigsDict({
+        globals.config['dynamic_model_configs'] = ConfigsDict({
             'llm':          {'chat':  {'source': 'openai',      'model': 'gpt-4o',      ...}},
             'embed_main':   {'embed': {'source': 'siliconflow', 'model': 'bge-m3',       ...}},
             'reranker':     {'embed': {'source': 'siliconflow', 'model': 'bge-reranker', ...}},
@@ -164,10 +191,10 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
         # api_key is NOT stored in dynamic_model_configs.  It lives in the
         # per-source config key so that _GlobalConfig.__getitem__ can resolve it
         # dynamically via the stack lookup (stack = [config_id, role_name, group_id]):
-        globals['config']['openai_api_key'] = ConfigsDict({
+        globals.config['openai_api_key'] = ConfigsDict({
             'llm':          'sk-...',
         })
-        globals['config']['siliconflow_api_key'] = ConfigsDict({
+        globals.config['siliconflow_api_key'] = ConfigsDict({
             'embed_main': 'sk-...',
             'reranker':   'sk-...',
         })
@@ -186,8 +213,9 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     are fully isolated because the ConfigsDict is keyed by role name, and each
     module's stack contains its own role name.
 
-    Raises ValueError if any dynamic role defined in runtime_models.yaml is
-    missing from model_config — there is no fallback for dynamic sources.
+    Missing dynamic roles are logged and left unconfigured.  If a later pipeline
+    uses one of those roles, LazyLLM will fail with a role-specific "No source"
+    error instead of silently falling back to a static provider.
     '''
     import lazyllm
     from lazyllm import LOG
@@ -197,12 +225,22 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     # file (e.g. runtime_models.online.yaml) instead of always falling back to
     # _DYNAMIC_CONFIG_PATH (runtime_models.yaml), which has no dynamic roles when
     # LAZYRAG_MODEL_CONFIG_PATH=online/inner.
-    role_slot_map = get_dynamic_role_slot_map(get_config_path())
+    config_path = get_config_path()
+    role_slot_map = get_dynamic_role_slot_map(config_path)
 
     if not role_slot_map:
+        if model_config:
+            LOG.warning(
+                f'[ChatServer] [MODEL_CONFIG_SKIPPED] [reason=no_dynamic_roles] '
+                f'[active_config={config_path}] [{summarize_model_config_for_log(model_config)}]'
+            )
         return
 
     if not model_config:
+        LOG.error(
+            f'[ChatServer] [MODEL_CONFIG_MISSING] [active_config={config_path}] '
+            f'[dynamic_roles={sorted(role_slot_map)}]'
+        )
         raise ValueError(
             f'model_config is required when dynamic roles are configured: '
             f'{sorted(role_slot_map)}'
@@ -210,22 +248,23 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
 
     missing = sorted(role for role in role_slot_map if role not in model_config)
     if missing:
-        raise ValueError(
-            f'model_config is missing required dynamic roles: {missing}. '
-            f'All dynamic roles must be provided: {sorted(role_slot_map)}'
+        LOG.warning(
+            f'[ChatServer] [MODEL_CONFIG_PARTIAL] [active_config={config_path}] '
+            f'[missing_roles={missing}] [dynamic_roles={sorted(role_slot_map)}] '
+            f'[{summarize_model_config_for_log(model_config)}]'
         )
 
-    # Build the new dynamic_model_configs ConfigsDict (source/model/url/skip_auth only).
-    # We read the existing value directly from the underlying globals['config'] dict
-    # (not via globals.config[...]) because the latter requires a non-empty stack and
-    # is intended for per-forward reads, not for the write path here.
-    cfg = lazyllm.globals['config'].get('dynamic_model_configs') or ConfigsDict()
-    if not isinstance(cfg, ConfigsDict):
-        cfg = ConfigsDict(cfg)
+    # Build the per-request dynamic_model_configs ConfigsDict (source/model/url/skip_auth only).
+    # Use globals.config[...] for writes so LazyLLM's supported-config registry is respected.
+    # We avoid reading existing ConfigsDict via globals.config[...] here because stack-based
+    # lookup is for per-forward reads; this request supplies the full dynamic role set.
+    cfg = ConfigsDict()
+    api_key_configs: Dict[str, Any] = {}
+    injected_roles = []
 
     for role, role_cfg in model_config.items():
         if role not in role_slot_map:
-            LOG.warning(f'[ChatServer] [MODEL_CONFIG] Unknown role {role!r}, skipping')
+            LOG.warning(f'[ChatServer] [MODEL_CONFIG_UNKNOWN_ROLE] [role={role!r}] [active_config={config_path}]')
             continue
         if not isinstance(role_cfg, dict):
             raise ValueError(
@@ -239,24 +278,25 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
             )
         slot = role_slot_map[role]
         cfg.setdefault(role, {})[slot] = bucket
+        injected_roles.append(role)
 
         # Store api_key in globals.config['{source}_api_key'] as a ConfigsDict
         # keyed by role name.  _default_api_key() reads this via the stack-based
         # lookup in _GlobalConfig.__getitem__, so each role gets its own key even
         # when multiple roles share the same source.
         #
-        # We write to globals['config'] directly (bypassing _GlobalConfig.__setitem__)
-        # because {source}_api_key may not yet be in _supported_configs at call time
-        # (it is added lazily when the supplier class is first registered).
         if (api_key := role_cfg.get('api_key')) and (source := role_cfg.get('source')):
             config_key = f'{source}_api_key'
-            existing = lazyllm.globals['config'].get(config_key)
-            if not isinstance(existing, ConfigsDict):
-                existing = ConfigsDict({'default': existing} if existing else {})
-            existing[role] = api_key
-            lazyllm.globals['config'][config_key] = existing
+            api_key_configs.setdefault(config_key, ConfigsDict())[role] = api_key
 
-    lazyllm.globals['config']['dynamic_model_configs'] = cfg
+    for config_key, api_key_cfg in api_key_configs.items():
+        lazyllm.globals.config[config_key] = api_key_cfg
+    lazyllm.globals.config['dynamic_model_configs'] = cfg
+    LOG.info(
+        f'[ChatServer] [MODEL_CONFIG_INJECTED] [active_config={config_path}] '
+        f'[dynamic_roles={sorted(role_slot_map)}] [injected_roles={sorted(injected_roles)}] '
+        f'[{summarize_model_config_for_log(model_config)}]'
+    )
 
 
 @lru_cache(maxsize=1)

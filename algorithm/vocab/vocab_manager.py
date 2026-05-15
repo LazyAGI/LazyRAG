@@ -47,7 +47,7 @@ class VocabManager:
         actual_source = data_source if data_source is not None else self._load_from_db
         self._proc = QueryEnhACProcessor(
             data_source=actual_source,
-            discriminator=get_automodel('llm_instruct'),
+            discriminator=get_automodel('llm'),
         )
         LOG.info(f'[VocabManager] initialized for user_id={user_id!r}, vocab_size={self.vocab_size}')
 

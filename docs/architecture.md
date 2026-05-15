@@ -150,7 +150,7 @@ Override store endpoints when using external Milvus/OpenSearch; built-in service
 
 ## Runtime Model Config
 
-- Use `LAZYRAG_MODEL_CONFIG_PATH` to select the config file. Three shorthand values are supported: `inner` (intranet/on-prem, default), `online` (public cloud API), `dynamic` (fully dynamic, key injected per request). An explicit file path is also accepted.
+- Use `LAZYRAG_MODEL_CONFIG_PATH` to select the config file. Three shorthand values are supported: `dynamic` (fully dynamic, key injected per request, default), `online` (public cloud API), `inner` (intranet/on-prem). An explicit file path is also accepted.
 - Configure `llm`, `reranker`, and `embed_1~embed_3` directly with `source/api_key/model/type/url`.
 - Keep real secrets out of git. Prefer env placeholders such as `${LAZYLLM_SILICONFLOW_API_KEY}`.
 - For local debugging with a temporary config file, set `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`; `docker-compose.yml` mounts the repository `tmp/` directory into `/app/tmp` inside the containers.

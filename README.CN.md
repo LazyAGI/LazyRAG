@@ -129,13 +129,14 @@ make up
 
 ## 模型配置
 
-通过 `LAZYRAG_MODEL_CONFIG_PATH` 选择配置文件，支持三种内置模式：
+所有算法服务统一通过 `LAZYRAG_MODEL_CONFIG_PATH` 选择配置文件。默认值是 `dynamic`，
+以前端的用户级模型/API-key 选择可以随请求注入。仅在需要强制静态配置时设置为 `online` 或 `inner`。
 
 | 值 | 说明 |
 |----|------|
-| `online`（默认） | 公有云 API |
+| `online` | 公有云 API |
 | `inner` | 内网/私有化部署 |
-| `dynamic` | 动态注入，key 随请求传入 |
+| `dynamic`（默认） | 动态注入，key 随请求传入 |
 
 可配置 `llm`、`reranker`、`embed_1~embed_3`。只配置 `embed_1` 时自动启用单路 embedding 模式。
 

@@ -378,7 +378,8 @@ services:
       test: ['CMD-SHELL', 'curl -f http://localhost:8000/v1/health && curl -f http://lazyllm-parse-server:8000/health || exit 1']
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 120s
     depends_on:
       db:
         condition: service_healthy
@@ -506,7 +507,8 @@ services:
       test: ['CMD-SHELL', 'curl -f http://localhost:8000/health || exit 1']
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 90s
     depends_on:
       db:
         condition: service_healthy
@@ -545,7 +547,8 @@ services:
       test: ['CMD-SHELL', 'curl -f http://localhost:8001/health || exit 1']
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 90s
     depends_on:
       db:
         condition: service_healthy
@@ -568,6 +571,7 @@ services:
         <<: *mirror-args
     expose:
       - "8000"
+    working_dir: /app
     volumes:
       - ./data/core/uploads:/var/lib/lazyrag/uploads
       - ./algorithm/chat:/app/chat:ro
@@ -589,7 +593,7 @@ services:
       <<: [*upload-paths, *llm-api-keys, *ocr-env]
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-dynamic}
       PYTHONPATH: /opt/lazyllm:/app
       LAZYLLM_ALGO_REGISTER_POLICY: ${LAZYLLM_ALGO_REGISTER_POLICY:-}
       LAZYRAG_USE_INNER_MODEL: "true"
@@ -653,7 +657,10 @@ services:
       LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
       LAZYRAG_SKILL_REVIEW_DEBUG: "false"
       LAZYRAG_SKIP_STARTUP_PIPELINE: "1"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
+      # Chat uses the shared model config selector. Default dynamic mode enables
+      # per-user model/API-key selection from core; set LAZYRAG_MODEL_CONFIG_PATH=online
+      # or inner only when forcing a static config.
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-dynamic}
       LAZYRAG_CORE_SERVICE_URL: http://core:8000
       LAZYRAG_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
@@ -690,7 +697,7 @@ services:
       LAZYRAG_EVO_KB_BASE_URL: http://doc-server:8000
       LAZYRAG_EVO_CHUNK_BASE_URL: http://doc-server:8000
       LAZYRAG_EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
+      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-dynamic}
       <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazyrag/evo

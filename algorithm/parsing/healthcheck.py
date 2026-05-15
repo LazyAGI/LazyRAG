@@ -1,25 +1,32 @@
+import json
+import os
 import sys
-
-import requests
-
-from config import config as _cfg
+import urllib.request
 
 ALGO_ID = 'general_algo'
 
 
-def _ensure_ok(url: str) -> None:
-    response = requests.get(url, timeout=3)
-    response.raise_for_status()
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value in (None, ''):
+        return default
+    return int(value)
+
+
+def _get_bytes(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=3) as response:
+        if response.status < 200 or response.status >= 300:
+            raise RuntimeError(f'GET {url} returned HTTP {response.status}')
+        return response.read()
 
 
 def main() -> int:
-    algo_port = _cfg['algo_server_port'] or _cfg['document_server_port']
-    processor_url = _cfg['document_processor_url'].rstrip('/')
+    algo_port = _env_int('LAZYRAG_ALGO_SERVER_PORT', _env_int('LAZYRAG_DOCUMENT_SERVER_PORT', 8000))
+    processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000').rstrip('/')
 
-    _ensure_ok(f'http://127.0.0.1:{algo_port}/docs')
-    response = requests.get(f'{processor_url}/algo/list', timeout=3)
-    response.raise_for_status()
-    items = response.json().get('data', [])
+    _get_bytes(f'http://127.0.0.1:{algo_port}/docs')
+    payload = json.loads(_get_bytes(f'{processor_url}/algo/list').decode('utf-8'))
+    items = payload.get('data', [])
     if not any(item.get('algo_id') == ALGO_ID for item in items):
         raise RuntimeError(f'algo_id not registered yet: {ALGO_ID}')
     return 0
