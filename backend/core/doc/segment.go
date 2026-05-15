@@ -346,6 +346,25 @@ func buildChunksURL(kbID, algoID, lazyDocID, group string, page, pageSize int) s
 	return common.JoinURL(common.AlgoServiceEndpoint(), "/v1/chunks") + "?" + params.Encode()
 }
 
+func buildParserChunksURL(kbID, algoID, lazyDocID, group string, page, pageSize int) string {
+	params := url.Values{}
+	params.Set("kb_id", kbID)
+	params.Set("doc_id", lazyDocID)
+	params.Set("group", firstNonEmpty(group, "Chunk"))
+	if strings.TrimSpace(algoID) != "" {
+		params.Set("algo_id", algoID)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	params.Set("offset", strconv.Itoa((page-1)*pageSize))
+	params.Set("page_size", strconv.Itoa(pageSize))
+	return common.JoinURL(common.ParsingServiceEndpoint(), "/doc/chunks") + "?" + params.Encode()
+}
+
 func prepareSegmentRequest(w http.ResponseWriter, r *http.Request, handler string, body *segmentSearchInput) (datasetID, documentID, lazyDocID, algoID, group string, ok bool) {
 	datasetID = datasetIDFromPath(r)
 	documentID = documentIDFromPath(r)
@@ -409,7 +428,33 @@ func fetchChunksPage(r *http.Request, datasetID, documentID, lazyDocID, algoID, 
 			Str("group", strings.TrimSpace(group)).
 			Str("external_url", queryURL).
 			Msg("external chunks request failed")
-		return nil, queryURL, err
+		fallbackURL := buildParserChunksURL(datasetID, algoID, lazyDocID, group, page, pageSize)
+		log.Logger.Warn().
+			Err(err).
+			Str("handler", handler).
+			Str("dataset_id", datasetID).
+			Str("document_id", documentID).
+			Str("lazyllm_doc_id", lazyDocID).
+			Str("algo_id", strings.TrimSpace(algoID)).
+			Str("group", strings.TrimSpace(group)).
+			Str("external_url", fallbackURL).
+			Str("failed_external_url", queryURL).
+			Msg("falling back to parser chunks request")
+		if fallbackErr := common.ApiGet(r.Context(), fallbackURL, nil, &raw, 10_000_000_000); fallbackErr != nil {
+			log.Logger.Error().
+				Err(fallbackErr).
+				Str("handler", handler).
+				Str("dataset_id", datasetID).
+				Str("document_id", documentID).
+				Str("lazyllm_doc_id", lazyDocID).
+				Str("algo_id", strings.TrimSpace(algoID)).
+				Str("group", strings.TrimSpace(group)).
+				Str("external_url", fallbackURL).
+				Str("failed_external_url", queryURL).
+				Msg("fallback parser chunks request failed")
+			return nil, fallbackURL, fmt.Errorf("%w; fallback parser chunks failed: %v", err, fallbackErr)
+		}
+		return raw, fallbackURL, nil
 	}
 	return raw, queryURL, nil
 }

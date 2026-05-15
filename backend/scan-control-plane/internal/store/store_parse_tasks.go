@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,8 +26,12 @@ func (s *Store) IngestEvents(ctx context.Context, req model.ReportEventsRequest)
 func (s *Store) IngestScanResults(ctx context.Context, req model.ReportScanResultsRequest) error {
 	events := make([]model.FileEvent, 0, len(req.Records))
 	for _, rec := range req.Records {
+		sourceID := strings.TrimSpace(rec.SourceID)
+		if sourceID == "" {
+			sourceID = strings.TrimSpace(req.SourceID)
+		}
 		events = append(events, model.FileEvent{
-			SourceID:       rec.SourceID,
+			SourceID:       sourceID,
 			EventType:      "modified",
 			Path:           rec.Path,
 			IsDir:          rec.IsDir,
@@ -41,7 +46,156 @@ func (s *Store) IngestScanResults(ctx context.Context, req model.ReportScanResul
 	if err != nil {
 		return err
 	}
-	return s.BatchApplyDocumentMutations(ctx, mutations)
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, m := range mutations {
+			if err := applyDocumentMutation(tx, m, s.log); err != nil {
+				return err
+			}
+		}
+		return s.persistScanResultSnapshotMetadataTx(tx, req)
+	})
+}
+
+func (s *Store) PersistScanResultSnapshotMetadata(ctx context.Context, req model.ReportScanResultsRequest) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.persistScanResultSnapshotMetadataTx(tx, req)
+	})
+}
+
+func (s *Store) persistScanResultSnapshotMetadataTx(tx *gorm.DB, req model.ReportScanResultsRequest) error {
+	recordsBySource := scanResultSnapshotRecordsBySource(req)
+	if len(recordsBySource) == 0 {
+		return nil
+	}
+	for sourceID, records := range recordsBySource {
+		if err := s.persistSourceScanResultSnapshotMetadataTx(tx, sourceID, records); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func scanResultSnapshotRecordsBySource(req model.ReportScanResultsRequest) map[string][]model.ScanRecord {
+	fallbackSourceID := strings.TrimSpace(req.SourceID)
+	recordsBySource := make(map[string][]model.ScanRecord)
+	for _, rec := range req.Records {
+		sourceID := strings.TrimSpace(rec.SourceID)
+		if sourceID == "" {
+			sourceID = fallbackSourceID
+		}
+		path := filepath.Clean(strings.TrimSpace(rec.Path))
+		if sourceID == "" || path == "" || path == "." || rec.IsDir {
+			continue
+		}
+		if isTransientSourceFilePath(path, false) {
+			continue
+		}
+		rec.SourceID = sourceID
+		rec.Path = path
+		recordsBySource[sourceID] = append(recordsBySource[sourceID], rec)
+	}
+	return recordsBySource
+}
+
+func (s *Store) persistSourceScanResultSnapshotMetadataTx(tx *gorm.DB, sourceID string, records []model.ScanRecord) error {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" || len(records) == 0 {
+		return nil
+	}
+
+	var src sourceEntity
+	if err := tx.Select("id", "tenant_id").Take(&src, "id = ?", sourceID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+
+	var relation sourceSnapshotRelationEntity
+	if err := tx.Take(&relation, "source_id = ?", src.ID).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		relation = sourceSnapshotRelationEntity{SourceID: src.ID}
+	}
+
+	baseItems, baseSnapshotID, err := s.snapshotItemsForDiffBaseDB(tx, src.ID, relation.LastCommittedSnapshotID)
+	if err != nil {
+		return err
+	}
+	merged := make(map[string]sourceFileSnapshotItemEntity, len(baseItems)+len(records))
+	for path, item := range baseItems {
+		merged[path] = item
+	}
+
+	changed := false
+	for _, rec := range records {
+		path := filepath.Clean(strings.TrimSpace(rec.Path))
+		if path == "" || path == "." || rec.IsDir || isTransientSourceFilePath(path, false) {
+			continue
+		}
+		size := rec.Size
+		if size < 0 {
+			size = 0
+		}
+		item := sourceFileSnapshotItemEntity{
+			Path:      path,
+			IsDir:     false,
+			SizeBytes: size,
+			Checksum:  strings.TrimSpace(rec.Checksum),
+		}
+		if !rec.ModTime.IsZero() {
+			mt := rec.ModTime.UTC()
+			item.ModTime = &mt
+		}
+		existing, exists := merged[path]
+		if exists {
+			if item.ModTime == nil {
+				item.ModTime = existing.ModTime
+			}
+			item.ExternalFileID = existing.ExternalFileID
+		}
+		if !exists ||
+			existing.IsDir != item.IsDir ||
+			strings.TrimSpace(existing.Checksum) != strings.TrimSpace(item.Checksum) ||
+			existing.ExternalFileID != item.ExternalFileID ||
+			snapshotItemChanged(existing, item) {
+			changed = true
+		}
+		merged[path] = item
+	}
+	if !changed {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	committedID := sourceSnapshotID()
+	committed := sourceFileSnapshotEntity{
+		SnapshotID:     committedID,
+		SourceID:       src.ID,
+		TenantID:       src.TenantID,
+		SnapshotType:   "COMMITTED",
+		BaseSnapshotID: baseSnapshotID,
+		FileCount:      int64(len(merged)),
+		CreatedAt:      now,
+	}
+	if err := tx.Create(&committed).Error; err != nil {
+		return err
+	}
+	if err := createSnapshotItemsTx(tx, committedID, merged); err != nil {
+		return err
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "source_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"last_committed_snapshot_id": committedID,
+			"updated_at":                 now,
+		}),
+	}).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error
 }
 
 func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.FileEvent) ([]DocumentMutation, error) {
@@ -50,6 +204,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 	var (
 		skippedIsDir          int
 		skippedEmptyPath      int
+		skippedTransient      int
 		skippedMissingSource  int
 		skippedSourceNotFound int
 	)
@@ -70,6 +225,16 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			s.log.Debug("event skipped",
 				zap.String("reason", "empty_path"),
 				zap.String("source_id", strings.TrimSpace(ev.SourceID)),
+				zap.String("event_type", normalizeEventType(ev.EventType)),
+			)
+			continue
+		}
+		if isTransientSourceFilePath(path, false) {
+			skippedTransient++
+			s.log.Debug("event skipped",
+				zap.String("reason", "transient_file"),
+				zap.String("source_id", strings.TrimSpace(ev.SourceID)),
+				zap.String("path", path),
 				zap.String("event_type", normalizeEventType(ev.EventType)),
 			)
 			continue
@@ -134,6 +299,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			zap.Int("mutations", len(mutations)),
 			zap.Int("skipped_is_dir", skippedIsDir),
 			zap.Int("skipped_empty_path", skippedEmptyPath),
+			zap.Int("skipped_transient", skippedTransient),
 			zap.Int("skipped_missing_source", skippedMissingSource),
 			zap.Int("skipped_source_not_found", skippedSourceNotFound),
 		)
@@ -375,6 +541,15 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 	created := 0
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, doc := range docs {
+			if isTransientSourceFilePath(doc.SourceObjectID, false) {
+				if err := tx.Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(map[string]any{
+					"next_parse_at": nil,
+					"updated_at":    now.UTC(),
+				}).Error; err != nil {
+					return err
+				}
+				continue
+			}
 			taskAction := inferTaskActionForDocument(doc)
 			if taskAction != taskActionDelete && strings.TrimSpace(doc.DesiredVersionID) == "" {
 				continue
@@ -585,45 +760,53 @@ func (s *Store) ClaimDueTasks(ctx context.Context, leaseOwner string, now time.T
 	result := make([]PendingTask, 0, len(claimed))
 	for _, task := range claimed {
 		var row struct {
-			DocumentID       int64
-			SourceID         string
-			SourceRootPath   string
-			SourceDatasetID  string
-			CoreDocumentID   string
-			SourceObjectID   string
-			DesiredVersionID string
-			AgentID          string
-			ListenAddr       string
+			DocumentID         int64
+			SourceID           string
+			SourceRootPath     string
+			SourceDatasetID    string
+			SourceCreateUserID string
+			CoreDocumentID     string
+			SourceObjectID     string
+			DesiredVersionID   string
+			AgentID            string
+			ListenAddr         string
 		}
 		if err := s.db.WithContext(ctx).
 			Table("documents d").
-			Select("d.id as document_id, d.source_id, s.root_path as source_root_path, s.dataset_id as source_dataset_id, d.core_document_id, d.source_object_id, d.desired_version_id, s.agent_id, a.listen_addr").
+			Select("d.id as document_id, d.source_id, s.root_path as source_root_path, s.dataset_id as source_dataset_id, s.create_user_id as source_create_user_id, d.core_document_id, d.source_object_id, d.desired_version_id, s.agent_id, a.listen_addr").
 			Joins("JOIN sources s ON s.id = d.source_id").
 			Joins("LEFT JOIN agents a ON a.agent_id = s.agent_id").
 			Where("d.id = ?", task.DocumentID).
 			Take(&row).Error; err != nil {
 			return nil, err
 		}
+		if isTransientSourceFilePath(row.SourceObjectID, false) {
+			if err := s.MarkTaskSuperseded(ctx, task.ID, "transient editor file is ignored"); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		result = append(result, PendingTask{
-			TaskID:           task.ID,
-			TenantID:         task.TenantID,
-			DocumentID:       task.DocumentID,
-			TaskAction:       normalizeTaskAction(task.TaskAction),
-			TargetVersionID:  task.TargetVersionID,
-			IdempotencyKey:   strings.TrimSpace(task.IdempotencyKey),
-			RetryCount:       task.RetryCount,
-			MaxRetryCount:    max(1, task.MaxRetryCount),
-			OriginType:       task.OriginType,
-			OriginPlatform:   task.OriginPlatform,
-			TriggerPolicy:    task.TriggerPolicy,
-			SourceID:         row.SourceID,
-			SourceRootPath:   row.SourceRootPath,
-			SourceDatasetID:  strings.TrimSpace(row.SourceDatasetID),
-			CoreDocumentID:   firstNonEmpty(strings.TrimSpace(task.CoreDocumentID), strings.TrimSpace(row.CoreDocumentID)),
-			SourceObjectID:   row.SourceObjectID,
-			DesiredVersionID: row.DesiredVersionID,
-			AgentID:          row.AgentID,
-			AgentListenAddr:  row.ListenAddr,
+			TaskID:             task.ID,
+			TenantID:           task.TenantID,
+			DocumentID:         task.DocumentID,
+			TaskAction:         normalizeTaskAction(task.TaskAction),
+			TargetVersionID:    task.TargetVersionID,
+			IdempotencyKey:     strings.TrimSpace(task.IdempotencyKey),
+			RetryCount:         task.RetryCount,
+			MaxRetryCount:      max(1, task.MaxRetryCount),
+			OriginType:         task.OriginType,
+			OriginPlatform:     task.OriginPlatform,
+			TriggerPolicy:      task.TriggerPolicy,
+			SourceID:           row.SourceID,
+			SourceRootPath:     row.SourceRootPath,
+			SourceDatasetID:    strings.TrimSpace(row.SourceDatasetID),
+			SourceCreateUserID: strings.TrimSpace(row.SourceCreateUserID),
+			CoreDocumentID:     firstNonEmpty(strings.TrimSpace(task.CoreDocumentID), strings.TrimSpace(row.CoreDocumentID)),
+			SourceObjectID:     row.SourceObjectID,
+			DesiredVersionID:   row.DesiredVersionID,
+			AgentID:            row.AgentID,
+			AgentListenAddr:    row.ListenAddr,
 		})
 	}
 	return result, nil
@@ -905,6 +1088,8 @@ type parseTaskListRow struct {
 	TenantID                string
 	SourceID                string
 	SourceName              string
+	SourceCreateUserID      string
+	SourceCreateUserName    string
 	DocumentID              int64
 	SourceObjectID          string
 	TaskAction              string
@@ -936,6 +1121,8 @@ type parseTaskDetailRow struct {
 	TenantID                string
 	SourceID                string
 	SourceName              string
+	SourceCreateUserID      string
+	SourceCreateUserName    string
 	DocumentID              int64
 	SourceObjectID          string
 	TaskAction              string
@@ -993,6 +1180,7 @@ func (s *Store) ListParseTasks(ctx context.Context, req model.ListParseTasksRequ
 			pt.tenant_id AS tenant_id,
 			d.source_id AS source_id,
 			s.name AS source_name,
+			s.create_user_id AS source_create_user_id,
 			pt.document_id AS document_id,
 			d.source_object_id AS source_object_id,
 			pt.task_action AS task_action,
@@ -1046,6 +1234,7 @@ func (s *Store) GetParseTask(ctx context.Context, taskID int64) (model.ParseTask
 			pt.tenant_id AS tenant_id,
 			d.source_id AS source_id,
 			s.name AS source_name,
+			s.create_user_id AS source_create_user_id,
 			pt.document_id AS document_id,
 			d.source_object_id AS source_object_id,
 			pt.task_action AS task_action,
@@ -1125,7 +1314,7 @@ func (s *Store) latestParseTasksByDocumentIDs(ctx context.Context, documentIDs [
 	var rows []parseTaskDocJoin
 	if err := s.db.WithContext(ctx).
 		Table("parse_tasks pt").
-		Select("pt.id AS task_id, pt.document_id, pt.task_action, pt.target_version_id, pt.core_document_id, pt.status, pt.core_dataset_id, pt.core_task_id, pt.scan_orchestration_status").
+		Select("pt.id AS task_id, pt.document_id, pt.task_action, pt.target_version_id, pt.core_document_id, pt.status, pt.core_dataset_id, pt.core_task_id, pt.scan_orchestration_status, pt.submit_at, pt.finished_at, pt.updated_at").
 		Joins("JOIN (?) latest ON latest.max_id = pt.id", sub).
 		Scan(&rows).Error; err != nil {
 		return nil, err

@@ -50,6 +50,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
     const [addModalVisible, setAddModalVisible] = useState(false);
     const [isEdit, setIsEdit] = useState(false);
     const [editPromptId, setEditPromptId] = useState<string | undefined>("");
+    const [activeTab, setActiveTab] = useState("custom");
 
     const [form] = Form.useForm();
 
@@ -72,6 +73,7 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
     }
 
     function onOpen() {
+      setActiveTab("custom");
       setVisible(true);
       fetchPromptList();
     }
@@ -291,7 +293,8 @@ const PromptModal = forwardRef<PromptImperativeProps, ForwardProps>(
         >
           <div className="prompt-modal-container">
             <Tabs
-              defaultActiveKey="custom"
+              activeKey={activeTab}
+              onChange={setActiveTab}
               items={tabItems}
               className="prompt-modal-tabs"
             />

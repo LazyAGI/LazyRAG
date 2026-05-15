@@ -46,6 +46,7 @@ security:
     - "/home"
     - "/data"
     - "/watch"
+    - "/tmp/test_watch"
 
 http:
   read_timeout: "10s"

@@ -225,6 +225,7 @@ export default function MemoryManagement() {
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillAutoEvoLoading, setSkillAutoEvoLoading] = useState<Set<string>>(new Set());
   const [skillsInitialized, setSkillsInitialized] = useState(false);
+  const skillListRequestIdRef = useRef(0);
   const [skillListPage, setSkillListPage] = useState(1);
   const [skillListPageSize, setSkillListPageSize] = useState(defaultSkillListPageSize);
   const [skillListTotal, setSkillListTotal] = useState(initialSkills.length);
@@ -245,6 +246,7 @@ export default function MemoryManagement() {
   const [searchInput, setSearchInput] = useState("");
   const [category, setCategory] = useState<string>();
   const [tag, setTag] = useState<string>();
+  const skillKeyword = query.trim();
   const [glossarySource, setGlossarySource] = useState<GlossarySource>();
   const [glossaryInboxOpen, setGlossaryInboxOpen] = useState(false);
   const [glossaryInboxLoading, setGlossaryInboxLoading] = useState(false);
@@ -574,14 +576,23 @@ export default function MemoryManagement() {
   const refreshSkillAssets = useCallback(async (
     options: { page?: number; pageSize?: number; preserveChangeProposals?: boolean } = {},
   ) => {
+    const requestId = skillListRequestIdRef.current + 1;
+    skillListRequestIdRef.current = requestId;
     setSkillLoading(true);
 
     try {
       const result = await listSkillAssetsPage({
+        keyword: skillKeyword,
+        category,
+        tags: tag ? [tag] : [],
         page: options.page ?? skillListPage,
         pageSize: options.pageSize ?? skillListPageSize,
       });
       const records = result.records;
+      if (skillListRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setSkillListTotal(result.total);
       setSkillListPage(result.page);
       setSkillListPageSize(result.pageSize);
@@ -612,12 +623,17 @@ export default function MemoryManagement() {
         );
       }
     } catch (error) {
+      if (skillListRequestIdRef.current !== requestId) {
+        return;
+      }
       console.error("Load skill assets failed:", error);
     } finally {
-      setSkillLoading(false);
-      setSkillsInitialized(true);
+      if (skillListRequestIdRef.current === requestId) {
+        setSkillLoading(false);
+        setSkillsInitialized(true);
+      }
     }
-  }, [skillListPage, skillListPageSize]);
+  }, [category, skillKeyword, skillListPage, skillListPageSize, tag]);
 
   const refreshGlossaryAssets = useCallback(
     async (options?: { keyword?: string; silent?: boolean; source?: GlossarySource }) => {
@@ -1561,8 +1577,13 @@ export default function MemoryManagement() {
 
   const keyword = query.trim().toLowerCase();
   const hasStructuredFilter = Boolean(keyword || category || tag);
+  const shouldFilterStructuredItemsLocally = activeTab !== "skills";
   const matchesStructuredFilter = useCallback(
     (item: StructuredAsset) => {
+      if (!shouldFilterStructuredItemsLocally) {
+        return true;
+      }
+
       const matchesKeyword =
         !keyword ||
         item.name.toLowerCase().includes(keyword) ||
@@ -1572,7 +1593,7 @@ export default function MemoryManagement() {
       const matchesTag = !tag || item.tags.includes(tag);
       return matchesKeyword && matchesCategory && matchesTag;
     },
-    [category, keyword, tag],
+    [category, keyword, shouldFilterStructuredItemsLocally, tag],
   );
 
   const filteredExperienceItems = experienceAssets;
@@ -1689,6 +1710,36 @@ export default function MemoryManagement() {
       reader.readAsText(file);
     });
 
+  const appendImportedSkillContent = (existingContent: string, importedContent: string) => {
+    if (!existingContent.trim()) {
+      return importedContent;
+    }
+    if (!importedContent.trim()) {
+      return existingContent;
+    }
+    return `${existingContent.replace(/\s+$/, "")}\n\n${importedContent.replace(/^\s+/, "")}`;
+  };
+
+  const confirmSkillContentImportMode = (existingContent?: string) => {
+    if (!existingContent?.trim()) {
+      return Promise.resolve<"replace" | "append">("replace");
+    }
+
+    return new Promise<"replace" | "append">((resolve) => {
+      Modal.confirm({
+        title: t("admin.memoryUploadSkillContentMergeTitle"),
+        content: t("admin.memoryUploadSkillContentMergeContent"),
+        okText: t("admin.memoryUploadSkillContentMergeReplace"),
+        cancelText: t("admin.memoryUploadSkillContentMergeAppend"),
+        closable: false,
+        maskClosable: false,
+        keyboard: false,
+        onOk: () => resolve("replace"),
+        onCancel: () => resolve("append"),
+      });
+    });
+  };
+
   const handleUploadSkillFile = async (
     file: File,
     options?: {
@@ -1719,6 +1770,14 @@ export default function MemoryManagement() {
         frontMatter && (frontMatter.name || frontMatter.description),
       );
       const importedContent = frontMatter?.content ?? content;
+      const existingContent = childTempId
+        ? draft.childSkills.find((item) => item.tempId === childTempId)?.content
+        : draft.content;
+      const contentImportMode = await confirmSkillContentImportMode(existingContent);
+      const resolveImportedContent = (currentContent: string) =>
+        contentImportMode === "append"
+          ? appendImportedSkillContent(currentContent, importedContent)
+          : importedContent;
 
       const applyMainDraftFromUpload = (replaceFromFrontMatter: boolean) => {
         setDraft((previous) => {
@@ -1726,7 +1785,7 @@ export default function MemoryManagement() {
             return {
               ...previous,
               name: previous.name || inferredName,
-              content: importedContent,
+              content: resolveImportedContent(previous.content),
             };
           }
 
@@ -1741,7 +1800,7 @@ export default function MemoryManagement() {
             ...previous,
             name: nextName,
             description: nextDescription,
-            content: importedContent,
+            content: resolveImportedContent(previous.content),
           };
         });
       };
@@ -1750,7 +1809,7 @@ export default function MemoryManagement() {
           ...previous,
           name: previous.name || frontMatter?.name || inferredName,
           description: previous.description || frontMatter?.description || "",
-          content: importedContent,
+          content: resolveImportedContent(previous.content),
         }));
       };
 
@@ -1763,7 +1822,7 @@ export default function MemoryManagement() {
                   ...item,
                   name: item.name || inferredName,
                   description: item.description || frontMatter?.description || "",
-                  content: importedContent,
+                  content: resolveImportedContent(item.content),
                 }
               : item,
           ),
@@ -2125,7 +2184,8 @@ export default function MemoryManagement() {
     options?: { forceReload?: boolean; syncRoute?: boolean },
   ): Promise<boolean> => {
     const proposal = getPendingProposal(tab, itemId);
-    if (!proposal || options?.forceReload) {
+    const shouldReloadProposal = options?.forceReload ?? true;
+    if (!proposal || shouldReloadProposal) {
       if (tab === "skills") {
         const matchedSkill = skillAssets.find((item) => item.id === itemId);
         if (matchedSkill?.autoEvo) {
@@ -2137,7 +2197,7 @@ export default function MemoryManagement() {
         );
 
         if (
-          options?.forceReload ||
+          shouldReloadProposal ||
           isSkillUpdatePending(skillUpdateStatus) ||
           hasBackendPendingReview
         ) {
@@ -2150,6 +2210,11 @@ export default function MemoryManagement() {
           try {
             const backendProposal = await loadSkillChangeProposal(matchedSkill);
             if (!backendProposal) {
+              setChangeProposals((previous) =>
+                previous.filter(
+                  (item) => !(item.tab === "skills" && item.targetId === itemId),
+                ),
+              );
               message.info(t("admin.memoryDiffNoPending"));
               return false;
             }
@@ -2182,7 +2247,7 @@ export default function MemoryManagement() {
 
       if (
         tab === "experience" &&
-        (options?.forceReload ||
+        (shouldReloadProposal ||
           experienceAssets.some(
             (item) =>
               item.id === itemId &&
@@ -2205,6 +2270,11 @@ export default function MemoryManagement() {
         try {
           const backendProposal = await loadExperienceChangeProposal(matchedExperience);
           if (!backendProposal) {
+            setChangeProposals((previous) =>
+              previous.filter(
+                (item) => !(item.tab === "experience" && item.targetId === itemId),
+              ),
+            );
             message.info(t("admin.memoryDiffNoPending"));
             return false;
           }
@@ -2351,6 +2421,27 @@ export default function MemoryManagement() {
           backendSuggestionPage: suggestionPage.page,
           backendSuggestionPageSize: suggestionPage.pageSize,
           backendSuggestionTotal: Math.max(mergedSuggestions.length, suggestionPage.total),
+        };
+      }),
+    );
+  };
+  const replaceBackendSuggestionPageInProposal = (
+    proposalId: string,
+    suggestionPage: EvolutionSuggestionListResult,
+  ) => {
+    setChangeProposals((previous) =>
+      previous.map((proposal) => {
+        if (proposal.id !== proposalId) {
+          return proposal;
+        }
+
+        return {
+          ...proposal,
+          backendSuggestionId: suggestionPage.items[0]?.id,
+          backendSuggestions: suggestionPage.items,
+          backendSuggestionPage: suggestionPage.page,
+          backendSuggestionPageSize: suggestionPage.pageSize,
+          backendSuggestionTotal: Math.max(suggestionPage.items.length, suggestionPage.total),
         };
       }),
     );
@@ -2898,12 +2989,34 @@ export default function MemoryManagement() {
 
   const goToReviewChoose = () => {
     setIsPreviewContentEditing(false);
-    setActiveReviewStep(0);
+    if (!activeProposal?.backendSuggestions) {
+      setActiveReviewStep(0);
+      return;
+    }
+
+    void (async () => {
+      const suggestionPage = await listEvolutionSuggestions({
+        page: 1,
+        pageSize: backendSuggestionPageSize,
+        statuses: reviewSuggestionStatuses,
+        ...(activeProposal.tab === "skills"
+          ? getSkillSuggestionResourceParam(activeProposal.before)
+          : getPreferenceSuggestionResourceParam(activeProposal.before)),
+      });
+
+      replaceBackendSuggestionPageInProposal(activeProposal.id, suggestionPage);
+      setSelectedBackendSuggestionIds((previous) => {
+        const latestIds = new Set(suggestionPage.items.map((item) => item.id));
+        return previous.filter((item) => latestIds.has(item));
+      });
+      setActiveReviewStep(0);
+    })();
   };
 
   const finishCloseChangeReview = () => {
     setIsPreviewContentEditing(false);
     setActiveProposalId(undefined);
+    reviewRouteReloadKeyRef.current = "";
     navigateToMemoryList(activeProposal?.tab || activeTab);
   };
   const closeChangeReview = () => {
@@ -3423,7 +3536,7 @@ export default function MemoryManagement() {
 
       return;
     } else if (activeTab === "experience") {
-      if (!draft.title.trim() || !draft.content.trim()) {
+      if (!draft.title.trim()) {
         message.warning(`${t("common.pleaseInput")}${t("admin.memoryTitle")}`);
         return;
       }
@@ -3690,6 +3803,7 @@ export default function MemoryManagement() {
           createUserApi().listUsersApiAuthserviceUserGet({
             page: 1,
             pageSize: 200,
+            activeOnly: true,
           }),
           createGroupApi().listGroupsApiAuthserviceGroupGet({
             page: 1,
@@ -3828,6 +3942,26 @@ export default function MemoryManagement() {
                 id: conflictId,
                 word: conflictWord,
                 groupIds: selectedGroupIds,
+              }).then((merged) => {
+                if (!merged || !resolution?.mergedGroupTerm?.trim()) {
+                  return merged;
+                }
+
+                return updateGlossaryAsset({
+                  ...merged,
+                  term: resolution.mergedGroupTerm.trim(),
+                  aliases: [
+                    ...new Set(
+                      (resolution.mergedGroupAliases?.length
+                        ? resolution.mergedGroupAliases
+                        : merged.aliases
+                      )
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                    ),
+                  ],
+                  content: (resolution.mergedGroupContent ?? merged.content).trim(),
+                });
               });
             }
 
@@ -3850,7 +3984,9 @@ export default function MemoryManagement() {
 
             const aliases = [
               conflictWord,
-              ...proposal.after.aliases,
+              ...(resolution?.newGroupAliases?.length
+                ? resolution.newGroupAliases
+                : proposal.after.aliases),
             ]
               .map((item) => item.trim())
               .filter(Boolean);
@@ -3860,6 +3996,7 @@ export default function MemoryManagement() {
                 ...proposal.after,
                 term: newGroupTerm,
                 aliases: [...new Set(aliases)],
+                content: (resolution?.newGroupContent ?? proposal.after.content).trim(),
               },
               { conflictId },
             );
@@ -3998,7 +4135,18 @@ export default function MemoryManagement() {
                 <Tag color="orange">{t("admin.memoryDiffPendingTag")}</Tag>
               ) : null}
             </div>
-            {!record.parentId ? (
+            {!record.parentId && record.description ? (
+              <Tooltip
+                title={
+                  <div className="memory-text-popover-content">{record.description}</div>
+                }
+                overlayClassName="memory-text-popover"
+                placement="topLeft"
+                trigger="hover"
+              >
+                <div className="memory-table-main-desc">{record.description}</div>
+              </Tooltip>
+            ) : !record.parentId ? (
               <div className="memory-table-main-desc">{record.description}</div>
             ) : null}
           </div>
@@ -4213,11 +4361,23 @@ export default function MemoryManagement() {
       key: "content",
       width: 520,
       className: "memory-content-summary-column",
-      render: (value: string) => (
-        <div className="memory-content-preview memory-content-preview-single-line">
-          {value}
-        </div>
-      ),
+      render: (value: string) =>
+        value ? (
+          <Tooltip
+            title={<div className="memory-text-popover-content">{value}</div>}
+            overlayClassName="memory-text-popover"
+            placement="topLeft"
+            trigger="hover"
+          >
+            <div className="memory-content-preview memory-content-preview-single-line">
+              {value}
+            </div>
+          </Tooltip>
+        ) : (
+          <div className="memory-content-preview memory-content-preview-single-line">
+            {value}
+          </div>
+        ),
     },
     {
       title: t("admin.memoryOperations"),

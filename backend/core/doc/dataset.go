@@ -59,6 +59,8 @@ type Dataset struct {
 	Type           string         `json:"type"`
 	Tags           []string       `json:"tags"`
 	DefaultDataset bool           `json:"default_dataset"`
+	ScanManaged    bool           `json:"scan_managed,omitempty"`
+	ScanSourceType string         `json:"scan_source_type,omitempty"`
 }
 
 type ListAlgosResponse struct {
@@ -96,10 +98,12 @@ type algoListResp struct {
 }
 
 type extTags struct {
-	Tags     []string       `json:"tags"`
-	AlgoID   string         `json:"algo_id"`
-	AlgoName string         `json:"algo_name"`
-	Parsers  []ParserConfig `json:"parsers"`
+	Tags           []string       `json:"tags"`
+	AlgoID         string         `json:"algo_id"`
+	AlgoName       string         `json:"algo_name"`
+	Parsers        []ParserConfig `json:"parsers"`
+	ScanManaged    bool           `json:"scan_managed,omitempty"`
+	ScanSourceType string         `json:"scan_source_type,omitempty"`
 }
 
 type algoGroupInfoResp struct {
@@ -167,6 +171,36 @@ func parseDatasetParsers(ext json.RawMessage) []ParserConfig {
 		})
 	}
 	return out
+}
+
+func parseDatasetScanManaged(ext json.RawMessage) bool {
+	if len(ext) == 0 {
+		return false
+	}
+	var v extTags
+	if err := json.Unmarshal(ext, &v); err != nil {
+		return false
+	}
+	if v.ScanManaged {
+		return true
+	}
+	for _, tag := range v.Tags {
+		if strings.EqualFold(strings.TrimSpace(tag), "scan") {
+			return true
+		}
+	}
+	return false
+}
+
+func parseDatasetScanSourceType(ext json.RawMessage) string {
+	if len(ext) == 0 {
+		return ""
+	}
+	var v extTags
+	if err := json.Unmarshal(ext, &v); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(v.ScanSourceType)
 }
 
 func fetchParsersByAlgoID(ctx context.Context, algoID string) []ParserConfig {
@@ -337,17 +371,21 @@ func AllDatasetTags(w http.ResponseWriter, r *http.Request) {
 
 	var datasets []orm.Dataset
 	if err := corestore.DB().
-		Select("ext").
-		Where("create_user_id = ? AND deleted_at IS NULL", userID).
+		Select("id, create_user_id, ext").
+		Where("deleted_at IS NULL").
 		Find(&datasets).Error; err != nil {
 		common.ReplyErr(w, "query datasets failed", http.StatusInternalServerError)
 		return
 	}
 
+	groupIDs := acl.ResolveUserGroupIDs(userID)
 	seen := map[string]struct{}{}
 	// Keep JSON stable: return [] instead of null when empty.
 	tags := make([]string, 0)
 	for _, ds := range datasets {
+		if len(datasetACLForUserWithGroups(&ds, userID, groupIDs)) == 0 {
+			continue
+		}
 		for _, t := range parseDatasetTags(ds.Ext) {
 			if _, ok := seen[t]; ok {
 				continue
@@ -410,10 +448,6 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 	db := corestore.DB()
 	base := db.Model(&orm.Dataset{}).
 		Where("deleted_at IS NULL")
-	if keyword != "" {
-		kw := "%" + strings.ToLower(keyword) + "%"
-		base = base.Where(`LOWER(display_name) LIKE ? OR LOWER("desc") LIKE ?`, kw, kw)
-	}
 
 	orderClause := "updated_at desc"
 	if orderBy != "" {
@@ -460,6 +494,9 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 		for _, ds := range rows {
 			perms := datasetACLForUserWithGroups(&ds, userID, groupIDs)
 			if len(perms) == 0 {
+				continue
+			}
+			if !datasetMatchesKeyword(&ds, keyword) {
 				continue
 			}
 			if len(wantTags) > 0 && !containsAll(parseDatasetTags(ds.Ext), wantTags) {
@@ -518,6 +555,8 @@ func ListDatasets(w http.ResponseWriter, r *http.Request) {
 			Type:           datasetTypeToPB(ds.Type),
 			Tags:           parseDatasetTags(ds.Ext),
 			DefaultDataset: isDefaultDatasetForUser(r.Context(), userID, ds.ID),
+			ScanManaged:    parseDatasetScanManaged(ds.Ext),
+			ScanSourceType: parseDatasetScanSourceType(ds.Ext),
 		})
 	}
 
@@ -680,6 +719,20 @@ func isDefaultDatasetForUser(ctx context.Context, userID, datasetID string) bool
 	return n > 0
 }
 
+func algoDatasetDisplayName(userID, displayName string) string {
+	return fmt.Sprintf("user@%s@%s", strings.TrimSpace(userID), strings.TrimSpace(displayName))
+}
+
+func hasReservedDatasetDisplayNamePrefix(displayName string) bool {
+	name := strings.ToLower(strings.TrimSpace(displayName))
+	for _, prefix := range []string{"user@", "feishu@", "local@"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 type kbCreateRequest struct {
 	KbID           string         `json:"kb_id"`
 	DisplayName    string         `json:"display_name"`
@@ -724,6 +777,10 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	if displayName == "" {
 		displayName = datasetID
 	}
+	if hasReservedDatasetDisplayNamePrefix(displayName) {
+		common.ReplyErr(w, "dataset name uses reserved prefix", http.StatusBadRequest)
+		return
+	}
 	// Provide explicit feedback for duplicate dataset names under the same user.
 	var existed int64
 	if err := corestore.DB().
@@ -746,7 +803,7 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 
 	req := kbCreateRequest{
 		KbID:        datasetID,
-		DisplayName: displayName,
+		DisplayName: algoDatasetDisplayName(userID, displayName),
 		OwnerID:     userID,
 		AlgoID:      algoID, // omitempty: not sent when empty; DocServer will not bind any algo
 		Meta:        map[string]any{"tags": body.Tags},
@@ -804,10 +861,12 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	parsers := fetchParsersByAlgoID(r.Context(), algoID)
 	extBytes, _ := json.Marshal(map[string]any{
-		"tags":      body.Tags,
-		"algo_id":   algoID,
-		"algo_name": body.Algo.DisplayName,
-		"parsers":   parsers,
+		"tags":             body.Tags,
+		"algo_id":          algoID,
+		"algo_name":        body.Algo.DisplayName,
+		"parsers":          parsers,
+		"scan_managed":     body.ScanManaged,
+		"scan_source_type": strings.TrimSpace(body.ScanSourceType),
 	})
 
 	ds := orm.Dataset{
@@ -870,6 +929,8 @@ func CreateDataset(w http.ResponseWriter, r *http.Request) {
 		Type:           datasetTypeToPB(ds.Type),
 		Tags:           body.Tags,
 		DefaultDataset: false,
+		ScanManaged:    body.ScanManaged,
+		ScanSourceType: strings.TrimSpace(body.ScanSourceType),
 	})
 }
 func GetDataset(w http.ResponseWriter, r *http.Request) {
@@ -929,6 +990,8 @@ func GetDataset(w http.ResponseWriter, r *http.Request) {
 		Type:           datasetTypeToPB(ds.Type),
 		Tags:           parseDatasetTags(ds.Ext),
 		DefaultDataset: isDefaultDatasetForUser(r.Context(), userID, ds.ID),
+		ScanManaged:    parseDatasetScanManaged(ds.Ext),
+		ScanSourceType: parseDatasetScanSourceType(ds.Ext),
 	})
 }
 func DeleteDataset(w http.ResponseWriter, r *http.Request) {
@@ -1041,6 +1104,10 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	if newDisplay == "" {
 		newDisplay = ds.DisplayName
 	}
+	if hasReservedDatasetDisplayNamePrefix(newDisplay) {
+		common.ReplyErr(w, "dataset name uses reserved prefix", http.StatusBadRequest)
+		return
+	}
 	if newDesc == "" {
 		newDesc = ds.Desc
 	}
@@ -1061,11 +1128,15 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	if len(parsers) == 0 {
 		parsers = fetchParsersByAlgoID(r.Context(), algoID)
 	}
+	scanManaged := parseDatasetScanManaged(ds.Ext)
+	scanSourceType := parseDatasetScanSourceType(ds.Ext)
 	extBytes, _ := json.Marshal(map[string]any{
-		"tags":      body.Tags,
-		"algo_id":   algoID,
-		"algo_name": algoName,
-		"parsers":   parsers,
+		"tags":             body.Tags,
+		"algo_id":          algoID,
+		"algo_name":        algoName,
+		"parsers":          parsers,
+		"scan_managed":     scanManaged,
+		"scan_source_type": scanSourceType,
 	})
 
 	// 1) text POST /v1/kbs/{kb_id}/update
@@ -1075,8 +1146,9 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 	}
 	kbURL := common.JoinURL(common.AlgoServiceEndpoint(), "/v1/kbs/"+kbID+"/update")
 	extMeta := map[string]any{"tags": body.Tags}
+	algoDisplayName := algoDatasetDisplayName(userID, newDisplay)
 	req := kbUpdateRequest{
-		DisplayName: &newDisplay,
+		DisplayName: &algoDisplayName,
 		Description: &newDesc,
 		OwnerID:     &userID,
 		Meta:        extMeta,
@@ -1148,6 +1220,8 @@ func UpdateDataset(w http.ResponseWriter, r *http.Request) {
 		Type:           datasetTypeToPB(ds.Type),
 		Tags:           parseDatasetTags(ds.Ext),
 		DefaultDataset: isDefaultDatasetForUser(r.Context(), userID, ds.ID),
+		ScanManaged:    parseDatasetScanManaged(ds.Ext),
+		ScanSourceType: parseDatasetScanSourceType(ds.Ext),
 	})
 }
 func SetDefault(w http.ResponseWriter, r *http.Request) {

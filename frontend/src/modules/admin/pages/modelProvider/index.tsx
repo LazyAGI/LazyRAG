@@ -1331,8 +1331,8 @@ export default function ModelProviderPage() {
           <section className="model-provider-config-panel" aria-label={t("modelProvider.defaultConfigAria")}>
             <div className="model-provider-panel-title-row">
               <div>
-                <h2>{t("modelProvider.defaultTitle")}</h2>
-                <p>{t("modelProvider.defaultSubtitle")}</p>
+                <h2 className="model-provider-section-title">{t("modelProvider.defaultTitle")}</h2>
+                <p className="model-provider-section-subtitle">{t("modelProvider.defaultSubtitle")}</p>
               </div>
             </div>
 
@@ -1425,8 +1425,8 @@ export default function ModelProviderPage() {
 
           <section className="model-provider-added-section">
             <div className="model-provider-panel-heading">
-              <h2>{t("modelProvider.myGroupsTitle")}</h2>
-              <p>{t("modelProvider.myGroupsSubtitle")}</p>
+              <h2 className="model-provider-section-title">{t("modelProvider.myGroupsTitle")}</h2>
+              <p className="model-provider-section-subtitle">{t("modelProvider.myGroupsSubtitle")}</p>
             </div>
 
             <div className="model-provider-added-list">
@@ -1601,8 +1601,8 @@ export default function ModelProviderPage() {
 
         <aside className="model-provider-side-panel" aria-label={t("modelProvider.builtInProvidersAria")}>
           <div className="model-provider-side-header">
-            <h2>{t("modelProvider.builtInProvidersTitle")}</h2>
-            <p>{t("modelProvider.builtInProvidersSubtitle")}</p>
+            <h2 className="model-provider-section-title">{t("modelProvider.builtInProvidersTitle")}</h2>
+            <p className="model-provider-section-subtitle">{t("modelProvider.builtInProvidersSubtitle")}</p>
           </div>
 
           <Input

@@ -38,6 +38,8 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	docQuery := s.db.WithContext(ctx).
 		Model(&documentEntity{}).
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID)
+	docQuery = applyTransientPathFilter(docQuery, "source_object_id")
+	docQuery = applyVisibleDocumentFilter(docQuery, "parse_status")
 
 	keyword := strings.TrimSpace(req.Keyword)
 	if keyword != "" {
@@ -83,6 +85,10 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	if err != nil {
 		return resp, err
 	}
+	metadata, err := s.sourceDocumentDisplayMetadata(ctx, src, sourceDocumentMetaInputsFromEntities(docs), latestTasksByDocID)
+	if err != nil {
+		return resp, err
+	}
 
 	for _, doc := range docs {
 		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
@@ -96,10 +102,11 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			v := false
 			hasUpdate = &v
 		}
-		lastSyncedAt := doc.UpdatedAt
 		latestTask := latestTasksByDocID[doc.ID]
+		displayMeta := metadata[doc.ID]
 		resp.Items = append(resp.Items, model.SourceDocumentItem{
 			DocumentID:              doc.ID,
+			SourceCreateUserID:      strings.TrimSpace(src.CreateUserID),
 			Name:                    filepath.Base(doc.SourceObjectID),
 			Path:                    doc.SourceObjectID,
 			Directory:               filepath.Base(filepath.Dir(doc.SourceObjectID)),
@@ -108,8 +115,9 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			UpdateDesc:              updateTypeDescription(update),
 			ParseState:              effectiveSourceDocumentParseState(doc.ParseStatus, doc.DesiredVersionID, latestTask),
 			FileType:                fileTypeFromPath(doc.SourceObjectID),
-			SizeBytes:               0,
-			LastSyncedAt:            &lastSyncedAt,
+			SizeBytes:               displayMeta.SizeBytes,
+			SourceUpdatedAt:         displayMeta.SourceUpdatedAt,
+			LastSyncedAt:            displayMeta.LastSyncedAt,
 			CoreDatasetID:           latestTask.CoreDatasetID,
 			CoreTaskID:              latestTask.CoreTaskID,
 			ScanOrchestrationStatus: latestTask.ScanOrchestrationStatus,
@@ -122,17 +130,26 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	}
 
 	type summaryDoc struct {
+		DocumentID       int64
 		SourceObjectID   string
 		ParseStatus      string
 		DesiredVersionID string
 		CurrentVersionID string
+		LastModifiedAt   *time.Time
+		OriginType       string
+		OriginPlatform   string
+		OriginRef        string
 		UpdatedAt        time.Time
 	}
 	var summaryDocs []summaryDoc
 	if err := s.db.WithContext(ctx).
 		Table("documents").
-		Select("source_object_id, parse_status, desired_version_id, current_version_id, updated_at").
+		Select("id AS document_id, source_object_id, parse_status, desired_version_id, current_version_id, last_modified_at, origin_type, origin_platform, origin_ref, updated_at").
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			db = applyTransientPathFilter(db, "source_object_id")
+			return applyVisibleDocumentFilter(db, "parse_status")
+		}).
 		Scan(&summaryDocs).Error; err != nil {
 		return resp, err
 	}
@@ -143,7 +160,37 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		modCount    int64
 		delCount    int64
 		latest      *time.Time
+		storage     int64
 	)
+	summaryInputs := make([]sourceDocumentMetaInput, 0, len(summaryDocs))
+	summaryDocIDs := make([]int64, 0, len(summaryDocs))
+	for _, doc := range summaryDocs {
+		summaryInputs = append(summaryInputs, sourceDocumentMetaInput{
+			DocumentID:     doc.DocumentID,
+			SourceObjectID: doc.SourceObjectID,
+			LastModifiedAt: doc.LastModifiedAt,
+			UpdatedAt:      doc.UpdatedAt,
+			OriginType:     doc.OriginType,
+			OriginPlatform: doc.OriginPlatform,
+			OriginRef:      doc.OriginRef,
+		})
+		summaryDocIDs = append(summaryDocIDs, doc.DocumentID)
+	}
+	summaryLatestTasks, err := s.latestParseTasksByDocumentIDs(ctx, summaryDocIDs)
+	if err != nil {
+		return resp, err
+	}
+	summaryMetadata, err := s.sourceDocumentDisplayMetadata(ctx, src, summaryInputs, summaryLatestTasks)
+	if err != nil {
+		return resp, err
+	}
+	for _, meta := range summaryMetadata {
+		storage += meta.SizeBytes
+		if meta.LastSyncedAt != nil && (latest == nil || meta.LastSyncedAt.After(*latest)) {
+			t := meta.LastSyncedAt.UTC()
+			latest = &t
+		}
+	}
 	for _, doc := range summaryDocs {
 		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
 		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, snapshotUpdates, snapshotUpdatesAvailable)
@@ -155,11 +202,11 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		case "DELETED":
 			delCount++
 		}
-		if strings.TrimSpace(doc.CurrentVersionID) != "" && strings.ToUpper(strings.TrimSpace(doc.ParseStatus)) != "DELETED" {
+		if strings.TrimSpace(doc.CurrentVersionID) != "" {
 			parsedCount++
 		}
-		updated := doc.UpdatedAt
-		if latest == nil || updated.After(*latest) {
+		if latest == nil {
+			updated := doc.UpdatedAt.UTC()
 			latest = &updated
 		}
 	}
@@ -184,7 +231,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	}
 	resp.Summary = model.SourceDocumentsSummary{
 		ParsedDocumentCount: parsedCount,
-		StorageBytes:        0,
+		StorageBytes:        storage,
 		TotalDocumentCount:  int64(len(summaryDocs)),
 		NewCount:            newCount,
 		ModifiedCount:       modCount,
@@ -192,6 +239,466 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		PendingPullCount:    newCount + modCount + delCount,
 	}
 	return resp, nil
+}
+
+func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model.Source) (map[string]model.SourceDocumentsResponse, error) {
+	sourceByID := make(map[string]model.Source, len(sources))
+	sourceIDsRaw := make([]string, 0, len(sources))
+	agentIDsRaw := make([]string, 0, len(sources))
+	for _, src := range sources {
+		src.ID = strings.TrimSpace(src.ID)
+		if src.ID == "" {
+			continue
+		}
+		if _, exists := sourceByID[src.ID]; exists {
+			continue
+		}
+		sourceByID[src.ID] = src
+		sourceIDsRaw = append(sourceIDsRaw, src.ID)
+		if agentID := strings.TrimSpace(src.AgentID); agentID != "" {
+			agentIDsRaw = append(agentIDsRaw, agentID)
+		}
+	}
+
+	sourceIDs := uniqueTrimmedStrings(sourceIDsRaw)
+	result := make(map[string]model.SourceDocumentsResponse, len(sourceIDs))
+	if len(sourceIDs) == 0 {
+		return result, nil
+	}
+
+	agentOnlineByID := make(map[string]bool)
+	if agentIDs := uniqueTrimmedStrings(agentIDsRaw); len(agentIDs) > 0 {
+		var agents []agentEntity
+		if err := s.db.WithContext(ctx).Where("agent_id IN ?", agentIDs).Find(&agents).Error; err != nil {
+			return nil, err
+		}
+		for _, agent := range agents {
+			agentOnlineByID[agent.AgentID] = strings.ToUpper(strings.TrimSpace(agent.Status)) != "OFFLINE"
+		}
+	}
+
+	for _, sourceID := range sourceIDs {
+		src := sourceByID[sourceID]
+		agentID := strings.TrimSpace(src.AgentID)
+		result[sourceID] = model.SourceDocumentsResponse{
+			Source: model.SourceDocumentsSource{
+				ID:                      sourceID,
+				Name:                    src.Name,
+				RootPath:                src.RootPath,
+				WatchEnabled:            src.WatchEnabled,
+				AgentID:                 src.AgentID,
+				AgentOnline:             agentOnlineByID[agentID],
+				UpdateTrackingSupported: true,
+			},
+			Items:    []model.SourceDocumentItem{},
+			Page:     1,
+			PageSize: 1,
+		}
+	}
+
+	type sourceDocumentOverviewSummaryRow struct {
+		SourceID            string `gorm:"column:source_id"`
+		TotalDocumentCount  int64  `gorm:"column:total_document_count"`
+		ParsedDocumentCount int64  `gorm:"column:parsed_document_count"`
+		NewCount            int64  `gorm:"column:new_count"`
+		ModifiedCount       int64  `gorm:"column:modified_count"`
+		DeletedCount        int64  `gorm:"column:deleted_count"`
+	}
+	var summaryRows []sourceDocumentOverviewSummaryRow
+	summaryQuery := s.db.WithContext(ctx).
+		Table("documents").
+		Select(`
+			source_id,
+			COUNT(*) AS total_document_count,
+			SUM(CASE WHEN COALESCE(current_version_id, '') <> '' THEN 1 ELSE 0 END) AS parsed_document_count,
+			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') = '' THEN 1 ELSE 0 END) AS new_count,
+			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') <> '' AND desired_version_id <> current_version_id THEN 1 ELSE 0 END) AS modified_count,
+			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) = 'DELETED' THEN 1 ELSE 0 END) AS deleted_count`).
+		Where("source_id IN ?", sourceIDs).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			db = applyTransientPathFilter(db, "source_object_id")
+			return applyVisibleDocumentFilter(db, "parse_status")
+		}).
+		Group("source_id")
+	if err := summaryQuery.Scan(&summaryRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range summaryRows {
+		resp := result[row.SourceID]
+		resp.Total = row.TotalDocumentCount
+		resp.Summary = model.SourceDocumentsSummary{
+			ParsedDocumentCount: row.ParsedDocumentCount,
+			StorageBytes:        0,
+			TotalDocumentCount:  row.TotalDocumentCount,
+			NewCount:            row.NewCount,
+			ModifiedCount:       row.ModifiedCount,
+			DeletedCount:        row.DeletedCount,
+			PendingPullCount:    row.NewCount + row.ModifiedCount + row.DeletedCount,
+		}
+		result[row.SourceID] = resp
+	}
+
+	type sourceDocumentOverviewDocRow struct {
+		ID               int64      `gorm:"column:id"`
+		TenantID         string     `gorm:"column:tenant_id"`
+		SourceID         string     `gorm:"column:source_id"`
+		SourceObjectID   string     `gorm:"column:source_object_id"`
+		CurrentVersionID string     `gorm:"column:current_version_id"`
+		DesiredVersionID string     `gorm:"column:desired_version_id"`
+		LastModifiedAt   *time.Time `gorm:"column:last_modified_at"`
+		ParseStatus      string     `gorm:"column:parse_status"`
+		OriginType       string     `gorm:"column:origin_type"`
+		OriginPlatform   string     `gorm:"column:origin_platform"`
+		OriginRef        string     `gorm:"column:origin_ref"`
+		UpdatedAt        time.Time  `gorm:"column:updated_at"`
+	}
+	docSubquery := s.db.WithContext(ctx).
+		Model(&documentEntity{}).
+		Select(`
+			documents.id,
+			documents.tenant_id,
+			documents.source_id,
+			documents.source_object_id,
+			documents.current_version_id,
+			documents.desired_version_id,
+			documents.last_modified_at,
+			documents.parse_status,
+			documents.origin_type,
+			documents.origin_platform,
+			documents.origin_ref,
+			documents.updated_at,
+			ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY updated_at DESC, id DESC) AS rn`).
+		Where("source_id IN ?", sourceIDs)
+	docSubquery = applyTransientPathFilter(docSubquery, "source_object_id")
+	docSubquery = applyVisibleDocumentFilter(docSubquery, "parse_status")
+
+	var docRows []sourceDocumentOverviewDocRow
+	if err := s.db.WithContext(ctx).
+		Table("(?) AS ranked_documents", docSubquery).
+		Where("rn = ?", 1).
+		Scan(&docRows).Error; err != nil {
+		return nil, err
+	}
+
+	docIDs := make([]int64, 0, len(docRows))
+	for _, doc := range docRows {
+		docIDs = append(docIDs, doc.ID)
+	}
+	latestTasksByDocID, err := s.latestParseTasksByDocumentIDs(ctx, docIDs)
+	if err != nil {
+		return nil, err
+	}
+	overviewMetaBySourceID := make(map[string]map[int64]sourceDocumentDisplayMeta, len(sourceIDs))
+	rowsBySourceID := make(map[string][]sourceDocumentOverviewDocRow, len(sourceIDs))
+	for _, doc := range docRows {
+		rowsBySourceID[doc.SourceID] = append(rowsBySourceID[doc.SourceID], doc)
+	}
+	for sourceID, rows := range rowsBySourceID {
+		src := sourceByID[sourceID]
+		inputs := make([]sourceDocumentMetaInput, 0, len(rows))
+		for _, row := range rows {
+			inputs = append(inputs, sourceDocumentMetaInput{
+				DocumentID:     row.ID,
+				SourceObjectID: row.SourceObjectID,
+				LastModifiedAt: row.LastModifiedAt,
+				UpdatedAt:      row.UpdatedAt,
+				OriginType:     row.OriginType,
+				OriginPlatform: row.OriginPlatform,
+				OriginRef:      row.OriginRef,
+			})
+		}
+		meta, err := s.sourceDocumentDisplayMetadata(ctx, sourceEntity{
+			ID:                    src.ID,
+			TenantID:              src.TenantID,
+			RootPath:              src.RootPath,
+			WatchEnabled:          src.WatchEnabled,
+			DefaultOriginType:     src.DefaultOriginType,
+			DefaultOriginPlatform: src.DefaultOriginPlatform,
+		}, inputs, latestTasksByDocID)
+		if err != nil {
+			return nil, err
+		}
+		overviewMetaBySourceID[sourceID] = meta
+	}
+
+	for _, doc := range docRows {
+		resp := result[doc.SourceID]
+		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		var hasUpdate *bool
+		switch update {
+		case "NEW", "MODIFIED", "DELETED":
+			v := true
+			hasUpdate = &v
+		case "UNCHANGED":
+			v := false
+			hasUpdate = &v
+		}
+		latestTask := latestTasksByDocID[doc.ID]
+		displayMeta := overviewMetaBySourceID[doc.SourceID][doc.ID]
+		resp.Source.LastSyncedAt = displayMeta.LastSyncedAt
+		resp.Items = []model.SourceDocumentItem{
+			{
+				DocumentID:              doc.ID,
+				SourceCreateUserID:      strings.TrimSpace(sourceByID[doc.SourceID].CreateUserID),
+				Name:                    filepath.Base(doc.SourceObjectID),
+				Path:                    doc.SourceObjectID,
+				Directory:               filepath.Base(filepath.Dir(doc.SourceObjectID)),
+				HasUpdate:               hasUpdate,
+				UpdateType:              update,
+				UpdateDesc:              updateTypeDescription(update),
+				ParseState:              effectiveSourceDocumentParseState(doc.ParseStatus, doc.DesiredVersionID, latestTask),
+				FileType:                fileTypeFromPath(doc.SourceObjectID),
+				SizeBytes:               displayMeta.SizeBytes,
+				SourceUpdatedAt:         displayMeta.SourceUpdatedAt,
+				LastSyncedAt:            displayMeta.LastSyncedAt,
+				CoreDatasetID:           latestTask.CoreDatasetID,
+				CoreTaskID:              latestTask.CoreTaskID,
+				ScanOrchestrationStatus: latestTask.ScanOrchestrationStatus,
+				DesiredVersionID:        doc.DesiredVersionID,
+				CurrentVersionID:        doc.CurrentVersionID,
+				ParseTaskID:             latestTask.TaskID,
+				ParseTaskAction:         latestTask.TaskAction,
+				ParseTaskTargetVersion:  latestTask.TargetVersionID,
+			},
+		}
+		result[doc.SourceID] = resp
+	}
+
+	return result, nil
+}
+
+type sourceDocumentMetaInput struct {
+	DocumentID     int64
+	SourceObjectID string
+	LastModifiedAt *time.Time
+	UpdatedAt      time.Time
+	OriginType     string
+	OriginPlatform string
+	OriginRef      string
+}
+
+type sourceDocumentDisplayMeta struct {
+	SizeBytes       int64
+	SourceUpdatedAt *time.Time
+	LastSyncedAt    *time.Time
+}
+
+func sourceDocumentMetaInputsFromEntities(docs []documentEntity) []sourceDocumentMetaInput {
+	inputs := make([]sourceDocumentMetaInput, 0, len(docs))
+	for _, doc := range docs {
+		inputs = append(inputs, sourceDocumentMetaInput{
+			DocumentID:     doc.ID,
+			SourceObjectID: doc.SourceObjectID,
+			LastModifiedAt: doc.LastModifiedAt,
+			UpdatedAt:      doc.UpdatedAt,
+			OriginType:     doc.OriginType,
+			OriginPlatform: doc.OriginPlatform,
+			OriginRef:      doc.OriginRef,
+		})
+	}
+	return inputs
+}
+
+func (s *Store) sourceDocumentDisplayMetadata(ctx context.Context, src sourceEntity, docs []sourceDocumentMetaInput, latestTasks map[int64]parseTaskDocJoin) (map[int64]sourceDocumentDisplayMeta, error) {
+	result := make(map[int64]sourceDocumentDisplayMeta, len(docs))
+	if len(docs) == 0 {
+		return result, nil
+	}
+	for _, doc := range docs {
+		result[doc.DocumentID] = sourceDocumentDisplayMeta{
+			SourceUpdatedAt: normalizedTimePtr(doc.LastModifiedAt),
+			LastSyncedAt:    sourceDocumentLastSyncedAt(doc, latestTasks[doc.DocumentID]),
+		}
+	}
+	if isCloudSourceForDisplay(src, docs) {
+		if err := s.applyCloudDocumentDisplayMetadata(ctx, src.ID, docs, result); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+	if err := s.applyLocalDocumentDisplayMetadata(ctx, src, docs, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func sourceDocumentLastSyncedAt(doc sourceDocumentMetaInput, task parseTaskDocJoin) *time.Time {
+	if t := normalizedTimePtr(task.FinishedAt); t != nil {
+		return t
+	}
+	if t := normalizedTimePtr(task.SubmitAt); t != nil {
+		return t
+	}
+	if !task.UpdatedAt.IsZero() {
+		t := task.UpdatedAt.UTC()
+		return &t
+	}
+	if !doc.UpdatedAt.IsZero() {
+		t := doc.UpdatedAt.UTC()
+		return &t
+	}
+	return nil
+}
+
+func normalizedTimePtr(t *time.Time) *time.Time {
+	if t == nil || t.IsZero() {
+		return nil
+	}
+	v := t.UTC()
+	return &v
+}
+
+func isCloudSourceForDisplay(src sourceEntity, docs []sourceDocumentMetaInput) bool {
+	if strings.EqualFold(strings.TrimSpace(src.DefaultOriginType), string(model.OriginTypeCloudSync)) {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(src.DefaultOriginPlatform), "FEISHU") {
+		return true
+	}
+	for _, doc := range docs {
+		if strings.EqualFold(strings.TrimSpace(doc.OriginType), string(model.OriginTypeCloudSync)) {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(doc.OriginPlatform), "FEISHU") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) applyCloudDocumentDisplayMetadata(ctx context.Context, sourceID string, docs []sourceDocumentMetaInput, result map[int64]sourceDocumentDisplayMeta) error {
+	originRefs := make([]string, 0, len(docs))
+	paths := make([]string, 0, len(docs))
+	seenRefs := make(map[string]struct{}, len(docs))
+	seenPaths := make(map[string]struct{}, len(docs))
+	for _, doc := range docs {
+		if ref := strings.TrimSpace(doc.OriginRef); ref != "" {
+			if _, ok := seenRefs[ref]; !ok {
+				seenRefs[ref] = struct{}{}
+				originRefs = append(originRefs, ref)
+			}
+		}
+		if path := strings.TrimSpace(doc.SourceObjectID); path != "" {
+			if _, ok := seenPaths[path]; !ok {
+				seenPaths[path] = struct{}{}
+				paths = append(paths, path)
+			}
+		}
+	}
+	if len(originRefs) == 0 && len(paths) == 0 {
+		return nil
+	}
+	query := s.db.WithContext(ctx).
+		Model(&cloudObjectIndexEntity{}).
+		Where("source_id = ?", strings.TrimSpace(sourceID))
+	if len(originRefs) > 0 && len(paths) > 0 {
+		query = query.Where("(external_object_id IN ? OR local_abs_path IN ? OR local_rel_path IN ? OR external_path IN ?)", originRefs, paths, paths, paths)
+	} else if len(originRefs) > 0 {
+		query = query.Where("external_object_id IN ?", originRefs)
+	} else {
+		query = query.Where("(local_abs_path IN ? OR local_rel_path IN ? OR external_path IN ?)", paths, paths, paths)
+	}
+	var rows []cloudObjectIndexEntity
+	if err := query.Find(&rows).Error; err != nil {
+		return err
+	}
+	byRef := make(map[string]cloudObjectIndexEntity, len(rows))
+	byPath := make(map[string]cloudObjectIndexEntity, len(rows)*3)
+	for _, row := range rows {
+		if ref := strings.TrimSpace(row.ExternalObjectID); ref != "" {
+			byRef[ref] = row
+		}
+		for _, path := range []string{row.LocalAbsPath, row.LocalRelPath, row.ExternalPath} {
+			cleaned := filepath.Clean(strings.TrimSpace(path))
+			if cleaned != "" && cleaned != "." {
+				byPath[cleaned] = row
+			}
+		}
+	}
+	for _, doc := range docs {
+		row, ok := byRef[strings.TrimSpace(doc.OriginRef)]
+		if !ok {
+			row, ok = byPath[filepath.Clean(strings.TrimSpace(doc.SourceObjectID))]
+		}
+		if !ok {
+			continue
+		}
+		meta := result[doc.DocumentID]
+		meta.SizeBytes = row.SizeBytes
+		if t := normalizedTimePtr(row.ExternalModifiedAt); t != nil {
+			meta.SourceUpdatedAt = t
+		}
+		if t := normalizedTimePtr(row.LastSyncedAt); t != nil {
+			meta.LastSyncedAt = t
+		}
+		result[doc.DocumentID] = meta
+	}
+	return nil
+}
+
+func (s *Store) applyLocalDocumentDisplayMetadata(ctx context.Context, src sourceEntity, docs []sourceDocumentMetaInput, result map[int64]sourceDocumentDisplayMeta) error {
+	items, err := s.latestSourceSnapshotItemsForDisplay(ctx, src)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	for _, doc := range docs {
+		item, ok := items[filepath.Clean(strings.TrimSpace(doc.SourceObjectID))]
+		if !ok {
+			continue
+		}
+		meta := result[doc.DocumentID]
+		meta.SizeBytes = item.SizeBytes
+		if item.ModTime != nil && !item.ModTime.IsZero() {
+			mt := item.ModTime.UTC()
+			meta.SourceUpdatedAt = &mt
+		}
+		result[doc.DocumentID] = meta
+	}
+	return nil
+}
+
+func (s *Store) latestSourceSnapshotItemsForDisplay(ctx context.Context, src sourceEntity) (map[string]sourceFileSnapshotItemEntity, error) {
+	sourceID := strings.TrimSpace(src.ID)
+	if sourceID == "" {
+		return map[string]sourceFileSnapshotItemEntity{}, nil
+	}
+	var relation sourceSnapshotRelationEntity
+	if err := s.db.WithContext(ctx).Take(&relation, "source_id = ?", sourceID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return map[string]sourceFileSnapshotItemEntity{}, nil
+		}
+		return nil, err
+	}
+	display := make(map[string]sourceFileSnapshotItemEntity)
+	if committedID := strings.TrimSpace(relation.LastCommittedSnapshotID); committedID != "" {
+		items, _, err := s.snapshotItemsForDiffBase(ctx, sourceID, committedID)
+		if err != nil {
+			return nil, err
+		}
+		for path, item := range filterTransientSnapshotItems(items) {
+			display[path] = item
+		}
+	}
+	if previewID := strings.TrimSpace(relation.LastPreviewSnapshotID); previewID != "" {
+		preview, err := s.loadSnapshotByID(ctx, previewID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		if err == nil && strings.EqualFold(strings.TrimSpace(preview.SnapshotType), "PREVIEW") && (preview.ConsumedAt == nil || src.WatchEnabled) {
+			items, err := s.snapshotItemsByPath(ctx, previewID)
+			if err != nil {
+				return nil, err
+			}
+			for path, item := range filterTransientSnapshotItems(items) {
+				display[path] = item
+			}
+			return display, nil
+		}
+	}
+	return display, nil
 }
 
 func effectiveSourceDocumentParseState(documentStatus, desiredVersion string, latestTask parseTaskDocJoin) string {
@@ -347,6 +854,7 @@ func (s *Store) ListSourceDocumentCoreRefs(ctx context.Context, sourceID, tenant
 		Table("documents d").
 		Select(`
 			d.id AS document_id,
+			? AS source_create_user_id,
 			d.source_object_id AS source_object_id,
 			d.parse_status AS parse_status,
 			d.desired_version_id AS desired_version_id,
@@ -359,10 +867,13 @@ func (s *Store) ListSourceDocumentCoreRefs(ctx context.Context, sourceID, tenant
 			d.core_document_id AS core_document_id,
 			pt.core_task_id AS core_task_id,
 			pt.scan_orchestration_status AS scan_orchestration_status
-		`).
+		`, strings.TrimSpace(src.CreateUserID)).
 		Joins("LEFT JOIN (?) latest ON latest.document_id = d.id", sub).
 		Joins("LEFT JOIN parse_tasks pt ON pt.id = latest.max_id").
 		Where("d.tenant_id = ? AND d.source_id = ?", tenantID, src.ID).
+		Scopes(func(db *gorm.DB) *gorm.DB {
+			return applyTransientPathFilter(db, "d.source_object_id")
+		}).
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -436,6 +947,9 @@ func (s *Store) createPreviewSnapshotAndDiff(ctx context.Context, src sourceEnti
 	for _, rawPath := range filePaths {
 		path := filepath.Clean(strings.TrimSpace(rawPath))
 		if path == "" || path == "." {
+			continue
+		}
+		if isTransientSourceFilePath(path, false) {
 			continue
 		}
 		if _, ok := seen[path]; ok {
@@ -517,11 +1031,16 @@ func (s *Store) createPreviewSnapshotAndDiff(ctx context.Context, src sourceEnti
 	if len(scopeRoots) > 0 {
 		filtered := make(map[string]sourceFileSnapshotItemEntity, len(baseItems))
 		for path, item := range baseItems {
+			if isTransientSourceFilePath(path, item.IsDir) {
+				continue
+			}
 			if pathInScope(path, scopeRoots) {
 				filtered[path] = item
 			}
 		}
 		baseItems = filtered
+	} else {
+		baseItems = filterTransientSnapshotItems(baseItems)
 	}
 	currentMap := make(map[string]sourceFileSnapshotItemEntity, len(currentItems))
 	for _, item := range currentItems {
@@ -603,19 +1122,7 @@ func snapshotItemChanged(base, current sourceFileSnapshotItemEntity) bool {
 }
 
 func (s *Store) snapshotItemsByPath(ctx context.Context, snapshotID string) (map[string]sourceFileSnapshotItemEntity, error) {
-	itemsMap := make(map[string]sourceFileSnapshotItemEntity)
-	snapshotID = strings.TrimSpace(snapshotID)
-	if snapshotID == "" {
-		return itemsMap, nil
-	}
-	var items []sourceFileSnapshotItemEntity
-	if err := s.db.WithContext(ctx).Where("snapshot_id = ?", snapshotID).Find(&items).Error; err != nil {
-		return nil, err
-	}
-	for _, item := range items {
-		itemsMap[item.Path] = item
-	}
-	return itemsMap, nil
+	return s.snapshotItemsByPathDB(s.db.WithContext(ctx), snapshotID)
 }
 
 func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req model.GenerateTasksRequest) (resp model.GenerateTasksResponse, retErr error) {
@@ -709,9 +1216,21 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 	}
 
 	if selectedPreview != nil && selectionToken != "" {
+		knownDeletedPaths := map[string]struct{}{}
+		if src.WatchEnabled {
+			var err error
+			knownDeletedPaths, err = s.deletedDocumentPathSet(ctx, src.ID, paths)
+			if err != nil {
+				return resp, err
+			}
+		}
 		unknownPaths := make([]string, 0, len(paths))
 		for _, path := range paths {
 			if _, ok := diffByPath[path]; !ok {
+				if _, deleted := knownDeletedPaths[path]; deleted {
+					diffByPath[path] = "DELETED"
+					continue
+				}
 				unknownPaths = append(unknownPaths, path)
 			}
 		}
@@ -720,7 +1239,7 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 		}
 	}
 
-	if req.UpdatedOnly {
+	if req.UpdatedOnly || selectedPreview != nil {
 		if selectedPreview != nil {
 			if src.WatchEnabled {
 				filtered, ignored, err := s.filterPathsByUpdatedOnly(ctx, src.ID, paths)
@@ -746,13 +1265,26 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 			paths = filtered
 		}
 	}
+	consumeSelectedPreview := func(tx *gorm.DB) error {
+		if selectedPreview == nil {
+			return nil
+		}
+		if src.WatchEnabled {
+			return s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now)
+		}
+		_, residualBaseID, err := s.promoteSelectedPreviewPathsToCommittedTx(tx, src.ID, *selectedPreview, paths, diffByPath, now)
+		if err != nil {
+			return err
+		}
+		if err := s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now); err != nil {
+			return err
+		}
+		return s.createResidualPreviewFromSelectionTx(tx, src.ID, *selectedPreview, residualBaseID, now)
+	}
 	if len(paths) == 0 {
 		if selectedPreview != nil {
 			if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-				if err := s.promotePreviewSnapshotToCommittedTx(tx, src.ID, selectedPreview.SnapshotID, now); err != nil {
-					return err
-				}
-				return s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now)
+				return consumeSelectedPreview(tx)
 			}); err != nil {
 				return resp, err
 			}
@@ -770,6 +1302,23 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 			}
 		}
 	} else {
+		previewCurrentPaths := map[string]struct{}{}
+		if src.WatchEnabled && selectedPreview != nil {
+			previewItems, err := s.snapshotItemsByPath(ctx, selectedPreview.SnapshotID)
+			if err != nil {
+				return resp, err
+			}
+			for rawPath, item := range previewItems {
+				if item.IsDir {
+					continue
+				}
+				path := filepath.Clean(strings.TrimSpace(rawPath))
+				if path == "" || path == "." {
+					continue
+				}
+				previewCurrentPaths[path] = struct{}{}
+			}
+		}
 		var rows []struct {
 			SourceObjectID string
 			ParseStatus    string
@@ -783,7 +1332,11 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 		}
 		for _, row := range rows {
 			if strings.EqualFold(strings.TrimSpace(row.ParseStatus), "DELETED") {
-				pathEventType[filepath.Clean(strings.TrimSpace(row.SourceObjectID))] = "deleted"
+				path := filepath.Clean(strings.TrimSpace(row.SourceObjectID))
+				if _, existsNow := previewCurrentPaths[path]; existsNow {
+					continue
+				}
+				pathEventType[path] = "deleted"
 			}
 		}
 	}
@@ -811,13 +1364,8 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 				return err
 			}
 		}
-		if selectedPreview != nil {
-			if err := s.promotePreviewSnapshotToCommittedTx(tx, src.ID, selectedPreview.SnapshotID, now); err != nil {
-				return err
-			}
-			if err := s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now); err != nil {
-				return err
-			}
+		if err := consumeSelectedPreview(tx); err != nil {
+			return err
 		}
 		if err := enqueueSourceCommand(tx, src.AgentID, model.CommandSnapshotSource, model.SourcePayload{
 			SourceID: src.ID,
@@ -1092,7 +1640,7 @@ func (s *Store) ExpediteTasksByPaths(ctx context.Context, sourceID string, req m
 
 func (s *Store) RequeueEnabledSourcesOnStartup(ctx context.Context) (int, error) {
 	var enabled []sourceEntity
-	if err := s.db.WithContext(ctx).Where("status = ? AND watch_enabled = ?", string(model.SourceStatusEnabled), true).Find(&enabled).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("status IN ? AND watch_enabled = ?", []string{string(model.SourceStatusEnabled), string(model.SourceStatusDegraded)}, true).Find(&enabled).Error; err != nil {
 		return 0, err
 	}
 	queued := 0
