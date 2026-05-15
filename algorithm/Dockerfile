@@ -1,5 +1,11 @@
-# Stage: base - lazyllm[rag] only. Rebuilt only when upgrading lazyllm version.
+# Global ARGs used in FROM directives MUST be declared before the first FROM,
+# otherwise the legacy builder (DOCKER_BUILDKIT=0) treats them as stage-scoped
+# and leaves them unsubstituted ("base name (${...}) should not be blank").
 ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+ARG BASE_LAZYLLM_IMAGE=base
+ARG BASE_LAZYRAG_IMAGE=base_lazyrag
+
+# Stage: base - lazyllm[rag] only. Rebuilt only when upgrading lazyllm version.
 FROM ${DOCKER_MIRROR}python:3.11-slim AS base
 WORKDIR /app
 
@@ -54,7 +60,6 @@ RUN set -eu; \
 
 
 # Stage: base_lazyrag - base.
-ARG BASE_LAZYLLM_IMAGE=base
 FROM ${BASE_LAZYLLM_IMAGE} AS base_lazyrag
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
@@ -66,7 +71,6 @@ RUN cd /opt/lazyllm && lazyllm install rag
 
 
 # Stage: algorithm - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-ARG BASE_LAZYRAG_IMAGE=base_lazyrag
 FROM ${BASE_LAZYRAG_IMAGE} AS algorithm
 COPY algorithm/requirements.txt /app/algorithm/requirements.txt
 RUN pip install --no-cache-dir -r algorithm/requirements.txt

@@ -2,7 +2,6 @@ ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
 FROM ${DOCKER_MIRROR}python:3.11-slim
 
 ARG OPENCODE_VERSION=1.14.28
-ARG TARGETARCH
 ARG LAZYLLM_GITHUB_REF=main
 ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
@@ -62,11 +61,14 @@ RUN set -eu; \
 
 RUN cd /opt/lazyllm && lazyllm install rag
 
+# Detect arch inside the container (dpkg) so the binary always matches the base image,
+# regardless of whether BuildKit injects TARGETARCH (legacy builder does not).
 RUN set -eu; \
-    case "${TARGETARCH:-amd64}" in \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
       amd64) ARCH=x64 ;; \
       arm64) ARCH=arm64 ;; \
-      *) echo "unsupported arch ${TARGETARCH}" && exit 1 ;; \
+      *) echo "unsupported arch $arch" && exit 1 ;; \
     esac; \
     curl -fL "${GITHUB_PROXY}https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \

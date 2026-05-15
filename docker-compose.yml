@@ -224,7 +224,7 @@ services:
       LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: ${LAZYRAG_BOOTSTRAP_ADMIN_USERNAME:-admin}
       LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD:-admin}
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/auth/health')\" || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
