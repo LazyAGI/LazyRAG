@@ -19,7 +19,7 @@ import "./index.scss";
 
 const TAB_KEYS = {
   summary: "2",
-  document: "3",
+  document: "3:",
   qa: "4",
   imageCaption: "5",
 } as const;
@@ -62,6 +62,19 @@ const KnowledgeTabs = (props: {
       });
   }, [knowledgeDetail]);
 
+  function getSplitTypeLabel(splitType: string, splitCount = 1) {
+    if (splitCount <= 1) {
+      return t("knowledge.segmentDocument");
+    }
+    if (splitType === "block") {
+      return t("knowledge.segmentSplitBlock");
+    }
+    if (splitType === "line") {
+      return t("knowledge.segmentSplitLine");
+    }
+    return splitType;
+  }
+
   function generateTabs(configs: ParserConfig[]) {
     if (!configs || configs.length < 1) {
       return [];
@@ -70,7 +83,11 @@ const KnowledgeTabs = (props: {
     configs.forEach((parser) => {
       switch (parser.type) {
         case ParserConfigTypeEnum.ParseTypeSplit:
-          if (initTabs.some((tab) => tab.key === TAB_KEYS.document)) {
+          if (
+            initTabs.some((tab) =>
+              String(tab.key).startsWith(TAB_KEYS.document),
+            )
+          ) {
             break;
           }
           const splitNames = configs
@@ -79,19 +96,21 @@ const KnowledgeTabs = (props: {
                 config.type === ParserConfigTypeEnum.ParseTypeSplit,
             )
             .map((config) => config.name);
-          initTabs.push({
-            label: t("knowledge.segmentDocument"),
-            children: (
-              <SegmentTab
-                detail={knowledgeDetail}
-                type={isSplitGroup(group, splitNames) ? group : parser.name}
-                names={splitNames}
-                editable={true}
-                onGetItemInfo={onGetItemInfo}
-              />
-            ),
-            key: TAB_KEYS.document,
-            closable: false,
+          splitNames.forEach((splitName) => {
+            initTabs.push({
+              label: getSplitTypeLabel(splitName || "", splitNames.length),
+              children: (
+                <SegmentTab
+                  detail={knowledgeDetail}
+                  type={splitName || ""}
+                  names={[splitName || ""]}
+                  editable={true}
+                  onGetItemInfo={onGetItemInfo}
+                />
+              ),
+              key: `${TAB_KEYS.document}${splitName || ""}`,
+              closable: false,
+            });
           });
           break;
         case ParserConfigTypeEnum.ParseTypeSummary:
@@ -141,9 +160,7 @@ const KnowledgeTabs = (props: {
           break;
       }
     });
-    return initTabs.sort((a, b) => {
-      return String(a.key).localeCompare(String(b.key));
-    });
+    return initTabs;
   }
 
   function getInitialActiveKey(configs: ParserConfig[], groupName?: string | null) {
@@ -156,7 +173,20 @@ const KnowledgeTabs = (props: {
       parser?.type === ParserConfigTypeEnum.ParseTypeSplit ||
       isSplitGroup(groupName)
     ) {
-      return TAB_KEYS.document;
+      const splitParserNames = configs
+        .filter((config) => config.type === ParserConfigTypeEnum.ParseTypeSplit)
+        .map((config) => config.name)
+        .filter((name): name is string => !!name);
+
+      if (groupName && splitParserNames.includes(groupName)) {
+        return `${TAB_KEYS.document}${groupName}`;
+      }
+
+      if (splitParserNames.length > 0) {
+        return `${TAB_KEYS.document}${splitParserNames[0]}`;
+      }
+
+      return "";
     }
     if (parser?.type === ParserConfigTypeEnum.ParseTypeSummary) {
       return TAB_KEYS.summary;
