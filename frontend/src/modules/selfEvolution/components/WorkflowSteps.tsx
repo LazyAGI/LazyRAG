@@ -150,7 +150,7 @@ export function PxReportWorkflowStep({
             <span className="self-evolution-dataset-collapse-label">
               <span>
                 {categoryCount === 0
-                  ? "查看评测图表（暂无有效数据）"
+                  ? "查看评测图表"
                   : isSingleCategory
                     ? "查看评测图表（单分类饼图）"
                     : "查看评测图表（多分类折线图）"}

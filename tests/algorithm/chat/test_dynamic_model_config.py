@@ -60,6 +60,21 @@ class TestAutoModelDynamic:
         module = AutoModel(model='llm', config=str(config_path))
         assert isinstance(module, OnlineChatModule)
 
+    def test_automodel_config_expands_env_var(self, monkeypatch, tmp_path):
+        from lazyllm.module.llms.utils import _get_module_config_map
+
+        config_path = write_yaml(tmp_path, """
+            llm:
+              - source: openai
+                name: my-model
+                api_key: ${TEST_API_KEY}
+        """)
+        monkeypatch.setenv('TEST_API_KEY', 'secret-key')
+
+        config = _get_module_config_map(str(config_path))
+
+        assert config['llm'][0]['api_key'] == 'secret-key'
+
 
 # ---------------------------------------------------------------------------
 # Task 2: StreamCallHelper.astream

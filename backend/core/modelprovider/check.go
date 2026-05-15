@@ -39,9 +39,10 @@ type modelCheckResponse struct {
 	URL     string `json:"url,omitempty"`
 }
 
-// CheckModelProviderData keeps only connectivity result for API response.
+// CheckModelProviderData is the API response for a model check (mirrors algorithm fields we expose).
 type CheckModelProviderData struct {
-	Success bool `json:"success"`
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
 }
 
 // CheckGroup proxies to the algorithm service /api/model/check for connectivity validation.
@@ -116,5 +117,5 @@ func CheckGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	common.ReplyOK(w, CheckModelProviderData{Success: algo.Success})
+	common.ReplyOK(w, CheckModelProviderData{Success: algo.Success, Message: algo.Message})
 }

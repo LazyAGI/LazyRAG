@@ -2269,7 +2269,17 @@ func createTaskFromExistingDocument(r *http.Request, datasetID, userID, userName
 	tExt := taskExt{TaskType: tType, DocumentPID: documentPID, DisplayName: displayName, TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetPath: strings.TrimSpace(item.Task.TargetPath), DataSourceType: firstNonEmpty(strings.TrimSpace(item.Task.DataSourceType), "LOCAL_FILE"), Files: tFiles, DocumentTags: tags, ReparseGroups: item.Task.ReparseGroups}
 	now := time.Now().UTC()
 	taskRow := orm.Task{ID: taskID, LazyllmTaskID: "", DocID: baseDoc.ID, KbID: datasetKbIDByID(datasetID), AlgoID: datasetAlgoIDByID(datasetID), DatasetID: datasetID, TaskType: tType, DocumentPID: documentPID, TargetPID: strings.TrimSpace(item.Task.TargetPID), TargetDatasetID: strings.TrimSpace(item.Task.TargetDatasetID), DisplayName: displayName, Ext: mustJSON(tExt), BaseModel: orm.BaseModel{CreateUserID: userID, CreateUserName: userName, CreatedAt: now, UpdatedAt: now}}
-	if err := store.DB().WithContext(r.Context()).Create(&taskRow).Error; err != nil {
+	if err := store.DB().WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&taskRow).Error; err != nil {
+			return err
+		}
+		if TaskType(tType) == TaskTypeReparse {
+			if err := tx.Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", baseDoc.ID, datasetID).Update("updated_at", now).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return orm.Task{}, fmt.Errorf("create task failed")
 	}
 	return taskRow, nil
@@ -2338,7 +2348,15 @@ func startReparseTasksInternal(r *http.Request, datasetID string, taskIDs []stri
 		if lazyllmTaskID != "" {
 			updates["lazyllm_task_id"] = lazyllmTaskID
 		}
-		_ = store.DB().WithContext(r.Context()).Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(updates).Error
+		_ = store.DB().WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&orm.Task{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", taskRow.ID, datasetID).Updates(updates).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&orm.Document{}).Where("id = ? AND dataset_id = ? AND deleted_at IS NULL", docRows[i].ID, datasetID).Update("updated_at", now).Error; err != nil {
+				return err
+			}
+			return nil
+		})
 		results = append(results, StartTaskResult{TaskID: taskRow.ID, DocumentID: docRows[i].ID, DisplayName: docRows[i].DisplayName, Status: "STARTED", SubmitStatus: "SUBMITTED"})
 	}
 	return results, nil

@@ -42,17 +42,10 @@
 }
 
 .knowledge-title {
+  margin: 0;
   display: flex;
-  color: var(--Colors-SenseCore-coldgrey-10, #323c47);
-
-  font-size: 20px;
-  font-style: normal;
-  font-weight: 600;
-  line-height: 28px; /* 140% */
-
   padding-bottom: 16px;
   width: 100%;
-
   align-items: center;
 
   .title-text {
@@ -63,6 +56,12 @@
     text-align: left;
     white-space: nowrap;
   }
+}
+
+.knowledge-title.admin-page-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #111827;
 }
 
 .list-header {

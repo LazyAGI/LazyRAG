@@ -205,13 +205,19 @@ func parseHourMinuteToken(token string) (int, int, error) {
 	value = strings.ReplaceAll(value, "：", ":")
 	if strings.Contains(value, ":") {
 		parts := strings.Split(value, ":")
-		if len(parts) != 2 {
-			return 0, 0, fmt.Errorf("invalid hh:mm")
+		if len(parts) != 2 && len(parts) != 3 {
+			return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
 		}
 		h, errH := strconv.Atoi(strings.TrimSpace(parts[0]))
 		m, errM := strconv.Atoi(strings.TrimSpace(parts[1]))
 		if errH != nil || errM != nil {
-			return 0, 0, fmt.Errorf("invalid hh:mm")
+			return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
+		}
+		if len(parts) == 3 {
+			second, errS := strconv.Atoi(strings.TrimSpace(parts[2]))
+			if errS != nil || second < 0 || second > 59 {
+				return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
+			}
 		}
 		if h < 0 || h > 23 || m < 0 || m > 59 {
 			return 0, 0, fmt.Errorf("hour/minute out of range")

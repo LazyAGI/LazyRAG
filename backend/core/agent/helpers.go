@@ -60,7 +60,7 @@ func threadCreateURL() string {
 }
 
 func threadStatusesURL() string {
-	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/statuse")
+	return common.JoinURL(agentServiceEndpoint(), "/v1/evo/threads/statuses")
 }
 
 func threadMessagesURL(threadID string) string {

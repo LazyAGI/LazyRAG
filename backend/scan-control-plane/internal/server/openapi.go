@@ -62,6 +62,7 @@ func buildOpenAPISpec() map[string]any {
 					"200": resp("Source list", inlineObj(map[string]any{
 						"items": arrSchema(refSchema("Source")),
 					}, []string{"items"})),
+					"400": errResp(),
 				}),
 				"post": op("Create source", reqBody(refSchema("CreateSourceRequest")), map[string]any{
 					"200": resp("Created source", refSchema("Source")),
@@ -72,6 +73,7 @@ func buildOpenAPISpec() map[string]any {
 				"post": op("Create knowledge base in core and grant current user read permission", reqBody(refSchema("CreateKnowledgeBaseRequest")), map[string]any{
 					"200": resp("Created knowledge base", refSchema("CreateKnowledgeBaseResponse")),
 					"400": errResp(),
+					"409": errResp(),
 					"502": errResp(),
 				}),
 			},
@@ -285,20 +287,6 @@ func buildOpenAPISpec() map[string]any {
 					"500": errResp(),
 				}),
 			},
-			"/api/v1/agents/fs/validate": map[string]any{
-				"post": op("Validate path via agent", reqBody(refSchema("AgentPathRequest")), map[string]any{
-					"200": resp("Path validation result", refSchema("AgentPathValidateResponse")),
-					"404": errResp(),
-					"502": errResp(),
-				}),
-			},
-			"/api/v1/agents/fs/tree": map[string]any{
-				"post": op("Get directory tree via agent", reqBody(refSchema("AgentPathTreeRequest")), map[string]any{
-					"200": resp("Directory tree", refSchema("AgentPathTreeResponse")),
-					"404": errResp(),
-					"502": errResp(),
-				}),
-			},
 			"/api/scan/agents/fs/validate": map[string]any{
 				"post": op("Validate path via agent", reqBody(refSchema("AgentPathRequest")), map[string]any{
 					"200": resp("Path validation result", refSchema("AgentPathValidateResponse")),
@@ -330,6 +318,7 @@ func schemas() map[string]any {
 		"Source": inlineObj(map[string]any{
 			"id":                      strSchema(),
 			"tenant_id":               strSchema(),
+			"create_user_id":          strSchema(),
 			"name":                    strSchema(),
 			"source_type":             strSchema(),
 			"root_path":               strSchema(),
@@ -345,6 +334,8 @@ func schemas() map[string]any {
 			"default_trigger_policy":  strSchema(),
 			"created_at":              dateTimeSchema(),
 			"updated_at":              dateTimeSchema(),
+			"cloud_binding":           refSchema("CloudSourceBinding"),
+			"documents":               refSchema("SourceDocumentsResponse"),
 		}, []string{"id", "tenant_id", "name", "source_type", "root_path", "status", "watch_enabled", "idle_window_seconds", "reconcile_seconds", "agent_id", "created_at", "updated_at"}),
 		"CreateSourceRequest": inlineObj(map[string]any{
 			"tenant_id":               strSchema(),
@@ -575,6 +566,7 @@ func schemas() map[string]any {
 			"parse_state":               strSchema(),
 			"file_type":                 strSchema(),
 			"size_bytes":                intSchema(),
+			"source_updated_at":         dateTimeSchema(),
 			"last_synced_at":            dateTimeSchema(),
 			"core_dataset_id":           strSchema(),
 			"core_task_id":              strSchema(),
@@ -757,6 +749,7 @@ func schemas() map[string]any {
 			"agent_id":      strSchema(),
 			"source_id":     strSchema(),
 			"path":          strSchema(),
+			"keyword":       strSchema(),
 			"max_depth":     intSchema(),
 			"include_files": boolSchema(),
 			"changes_only":  boolSchema(),
@@ -764,6 +757,7 @@ func schemas() map[string]any {
 		}, []string{"agent_id", "path"}),
 		"SourcePathTreeRequest": inlineObj(map[string]any{
 			"path":          strSchema(),
+			"keyword":       strSchema(),
 			"max_depth":     intSchema(),
 			"include_files": boolSchema(),
 			"changes_only":  boolSchema(),

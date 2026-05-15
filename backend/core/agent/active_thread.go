@@ -23,6 +23,9 @@ const (
 	userActiveThreadStatusFinished = "finished"
 
 	userActiveThreadCreateLease = 2 * time.Minute
+
+	userActiveThreadExistsType    = "USER_ACTIVE_THREAD_EXISTS"
+	userActiveThreadExistsMessage = "当前已有任务正在运行，请先等待完成、暂停或取消后再继续该历史任务。"
 )
 
 type userActiveThreadCreationGuard struct {
@@ -61,6 +64,107 @@ func reserveUserActiveThreadCreation(ctx context.Context, db *gorm.DB, r *http.R
 		message:    "thread creation is busy, please retry",
 		statusCode: http.StatusConflict,
 	}
+}
+
+func ensureUserCanActivateThread(ctx context.Context, db *gorm.DB, r *http.Request, targetThreadID string) error {
+	userID := strings.TrimSpace(store.UserID(r))
+	if userID == "" {
+		return &userActiveThreadError{
+			message:    "missing X-User-Id",
+			statusCode: http.StatusBadRequest,
+		}
+	}
+	targetThreadID = strings.TrimSpace(targetThreadID)
+	if targetThreadID == "" {
+		return &userActiveThreadError{
+			message:    "thread_id required",
+			statusCode: http.StatusBadRequest,
+		}
+	}
+
+	for attempt := 0; attempt < 3; attempt++ {
+		retry, err := tryEnsureUserCanActivateThread(ctx, db, r, userID, targetThreadID)
+		if err != nil || !retry {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return &userActiveThreadError{
+		message:    "thread activation is busy, please retry",
+		statusCode: http.StatusConflict,
+	}
+}
+
+func tryEnsureUserCanActivateThread(ctx context.Context, db *gorm.DB, r *http.Request, userID, targetThreadID string) (bool, error) {
+	now := time.Now().UTC()
+	var active orm.AgentUserActiveThread
+	err := db.Where("user_id = ?", userID).First(&active).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		created, err := createUserActiveThreadActivation(db, userID, targetThreadID, now)
+		if err != nil || created {
+			return false, err
+		}
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	status := strings.TrimSpace(active.Status)
+	if strings.EqualFold(status, userActiveThreadStatusCreating) {
+		if active.LeaseUntil.After(now) {
+			return false, &userActiveThreadError{
+				message:    "thread creation already in progress",
+				statusCode: http.StatusConflict,
+				data: map[string]any{
+					"lease_until": active.LeaseUntil,
+				},
+			}
+		}
+		if err := deleteExpiredCreatingActiveThread(db, userID, now); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	activeThreadID := strings.TrimSpace(active.ThreadID)
+	if isTerminalUserActiveThreadStatus(status) || activeThreadID == "" {
+		if err := activateUserThread(db, userID, targetThreadID, now); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if activeThreadID == targetThreadID {
+		return false, nil
+	}
+
+	flowStatus, flowErr := fetchThreadFlowStatus(ctx, r, activeThreadID)
+	if flowErr != nil {
+		return false, &userActiveThreadError{
+			message:    "active thread status unknown",
+			statusCode: http.StatusConflict,
+			data: map[string]any{
+				"thread_id": activeThreadID,
+				"detail":    flowErr.Error(),
+			},
+		}
+	}
+	if isThreadFlowRunning(flowStatus) {
+		return false, &userActiveThreadError{
+			message:    userActiveThreadExistsMessage,
+			statusCode: http.StatusConflict,
+			data: map[string]any{
+				"type":        userActiveThreadExistsType,
+				"thread_id":   activeThreadID,
+				"flow_status": flowStatus,
+			},
+		}
+	}
+
+	if err := activateUserThread(db, userID, targetThreadID, now); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func tryReserveUserActiveThreadCreation(ctx context.Context, db *gorm.DB, r *http.Request, userID string) (*userActiveThreadCreationGuard, bool, error) {
@@ -123,9 +227,10 @@ func tryReserveUserActiveThreadCreation(ctx context.Context, db *gorm.DB, r *htt
 	}
 	if isThreadFlowRunning(flowStatus) {
 		return nil, false, &userActiveThreadError{
-			message:    "user already has an active thread",
+			message:    userActiveThreadExistsMessage,
 			statusCode: http.StatusConflict,
 			data: map[string]any{
+				"type":        userActiveThreadExistsType,
 				"thread_id":   threadID,
 				"flow_status": flowStatus,
 			},
@@ -159,6 +264,44 @@ func createUserActiveThreadReservation(db *gorm.DB, userID string, now time.Time
 		userID:      userID,
 		createToken: token,
 	}, true, nil
+}
+
+func createUserActiveThreadActivation(db *gorm.DB, userID, threadID string, now time.Time) (bool, error) {
+	row := orm.AgentUserActiveThread{
+		UserID:      userID,
+		ThreadID:    threadID,
+		Status:      userActiveThreadStatusActive,
+		CreateToken: "",
+		LeaseUntil:  now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	result := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func activateUserThread(db *gorm.DB, userID, threadID string, now time.Time) error {
+	return db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"thread_id":    threadID,
+			"status":       userActiveThreadStatusActive,
+			"create_token": "",
+			"lease_until":  now,
+			"updated_at":   now,
+		}),
+	}).Create(&orm.AgentUserActiveThread{
+		UserID:      userID,
+		ThreadID:    threadID,
+		Status:      userActiveThreadStatusActive,
+		CreateToken: "",
+		LeaseUntil:  now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}).Error
 }
 
 func deleteExpiredCreatingActiveThread(db *gorm.DB, userID string, now time.Time) error {

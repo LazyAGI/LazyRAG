@@ -138,6 +138,168 @@ func TestShareResolvesTargetUserNamesWhenCreatingItems(t *testing.T) {
 	}
 }
 
+func TestShareExpandsTargetGroupsFromAuthService(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	const internalToken = "test-internal-token"
+	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/authservice/group/g1/user":
+			if got := r.URL.Query().Get("active_only"); got != "true" {
+				t.Fatalf("expected group user lookup to request active_only=true, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"users": []map[string]string{
+					{"user_id": "u1", "username": "User 1"},
+					{"user_id": "u2", "username": "User Two"},
+					{"user_id": "u3", "username": "User Three"},
+				},
+			})
+		case "/api/authservice/group/g1/user/internal":
+			t.Fatalf("expected share to use existing auth-service group users endpoint before internal fallback")
+		case "/api/authservice/user/u2":
+			_ = json.NewEncoder(w).Encode(map[string]string{"user_id": "u2", "username": "User Two"})
+		case "/api/authservice/user/u3":
+			_ = json.NewEncoder(w).Encode(map[string]string{"user_id": "u3", "username": "User Three"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer authServer.Close()
+	t.Setenv("LAZYRAG_AUTH_SERVICE_URL", authServer.URL)
+	t.Setenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN", internalToken)
+
+	now := time.Now().UTC()
+	parent := newShareTestSkillResource("skill-1", "u1", "User 1", "release-check", now)
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create parent skill: %v", err)
+	}
+
+	req := mux.SetURLVars(
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/core/skills/skill-1:share",
+			strings.NewReader(`{"target_user_ids":[],"target_group_ids":["g1"],"message":"please review"}`),
+		),
+		map[string]string{"skill_id": "skill-1"},
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	Share(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp createSkillShareAPITestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Code != 0 {
+		t.Fatalf("expected code 0, got %d message=%s", resp.Code, resp.Message)
+	}
+	if len(resp.Data.Items) != 2 {
+		t.Fatalf("expected 2 share items after filtering self, got %d", len(resp.Data.Items))
+	}
+	if resp.Data.Items[0].TargetUserID != "u2" || resp.Data.Items[1].TargetUserID != "u3" {
+		t.Fatalf("expected auth-service group members u2 and u3, got %#v", resp.Data.Items)
+	}
+}
+
+func TestShareGroupTargetsExcludeLocallyCachedDisabledUsers(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/authservice/group/g1/user":
+			if got := r.URL.Query().Get("active_only"); got != "true" {
+				t.Fatalf("expected group user lookup to request active_only=true, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"users": []map[string]string{
+					{"user_id": "u2", "username": "User Two"},
+				},
+			})
+		case "/api/authservice/user/u2":
+			_ = json.NewEncoder(w).Encode(map[string]string{"user_id": "u2", "username": "User Two"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer authServer.Close()
+	t.Setenv("LAZYRAG_AUTH_SERVICE_URL", authServer.URL)
+
+	now := time.Now().UTC()
+	parent := newShareTestSkillResource("skill-1", "u1", "User 1", "release-check", now)
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create parent skill: %v", err)
+	}
+	if err := db.Create(&orm.UserGroupModel{
+		UserID:  "u2",
+		GroupID: "g1",
+	}).Error; err != nil {
+		t.Fatalf("create active cached group member: %v", err)
+	}
+	if err := db.Create(&orm.UserGroupModel{
+		UserID:  "u-disabled",
+		GroupID: "g1",
+	}).Error; err != nil {
+		t.Fatalf("create disabled cached group member: %v", err)
+	}
+
+	req := mux.SetURLVars(
+		httptest.NewRequest(
+			http.MethodPost,
+			"/api/core/skills/skill-1:share",
+			strings.NewReader(`{"target_user_ids":[],"target_group_ids":["g1"],"message":"please review"}`),
+		),
+		map[string]string{"skill_id": "skill-1"},
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	Share(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp createSkillShareAPITestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Code != 0 {
+		t.Fatalf("expected code 0, got %d message=%s", resp.Code, resp.Message)
+	}
+	if len(resp.Data.Items) != 1 {
+		t.Fatalf("expected only active auth-service member to be shared, got %d items: %#v", len(resp.Data.Items), resp.Data.Items)
+	}
+	if resp.Data.Items[0].TargetUserID != "u2" {
+		t.Fatalf("expected only u2 to remain share target, got %#v", resp.Data.Items[0])
+	}
+
+	var items []orm.SkillShareItem
+	if err := db.Order("target_user_id ASC").Find(&items).Error; err != nil {
+		t.Fatalf("query share items: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 persisted share item, got %d", len(items))
+	}
+	if items[0].TargetUserID != "u2" {
+		t.Fatalf("expected persisted share item for u2 only, got %#v", items[0])
+	}
+}
+
 func TestOutgoingSharesResolvesLegacyTargetUserNames(t *testing.T) {
 	db := newSkillTestDB(t)
 	store.Init(db.DB, nil, nil)

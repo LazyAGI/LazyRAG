@@ -46,7 +46,7 @@ func (h *Handler) Tree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, string(internal.ErrInvalidPath), err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, internal.TreeResponse{Items: []internal.TreeNode{root}})
+	writeJSON(w, http.StatusOK, internal.TreeResponse{Items: filterTreeNodesByKeyword([]internal.TreeNode{root}, req.Keyword)})
 }
 
 func NewHandler(manager source.Manager, validator fs.PathValidator, scanner fs.Scanner, staging fs.StagingService, mapper fs.PathMapper, log *zap.Logger) *Handler {
@@ -82,11 +82,14 @@ func (h *Handler) Browse(w http.ResponseWriter, r *http.Request) {
 
 	resp := internal.BrowseResponse{Path: h.mapper.ToPublic(runtimePath), Entries: make([]internal.BrowseEntry, 0, len(entries))}
 	for _, e := range entries {
+		childRuntimePath := filepath.Join(runtimePath, e.Name())
+		if fs.IsTransientFile(childRuntimePath, e.IsDir()) {
+			continue
+		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		childRuntimePath := filepath.Join(runtimePath, e.Name())
 		resp.Entries = append(resp.Entries, internal.BrowseEntry{
 			Name:    e.Name(),
 			Path:    h.mapper.ToPublic(childRuntimePath),
@@ -119,6 +122,10 @@ func (h *Handler) StatFile(w http.ResponseWriter, r *http.Request) {
 	runtimePath := h.mapper.ToRuntime(req.Path)
 	if err := h.validator.EnsureAllowed(runtimePath); err != nil {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
+		return
+	}
+	if fs.IsTransientFile(runtimePath, false) {
+		writeError(w, http.StatusBadRequest, string(internal.ErrInvalidPath), "transient editor file is ignored")
 		return
 	}
 
@@ -192,6 +199,10 @@ func (h *Handler) StageFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, string(internal.ErrPathNotAllowed), err.Error())
 		return
 	}
+	if fs.IsTransientFile(runtimePath, false) {
+		writeError(w, http.StatusBadRequest, string(internal.ErrStageFailed), "transient editor file is ignored")
+		return
+	}
 
 	result, err := h.staging.StageFile(r.Context(), req.SourceID, req.DocumentID, req.VersionID, runtimePath)
 	if err != nil {
@@ -231,6 +242,9 @@ func (h *Handler) buildTreeNode(runtimePath, publicPath string, maxDepth int, in
 		if err := h.validator.EnsureAllowed(childRuntimePath); err != nil {
 			continue
 		}
+		if fs.IsTransientFile(childRuntimePath, entry.IsDir()) {
+			continue
+		}
 		if entry.IsDir() {
 			next, err := h.buildTreeNode(childRuntimePath, childPublicPath, maxDepth, includeFiles, depth+1)
 			if err != nil {
@@ -262,6 +276,26 @@ func publicBase(path string) string {
 		return clean
 	}
 	return clean[idx+1:]
+}
+
+func filterTreeNodesByKeyword(items []internal.TreeNode, keyword string) []internal.TreeNode {
+	normalized := strings.ToLower(strings.TrimSpace(keyword))
+	if normalized == "" {
+		return items
+	}
+	out := make([]internal.TreeNode, 0, len(items))
+	for _, node := range items {
+		item := node
+		item.Children = filterTreeNodesByKeyword(item.Children, normalized)
+		if treeNodeMatchesKeyword(item, normalized) || len(item.Children) > 0 {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func treeNodeMatchesKeyword(node internal.TreeNode, normalizedKeyword string) bool {
+	return strings.Contains(strings.ToLower(node.Title), normalizedKeyword)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

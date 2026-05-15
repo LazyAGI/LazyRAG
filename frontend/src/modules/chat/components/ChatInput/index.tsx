@@ -114,15 +114,17 @@ interface ChatInputProps {
   onChange: (value: string) => void;
   onSend?: (params: SendMessageParams) => void;
   placeholder?: string;
-  openHistory: () => void;
+  openHistory?: () => void;
   openNewChat?: () => void;
   isChatContent: boolean;
-  showHistoryList: boolean;
+  showHistoryList?: boolean;
+  showHistoryButton?: boolean;
   setIsChatContent?: (isChatContent: boolean) => void;
   onHeightChange?: () => void;
   chatConfig?: ChatConfig;
   setChatConfig?: (chatConfig: ChatConfig) => void;
   setChatConfigFn?: (chatConfig: ChatConfig) => void;
+  knowledgeRefreshKey?: number | string;
   sessionId?: string;
   isStreaming?: boolean;
 }
@@ -170,11 +172,13 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
       openNewChat,
       isChatContent,
       showHistoryList,
+      showHistoryButton = true,
       onHeightChange,
       setIsChatContent,
       chatConfig,
       setChatConfig,
       setChatConfigFn,
+      knowledgeRefreshKey,
       sessionId,
       isStreaming = false,
     } = props;
@@ -368,15 +372,16 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
         preprocessUpload(newFiles, currentFiles, hasKB, t),
       [hasKB, t],
     );
-    const isSendDisabled = !value?.length || isUploading || isStreaming;
+    const isSendDisabled = !value?.trim() || isUploading || isStreaming;
 
     const handleSend = () => {
       if (isSendDisabled) {
         return;
       }
+      const normalizedText = value.trim();
       setNewMessage(false);
       const sendParams = {
-        text: value,
+        text: normalizedText,
         fileList,
         fileListRef,
         files: fileListRef.current?.getFiles(),
@@ -537,15 +542,18 @@ const ChatInput = forwardRef<ChatInputImperativeProps, ChatInputProps>(
                   )}
                   <ChatSelector
                     chatConfig={chatConfig ?? {}}
+                    refreshKey={knowledgeRefreshKey}
                     onChange={onKnowledgeBaseChange}
                   />
                   {/* <ModelSelector sessionId={sessionId} disabled={isStreaming} /> */}
-                  <div
-                    className={`input-bottom-actions-left-item ${showHistoryList ? "selected" : ""}`}
-                    onClick={openHistory}
-                  >
-                    {t("chat.chatHistory")}
-                  </div>
+                  {showHistoryButton && openHistory && (
+                    <div
+                      className={`input-bottom-actions-left-item ${showHistoryList ? "selected" : ""}`}
+                      onClick={openHistory}
+                    >
+                      {t("chat.chatHistory")}
+                    </div>
+                  )}
                   <div
                     className={"input-bottom-actions-left-item"}
                     onClick={() => promptRef.current?.onOpen()}

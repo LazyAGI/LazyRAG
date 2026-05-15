@@ -10,7 +10,7 @@ from chat.utils.load_config import get_config_path
 MemoryType = Literal['skill', 'memory', 'user_preference']
 
 _MAX_GENERATE_ATTEMPTS = 3
-_MAX_MANAGED_CONTENT_CHARS = 1500
+_MAX_MANAGED_CONTENT_CHARS = 1400
 _JSON_BLOCK_RE = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
 _THINK_BLOCK_RE = re.compile(r'<think>.*?</think\s*>', re.DOTALL | re.IGNORECASE)
 
@@ -122,6 +122,38 @@ _COMMON_OUTPUT_SPEC = (
     '3. content must be the final complete text after merging all valid input modification requests; do not provide only a patch.\n'  # noqa: E501
 )
 
+_COMMON_LANGUAGE_RULES = (
+    '[Language]\n'
+    '- Determine the output language from the language used in current content, suggestions, and user_instruct.\n'
+    '- If the majority of the input is in Chinese (简体中文), write the generated content in Chinese.\n'
+    '- If the majority of the input is in English, write the generated content in English.\n'
+    '- Be consistent: do not mix languages within the generated content.\n'
+)
+
+
+def _format_preservation_rules(entity: str) -> str:
+    return (
+        '[Content preservation rules (CRITICAL)]\n'
+        f'- You MUST preserve ALL existing {entity} that are NOT explicitly targeted by suggestions or user_instruct.\n'  # noqa: E501
+        f'- When a suggestion only affects one {entity}, keep all others IDENTICAL to the original (same wording, same order).\n'  # noqa: E501
+        '- Do NOT rephrase, reformat, or reorganize anything that is not being changed.\n'
+        '- If nothing in the current content needs to change for a particular part, copy it VERBATIM into your output.\n'  # noqa: E501
+        '- Only remove content that is explicitly marked as outdated by a suggestion, or explicitly contradicted by user_instruct.\n'  # noqa: E501
+    )
+
+
+def _format_prompt_tail(
+    content: str,
+    suggestions: List[Dict[str, Any]],
+    user_instruct: Optional[str],
+    previous_error: Optional[str] = None,
+) -> str:
+    return (
+        f'{_format_retry_note(previous_error)}'
+        f'{_format_inputs_block(content, suggestions, user_instruct)}'
+        f'{_COMMON_OUTPUT_SPEC}'
+    )
+
 
 def _format_inputs_block(
     content: str,
@@ -228,13 +260,15 @@ def _build_skill_prompt(
         'before writing to the body; do not copy cases verbatim.\n'
         '- Recommended body structure: Applicable conditions / Steps / Judgment & validation / Common pitfalls / Output spec (trim as needed).\n'  # noqa: E501
         '\n'
+        f'{_COMMON_LANGUAGE_RULES}'
+        '\n'
+        f'{_format_preservation_rules("body content")}'
+        '\n'
         '[Length control]\n'
         '- Total length of SKILL.md (including frontmatter) must be within 2000 characters; keep it concise.\n'
         f'{_managed_content_governance_note(content, suggestions, 2000)}'
         '\n'
-        f'{_format_retry_note(previous_error)}'
-        f'{_format_inputs_block(content, suggestions, user_instruct)}'
-        f'{_COMMON_OUTPUT_SPEC}'
+        f'{_format_prompt_tail(content, suggestions, user_instruct, previous_error)}'
     )
 
 
@@ -258,17 +292,17 @@ def _build_memory_prompt(
         '[Writing and merging rules]\n'
         '- Output as plain text full content.\n'
         '- When merging, deduplicate and consolidate: combine same or similar experiences into a more accurate statement; do not stack duplicates.\n'  # noqa: E501
-        '- Prefer minimal necessary edits based on the current content; preserve original valid wording and structure where possible, and do not fully rewrite unless explicitly required.\n'  # noqa: E501
-        '- Retain existing valid experiences; experiences explicitly corrected or overridden by suggestions/user_instruct must be updated or deleted.\n'  # noqa: E501
         '- Keep language concise and objective; one experience per line or short paragraph for easy incremental maintenance.\n'  # noqa: E501
+        '\n'
+        f'{_COMMON_LANGUAGE_RULES}'
+        '\n'
+        f'{_format_preservation_rules("entries")}'
         '\n'
         '[Length control]\n'
         f'- The final content must be within {_MAX_MANAGED_CONTENT_CHARS} characters after removing all whitespace; if needed, reduce low-value details and keep only the most important concise entries.\n'  # noqa: E501
         f'{_managed_content_governance_note(content, suggestions, _MAX_MANAGED_CONTENT_CHARS)}'
         '\n'
-        f'{_format_retry_note(previous_error)}'
-        f'{_format_inputs_block(content, suggestions, user_instruct)}'
-        f'{_COMMON_OUTPUT_SPEC}'
+        f'{_format_prompt_tail(content, suggestions, user_instruct, previous_error)}'
     )
 
 
@@ -292,17 +326,18 @@ def _build_user_preference_prompt(
         '[Writing and merging rules]\n'
         '- Output as plain text full content (simple markdown grouping/lists are allowed); no YAML frontmatter.\n'
         '- When merging, update rather than append for the same profile dimension: new preferences override old ones; when conflicting, user_instruct takes precedence.\n'  # noqa: E501
-        '- Prefer minimal necessary edits based on the current content; preserve original valid wording and structure where possible, and do not fully rewrite unless explicitly required.\n'  # noqa: E501
         '- Group by dimension if needed (e.g. identity / output preferences / language & tone / taboos / other conventions).\n'  # noqa: E501
         '- Keep language concise and neutral; no anthropomorphic comments; only state factual user profile entries.\n'
+        '\n'
+        f'{_COMMON_LANGUAGE_RULES}'
+        '\n'
+        f'{_format_preservation_rules("profile entries")}'
         '\n'
         '[Length control]\n'
         f'- The final content must be within {_MAX_MANAGED_CONTENT_CHARS} characters after removing all whitespace; if needed, reduce low-value details and keep only the most important concise entries.\n'  # noqa: E501
         f'{_managed_content_governance_note(content, suggestions, _MAX_MANAGED_CONTENT_CHARS)}'
         '\n'
-        f'{_format_retry_note(previous_error)}'
-        f'{_format_inputs_block(content, suggestions, user_instruct)}'
-        f'{_COMMON_OUTPUT_SPEC}'
+        f'{_format_prompt_tail(content, suggestions, user_instruct, previous_error)}'
     )
 
 
