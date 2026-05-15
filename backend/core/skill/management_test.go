@@ -509,28 +509,32 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 
 	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
 	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	draftContent := "---\nname: git-workflow\ndescription: git workflow\n---\ndraft body"
 	now := time.Now()
 	skillRow := orm.SkillResource{
-		ID:             "skill-1",
-		OwnerUserID:    "u1",
-		OwnerUserName:  "User 1",
-		Category:       "coding",
-		SkillName:      "git-workflow",
-		NodeType:       evolution.SkillNodeTypeParent,
-		Description:    "git workflow",
-		FileExt:        "md",
-		RelativePath:   relativePath,
-		Content:        currentContent,
-		ContentSize:    int64(len([]byte(currentContent))),
-		MimeType:       "text/markdown; charset=utf-8",
-		ContentHash:    evolution.HashContent(currentContent),
-		Version:        1,
-		IsEnabled:      true,
-		UpdateStatus:   evolution.UpdateStatusUpToDate,
-		CreateUserID:   "u1",
-		CreateUserName: "User 1",
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                 "skill-1",
+		OwnerUserID:        "u1",
+		OwnerUserName:      "User 1",
+		Category:           "coding",
+		SkillName:          "git-workflow",
+		NodeType:           evolution.SkillNodeTypeParent,
+		Description:        "git workflow",
+		FileExt:            "md",
+		RelativePath:       relativePath,
+		Content:            currentContent,
+		ContentSize:        int64(len([]byte(currentContent))),
+		MimeType:           "text/markdown; charset=utf-8",
+		ContentHash:        evolution.HashContent(currentContent),
+		Version:            1,
+		DraftContent:       draftContent,
+		DraftSourceVersion: 1,
+		DraftStatus:        "pending_confirm",
+		IsEnabled:          true,
+		UpdateStatus:       evolution.UpdateStatusUpToDate,
+		CreateUserID:       "u1",
+		CreateUserName:     "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	if err := db.Create(&skillRow).Error; err != nil {
 		t.Fatalf("create skill: %v", err)
@@ -549,6 +553,9 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	}
 	if algoBody["user_instruct"] != "只按用户意见生成" {
 		t.Fatalf("unexpected user_instruct sent to algorithm: %#v", algoBody["user_instruct"])
+	}
+	if algoBody["content"] != draftContent {
+		t.Fatalf("expected draft content sent to algorithm, got %#v", algoBody["content"])
 	}
 	if _, ok := algoBody["category"]; ok {
 		t.Fatalf("category should not be sent to algorithm: %#v", algoBody["category"])
@@ -681,28 +688,32 @@ func TestGenerateAllowsGeneratedDescriptionChange(t *testing.T) {
 
 	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
 	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	draftContent := "---\nname: git-workflow\ndescription: git workflow\n---\ndraft body"
 	now := time.Now()
 	skillRow := orm.SkillResource{
-		ID:             "skill-1",
-		OwnerUserID:    "u1",
-		OwnerUserName:  "User 1",
-		Category:       "coding",
-		SkillName:      "git-workflow",
-		NodeType:       evolution.SkillNodeTypeParent,
-		Description:    "git workflow",
-		FileExt:        "md",
-		RelativePath:   relativePath,
-		Content:        currentContent,
-		ContentSize:    int64(len([]byte(currentContent))),
-		MimeType:       "text/markdown; charset=utf-8",
-		ContentHash:    evolution.HashContent(currentContent),
-		Version:        1,
-		IsEnabled:      true,
-		UpdateStatus:   evolution.UpdateStatusUpToDate,
-		CreateUserID:   "u1",
-		CreateUserName: "User 1",
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                 "skill-1",
+		OwnerUserID:        "u1",
+		OwnerUserName:      "User 1",
+		Category:           "coding",
+		SkillName:          "git-workflow",
+		NodeType:           evolution.SkillNodeTypeParent,
+		Description:        "git workflow",
+		FileExt:            "md",
+		RelativePath:       relativePath,
+		Content:            currentContent,
+		ContentSize:        int64(len([]byte(currentContent))),
+		MimeType:           "text/markdown; charset=utf-8",
+		ContentHash:        evolution.HashContent(currentContent),
+		Version:            1,
+		DraftContent:       draftContent,
+		DraftSourceVersion: 1,
+		DraftStatus:        "pending_confirm",
+		IsEnabled:          true,
+		UpdateStatus:       evolution.UpdateStatusUpToDate,
+		CreateUserID:       "u1",
+		CreateUserName:     "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	if err := db.Create(&skillRow).Error; err != nil {
 		t.Fatalf("create skill: %v", err)

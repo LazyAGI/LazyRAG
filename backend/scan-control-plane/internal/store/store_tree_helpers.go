@@ -67,7 +67,7 @@ func (s *Store) treeDocumentRowsByPath(ctx context.Context, sourceID string, pat
 	if len(normalized) == 0 {
 		return out, nil
 	}
-	treeToObject, err := s.cloudTreePathsToObjectPaths(ctx, sourceID, normalized)
+	treeToObject, err := s.cloudTreePathsToObjectPathsIncludingDeleted(ctx, sourceID, normalized, true)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -125,12 +125,12 @@ func (s *Store) latestParseTasksForTreeDocumentRows(ctx context.Context, docs ma
 	return s.latestParseTasksByDocumentIDs(ctx, docIDs)
 }
 
-func applyWatchTreeNodeStates(items []model.TreeNode, docMap map[string]treeDocumentRow, queueMap map[int64]parseTaskDocJoin) []model.TreeNode {
+func applyWatchTreeNodeStates(items []model.TreeNode, diffByPath map[string]string, docMap map[string]treeDocumentRow, queueMap map[int64]parseTaskDocJoin) []model.TreeNode {
 	out := make([]model.TreeNode, 0, len(items))
 	for _, node := range items {
 		item := node
 		if item.IsDir {
-			item.Children = applyWatchTreeNodeStates(item.Children, docMap, queueMap)
+			item.Children = applyWatchTreeNodeStates(item.Children, diffByPath, docMap, queueMap)
 			v := false
 			item.Selectable = &v
 			item.StatusSource = "UNKNOWN"
@@ -138,23 +138,29 @@ func applyWatchTreeNodeStates(items []model.TreeNode, docMap map[string]treeDocu
 			continue
 		}
 		if len(item.Children) > 0 {
-			item.Children = applyWatchTreeNodeStates(item.Children, docMap, queueMap)
+			item.Children = applyWatchTreeNodeStates(item.Children, diffByPath, docMap, queueMap)
 		}
 		v := true
 		item.Selectable = &v
 		path := strings.TrimSpace(item.Key)
-		doc, ok := docMap[path]
-		if !ok {
-			item.UpdateType = "UNKNOWN"
-			item.UpdateDesc = updateTypeDescription("UNKNOWN")
-			item.StatusSource = "UNKNOWN"
-			out = append(out, item)
-			continue
+		doc, hasDoc := docMap[path]
+		latestTask, hasLatestTask := queueMap[doc.ID]
+		docUpdate := "UNKNOWN"
+		if hasDoc {
+			docUpdate = inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
 		}
-		updateType := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		updateType := watchTreeNodeUpdateType(path, doc, hasDoc, latestTask, hasLatestTask, diffByPath)
 		item.UpdateType = updateType
 		item.UpdateDesc = updateTypeDescription(updateType)
-		item.StatusSource = "DOCUMENTS"
+		if hasDoc && (documentUpdateShouldWinSnapshot(docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) || updateType == docUpdate) {
+			item.StatusSource = "DOCUMENTS"
+		} else if _, ok := diffByPath[filepath.Clean(strings.TrimSpace(path))]; ok {
+			item.StatusSource = "SNAPSHOT"
+		} else if hasDoc {
+			item.StatusSource = "DOCUMENTS"
+		} else {
+			item.StatusSource = "UNKNOWN"
+		}
 		switch updateType {
 		case "NEW", "MODIFIED", "DELETED":
 			has := true
@@ -165,12 +171,27 @@ func applyWatchTreeNodeStates(items []model.TreeNode, docMap map[string]treeDocu
 		default:
 			item.HasUpdate = nil
 		}
-		if queue, ok := queueMap[doc.ID]; ok {
-			item.ParseQueueState = effectiveLatestParseTaskState(doc.DesiredVersionID, queue)
+		if hasDoc && hasLatestTask {
+			item.ParseQueueState = effectiveLatestParseTaskState(doc.DesiredVersionID, latestTask)
 		}
 		out = append(out, item)
 	}
 	return out
+}
+
+func watchTreeNodeUpdateType(path string, doc treeDocumentRow, hasDoc bool, latestTask parseTaskDocJoin, hasLatestTask bool, diffByPath map[string]string) string {
+	docUpdate := "UNKNOWN"
+	if hasDoc {
+		docUpdate = inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		if documentUpdateShouldWinSnapshot(docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) {
+			return docUpdate
+		}
+	}
+	snapshotUpdate := snapshotUpdateTypeWithDocumentState(diffByPath[filepath.Clean(strings.TrimSpace(path))], doc, hasDoc, latestTask, hasLatestTask)
+	if snapshotUpdate != "" {
+		return snapshotUpdate
+	}
+	return docUpdate
 }
 
 func applySnapshotTreeNodeStates(items []model.TreeNode, diffByPath map[string]string, docMap map[string]treeDocumentRow, queueMap map[int64]parseTaskDocJoin) []model.TreeNode {
@@ -193,13 +214,22 @@ func applySnapshotTreeNodeStates(items []model.TreeNode, diffByPath map[string]s
 		path := strings.TrimSpace(item.Key)
 		doc, hasDoc := docMap[path]
 		latestTask, hasLatestTask := queueMap[doc.ID]
+		docUpdate := "UNKNOWN"
+		if hasDoc {
+			docUpdate = effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
+		}
 		updateType := snapshotUpdateTypeWithDocumentState(diffByPath[path], doc, hasDoc, latestTask, hasLatestTask)
+		statusSource := "SNAPSHOT"
+		if hasDoc && documentUpdateShouldWinSnapshot(docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) {
+			updateType = docUpdate
+			statusSource = "DOCUMENTS"
+		}
 		if updateType == "" {
 			updateType = "UNKNOWN"
 		}
 		item.UpdateType = updateType
 		item.UpdateDesc = updateTypeDescription(updateType)
-		item.StatusSource = "SNAPSHOT"
+		item.StatusSource = statusSource
 		switch updateType {
 		case "NEW", "MODIFIED", "DELETED":
 			has := true
@@ -267,6 +297,13 @@ func filterPathsByDiff(paths []string, diffByPath map[string]string, docMap map[
 		doc, hasDoc := docMap[path]
 		latestTask, hasLatestTask := queueMap[doc.ID]
 		rawUpdateType := normalizeSnapshotUpdateType(diffByPath[path])
+		if hasDoc {
+			docUpdate := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
+			if documentUpdateShouldWinSnapshot(docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) {
+				filtered = append(filtered, path)
+				continue
+			}
+		}
 		updateType := snapshotUpdateTypeWithDocumentState(diffByPath[path], doc, hasDoc, latestTask, hasLatestTask)
 		if updateType == "NEW" || updateType == "MODIFIED" || updateType == "DELETED" {
 			filtered = append(filtered, path)
@@ -485,6 +522,10 @@ func cloudObjectTreePath(objectPath string, row cloudObjectIndexEntity) string {
 }
 
 func cloudTreePathToObjectPath(ctx context.Context, s *Store, sourceID, treePath, mirrorRoot string) (string, error) {
+	return cloudTreePathToObjectPathIncludingDeleted(ctx, s, sourceID, treePath, mirrorRoot, false)
+}
+
+func cloudTreePathToObjectPathIncludingDeleted(ctx context.Context, s *Store, sourceID, treePath, mirrorRoot string, includeDeleted bool) (string, error) {
 	if s == nil {
 		return "", nil
 	}
@@ -495,9 +536,11 @@ func cloudTreePathToObjectPath(ctx context.Context, s *Store, sourceID, treePath
 		return "", nil
 	}
 	var rows []cloudObjectIndexEntity
-	if err := s.db.WithContext(ctx).
-		Where("source_id = ? AND is_deleted = ?", sourceID, false).
-		Find(&rows).Error; err != nil {
+	query := s.db.WithContext(ctx).Where("source_id = ?", sourceID)
+	if !includeDeleted {
+		query = query.Where("is_deleted = ?", false)
+	}
+	if err := query.Find(&rows).Error; err != nil {
 		return "", err
 	}
 	for _, row := range rows {
@@ -514,6 +557,10 @@ func cloudTreePathToObjectPath(ctx context.Context, s *Store, sourceID, treePath
 }
 
 func (s *Store) cloudTreePathsToObjectPaths(ctx context.Context, sourceID string, paths []string) (map[string]string, error) {
+	return s.cloudTreePathsToObjectPathsIncludingDeleted(ctx, sourceID, paths, false)
+}
+
+func (s *Store) cloudTreePathsToObjectPathsIncludingDeleted(ctx context.Context, sourceID string, paths []string, includeDeleted bool) (map[string]string, error) {
 	out := make(map[string]string, len(paths))
 	sourceID = strings.TrimSpace(sourceID)
 	if sourceID == "" || len(paths) == 0 {
@@ -539,7 +586,7 @@ func (s *Store) cloudTreePathsToObjectPaths(ctx context.Context, sourceID string
 		return out, nil
 	}
 	for treePath := range wanted {
-		objectPath, err := cloudTreePathToObjectPath(ctx, s, sourceID, treePath, rootPath)
+		objectPath, err := cloudTreePathToObjectPathIncludingDeleted(ctx, s, sourceID, treePath, rootPath, includeDeleted)
 		if err != nil {
 			return nil, err
 		}
@@ -799,12 +846,11 @@ func buildAncestorPaths(filePath, rootPath string) []string {
 		return []string{dirPath}
 	}
 	if dirPath == rootPath {
-		return []string{rootPath}
+		return nil
 	}
 	rel := strings.TrimPrefix(strings.TrimPrefix(dirPath, rootPath), string(filepath.Separator))
 	parts := strings.Split(rel, string(filepath.Separator))
-	out := make([]string, 0, len(parts)+1)
-	out = append(out, rootPath)
+	out := make([]string, 0, len(parts))
 	cur := rootPath
 	for _, part := range parts {
 		part = strings.TrimSpace(part)

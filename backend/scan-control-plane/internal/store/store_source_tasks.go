@@ -95,7 +95,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		latestTask := latestTasksByDocID[doc.ID]
 		_, hasLatestTask := latestTasksByDocID[doc.ID]
 		update := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
-		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, snapshotUpdates, snapshotUpdatesAvailable)
+		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask, snapshotUpdates, snapshotUpdatesAvailable)
 		var hasUpdate *bool
 		switch update {
 		case "NEW", "MODIFIED", "DELETED":
@@ -197,7 +197,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		latestTask := summaryLatestTasks[doc.DocumentID]
 		_, hasLatestTask := summaryLatestTasks[doc.DocumentID]
 		update := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
-		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, snapshotUpdates, snapshotUpdatesAvailable)
+		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask, snapshotUpdates, snapshotUpdatesAvailable)
 		switch update {
 		case "NEW":
 			newCount++
@@ -809,7 +809,10 @@ func normalizeSnapshotUpdateOverrides(diff map[string]string) map[string]string 
 	return updates
 }
 
-func documentUpdateTypeWithSnapshotOverride(path, fallback string, updates map[string]string, available bool) string {
+func documentUpdateTypeWithSnapshotOverride(path, fallback, desiredVersionID, parseStatus string, latestTask parseTaskDocJoin, hasLatestTask bool, updates map[string]string, available bool) string {
+	if documentUpdateShouldWinSnapshot(fallback, desiredVersionID, parseStatus, latestTask, hasLatestTask) {
+		return fallback
+	}
 	if !available {
 		return fallback
 	}
@@ -820,6 +823,38 @@ func documentUpdateTypeWithSnapshotOverride(path, fallback string, updates map[s
 		return update
 	}
 	return fallback
+}
+
+func documentUpdateShouldWinSnapshot(updateType, desiredVersionID, parseStatus string, latestTask parseTaskDocJoin, hasLatestTask bool) bool {
+	switch strings.ToUpper(strings.TrimSpace(updateType)) {
+	case "MODIFIED", "DELETED":
+	default:
+		return false
+	}
+	status := strings.ToUpper(strings.TrimSpace(parseStatus))
+	switch status {
+	case "PENDING", "QUEUED", "RUNNING", "DELETED":
+		return true
+	case "FAILED", "SUBMIT_FAILED", "RETRY_WAITING":
+		return true
+	}
+	if !hasLatestTask {
+		return false
+	}
+	targetVersion := strings.TrimSpace(latestTask.TargetVersionID)
+	if targetVersion == "" || targetVersion != strings.TrimSpace(desiredVersionID) {
+		return false
+	}
+	switch strings.ToUpper(strings.TrimSpace(latestTask.ScanOrchestrationStatus)) {
+	case "PENDING", "RETRY_WAITING", "RUNNING", "STAGING", "SUBMITTED", "SUBMIT_FAILED", "FAILED":
+		return true
+	}
+	switch strings.ToUpper(strings.TrimSpace(latestTask.Status)) {
+	case "PENDING", "RETRY_WAITING", "RUNNING", "STAGING", "SUBMITTED", "SUBMIT_FAILED", "FAILED":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeSnapshotUpdateType(raw string) string {
@@ -892,7 +927,7 @@ func (s *Store) BuildTreeUpdateState(ctx context.Context, sourceID string, items
 	if err := s.db.WithContext(ctx).Take(&src, "id = ?", strings.TrimSpace(sourceID)).Error; err != nil {
 		return nil, "", err
 	}
-	scopeRoots := collectTreeScopeRoots(items)
+	scopeRoots := collectSourceTreeScopeRoots(src, items)
 	filePaths := collectTreeFilePaths(items)
 	pathMap := make(map[string]treeDocumentRow)
 	queueMap := make(map[int64]parseTaskDocJoin)
@@ -915,15 +950,16 @@ func (s *Store) BuildTreeUpdateState(ctx context.Context, sourceID string, items
 	if src.WatchEnabled {
 		// Even in watch mode we persist a preview snapshot so selection_token can be
 		// strongly validated, expired and one-time consumed by tasks/generate.
-		if _, err := s.createPreviewSnapshotAndDiff(ctx, src, scopeRoots, filePaths, fileStats, selectionToken); err != nil {
+		diffByPath, err := s.createPreviewSnapshotAndDiff(ctx, src, scopeRoots, filePaths, fileStats, selectionToken)
+		if err != nil {
 			return nil, "", err
 		}
-		updated := applyWatchTreeNodeStates(items, pathMap, queueMap)
+		updated := applyWatchTreeNodeStates(items, diffByPath, pathMap, queueMap)
 		deletedPaths, err := s.deletedDocumentPaths(ctx, src.ID, scopeRoots, filePaths)
 		if err != nil {
 			return nil, "", err
 		}
-		updated = addDeletedNodes(updated, deletedPaths, src.RootPath, "DOCUMENTS", pathMap, queueMap)
+		updated = addDeletedNodes(updated, deletedPaths, deletedTreeRootPath(src, items, scopeRoots), "DOCUMENTS", pathMap, queueMap)
 		return updated, selectionToken, nil
 	}
 
@@ -933,8 +969,55 @@ func (s *Store) BuildTreeUpdateState(ctx context.Context, sourceID string, items
 	}
 	updated := applySnapshotTreeNodeStates(items, diffByPath, pathMap, queueMap)
 	deletedPaths := collectDeletedPathsFromDiff(diffByPath, filePaths)
-	updated = addDeletedNodes(updated, deletedPaths, src.RootPath, "SNAPSHOT", pathMap, queueMap)
+	updated = addDeletedNodes(updated, deletedPaths, deletedTreeRootPath(src, items, scopeRoots), "SNAPSHOT", pathMap, queueMap)
 	return updated, selectionToken, nil
+}
+
+func deletedTreeRootPath(src sourceEntity, items []model.TreeNode, scopeRoots []string) string {
+	if root := collectTreeDisplayRoot(items); root != "" {
+		return root
+	}
+	if len(scopeRoots) == 1 {
+		root := filepath.Clean(strings.TrimSpace(scopeRoots[0]))
+		if root != "" && root != "." {
+			return root
+		}
+	}
+	if len(scopeRoots) > 1 {
+		if common := commonScopeRoot(scopeRoots); common != "" {
+			return common
+		}
+	}
+	if sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+		return filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	}
+	return filepath.Clean(strings.TrimSpace(src.RootPath))
+}
+
+func collectSourceTreeScopeRoots(src sourceEntity, items []model.TreeNode) []string {
+	if sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+		if root := collectTreeDisplayRoot(items); root != "" {
+			return []string{root}
+		}
+		return []string{filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))}
+	}
+	return collectTreeScopeRoots(items)
+}
+
+func collectTreeDisplayRoot(items []model.TreeNode) string {
+	parents := make([]string, 0, len(items))
+	for _, item := range items {
+		key := filepath.Clean(strings.TrimSpace(item.Key))
+		if key == "" || key == "." {
+			continue
+		}
+		parent := filepath.Clean(filepath.Dir(key))
+		if parent == "" || parent == "." {
+			continue
+		}
+		parents = append(parents, parent)
+	}
+	return commonScopeRoot(parents)
 }
 
 func (s *Store) createPreviewSnapshotAndDiff(ctx context.Context, src sourceEntity, scopeRoots []string, filePaths []string, fileStats map[string]model.TreeFileStat, selectionToken string) (map[string]string, error) {
@@ -1300,8 +1383,8 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 		return resp, nil
 	}
 	eventPaths := append([]string(nil), paths...)
-	if !src.WatchEnabled && sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
-		pathMap, err := s.cloudTreePathsToObjectPaths(ctx, src.ID, paths)
+	if sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+		pathMap, err := s.cloudTreePathsToObjectPathsIncludingDeleted(ctx, src.ID, paths, true)
 		if err != nil {
 			return resp, err
 		}
@@ -1321,7 +1404,8 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 				pathEventType[path] = "deleted"
 			}
 		}
-	} else {
+	}
+	{
 		previewCurrentPaths := map[string]struct{}{}
 		if src.WatchEnabled && selectedPreview != nil {
 			previewItems, err := s.snapshotItemsByPath(ctx, selectedPreview.SnapshotID)
@@ -1343,18 +1427,47 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 			SourceObjectID string
 			ParseStatus    string
 		}
+		queryPaths := append([]string(nil), paths...)
+		querySeen := make(map[string]struct{}, len(queryPaths)+len(eventPaths))
+		for _, rawPath := range queryPaths {
+			path := filepath.Clean(strings.TrimSpace(rawPath))
+			if path != "" && path != "." {
+				querySeen[path] = struct{}{}
+			}
+		}
+		for _, rawPath := range eventPaths {
+			path := filepath.Clean(strings.TrimSpace(rawPath))
+			if path == "" || path == "." {
+				continue
+			}
+			if _, ok := querySeen[path]; ok {
+				continue
+			}
+			querySeen[path] = struct{}{}
+			queryPaths = append(queryPaths, path)
+		}
 		if err := s.db.WithContext(ctx).
 			Table("documents").
 			Select("source_object_id, parse_status").
-			Where("source_id = ? AND source_object_id IN ?", src.ID, paths).
+			Where("source_id = ? AND source_object_id IN ?", src.ID, queryPaths).
 			Scan(&rows).Error; err != nil {
 			return resp, err
+		}
+		pathByEventPath := make(map[string]string, len(paths))
+		for i, rawPath := range paths {
+			path := filepath.Clean(strings.TrimSpace(rawPath))
+			if i < len(eventPaths) && strings.TrimSpace(eventPaths[i]) != "" {
+				pathByEventPath[filepath.Clean(strings.TrimSpace(eventPaths[i]))] = path
+			}
 		}
 		for _, row := range rows {
 			if strings.EqualFold(strings.TrimSpace(row.ParseStatus), "DELETED") {
 				path := filepath.Clean(strings.TrimSpace(row.SourceObjectID))
 				if _, existsNow := previewCurrentPaths[path]; existsNow {
 					continue
+				}
+				if requestPath := strings.TrimSpace(pathByEventPath[path]); requestPath != "" {
+					path = filepath.Clean(requestPath)
 				}
 				pathEventType[path] = "deleted"
 			}

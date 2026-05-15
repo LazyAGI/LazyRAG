@@ -280,7 +280,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			idleSeconds = int64(s.defaultIdleWindow.Seconds())
 		}
 
-		deleteScheduleAt := automaticDeleteScheduleAt(src, occurred)
+		scheduleAt := automaticMutationScheduleAt(src, occurred)
 		mutations = append(mutations, DocumentMutation{
 			TenantID:          src.TenantID,
 			SourceID:          src.ID,
@@ -288,7 +288,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			IdleWindowSeconds: idleSeconds,
 			EventType:         normalizeEventType(ev.EventType),
 			OccurredAt:        occurred,
-			DeleteScheduleAt:  deleteScheduleAt,
+			ScheduleAt:        scheduleAt,
 			OriginType:        firstNonEmpty(strings.TrimSpace(ev.OriginType), src.DefaultOriginType, string(model.OriginTypeLocalFS)),
 			OriginPlatform:    firstNonEmpty(strings.TrimSpace(ev.OriginPlatform), src.DefaultOriginPlatform, "LOCAL"),
 			OriginRef:         strings.TrimSpace(ev.OriginRef),
@@ -309,7 +309,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 	return mutations, nil
 }
 
-func automaticDeleteScheduleAt(src sourceEntity, occurred time.Time) *time.Time {
+func automaticMutationScheduleAt(src sourceEntity, occurred time.Time) *time.Time {
 	if !src.WatchEnabled {
 		return nil
 	}
@@ -395,7 +395,9 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 	var nextParse *time.Time
 	if normalizeEventType(m.EventType) != "deleted" {
 		when := occurred
-		if policy == string(model.TriggerPolicyIdleWindow) {
+		if !m.ManualSync && m.ScheduleAt != nil {
+			when = m.ScheduleAt.UTC()
+		} else if policy == string(model.TriggerPolicyIdleWindow) {
 			idle := m.IdleWindowSeconds
 			if idle <= 0 {
 				idle = 1
@@ -447,8 +449,8 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 			}
 		} else {
 			nextDeleteAtValue := occurred
-			if !m.ManualSync && m.DeleteScheduleAt != nil {
-				nextDeleteAtValue = m.DeleteScheduleAt.UTC()
+			if !m.ManualSync && m.ScheduleAt != nil {
+				nextDeleteAtValue = m.ScheduleAt.UTC()
 			}
 			if !m.ManualSync && err == nil && strings.EqualFold(strings.TrimSpace(doc.ParseStatus), "DELETED") && doc.NextParseAt != nil {
 				existingNext := doc.NextParseAt.UTC()

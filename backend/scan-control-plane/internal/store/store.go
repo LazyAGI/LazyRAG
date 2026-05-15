@@ -29,7 +29,7 @@ type DocumentMutation struct {
 	IdleWindowSeconds int64
 	EventType         string
 	OccurredAt        time.Time
-	DeleteScheduleAt  *time.Time
+	ScheduleAt        *time.Time
 	ManualSync        bool
 	OriginType        string
 	OriginPlatform    string

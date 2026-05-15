@@ -568,41 +568,47 @@ func (r *Runner) executeOnce(ctx context.Context, claim store.CloudSyncClaim, tr
 			OriginRef:      objectID,
 		})
 	}
-	if !manualScopeEnabled {
-		for _, existingItem := range existing {
-			if existingItem.IsDeleted {
-				continue
-			}
-			id := strings.TrimSpace(existingItem.ExternalObjectID)
-			if id == "" {
-				continue
-			}
-			if _, ok := seenIDs[id]; ok {
-				continue
-			}
-			deleteIDs = append(deleteIDs, id)
-			finalize.DeletedCount++
-			if isDirKind(existingItem.ExternalKind) {
-				_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), true)
-				continue
-			}
-			_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), false)
-			events = append(events, model.FileEvent{
-				SourceID:       claim.SourceID,
-				EventType:      "deleted",
-				Path:           strings.TrimSpace(existingItem.LocalAbsPath),
-				IsDir:          false,
-				OccurredAt:     now.Add(time.Duration(len(events)) * time.Nanosecond),
-				OriginType:     string(model.OriginTypeCloudSync),
-				OriginPlatform: strings.ToUpper(strings.TrimSpace(claim.Provider)),
-				OriginRef:      id,
-			})
+	deleteScopeSkipped := 0
+	for _, existingItem := range existing {
+		if existingItem.IsDeleted {
+			continue
 		}
-	} else {
-		r.log.Info("cloud sync delete sweep skipped by manual scope",
+		id := strings.TrimSpace(existingItem.ExternalObjectID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seenIDs[id]; ok {
+			continue
+		}
+		if manualScopeEnabled && !cloudObjectInRequestedScope(existingItem, requestedScopePaths) {
+			deleteScopeSkipped++
+			continue
+		}
+		deleteIDs = append(deleteIDs, id)
+		finalize.DeletedCount++
+		if isDirKind(existingItem.ExternalKind) {
+			_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), true)
+			continue
+		}
+		_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), false)
+		events = append(events, model.FileEvent{
+			SourceID:       claim.SourceID,
+			EventType:      "deleted",
+			Path:           strings.TrimSpace(existingItem.LocalAbsPath),
+			IsDir:          false,
+			OccurredAt:     now.Add(time.Duration(len(events)) * time.Nanosecond),
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: strings.ToUpper(strings.TrimSpace(claim.Provider)),
+			OriginRef:      id,
+		})
+	}
+	if manualScopeEnabled {
+		r.log.Info("cloud sync delete sweep limited by manual scope",
 			zap.String("source_id", claim.SourceID),
 			zap.String("run_id", run.RunID),
 			zap.Int("skipped_by_manual_scope", skippedByManualScope),
+			zap.Int("delete_scope_skipped", deleteScopeSkipped),
+			zap.Int("deleted_records", len(deleteIDs)),
 		)
 	}
 
@@ -988,6 +994,27 @@ func pathInRequestedScope(target string, scopePaths []string) bool {
 		}
 	}
 	return false
+}
+
+func cloudObjectInRequestedScope(item store.CloudObjectIndexRecord, scopePaths []string) bool {
+	localAbs := filepath.Clean(strings.TrimSpace(item.LocalAbsPath))
+	if localAbs == "" || localAbs == "." {
+		return false
+	}
+	if pathInRequestedScope(localAbs, scopePaths) {
+		return true
+	}
+	if wikiIndexRecordWithChildren(item) {
+		treePath := filepath.Clean(filepath.Dir(localAbs))
+		if treePath != "" && treePath != "." && pathInRequestedScope(treePath, scopePaths) {
+			return true
+		}
+	}
+	return false
+}
+
+func wikiIndexRecordWithChildren(item store.CloudObjectIndexRecord) bool {
+	return wikiPageWithChildren(item.ExternalKind, item.ProviderMeta)
 }
 
 func appendRemoteObjectSample(samples []string, obj provider.RemoteObject, limit int) []string {

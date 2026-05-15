@@ -373,9 +373,13 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := storedSkillContent(row)
+	content, err := skillGenerateBaseContent(row, len(req.SuggestionIDs) == 0 && req.UserInstruct != "")
 	if err != nil {
-		common.ReplyErr(w, "read skill content failed", http.StatusInternalServerError)
+		if errors.Is(err, errDraftPreviewNotFound) {
+			common.ReplyErr(w, err.Error(), http.StatusNotFound)
+		} else {
+			common.ReplyErr(w, "read skill content failed", http.StatusInternalServerError)
+		}
 		return
 	}
 	var suggestions []orm.ResourceSuggestion
@@ -442,6 +446,20 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		DraftPath:          "",
 		Outdated:           outdated,
 	})
+}
+
+func skillGenerateBaseContent(row orm.SkillResource, useDraft bool) (string, error) {
+	if !useDraft {
+		return storedSkillContent(row)
+	}
+	if strings.TrimSpace(row.DraftStatus) != "pending_confirm" {
+		return "", errDraftPreviewNotFound
+	}
+	content := row.DraftContent
+	if strings.TrimSpace(content) == "" {
+		return "", errors.New("read skill draft failed")
+	}
+	return content, nil
 }
 
 func DraftPreview(w http.ResponseWriter, r *http.Request) {
