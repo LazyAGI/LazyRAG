@@ -37,21 +37,27 @@ func (s *Store) RegisterAgent(ctx context.Context, req model.RegisterAgentReques
 		ActiveTaskCount:   0,
 		UpdatedAt:         now,
 	}
-	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "agent_id"}},
-		DoUpdates: clause.Assignments(map[string]any{
-			"tenant_id":           agent.TenantID,
-			"hostname":            agent.Hostname,
-			"version":             agent.Version,
-			"status":              "ONLINE",
-			"listen_addr":         agent.ListenAddr,
-			"last_heartbeat_at":   agent.LastHeartbeatAt,
-			"active_source_count": 0,
-			"active_watch_count":  0,
-			"active_task_count":   0,
-			"updated_at":          agent.UpdatedAt,
-		}),
-	}).Create(&agent).Error
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "agent_id"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"tenant_id":           agent.TenantID,
+				"hostname":            agent.Hostname,
+				"version":             agent.Version,
+				"status":              "ONLINE",
+				"listen_addr":         agent.ListenAddr,
+				"last_heartbeat_at":   agent.LastHeartbeatAt,
+				"active_source_count": 0,
+				"active_watch_count":  0,
+				"active_task_count":   0,
+				"updated_at":          agent.UpdatedAt,
+			}),
+		}).Create(&agent).Error; err != nil {
+			return err
+		}
+		_, err := requeueWatchSourcesForAgentTx(tx, req.AgentID, now)
+		return err
+	})
 }
 
 func (s *Store) UpdateHeartbeat(ctx context.Context, hb model.HeartbeatPayload) error {
@@ -118,30 +124,46 @@ func (s *Store) UpdateHeartbeat(ctx context.Context, hb model.HeartbeatPayload) 
 		}
 
 		if wasOffline && strings.EqualFold(status, "ONLINE") {
-			var sources []sourceEntity
-			if err := tx.Where("agent_id = ? AND status IN ? AND watch_enabled = ?", hb.AgentID, []string{string(model.SourceStatusEnabled), string(model.SourceStatusDegraded)}, true).Find(&sources).Error; err != nil {
+			if _, err := requeueWatchSourcesForAgentTx(tx, hb.AgentID, now); err != nil {
 				return err
-			}
-			for _, src := range sources {
-				if err := tx.Model(&sourceEntity{}).Where("id = ?", src.ID).Updates(map[string]any{
-					"status":     string(model.SourceStatusEnabled),
-					"updated_at": now,
-				}).Error; err != nil {
-					return err
-				}
-				payload := model.SourcePayload{SourceID: src.ID, TenantID: src.TenantID, RootPath: src.RootPath}
-				payload.SkipInitialScan = true
-				payload.ReconcileSeconds = src.ReconcileSeconds
-				if err := enqueueSourceCommand(tx, src.AgentID, model.CommandStartSource, payload); err != nil {
-					return err
-				}
-				if err := enqueueScanCommand(tx, src.AgentID, payload, "reconcile"); err != nil {
-					return err
-				}
 			}
 		}
 		return nil
 	})
+}
+
+func requeueWatchSourcesForAgentTx(tx *gorm.DB, agentID string, now time.Time) (int, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return 0, nil
+	}
+	var sources []sourceEntity
+	if err := tx.Where("agent_id = ? AND status IN ? AND watch_enabled = ?", agentID, []string{string(model.SourceStatusEnabled), string(model.SourceStatusDegraded)}, true).Find(&sources).Error; err != nil {
+		return 0, err
+	}
+	for _, src := range sources {
+		if err := tx.Model(&sourceEntity{}).Where("id = ?", src.ID).Updates(map[string]any{
+			"status":     string(model.SourceStatusEnabled),
+			"updated_at": now,
+		}).Error; err != nil {
+			return 0, err
+		}
+		payload := model.SourcePayload{
+			SourceID:          src.ID,
+			TenantID:          src.TenantID,
+			RootPath:          src.RootPath,
+			SkipInitialScan:   true,
+			ReconcileSeconds:  src.ReconcileSeconds,
+			ReconcileSchedule: src.ReconcileSchedule,
+		}
+		if err := enqueueSourceCommand(tx, src.AgentID, model.CommandStartSource, payload); err != nil {
+			return 0, err
+		}
+		if err := enqueueScanCommand(tx, src.AgentID, payload, "reconcile"); err != nil {
+			return 0, err
+		}
+	}
+	return len(sources), nil
 }
 
 func (s *Store) PullPendingCommands(ctx context.Context, req model.PullCommandsRequest) (model.PullCommandsResponse, error) {

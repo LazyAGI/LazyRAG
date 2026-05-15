@@ -1,13 +1,22 @@
 import os
 import copy
 import functools
+import hashlib
 import inspect
 import itertools
 import re
+from pathlib import Path
 from typing import Any, List, Union
+from urllib.parse import urlparse
+
+import requests
 import lazyllm
 from lazyllm import ModuleBase, LOG
 from lazyllm.tools.rag import DocNode
+from lazyllm.tools.rag.doc_node import ImageDocNode
+
+from config import config as _cfg
+from parsing.utils import normalize_image_file
 from processor.table_image_map import merge_table_image_maps, normalize_table_image_map, serialize_table_image_map
 
 
@@ -131,11 +140,39 @@ def _match(node: Union[DocNode, str], patterns: List) -> Union[re.Match, bool]:
             return False
 
 
+def _is_url(s: str) -> bool:
+    try:
+        res = urlparse(s)
+        return bool(res.scheme and (res.netloc or res.scheme == 'file'))
+    except Exception as exc:
+        LOG.error(f'_is_url error: {exc}')
+        return False
+
+
+def _extract_image_path(node: DocNode) -> str:
+    text = (node.text or '').strip()
+    if text:
+        match = re.search(r'!\[.*?\]\((.*?)\)', text)
+        if match and match.group(1):
+            return match.group(1)
+    metadata = node.metadata
+    for key in ('image_url', 'image_path', 'img_path', 'image', 'img'):
+        if metadata.get(key):
+            return metadata[key]
+
+    for line in metadata.get('lines', []) or []:
+        if line.get('image_url'):
+            return line['image_url']
+        if line.get('image_path'):
+            return line['image_path']
+    return ''
+
+
 class LayoutNodeParser(ModuleBase):
     """
     Classify nodes via regex ->
     node.metadata['type'] =
-        ParagraphType.Index_text:    numbered heading
+        ParagraphType.Index_text:    numbered headingF
         ParagraphType.Time_text:    timestamp
         ...
     """
@@ -235,6 +272,114 @@ class TableConverterNode(ModuleBase):
                     )
                 node.metadata.pop('table_body', None)
         return document
+
+
+class ImageConverterNode(ModuleBase):
+    '''Extract image references from raw nodes and emit ImageDocNodes.'''
+
+    def __init__(self, num_workers: int = 0, return_trace: bool = False, **kwargs):
+        super().__init__(return_trace=return_trace, **kwargs)
+        self._ocr_server_url = (_cfg['ocr_server_url'] or '').rstrip('/')
+        self._image_root = _cfg['rag_image_path_prefix']
+        self._normalized_root = Path(_cfg['shared_upload_dir']) / 'normalized_images'
+        os.makedirs(self._image_root, exist_ok=True)
+        self._normalized_root.mkdir(parents=True, exist_ok=True)
+
+    def forward(self, document: List[DocNode], **kwargs) -> List[ImageDocNode]:
+        return self._parse_nodes(document)
+
+    @classmethod
+    def class_name(cls) -> str:
+        return 'ImageConverterNode'
+
+    def _is_image_node(self, node: DocNode) -> bool:
+        text = (node.text or '').strip()
+        if re.search(r'images\/[^\s\)]+\.(jpg|jpeg|png|gif|bmp|webp|tiff|tif)', text, flags=re.I):
+            return True
+        if str(node.metadata.get('type', '')).lower() in {
+            ParagraphType.Picture, ParagraphType.Figure, 'image', 'img'
+        }:
+            return True
+        return bool(_extract_image_path(node))
+
+    def _build_download_url(self, image_path: str) -> str:
+        if not image_path:
+            return ''
+        if _is_url(image_path):
+            return image_path
+        if not self._ocr_server_url:
+            return ''
+        return f'{self._ocr_server_url}/{image_path.lstrip("/")}'
+
+    def _materialize_image(self, image_path: str) -> str:
+        if not image_path:
+            return ''
+
+        if _is_url(image_path):
+            remote_url = image_path
+            parsed = urlparse(image_path)
+            suffix = os.path.splitext(parsed.path)[1] or '.jpg'
+            file_name = hashlib.sha256(image_path.encode('utf-8')).hexdigest() + suffix
+            local_path = os.path.join(self._image_root, file_name)
+        else:
+            relative_path = image_path.lstrip('/').replace('..', '_')
+            local_path = os.path.join(self._image_root, relative_path)
+            remote_url = self._build_download_url(image_path)
+
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+            return local_path
+
+        response = requests.get(remote_url, timeout=30)
+        response.raise_for_status()
+        with open(local_path, 'wb') as f:
+            f.write(response.content)
+        return local_path
+
+    def _normalize_image_file(self, image_path: str) -> str:
+        return normalize_image_file(image_path=image_path, normalized_root=self._normalized_root)
+
+    def _parse_nodes(self, document: List[DocNode], **kwargs) -> List[ImageDocNode]:
+        image_nodes = []
+        seen_paths = set()
+        for node in document:
+            if not self._is_image_node(node):
+                continue
+            text = (node.text or '').strip()
+            image_paths = re.findall(r'!\[.*?\]\((.*?)\)', text)
+            if not image_paths:
+                image_path = _extract_image_path(node)
+                if image_path:
+                    image_paths = [image_path]
+            for image_path in image_paths:
+                if not image_path:
+                    continue
+                try:
+                    image_url = self._build_download_url(image_path)
+                    if not image_url:
+                        raise ValueError(
+                            'LAZYRAG_OCR_SERVER_URL is empty, cannot resolve relative image path'
+                        )
+                    local_image_path = self._materialize_image(image_path)
+                    normalized_path = self._normalize_image_file(local_image_path)
+                    if normalized_path in seen_paths:
+                        continue
+                    seen_paths.add(normalized_path)
+                    source_path = os.path.abspath(local_image_path)
+                    metadata = {
+                        'source_path': source_path,
+                        'normalized_source_path': normalized_path,
+                        'file_name': os.path.basename(source_path),
+                        'file_ext': Path(source_path).suffix.lower() or '.jpg',
+                        'file_type': 'image',
+                        'is_pure_image': True,
+                        'image_url': image_url,
+                    }
+                    image_nodes.append(ImageDocNode(image_path=normalized_path, metadata=metadata))
+                except Exception as exc:
+                    LOG.warning(f'[ImageConverterNode] materialize image failed: {image_path}, error: {exc}')
+                    continue
+        return image_nodes
 
 
 class NodeTextClear(ModuleBase):
@@ -623,6 +768,7 @@ class NodeParser:
         nodes,
         **kwargs: Any,
     ) -> List[DocNode]:
+        raw_nodes = list(nodes)
 
         with lazyllm.pipeline() as parser_ppl:
             parser_ppl.clear_parser = NodeTextClear()
@@ -633,6 +779,8 @@ class NodeParser:
             parser_ppl.merge_nodes = MergeNodeParser()
 
         nodes = parser_ppl(nodes)
+        extracted_img_nodes = ImageConverterNode()(raw_nodes)
+        nodes.extend(extracted_img_nodes)
         embed_keys = ['file_name', 'title']
         del_keys = ['list_type', 'code_type', 'text_type', 'table_caption', 'table_footnote']
         for ind, node in enumerate(nodes):

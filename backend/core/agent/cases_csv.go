@@ -301,11 +301,41 @@ func caseCSVCellString(value any) string {
 		values := reflect.ValueOf(value)
 		parts := make([]string, 0, values.Len())
 		for i := 0; i < values.Len(); i++ {
-			parts = append(parts, caseCSVScalarString(values.Index(i).Interface()))
+			parts = append(parts, normalizeCaseCSVCellString(caseCSVScalarString(values.Index(i).Interface())))
 		}
-		return strings.Join(parts, "\n")
+		return strings.Join(parts, "; ")
 	}
-	return caseCSVScalarString(value)
+	return normalizeCaseCSVCellString(caseCSVScalarString(value))
+}
+
+func normalizeCaseCSVCellString(value string) string {
+	if value == "" {
+		return ""
+	}
+	var builder strings.Builder
+	builder.Grow(len(value))
+	pendingLineBreak := false
+	for _, char := range value {
+		switch char {
+		case '\r', '\n':
+			pendingLineBreak = true
+			continue
+		case '\t':
+			char = ' '
+		default:
+			if char < ' ' {
+				continue
+			}
+		}
+		if pendingLineBreak {
+			if builder.Len() > 0 && char != ' ' && char != '\t' {
+				builder.WriteByte(' ')
+			}
+			pendingLineBreak = false
+		}
+		builder.WriteRune(char)
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func caseCSVScalarString(value any) string {

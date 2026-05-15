@@ -11,6 +11,10 @@ import "./index.scss";
 import { useEffect, useState } from "react";
 import { customSchema } from "./config";
 import rehypeRaw from "rehype-raw";
+import {
+  resolveCoreAssetUrl,
+  resolveMarkdownImageUrlAsync,
+} from "@/modules/knowledge/utils/imageUrl";
 
 const SOURCE_PREFIXES = ["#source-", "#user-content-source-"];
 
@@ -24,13 +28,41 @@ function getSourceIndex(href: any) {
 
 const ImageComponent = (props: any) => {
   const [imageLoadError, setImageLoadError] = useState(false);
-  if (imageLoadError) {
+  const [resolvedSrc, setResolvedSrc] = useState(() =>
+    resolveCoreAssetUrl(props.src || ""),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const rawSrc = props.src || "";
+    setImageLoadError(false);
+    setResolvedSrc(resolveCoreAssetUrl(rawSrc));
+
+    resolveMarkdownImageUrlAsync(rawSrc)
+      .then((url) => {
+        if (!cancelled && url) {
+          setResolvedSrc(url);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResolvedSrc(resolveCoreAssetUrl(rawSrc));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [props.src]);
+
+  if (imageLoadError || !resolvedSrc) {
     return null;
   }
 
   return (
     <img
       {...props}
+      src={resolvedSrc}
       onError={() => setImageLoadError(true)}
       onLoad={() => setImageLoadError(false)}
     />

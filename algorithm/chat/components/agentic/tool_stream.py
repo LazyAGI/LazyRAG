@@ -21,6 +21,7 @@ _REPRESENTATIVE_TOOL_ARGUMENTS: dict[str, str] = {
     'arxiv_search': 'query',
     'memory': 'suggestions.title',
     'vocab_manage': 'suggestions <-> synonym',
+    'vision_extractor': 'url',
     'skill_manage': 'category/name',
     'get_skill': 'name',
     'read_reference': 'rel_path',
@@ -47,6 +48,7 @@ _REPRESENTATIVE_TOOL_RESULTS: dict[str, str] = {
     'web_search': 'query',
     'url_fetch': 'final_url',
     'arxiv_search': 'query',
+    'vision_extractor': 'description',
     'skill_manage': 'reason',
     'run_script': 'stdout',
     'read_file': 'content',
@@ -67,6 +69,7 @@ _TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
     'web_search': 'Searching the web for {value}.',
     'url_fetch': 'Reading page content from {value}.',
     'arxiv_search': 'Searching arXiv papers for {value}.',
+    'vision_extractor': 'Extracting information from the image.',
     'memory': 'Saving {value} as useful long term memory now.',
     'vocab_manage': 'Updating vocabulary entries for {value} now.',
     'skill_manage': 'Updating reusable skill notes related to {value} now.',
@@ -92,6 +95,7 @@ _ZH_TOOL_CALL_PREVIEW_TEMPLATES: dict[str, str] = {
     'web_search': '正在联网搜索 {value}。',
     'url_fetch': '正在读取网页 {value} 。',
     'arxiv_search': '正在 arXiv 中搜索论文 {value}。',
+    'vision_extractor': '正在提取图像信息。',
     'memory': '正在将 {value} 保存为长期记忆。',
     'vocab_manage': '正在更新与 {value} 相关的词汇表。',
     'skill_manage': '正在更新与 {value} 相关的技能。',
@@ -117,6 +121,7 @@ _TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
     'web_search': 'Web results for {value} are ready now.',
     'url_fetch': 'Page content from {value} was loaded successfully.',
     'arxiv_search': 'arXiv results for {value} are ready now.',
+    'vision_extractor': 'Image information has been extracted.',
     'memory': 'Long term memory for {value} was saved successfully.',
     'vocab_manage': 'Vocabulary entries for {value} were updated successfully.',
     'skill_manage': 'Reusable skill notes for {value} were updated successfully.',
@@ -141,6 +146,7 @@ _ZH_TOOL_RESULT_PREVIEW_TEMPLATES: dict[str, str] = {
     'web_search': '已找到 {value} 的网页搜索结果。',
     'url_fetch': '已成功加载 {value} 的网页内容。',
     'arxiv_search': '已找到 {value} 的 arXiv 结果。',
+    'vision_extractor': '已成功提取图像信息。',
     'memory': '已成功保存 {value} 的长期记忆。',
     'vocab_manage': '已成功更新 {value} 的词汇表。',
     'skill_manage': '已成功更新 {value} 的技能。',
@@ -165,6 +171,7 @@ _TOOL_RESULT_FAILURE_TEMPLATES: dict[str, str] = {
     'web_search': 'Web results for {value} could not be retrieved.',
     'url_fetch': 'Page content from {value} could not be loaded.',
     'arxiv_search': 'arXiv results for {value} could not be retrieved.',
+    'vision_extractor': 'Vision extraction for {value} could not be completed.',
     'memory': 'Long term memory for {value} could not be saved.',
     'vocab_manage': 'Vocabulary entries for {value} could not be updated.',
     'skill_manage': 'Reusable skill notes for {value} could not be updated.',
@@ -725,6 +732,9 @@ def _format_tool_stream_frame(tool_event: dict[str, Any]) -> Optional[dict[str, 
 
 def _iter_text_chunks(text: str, chunk_size: int = _STREAM_CHUNK_SIZE):
     if not text:
+        return
+    if '![' in text:
+        yield text
         return
     chunk_size = max(1, int(chunk_size or _STREAM_CHUNK_SIZE))
     for start in range(0, len(text), chunk_size):

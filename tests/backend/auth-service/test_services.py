@@ -328,6 +328,13 @@ def test_group_service_group_membership_and_permissions(service_modules, db_sess
     members = service.list_group_users(team.id)
     assert {row['username'] for row in members} == {'admin', 'normal'}
 
+    normal.disabled = True
+    db_session.commit()
+    active_members = service.list_group_users(team.id, active_only=True)
+    assert [row['username'] for row in active_members] == ['admin']
+    normal.disabled = False
+    db_session.commit()
+
     service.add_group_users(team.id, [normal.id], role='member', operator_id=admin.id)
     assert len(service.list_group_users(team.id)) == 2
 
@@ -349,6 +356,15 @@ def test_group_service_group_membership_and_permissions(service_modules, db_sess
     admin_groups, admin_total = service.list_groups(is_system_admin=True, tenant_id='tenant-a', search='team')
     assert admin_total == 2
     assert {item['group_name'] for item in admin_groups} == {'alpha-team', 'beta-team'}
+
+    active_admin_groups, active_admin_total = service.list_groups(
+        is_system_admin=True,
+        tenant_id='tenant-a',
+        search='team',
+        active_members_only=True,
+    )
+    assert active_admin_total == 1
+    assert [item['group_name'] for item in active_admin_groups] == ['alpha-team']
 
     member_groups, member_total = service.list_groups(
         current_user_id=normal.id,
@@ -490,6 +506,10 @@ def test_user_service_crud_role_assignment_and_password_reset(service_modules, d
     users, total = service.list_users(search='user')
     assert total >= 2
     assert any(item['username'] == 'svc-user' for item in users)
+
+    active_users, active_total = service.list_users(search='user', active_only=True)
+    assert active_total == 1
+    assert [item['username'] for item in active_users] == ['svc-user']
 
     detail = service.get_user(normal.id)
     assert detail['username'] == 'normal'

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -80,6 +81,9 @@ func (s *scanner) shouldInclude(path string, isDir bool) bool {
 	if isDir {
 		return true
 	}
+	if isTransientFile(path, isDir) {
+		return false
+	}
 	ext := strings.ToLower(filepath.Ext(path))
 	if s.includeExts != nil {
 		_, ok := s.includeExts[ext]
@@ -120,7 +124,7 @@ func (s *scanner) FullScan(ctx context.Context, sourceID string, root string) er
 
 		// File type filtering.
 		if !s.shouldInclude(path, d.IsDir()) {
-			s.log.Debug("skipped by extension filter", zap.String("path", path))
+			s.log.Debug("skipped by scan filter", zap.String("path", path))
 			return nil
 		}
 
@@ -190,6 +194,9 @@ func (s *scanner) Stat(_ context.Context, path string) (internal.FileMeta, error
 	info, err := os.Stat(path)
 	if err != nil {
 		return internal.FileMeta{}, err
+	}
+	if isTransientFile(path, info.IsDir()) {
+		return internal.FileMeta{}, fmt.Errorf("%s: transient editor file is ignored", internal.ErrInvalidPath)
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {

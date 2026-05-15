@@ -98,7 +98,7 @@ func NewManagedStateItem(resourceType string, row any, suggestionStatus string) 
 	item := ManagedStateItem{
 		ResourceType:                strings.TrimSpace(resourceType),
 		Title:                       ManagedStateTitle(resourceType),
-		HasPendingReviewSuggestions: suggestionStatus == SuggestionStatusPendingReview,
+		HasPendingReviewSuggestions: suggestionStatus != SuggestionStatusNone,
 		SuggestionStatus:            suggestionStatus,
 	}
 	switch typed := row.(type) {

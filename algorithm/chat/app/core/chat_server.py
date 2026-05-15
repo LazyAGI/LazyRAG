@@ -1,12 +1,11 @@
 from __future__ import annotations
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 from fastapi import FastAPI
 from lazyllm import LOG, once_wrapper
 
 import chat.components.tmp  # noqa: F401 — registers BgeM3Embed / Qwen3Rerank into lazyllm.online
 from chat.config import SENSITIVE_WORDS_PATH, DEFAULT_CHAT_DATASET, resolve_dataset_url
 from chat.pipelines.agentic import agentic_rag
-from chat.pipelines.naive import get_ppl_naive
 from chat.components.process.sensitive_filter import SensitiveFilter
 from config import config as _cfg
 
@@ -78,13 +77,23 @@ class ChatServer:
     def has_dataset(self, dataset: str) -> bool:
         return resolve_dataset_url(dataset) is not None
 
+    @staticmethod
+    def _build_agentic_pipeline(dataset_url: str, stream: bool) -> Callable[[Dict[str, Any]], Any]:
+        def _pipeline(query_params: Dict[str, Any]) -> Any:
+            params = dict(query_params or {})
+            params['document_url'] = dataset_url
+            params['stream'] = stream
+            return agentic_rag(params)
+
+        return _pipeline
+
     def get_query_pipeline(self, dataset: str, *, stream: bool = False) -> Any:
         url = resolve_dataset_url(dataset)
         if url is None:
             raise KeyError(f'dataset `{dataset}` not found in URL_MAP')
         pipeline_map = self.query_ppl_stream if stream else self.query_ppl
         if dataset not in pipeline_map:
-            pipeline_map[dataset] = get_ppl_naive(url=url, stream=stream)
+            pipeline_map[dataset] = self._build_agentic_pipeline(dataset_url=url, stream=stream)
         return pipeline_map[dataset]
 
 

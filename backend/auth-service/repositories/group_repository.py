@@ -1,6 +1,7 @@
 import uuid
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
-from models import Group, GroupPermission, PermissionGroup, UserGroup
+from models import Group, GroupPermission, PermissionGroup, User, UserGroup
 
 
 class GroupRepository:
@@ -21,6 +22,7 @@ class GroupRepository:
         page_size: int = 20,
         search: str | None = None,
         tenant_id: str | None = None,
+        active_members_only: bool = False,
     ) -> tuple[list[Group], int]:
         q = session.query(self.model).order_by(self.model.id)
         count_q = session.query(self.model)
@@ -31,9 +33,23 @@ class GroupRepository:
         if tenant_id is not None:
             q = q.filter(self.model.tenant_id == tenant_id)
             count_q = count_q.filter(self.model.tenant_id == tenant_id)
-        total = count_q.count()
+        if active_members_only:
+            q = (
+                q.join(UserGroup, UserGroup.group_id == self.model.id)
+                .join(User, User.id == UserGroup.user_id)
+                .filter(User.disabled.is_(False))
+                .distinct()
+            )
+            count_q = (
+                count_q.join(UserGroup, UserGroup.group_id == self.model.id)
+                .join(User, User.id == UserGroup.user_id)
+                .filter(User.disabled.is_(False))
+            )
+            total = count_q.with_entities(func.count(func.distinct(self.model.id))).scalar()
+        else:
+            total = count_q.count()
         groups = q.offset((page - 1) * page_size).limit(page_size).all()
-        return groups, total
+        return groups, int(total or 0)
 
     def _create(
         self,
@@ -74,8 +90,11 @@ class GroupRepository:
         page_size: int = 20,
         search: str | None = None,
         tenant_id: str | None = None,
+        active_members_only: bool = False,
     ) -> tuple[list[Group], int]:
-        return cls()._list_paginated(session, page, page_size, search, tenant_id)
+        return cls()._list_paginated(
+            session, page, page_size, search, tenant_id, active_members_only
+        )
 
     @classmethod
     def create(
@@ -101,14 +120,20 @@ class UserGroupRepository:
     def __init__(self):
         self.model = UserGroup
 
-    def _list_by_group_id(self, session: Session, group_id: uuid.UUID) -> list[UserGroup]:
-        return (
+    def _list_by_group_id(
+        self,
+        session: Session,
+        group_id: uuid.UUID,
+        active_only: bool = False,
+    ) -> list[UserGroup]:
+        query = (
             session.query(self.model)
             .options(joinedload(UserGroup.user))
             .filter_by(group_id=group_id)
-            .order_by(self.model.id)
-            .all()
         )
+        if active_only:
+            query = query.join(User, User.id == self.model.user_id).filter(User.disabled.is_(False))
+        return query.order_by(self.model.id).all()
 
     def _get_by_group_and_user(
         self,
@@ -171,8 +196,13 @@ class UserGroupRepository:
         session.commit()
 
     @classmethod
-    def list_by_group_id(cls, session: Session, group_id: uuid.UUID) -> list[UserGroup]:
-        return cls()._list_by_group_id(session, group_id)
+    def list_by_group_id(
+        cls,
+        session: Session,
+        group_id: uuid.UUID,
+        active_only: bool = False,
+    ) -> list[UserGroup]:
+        return cls()._list_by_group_id(session, group_id, active_only)
 
     @classmethod
     def get_by_group_and_user(

@@ -79,6 +79,61 @@ func newAgentTestDB(t *testing.T) *orm.DB {
 	return db
 }
 
+func TestBuildThreadCreateTitleUsesKnowledgeBaseDisplayNameAndDate(t *testing.T) {
+	db := newAgentTestDB(t)
+	if err := db.DB.AutoMigrate(&orm.Dataset{}); err != nil {
+		t.Fatalf("auto migrate dataset: %v", err)
+	}
+
+	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
+	if err := db.DB.Create(&orm.Dataset{
+		ID:                     "dataset-1",
+		KbID:                   "kb-1",
+		DisplayName:            "产品知识库",
+		ResourceUID:            "dataset-1",
+		DatasetInfo:            json.RawMessage(`{}`),
+		EmbeddingModel:         "default",
+		EmbeddingModelProvider: "default",
+		Type:                   1,
+		Ext:                    json.RawMessage(`{}`),
+		BaseModel: orm.BaseModel{
+			CreateUserID:   "user-1",
+			CreateUserName: "tester",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create dataset: %v", err)
+	}
+
+	payload := map[string]any{
+		"title": "old frontend title",
+		"inputs": map[string]any{
+			"kb_id": "kb-1",
+		},
+	}
+	applyThreadCreateTitle(context.Background(), db.DB, payload, now)
+
+	if got := payload["title"]; got != "产品知识库-2026-05-13" {
+		t.Fatalf("unexpected thread title: %#v", got)
+	}
+}
+
+func TestBuildThreadCreateTitleFallsBackToPayloadTitle(t *testing.T) {
+	now := time.Date(2026, 5, 13, 9, 30, 0, 0, time.UTC)
+	payload := map[string]any{
+		"title": "前端传入名称",
+		"inputs": map[string]any{
+			"kb_id": "missing-kb",
+		},
+	}
+
+	got := buildThreadCreateTitle(context.Background(), nil, payload, now)
+	if got != "前端传入名称-2026-05-13" {
+		t.Fatalf("unexpected fallback thread title: %q", got)
+	}
+}
+
 func assertSignedStaticFileExists(t *testing.T, uploadRoot string, file *caseCSVFile) {
 	t.Helper()
 	if file == nil {
@@ -342,11 +397,41 @@ func TestBuildCaseCSVBytesJoinsListValues(t *testing.T) {
 	if strings.Join(records[0], ",") != strings.Join(expectedHeader, ",") {
 		t.Fatalf("unexpected header: %#v", records[0])
 	}
-	if records[1][3] != "a.pdf\nb.pdf" {
-		t.Fatalf("expected list cell to be joined with newlines, got %q", records[1][3])
+	if records[1][3] != "a.pdf; b.pdf" {
+		t.Fatalf("expected list cell to be joined inline, got %q", records[1][3])
 	}
 	if records[1][1] != `{"source":"doc"}` {
 		t.Fatalf("expected object cell to be json encoded, got %q", records[1][1])
+	}
+}
+
+func TestBuildCaseCSVBytesNormalizesMultilineCells(t *testing.T) {
+	csvBytes, rowCount, err := buildCaseCSVBytes([]any{
+		map[string]any{
+			"answer":   "line 1\r\nline 2\n\nline 3\x00\x01",
+			"segments": []any{"chunk 1\nchunk 2", "chunk 3"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildCaseCSVBytes returned error: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("expected row count 1, got %d", rowCount)
+	}
+	if bytes.ContainsAny(csvBytes, "\r\x00\x01") || bytes.Count(csvBytes, []byte("\n")) != 2 {
+		t.Fatalf("expected csv to contain record separators only and no control characters, got %q", string(csvBytes))
+	}
+
+	reader := csv.NewReader(bytes.NewReader(csvBytes))
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v", err)
+	}
+	if records[1][0] != "line 1 line 2 line 3" {
+		t.Fatalf("expected multiline string to be normalized, got %q", records[1][0])
+	}
+	if records[1][1] != "chunk 1 chunk 2; chunk 3" {
+		t.Fatalf("expected multiline list values to be normalized, got %q", records[1][1])
 	}
 }
 
@@ -463,8 +548,8 @@ func TestBuildCaseDetailsCSVBytesUsesChineseHeadersAndQuestionTypeNames(t *testi
 	if records[1][2] != "单跳" {
 		t.Fatalf("expected question_type to be mapped to 单跳, got %q", records[1][2])
 	}
-	if records[1][3] != "要点一\n要点二" {
-		t.Fatalf("expected list value to be joined with newlines, got %q", records[1][3])
+	if records[1][3] != "要点一; 要点二" {
+		t.Fatalf("expected list value to be joined inline, got %q", records[1][3])
 	}
 }
 
@@ -915,6 +1000,155 @@ func TestStreamMessageRecordsForwardsPublishedKeepalive(t *testing.T) {
 	}
 }
 
+func TestStreamThreadMessagesReturnsSSEActiveThreadError(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:     "thr_new",
+		Status:       "completed",
+		CreateUserID: "u1",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("seed thread: %v", err)
+	}
+	if err := db.DB.Create(&orm.AgentUserActiveThread{
+		UserID:     "u1",
+		ThreadID:   "thr_old",
+		Status:     userActiveThreadStatusActive,
+		LeaseUntil: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error; err != nil {
+		t.Fatalf("seed active thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/v1/evo/threads/thr_old/flow-status") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "running"})
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads/thr_new:messages", strings.NewReader(`{"content":"继续"}`))
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_new"})
+	req.Header.Set("X-User-Id", "u1")
+	rec := newTestSSERecorder()
+
+	StreamThreadMessages(rec, req)
+
+	got := rec.String()
+	if !strings.Contains(got, "event: USER_ACTIVE_THREAD_EXISTS\n") {
+		t.Fatalf("expected USER_ACTIVE_THREAD_EXISTS event, got %q", got)
+	}
+	if !strings.Contains(got, `"type":"USER_ACTIVE_THREAD_EXISTS"`) {
+		t.Fatalf("expected USER_ACTIVE_THREAD_EXISTS payload type, got %q", got)
+	}
+	if !strings.Contains(got, userActiveThreadExistsMessage) {
+		t.Fatalf("expected localized active thread message, got %q", got)
+	}
+}
+
+func TestStreamMessageRecordsReplaysOnlyActiveRound(t *testing.T) {
+	db := newAgentTestDB(t)
+	now := time.Now().UTC()
+	records := []orm.AgentThreadRecord{
+		{
+			ID:          "0001",
+			ThreadID:    "thr_1",
+			RoundID:     "round_old",
+			StreamKind:  streamKindMessage,
+			RecordKey:   "rk_old",
+			EventName:   "message",
+			PayloadText: `{"delta":"old"}`,
+			RawFrame:    `data: {"delta":"old"}`,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+		{
+			ID:          "0002",
+			ThreadID:    "thr_1",
+			RoundID:     "round_current",
+			StreamKind:  streamKindMessage,
+			RecordKey:   "rk_current",
+			EventName:   "message",
+			PayloadText: `{"delta":"current"}`,
+			RawFrame:    `data: {"delta":"current"}`,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+	}
+	if err := db.DB.Create(&records).Error; err != nil {
+		t.Fatalf("create records: %v", err)
+	}
+
+	done := make(chan struct{})
+	close(done)
+	session := &activeMessageStream{
+		threadID:    "thr_1",
+		roundID:     "round_current",
+		done:        done,
+		subscribers: make(map[*messageStreamSubscription]struct{}),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/agent/threads/thr_1:messages", nil)
+	rec := newTestSSERecorder()
+
+	streamMessageRecords(req, rec, rec, db.DB, "thr_1", "", session)
+
+	want := "data: {\"delta\":\"current\"}\n\n"
+	if got := rec.String(); got != want {
+		t.Fatalf("unexpected message replay:\nwant: %q\ngot:  %q", want, got)
+	}
+}
+
+func TestBuildThreadRoundResponsesOmitsHistoryInternalsAndBuildsAssistantMessage(t *testing.T) {
+	now := time.Now().UTC()
+	rounds := []orm.AgentThreadRound{
+		{
+			RoundID:          "round_1",
+			ThreadID:         "thr_1",
+			Status:           "completed",
+			UserMessage:      "hello",
+			AssistantMessage: "stored assistant message",
+			RequestPayload:   `{"message":"hello"}`,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}
+	recordsByRound := map[string][]orm.AgentThreadRecord{
+		"round_1": {
+			{ID: "0001", RoundID: "round_1", EventName: "answer_delta", PayloadText: `{"delta":"answer-1"}`},
+			{ID: "0002", RoundID: "round_1", EventName: "thinking_delta", PayloadText: `{"delta":"think-1"}`},
+			{ID: "0003", RoundID: "round_1", EventName: "thinking_delta", PayloadText: `{"delta":"think-2"}`},
+			{ID: "0004", RoundID: "round_1", EventName: "answer_delta", PayloadText: `{"delta":"answer-2"}`},
+			{ID: "0005", RoundID: "round_1", EventName: "other", PayloadText: `{"delta":"ignored"}`},
+		},
+	}
+
+	items := buildThreadRoundResponses(rounds, recordsByRound)
+	if len(items) != 1 {
+		t.Fatalf("expected one round response, got %d", len(items))
+	}
+	if got, want := items[0].AssistantMessage, "think-1think-2answer-1answer-2"; got != want {
+		t.Fatalf("unexpected assistant_message: want %q, got %q", want, got)
+	}
+
+	raw, err := json.Marshal(threadHistoryResponse{ThreadID: "thr_1", Rounds: items})
+	if err != nil {
+		t.Fatalf("marshal history response: %v", err)
+	}
+	for _, forbidden := range []string{"thread_events", "request_payload", "records"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("history response must not include %q: %s", forbidden, raw)
+		}
+	}
+}
+
 func TestBuildAnalysisMarkdownResultReadsMarkdownPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	mdPath := filepath.Join(tmpDir, "analysis.md")
@@ -978,6 +1212,57 @@ func TestBuildAgentFileContentResultReturnsDiffContentDict(t *testing.T) {
 	}
 	if result.Path != diffPath || result.Filename != "naive.py.diff" || result.Content != diffContent {
 		t.Fatalf("unexpected file content result: %#v", result)
+	}
+}
+
+func TestGetThreadRequiresThreadOwner(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentThread{
+		ThreadID:       "thr_a",
+		Status:         "completed",
+		CreateUserID:   "user-a",
+		CreateUserName: "Alice",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/agent/threads/thr_a", nil)
+	req.Header.Set("X-User-Id", "user-b")
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_a"})
+	rec := httptest.NewRecorder()
+	GetThread(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-user thread lookup to be hidden, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestStreamThreadEventsDoesNotClaimMissingThreadForCurrentUser(t *testing.T) {
+	db := newAgentTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/agent/threads/thr_unknown:events", nil)
+	req.Header.Set("X-User-Id", "user-b")
+	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_unknown"})
+	rec := httptest.NewRecorder()
+	StreamThreadEvents(rec, req)
+
+	var count int64
+	if err := db.DB.Model(&orm.AgentThread{}).Where("thread_id = ?", "thr_unknown").Count(&count).Error; err != nil {
+		t.Fatalf("count thread: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected missing thread not to be claimed by events stream, found %d rows", count)
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected missing thread events request to return 404, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1076,6 +1361,7 @@ func TestDeleteThreadHistoryCancelsRunningFlowBeforeDeleting(t *testing.T) {
 	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req.Header.Set("X-User-Id", "u1")
 	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
 	rec := httptest.NewRecorder()
 	DeleteThreadHistory(rec, req)
@@ -1129,6 +1415,7 @@ func TestDeleteThreadHistoryDoesNotCancelEndedFlow(t *testing.T) {
 	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req.Header.Set("X-User-Id", "u1")
 	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
 	rec := httptest.NewRecorder()
 	DeleteThreadHistory(rec, req)
@@ -1193,6 +1480,7 @@ func TestDeleteThreadHistoryCancelsRunningFlowBeforeActiveStreamConflict(t *test
 	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req.Header.Set("X-User-Id", "u1")
 	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
 	rec := httptest.NewRecorder()
 	DeleteThreadHistory(rec, req)
@@ -1245,6 +1533,7 @@ func TestDeleteThreadHistoryKeepsLocalRowsWhenCancelFails(t *testing.T) {
 	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req.Header.Set("X-User-Id", "u1")
 	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
 	rec := httptest.NewRecorder()
 	DeleteThreadHistory(rec, req)
@@ -1284,6 +1573,7 @@ func TestDeleteThreadHistoryKeepsLocalRowsWhenFlowStatusFails(t *testing.T) {
 	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
+	req.Header.Set("X-User-Id", "u1")
 	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_1"})
 	rec := httptest.NewRecorder()
 	DeleteThreadHistory(rec, req)
@@ -1337,7 +1627,7 @@ func TestListThreadsFiltersByUserAndPaginates(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/evo/threads/statuse" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/evo/threads/statuses" {
 			http.Error(w, "unexpected request", http.StatusNotFound)
 			return
 		}
@@ -1514,6 +1804,44 @@ func TestReserveUserActiveThreadCreationRejectsRunningThread(t *testing.T) {
 	var activeErr *userActiveThreadError
 	if !errors.As(err, &activeErr) || activeErr.statusCode != http.StatusConflict {
 		t.Fatalf("expected conflict active thread error, got %T %v", err, err)
+	}
+}
+
+func TestEnsureUserCanActivateThreadRejectsDifferentRunningThread(t *testing.T) {
+	db := newAgentTestDB(t)
+	now := time.Now().UTC()
+	if err := db.DB.Create(&orm.AgentUserActiveThread{
+		UserID:     "u1",
+		ThreadID:   "thr_old",
+		Status:     userActiveThreadStatusActive,
+		LeaseUntil: now,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}).Error; err != nil {
+		t.Fatalf("seed active thread: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/v1/evo/threads/thr_old/flow-status") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "running"})
+	}))
+	defer server.Close()
+	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads/thr_new:retry", nil)
+	req.Header.Set("X-User-Id", "u1")
+	err := ensureUserCanActivateThread(context.Background(), db.DB, req, "thr_new")
+	var activeErr *userActiveThreadError
+	if !errors.As(err, &activeErr) || activeErr.statusCode != http.StatusConflict {
+		t.Fatalf("expected conflict active thread error, got %T %v", err, err)
+	}
+	if activeErr.message != userActiveThreadExistsMessage {
+		t.Fatalf("expected localized active thread message, got %q", activeErr.message)
+	}
+	if activeErr.data["type"] != userActiveThreadExistsType {
+		t.Fatalf("expected active thread error type, got %#v", activeErr.data)
 	}
 }
 
