@@ -97,7 +97,7 @@ export PIP_DEFAULT_TIMEOUT ?= 2400
 export PIP_RETRIES ?= 10
 
 # model config path
-export LAZYRAG_MODEL_CONFIG_PATH ?= online
+export LAZYRAG_MODEL_CONFIG_PATH ?= dynamic
 
 # Frontend port (default 8090; override if the port is occupied, e.g. by Cursor)
 export LAZYRAG_FRONTEND_PORT ?= 8090
