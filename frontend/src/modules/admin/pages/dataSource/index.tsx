@@ -10,6 +10,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
@@ -1649,9 +1650,15 @@ export default function DataSourceManagement() {
             >
               {record.name}
             </Button>
-            <Text type="secondary" className="data-source-ellipsis">
-              {record.description}
-            </Text>
+            <Tooltip title={record.description} placement="topLeft">
+              <Text
+                type="secondary"
+                className="data-source-ellipsis"
+                tabIndex={0}
+              >
+                {record.description}
+              </Text>
+            </Tooltip>
           </div>
         </div>
       ),

@@ -1146,7 +1146,7 @@ const enUS = {
     memoryCategoryCount: "Categories",
     memoryTagCount: "Tags",
     memorySourceCount: "Source Types",
-    memorySearchPlaceholder: "Search {{unit}}...",
+    memorySearchPlaceholder: "Search name & description...",
     memoryAllCategories: "All categories",
     memoryAllTags: "All tags",
     memoryAllSources: "All sources",

@@ -32,6 +32,7 @@ import {
   DefaultApi as CoreDefaultApi,
   type Dataset,
 } from "@/api/generated/core-client";
+import type { AxiosError } from "axios";
 import { AgentAppsAuth } from "@/components/auth";
 import MarkdownViewer from "@/modules/knowledge/components/MarkdownViewer";
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
@@ -620,6 +621,16 @@ function createInitialWorkflowRuntimeState(): WorkflowRuntimeState {
   };
 }
 
+function createThreadRestoreWorkflowRuntimeState(): WorkflowRuntimeState {
+  return {
+    dataset: { status: "pending" },
+    "px-report": { status: "pending" },
+    analysis: { status: "pending" },
+    "code-optimize": { status: "pending" },
+    "ab-test": { status: "pending" },
+  };
+}
+
 function createInitialWorkflowResultsState(): WorkflowResultsState {
   return {
     datasets: { loading: false, loaded: false },
@@ -1156,6 +1167,13 @@ function getCompletedProgressSnapshot(): WorkflowProgressSnapshot {
   };
 }
 
+function updateProgressStatusText(
+  progress: WorkflowProgressSnapshot | undefined,
+  statusText: string,
+): WorkflowProgressSnapshot | undefined {
+  return progress ? { ...progress, statusText } : progress;
+}
+
 function parseStructuredRecord(value: unknown): Record<string, unknown> | undefined {
   if (isRecord(value)) {
     return value;
@@ -1408,20 +1426,36 @@ function getWorkflowProgressSnapshot(
   }
 
   const eventData = getEventPayloadData(payload);
-  const current = getNumberField(eventData, ["current"]);
-  const total = getNumberField(eventData, ["total", "num_cases", "cases"]);
+  const current = getNumberField(eventData, ["current", "completed", "done", "processed"]);
+  const total = getNumberField(eventData, ["total", "num_cases", "cases", "count"]);
+  const explicitPercent = getNumberField(eventData, ["percent", "percentage", "progress"]);
+  const hasProgressValue =
+    typeof explicitPercent === "number" ||
+    (typeof current === "number" && typeof total === "number" && total > 0);
   const percent =
     action === "finish"
       ? 100
       : action === "start"
-        ? 0
-        : typeof current === "number" && typeof total === "number" && total > 0
-          ? (current / total) * 100
-          : undefined;
+        ? typeof explicitPercent === "number"
+          ? explicitPercent
+          : typeof current === "number" && typeof total === "number" && total > 0
+            ? (current / total) * 100
+            : hasProgressValue
+              ? 0
+              : undefined
+        : typeof explicitPercent === "number"
+          ? explicitPercent
+          : typeof current === "number" && typeof total === "number" && total > 0
+            ? (current / total) * 100
+            : undefined;
+
+  if (typeof percent !== "number") {
+    return undefined;
+  }
 
   return {
     statusText: getRuntimeProgressStatusLabel(action),
-    percent: clampPercent(percent ?? 0),
+    percent: clampPercent(percent),
   };
 }
 
@@ -2114,9 +2148,14 @@ function buildWorkflowStepRuntimeFromEvents(events: NormalizedThreadEvent[], isS
       snapshot.status = "canceled";
     } else if (event.action === "pause") {
       snapshot.status = "paused";
+      snapshot.progress =
+        event.progress ||
+        updateProgressStatusText(snapshot.progress, getRuntimeProgressStatusLabel(event.action));
     } else {
       snapshot.status = "running";
-      snapshot.progress = event.progress || snapshot.progress;
+      snapshot.progress =
+        event.progress ||
+        updateProgressStatusText(snapshot.progress, getRuntimeProgressStatusLabel(event.action));
     }
     snapshot.runtimeText = event.progress ? undefined : event.displayText;
   });
@@ -2582,9 +2621,14 @@ function reduceWorkflowRuntimeState(
     current.status = "canceled";
   } else if (action === "pause") {
     current.status = "paused";
+    current.progress =
+      event.progress ||
+      updateProgressStatusText(current.progress, getRuntimeProgressStatusLabel(action));
   } else {
     current.status = "running";
-    current.progress = event.progress || current.progress;
+    current.progress =
+      event.progress ||
+      updateProgressStatusText(current.progress, getRuntimeProgressStatusLabel(action));
   }
   current.runtimeText = event.progress ? undefined : event.displayText;
   return next;
@@ -3771,8 +3815,15 @@ export default function SelfEvolutionPage() {
       if (signal?.aborted || isCanceledRequest(error)) {
         return;
       }
+      const responseStatus = (error as AxiosError | undefined)?.response?.status;
+      const errorTextRaw = getLocalizedErrorMessage(error, "线程详情恢复失败，请稍后重试。") || "";
+      const isThreadNotFound = responseStatus === 404 && errorTextRaw.toLowerCase().includes("thread not found");
+      if (isThreadNotFound) {
+        setWorkflowRuntimeState(createThreadRestoreWorkflowRuntimeState());
+        setWorkflowResults(createInitialWorkflowResultsState());
+      }
       const errorText =
-        getLocalizedErrorMessage(error, "线程详情恢复失败，请稍后重试。") ||
+        errorTextRaw ||
         "线程详情恢复失败，请稍后重试。";
       setThreadRestoreError(errorText);
       setChatSessions([
@@ -4748,7 +4799,7 @@ export default function SelfEvolutionPage() {
     );
   };
 
-  const renderPxMultiCategoryLine = (categoryMetrics: PxCategoryMetricAverage[]) => {
+  const renderPxMultiCategoryBars = (categoryMetrics: PxCategoryMetricAverage[]) => {
     const width = 640;
     const height = 280;
     const padding = { top: 18, right: 24, bottom: 46, left: 44 };
@@ -4756,14 +4807,19 @@ export default function SelfEvolutionPage() {
     const chartHeight = height - padding.top - padding.bottom;
     const categoryCount = categoryMetrics.length;
     const yToPx = (value: number) => padding.top + (1 - clampScore(value)) * chartHeight;
-    const xToPx = (index: number) =>
-      padding.left + (categoryCount <= 1 ? chartWidth / 2 : (index / (categoryCount - 1)) * chartWidth);
+    const groupWidth = chartWidth / Math.max(categoryCount, 1);
+    const metricCount = pxMetricMeta.length;
+    const barGap = 4;
+    const groupInnerWidth = Math.min(96, groupWidth * 0.74);
+    const barWidth = Math.max(5, Math.min(18, (groupInnerWidth - barGap * (metricCount - 1)) / metricCount));
+    const groupBarsWidth = barWidth * metricCount + barGap * (metricCount - 1);
+    const xToCenter = (index: number) => padding.left + groupWidth * index + groupWidth / 2;
     const axisTicks = [0, 0.25, 0.5, 0.75, 1];
 
     return (
-      <div className="self-evolution-px-chart-wrap" aria-label="多分类指标折线图">
-        <svg className="self-evolution-px-line-chart" viewBox={`0 0 ${width} ${height}`} role="img">
-          <title>问题分类指标均值折线图</title>
+      <div className="self-evolution-px-chart-wrap" aria-label="多分类指标柱状图">
+        <svg className="self-evolution-px-bar-chart" viewBox={`0 0 ${width} ${height}`} role="img">
+          <title>问题分类指标均值柱状图</title>
           {axisTicks.map((tick) => {
             const y = yToPx(tick);
             return (
@@ -4790,39 +4846,34 @@ export default function SelfEvolutionPage() {
             className="self-evolution-px-axis-line"
           />
 
-          {pxMetricMeta.map((metric) => {
-            const pointValues = categoryMetrics.map((item, index) => ({
-              x: xToPx(index),
-              y: yToPx(item.metrics[metric.key]),
-              value: item.metrics[metric.key],
-            }));
-            const points = pointValues.map((point) => `${point.x},${point.y}`).join(" ");
+          {categoryMetrics.map((item, categoryIndex) => {
+            const groupStartX = xToCenter(categoryIndex) - groupBarsWidth / 2;
             return (
-              <g key={metric.key}>
-                <polyline
-                  points={points}
-                  fill="none"
-                  stroke={metric.color}
-                  strokeWidth={2.4}
-                  className="self-evolution-px-series-line"
-                />
-                {pointValues.map((point, index) => (
-                  <circle
-                    key={`${metric.key}-${categoryMetrics[index].category}`}
-                    cx={point.x}
-                    cy={point.y}
-                    r={3.8}
-                    fill={metric.color}
-                  >
-                    <title>{`${metric.label} ${categoryMetrics[index].category}: ${formatPercent(point.value)}`}</title>
-                  </circle>
-                ))}
+              <g key={`px-bar-group-${item.category}`}>
+                {pxMetricMeta.map((metric, metricIndex) => {
+                  const value = clampScore(item.metrics[metric.key]);
+                  const y = yToPx(value);
+                  return (
+                    <rect
+                      key={`${item.category}-${metric.key}`}
+                      x={groupStartX + metricIndex * (barWidth + barGap)}
+                      y={y}
+                      width={barWidth}
+                      height={padding.top + chartHeight - y}
+                      rx={3}
+                      fill={metric.color}
+                      className="self-evolution-px-bar"
+                    >
+                      <title>{`${metric.label} ${item.category}: ${formatPercent(value)}`}</title>
+                    </rect>
+                  );
+                })}
               </g>
             );
           })}
 
           {categoryMetrics.map((item, index) => {
-            const x = xToPx(index);
+            const x = xToCenter(index);
             return (
               <text
                 key={item.category}
@@ -4902,8 +4953,8 @@ export default function SelfEvolutionPage() {
           </div>
         </div>
       ) : (
-        <div className="self-evolution-px-panel is-line">
-          {renderPxMultiCategoryLine(pxReportCategoryMetrics)}
+        <div className="self-evolution-px-panel is-bar">
+          {renderPxMultiCategoryBars(pxReportCategoryMetrics)}
           <div className="self-evolution-px-legend is-compact">
             {pxMetricMeta.map((metric) => (
               <div key={metric.key} className="self-evolution-px-legend-item">

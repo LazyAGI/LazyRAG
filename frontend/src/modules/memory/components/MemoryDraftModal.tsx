@@ -60,6 +60,7 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
     updateChildSkillDraft,
   } = props;
   const [glossaryAliasInput, setGlossaryAliasInput] = useState("");
+  const shouldShowSkillContentEditor = !(activeTab === "skills" && modalMode === "edit");
 
   const handleGlossaryAliasesChange = (value: string[]) => {
     const normalizedAliases = Array.from(
@@ -302,34 +303,36 @@ export default function MemoryDraftModal(props: MemoryDraftModalProps) {
               <span className="memory-form-hint">{t("admin.memoryTagsHint")}</span>
             </div>
           ) : null}
-          <div className="memory-form-field memory-form-field-full">
-            <label>{t("admin.memoryMarkdown")}</label>
-            <Input.TextArea
-              rows={10}
-              value={draft.content}
-              readOnly={isReadOnly}
-              placeholder={t("common.pleaseInput") + t("admin.memoryContent")}
-              onChange={(event) =>
-                setDraft((previous: any) => ({ ...previous, content: event.target.value }))
-              }
-            />
-            {activeTab === "skills" ? (
-              <div className="memory-upload-actions">
-                <Upload {...createSkillUploadProps()} disabled={isReadOnly}>
-                  <Button icon={<UploadOutlined />} disabled={isReadOnly}>
-                    {t("admin.memoryUploadSkillFile")}
-                  </Button>
-                </Upload>
-                <span className="memory-form-hint">
-                  {t(
-                    isChildSkillDraft
-                      ? "admin.memoryUploadSkillFileHint"
-                      : "admin.memoryUploadSkillFileHintParent",
-                  )}
-                </span>
-              </div>
-            ) : null}
-          </div>
+          {shouldShowSkillContentEditor ? (
+            <div className="memory-form-field memory-form-field-full">
+              <label>{t("admin.memoryMarkdown")}</label>
+              <Input.TextArea
+                rows={10}
+                value={draft.content}
+                readOnly={isReadOnly}
+                placeholder={t("common.pleaseInput") + t("admin.memoryContent")}
+                onChange={(event) =>
+                  setDraft((previous: any) => ({ ...previous, content: event.target.value }))
+                }
+              />
+              {activeTab === "skills" ? (
+                <div className="memory-upload-actions">
+                  <Upload {...createSkillUploadProps()} disabled={isReadOnly}>
+                    <Button icon={<UploadOutlined />} disabled={isReadOnly}>
+                      {t("admin.memoryUploadSkillFile")}
+                    </Button>
+                  </Upload>
+                  <span className="memory-form-hint">
+                    {t(
+                      isChildSkillDraft
+                        ? "admin.memoryUploadSkillFileHint"
+                        : "admin.memoryUploadSkillFileHintParent",
+                    )}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {activeTab === "skills" && modalMode === "add" && !draft.parentId ? (
             <div className="memory-form-field memory-form-field-full memory-child-skill-section">
               <div className="memory-child-skill-header">

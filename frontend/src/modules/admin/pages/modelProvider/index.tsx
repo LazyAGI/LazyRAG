@@ -443,6 +443,7 @@ interface ApiGroup {
 
 interface CheckModelProviderResult {
   success: boolean;
+  message?: string;
 }
 
 interface ApiModel {
@@ -535,6 +536,18 @@ function mapApiGroup(
       enabled: true,
     })),
   });
+}
+
+function getCheckFailureMessage(checkResult?: CheckModelProviderResult): string | undefined {
+  if (!checkResult || typeof checkResult !== "object") {
+    return undefined;
+  }
+
+  if (typeof checkResult.message === "string" && checkResult.message.trim()) {
+    return checkResult.message.trim();
+  }
+
+  return undefined;
 }
 
 function ProviderLogo({ provider, compact = false }: { provider: ProviderOption; compact?: boolean }) {
@@ -1028,7 +1041,7 @@ export default function ModelProviderPage() {
         });
         return next;
       });
-      message.error(t("modelProvider.message.groupVerifyFailed"));
+      message.error(getCheckFailureMessage(checkResult) || t("modelProvider.message.groupVerifyFailed"));
     } catch (error) {
       message.error(getLocalizedErrorMessage(error, t("modelProvider.error.verifyFailed")));
     } finally {

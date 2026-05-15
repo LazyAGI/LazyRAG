@@ -906,18 +906,28 @@ export async function listSkillAssetsPage(
       options.pageSize ?? 200,
     ),
   );
-  const total = Math.max(
-    records.length,
-    toNumberValue(
-      rawPayload?.total ??
-        rawPayload?.total_count ??
-        rawPayload?.totalCount ??
-        rawEnvelope?.total ??
-        rawEnvelope?.total_count ??
-        rawEnvelope?.totalCount,
-      records.length,
-    ),
+  const paginationNode = getObjectCandidate([rawPayload, rawEnvelope], [
+    "pagination",
+    "pager",
+    "page_info",
+    "pageInfo",
+  ]);
+  const totalCandidate = getFirstValue(
+    [rawPayload, rawEnvelope, paginationNode],
+    [
+      "total",
+      "totle",
+      "total_count",
+      "totalCount",
+      "total_size",
+      "totalSize",
+      "count",
+    ],
   );
+  const total =
+    totalCandidate === undefined || totalCandidate === null
+      ? records.length
+      : Math.max(0, toNumberValue(totalCandidate, records.length));
 
   return {
     records,
