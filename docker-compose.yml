@@ -51,7 +51,6 @@ x-llm-api-keys: &llm-api-keys
   LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
   LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
   LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
-  LAZYLLM_MINERU_API_KEY: ${LAZYLLM_MINERU_API_KEY:-}
 
 
 x-upload-paths: &upload-paths
@@ -63,6 +62,15 @@ x-db-conn: &db-conn
 
 x-core-db-conn: &core-db-conn
   LAZYRAG_CORE_DATABASE_URL: ${LAZYRAG_CORE_DATABASE_URL:-postgresql+psycopg://root:123456@db:5432/core}
+
+x-ocr-env: &ocr-env
+  LAZYRAG_OCR_SERVICE_VARIANT: online
+  LAZYRAG_OCR_SERVER_TYPE: mineru
+  LAZYRAG_MINERU_UPLOAD_MODE: "True"
+  LAZYRAG_OCR_PATCH_APPLIED: "True"
+  LAZYLLM_MINERU_API_KEY: ${LAZYLLM_MINERU_API_KEY:-}
+  LAZYLLM_PADDLE_API_KEY: ${LAZYLLM_PADDLE_API_KEY:-}
+  LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://host.docker.internal:8000/api/v1/pdf_parse}
 
 services:
 
@@ -518,7 +526,7 @@ services:
       LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ""
       LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: "false"
       LAZYRAG_DOCUMENT_WORKER_POLL_MODE: direct
-      <<: [*db-conn, *upload-paths, *llm-api-keys]
+      <<: [*db-conn, *upload-paths, *llm-api-keys, *ocr-env]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/worker.py"]
     healthcheck:
@@ -565,15 +573,8 @@ services:
     environment:
       LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYRAG_ALGO_SERVER_PORT: "8000"
-      LAZYRAG_OCR_SERVER_TYPE: ${LAZYRAG_OCR_SERVER_TYPE:-none}
       LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-/app/common/runtime_models.online.yaml}
       PYTHONPATH: /opt/lazyllm:/app
-      # Use neutral default; when mineru/paddleocr, set LAZYRAG_OCR_SERVER_URL (or use Makefile which sets it).
-      # Avoid hardcoding mineru URL here to prevent paddleocr misconfiguration.
-      LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://localhost:8000}
-      LAZYRAG_MINERU_UPLOAD_MODE: ""
-      LAZYRAG_OCR_PATCH_APPLIED: "true"
-      LAZYRAG_OCR_SERVICE_VARIANT: ${LAZYRAG_OCR_SERVICE_VARIANT:-online}
       LAZYLLM_ALGO_REGISTER_POLICY: ${LAZYLLM_ALGO_REGISTER_POLICY:-}
       LAZYRAG_USE_INNER_MODEL: "true"
       LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
@@ -582,7 +583,7 @@ services:
       LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
       LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
       LAZYRAG_RESET_ALL_ON_STARTUP: ${LAZYRAG_RESET_ALL_ON_STARTUP:-false}
-      <<: *llm-api-keys
+      <<: [*llm-api-keys, *ocr-env]
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
       lazyllm-parse-server:

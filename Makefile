@@ -65,9 +65,9 @@ export LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/cor
 
 # OCR backend selection (none=built-in PDFReader, mineru, paddleocr)
 # Auto-derives LAZYRAG_OCR_SERVER_URL when not set.
-export LAZYRAG_OCR_SERVER_TYPE ?= none
+export LAZYRAG_OCR_SERVER_TYPE ?= mineru
 export LAZYRAG_OCR_SERVICE_VARIANT ?= online
-export LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
+export LAZYRAG_OCR_SERVER_URL ?= http://host.docker.internal:8000/api/v1/pdf_parse
 
 # Vector / segment stores — override to use external services (skips built-in profile)
 export LAZYRAG_MILVUS_URI ?= http://milvus:19530
