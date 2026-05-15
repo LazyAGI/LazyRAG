@@ -23,16 +23,13 @@ def _import_chat_server_module(monkeypatch, *, default_dataset='algo', url_map=N
     fake_config.resolve_dataset_url = lambda dataset: url_map.get(dataset)
 
     fake_agentic = ModuleType('chat.pipelines.agentic')
-    fake_agentic.agentic_rag = 'agentic-rag'
+    fake_agentic.calls = []
 
-    fake_naive = ModuleType('chat.pipelines.naive')
-    fake_naive.calls = []
+    def fake_agentic_rag(params):
+        fake_agentic.calls.append(params)
+        return {'ok': True, 'params': params}
 
-    def fake_get_ppl_naive(url, stream=False):
-        fake_naive.calls.append((url, stream))
-        return {'url': url, 'stream': stream}
-
-    fake_naive.get_ppl_naive = fake_get_ppl_naive
+    fake_agentic.agentic_rag = fake_agentic_rag
 
     fake_filter_module = ModuleType('chat.components.process.sensitive_filter')
 
@@ -49,15 +46,14 @@ def _import_chat_server_module(monkeypatch, *, default_dataset='algo', url_map=N
     monkeypatch.setitem(sys.modules, 'lazyllm', fake_lazyllm)
     monkeypatch.setitem(sys.modules, 'chat.config', fake_config)
     monkeypatch.setitem(sys.modules, 'chat.pipelines.agentic', fake_agentic)
-    monkeypatch.setitem(sys.modules, 'chat.pipelines.naive', fake_naive)
     monkeypatch.setitem(sys.modules, 'chat.components.process.sensitive_filter', fake_filter_module)
 
     module = importlib.import_module('chat.app.core.chat_server')
-    return module, fake_naive
+    return module, fake_agentic
 
 
 def test_chat_server_builds_and_caches_pipelines(monkeypatch):
-    module, fake_naive = _import_chat_server_module(monkeypatch)
+    module, fake_agentic = _import_chat_server_module(monkeypatch)
     server = module.ChatServer()
 
     assert server.startup_validated is True
@@ -67,15 +63,25 @@ def test_chat_server_builds_and_caches_pipelines(monkeypatch):
     first = server.get_query_pipeline('algo')
     second = server.get_query_pipeline('algo')
     stream_pipeline = server.get_query_pipeline('algo', stream=True)
+    first_result = first({'query': 'q'})
+    stream_result = stream_pipeline({'query': 'q'})
 
     assert first is second
-    assert first == {'url': 'http://kb-service,algo', 'stream': False}
-    assert stream_pipeline == {'url': 'http://kb-service,algo', 'stream': True}
-    assert fake_naive.calls == [
-        ('http://kb-service,algo', False),
-        ('http://kb-service,algo', True),
-        ('http://kb-service,algo', False),
-        ('http://kb-service,algo', True),
+    assert callable(first)
+    assert callable(stream_pipeline)
+    assert first_result['ok'] is True
+    assert stream_result['ok'] is True
+    assert fake_agentic.calls == [
+        {
+            'query': 'q',
+            'document_url': 'http://kb-service,algo',
+            'stream': False,
+        },
+        {
+            'query': 'q',
+            'document_url': 'http://kb-service,algo',
+            'stream': True,
+        },
     ]
 
 

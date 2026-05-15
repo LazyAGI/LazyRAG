@@ -21,3 +21,14 @@ embed_main:
   source: dynamic
   dynamic_auth: true
   type: embed
+
+# Cross-modal (image) embed; remove this block to disable the image retrieval branch.
+embed_image:
+  source: dynamic
+  dynamic_auth: true
+  type: cross_modal_embed
+
+vlm:
+  source: dynamic
+  dynamic_auth: true
+  type: vlm

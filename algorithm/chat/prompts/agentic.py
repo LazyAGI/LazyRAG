@@ -120,6 +120,25 @@ SKILLS_GUIDANCE = (
     "Only skills with `source=remote` are writable. Skills with `source=file` "
     "or any other source are read-only; do not use skill_manage to modify or remove them."
 )
+IMAGE_REFERENCE_MARKDOWN_GUIDANCE = (
+    '# Image path formatting (mandatory)\n'
+    'When showing knowledge-base images, you MUST copy the `image_markdown` field from '
+    '`kb_search` / `kb_*` tool results verbatim. If `image_markdown` is absent, copy the '
+    '`image_url` or signed `text` field that starts with `/static-files/` exactly.\n'
+    'Rules:\n'
+    '- Use Markdown image syntax only: `![alt](/static-files/...?expires=...&sig=...)`.\n'
+    '- NEVER invent hosts or prefixes (`https://ext.lazyrag.ai`, `agent-cdn.minimax.io`, '
+    'OCR ports, CDN tool_output URLs, etc.).\n'
+    '- NEVER rewrite `/static-files/` paths into `http://` or `https://` URLs.\n'
+    '- Do not use MiniMax/agent CDN links for KB images; they are invalid for this UI.\n'
+    '- Do not paste bare filesystem paths (`/var/lib/lazyrag/uploads/...`) in answers.'
+)
+VISION_EXTRACTOR_GUIDANCE = (
+    'When calling vision_extractor on knowledge-base images, pass the `local_path` field '
+    'from kb_search results (filesystem path under /var/lib/lazyrag/uploads/). '
+    'Do NOT pass `/static-files/` signed URLs to vision_extractor.'
+)
+
 SEARCH_GUIDANCE = (
     "# Search Tool Rules (CRITICAL — follow strictly)\n"
     "You MUST call `kb_search` (or another `kb_*` tool) FIRST for every retrieval "

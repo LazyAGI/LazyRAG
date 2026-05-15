@@ -8,6 +8,11 @@ import requests
 from lazyllm import fc_register
 
 from chat.pipelines.builders.get_ppl_search import get_ppl_search
+from chat.utils.static_file_url import (
+    basename_from_path,
+    local_path_from_static_file_url,
+    static_file_url_from_any,
+)
 from config import config as _cfg
 
 _MAX_TEXT_LEN = 1200
@@ -19,6 +24,7 @@ _DEFAULT_ES_PASSWORD = _cfg['opensearch_password']
 _CITATION_REFS_KEY = '_citation_sources'
 _CITATION_KEY_MAP_KEY = '_citation_key_map'
 _CITATION_NEXT_KEY = '_citation_next_index'
+_IMAGE_URL_REGISTRY_KEY = '_image_url_registry'
 _CITATION_DOC_KEY_MAP_KEY = '_citation_doc_key_map'
 _CITATION_NEXT_DOC_KEY = '_citation_next_doc_index'
 _CITATION_DOC_CHUNK_NEXT_KEY = '_citation_next_chunk_index_map'
@@ -105,19 +111,64 @@ def _serialize_doc_node_like(node: Any) -> Dict[str, Any]:
         )
         if k in metadata
     }
-    return {
+    group = _safe_getattr(node, 'group', None) or _safe_getattr(node, '_group', None)
+    text = _safe_getattr(node, 'text', '') or ''
+    raw_text = text.strip() if isinstance(text, str) else ''
+    local_path = raw_text
+    if raw_text.startswith('/static-files/'):
+        resolved = local_path_from_static_file_url(raw_text)
+        if resolved:
+            local_path = resolved
+    is_image = group == 'image' or (
+        local_path.startswith('/var/lib/lazyrag/uploads/')
+        and local_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'))
+    )
+    image_markdown = None
+    if is_image and local_path:
+        signed = static_file_url_from_any(local_path)
+        if signed:
+            text = signed
+            compact_metadata = dict(compact_metadata)
+            compact_metadata['image_url'] = signed
+            compact_metadata['local_path'] = local_path
+            file_label = (
+                compact_metadata.get('file_name')
+                or global_md.get('file_name')
+                or basename_from_path(signed)
+            )
+            image_markdown = f'![{file_label}]({signed})'
+    else:
+        local_path = ''
+
+    serialized = {
         'uid': _safe_getattr(node, 'uid', None) or _safe_getattr(node, '_uid', None),
         'number': _safe_getattr(node, 'number', metadata.get('index')),
-        'group': _safe_getattr(node, 'group', None) or _safe_getattr(node, '_group', None),
+        'group': group,
         'parent': _safe_getattr(node, '_parent', None),
         'score': _safe_getattr(node, 'relevance_score', None),
-        'text': _truncate_text(_safe_getattr(node, 'text', '')),
+        'text': _truncate_text(text),
         'docid': global_md.get('docid'),
         'kb_id': global_md.get('kb_id'),
         'file_name': compact_metadata.get('file_name') or global_md.get('file_name'),
         'metadata': compact_metadata,
         'global_metadata': global_md,
     }
+    if image_markdown:
+        serialized['image_markdown'] = image_markdown
+        serialized['local_path'] = local_path
+        _register_image_url(_agentic_config(), text)
+    return serialized
+
+
+def _register_image_url(config: Dict[str, Any], path_or_url: str) -> None:
+    signed = static_file_url_from_any(path_or_url)
+    if not signed:
+        return
+    registry = config.setdefault(_IMAGE_URL_REGISTRY_KEY, {})
+    registry[signed] = signed
+    base = basename_from_path(signed)
+    if base:
+        registry[base] = signed
 
 
 def _agentic_config() -> Dict[str, Any]:
@@ -285,7 +336,7 @@ def _source_node_from_item(index: Any, item: Dict[str, Any]) -> Dict[str, Any]:
     global_md = item.get('global_metadata') if isinstance(item.get('global_metadata'), dict) else {}
     content = item.get('text') if item.get('text') is not None else item.get('content', '')
     document_index, chunk_index = _split_citation_index(index)
-    return {
+    source = {
         'file_id': '',
         'file_name': _file_name_from_item(item),
         'document_id': item.get('docid') or item.get('document_id') or global_md.get('docid', ''),
@@ -306,7 +357,15 @@ def _source_node_from_item(index: Any, item: Dict[str, Any]) -> Dict[str, Any]:
         ),
         'page': metadata.get('page', -1),
         'bbox': metadata.get('bbox', []),
+        'metadata': metadata,
     }
+    image_url = metadata.get('image_url') or item.get('image_url')
+    if isinstance(image_url, str) and image_url.strip():
+        source['image_url'] = image_url.strip()
+    image_markdown = item.get('image_markdown')
+    if isinstance(image_markdown, str) and image_markdown.strip():
+        source['image_markdown'] = image_markdown.strip()
+    return source
 
 
 def _register_citation_item(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -338,6 +397,9 @@ def _register_citation_item(item: Dict[str, Any]) -> Dict[str, Any]:
         index = f'{document_index}.{chunk_index}'
         key_map[key] = index
         refs[index] = _source_node_from_item(index, item)
+        signed = static_file_url_from_any(str(text))
+        if signed:
+            _register_image_url(config, signed)
 
     item['citation_index'] = index
     item['ref'] = f'[[{index}]]'
@@ -491,6 +553,8 @@ def kb_search(
             (TempDocRetriever). Defaults to the session's uploaded file list
             from `agentic_config['temp_files']`; pass an explicit list to
             override, or pass [] to force Branch B even when temp files exist.
+            Attached images are read from `agentic_config['image_files']` and
+            passed through so the search pipeline can rewrite the query.
 
     Returns:
         Retrieval results returned by `get_ppl_search(...)(payload)`.
@@ -506,6 +570,7 @@ def kb_search(
         'query': query,
         'filters': filters or {},
         'files': files,
+        'image_files': agentic_config.get('image_files') or [],
         'user_id': agentic_config.get('user_id', ''),
     }
     resolved_kb_id = _resolve_kb_id(agentic_config)

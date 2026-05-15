@@ -574,6 +574,34 @@ func toInt32(v any) (int32, bool) {
 	return 0, false
 }
 
+func signSegmentImageKeys(keys []string) []string {
+	if len(keys) == 0 {
+		return keys
+	}
+	signed := make([]string, len(keys))
+	for i, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			signed[i] = key
+			continue
+		}
+		if strings.HasPrefix(key, "/static-files/") {
+			signed[i] = key
+			continue
+		}
+		if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
+			signed[i] = key
+			continue
+		}
+		if url := staticFileURLFromFullPath(key); url != "" {
+			signed[i] = url
+			continue
+		}
+		signed[i] = key
+	}
+	return signed
+}
+
 func mapChunkToSegment(datasetID, documentID string, item map[string]any) SegmentItem {
 	meta := nestedMap(item, "metadata")
 	globalMetaMap := firstMap(item, nil, "global_metadata", "global_meta")
@@ -621,6 +649,7 @@ func mapChunkToSegment(datasetID, documentID string, item map[string]any) Segmen
 	if len(imageKeys) == 0 {
 		imageKeys = []string{}
 	}
+	imageKeys = signSegmentImageKeys(imageKeys)
 	if len(excludedEmbedMetadataKeys) == 0 {
 		excludedEmbedMetadataKeys = []string{}
 	}
