@@ -1849,11 +1849,11 @@ func registeredCoreOperations() []openAPIOperation {
 		},
 		{
 			Method:      "POST",
-			Path:        "/word_group:mergeAndAddWord",
-			Summary:     "Merge word groups then add one word into merged group as alias",
+			Path:        "/word_group_conflict:mergeAndAddWord",
+			Summary:     "Merge word groups from merges list, add word into group_ids, resolve conflict",
 			Tags:        []string{"word_group"},
 			RequestBody: jsonBodyOf(wordgroup.MergeAndAddWordRequest{}, true),
-			Responses:   map[int]openAPIResponse{200: resp("Merged word group with added word", wordgroup.CreateWordGroupResponse{})},
+			Responses:   map[int]openAPIResponse{200: resp("Merged word groups with added word (one item per merge batch)", wordgroup.MergeAndAddWordResponse{})},
 		},
 		{
 			Method:      "POST",
@@ -1881,6 +1881,17 @@ func registeredCoreOperations() []openAPIOperation {
 			RequestBody: jsonBodyOf(wordgroup.AddWordGroupConflictToGroupsRequest{}, true),
 			Responses: map[int]openAPIResponse{
 				200: resp("Conflict word add-to-group result", wordgroup.AddWordGroupConflictToGroupsResponse{}),
+			},
+		},
+		{
+			Method:      "POST",
+			Path:        "/word_group_conflict:createGroup",
+			Summary:     "Create word group from conflict and optionally add conflict word to existing groups",
+			Description: "Creates a new word group (term, aliases, description). If group_ids is non-empty, inserts the conflict word as alias into each existing group (skips duplicates). Soft-deletes the conflict row by id.",
+			Tags:        []string{"word_group"},
+			RequestBody: jsonBodyOf(wordgroup.CreateWordGroupFromConflictRequest{}, true),
+			Responses: map[int]openAPIResponse{
+				200: resp("Created word group from conflict", wordgroup.CreateWordGroupFromConflictResponse{}),
 			},
 		},
 		{

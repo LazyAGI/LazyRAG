@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -98,11 +97,18 @@ type MergeWordGroupsRequest struct {
 	Description string   `json:"description"`
 }
 
-// MergeAndAddWordRequest merges groups then adds one word into the merged master group.
+// MergeAndAddWordRequest applies one or more merge specs (same shape as MergeWordGroupsRequest),
+// then optionally adds word as alias into existing groups listed in group_ids.
 type MergeAndAddWordRequest struct {
-	ID       string   `json:"id"`
-	GroupIDs []string `json:"group_ids"`
-	Word     string   `json:"word"`
+	ID       string                   `json:"id"`
+	Word     string                   `json:"word"`
+	GroupIDs []string                 `json:"group_ids"`
+	Merges   []MergeWordGroupsRequest `json:"merges"`
+}
+
+// MergeAndAddWordResponse is returned after all merge batches complete.
+type MergeAndAddWordResponse struct {
+	Items []CreateWordGroupResponse `json:"items"`
 }
 
 // CreateWordGroupResponse is returned in APIResponse.Data after create.
@@ -688,20 +694,9 @@ func MergeWordGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groupIDs := dedupeGroupIDsPreserveOrder(body.GroupIDs)
-	if len(groupIDs) < 2 {
-		common.ReplyErr(w, "at least 2 group_ids required", http.StatusBadRequest)
-		return
-	}
-	term := strings.TrimSpace(body.Term)
-	desc := strings.TrimSpace(body.Description)
-	aliases := normalizeAliases(body.Aliases)
-	if term == "" {
-		common.ReplyErr(w, "term is required", http.StatusBadRequest)
-		return
-	}
-	if msg := validateTermAndAliases(term, aliases); msg != "" {
-		common.ReplyErr(w, msg, http.StatusBadRequest)
+	term, desc, aliases, groupIDs, errMsg := normalizeMergeWordGroupsRequest(body)
+	if errMsg != "" {
+		common.ReplyErr(w, errMsg, http.StatusBadRequest)
 		return
 	}
 
@@ -713,84 +708,12 @@ func MergeWordGroups(w http.ResponseWriter, r *http.Request) {
 	userName := store.UserName(r)
 
 	masterGID := groupIDs[0]
-	slaveGIDs := groupIDs[1:]
 
 	db := store.DB()
 	err := db.Transaction(func(tx *gorm.DB) error {
-		var masterTerm orm.Word
-		if err := tx.Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL",
-			masterGID, userID, orm.WordKindTerm).
-			First(&masterTerm).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errWordGroupNotFound
-			}
-			return err
-		}
-
-		for _, gid := range slaveGIDs {
-			var n int64
-			if err := tx.Model(&orm.Word{}).
-				Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL", gid, userID, orm.WordKindTerm).
-				Count(&n).Error; err != nil {
-				return err
-			}
-			if n == 0 {
-				return errWordGroupNotFound
-			}
-		}
-
 		now := time.Now().UTC()
-		allGIDs := append([]string{masterGID}, slaveGIDs...)
-		if err := tx.Model(&orm.Word{}).
-			Where("group_id IN ? AND create_user_id = ? AND deleted_at IS NULL", allGIDs, userID).
-			Updates(map[string]interface{}{
-				"deleted_at": now,
-				"updated_at": now,
-			}).Error; err != nil {
-			return err
-		}
-
-		base := orm.WordBase{
-			CreateUserID:   userID,
-			CreateUserName: userName,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		}
-		termRow := orm.Word{
-			ID:            common.GenerateID(),
-			Word:          term,
-			WordKind:      orm.WordKindTerm,
-			GroupID:       masterGID,
-			Description:   desc,
-			Source:        masterTerm.Source,
-			ReferenceInfo: masterTerm.ReferenceInfo,
-			Locked:        masterTerm.Locked,
-			WordBase:      base,
-		}
-		if err := tx.Create(&termRow).Error; err != nil {
-			return err
-		}
-		for _, a := range aliases {
-			ar := orm.Word{
-				ID:            common.GenerateID(),
-				Word:          a,
-				WordKind:      orm.WordKindAlias,
-				GroupID:       masterGID,
-				Description:   desc,
-				Source:        masterTerm.Source,
-				ReferenceInfo: masterTerm.ReferenceInfo,
-				Locked:        masterTerm.Locked,
-				WordBase:      base,
-			}
-			if err := tx.Create(&ar).Error; err != nil {
-				return err
-			}
-		}
-
-		if err := remapWordGroupConflictsSlaveGroupIDs(tx, userID, masterGID, slaveGIDs, now); err != nil {
-			return err
-		}
-		return nil
+		_, err := mergeWordGroupsInTx(tx, userID, userName, groupIDs, term, desc, aliases, now)
+		return err
 	})
 	if errors.Is(err, errWordGroupNotFound) {
 		common.ReplyErr(w, "word group not found", http.StatusNotFound)
@@ -816,8 +739,7 @@ func MergeWordGroups(w http.ResponseWriter, r *http.Request) {
 	common.ReplyOK(w, out)
 }
 
-// MergeWordGroupsAndAddWord merges groups and then adds word as alias into the master group.
-// If word already exists in the merged group, insertion is skipped.
+// MergeWordGroupsAndAddWord runs each merge spec, adds word into group_ids, then resolves the conflict.
 func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		common.ReplyErr(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -829,11 +751,6 @@ func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groupIDs := dedupeGroupIDsPreserveOrder(body.GroupIDs)
-	if len(groupIDs) < 2 {
-		common.ReplyErr(w, "at least 2 group_ids required", http.StatusBadRequest)
-		return
-	}
 	words := normalizeAliases([]string{body.Word})
 	if len(words) == 0 {
 		common.ReplyErr(w, "word is required", http.StatusBadRequest)
@@ -845,140 +762,61 @@ func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "id is required", http.StatusBadRequest)
 		return
 	}
+	if len(body.Merges) == 0 {
+		common.ReplyErr(w, "merges is required", http.StatusBadRequest)
+		return
+	}
+	for i, merge := range body.Merges {
+		if msg := validateMergeWordGroupsRequest(merge); msg != "" {
+			common.ReplyErr(w, fmt.Sprintf("merges[%d]: %s", i, msg), http.StatusBadRequest)
+			return
+		}
+	}
 
 	userID := store.UserID(r)
 	if userID == "" {
 		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
 	}
+	userName := store.UserName(r)
+	addToGroupIDs := dedupeGroupIDsPreserveOrder(body.GroupIDs)
 
-	masterGID := groupIDs[0]
-	slaveGIDs := groupIDs[1:]
-
+	masterGIDs := make([]string, 0, len(body.Merges))
 	db := store.DB()
 	err := db.Transaction(func(tx *gorm.DB) error {
-		var masterTerm orm.Word
-		if err := tx.Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL",
-			masterGID, userID, orm.WordKindTerm).
-			First(&masterTerm).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return errWordGroupNotFound
-			}
-			return err
-		}
-
-		for _, gid := range slaveGIDs {
-			var n int64
-			if err := tx.Model(&orm.Word{}).
-				Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL", gid, userID, orm.WordKindTerm).
-				Count(&n).Error; err != nil {
-				return err
-			}
-			if n == 0 {
-				return errWordGroupNotFound
-			}
-		}
-
-		existingWords := make(map[string]struct{})
-		var masterRows []orm.Word
-		if err := tx.Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", masterGID, userID).
-			Find(&masterRows).Error; err != nil {
-			return err
-		}
-		for i := range masterRows {
-			existingWords[strings.TrimSpace(masterRows[i].Word)] = struct{}{}
-		}
-
 		now := time.Now().UTC()
-		for _, slaveGID := range slaveGIDs {
-			var rows []orm.Word
-			if err := tx.Where("group_id = ? AND create_user_id = ? AND deleted_at IS NULL", slaveGID, userID).
-				Find(&rows).Error; err != nil {
+		for _, merge := range body.Merges {
+			term, desc, aliases, groupIDs, _ := normalizeMergeWordGroupsRequest(merge)
+			masterGID, err := mergeWordGroupsInTx(tx, userID, userName, groupIDs, term, desc, aliases, now)
+			if err != nil {
 				return err
 			}
-			sort.Slice(rows, func(i, j int) bool {
-				ti := rows[i].WordKind == orm.WordKindTerm
-				tj := rows[j].WordKind == orm.WordKindTerm
-				if ti != tj {
-					return ti
-				}
-				return rows[i].ID < rows[j].ID
-			})
-			for i := range rows {
-				row := &rows[i]
-				w := strings.TrimSpace(row.Word)
-				if w == "" {
-					if err := tx.Model(&orm.Word{}).Where("id = ?", row.ID).Updates(map[string]interface{}{
-						"deleted_at": now,
-						"updated_at": now,
-					}).Error; err != nil {
-						return err
-					}
-					continue
-				}
-				if _, dup := existingWords[w]; dup {
-					if err := tx.Model(&orm.Word{}).Where("id = ?", row.ID).Updates(map[string]interface{}{
-						"deleted_at": now,
-						"updated_at": now,
-					}).Error; err != nil {
-						return err
-					}
-					continue
-				}
-				up := map[string]interface{}{
-					"group_id":       masterGID,
-					"updated_at":     now,
-					"description":    masterTerm.Description,
-					"source":         masterTerm.Source,
-					"reference_info": masterTerm.ReferenceInfo,
-					"locked":         masterTerm.Locked,
-				}
-				if row.WordKind == orm.WordKindTerm {
-					up["word_kind"] = orm.WordKindAlias
-				}
-				if err := tx.Model(&orm.Word{}).Where("id = ?", row.ID).Updates(up).Error; err != nil {
-					return err
-				}
-				existingWords[w] = struct{}{}
-			}
+			masterGIDs = append(masterGIDs, masterGID)
 		}
-
-		if _, dup := existingWords[word]; !dup {
-			aliasRow := orm.Word{
-				ID:            common.GenerateID(),
-				Word:          word,
-				WordKind:      orm.WordKindAlias,
-				GroupID:       masterGID,
-				Description:   masterTerm.Description,
-				Source:        masterTerm.Source,
-				ReferenceInfo: masterTerm.ReferenceInfo,
-				Locked:        masterTerm.Locked,
-				WordBase: orm.WordBase{
-					CreateUserID:   userID,
-					CreateUserName: masterTerm.CreateUserName,
-					CreatedAt:      now,
-					UpdatedAt:      now,
-				},
-			}
-			if err := tx.Create(&aliasRow).Error; err != nil {
+		if len(addToGroupIDs) > 0 {
+			if _, _, err := addConflictWordToGroupsInTx(tx, userID, word, addToGroupIDs, now); err != nil {
 				return err
 			}
 		}
 
-		// Resolve this conflict row after successful merge+add handling.
-		if err := tx.Model(&orm.WordGroupConflict{}).
+		res := tx.Model(&orm.WordGroupConflict{}).
 			Where("id = ? AND create_user_id = ? AND deleted_at IS NULL", conflictID, userID).
 			Updates(map[string]interface{}{
 				"deleted_at": now,
 				"updated_at": now,
-			}).Error; err != nil {
+			})
+		if err := res.Error; err != nil {
 			return err
 		}
-		if err := remapWordGroupConflictsSlaveGroupIDs(tx, userID, masterGID, slaveGIDs, now); err != nil {
-			return err
+		if res.RowsAffected == 0 {
+			return errWordGroupConflictNotFound
 		}
 		return nil
 	})
+	if errors.Is(err, errWordGroupConflictNotFound) {
+		common.ReplyErr(w, "word group conflict not found", http.StatusNotFound)
+		return
+	}
 	if errors.Is(err, errWordGroupNotFound) {
 		common.ReplyErr(w, "word group not found", http.StatusNotFound)
 		return
@@ -989,18 +827,131 @@ func MergeWordGroupsAndAddWord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, ok, err := buildCreateWordGroupResponse(db, userID, masterGID)
-	if err != nil {
-		log.Logger.Error().Err(err).Str("group_id", masterGID).Msg("merge and add word_group reload failed")
-		common.ReplyErr(w, "merge and add word group failed", http.StatusInternalServerError)
-		return
-	}
-	if !ok {
-		common.ReplyErr(w, "merge and add word group failed", http.StatusInternalServerError)
-		return
+	items := make([]CreateWordGroupResponse, 0, len(masterGIDs))
+	for _, masterGID := range masterGIDs {
+		out, ok, err := buildCreateWordGroupResponse(db, userID, masterGID)
+		if err != nil {
+			log.Logger.Error().Err(err).Str("group_id", masterGID).Msg("merge and add word_group reload failed")
+			common.ReplyErr(w, "merge and add word group failed", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			common.ReplyErr(w, "merge and add word group failed", http.StatusInternalServerError)
+			return
+		}
+		items = append(items, out)
 	}
 	notifyVocabReload(r.Context(), userID)
-	common.ReplyOK(w, out)
+	common.ReplyOK(w, MergeAndAddWordResponse{Items: items})
+}
+
+func validateMergeWordGroupsRequest(req MergeWordGroupsRequest) string {
+	groupIDs := dedupeGroupIDsPreserveOrder(req.GroupIDs)
+	if len(groupIDs) < 2 {
+		return "at least 2 group_ids required"
+	}
+	term := strings.TrimSpace(req.Term)
+	if term == "" {
+		return "term is required"
+	}
+	return validateTermAndAliases(term, normalizeAliases(req.Aliases))
+}
+
+func normalizeMergeWordGroupsRequest(req MergeWordGroupsRequest) (term, desc string, aliases, groupIDs []string, errMsg string) {
+	groupIDs = dedupeGroupIDsPreserveOrder(req.GroupIDs)
+	if len(groupIDs) < 2 {
+		return "", "", nil, nil, "at least 2 group_ids required"
+	}
+	term = strings.TrimSpace(req.Term)
+	desc = strings.TrimSpace(req.Description)
+	aliases = normalizeAliases(req.Aliases)
+	if term == "" {
+		return "", "", nil, nil, "term is required"
+	}
+	if msg := validateTermAndAliases(term, aliases); msg != "" {
+		return "", "", nil, nil, msg
+	}
+	return term, desc, aliases, groupIDs, ""
+}
+
+// mergeWordGroupsInTx soft-deletes merged groups' words and recreates the master group from term/aliases/description.
+func mergeWordGroupsInTx(tx *gorm.DB, userID, userName string, groupIDs []string, term, desc string, aliases []string, now time.Time) (masterGID string, err error) {
+	masterGID = groupIDs[0]
+	slaveGIDs := groupIDs[1:]
+
+	var masterTerm orm.Word
+	if err := tx.Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL",
+		masterGID, userID, orm.WordKindTerm).
+		First(&masterTerm).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", errWordGroupNotFound
+		}
+		return "", err
+	}
+
+	for _, gid := range slaveGIDs {
+		var n int64
+		if err := tx.Model(&orm.Word{}).
+			Where("group_id = ? AND create_user_id = ? AND word_kind = ? AND deleted_at IS NULL", gid, userID, orm.WordKindTerm).
+			Count(&n).Error; err != nil {
+			return "", err
+		}
+		if n == 0 {
+			return "", errWordGroupNotFound
+		}
+	}
+
+	allGIDs := append([]string{masterGID}, slaveGIDs...)
+	if err := tx.Model(&orm.Word{}).
+		Where("group_id IN ? AND create_user_id = ? AND deleted_at IS NULL", allGIDs, userID).
+		Updates(map[string]interface{}{
+			"deleted_at": now,
+			"updated_at": now,
+		}).Error; err != nil {
+		return "", err
+	}
+
+	base := orm.WordBase{
+		CreateUserID:   userID,
+		CreateUserName: userName,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	termRow := orm.Word{
+		ID:            common.GenerateID(),
+		Word:          term,
+		WordKind:      orm.WordKindTerm,
+		GroupID:       masterGID,
+		Description:   desc,
+		Source:        masterTerm.Source,
+		ReferenceInfo: masterTerm.ReferenceInfo,
+		Locked:        masterTerm.Locked,
+		WordBase:      base,
+	}
+	if err := tx.Create(&termRow).Error; err != nil {
+		return "", err
+	}
+	for _, a := range aliases {
+		ar := orm.Word{
+			ID:            common.GenerateID(),
+			Word:          a,
+			WordKind:      orm.WordKindAlias,
+			GroupID:       masterGID,
+			Description:   desc,
+			Source:        masterTerm.Source,
+			ReferenceInfo: masterTerm.ReferenceInfo,
+			Locked:        masterTerm.Locked,
+			WordBase:      base,
+		}
+		if err := tx.Create(&ar).Error; err != nil {
+			return "", err
+		}
+	}
+
+	if err := remapWordGroupConflictsSlaveGroupIDs(tx, userID, masterGID, slaveGIDs, now); err != nil {
+		return "", err
+	}
+	return masterGID, nil
 }
 
 // buildCreateWordGroupResponse loads one active word group by group_id for the user.
@@ -1339,6 +1290,15 @@ func dedupeGroupIDsPreserveOrder(raw []string) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func aliasesContainWord(aliases []string, word string) bool {
+	for _, a := range aliases {
+		if a == word {
+			return true
+		}
+	}
+	return false
 }
 
 // validateTermAndAliases returns a non-empty API error message if term equals any alias
