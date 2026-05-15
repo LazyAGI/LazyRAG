@@ -438,7 +438,7 @@ func (r *Runner) executeOnce(ctx context.Context, claim store.CloudSyncClaim, tr
 		kind := normalizeKind(obj.ExternalKind, obj.ProviderMeta)
 		isDir := isDirKind(kind)
 
-		localRel := sanitizeRelativePath(obj.ExternalPath, obj.ExternalName, objectID, kind)
+		localRel := sanitizeRelativePathForObject(obj, objectID, kind)
 		localRel = resolvePathCollision(localRel, objectID, pathOwner)
 		localAbs := filepath.Clean(filepath.Join(filepath.Clean(mirrorRoot), filepath.FromSlash(localRel)))
 		if !isPathUnderRoot(localAbs, mirrorRoot) {
@@ -812,6 +812,15 @@ func kindMatchSuffixes(kind string) []string {
 	}
 }
 
+func wikiPageWithChildren(kind string, meta map[string]any) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "doc", "docx":
+	default:
+		return false
+	}
+	return boolOption(meta, "has_child")
+}
+
 func normalizeKind(kind string, meta map[string]any) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	if kind != "" {
@@ -851,6 +860,18 @@ func sanitizeRelativePath(externalPath, externalName, objectID, kind string) str
 		case "doc", "docx":
 			rel += ".md"
 		}
+	}
+	return rel
+}
+
+func sanitizeRelativePathForObject(obj provider.RemoteObject, objectID, kind string) string {
+	rel := sanitizeRelativePath(obj.ExternalPath, obj.ExternalName, objectID, kind)
+	if wikiPageWithChildren(kind, obj.ProviderMeta) {
+		dir := strings.TrimSuffix(rel, path.Ext(rel))
+		if dir == "" || dir == "." {
+			dir = sanitizeName(firstNonEmptyString(obj.ExternalName, objectID))
+		}
+		rel = path.Join(dir, path.Base(rel))
 	}
 	return rel
 }
@@ -1096,6 +1117,31 @@ func stringOption(m map[string]any, key string) string {
 		return strings.TrimSpace(x)
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", v))
+	}
+}
+
+func boolOption(m map[string]any, key string) bool {
+	if len(m) == 0 {
+		return false
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return false
+	}
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		x = strings.TrimSpace(strings.ToLower(x))
+		return x == "true" || x == "1" || x == "yes"
+	case int:
+		return x != 0
+	case int64:
+		return x != 0
+	case float64:
+		return x != 0
+	default:
+		return strings.EqualFold(strings.TrimSpace(fmt.Sprintf("%v", v)), "true")
 	}
 }
 

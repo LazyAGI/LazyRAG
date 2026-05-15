@@ -77,6 +77,12 @@ func buildOpenAPISpec() map[string]any {
 					"502": errResp(),
 				}),
 			},
+			"/api/scan/cloud/target/validate": map[string]any{
+				"post": op("Validate cloud target", reqBody(refSchema("ValidateCloudTargetRequest")), map[string]any{
+					"200": resp("Validation result", refSchema("ValidateCloudTargetResponse")),
+					"400": errResp(),
+				}),
+			},
 			"/api/scan/sources/{id}": map[string]any{
 				"get": op("Get source", nil, map[string]any{
 					"200": resp("Source", refSchema("Source")),
@@ -378,6 +384,19 @@ func schemas() map[string]any {
 			"source_id": strSchema(),
 			"deleted":   boolSchema(),
 		}, []string{"source_id", "deleted"}),
+		"ValidateCloudTargetRequest": inlineObj(map[string]any{
+			"provider":           strSchema(),
+			"auth_connection_id": strSchema(),
+			"target_type":        strSchema(),
+			"target_ref":         strSchema(),
+			"provider_options": map[string]any{
+				"type":                 "object",
+				"additionalProperties": true,
+			},
+		}, []string{"provider", "auth_connection_id"}),
+		"ValidateCloudTargetResponse": inlineObj(map[string]any{
+			"valid": boolSchema(),
+		}, []string{"valid"}),
 		"UpsertCloudSourceBindingRequest": inlineObj(map[string]any{
 			"provider":                strSchema(),
 			"enabled":                 boolSchema(),

@@ -280,6 +280,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			idleSeconds = int64(s.defaultIdleWindow.Seconds())
 		}
 
+		deleteScheduleAt := automaticDeleteScheduleAt(src, occurred)
 		mutations = append(mutations, DocumentMutation{
 			TenantID:          src.TenantID,
 			SourceID:          src.ID,
@@ -287,6 +288,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			IdleWindowSeconds: idleSeconds,
 			EventType:         normalizeEventType(ev.EventType),
 			OccurredAt:        occurred,
+			DeleteScheduleAt:  deleteScheduleAt,
 			OriginType:        firstNonEmpty(strings.TrimSpace(ev.OriginType), src.DefaultOriginType, string(model.OriginTypeLocalFS)),
 			OriginPlatform:    firstNonEmpty(strings.TrimSpace(ev.OriginPlatform), src.DefaultOriginPlatform, "LOCAL"),
 			OriginRef:         strings.TrimSpace(ev.OriginRef),
@@ -305,6 +307,68 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 		)
 	}
 	return mutations, nil
+}
+
+func automaticDeleteScheduleAt(src sourceEntity, occurred time.Time) *time.Time {
+	if !src.WatchEnabled {
+		return nil
+	}
+	occurred = occurred.UTC()
+	if occurred.IsZero() {
+		occurred = time.Now().UTC()
+	}
+	if strings.TrimSpace(src.ReconcileSchedule) != "" {
+		next := computeNextReconcileTime(src.ReconcileSchedule, occurred)
+		return next
+	}
+	reconcileSeconds := src.ReconcileSeconds
+	if reconcileSeconds <= 0 {
+		return nil
+	}
+	anchor := occurred
+	if src.WatchUpdatedAt != nil && !src.WatchUpdatedAt.IsZero() {
+		anchor = src.WatchUpdatedAt.UTC()
+	}
+	next := nextIntervalReconcileTime(anchor, occurred, time.Duration(reconcileSeconds)*time.Second)
+	return &next
+}
+
+func nextIntervalReconcileTime(anchor, after time.Time, interval time.Duration) time.Time {
+	anchor = anchor.UTC()
+	after = after.UTC()
+	if interval <= 0 {
+		return after
+	}
+	if anchor.IsZero() || anchor.After(after) {
+		return after.Add(interval)
+	}
+	steps := int64(after.Sub(anchor) / interval)
+	next := anchor.Add(time.Duration(steps+1) * interval)
+	for !next.After(after) {
+		next = next.Add(interval)
+	}
+	return next
+}
+
+func computeNextReconcileTime(scheduleExpr string, afterUTC time.Time) *time.Time {
+	everyDays, hour, minute, err := parseReconcileScheduleExpr(scheduleExpr)
+	if err != nil {
+		return nil
+	}
+	if everyDays <= 0 {
+		everyDays = 1
+	}
+	loc, err := time.LoadLocation(defaultScheduleTZ)
+	if err != nil {
+		loc = time.Local
+	}
+	localAfter := afterUTC.In(loc)
+	next := time.Date(localAfter.Year(), localAfter.Month(), localAfter.Day(), hour, minute, 0, 0, loc)
+	for !next.After(localAfter) {
+		next = next.AddDate(0, 0, everyDays)
+	}
+	nextUTC := next.UTC()
+	return &nextUTC
 }
 
 func (s *Store) BatchApplyDocumentMutations(ctx context.Context, mutations []DocumentMutation) error {
@@ -368,11 +432,36 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 
 	if normalizeEventType(m.EventType) == "deleted" {
 		desiredVersion := fmt.Sprintf("d_%d", occurred.UnixNano())
-		nextDeleteAt := occurred
+		var nextDeleteAt *time.Time
+		activeDeleteQueued := false
+		if !m.ManualSync && err == nil && strings.EqualFold(strings.TrimSpace(doc.ParseStatus), "DELETED") && doc.NextParseAt == nil && strings.TrimSpace(doc.CoreDocumentID) != "" {
+			active, activeErr := hasActiveDeleteTaskTx(tx, doc.ID)
+			if activeErr != nil {
+				return activeErr
+			}
+			activeDeleteQueued = active
+		}
+		if activeDeleteQueued {
+			if existingDesired := strings.TrimSpace(doc.DesiredVersionID); existingDesired != "" {
+				desiredVersion = existingDesired
+			}
+		} else {
+			nextDeleteAtValue := occurred
+			if !m.ManualSync && m.DeleteScheduleAt != nil {
+				nextDeleteAtValue = m.DeleteScheduleAt.UTC()
+			}
+			if !m.ManualSync && err == nil && strings.EqualFold(strings.TrimSpace(doc.ParseStatus), "DELETED") && doc.NextParseAt != nil {
+				existingNext := doc.NextParseAt.UTC()
+				if existingNext.Before(nextDeleteAtValue) || existingNext.Equal(nextDeleteAtValue) {
+					nextDeleteAtValue = existingNext
+				}
+			}
+			nextDeleteAt = &nextDeleteAtValue
+		}
 		updates := map[string]any{
 			"desired_version_id": desiredVersion,
 			"last_modified_at":   occurred,
-			"next_parse_at":      &nextDeleteAt,
+			"next_parse_at":      nextDeleteAt,
 			"parse_status":       "DELETED",
 			"origin_type":        firstNonEmpty(m.OriginType, string(model.OriginTypeLocalFS)),
 			"origin_platform":    firstNonEmpty(m.OriginPlatform, "LOCAL"),
@@ -387,7 +476,7 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 				SourceObjectID:   m.SourceObjectID,
 				DesiredVersionID: desiredVersion,
 				LastModifiedAt:   &occurred,
-				NextParseAt:      &nextDeleteAt,
+				NextParseAt:      nextDeleteAt,
 				ParseStatus:      "DELETED",
 				OriginType:       firstNonEmpty(m.OriginType, string(model.OriginTypeLocalFS)),
 				OriginPlatform:   firstNonEmpty(m.OriginPlatform, "LOCAL"),
@@ -435,6 +524,16 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 		return tx.Create(&doc).Error
 	}
 	return tx.Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(updates).Error
+}
+
+func hasActiveDeleteTaskTx(tx *gorm.DB, documentID int64) (bool, error) {
+	var count int64
+	if err := tx.Model(&parseTaskEntity{}).
+		Where("document_id = ? AND task_action = ? AND status IN ?", documentID, taskActionDelete, []string{"PENDING", "RETRY_WAITING", "RUNNING", "SUBMITTED"}).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func resolveMutationDocument(tx *gorm.DB, m DocumentMutation, now time.Time, log *zap.Logger) (documentEntity, error) {

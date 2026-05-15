@@ -30,3 +30,7 @@ type Provider interface {
 	ListObjects(ctx context.Context, req ListRequest) ([]RemoteObject, error)
 	DownloadObject(ctx context.Context, accessToken string, object RemoteObject) ([]byte, error)
 }
+
+type TargetValidator interface {
+	ValidateTarget(ctx context.Context, req ListRequest) error
+}

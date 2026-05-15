@@ -52,6 +52,32 @@ func NewWithLogger(timeout time.Duration, logger *zap.Logger) *Provider {
 
 func (p *Provider) Name() string { return "feishu" }
 
+func (p *Provider) ValidateTarget(ctx context.Context, req provider.ListRequest) error {
+	accessToken := strings.TrimSpace(req.AccessToken)
+	if accessToken == "" {
+		return fmt.Errorf("feishu access_token is empty")
+	}
+	targetType := strings.ToLower(strings.TrimSpace(req.TargetType))
+	targetRef := strings.TrimSpace(req.TargetRef)
+	switch targetType {
+	case "wiki_space", "wiki":
+		if targetRef == "" {
+			targetRef = strings.TrimSpace(stringOption(req.ProviderOptions, "space_id"))
+		}
+		if targetRef == "" {
+			return fmt.Errorf("feishu wiki target_ref(space_id) is required")
+		}
+		return p.validateWikiTarget(ctx, accessToken, targetRef)
+	case "drive_folder", "folder":
+		if targetRef == "" {
+			targetRef = strings.TrimSpace(stringOption(req.ProviderOptions, "folder_token"))
+		}
+		return p.validateDriveTarget(ctx, accessToken, targetRef)
+	default:
+		return p.validateDriveTarget(ctx, accessToken, targetRef)
+	}
+}
+
 func (p *Provider) ListObjects(ctx context.Context, req provider.ListRequest) ([]provider.RemoteObject, error) {
 	accessToken := strings.TrimSpace(req.AccessToken)
 	if accessToken == "" {
@@ -136,7 +162,37 @@ func (p *Provider) DownloadObject(ctx context.Context, accessToken string, objec
 	}
 }
 
+func (p *Provider) validateWikiTarget(ctx context.Context, accessToken, targetRef string) error {
+	target, err := p.resolveWikiListTarget(ctx, accessToken, targetRef)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(target.SpaceID) == "" {
+		return fmt.Errorf("feishu wiki target_ref resolved without space_id")
+	}
+	if len(target.Root) > 0 {
+		return nil
+	}
+	var data struct {
+		Items []map[string]any `json:"items"`
+		Nodes []map[string]any `json:"nodes"`
+	}
+	return p.getJSON(ctx, accessToken, "/wiki/v2/spaces/"+url.PathEscape(target.SpaceID)+"/nodes", map[string]string{"page_size": "1"}, &data)
+}
+
+func (p *Provider) validateDriveTarget(ctx context.Context, accessToken, folderToken string) error {
+	params := map[string]string{"page_size": "1"}
+	if normalized := normalizeFeishuTargetRef(folderToken); normalized != "" {
+		params["folder_token"] = normalized
+	}
+	var data struct {
+		Files []map[string]any `json:"files"`
+	}
+	return p.getJSON(ctx, accessToken, "/drive/v1/files", params, &data)
+}
+
 func (p *Provider) listDrive(ctx context.Context, accessToken, rootFolderToken string) ([]provider.RemoteObject, error) {
+	rootFolderToken = normalizeFeishuTargetRef(rootFolderToken)
 	visited := make(map[string]struct{}, 64)
 	out := make([]provider.RemoteObject, 0, 512)
 	if p.log != nil {
@@ -463,6 +519,7 @@ func wikiNodeRemoteObject(node map[string]any, parentPath, parentID, fallbackTok
 			"obj_token":  objToken,
 			"node_token": nodeToken,
 			"space_id":   valueAsString(node["space_id"]),
+			"has_child":  hasChild,
 		},
 	}, nodeToken, isDir
 }

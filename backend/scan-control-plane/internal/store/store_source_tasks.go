@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
 )
 
 func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req model.ListSourceDocumentsRequest) (model.SourceDocumentsResponse, error) {
@@ -91,7 +92,9 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	}
 
 	for _, doc := range docs {
-		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		latestTask := latestTasksByDocID[doc.ID]
+		_, hasLatestTask := latestTasksByDocID[doc.ID]
+		update := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
 		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, snapshotUpdates, snapshotUpdatesAvailable)
 		var hasUpdate *bool
 		switch update {
@@ -102,7 +105,6 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			v := false
 			hasUpdate = &v
 		}
-		latestTask := latestTasksByDocID[doc.ID]
 		displayMeta := metadata[doc.ID]
 		resp.Items = append(resp.Items, model.SourceDocumentItem{
 			DocumentID:              doc.ID,
@@ -192,7 +194,9 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		}
 	}
 	for _, doc := range summaryDocs {
-		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		latestTask := summaryLatestTasks[doc.DocumentID]
+		_, hasLatestTask := summaryLatestTasks[doc.DocumentID]
+		update := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
 		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, snapshotUpdates, snapshotUpdatesAvailable)
 		switch update {
 		case "NEW":
@@ -810,6 +814,9 @@ func documentUpdateTypeWithSnapshotOverride(path, fallback string, updates map[s
 		return fallback
 	}
 	if update, ok := updates[filepath.Clean(strings.TrimSpace(path))]; ok {
+		if update == "NEW" && strings.EqualFold(strings.TrimSpace(fallback), "UNCHANGED") {
+			return "UNCHANGED"
+		}
 		return update
 	}
 	return fallback
@@ -890,22 +897,12 @@ func (s *Store) BuildTreeUpdateState(ctx context.Context, sourceID string, items
 	pathMap := make(map[string]treeDocumentRow)
 	queueMap := make(map[int64]parseTaskDocJoin)
 	if len(filePaths) > 0 {
-		var docs []treeDocumentRow
-		if err := s.db.WithContext(ctx).
-			Table("documents").
-			Select("id, source_object_id, desired_version_id, current_version_id, parse_status").
-			Where("source_id = ? AND source_object_id IN ?", src.ID, filePaths).
-			Scan(&docs).Error; err != nil {
+		docs, err := s.treeDocumentRowsByPath(ctx, src.ID, filePaths)
+		if err != nil {
 			return nil, "", err
 		}
-		for _, doc := range docs {
-			pathMap[doc.SourceObjectID] = doc
-		}
-		docIDs := make([]int64, 0, len(docs))
-		for _, doc := range docs {
-			docIDs = append(docIDs, doc.ID)
-		}
-		latestTasks, err := s.latestParseTasksByDocumentIDs(ctx, docIDs)
+		pathMap = docs
+		latestTasks, err := s.latestParseTasksForTreeDocumentRows(ctx, docs)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1181,8 +1178,9 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 	}
 
 	var (
-		selectedPreview *sourceFileSnapshotEntity
-		diffByPath      map[string]string
+		selectedPreview          *sourceFileSnapshotEntity
+		diffByPath               map[string]string
+		snapshotPromoteOnlyPaths []string
 	)
 	if selectionToken != "" {
 		preview, err := s.loadUsablePreviewSnapshotBySelectionToken(ctx, src.ID, selectionToken, now)
@@ -1250,7 +1248,16 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 				resp.SkippedCount += ignored
 				paths = filtered
 			} else {
-				filtered, ignored := filterPathsByDiff(paths, diffByPath)
+				docMap, err := s.treeDocumentRowsByPath(ctx, src.ID, paths)
+				if err != nil {
+					return resp, err
+				}
+				queueMap, err := s.latestParseTasksForTreeDocumentRows(ctx, docMap)
+				if err != nil {
+					return resp, err
+				}
+				filtered, promoteOnly, ignored := filterPathsByDiff(paths, diffByPath, docMap, queueMap)
+				snapshotPromoteOnlyPaths = promoteOnly
 				resp.IgnoredUnchangedCount = ignored
 				resp.SkippedCount += ignored
 				paths = filtered
@@ -1272,7 +1279,8 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 		if src.WatchEnabled {
 			return s.consumeSelectionTokenTx(tx, selectedPreview.SnapshotID, now)
 		}
-		_, residualBaseID, err := s.promoteSelectedPreviewPathsToCommittedTx(tx, src.ID, *selectedPreview, paths, diffByPath, now)
+		promotePaths := mergeSnapshotPromotionPaths(paths, snapshotPromoteOnlyPaths)
+		_, residualBaseID, err := s.promoteSelectedPreviewPathsToCommittedTx(tx, src.ID, *selectedPreview, promotePaths, diffByPath, now)
 		if err != nil {
 			return err
 		}
@@ -1290,6 +1298,18 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 			}
 		}
 		return resp, nil
+	}
+	eventPaths := append([]string(nil), paths...)
+	if !src.WatchEnabled && sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+		pathMap, err := s.cloudTreePathsToObjectPaths(ctx, src.ID, paths)
+		if err != nil {
+			return resp, err
+		}
+		for i, path := range paths {
+			if mapped := strings.TrimSpace(pathMap[filepath.Clean(strings.TrimSpace(path))]); mapped != "" {
+				eventPaths[i] = filepath.Clean(mapped)
+			}
+		}
 	}
 	pathEventType := make(map[string]string, len(paths))
 	for _, path := range paths {
@@ -1343,10 +1363,14 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 	events := make([]model.FileEvent, 0, len(paths))
 	for i, p := range paths {
 		eventType := normalizeEventType(pathEventType[p])
+		eventPath := p
+		if i < len(eventPaths) && strings.TrimSpace(eventPaths[i]) != "" {
+			eventPath = eventPaths[i]
+		}
 		events = append(events, model.FileEvent{
 			SourceID:      src.ID,
 			EventType:     eventType,
-			Path:          p,
+			Path:          eventPath,
 			IsDir:         false,
 			OccurredAt:    now.Add(time.Duration(i) * time.Nanosecond),
 			TriggerPolicy: strings.TrimSpace(req.TriggerPolicy),
@@ -1355,6 +1379,9 @@ func (s *Store) GenerateTasksForSource(ctx context.Context, sourceID string, req
 	mutations, err := s.BuildMutationsFromEvents(ctx, events)
 	if err != nil {
 		return resp, err
+	}
+	for i := range mutations {
+		mutations[i].ManualSync = true
 	}
 	resp.AcceptedCount = len(mutations)
 	resp.SkippedCount += len(paths) - len(mutations)

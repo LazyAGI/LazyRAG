@@ -116,6 +116,18 @@ type UpsertCloudSourceBindingRequest struct {
 	ProviderOptions       map[string]any `json:"provider_options,omitempty"`
 }
 
+type ValidateCloudTargetRequest struct {
+	Provider         string         `json:"provider"`
+	AuthConnectionID string         `json:"auth_connection_id"`
+	TargetType       string         `json:"target_type,omitempty"`
+	TargetRef        string         `json:"target_ref,omitempty"`
+	ProviderOptions  map[string]any `json:"provider_options,omitempty"`
+}
+
+type ValidateCloudTargetResponse struct {
+	Valid bool `json:"valid"`
+}
+
 type CloudSourceBinding struct {
 	SourceID              string         `json:"source_id"`
 	TenantID              string         `json:"tenant_id"`

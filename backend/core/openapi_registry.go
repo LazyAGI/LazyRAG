@@ -715,16 +715,19 @@ type suggestionBatchReviewOpenAPIResponse struct {
 }
 
 type skillChildCreateOpenAPIRequest struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	FileExt string `json:"file_ext,omitempty"`
-	AutoEvo *bool  `json:"auto_evo,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Content     string   `json:"content"`
+	FileExt     string   `json:"file_ext,omitempty"`
+	AutoEvo     *bool    `json:"auto_evo,omitempty"`
 }
 
 type skillCreateManagedOpenAPIRequest struct {
 	Name            string                           `json:"name"`
 	Description     string                           `json:"description,omitempty"`
-	Category        string                           `json:"category"`
+	Category        string                           `json:"category,omitempty"`
+	ParentSkillID   string                           `json:"parent_skill_id,omitempty"`
 	ParentSkillName string                           `json:"parent_skill_name,omitempty"`
 	Tags            []string                         `json:"tags,omitempty"`
 	Content         string                           `json:"content"`
@@ -738,6 +741,7 @@ type skillUpdateManagedOpenAPIRequest struct {
 	Name            *string  `json:"name,omitempty"`
 	Description     *string  `json:"description,omitempty"`
 	Category        *string  `json:"category,omitempty"`
+	ParentSkillID   *string  `json:"parent_skill_id,omitempty"`
 	ParentSkillName *string  `json:"parent_skill_name,omitempty"`
 	Tags            []string `json:"tags,omitempty"`
 	Content         *string  `json:"content,omitempty"`
@@ -760,6 +764,9 @@ type skillListChildOpenAPIResponse struct {
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
 	SuggestionStatus            string `json:"suggestion_status"`
 	NodeType                    string `json:"node_type"`
+	ParentID                    string `json:"parent_id"`
+	ParentSkillID               string `json:"parent_skill_id"`
+	ParentSkillName             string `json:"parent_skill_name"`
 }
 
 type skillListItemOpenAPIResponse struct {
@@ -801,6 +808,8 @@ type skillDetailChildOpenAPIResponse struct {
 	HasPendingReviewSuggestions bool   `json:"has_pending_review_suggestions"`
 	SuggestionStatus            string `json:"suggestion_status"`
 	NodeType                    string `json:"node_type"`
+	ParentID                    string `json:"parent_id"`
+	ParentSkillID               string `json:"parent_skill_id"`
 	ParentSkillName             string `json:"parent_skill_name"`
 	Content                     string `json:"content"`
 }
@@ -820,6 +829,8 @@ type skillDetailOpenAPIResponse struct {
 	HasPendingReviewSuggestions bool                              `json:"has_pending_review_suggestions"`
 	SuggestionStatus            string                            `json:"suggestion_status"`
 	NodeType                    string                            `json:"node_type"`
+	ParentID                    string                            `json:"parent_id"`
+	ParentSkillID               string                            `json:"parent_skill_id"`
 	ParentSkillName             string                            `json:"parent_skill_name"`
 	Content                     string                            `json:"content"`
 	FileExt                     string                            `json:"file_ext"`
@@ -1009,7 +1020,11 @@ type internalSkillCreateOpenAPIRequest struct {
 }
 
 type internalSkillRemoveOpenAPIRequest struct {
-	ID string `json:"id"`
+	ID        string `json:"id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Category  string `json:"category,omitempty"`
+	SkillName string `json:"skill_name,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 func registeredCoreOperations() []openAPIOperation {
@@ -1498,7 +1513,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Summary:     "Delete skill by ID",
 			Tags:        []string{"skill-evolution"},
 			RequestBody: jsonBodyOf(internalSkillRemoveOpenAPIRequest{}, true),
-			Responses:   map[int]openAPIResponse{200: resp("Deleted skill", skillDeleteOpenAPIResponse{})},
+			Responses:   map[int]openAPIResponse{200: resp("Created remove suggestion", recordedSuggestionListOpenAPIResponse{})},
 		},
 		{
 			Method:      "POST",

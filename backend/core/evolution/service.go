@@ -58,12 +58,30 @@ func ParentSkillRelativePath(category, skillName string) string {
 	return filepath.ToSlash(filepath.Join(category, skillName, "SKILL.md"))
 }
 
-func SkillSuggestionResourceKey(row orm.SkillResource) string {
-	if strings.TrimSpace(row.NodeType) == SkillNodeTypeChild {
-		return ParentSkillRelativePath(strings.TrimSpace(row.Category), firstNonEmpty(strings.TrimSpace(row.ParentSkillName), strings.TrimSpace(row.SkillName)))
+func ChildSkillRelativePath(category, parentSkillName, skillName, fileExt string) string {
+	category = strings.TrimSpace(category)
+	parentSkillName = strings.TrimSpace(parentSkillName)
+	skillName = strings.TrimSpace(skillName)
+	fileExt = strings.TrimSpace(strings.TrimPrefix(fileExt, "."))
+	if fileExt == "" {
+		fileExt = "md"
 	}
+	return filepath.ToSlash(filepath.Join(category, parentSkillName, fmt.Sprintf("%s.%s", skillName, strings.ToLower(fileExt))))
+}
+
+func SkillSuggestionResourceKey(row orm.SkillResource) string {
 	resourceKey := strings.TrimSpace(row.RelativePath)
-	if resourceKey == "" {
+	if resourceKey != "" {
+		return filepath.ToSlash(resourceKey)
+	}
+	if strings.TrimSpace(row.NodeType) == SkillNodeTypeChild {
+		resourceKey = ChildSkillRelativePath(
+			strings.TrimSpace(row.Category),
+			firstNonEmpty(strings.TrimSpace(row.ParentSkillName), strings.TrimSpace(row.SkillName)),
+			strings.TrimSpace(row.SkillName),
+			firstNonEmpty(strings.TrimSpace(row.FileExt), "md"),
+		)
+	} else {
 		resourceKey = ParentSkillRelativePath(strings.TrimSpace(row.Category), firstNonEmpty(strings.TrimSpace(row.ParentSkillName), strings.TrimSpace(row.SkillName)))
 	}
 	return filepath.ToSlash(resourceKey)
@@ -364,10 +382,9 @@ func loadLegacySystemUserPreferenceTemplate(ctx context.Context, tx *gorm.DB, us
 func LoadSkillStateByResourceKey(ctx context.Context, db *gorm.DB, userID, resourceKey string) (*SkillState, error) {
 	var skill orm.SkillResource
 	err := db.WithContext(ctx).
-		Where("owner_user_id = ? AND relative_path = ? AND node_type = ?",
+		Where("owner_user_id = ? AND relative_path = ?",
 			strings.TrimSpace(userID),
 			filepath.ToSlash(strings.TrimSpace(resourceKey)),
-			SkillNodeTypeParent,
 		).
 		Take(&skill).Error
 	if err != nil {
@@ -439,10 +456,22 @@ func skillStateFromResource(skill *orm.SkillResource) (*SkillState, error) {
 
 func conversationIDFromSessionID(sessionID string) string {
 	sessionID = strings.TrimSpace(sessionID)
-	if idx := strings.LastIndex(sessionID, "_"); idx > 0 {
+	if idx := strings.LastIndex(sessionID, "_"); idx > 0 && isTimestampSuffix(sessionID[idx+1:]) {
 		return sessionID[:idx]
 	}
 	return sessionID
+}
+
+func isTimestampSuffix(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func firstNonEmpty(values ...string) string {
