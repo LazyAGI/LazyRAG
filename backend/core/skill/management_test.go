@@ -54,12 +54,14 @@ type listSkillsAPITestResponse struct {
 			SkillID                     string   `json:"skill_id"`
 			Description                 string   `json:"description"`
 			Tags                        []string `json:"tags"`
+			UpdateStatus                string   `json:"update_status"`
 			HasPendingReviewSuggestions bool     `json:"has_pending_review_suggestions"`
 			SuggestionStatus            string   `json:"suggestion_status"`
 			Children                    []struct {
 				SkillID                     string   `json:"skill_id"`
 				Description                 string   `json:"description"`
 				Tags                        []string `json:"tags"`
+				UpdateStatus                string   `json:"update_status"`
 				HasPendingReviewSuggestions bool     `json:"has_pending_review_suggestions"`
 				SuggestionStatus            string   `json:"suggestion_status"`
 			} `json:"children"`
@@ -80,6 +82,7 @@ type getSkillDetailAPITestResponse struct {
 		ParentID                    string   `json:"parent_id"`
 		ParentSkillID               string   `json:"parent_skill_id"`
 		ParentSkillName             string   `json:"parent_skill_name"`
+		UpdateStatus                string   `json:"update_status"`
 		HasPendingReviewSuggestions bool     `json:"has_pending_review_suggestions"`
 		SuggestionStatus            string   `json:"suggestion_status"`
 		Children                    []any    `json:"children"`
@@ -469,6 +472,9 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 	if !strings.Contains(updatedSkill.DraftContent, "updated body") {
 		t.Fatalf("expected draft_content to be overwritten, got %q", updatedSkill.DraftContent)
 	}
+	if updatedSkill.UpdateStatus != evolution.UpdateStatusUpToDate {
+		t.Fatalf("expected update_status to stay up_to_date after draft generate, got %q", updatedSkill.UpdateStatus)
+	}
 }
 
 func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
@@ -553,6 +559,16 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	suggestions, ok := algoBody["suggestions"].([]any)
 	if !ok || len(suggestions) != 0 {
 		t.Fatalf("expected empty suggestions array, got %#v", algoBody["suggestions"])
+	}
+	var updatedSkill orm.SkillResource
+	if err := db.Where("id = ?", "skill-1").Take(&updatedSkill).Error; err != nil {
+		t.Fatalf("query updated skill: %v", err)
+	}
+	if updatedSkill.DraftStatus != "pending_confirm" {
+		t.Fatalf("expected draft_status pending_confirm, got %q", updatedSkill.DraftStatus)
+	}
+	if updatedSkill.UpdateStatus != evolution.UpdateStatusUpToDate {
+		t.Fatalf("expected update_status to stay up_to_date for instruction-only draft, got %q", updatedSkill.UpdateStatus)
 	}
 }
 
@@ -1244,6 +1260,89 @@ func TestListPaginatesAndCountsParentSkills(t *testing.T) {
 	}
 	if len(resp.Data.Items) != 1 || resp.Data.Items[0].SkillID != "skill-parent-three" {
 		t.Fatalf("expected second page to include third parent, got %#v", resp.Data.Items)
+	}
+}
+
+func TestListNormalizesPendingConfirmUpdateStatus(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	parent := orm.SkillResource{
+		ID:             "skill-parent",
+		OwnerUserID:    "u1",
+		OwnerUserName:  "User 1",
+		Category:       "testing",
+		SkillName:      "test-tool-verification",
+		NodeType:       evolution.SkillNodeTypeParent,
+		Description:    "tool verification",
+		FileExt:        "md",
+		RelativePath:   evolution.ParentSkillRelativePath("testing", "test-tool-verification"),
+		Content:        "---\nname: test-tool-verification\ndescription: tool verification\n---\nbody",
+		ContentHash:    evolution.HashContent("body"),
+		Version:        1,
+		IsEnabled:      true,
+		DraftStatus:    "pending_confirm",
+		DraftContent:   "draft body",
+		UpdateStatus:   "pending_confirm",
+		CreateUserID:   "u1",
+		CreateUserName: "User 1",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	child := orm.SkillResource{
+		ID:              "skill-child",
+		OwnerUserID:     "u1",
+		OwnerUserName:   "User 1",
+		Category:        "testing",
+		ParentSkillName: "test-tool-verification",
+		SkillName:       "probe",
+		NodeType:        evolution.SkillNodeTypeChild,
+		Description:     "probe",
+		FileExt:         "md",
+		RelativePath:    evolution.ChildSkillRelativePath("testing", "test-tool-verification", "probe", "md"),
+		Content:         "child body",
+		ContentHash:     evolution.HashContent("child body"),
+		Version:         1,
+		IsEnabled:       true,
+		UpdateStatus:    "pending_confirm",
+		CreateUserID:    "u1",
+		CreateUserName:  "User 1",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/core/skills?page=1&page_size=20", nil)
+	req.Header.Set("X-User-Id", "u1")
+	rec := httptest.NewRecorder()
+
+	List(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp listSkillsAPITestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Data.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(resp.Data.Items))
+	}
+	if resp.Data.Items[0].UpdateStatus != evolution.UpdateStatusUpToDate {
+		t.Fatalf("expected parent update_status up_to_date, got %q", resp.Data.Items[0].UpdateStatus)
+	}
+	if len(resp.Data.Items[0].Children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(resp.Data.Items[0].Children))
+	}
+	if resp.Data.Items[0].Children[0].UpdateStatus != evolution.UpdateStatusUpToDate {
+		t.Fatalf("expected child update_status up_to_date, got %q", resp.Data.Items[0].Children[0].UpdateStatus)
 	}
 }
 
@@ -2294,8 +2393,8 @@ func TestUpdateChildSkillChangesParentSkill(t *testing.T) {
 	if updated.IsEnabled {
 		t.Fatalf("expected child to inherit disabled state from target parent")
 	}
-	if updated.UpdateStatus != "pending_confirm" {
-		t.Fatalf("expected child update_status to inherit target parent state, got %q", updated.UpdateStatus)
+	if updated.UpdateStatus != evolution.UpdateStatusUpToDate {
+		t.Fatalf("expected child update_status to normalize target parent state, got %q", updated.UpdateStatus)
 	}
 }
 

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	ManagedMemoryTitle     = "回复风格偏好"
-	ManagedPreferenceTitle = "输出结构偏好"
+	ManagedMemoryTitle     = "智能体工作记忆"
+	ManagedPreferenceTitle = "用户画像"
 )
 
 type ManagedStateItem struct {

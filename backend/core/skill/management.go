@@ -28,6 +28,14 @@ var (
 	errPendingRemoveSuggestion = errors.New("skill has pending remove suggestion")
 )
 
+func normalizedSkillUpdateStatus(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" || status == "pending_confirm" {
+		return evolution.UpdateStatusUpToDate
+	}
+	return status
+}
+
 func List(w http.ResponseWriter, r *http.Request) {
 	db := store.DB()
 	if db == nil {
@@ -417,7 +425,7 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		"draft_content":        generated,
 		"draft_status":         "pending_confirm",
 		"draft_updated_at":     now,
-		"update_status":        "pending_confirm",
+		"update_status":        evolution.UpdateStatusUpToDate,
 		"updated_at":           now,
 		"ext":                  evolution.WithDraftSuggestionIDs(row.Ext, suggestionIDs(suggestions)),
 	}
@@ -427,7 +435,7 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = db.WithContext(r.Context()).Model(&orm.SkillResource{}).
 		Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).
-		Updates(map[string]any{"update_status": "pending_confirm", "updated_at": now}).Error
+		Updates(map[string]any{"update_status": evolution.UpdateStatusUpToDate, "updated_at": now}).Error
 	common.ReplyOK(w, generateSkillResponse{
 		DraftStatus:        "pending_confirm",
 		DraftSourceVersion: row.Version,
@@ -726,7 +734,7 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 		"auto_evo_generation":            row.AutoEvoGeneration,
 		"auto_evo_error":                 row.AutoEvoError,
 		"is_enabled":                     row.IsEnabled,
-		"update_status":                  row.UpdateStatus,
+		"update_status":                  normalizedSkillUpdateStatus(row.UpdateStatus),
 		"has_pending_review_suggestions": suggestionState.Status == evolution.SuggestionStatusPendingReview,
 		"has_pending_remove_suggestion":  suggestionState.HasPendingRemove,
 		"suggestion_status":              suggestionState.Status,
@@ -766,7 +774,7 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 				"auto_evo_generation":            child.AutoEvoGeneration,
 				"auto_evo_error":                 child.AutoEvoError,
 				"is_enabled":                     child.IsEnabled,
-				"update_status":                  child.UpdateStatus,
+				"update_status":                  normalizedSkillUpdateStatus(child.UpdateStatus),
 				"has_pending_review_suggestions": childSuggestionState.Status == evolution.SuggestionStatusPendingReview,
 				"has_pending_remove_suggestion":  childSuggestionState.HasPendingRemove,
 				"suggestion_status":              childSuggestionState.Status,
@@ -1016,7 +1024,7 @@ func createChildSkill(ctx context.Context, db *gorm.DB, userID, userName string,
 		Version:         1,
 		AutoEvo:         req.AutoEvo,
 		IsEnabled:       parent.IsEnabled,
-		UpdateStatus:    parent.UpdateStatus,
+		UpdateStatus:    normalizedSkillUpdateStatus(parent.UpdateStatus),
 		CreateUserID:    userID,
 		CreateUserName:  userName,
 		CreatedAt:       now,
@@ -1336,7 +1344,7 @@ func updateChildSkill(ctx context.Context, db *gorm.DB, userID string, row *orm.
 	}
 	if newParent != nil {
 		update["is_enabled"] = newParent.IsEnabled
-		update["update_status"] = newParent.UpdateStatus
+		update["update_status"] = normalizedSkillUpdateStatus(newParent.UpdateStatus)
 	}
 	if req.AutoEvo != nil {
 		update["auto_evo"] = *req.AutoEvo
@@ -1389,7 +1397,7 @@ func parentListResponse(parent orm.SkillResource, children []orm.SkillResource, 
 		"auto_evo_generation":            parent.AutoEvoGeneration,
 		"auto_evo_error":                 parent.AutoEvoError,
 		"is_enabled":                     parent.IsEnabled,
-		"update_status":                  parent.UpdateStatus,
+		"update_status":                  normalizedSkillUpdateStatus(parent.UpdateStatus),
 		"has_pending_review_suggestions": parentSuggestionState.Status == evolution.SuggestionStatusPendingReview,
 		"has_pending_remove_suggestion":  parentSuggestionState.HasPendingRemove,
 		"suggestion_status":              parentSuggestionState.Status,
@@ -1415,7 +1423,7 @@ func childListResponse(parent, child orm.SkillResource, suggestionStatesByKey ma
 		"auto_evo_generation":            child.AutoEvoGeneration,
 		"auto_evo_error":                 child.AutoEvoError,
 		"is_enabled":                     parent.IsEnabled,
-		"update_status":                  parent.UpdateStatus,
+		"update_status":                  normalizedSkillUpdateStatus(parent.UpdateStatus),
 		"has_pending_review_suggestions": childSuggestionState.Status == evolution.SuggestionStatusPendingReview,
 		"has_pending_remove_suggestion":  childSuggestionState.HasPendingRemove,
 		"suggestion_status":              childSuggestionState.Status,
