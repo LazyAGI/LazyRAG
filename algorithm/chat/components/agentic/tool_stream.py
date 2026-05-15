@@ -466,6 +466,9 @@ def _format_tool_stream_frame(tool_event: dict[str, Any]) -> Optional[dict[str, 
 def _iter_text_chunks(text: str, chunk_size: int = _STREAM_CHUNK_SIZE):
     if not text:
         return
+    if '![' in text:
+        yield text
+        return
     chunk_size = max(1, int(chunk_size or _STREAM_CHUNK_SIZE))
     for start in range(0, len(text), chunk_size):
         yield text[start:start + chunk_size]

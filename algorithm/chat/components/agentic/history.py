@@ -7,7 +7,11 @@ from html import escape
 from typing import Any, Optional
 
 from chat.utils.markdown_images import rewrite_markdown_image_urls
-from chat.utils.stream_scanner import BasePlugin, IncrementalScanner
+from chat.utils.stream_scanner import (
+    BasePlugin,
+    IncrementalScanner,
+    MarkdownImageHoldPlugin,
+)
 
 from chat.components.agentic.tool_stream import (
     _TOOL_CALL_TAG,
@@ -513,7 +517,10 @@ def _build_stream_citation_scanner(
     config: dict[str, Any],
 ) -> tuple[IncrementalScanner, _ConfigCitationPlugin]:
     plugin = _ConfigCitationPlugin(config)
-    return IncrementalScanner([plugin], initial_state='BODY'), plugin
+    return IncrementalScanner(
+        [plugin, MarkdownImageHoldPlugin()],
+        initial_state='BODY',
+    ), plugin
 
 
 def _count_user_turns(history: list[dict[str, Any]], current_query: str | None) -> int:
