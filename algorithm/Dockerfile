@@ -70,7 +70,7 @@ COPY algorithm/requirements.txt /app/algorithm/requirements.txt
 RUN pip install --no-cache-dir -r algorithm/requirements.txt
 COPY algorithm/ /app/algorithm/
 RUN chmod +x /app/algorithm/docker-entrypoint.sh
-ENV PYTHONPATH=/opt/lazyllm:/app
+ENV PYTHONPATH=/opt/lazyllm:/app \
   LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000 \
   LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads \
   LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads \
