@@ -27,7 +27,7 @@ RUN set -eu; \
     done; \
     apt-get update \
     && apt-get install -y --no-install-recommends \
-        libreoffice libreoffice-l10n-zh-cn \
+        libreoffice libreoffice-l10n-zh-cn default-jre-headless tini \
         curl ca-certificates fontconfig \
         fonts-dejavu-core fonts-noto-cjk fonts-wqy-zenhei fonts-wqy-microhei \
     && fc-cache -f -v \
@@ -39,4 +39,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY office-convert-service/ .
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

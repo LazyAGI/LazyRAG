@@ -8,7 +8,10 @@ import ChatInput, {
 import ChatLayout from "../chatLayout";
 import { ChatConfig } from "@/modules/chat/components/ChatConfigs";
 import { Tooltip, message } from "antd";
-import { CHAT_RESUME_CONVERSATION_KEY } from "@/modules/chat/constants/chat";
+import {
+  CHAT_RESUME_CONVERSATION_KEY,
+  CHAT_SELECT_CONVERSATION_EVENT,
+} from "@/modules/chat/constants/chat";
 import { allowedUploadTypes } from "@/modules/chat/components/ImageUpload";
 import { useTranslation } from "react-i18next";
 
@@ -22,6 +25,8 @@ const NewChatPage = () => {
   const [isChatContent, setIsChatContent] = useState(false);
   const [chatConfig, setChatConfig] = useState<ChatConfig>({});
   const [chatLayoutMounted, setChatLayoutMounted] = useState(false);
+  const [welcomeKnowledgeRefreshKey, setWelcomeKnowledgeRefreshKey] =
+    useState(0);
   const newChatInputRef = useRef<ChatInputImperativeProps>(null);
 
   const [isDragging, setIsDragging] = useState(false);
@@ -38,6 +43,9 @@ const NewChatPage = () => {
     if (value && !chatLayoutMounted) {
       setChatLayoutMounted(true);
     }
+    if (!value) {
+      setWelcomeKnowledgeRefreshKey((key) => key + 1);
+    }
     setIsChatContent(value);
   };
 
@@ -50,6 +58,32 @@ const NewChatPage = () => {
       setIsChatContent(true);
     }
   }, [chatLayoutMounted]);
+
+  useEffect(() => {
+    const handleConversationSelect = (event: Event) => {
+      const conversationId =
+        (event as CustomEvent<{ conversationId?: string }>).detail
+          ?.conversationId || "";
+      if (!conversationId) {
+        setWelcomeKnowledgeRefreshKey((key) => key + 1);
+        setIsChatContent(false);
+        return;
+      }
+      setChatLayoutMounted(true);
+      setIsChatContent(true);
+    };
+
+    window.addEventListener(
+      CHAT_SELECT_CONVERSATION_EVENT,
+      handleConversationSelect,
+    );
+    return () => {
+      window.removeEventListener(
+        CHAT_SELECT_CONVERSATION_EVENT,
+        handleConversationSelect,
+      );
+    };
+  }, []);
 
   const isFileTypeSupported = (file: File): boolean => {
     const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
@@ -150,6 +184,8 @@ const NewChatPage = () => {
                     openNewChat={() => handleSetIsChatContent(false)}
                     isChatContent={isChatContent}
                     showHistoryList={false}
+                    showHistoryButton={false}
+                    knowledgeRefreshKey={welcomeKnowledgeRefreshKey}
                     setIsChatContent={(value) => {
                       if (value) {
                         setInputValue("");

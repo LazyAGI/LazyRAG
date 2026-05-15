@@ -16,6 +16,7 @@ from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
 from chat.utils.helpers import validate_and_resolve_files
 from chat.app.core.chat_server import chat_server
 from chat.utils.load_config import inject_model_config
+from chat.utils.markdown_images import rewrite_markdown_image_urls
 
 
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -105,6 +106,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        memory: Optional[str],
                        user_preference: Optional[str],
                        use_memory: Optional[bool],
+                       environment_context: Optional[Dict[str, Any]] = None,
                        user_id: Optional[str] = None) -> Dict[str, Any]:
     hist = [
         {
@@ -126,6 +128,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         'memory': memory,
         'user_preference': user_preference,
         'use_memory': use_memory,
+        'environment_context': environment_context if isinstance(environment_context, dict) else {},
         'user_id': user_id or '',
     }
 
@@ -174,6 +177,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       available_skills: Optional[List[str]], memory: Optional[str],
                       user_preference: Optional[str], use_memory: Optional[bool],
                       is_stream: bool, trace: bool = False,
+                      environment_context: Optional[Dict[str, Any]] = None,
                       user_id: Optional[str] = None,
                       model_config: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
@@ -189,10 +193,23 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
 
     other_files, image_files = validate_and_resolve_files(files)
     query_params = build_query_params(
-        query, history, filters, other_files, databases,
-        debug or False, image_files, priority, dataset, session_id,
-        available_tools, available_skills, memory, user_preference,
-        use_memory, user_id,
+        query=query,
+        history=history,
+        filters=filters,
+        other_files=other_files,
+        databases=databases,
+        debug=debug or False,
+        image_files=image_files,
+        priority=priority,
+        dataset=dataset,
+        session_id=session_id,
+        available_tools=available_tools,
+        available_skills=available_skills,
+        memory=memory,
+        user_preference=user_preference,
+        use_memory=use_memory,
+        environment_context=environment_context,
+        user_id=user_id,
     )
 
     def _init_session():
@@ -224,7 +241,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         finally:
             cost = round(time.time() - start_time, 3)
             log_chat_request(
-                query, session_id, filters, other_files, image_files, databases, cost, result
+                query, session_id, filters, other_files, databases, image_files, cost, result
             )
     else:
         if sensitive_check_result:
@@ -264,14 +281,43 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                             )
                             first_frame_logged = True
 
-                        chunk_str = (
-                            chunk
-                            if isinstance(chunk, str)
-                            else json.dumps(chunk, ensure_ascii=False)
+                        agentic_config = lazyllm.globals.get('agentic_config')
+                        rewrite_config = (
+                            agentic_config if isinstance(agentic_config, dict) else None
                         )
-                        collected_chunks.append(chunk_str)
+
+                        if isinstance(chunk, dict):
+                            payload = dict(chunk)
+                            text = payload.get('text')
+                            if isinstance(text, str) and text:
+                                payload['text'] = rewrite_markdown_image_urls(
+                                    text, config=rewrite_config,
+                                )
+                            chunk_data = payload
+                        elif isinstance(chunk, str):
+                            try:
+                                payload = json.loads(chunk)
+                            except (TypeError, ValueError):
+                                payload = None
+                            if isinstance(payload, dict):
+                                text = payload.get('text')
+                                if isinstance(text, str) and text:
+                                    payload['text'] = rewrite_markdown_image_urls(
+                                        text, config=rewrite_config,
+                                    )
+                                chunk_data = payload
+                            else:
+                                chunk_data = rewrite_markdown_image_urls(
+                                    chunk, config=rewrite_config,
+                                )
+                        else:
+                            chunk_data = chunk
+
+                        collected_chunks.append(
+                            json.dumps(chunk_data, ensure_ascii=False, default=str)
+                        )
                         cost = round(now - start_time, 3)
-                        yield _sse_line(_resp(200, 'success', chunk, cost))
+                        yield _sse_line(_resp(200, 'success', chunk_data, cost))
 
             except Exception as exc:
                 LOG.exception(exc)
@@ -286,7 +332,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             final_resp['cost'] = cost
             yield _sse_line(final_resp)
 
-            log_chat_request(query, session_id, filters, other_files, image_files, databases,
+            log_chat_request(query, session_id, filters, other_files, databases, image_files,
                              cost, '\n'.join(collected_chunks), 'KB_CHAT_STREAM_FINISH')
 
         return StreamingResponse(

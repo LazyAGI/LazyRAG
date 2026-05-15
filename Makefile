@@ -125,7 +125,7 @@ export BASE_LAZYLLM_IMAGE ?= base
 export BASE_LAZYRAG_IMAGE ?= base_lazyrag
 # export BASE_LAZYRAG_IMAGE ?= registry.cn-sh-01.sensecore.cn/ai-expert-service/lazyrag-base:2026.05.15.beta
 
-# model config path
+# model config path (inner = runtime_models.inner.yaml; matches compose default)
 export LAZYRAG_MODEL_CONFIG_PATH ?= online
 
 # Frontend port (default 8090; override if the port is occupied, e.g. by Cursor)

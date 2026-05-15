@@ -92,6 +92,27 @@ def test_kb_search_uses_temp_files_from_agentic_config(monkeypatch):
     assert captured_payload['files'] == ['file-a', 'file-b']
 
 
+def test_kb_search_passes_image_files_from_agentic_config(monkeypatch):
+    captured_payload = {}
+
+    def fake_get_ppl_search(url, retriever_configs=None, topk=20, k_max=10):
+        def fake_search(payload):
+            captured_payload.update(payload)
+            return []
+        return fake_search
+
+    monkeypatch.setattr(kb, 'get_ppl_search', fake_get_ppl_search)
+    config_with_images = dict(DEFAULT_AGENTIC_CONFIG, image_files=['image-a.png'])
+    original_config = kb.lazyllm.globals.get('agentic_config')
+    kb.lazyllm.globals['agentic_config'] = config_with_images
+    try:
+        kb.kb_search('query')
+    finally:
+        kb.lazyllm.globals['agentic_config'] = original_config or {}
+
+    assert captured_payload['image_files'] == ['image-a.png']
+
+
 def test_kb_search_forwards_user_id_from_agentic_config(monkeypatch):
     captured_payload = {}
 

@@ -315,6 +315,13 @@ func (rw *recursiveWatcher) handleFsEvent(
 	schedule func(string, internal.FileEventType, bool),
 ) {
 	isDir := isDirectory(ev.Name)
+	if isTransientFile(ev.Name, isDir) {
+		rw.log.Debug("ignored transient file event",
+			zap.String("path", ev.Name),
+			zap.String("op", ev.Op.String()),
+		)
+		return
+	}
 
 	switch {
 	case ev.Op&fsnotify.Create != 0:

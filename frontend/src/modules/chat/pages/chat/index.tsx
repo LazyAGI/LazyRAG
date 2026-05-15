@@ -29,6 +29,7 @@ import { useEffect } from "react";
 import { useConversationSettings } from "@/modules/chat/store/conversationSettings";
 import { normalizeMessageInputs } from "@/modules/chat/utils/message";
 import { splitThinkingContent } from "@/modules/chat/utils/thinking";
+import { buildEnvironmentContext } from "@/modules/chat/utils/environment";
 
 const ChatPage: FC = () => {
   const { t } = useTranslation();
@@ -81,6 +82,7 @@ const ChatPage: FC = () => {
           : ["LazyRAG"],
         stream: true,
         input,
+        environment_context: buildEnvironmentContext(),
       }),
       callbacks,
     });

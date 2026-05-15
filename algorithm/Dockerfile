@@ -31,7 +31,7 @@ RUN set -eu; \
         "$f"; \
     done; \
     apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl build-essential gcc \
+        ca-certificates curl ffmpeg build-essential gcc \
         libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1 \
         python3-dev \
     && update-ca-certificates \
@@ -72,8 +72,15 @@ RUN cd /opt/lazyllm && lazyllm install rag
 
 # Stage: algorithm - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
 FROM ${BASE_LAZYRAG_IMAGE} AS algorithm
+ARG LAZYRAG_PRELOAD_WHISPER_MODEL=0
+ARG LAZYRAG_WHISPER_MODEL=base
+
 COPY algorithm/requirements.txt /app/algorithm/requirements.txt
 RUN pip install --no-cache-dir -r algorithm/requirements.txt
+
+RUN if [ "$LAZYRAG_PRELOAD_WHISPER_MODEL" = "1" ]; then \
+        python -c "import whisper; whisper.load_model('${LAZYRAG_WHISPER_MODEL}')"; \
+    fi
 COPY algorithm/ /app/algorithm/
 RUN chmod +x /app/algorithm/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
@@ -90,7 +97,7 @@ ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
   LAZYRAG_SKILL_REVIEW_INTERVAL=5 \
   LAZYRAG_SKILL_REVIEW_DEBUG=false \
   LAZYRAG_USE_INNER_MODEL=true \
-  LAZYRAG_MODEL_CONFIG_PATH=/app/algorithm/chat/runtime_models.inner.yaml
+  LAZYRAG_MODEL_CONFIG_PATH=/app/common/runtime_models.inner.yaml
 WORKDIR /app/algorithm
 ENTRYPOINT ["/app/algorithm/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]

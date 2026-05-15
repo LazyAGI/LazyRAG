@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Empty,
@@ -19,7 +19,8 @@ const defaultMemoryListPageSize = 6;
 const memoryListPageSizeOptions = [6, 12, 20, 50];
 
 export default function MemoryManagementListPage() {
-  const memoryTableScrollY = "clamp(360px, 42vh, 520px)";
+  const listContentRef = useRef<HTMLDivElement>(null);
+  const [memoryTableBodyHeight, setMemoryTableBodyHeight] = useState<number>();
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(defaultMemoryListPageSize);
   const {
@@ -152,9 +153,50 @@ export default function MemoryManagementListPage() {
     },
     t,
   );
+  const memoryTableScroll = memoryTableBodyHeight
+    ? { x: 980, y: memoryTableBodyHeight }
+    : { x: 980 };
+
+  useEffect(() => {
+    if (activeTab === "glossary") {
+      return undefined;
+    }
+
+    const contentElement = listContentRef.current;
+    if (!contentElement) {
+      return undefined;
+    }
+
+    const updateTableHeight = () => {
+      const headerElement = contentElement.querySelector<HTMLElement>(".ant-table-thead");
+      const paginationElement = contentElement.querySelector<HTMLElement>(
+        ".ant-table-pagination",
+      );
+      const availableHeight =
+        contentElement.getBoundingClientRect().height -
+        (headerElement?.getBoundingClientRect().height ?? 0) -
+        (paginationElement?.getBoundingClientRect().height ?? 0) -
+        12;
+      const nextBodyHeight = Math.max(240, Math.floor(availableHeight));
+
+      setMemoryTableBodyHeight((previous) =>
+        previous === nextBodyHeight ? previous : nextBodyHeight,
+      );
+    };
+
+    updateTableHeight();
+    const resizeObserver = new ResizeObserver(updateTableHeight);
+    resizeObserver.observe(contentElement);
+    window.addEventListener("resize", updateTableHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateTableHeight);
+    };
+  }, [activeListTotal, activePageSize, activeTab]);
 
   return (
-    <div className="memory-list-page">
+    <div className={`memory-list-page ${activeTab === "glossary" ? "is-glossary-tab" : ""}`}>
       <div className="memory-page-header">
         <div>
           <div className="memory-page-title-row">
@@ -174,7 +216,7 @@ export default function MemoryManagementListPage() {
           </p>
         </div>
         <Space>
-          {activeTab === "skills" && incomingPendingCount === 0 ? (
+          {activeTab === "skills" ? (
             <Button onClick={() => openSkillShareCenter("incoming")}>
               {t("admin.memorySkillShareInboxButton", {
                 count: incomingPendingCount,
@@ -298,17 +340,19 @@ export default function MemoryManagementListPage() {
                 className="memory-filter-select"
                 onChange={(value) => setCategory(value)}
               />
-              <Select
-                allowClear
-                value={tag}
-                placeholder={t("admin.memoryAllTags")}
-                options={availableTags.map((item: string) => ({
-                  label: item,
-                  value: item,
-                }))}
-                className="memory-filter-select"
-                onChange={(value) => setTag(value)}
-              />
+              {activeTab === "skills" ? (
+                <Select
+                  allowClear
+                  value={tag}
+                  placeholder={t("admin.memoryAllTags")}
+                  options={availableTags.map((item: string) => ({
+                    label: item,
+                    value: item,
+                  }))}
+                  className="memory-filter-select"
+                  onChange={(value) => setTag(value)}
+                />
+              ) : null}
             </>
           ) : activeTab === "glossary" ? (
             <Select
@@ -324,73 +368,72 @@ export default function MemoryManagementListPage() {
         </div>
       ) : null}
 
-      {activeTab === "experience" ? (
-        <Table<ExperienceAsset>
-          className="admin-page-table memory-table"
-          rowKey="id"
-          loading={experienceLoading}
-          dataSource={filteredExperienceItems}
-          columns={experienceColumns}
-          tableLayout="fixed"
-          pagination={memoryListPagination}
-          locale={{
-            emptyText: (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={t("admin.memoryEmpty")}
-              />
-            ),
-          }}
-          scroll={{ x: 980, y: memoryTableScrollY }}
-        />
-      ) : activeTab === "glossary" ? (
-        <GlossaryListSection
-          t={t}
-          assets={glossaryAssets}
-          columns={glossaryColumns}
-          filteredItems={filteredGlossaryItems}
-          glossaryLoadError={glossaryLoadError}
-          glossaryLoading={glossaryLoading}
-          glossarySource={glossarySource}
-          handleBatchDeleteGlossary={handleBatchDeleteGlossary}
-          handleBatchMergeGlossary={handleBatchMergeGlossary}
-          query={query}
-          refreshGlossaryAssets={refreshGlossaryAssets}
-          selectedGlossaryAssetIds={selectedGlossaryAssetIds}
-          selectedGlossaryAssets={selectedGlossaryAssets}
-          setSelectedGlossaryAssetIds={setSelectedGlossaryAssetIds}
-        />
-      ) : (
-        <Table<StructuredAsset>
-          className="admin-page-table memory-table"
-          rowKey="id"
-          loading={activeTab === "skills" ? skillLoading : false}
-          dataSource={activeTab === "skills" ? filteredSkillTree : filteredStructuredItems}
-          columns={activeTab === "tools" ? toolColumns : genericColumns}
-          expandable={
-            activeTab === "skills"
-              ? {
-                  defaultExpandAllRows: true,
-                  rowExpandable: (record) =>
-                    skillAssets.some((item: StructuredAsset) => item.parentId === record.id),
-                }
-              : undefined
-          }
-          pagination={memoryListPagination}
-          locale={{
-            emptyText: (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={t("admin.memoryEmpty")}
-              />
-            ),
-          }}
-          scroll={{
-            x: 980,
-            y: memoryTableScrollY,
-          }}
-        />
-      )}
+      <div className="memory-list-content" ref={listContentRef}>
+        {activeTab === "experience" ? (
+          <Table<ExperienceAsset>
+            className="admin-page-table memory-table"
+            rowKey="id"
+            loading={experienceLoading}
+            dataSource={filteredExperienceItems}
+            columns={experienceColumns}
+            tableLayout="fixed"
+            pagination={memoryListPagination}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={t("admin.memoryEmpty")}
+                />
+              ),
+            }}
+            scroll={memoryTableScroll}
+          />
+        ) : activeTab === "glossary" ? (
+          <GlossaryListSection
+            t={t}
+            assets={glossaryAssets}
+            columns={glossaryColumns}
+            filteredItems={filteredGlossaryItems}
+            glossaryLoadError={glossaryLoadError}
+            glossaryLoading={glossaryLoading}
+            glossarySource={glossarySource}
+            handleBatchDeleteGlossary={handleBatchDeleteGlossary}
+            handleBatchMergeGlossary={handleBatchMergeGlossary}
+            query={query}
+            refreshGlossaryAssets={refreshGlossaryAssets}
+            selectedGlossaryAssetIds={selectedGlossaryAssetIds}
+            selectedGlossaryAssets={selectedGlossaryAssets}
+            setSelectedGlossaryAssetIds={setSelectedGlossaryAssetIds}
+          />
+        ) : (
+          <Table<StructuredAsset>
+            className="admin-page-table memory-table"
+            rowKey="id"
+            loading={activeTab === "skills" ? skillLoading : false}
+            dataSource={activeTab === "skills" ? filteredSkillTree : filteredStructuredItems}
+            columns={activeTab === "tools" ? toolColumns : genericColumns}
+            expandable={
+              activeTab === "skills"
+                ? {
+                    defaultExpandAllRows: true,
+                    rowExpandable: (record) =>
+                      skillAssets.some((item: StructuredAsset) => item.parentId === record.id),
+                  }
+                : undefined
+            }
+            pagination={memoryListPagination}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={t("admin.memoryEmpty")}
+                />
+              ),
+            }}
+            scroll={memoryTableScroll}
+          />
+        )}
+      </div>
     </div>
   );
 }

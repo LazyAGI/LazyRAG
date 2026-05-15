@@ -33,7 +33,7 @@ class ToolSpec:
             p + (f'={v.default!r}' if v.default is not inspect.Parameter.empty else '')
             for p, v in self.signature.parameters.items()
         ]
-        return f"- **{self.name}**({', '.join(params)}): {(self.doc or '').strip().split(chr(10)+chr(10))[0]}"
+        return f"- **{self.name}**({', '.join(params)}): {(self.doc or '').strip().split(chr(10) + chr(10))[0]}"
 
     def summarize_result(self, result: ToolResult[Any], *, max_chars: int = 200) -> str:
         if not result.ok:

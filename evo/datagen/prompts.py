@@ -222,3 +222,28 @@ def prompt_generate_multihop(bridge_entity, path_desc, chunk1, chunk2):
         f'}}\n'
         f''
     )
+
+
+def prompt_generate_single_doc_multihop(path_desc, chunk1, chunk2):
+    return (
+        f'【任务：生成单文档双跳多跳问题】\n'
+        f'请基于同一文档的两个片段生成自然、独立完整的问题。\n'
+        f'要求：\n'
+        f'1. 必须同时结合片段1和片段2才能回答，单独任一片段不能完整回答；\n'
+        f'2. 问题必须是两步推理或信息整合，不要生成单事实复述；\n'
+        f'3. ground_truth 只输出简洁结论，内容完全来自原文，不虚构；\n'
+        f'4. 禁止出现“根据文章、本文、片段”等指代话术；\n'
+        f'5. 严格输出纯JSON，不要任何解释、备注、多余字符。\n'
+        f'\n'
+        f'推理路径：{path_desc}\n'
+        f'片段1：{chunk1}\n'
+        f'片段2：{chunk2}\n'
+        f'\n'
+        f'{{\n'
+        f'    "sub_question1": "子问题1",\n'
+        f'    "sub_question2": "子问题2",\n'
+        f'    "multi_hop_question": "双跳问题",\n'
+        f'    "ground_truth": "答案",\n'
+        f'    "reason": "双跳逻辑说明"\n'
+        f'}}\n'
+    )

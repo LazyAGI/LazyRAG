@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 
-from chat.utils.stream_scanner import CitationPlugin, ImagePlugin, IncrementalScanner
+from chat.utils.stream_scanner import (
+    CitationPlugin,
+    ImagePlugin,
+    IncrementalScanner,
+    MarkdownImageHoldPlugin,
+)
 
 
 def test_citation_plugin_collects_sources_and_rewrites_images():
@@ -43,6 +48,21 @@ def test_image_plugin_matches_exact_and_fuzzy_urls():
 
     assert exact == '![alt](https://cdn.example.com/chart-final.png)'
     assert fuzzy == '![alt](https://cdn.example.com/chart-final.png)'
+
+
+def test_markdown_image_hold_plugin_keeps_partial_image_across_chunks():
+    scanner = IncrementalScanner([MarkdownImageHoldPlugin()], initial_state='BODY')
+
+    first = scanner.feed('intro ![dog](/static-files/path/dog.jpg?sig=abc')
+    second = scanner.feed('def)\n\ntail')
+    tail = scanner.flush()
+
+    assert first == [('text', 'intro ')]
+    assert second == [
+        ('text', '![dog](/static-files/path/dog.jpg?sig=abcdef)'),
+        ('text', '\n\ntail'),
+    ]
+    assert tail == []
 
 
 def test_incremental_scanner_handles_partial_think_tags_and_plugins():

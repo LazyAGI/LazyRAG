@@ -9768,6 +9768,16 @@
         "summary": "GET /static-files/{path:.*}"
       }
     },
+    "/api/core/static-files:sign": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "POST /static-files:sign"
+      }
+    },
     "/api/core/temp/uploads": {
       "post": {
         "requestBody": {

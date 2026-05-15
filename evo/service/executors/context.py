@@ -51,3 +51,12 @@ class CancelToken:
 
     def requested(self) -> bool:
         return self._ctx.is_cancelled(self._tid)
+
+    def signals(self) -> dict:
+        return _store.signals(self._ctx.store, self._tid)
+
+    def stop_requested(self) -> bool:
+        return bool(self.signals().get('stop'))
+
+    def cancel_requested(self) -> bool:
+        return bool(self.signals().get('cancel'))

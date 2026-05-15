@@ -108,6 +108,7 @@ export interface DataSourceItem {
   rootPath?: string;
   targetRef?: string;
   targetType?: FeishuTargetType;
+  authConnectionId?: string;
   datasetId?: string;
 }
 

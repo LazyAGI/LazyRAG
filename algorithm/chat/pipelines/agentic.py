@@ -7,6 +7,7 @@ import json
 import os
 import re
 import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from queue import Empty, Queue
@@ -41,6 +42,7 @@ from chat.components.agentic.review import (  # noqa: E402
     _build_review_decision,
     _spawn_background_review,
 )
+from chat.utils.markdown_images import rewrite_markdown_image_urls  # noqa: E402
 from chat.components.agentic.tool_stream import (  # noqa: E402
     _STREAM_CHUNK_SIZE,
     _format_tool_stream_frame,
@@ -51,6 +53,39 @@ from chat.components.agentic.tool_stream import (  # noqa: E402
 )
 from lazyllm import AutoModel  # noqa: E402
 from chat.utils.load_config import get_config_path  # noqa: E402
+
+
+def _augment_query_with_attached_images(query: str, config: dict[str, Any]) -> str:
+    '''Run VLM once on ``config['image_files']`` and merge summaries into ``query``.
+
+    The main chat LLM stays text-only; paths remain in ``config`` for
+    ``vision_extractor`` and image-node retrieval.
+    '''
+    raw_paths = config.get('image_files') or []
+    if not isinstance(raw_paths, list) or not raw_paths:
+        return query
+    clean = [str(p).strip() for p in raw_paths if str(p).strip()]
+    if not clean:
+        return query
+    try:
+        from chat.components.process.query_image_rewriter import QueryImageRewriter
+
+        payload: dict[str, Any] = {
+            'query': query,
+            'image_files': clean,
+            'priority': int(config.get('priority', 0) or 0),
+        }
+        rewriter = QueryImageRewriter(
+            vlm=AutoModel(model='vlm', config=get_config_path()),
+        )
+        out = rewriter.forward(payload)
+        if isinstance(out, dict):
+            nq = out.get('query')
+            if isinstance(nq, str) and nq.strip():
+                return nq.strip()
+    except Exception as exc:
+        lazyllm.LOG.warning(f'[agentic] attached-image VLM rewrite skipped: {exc}')
+    return query
 
 
 class _StreamingFunctionCall(FunctionCall):
@@ -86,12 +121,16 @@ class _StreamingFunctionCall(FunctionCall):
             for idx, tc in enumerate((llm_output.get('tool_calls') or []), start=1):
                 if not isinstance(tc, dict):
                     continue
-                normalized_tool_call = _normalize_tool_call(tc)
+                normalized_tool_call = _normalize_tool_call(tc, coerce_arguments=False)
                 normalized_tool_call['id'] = _tool_call_id(
                     normalized_tool_call, self._round_index, idx
                 )
                 tool_calls.append(normalized_tool_call)
             if tool_calls:
+                execution_tool_calls = [
+                    _normalize_tool_call(tool_call, coerce_arguments=True)
+                    for tool_call in tool_calls
+                ]
                 llm_output['tool_calls'] = [
                     {
                         'id': tool_call['id'],
@@ -104,7 +143,7 @@ class _StreamingFunctionCall(FunctionCall):
                             ),
                         },
                     }
-                    for tool_call in tool_calls
+                    for tool_call in execution_tool_calls
                 ]
 
         if self._stream_event_callback and isinstance(llm_output, dict) and tool_calls:
@@ -155,7 +194,6 @@ class _StreamingReactAgent(lazyllm.tools.agent.ReactAgent):
                 stream=self._stream,
                 _tool_manager=self._tools_manager,
                 skill_manager=self._skill_manager,
-                workspace=self.workspace,
                 keep_full_turns=self._keep_full_turns,
                 stream_event_callback=self._stream_event_callback,
             ),
@@ -171,7 +209,6 @@ def agentic_forward(
     stream_event_callback=None,
 ) -> Any:
     config = lazyllm.globals['agentic_config'] or {}
-    lazyllm.LOG.warning(f'config: {config}')
     if not isinstance(config, dict):
         config = {}
 
@@ -184,6 +221,9 @@ def agentic_forward(
     skills_dir = config.get('skill_fs_url') or ''
     config['available_tools'] = available_tools
     config['available_skills'] = available_skills
+
+    original_query = query.strip()
+    agent_query = _augment_query_with_attached_images(original_query, config)
 
     keep_full_turns = config.get('keep_full_turns', 3)
     runtime_prompt = _build_runtime_system_prompt(config, available_tools)
@@ -202,7 +242,7 @@ def agentic_forward(
         'skills_dir': skills_dir,
         'enable_builtin_tools': False,
         'force_summarize': True,
-        'force_summarize_context': query,
+        'force_summarize_context': agent_query,
     }
     if stream_event_callback:
         agent_kwargs['stream_event_callback'] = stream_event_callback
@@ -213,7 +253,7 @@ def agentic_forward(
 
     request_global_sid = lazyllm.globals._sid
     lazyllm.globals['agentic_config'] = config
-    agent_output = react_agent(query, llm_chat_history=history)
+    agent_output = react_agent(agent_query, llm_chat_history=history)
     agent_history = lazyllm.locals.get('_lazyllm_agent', {}).get('history', [])
     history_snapshot = agent_history
     if runtime_prompt and (not history_snapshot or history_snapshot[0].get('role') != 'system'):
@@ -223,7 +263,7 @@ def agentic_forward(
             + [{'role': 'assistant', 'content': agent_output}]
         )
     tool_turns = _count_tool_turns(agent_history)
-    user_turns = _count_user_turns(history, query)
+    user_turns = _count_user_turns(history, original_query)
     memory_review_interval = _cfg['memory_review_interval']
     skill_review_interval = _cfg['skill_review_interval']
     review_decision = _build_review_decision(
@@ -283,6 +323,8 @@ async def _agentic_forward_stream(
     event_queue: Queue = Queue()
     sentinel = object()
     closed = threading.Event()
+    worker_done = threading.Event()
+    output_lock = threading.Lock()
     streamed_text = False
     text_scanner, citation_plugin = _build_stream_citation_scanner(runtime_params)
 
@@ -291,10 +333,6 @@ async def _agentic_forward_stream(
     _clear_orphaned_lazyllm_queue_lock()
     lazyllm.FileSystemQueue().clear()
     lazyllm.FileSystemQueue.get_instance('think').clear()
-
-    def _emit_event(event: dict[str, Any]) -> None:
-        if not closed.is_set():
-            event_queue.put({'type': 'tool_event', 'event': event})
 
     def _drain_stream_frames() -> list[dict[str, Any]]:
         nonlocal streamed_text
@@ -317,9 +355,35 @@ async def _agentic_forward_stream(
                         frames.append(_stream_frame(think=seg))
                     else:
                         streamed_text = True
+                        seg = rewrite_markdown_image_urls(seg, config=runtime_params)
                         frames.append(_stream_frame(text=seg))
 
         return frames
+
+    def _flush_stream_frames_to_queue() -> None:
+        if closed.is_set():
+            return
+        for frame in _drain_stream_frames():
+            event_queue.put({'type': 'frame', 'frame': frame})
+
+    def _emit_event(event: dict[str, Any]) -> None:
+        if closed.is_set():
+            return
+        with output_lock:
+            _flush_stream_frames_to_queue()
+            tool_event = dict(event)
+            tool_event['preview_text'] = query
+            frame = _format_tool_stream_frame(tool_event)
+            if frame is not None:
+                event_queue.put({'type': 'frame', 'frame': frame})
+
+    def _stream_monitor() -> None:
+        lazyllm.globals._init_sid(global_sid)
+        lazyllm.locals._init_sid(local_sid)
+        while not worker_done.is_set() and not closed.is_set():
+            with output_lock:
+                _flush_stream_frames_to_queue()
+            time.sleep(0.02)
 
     def _worker() -> None:
         lazyllm.globals._init_sid(global_sid)
@@ -332,22 +396,24 @@ async def _agentic_forward_stream(
                 stream_event_callback=_emit_event,
             )
             if not closed.is_set():
-                event_queue.put({'type': 'final', 'result': result})
+                with output_lock:
+                    _flush_stream_frames_to_queue()
+                    event_queue.put({'type': 'final', 'result': result})
         except Exception as exc:
             if not closed.is_set():
                 event_queue.put(exc)
         finally:
+            worker_done.set()
             if not closed.is_set():
                 event_queue.put(sentinel)
 
     worker = threading.Thread(target=_worker, daemon=True)
+    monitor = threading.Thread(target=_stream_monitor, daemon=True)
     worker.start()
+    monitor.start()
     final_result = None
     try:
         while True:
-            for frame in _drain_stream_frames():
-                yield frame
-
             try:
                 event = await asyncio.to_thread(event_queue.get, True, 0.05)
             except Empty:
@@ -357,18 +423,16 @@ async def _agentic_forward_stream(
                 break
             if isinstance(event, Exception):
                 raise event
-            if isinstance(event, dict) and event.get('type') == 'final':
-                final_result = event.get('result')
-            elif isinstance(event, dict) and event.get('type') == 'tool_event':
-                for frame in _drain_stream_frames():
+            if isinstance(event, dict) and event.get('type') == 'frame':
+                frame = event.get('frame')
+                if isinstance(frame, dict):
                     yield frame
-                tool_event = event.get('event') or {}
-                frame = _format_tool_stream_frame(tool_event)
-                if frame is None:
-                    continue
-                yield frame
+            elif isinstance(event, dict) and event.get('type') == 'final':
+                final_result = event.get('result')
 
-        for frame in _drain_stream_frames():
+        with output_lock:
+            trailing_frames = _drain_stream_frames()
+        for frame in trailing_frames:
             yield frame
         for field, seg in text_scanner.flush():
             if not seg:
@@ -377,6 +441,7 @@ async def _agentic_forward_stream(
                 yield _stream_frame(think=seg)
             else:
                 streamed_text = True
+                seg = rewrite_markdown_image_urls(seg, config=runtime_params)
                 yield _stream_frame(text=seg)
 
         output = _format_non_stream_result(final_result, runtime_params)
@@ -386,7 +451,10 @@ async def _agentic_forward_stream(
             if think:
                 for chunk in _iter_text_chunks(think, chunk_size):
                     yield _stream_frame(think=chunk)
-            for chunk in _iter_text_chunks(str(output.get('text') or ''), chunk_size):
+            final_text = rewrite_markdown_image_urls(
+                str(output.get('text') or ''), config=runtime_params,
+            )
+            for chunk in _iter_text_chunks(final_text, chunk_size):
                 yield _stream_frame(
                     text=chunk,
                 )
@@ -400,11 +468,12 @@ async def _agentic_forward_stream(
     finally:
         closed.set()
         worker.join(timeout=0)
+        monitor.join(timeout=0)
 
 
 def _ensure_tools_registered() -> None:
     # Trigger @fc_register side effects once so ReactAgent can resolve tool names.
-    from chat.tools import kb, memory, skill_manager, vocab, web_search  # noqa: F401
+    from chat.tools import kb, memory, skill_manager, vocab, vision_extractor, web_search  # noqa: F401
 
 
 @lru_cache(maxsize=1)

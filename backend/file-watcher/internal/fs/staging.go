@@ -64,6 +64,9 @@ func (s *stagingService) StageFile(_ context.Context, sourceID, documentID, vers
 	if srcInfo.IsDir() {
 		return internal.StageResult{}, fmt.Errorf("%s: source path is a directory", internal.ErrStageFailed)
 	}
+	if isTransientFile(srcPath, false) {
+		return internal.StageResult{}, fmt.Errorf("%s: transient editor file is ignored", internal.ErrStageFailed)
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

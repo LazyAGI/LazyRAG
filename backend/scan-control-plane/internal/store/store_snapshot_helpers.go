@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,37 +47,14 @@ func (s *Store) diffBySnapshotID(ctx context.Context, snapshot sourceFileSnapsho
 	return diffSnapshotMaps(baseItems, currentItems), nil
 }
 
-func (s *Store) promotePreviewSnapshotToCommittedTx(tx *gorm.DB, sourceID, snapshotID string, now time.Time) error {
-	sourceID = strings.TrimSpace(sourceID)
-	snapshotID = strings.TrimSpace(snapshotID)
-	if sourceID == "" || snapshotID == "" {
-		return nil
-	}
-	if err := tx.Model(&sourceFileSnapshotEntity{}).
-		Where("snapshot_id = ? AND source_id = ?", snapshotID, sourceID).
-		Updates(map[string]any{
-			"snapshot_type": "COMMITTED",
-			"expires_at":    nil,
-		}).Error; err != nil {
-		return err
-	}
-	return tx.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "source_id"}},
-		DoUpdates: clause.Assignments(map[string]any{
-			"last_committed_snapshot_id": snapshotID,
-			"updated_at":                 now,
-		}),
-	}).Create(&sourceSnapshotRelationEntity{
-		SourceID:                sourceID,
-		LastCommittedSnapshotID: snapshotID,
-		UpdatedAt:               now,
-	}).Error
+func (s *Store) snapshotItemsForDiffBase(ctx context.Context, sourceID, baseSnapshotID string) (map[string]sourceFileSnapshotItemEntity, string, error) {
+	return s.snapshotItemsForDiffBaseDB(s.db.WithContext(ctx), sourceID, baseSnapshotID)
 }
 
-func (s *Store) snapshotItemsForDiffBase(ctx context.Context, sourceID, baseSnapshotID string) (map[string]sourceFileSnapshotItemEntity, string, error) {
+func (s *Store) snapshotItemsForDiffBaseDB(db *gorm.DB, sourceID, baseSnapshotID string) (map[string]sourceFileSnapshotItemEntity, string, error) {
 	sourceID = strings.TrimSpace(sourceID)
 	baseSnapshotID = strings.TrimSpace(baseSnapshotID)
-	baseItems, err := s.snapshotItemsByPath(ctx, baseSnapshotID)
+	baseItems, err := s.snapshotItemsByPathDB(db, baseSnapshotID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -84,7 +63,7 @@ func (s *Store) snapshotItemsForDiffBase(ctx context.Context, sourceID, baseSnap
 	}
 
 	var baseSnapshot sourceFileSnapshotEntity
-	err = s.db.WithContext(ctx).
+	err = db.
 		Select("snapshot_id", "file_count").
 		Take(&baseSnapshot, "snapshot_id = ? AND source_id = ?", baseSnapshotID, sourceID).Error
 	if err != nil {
@@ -99,14 +78,14 @@ func (s *Store) snapshotItemsForDiffBase(ctx context.Context, sourceID, baseSnap
 
 	// Older snapshot_source ACKs could point the committed relation at metadata-only snapshots.
 	// Diff must use a committed snapshot that actually has item rows.
-	fallbackID, err := s.latestCommittedSnapshotWithItems(ctx, sourceID)
+	fallbackID, err := s.latestCommittedSnapshotWithItemsDB(db, sourceID)
 	if err != nil {
 		return nil, "", err
 	}
 	if fallbackID == "" {
 		return baseItems, baseSnapshotID, nil
 	}
-	fallbackItems, err := s.snapshotItemsByPath(ctx, fallbackID)
+	fallbackItems, err := s.snapshotItemsByPathDB(db, fallbackID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -114,8 +93,12 @@ func (s *Store) snapshotItemsForDiffBase(ctx context.Context, sourceID, baseSnap
 }
 
 func (s *Store) latestCommittedSnapshotWithItems(ctx context.Context, sourceID string) (string, error) {
+	return s.latestCommittedSnapshotWithItemsDB(s.db.WithContext(ctx), sourceID)
+}
+
+func (s *Store) latestCommittedSnapshotWithItemsDB(db *gorm.DB, sourceID string) (string, error) {
 	var snap sourceFileSnapshotEntity
-	err := s.db.WithContext(ctx).
+	err := db.
 		Where("source_id = ? AND snapshot_type = ?", strings.TrimSpace(sourceID), "COMMITTED").
 		Where("EXISTS (SELECT 1 FROM source_file_snapshot_items WHERE source_file_snapshot_items.snapshot_id = source_file_snapshots.snapshot_id)").
 		Order("created_at DESC").
@@ -127,6 +110,172 @@ func (s *Store) latestCommittedSnapshotWithItems(ctx context.Context, sourceID s
 		return "", err
 	}
 	return strings.TrimSpace(snap.SnapshotID), nil
+}
+
+func (s *Store) snapshotItemsByPathDB(db *gorm.DB, snapshotID string) (map[string]sourceFileSnapshotItemEntity, error) {
+	itemsMap := make(map[string]sourceFileSnapshotItemEntity)
+	snapshotID = strings.TrimSpace(snapshotID)
+	if snapshotID == "" {
+		return itemsMap, nil
+	}
+	var items []sourceFileSnapshotItemEntity
+	if err := db.Where("snapshot_id = ?", snapshotID).Find(&items).Error; err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		itemsMap[item.Path] = item
+	}
+	return itemsMap, nil
+}
+
+func (s *Store) promoteSelectedPreviewPathsToCommittedTx(tx *gorm.DB, sourceID string, preview sourceFileSnapshotEntity, selectedPaths []string, diffByPath map[string]string, now time.Time) (string, string, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	previewID := strings.TrimSpace(preview.SnapshotID)
+	if sourceID == "" || previewID == "" {
+		return "", "", nil
+	}
+
+	baseItems, baseSnapshotID, err := s.snapshotItemsForDiffBaseDB(tx, sourceID, preview.BaseSnapshotID)
+	if err != nil {
+		return "", "", err
+	}
+	if len(selectedPaths) == 0 {
+		return "", baseSnapshotID, nil
+	}
+
+	previewItems, err := s.snapshotItemsByPathDB(tx, previewID)
+	if err != nil {
+		return "", "", err
+	}
+	merged := make(map[string]sourceFileSnapshotItemEntity, len(baseItems)+len(selectedPaths))
+	for path, item := range baseItems {
+		merged[path] = item
+	}
+	for _, rawPath := range selectedPaths {
+		path := filepath.Clean(strings.TrimSpace(rawPath))
+		if path == "" || path == "." {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(diffByPath[path]), "DELETED") {
+			delete(merged, path)
+			continue
+		}
+		item, ok := previewItems[path]
+		if !ok {
+			continue
+		}
+		merged[path] = item
+	}
+
+	committedID := sourceSnapshotID()
+	committed := sourceFileSnapshotEntity{
+		SnapshotID:     committedID,
+		SourceID:       sourceID,
+		TenantID:       preview.TenantID,
+		SnapshotType:   "COMMITTED",
+		BaseSnapshotID: baseSnapshotID,
+		FileCount:      int64(len(merged)),
+		CreatedAt:      now.UTC(),
+	}
+	if err := tx.Create(&committed).Error; err != nil {
+		return "", "", err
+	}
+	if err := createSnapshotItemsTx(tx, committedID, merged); err != nil {
+		return "", "", err
+	}
+	if err := tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "source_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"last_committed_snapshot_id": committedID,
+			"updated_at":                 now.UTC(),
+		}),
+	}).Create(&sourceSnapshotRelationEntity{
+		SourceID:                sourceID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now.UTC(),
+	}).Error; err != nil {
+		return "", "", err
+	}
+	return committedID, committedID, nil
+}
+
+func (s *Store) createResidualPreviewFromSelectionTx(tx *gorm.DB, sourceID string, preview sourceFileSnapshotEntity, baseSnapshotID string, now time.Time) error {
+	sourceID = strings.TrimSpace(sourceID)
+	previewID := strings.TrimSpace(preview.SnapshotID)
+	if sourceID == "" || previewID == "" {
+		return nil
+	}
+	baseItems, _, err := s.snapshotItemsForDiffBaseDB(tx, sourceID, baseSnapshotID)
+	if err != nil {
+		return err
+	}
+	previewItems, err := s.snapshotItemsByPathDB(tx, previewID)
+	if err != nil {
+		return err
+	}
+	diff := diffSnapshotMaps(baseItems, previewItems)
+	hasResidualUpdate := false
+	for _, update := range diff {
+		switch normalizeSnapshotUpdateType(update) {
+		case "NEW", "MODIFIED", "DELETED":
+			hasResidualUpdate = true
+		}
+		if hasResidualUpdate {
+			break
+		}
+	}
+	if !hasResidualUpdate {
+		return nil
+	}
+
+	residualID := sourceSnapshotID()
+	expiresAt := now.UTC().Add(selectionTokenTTL)
+	residual := sourceFileSnapshotEntity{
+		SnapshotID:     residualID,
+		SourceID:       sourceID,
+		TenantID:       preview.TenantID,
+		SnapshotType:   "PREVIEW",
+		BaseSnapshotID: baseSnapshotID,
+		ExpiresAt:      &expiresAt,
+		FileCount:      int64(len(previewItems)),
+		CreatedAt:      now.UTC(),
+	}
+	if err := tx.Create(&residual).Error; err != nil {
+		return err
+	}
+	if err := createSnapshotItemsTx(tx, residualID, previewItems); err != nil {
+		return err
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "source_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"last_preview_snapshot_id": residualID,
+			"updated_at":               now.UTC(),
+		}),
+	}).Create(&sourceSnapshotRelationEntity{
+		SourceID:              sourceID,
+		LastPreviewSnapshotID: residualID,
+		UpdatedAt:             now.UTC(),
+	}).Error
+}
+
+func createSnapshotItemsTx(tx *gorm.DB, snapshotID string, items map[string]sourceFileSnapshotItemEntity) error {
+	if len(items) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(items))
+	for path := range items {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	rows := make([]sourceFileSnapshotItemEntity, 0, len(paths))
+	for _, path := range paths {
+		item := items[path]
+		item.ID = 0
+		item.SnapshotID = snapshotID
+		rows = append(rows, item)
+	}
+	return tx.Create(&rows).Error
 }
 
 func (s *Store) consumeSelectionTokenTx(tx *gorm.DB, snapshotID string, consumedAt time.Time) error {

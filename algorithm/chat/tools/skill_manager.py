@@ -20,7 +20,7 @@ from lazyllm.tools.fs.client import FS
 from common.remote_fs import RemoteFileSystem  # noqa: F401
 from chat.utils.load_config import extract_skill_fs_source
 
-_PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9._-]+$')
+_PATH_SEGMENT_RE = re.compile(r'^[^\s/\\]+$')
 _UUID_SEGMENT_RE = re.compile(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 )
@@ -113,8 +113,8 @@ def _validate_skill_name(name: str) -> Optional[str]:
         return "'name' must be a non-empty skill name."
     if name in {'.', '..'} or not _PATH_SEGMENT_RE.match(name):
         return (
-            f'Skill name {name!r} is invalid; only ASCII letters, digits, '
-            "'-', '_' and '.' are allowed (no spaces, no Chinese, no slashes)."
+            f'Skill name {name!r} is invalid; whitespace and slashes '
+            'are not allowed.'
         )
     return None
 

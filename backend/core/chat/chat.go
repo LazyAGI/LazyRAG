@@ -36,20 +36,21 @@ type DatasetFilters struct {
 }
 
 type LazyChatRequest struct {
-	Query           string          `json:"query"`
-	History         []ChatMessage   `json:"history,omitempty"`
-	SessionID       string          `json:"session_id"`
-	Files           []string        `json:"files,omitempty"`
-	Filters         *DatasetFilters `json:"filters"`
-	Reasoning       bool            `json:"reasoning"`
-	Databases       []any           `json:"databases,omitempty"`
-	EnableThinking  bool            `json:"enable_thinking,omitempty"`
-	AvailableTools  []string        `json:"available_tools,omitempty"`
-	AvailableSkills []string        `json:"available_skills,omitempty"`
-	Memory          string          `json:"memory,omitempty"`
-	UserPreference  string          `json:"user_preference,omitempty"`
-	UseMemory       bool            `json:"use_memory"`
-	UserID          string          `json:"user_id"`
+	Query              string          `json:"query"`
+	History            []ChatMessage   `json:"history,omitempty"`
+	SessionID          string          `json:"session_id"`
+	Files              []string        `json:"files,omitempty"`
+	Filters            *DatasetFilters `json:"filters"`
+	Reasoning          bool            `json:"reasoning"`
+	Databases          []any           `json:"databases,omitempty"`
+	EnableThinking     bool            `json:"enable_thinking,omitempty"`
+	AvailableTools     []string        `json:"available_tools,omitempty"`
+	AvailableSkills    []string        `json:"available_skills,omitempty"`
+	Memory             string          `json:"memory,omitempty"`
+	UserPreference     string          `json:"user_preference,omitempty"`
+	UseMemory          bool            `json:"use_memory"`
+	UserID             string          `json:"user_id"`
+	EnvironmentContext map[string]any  `json:"environment_context,omitempty"`
 }
 
 // LazyChatData text data text。
@@ -248,6 +249,9 @@ func buildLazyChatRequest(body map[string]any) *LazyChatRequest {
 	}
 	if useMemory, ok := body["use_memory"].(bool); ok {
 		req.UseMemory = useMemory
+	}
+	if environmentContext, ok := body["environment_context"].(map[string]any); ok {
+		req.EnvironmentContext = environmentContext
 	}
 	if userID, ok := body["user_id"].(string); ok {
 		req.UserID = strings.TrimSpace(userID)
