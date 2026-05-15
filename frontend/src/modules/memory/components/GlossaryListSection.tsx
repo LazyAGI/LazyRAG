@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Empty, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { getLocalizedTablePagination } from "@/components/ui/pagination";
@@ -45,8 +45,10 @@ export default function GlossaryListSection(props: GlossaryListSectionProps) {
     selectedGlossaryAssets,
     setSelectedGlossaryAssetIds,
   } = props;
+  const sectionRef = useRef<HTMLDivElement>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(defaultGlossaryPageSize);
+  const [tableBodyHeight, setTableBodyHeight] = useState<number>();
 
   useEffect(() => {
     setCurrentPage(1);
@@ -58,9 +60,51 @@ export default function GlossaryListSection(props: GlossaryListSectionProps) {
       setCurrentPage(maxPage);
     }
   }, [currentPage, filteredItems.length, pageSize]);
+  useEffect(() => {
+    const sectionElement = sectionRef.current;
+    if (!sectionElement) {
+      return undefined;
+    }
+
+    const updateRowHeight = () => {
+      const toolbarElement = sectionElement.querySelector<HTMLElement>(
+        ".memory-glossary-batch-toolbar",
+      );
+      const headerElement = sectionElement.querySelector<HTMLElement>(".ant-table-thead");
+      const paginationElement =
+        sectionElement.querySelector<HTMLElement>(".ant-table-pagination");
+      const sectionStyle = window.getComputedStyle(sectionElement);
+      const rowGap = Number.parseFloat(sectionStyle.rowGap || sectionStyle.gap || "0") || 0;
+      const availableHeight =
+        sectionElement.getBoundingClientRect().height -
+        (toolbarElement?.getBoundingClientRect().height ?? 0) -
+        (headerElement?.getBoundingClientRect().height ?? 0) -
+        (paginationElement?.getBoundingClientRect().height ?? 0) -
+        rowGap -
+        8;
+      const nextBodyHeight = Math.max(240, Math.floor(availableHeight));
+      setTableBodyHeight((previous) =>
+        previous === nextBodyHeight ? previous : nextBodyHeight,
+      );
+    };
+
+    updateRowHeight();
+    const resizeObserver = new ResizeObserver(updateRowHeight);
+    resizeObserver.observe(sectionElement);
+    window.addEventListener("resize", updateRowHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateRowHeight);
+    };
+  }, []);
+
+  const glossaryTableScroll = tableBodyHeight
+    ? { x: 1120, y: tableBodyHeight }
+    : { x: 1120 };
 
   return (
-    <>
+    <div className="memory-glossary-section" ref={sectionRef}>
       {glossaryLoadError ? (
         <Alert
           type="error"
@@ -149,8 +193,8 @@ export default function GlossaryListSection(props: GlossaryListSectionProps) {
             />
           ),
         }}
-        scroll={{ x: 1120, y: 460 }}
+        scroll={glossaryTableScroll}
       />
-    </>
+    </div>
   );
 }

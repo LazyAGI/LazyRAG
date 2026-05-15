@@ -32,15 +32,27 @@
       flex-shrink: 0;
     }
 
+    .ant-tabs-content-holder {
+      min-height: 0;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .ant-tabs-content {
+      min-height: 0;
+      height: 100%;
+    }
+
     .ant-tabs-tab {
       padding: 8px 0;
     }
 
-    .ant-tabs-content-holder,
-    .ant-tabs-content,
     .ant-tabs-tabpane {
       min-height: 0;
-      flex: 1;
+      height: 100%;
+    }
+
+    .ant-tabs-tabpane-active {
       display: flex;
       flex-direction: column;
     }
@@ -95,6 +107,7 @@
 
   .prompt-item {
     display: flex;
+    flex: 0 0 auto;
     width: 100%;
     min-height: 80px;
     padding: 16px 8px;

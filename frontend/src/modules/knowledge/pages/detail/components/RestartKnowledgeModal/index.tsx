@@ -20,6 +20,9 @@ interface IProps {
 }
 
 const allParseList = ["all", "document"];
+const allSegmentValue = "all";
+const documentSegmentValue = "document";
+const documentSegmentValues = ["line", "block"];
 
 const RestartKnowledgeModal = (
   props: IProps,
@@ -54,6 +57,7 @@ const RestartKnowledgeModal = (
     try {
       const { dataset, ids } = modalInfo;
       const { reparse_groups } = (await form.validateFields()) || {};
+      const normalizedReparseGroups = normalizeReparseGroups(reparse_groups || []);
 
       const createRes = await TaskServiceApi().createTasks(dataset, {
         parent: `datasets/${dataset}`,
@@ -64,7 +68,7 @@ const RestartKnowledgeModal = (
               task_type: "TASK_TYPE_REPARSE",
               document_ids: ids.filter((i) => !!i),
               display_name: t("knowledge.reparseTaskName", { count: ids.length }),
-              reparse_groups: reparse_groups.filter(
+              reparse_groups: normalizedReparseGroups.filter(
                 (v: string) => !allParseList.includes(v),
               ),
             },
@@ -73,7 +77,9 @@ const RestartKnowledgeModal = (
       });
 
       const tasks = createRes.data.tasks || [];
-      const taskIds = tasks.map((t) => t.task_id).filter(Boolean);
+      const taskIds = tasks
+        .map((t) => t.task_id)
+        .filter((taskId): taskId is string => !!taskId);
       if (!taskIds.length) {
         message.error(t("knowledge.createReparseTaskFailed"));
         return;
@@ -108,9 +114,15 @@ const RestartKnowledgeModal = (
           name="reparse_groups"
           label={t("knowledge.restartSlice")}
           rules={[{ required: true, message: t("knowledge.selectRestartSlice") }]}
+          getValueFromEvent={(value: Array<string | undefined>) =>
+            normalizeReparseGroups(value || [])
+          }
           required
         >
-          <TreeSelect multiple treeData={formatOptions(parsers || [], t)} />
+          <TreeSelect
+            multiple
+            treeData={formatOptions(parsers || [], t)}
+          />
         </Form.Item>
       </Form>
     </Modal>
@@ -120,6 +132,21 @@ const RestartKnowledgeModal = (
 const parseTypeMap = {
 };
 
+function normalizeReparseGroups(value: Array<string | undefined>) {
+  const selectableValues = new Set([allSegmentValue, ...documentSegmentValues]);
+  const normalizedValue = value.filter(
+    (v): v is string => !!v && selectableValues.has(v),
+  );
+  const hasAllSegment = normalizedValue.includes(allSegmentValue);
+  const documentGroupValues = normalizedValue.filter((v) => v !== allSegmentValue);
+
+  if (!hasAllSegment || !documentGroupValues.length) {
+    return normalizedValue;
+  }
+
+  const latestValue = normalizedValue[normalizedValue.length - 1];
+  return latestValue === allSegmentValue ? [allSegmentValue] : documentGroupValues;
+}
 
 function formatOptions(parsers: Array<ParserConfig>, t: (key: string, options?: any) => string) {
   if (!parsers || !parsers.length) {
@@ -128,14 +155,15 @@ function formatOptions(parsers: Array<ParserConfig>, t: (key: string, options?: 
   const documentChild: {
     title: string | undefined;
     value: string | undefined;
+    disabled?: boolean;
   }[] = [];
   const options = [
-    { title: t("knowledge.segmentAll"), value: "all" },
-    { title: t("knowledge.segmentDocument"), value: "document" },
+    { title: t("knowledge.segmentAll"), value: allSegmentValue },
+    { title: t("knowledge.segmentDocument"), value: documentSegmentValue, disabled: true },
   ];
 
   parsers.forEach((p) => {
-    if (p.type === "PARSE_TYPE_SPLIT") {
+    if (p.type === "PARSE_TYPE_SPLIT" && p.name && documentSegmentValues.includes(p.name)) {
       documentChild.push({
         title: p.name,
         value: p.name,
@@ -157,6 +185,7 @@ function formatOptions(parsers: Array<ParserConfig>, t: (key: string, options?: 
       options[1] as {
         title: string;
         value: string;
+        disabled?: boolean;
         children?: typeof documentChild;
       }
     ).children = documentChild;

@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 
 export interface ChatSelectorProps {
   chatConfig: ChatConfig;
+  refreshKey?: number | string;
   onChange?: (
     knowledgeIds: string[],
     creators: string[],
@@ -39,7 +40,7 @@ export interface ChatSelectorImperativeProps {
 
 const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
   (props, ref) => {
-    const { chatConfig, onChange } = props;
+    const { chatConfig, refreshKey, onChange } = props;
     const { t } = useTranslation();
 
     const [knowledgeBaseList, setKnowledgeBaseList] = useState<Dataset[]>([]);
@@ -52,6 +53,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
     const isResettingSelectionRef = useRef(false);
     const isUpdatingDefaultRef = useRef(false);
     const selectedIdsRef = useRef<string[]>([]);
+    const previousRefreshKeyRef = useRef(refreshKey);
 
     useEffect(() => {
       selectedIdsRef.current = selectedIds;
@@ -110,6 +112,18 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
     useEffect(() => {
       getKnowledgeBaseList();
     }, []);
+
+    useEffect(() => {
+      if (
+        refreshKey === undefined ||
+        previousRefreshKeyRef.current === refreshKey
+      ) {
+        return;
+      }
+
+      previousRefreshKeyRef.current = refreshKey;
+      getKnowledgeBaseList();
+    }, [refreshKey]);
 
     function getKnowledgeBaseList() {
       setKnowledgeLoading(true);

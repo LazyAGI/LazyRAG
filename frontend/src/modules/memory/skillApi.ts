@@ -76,6 +76,9 @@ export interface SkillDraftPreviewRecord {
 }
 
 export interface ListSkillOptions {
+  keyword?: string;
+  category?: string;
+  tags?: string[];
   page?: number;
   pageSize?: number;
 }
@@ -864,11 +867,25 @@ export async function listSkillAssets(
 export async function listSkillAssetsPage(
   options: ListSkillOptions = {},
 ): Promise<SkillAssetListResult> {
+  const params = new URLSearchParams();
+  const keyword = options.keyword?.trim();
+  const category = options.category?.trim();
+  const tags = (options.tags ?? []).map((item) => item.trim()).filter(Boolean);
+
+  params.set("page", String(options.page ?? 1));
+  params.set("page_size", String(options.pageSize ?? 200));
+  if (keyword) {
+    params.set("keyword", keyword);
+  }
+  if (category) {
+    params.set("category", category);
+  }
+  tags.forEach((item) => {
+    params.append("tags", item);
+  });
+
   const response = await axiosInstance.get(`${coreBasePath}/skills`, {
-    params: {
-      page: options.page ?? 1,
-      page_size: options.pageSize ?? 200,
-    },
+    params,
   });
 
   const payload = unwrapEnvelope<unknown>(response.data);
