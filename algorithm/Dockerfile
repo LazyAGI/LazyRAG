@@ -10,7 +10,6 @@ ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
 ARG LAZYLLM_GITHUB_REF=main
 ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
-ARG GITHUB_PROXY=https://gh-proxy.com/
 
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
@@ -70,24 +69,24 @@ FROM base_lazyrag AS algorithm
 COPY algorithm/requirements.txt /app/algorithm/requirements.txt
 RUN pip install --no-cache-dir -r algorithm/requirements.txt
 COPY algorithm/ /app/algorithm/
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod +x /app/algorithm/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/lazyllm:/app
-ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
-ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
-ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
-ENV LAZYRAG_MAX_CONCURRENCY=10
-ENV LAZYRAG_LLM_PRIORITY=0
-ENV LAZYRAG_DEFAULT_CHAT_DATASET=algo
-ENV LAZYRAG_CORE_API_URL=http://core:8000
-ENV LAZYRAG_MAX_RETRIES=20
-ENV LAZYRAG_REVIEW_MAX_RETRIES=5
-ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
-ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
-ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
-ENV LAZYRAG_USE_INNER_MODEL=true
-ENV LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["python", "parsing/parsing.py"]
+  LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000 \
+  LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads \
+  LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads \
+  LAZYRAG_MAX_CONCURRENCY=10 \
+  LAZYRAG_LLM_PRIORITY=0 \
+  LAZYRAG_DEFAULT_CHAT_DATASET=algo \
+  LAZYRAG_CORE_API_URL=http://core:8000 \
+  LAZYRAG_MAX_RETRIES=20 \
+  LAZYRAG_REVIEW_MAX_RETRIES=5 \
+  LAZYRAG_MEMORY_REVIEW_INTERVAL=1 \
+  LAZYRAG_SKILL_REVIEW_INTERVAL=5 \
+  LAZYRAG_SKILL_REVIEW_DEBUG=false \
+  LAZYRAG_USE_INNER_MODEL=true \
+  LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml
+ENTRYPOINT ["/app/algorithm/docker-entrypoint.sh"]
+CMD ["python", "algorithm/parsing/parsing.py"]
 
 
 # Stage: doc - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
@@ -103,7 +102,6 @@ ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG GITHUB_PROXY=https://gh-proxy.com/
 ARG OPENCODE_VERSION=1.14.28
-ARG TARGETARCH
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -126,11 +124,14 @@ apt-get update && apt-get install -y --no-install-recommends \
     ripgrep cmake ninja-build \
 && rm -rf /var/lib/apt/lists/*
 
+# Detect arch inside the container (dpkg) so the binary always matches the base image,
+# regardless of whether BuildKit injects TARGETARCH (legacy builder does not).
 RUN set -eu; \
-  case "${TARGETARCH:-amd64}" in \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
     amd64) ARCH=x64 ;; \
     arm64) ARCH=arm64 ;; \
-    *) echo "unsupported arch ${TARGETARCH}" && exit 1 ;; \
+    *) echo "unsupported arch $arch" && exit 1 ;; \
   esac; \
   curl -fL "${GITHUB_PROXY}https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
   tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
