@@ -92,9 +92,38 @@ export LAZYLLM_TRACE_BACKEND ?= langfuse
 export MINIO_ACCESS_KEY ?= minioadmin
 export MINIO_SECRET_KEY ?= minioadmin
 
-# pip timeout
+# Build mirrors — defaults point to Aliyun / domestic mirrors so docker build works
+# without VPN. Override via env or .env to use upstream/internal mirrors, e.g.:
+#   make up DOCKER_MIRROR= APT_MIRROR=http://deb.debian.org/debian ...
+export DOCKER_MIRROR ?= docker.m.daocloud.io/library/
+export PIP_INDEX_URL ?= https://mirrors.aliyun.com/pypi/simple
 export PIP_DEFAULT_TIMEOUT ?= 2400
 export PIP_RETRIES ?= 10
+export APT_MIRROR ?= http://mirrors.aliyun.com/debian
+export APT_SECURITY_MIRROR ?= http://mirrors.aliyun.com/debian-security
+export APT_UBUNTU_MIRROR ?= http://mirrors.aliyun.com/ubuntu
+export ALPINE_MIRROR ?= https://mirrors.aliyun.com/alpine
+export NPM_REGISTRY ?= https://registry.npmmirror.com
+export GOPROXY ?= https://goproxy.cn,direct
+export GOSUMDB ?= sum.golang.google.cn
+# GitHub release/source proxy used when GitHub raw / luarocks.org / codeload
+# / raw.githubusercontent are blocked.
+export GITHUB_PROXY ?= https://gh-proxy.com/
+
+# Pluggable parent images for the algorithm Dockerfile's multi-stage chain:
+#
+#   FROM ${BASE_LAZYLLM_IMAGE}  AS base_lazyrag    # adds `lazyllm install rag`
+#   FROM ${BASE_LAZYRAG_IMAGE}  AS algorithm       # adds algorithm code + reqs
+#
+# Defaults wire up the in-tree chain: base -> base_lazyrag -> algorithm.
+# Override either variable with an external prebuilt image tag to skip the
+# corresponding stage's heavy build (useful for CI cache reuse), e.g.:
+#   BASE_LAZYRAG_IMAGE=registry.example.com/lazyrag/base_lazyrag:latest
+# Or set BASE_LAZYRAG_IMAGE=base to skip the rag install layer entirely for
+# fast dev builds when RAG extras are not needed.
+export BASE_LAZYLLM_IMAGE ?= base
+export BASE_LAZYRAG_IMAGE ?= base_lazyrag
+# export BASE_LAZYRAG_IMAGE ?= registry.cn-sh-01.sensecore.cn/ai-expert-service/lazyrag-base:2026.05.15.beta
 
 # model config path (inner = runtime_models.inner.yaml; matches compose default)
 export LAZYRAG_MODEL_CONFIG_PATH ?= online

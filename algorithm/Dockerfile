@@ -1,64 +1,43 @@
-# Stage: base - lazyllm[rag] only. Rebuilt only when upgrading lazyllm version.
+# Global ARGs used in FROM directives MUST be declared before the first FROM,
+# otherwise the legacy builder (DOCKER_BUILDKIT=0) treats them as stage-scoped
+# and leaves them unsubstituted ("base name (${...}) should not be blank").
 ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+ARG BASE_LAZYLLM_IMAGE=base
+ARG BASE_LAZYRAG_IMAGE=base_lazyrag
+
+# Stage: base - lazyllm[rag] only. Rebuilt only when upgrading lazyllm version.
 FROM ${DOCKER_MIRROR}python:3.11-slim AS base
 WORKDIR /app
 
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
 ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
-ARG LAZYLLM_GITHUB_REF=main
-ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
+ARG LAZYLLM_GITHUB_REF=main
+ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    apt_http_proxy="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    apt_https_proxy="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
-      [ -f "$source_file" ] || continue; \
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
+    PIP_RETRIES=${PIP_RETRIES} \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN set -eu; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+      [ -f "$f" ] || continue; \
       sed -i \
         -e "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
         -e "s|http://deb.debian.org/debian|${APT_MIRROR}|g" \
-        "$source_file"; \
+        "$f"; \
     done; \
-    if [ -n "$apt_http_proxy" ] || [ -n "$apt_https_proxy" ]; then \
-      { \
-        [ -z "$apt_http_proxy" ] || printf 'Acquire::http::Proxy "%s";\n' "$apt_http_proxy"; \
-        [ -z "$apt_https_proxy" ] || printf 'Acquire::https::Proxy "%s";\n' "$apt_https_proxy"; \
-        printf 'Acquire::Retries "5";\n'; \
-        printf 'Acquire::http::Timeout "120";\n'; \
-        printf 'Acquire::https::Timeout "120";\n'; \
-        printf 'Acquire::ForceIPv4 "true";\n'; \
-      } > /etc/apt/apt.conf.d/99proxy; \
-    fi; \
-    apt-get update && apt-get install -y \
-        ca-certificates \
-        curl \
-        ffmpeg \
-        build-essential \
-        gcc \
-        libgl1 \
-        libglib2.0-0 \
-        libsm6 \
-        libxext6 \
-        libxrender1 \
-        libxcb1 \
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl ffmpeg build-essential gcc \
+        libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libxcb1 \
         python3-dev \
     && update-ca-certificates \
-    && rm -f /etc/apt/apt.conf.d/99proxy \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    proxy_http="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    proxy_https="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    export http_proxy="$proxy_http" https_proxy="$proxy_https"; \
-    export HTTP_PROXY="$proxy_http" HTTPS_PROXY="$proxy_https"; \
-    export PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT}" PIP_RETRIES="${PIP_RETRIES}"; \
-    export PIP_DISABLE_PIP_VERSION_CHECK=1; \
+RUN set -eu; \
     curl -fL --http1.1 --no-progress-meter \
       --retry 8 --retry-all-errors --retry-delay 3 \
       --connect-timeout 30 --speed-limit 1024 --speed-time 60 --max-time 900 \
@@ -79,45 +58,119 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
       > /usr/local/bin/lazyllm; \
     chmod 0755 /usr/local/bin/lazyllm
 
-# Stage: default - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-# Use the LazyLLM runtime installed under /opt/lazyllm so tracing behavior matches Evo/chat images.
-FROM base AS default
+
+# Stage: base_lazyrag - base.
+FROM ${BASE_LAZYLLM_IMAGE} AS base_lazyrag
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
 LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
 LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
 LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
+RUN cd /opt/lazyllm && lazyllm install rag
+
+
+# Stage: algorithm - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
+FROM ${BASE_LAZYRAG_IMAGE} AS algorithm
 ARG LAZYRAG_PRELOAD_WHISPER_MODEL=0
 ARG LAZYRAG_WHISPER_MODEL=base
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN cd /opt/lazyllm && lazyllm install rag
+
+COPY algorithm/requirements.txt /app/algorithm/requirements.txt
+RUN pip install --no-cache-dir -r algorithm/requirements.txt
+
 RUN if [ "$LAZYRAG_PRELOAD_WHISPER_MODEL" = "1" ]; then \
         python -c "import whisper; whisper.load_model('${LAZYRAG_WHISPER_MODEL}')"; \
     fi
-COPY . .
-RUN chmod +x /app/docker-entrypoint.sh
-ENV PYTHONPATH=/opt/lazyllm:/app
-ENV LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000
-ENV LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads
-ENV LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads
-ENV LAZYRAG_MAX_CONCURRENCY=10
-ENV LAZYRAG_LLM_PRIORITY=0
-ENV LAZYRAG_DEFAULT_CHAT_DATASET=algo
-ENV LAZYRAG_CORE_API_URL=http://core:8000
-ENV LAZYRAG_MAX_RETRIES=20
-ENV LAZYRAG_REVIEW_MAX_RETRIES=5
-ENV LAZYRAG_MEMORY_REVIEW_INTERVAL=1
-ENV LAZYRAG_SKILL_REVIEW_INTERVAL=5
-ENV LAZYRAG_SKILL_REVIEW_DEBUG=false
-ENV LAZYRAG_USE_INNER_MODEL=true
-ENV LAZYRAG_MODEL_CONFIG_PATH=/app/common/runtime_models.inner.yaml
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+COPY algorithm/ /app/algorithm/
+RUN chmod +x /app/algorithm/docker-entrypoint.sh
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
+  LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000 \
+  LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads \
+  LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads \
+  LAZYRAG_MAX_CONCURRENCY=10 \
+  LAZYRAG_LLM_PRIORITY=0 \
+  LAZYRAG_DEFAULT_CHAT_DATASET=algo \
+  LAZYRAG_CORE_API_URL=http://core:8000 \
+  LAZYRAG_MAX_RETRIES=20 \
+  LAZYRAG_REVIEW_MAX_RETRIES=5 \
+  LAZYRAG_MEMORY_REVIEW_INTERVAL=1 \
+  LAZYRAG_SKILL_REVIEW_INTERVAL=5 \
+  LAZYRAG_SKILL_REVIEW_DEBUG=false \
+  LAZYRAG_USE_INNER_MODEL=true \
+  LAZYRAG_MODEL_CONFIG_PATH=/app/common/runtime_models.inner.yaml
+WORKDIR /app/algorithm
+ENTRYPOINT ["/app/algorithm/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
+
+# Stage: doc - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
+FROM algorithm AS doc
+WORKDIR /app
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm
+COPY backend/core/doc /app/backend/core/doc
+CMD ["python", "backend/core/doc/doc_server.py"]
+
+
+# Stage: evo - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
+FROM algorithm AS evo
+WORKDIR /app
+ARG APT_MIRROR=http://mirrors.aliyun.com/debian
+ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
+ARG GITHUB_PROXY=https://gh-proxy.com/
+ARG OPENCODE_VERSION=1.14.28
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    LAZYRAG_EVO_CODE_BINARY=/usr/local/bin/opencode \
+    LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
+    LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
+    LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
+    LAZYRAG_MODEL_CONFIG_PATH=/app/algorithm/chat/runtime_models.inner.yaml \
+    PYTHONPATH=/opt/lazyllm:/app/algorithm
+  
+RUN set -eu; \
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+  [ -f "$f" ] || continue; \
+  sed -i \
+    -e "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${APT_MIRROR}|g" \
+    "$f"; \
+done; \
+apt-get update && apt-get install -y --no-install-recommends \
+    ripgrep cmake ninja-build \
+&& rm -rf /var/lib/apt/lists/*
+
+# Detect arch inside the container (dpkg) so the binary always matches the base image,
+# regardless of whether BuildKit injects TARGETARCH (legacy builder does not).
+RUN set -eu; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) ARCH=x64 ;; \
+    arm64) ARCH=arm64 ;; \
+    *) echo "unsupported arch $arch" && exit 1 ;; \
+  esac; \
+  curl -fL "${GITHUB_PROXY}https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
+  tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
+  chmod 0755 /usr/local/bin/opencode; \
+  rm /tmp/opencode.tar.gz; \
+  opencode --version
+
+COPY evo/requirements.txt /tmp/evo-requirements.txt
+
+RUN pip install --no-cache-dir -r /tmp/evo-requirements.txt python-dotenv
+
+COPY evo/ /app/evo/
+
+RUN ln -s /app/algorithm/chat /app/chat && \
+    ln -s /app/algorithm/common /app/common && \
+    ln -s /app/algorithm/vocab /app/vocab && \
+    ln -s /app/algorithm/processor /app/processor
+RUN chmod +x /app/evo/service/entrypoint.sh
+
+EXPOSE 8047
+ENTRYPOINT ["/app/evo/service/entrypoint.sh"]
+
 # Stage: mineru - base + requirements.txt + configurable mineru extra + code.
-# Use the same LazyLLM runtime as the default stage.
 FROM base AS mineru
 ARG LAZYRAG_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
@@ -132,19 +185,19 @@ ARG MINERU_TORCH_VERSION=2.11.0
 ARG MINERU_TORCHVISION_VERSION=0.26.0
 ARG MINERU_NUMPY_VERSION=1.26.4
 ARG MINERU_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
-ARG MINERU_PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY algorithm/requirements.txt /app/algorithm/requirements.txt
+RUN pip install --no-cache-dir -r algorithm/requirements.txt
 RUN if [ "$MINERU_PREINSTALL_CPU_TORCH" = "1" ]; then \
         pip install --no-cache-dir \
         --index-url "$MINERU_PYTORCH_INDEX_URL" \
         "torch==${MINERU_TORCH_VERSION}+cpu" \
         "torchvision==${MINERU_TORCHVISION_VERSION}+cpu"; \
     fi
-RUN pip install --no-cache-dir "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERSION}" -i "$MINERU_PYPI_INDEX_URL"
+RUN pip install --no-cache-dir "mineru[${MINERU_PACKAGE_VARIANT}]==${MINERU_VERSION}"
 RUN if [ -n "$MINERU_NUMPY_VERSION" ]; then \
         pip install --no-cache-dir "numpy==${MINERU_NUMPY_VERSION}"; \
     fi
-COPY . .
-ENV PYTHONPATH=/opt/lazyllm:/app
+COPY algorithm/ /app/algorithm/
+ENV PYTHONPATH=/opt/lazyllm:/app/algorithm
+WORKDIR /app/algorithm
 CMD ["python", "parsing/mineru.py"]

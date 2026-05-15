@@ -1,8 +1,11 @@
-FROM golang:1.24.6-alpine AS builder
+ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
+FROM ${DOCKER_MIRROR}golang:1.24.6-alpine AS builder
 WORKDIR /src
 
-ARG GOPROXY=https://proxy.golang.org,direct
-ENV GOPROXY=${GOPROXY}
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+ENV GOPROXY=${GOPROXY} \
+    GOSUMDB=${GOSUMDB}
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -10,7 +13,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /out/file_watcher ./cmd/main.go
 
-FROM alpine:3.19
+FROM ${DOCKER_MIRROR}alpine:3.19
 ENV OUTPUT_DIR=/output
 
 COPY --from=builder /out/file_watcher /artifact/file_watcher
