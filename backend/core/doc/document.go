@@ -230,6 +230,38 @@ func contentDispositionHeader(disposition, filename string) string {
 	return fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`, disposition, fallback, url.PathEscape(name))
 }
 
+type signStaticFilesRequest struct {
+	Paths []string `json:"paths"`
+}
+
+type signStaticFilesResponse struct {
+	URLs map[string]string `json:"urls"`
+}
+
+// SignStaticFiles returns signed /static-files URLs for upload-root paths.
+func SignStaticFiles(w http.ResponseWriter, r *http.Request) {
+	var req signStaticFilesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		common.ReplyErr(w, fmt.Sprintf("%s: %v", "invalid request body", err), http.StatusBadRequest)
+		return
+	}
+	urls := make(map[string]string, len(req.Paths))
+	for _, raw := range req.Paths {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			continue
+		}
+		if strings.HasPrefix(path, "/static-files/") {
+			urls[path] = path
+			continue
+		}
+		if signed := staticFileURLFromFullPath(path); signed != "" {
+			urls[path] = signed
+		}
+	}
+	common.ReplyJSON(w, signStaticFilesResponse{URLs: urls})
+}
+
 func GetSignedStaticFile(w http.ResponseWriter, r *http.Request) {
 	rawPath := strings.TrimSpace(common.PathVar(r, "path"))
 	if rawPath == "" {

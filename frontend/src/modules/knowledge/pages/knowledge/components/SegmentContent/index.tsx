@@ -6,6 +6,10 @@ import { useEffect, useState, useRef } from "react";
 import { SegmentServiceApi } from "@/modules/knowledge/utils/request";
 import MdxEditor from "@/modules/knowledge/components/mdxeditor";
 import { replaceImagesWithKeys } from "@/modules/knowledge/components/mdxeditor/util";
+import {
+  expandImagesInMarkdown,
+  resolveMarkdownImageUrl,
+} from "@/modules/knowledge/utils/imageUrl";
 
 interface IProps {
   segment: Segment;
@@ -20,7 +24,8 @@ const SegmentContent = (props: IProps) => {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    setContent(segment.display_content);
+    const raw = segment.display_content || "";
+    setContent(expandImagesInMarkdown(raw, segment?.image_keys ?? []));
   }, [segment]);
 
   const debounceUpdate = (data: string) => {
@@ -58,7 +63,10 @@ const SegmentContent = (props: IProps) => {
       img(props: any) {
         return (
           <CustomImage
-            src={props.src}
+            src={resolveMarkdownImageUrl(
+              props.src || "",
+              segment?.image_keys ?? [],
+            )}
             alt={props.alt}
             showErrorImage
             style={{ background: "#F5F5F5" }}

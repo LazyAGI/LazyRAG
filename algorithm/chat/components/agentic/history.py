@@ -6,6 +6,7 @@ from collections import OrderedDict
 from html import escape
 from typing import Any, Optional
 
+from chat.utils.markdown_images import rewrite_markdown_image_urls
 from chat.utils.stream_scanner import BasePlugin, IncrementalScanner
 
 from chat.components.agentic.tool_stream import (
@@ -378,6 +379,7 @@ def _reset_citation_state(config: dict) -> None:
     config[_CITATION_DOC_KEY_MAP_KEY] = {}
     config[_CITATION_NEXT_DOC_KEY] = 1
     config[_CITATION_DOC_CHUNK_NEXT_KEY] = {}
+    config['_image_url_registry'] = {}
 
 
 def _citation_source(config: dict, index: str) -> Optional[dict[str, Any]]:
@@ -452,6 +454,7 @@ def _format_non_stream_result(result: Any, config: dict) -> dict[str, Any]:
         output = {}
 
     think, body = _split_think_and_body(raw_text, existing_think)
+    body = rewrite_markdown_image_urls(body, config=config)
     text, sources = _rewrite_citations(body, config)
     output.update({
         'think': think,

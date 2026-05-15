@@ -165,6 +165,43 @@ func TestBuildChatRequestBodyPreservesExplicitReasoningFalse(t *testing.T) {
 	}
 }
 
+func TestBuildChatRequestBodyMergesInputURIsIntoFiles(t *testing.T) {
+	body := buildChatRequestBody("conv-1", "sid", "what animal", nil, map[string]any{
+		"input": []any{
+			map[string]any{"input_type": "text", "text": "hello"},
+			map[string]any{"input_type": "image", "uri": "/var/lib/lazyrag/uploads/tmp/u1/a.png"},
+			map[string]any{"input_type": "file", "uri": "/var/lib/lazyrag/uploads/tmp/u1/b.pdf"},
+		},
+	}, nil, "")
+
+	files, ok := body["files"].([]any)
+	if !ok || len(files) != 2 {
+		t.Fatalf("expected 2 file paths from input, got %#v", body["files"])
+	}
+	if files[0] != "/var/lib/lazyrag/uploads/tmp/u1/a.png" || files[1] != "/var/lib/lazyrag/uploads/tmp/u1/b.pdf" {
+		t.Fatalf("unexpected files order/content: %#v", files)
+	}
+}
+
+func TestBuildChatRequestBodyFilesMergeDedupesAndSkipsHTTP(t *testing.T) {
+	body := buildChatRequestBody("conv-1", "sid", "q", nil, map[string]any{
+		"files": []any{"/data/x.jpg"},
+		"input": []any{
+			map[string]any{"input_type": "image", "uri": "https://cdn.example.com/p.png"},
+			map[string]any{"input_type": "image", "uri": "/data/x.jpg"},
+			map[string]any{"input_type": "image", "uri": "/data/y.jpeg"},
+		},
+	}, nil, "")
+
+	files, ok := body["files"].([]any)
+	if !ok || len(files) != 2 {
+		t.Fatalf("expected 2 paths (dedupe + skip https), got %#v", body["files"])
+	}
+	if files[0] != "/data/x.jpg" || files[1] != "/data/y.jpeg" {
+		t.Fatalf("unexpected files: %#v", files)
+	}
+}
+
 func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	req := buildLazyChatRequest(map[string]any{
 		"query":      "hello",

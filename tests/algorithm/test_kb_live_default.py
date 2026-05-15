@@ -66,6 +66,7 @@ def test_kb_search_default_kb_branch(monkeypatch):
             'query': SEED_KEYWORD,
             'filters': {'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id']},
             'files': [],
+            'image_files': [],
         }
     }
     assert result['total'] == 1
