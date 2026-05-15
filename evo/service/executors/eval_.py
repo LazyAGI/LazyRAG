@@ -6,6 +6,7 @@ from typing import Any
 from lazyllm import AutoModel
 from algorithm.chat.utils.load_config import get_config_path
 from evo.datagen import run_eval, load_report, fetch_traces_for_report
+from evo.harness.plan import StopRequested
 from evo.runtime.fs import atomic_write_json
 from evo.runtime.model_gateway import ModelGateway
 from evo.runtime.config import EVO_EVAL_JUDGE_MAX_RETRIES, EVO_EVAL_JUDGE_TIMEOUT_S, EVO_EVAL_MAX_WORKERS
@@ -50,6 +51,9 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 filters=filters,
                 require_trace=_trace_enabled(),
                 persist_report=False,
+                attempt_id=tid,
+                resume=bool(payload.get('resume', True)),
+                cancel=token.requested,
                 on_progress=lambda current, total: elog.append_event(
                     'eval.progress',
                     task_id=tid,
@@ -70,7 +74,7 @@ def execute(ctx: ExecCtx, tid: str) -> None:
             if not eval_id:
                 raise _store.StateError('EVAL_NO_TARGET', 'need eval_id or dataset_id')
             elog.append_event('eval.start', task_id=tid, payload={'eval_id': eval_id})
-            report = load_report(eval_id, ctx.cfg.storage.base_dir)
+            report = _load_existing_report(ws, eval_id, ctx.cfg.storage.base_dir)
         atomic_write_json(ws.eval_path(eval_id), report)
         ctx.update_payload(tid, {'eval_id': eval_id})
         ThreadWorkspace(ctx.cfg.storage.base_dir, thread_id).attach_artifact('eval_ids', eval_id)
@@ -86,8 +90,15 @@ def execute(ctx: ExecCtx, tid: str) -> None:
             payload={'eval_id': eval_id, 'cases': report.get('total_cases'), 'traces': len(traces)},
         )
         ctx.on_success(tid)
+    except StopRequested as exc:
+        if token.cancel_requested():
+            elog.append_event('eval.cancel', task_id=tid, payload={'eval_id': eval_id, 'dataset_id': dataset_id})
+        ctx.on_stop(tid, exc.at_step)
     except Exception as exc:
-        if token.requested():
+        if token.stop_requested():
+            ctx.on_stop(tid, 'case')
+            return
+        if token.cancel_requested():
             elog.append_event('eval.cancel', task_id=tid, payload={'eval_id': eval_id, 'dataset_id': dataset_id})
         ctx.on_failure(tid, exc)
     finally:
@@ -102,6 +113,15 @@ def _fetch_traces(tid: str, elog: EventLog, report: dict, token: CancelToken) ->
 
 def _trace_enabled() -> bool:
     return os.getenv('LAZYLLM_TRACE_ENABLED', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
+
+
+def _load_existing_report(ws: ThreadWorkspace, eval_id: str, base_dir) -> dict[str, Any]:
+    path = ws.eval_path(eval_id)
+    if path.is_file():
+        import json
+
+        return json.loads(path.read_text(encoding='utf-8'))
+    return load_report(eval_id, base_dir)
 
 
 def _eval_judge_llm_factory(ctx: ExecCtx):

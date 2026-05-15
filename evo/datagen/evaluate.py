@@ -2,24 +2,18 @@ from __future__ import annotations
 import json
 import logging
 import re
-from concurrent.futures import TimeoutError, ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 from evo.datagen.llm import chat
-from evo.runtime.config import EVO_EVAL_JUDGE_TIMEOUT_S
 from evo.datagen.prompts import prompt_evaluate
+from evo.harness.plan import StopRequested
 
 _log = logging.getLogger('evo.datagen.evaluate')
 
 
-def evaluate_answer(
-    question: str,
-    ground_truth: str,
-    rag_answer: str,
-    key_points: list[str],
-    retrieve_contexts: list[str],
-    *,
-    llm_factory=None,
-) -> dict[str, Any]:
+def evaluate_answer(question: str, ground_truth: str, rag_answer: str, key_points: list[str],
+                    retrieve_contexts: list[str], *, llm_factory=None,
+                    ) -> dict[str, Any]:
     kp_str = ', '.join(key_points) if isinstance(key_points, list) else str(key_points)
     rc_str = '\n'.join(retrieve_contexts) if isinstance(retrieve_contexts, list) else str(retrieve_contexts)
     prompt = prompt_evaluate(question, ground_truth, rag_answer, kp_str, rc_str)
@@ -66,15 +60,23 @@ def _score01(value: Any) -> float:
     return round(score, 4)
 
 
-def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_workers: int = 10, on_progress=None) -> list[dict]:  # noqa: E501
+def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_workers: int = 10, on_item=None, cancel=None, on_progress=None) -> list[dict]:  # noqa: E501
     result_list: list[dict] = []
     done = 0
     total = len(eval_queue)
-    timeout_s = EVO_EVAL_JUDGE_TIMEOUT_S
     executor = ThreadPoolExecutor(max_workers=max_workers)
     try:
-        future_map = {
-            executor.submit(
+        pending = {}
+        iterator = iter(eval_queue)
+
+        def submit_next() -> bool:
+            if cancel and cancel():
+                return False
+            try:
+                item = next(iterator)
+            except StopIteration:
+                return False
+            pending[executor.submit(
                 evaluate_answer,
                 item['question'],
                 item['ground_truth'],
@@ -82,24 +84,32 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
                 item.get('key_points', []),
                 item.get('retrieve_contexts', []),
                 llm_factory=llm_factory,
-            ): item
-            for item in eval_queue
-        }
-        for future in as_completed(future_map, timeout=timeout_s):
-            item = future_map[future]
+            )] = item
+            return True
+
+        while len(pending) < max_workers and submit_next():
+            pass
+        while pending:
+            if cancel and cancel():
+                raise StopRequested(at_step='case')
+            done_futures, _ = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+            if not done_futures:
+                continue
+            future = done_futures.pop()
+            item = pending.pop(future)
             try:
                 evaluate_result = future.result()
             except Exception as exc:
                 _log.warning('evaluate task failed: %s', exc)
                 evaluate_result = {'error': str(exc)}
-            result_list.append({**item, 'evaluate_result': evaluate_result})
+            row = {**item, 'evaluate_result': evaluate_result}
+            result_list.append(row)
+            if on_item:
+                on_item(row)
             done += 1
             if on_progress:
                 on_progress(done, total)
-    except TimeoutError as exc:
-        for future in future_map:
-            future.cancel()
-        raise RuntimeError(f'evaluate judge timed out after {timeout_s:.0f}s ({done}/{total} done)') from exc
+            submit_next()
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
     return result_list
