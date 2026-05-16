@@ -1407,6 +1407,36 @@
   word-break: break-word;
 }
 
+.memory-glossary-merge-edit-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed #d0d5dd;
+  border-radius: 6px;
+  background: #f8fafc;
+
+  span {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #475467;
+  }
+}
+
+.memory-glossary-merge-edit-pagination {
+  align-self: flex-start;
+  margin-top: -2px;
+
+  .ant-pagination-item,
+  .ant-pagination-prev,
+  .ant-pagination-next {
+    min-width: 24px;
+    height: 24px;
+    line-height: 22px;
+  }
+}
+
 .memory-glossary-merge-request.ant-btn {
   align-self: flex-end;
   border-color: #d1d5db;
