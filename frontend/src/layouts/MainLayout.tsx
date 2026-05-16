@@ -593,7 +593,7 @@ export default function MainLayout() {
   return (
     <Layout hasSider className="main-layout">
       <Sider
-        width={232}
+        width={252}
         collapsedWidth={0}
         collapsible
         trigger={null}

@@ -1,4 +1,5 @@
 import { Button, Space, Tag } from "antd";
+import { DetailPageHeader } from "@/components/ui";
 import RouteLoading from "../../components/RouteLoading";
 import { useMemoryManagementOutletContext } from "../../context";
 
@@ -24,33 +25,25 @@ export default function MemoryGlossaryDetailPage() {
 
   return (
     <div className="memory-glossary-detail-layout">
-      <div className="memory-page-header">
-        <div>
-          <h2 className="admin-page-title">{t("admin.memoryGlossaryDetailTitle")}</h2>
-          <p className="memory-page-subtitle">{glossaryDetailTarget.term}</p>
-        </div>
-        <Space>
-          <Button onClick={closeGlossaryDetail}>{t("common.back")}</Button>
-          {glossaryDetailExists ? (
-            <Button
-              type="primary"
-              onClick={() => openModal("edit", glossaryDetailTarget)}
-            >
-              {t("admin.memoryEditItem")}
-            </Button>
-          ) : null}
-        </Space>
-      </div>
+      <DetailPageHeader
+        className="memory-glossary-detail-page-header"
+        title={t("admin.memoryGlossaryDetailTitle")}
+        description={glossaryDetailTarget.term}
+        onBack={closeGlossaryDetail}
+      />
       <div className="memory-glossary-detail-page">
         <div className="memory-glossary-detail-card">
           <div className="memory-glossary-detail-title">
-            <h3>{glossaryDetailTarget.term}</h3>
-            <Tag color={glossarySourceColorMap[glossaryDetailTarget.source]}>
-              {glossarySourceLabelMap[glossaryDetailTarget.source]}
-            </Tag>
+            <div className="memory-glossary-detail-title-copy">
+              <h3>{glossaryDetailTarget.term}</h3>
+            </div>
+            <div className="memory-skill-detail-meta">
+              <Tag color={glossarySourceColorMap[glossaryDetailTarget.source]}>
+                {glossarySourceLabelMap[glossaryDetailTarget.source]}
+              </Tag>
+            </div>
           </div>
-          <div className="memory-form-field memory-form-field-full">
-            <label>{t("admin.memoryGlossaryAliases")}</label>
+          <div className="memory-glossary-detail-aliases">
             <div className="memory-tag-group">
               {glossaryDetailTarget.aliases.length ? (
                 glossaryDetailTarget.aliases.map((alias: string) => (
@@ -61,8 +54,22 @@ export default function MemoryGlossaryDetailPage() {
               )}
             </div>
           </div>
-          <div className="memory-form-field memory-form-field-full">
-            <label>{t("admin.memoryContent")}</label>
+          <div className="memory-glossary-detail-body">
+            <div className="memory-skill-detail-editor-toolbar">
+              <div className="memory-skill-detail-editor-heading">
+                <label>{t("admin.memoryContent")}</label>
+              </div>
+              {glossaryDetailExists ? (
+                <Space size={8}>
+                  <Button
+                    type="primary"
+                    onClick={() => openModal("edit", glossaryDetailTarget)}
+                  >
+                    {t("admin.memoryEditItem")}
+                  </Button>
+                </Space>
+              ) : null}
+            </div>
             <div className="memory-glossary-detail-content">
               {glossaryDetailTarget.content}
             </div>
