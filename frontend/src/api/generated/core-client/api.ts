@@ -183,11 +183,11 @@ export interface ApplyWordGroupActionBatchResponse {
 }
 export interface ApplyWordGroupActionItem {
     'action': string;
-    'create_user_id': string;
     'description': string;
     'group_ids': string;
     'message_ids': string;
     'reason': string;
+    'user_id': string;
     'words'?: Array<string>;
 }
 export interface ApplyWordGroupActionRequest {
@@ -262,6 +262,7 @@ export interface ChatChunkResponse {
     'thinking_duration_s'?: number;
 }
 export interface CheckModelProviderData {
+    'message'?: string;
     'success': boolean;
 }
 export interface CheckModelProviderOpenAPIRequest {
@@ -389,6 +390,22 @@ export interface CreateTaskRequest {
 export interface CreateTasksResponse {
     'tasks'?: Array<TaskResponse>;
 }
+export interface CreateWordGroupFromConflictRequest {
+    'aliases'?: Array<string>;
+    'description': string;
+    'group_ids'?: Array<string>;
+    'id': string;
+    'term': string;
+    'word': string;
+}
+export interface CreateWordGroupFromConflictResponse {
+    'added_groups'?: Array<string>;
+    'createWordGroupResponse': CreateWordGroupResponse;
+    'deleted_conflict_rows': number;
+    'group_ids'?: Array<string>;
+    'skipped_groups'?: Array<string>;
+    'word': string;
+}
 export interface CreateWordGroupRequest {
     'aliases'?: Array<string>;
     'conflict': boolean;
@@ -427,6 +444,8 @@ export interface Dataset {
     'is_owner': boolean;
     'name': string;
     'parsers'?: Array<ParserConfig>;
+    'scan_managed'?: boolean;
+    'scan_source_type'?: string;
     'segment_count': number;
     'share_type': string;
     'state': string;
@@ -562,9 +581,7 @@ export interface InternalSkillCreateOpenAPIRequest {
     'skill_name': string;
 }
 export interface InternalSkillRemoveOpenAPIRequest {
-    'category': string;
-    'session_id': string;
-    'skill_name': string;
+    'id': string;
 }
 export interface InternalSkillSuggestionOpenAPIRequest {
     'category': string;
@@ -652,6 +669,10 @@ export interface ManagedStateListOpenAPIResponse {
     'items'?: Array<ManagedStateOpenAPIResponse>;
 }
 export interface ManagedStateOpenAPIResponse {
+    'auto_evo': boolean;
+    'auto_evo_apply_status': string;
+    'auto_evo_error': string;
+    'auto_evo_generation': number;
     'content': string;
     'content_summary': string;
     'has_pending_review_suggestions': boolean;
@@ -661,15 +682,23 @@ export interface ManagedStateOpenAPIResponse {
     'title': string;
 }
 export interface ManagedStateUpsertOpenAPIRequest {
+    'auto_evo'?: boolean;
     'content': string;
 }
 export interface MergeAndAddWordRequest {
     'group_ids'?: Array<string>;
     'id': string;
+    'merges'?: Array<MergeWordGroupsRequest>;
     'word': string;
 }
+export interface MergeAndAddWordResponse {
+    'items'?: Array<CreateWordGroupResponse>;
+}
 export interface MergeWordGroupsRequest {
+    'aliases'?: Array<string>;
+    'description': string;
     'group_ids'?: Array<string>;
+    'term': string;
 }
 export interface ParserConfig {
     'name': string;
@@ -789,19 +818,19 @@ export interface ShareSkillOpenAPIRequest {
     'target_user_ids'?: Array<string>;
 }
 export interface SkillChildCreateOpenAPIRequest {
+    'auto_evo'?: boolean;
     'content': string;
     'file_ext'?: string;
-    'auto_evo'?: boolean;
     'name': string;
 }
 export interface SkillCreateManagedOpenAPIRequest {
+    'auto_evo'?: boolean;
     'category': string;
     'children'?: Array<SkillChildCreateOpenAPIRequest>;
     'content': string;
     'description'?: string;
     'file_ext'?: string;
     'is_enabled'?: boolean;
-    'auto_evo'?: boolean;
     'name': string;
     'parent_skill_name'?: string;
     'tags'?: Array<string>;
@@ -810,12 +839,15 @@ export interface SkillDeleteOpenAPIResponse {
     'deleted': boolean;
 }
 export interface SkillDetailChildOpenAPIResponse {
+    'auto_evo': boolean;
+    'auto_evo_apply_status': string;
+    'auto_evo_error': string;
+    'auto_evo_generation': number;
     'content': string;
     'description': string;
     'file_ext': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'parent_skill_name': string;
@@ -824,6 +856,10 @@ export interface SkillDetailChildOpenAPIResponse {
     'update_status': string;
 }
 export interface SkillDetailOpenAPIResponse {
+    'auto_evo': boolean;
+    'auto_evo_apply_status': string;
+    'auto_evo_error': string;
+    'auto_evo_generation': number;
     'category': string;
     'children'?: Array<SkillDetailChildOpenAPIResponse>;
     'content': string;
@@ -831,7 +867,6 @@ export interface SkillDetailOpenAPIResponse {
     'file_ext': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'parent_skill_name': string;
@@ -863,11 +898,14 @@ export interface SkillGenerateOpenAPIResponse {
     'outdated': boolean;
 }
 export interface SkillListChildOpenAPIResponse {
+    'auto_evo': boolean;
+    'auto_evo_apply_status': string;
+    'auto_evo_error': string;
+    'auto_evo_generation': number;
     'description': string;
     'file_ext': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'skill_id': string;
@@ -875,12 +913,15 @@ export interface SkillListChildOpenAPIResponse {
     'update_status': string;
 }
 export interface SkillListItemOpenAPIResponse {
+    'auto_evo': boolean;
+    'auto_evo_apply_status': string;
+    'auto_evo_error': string;
+    'auto_evo_generation': number;
     'category': string;
     'children'?: Array<SkillListChildOpenAPIResponse>;
     'description': string;
     'has_pending_review_suggestions': boolean;
     'is_enabled': boolean;
-    'auto_evo': boolean;
     'name': string;
     'node_type': string;
     'skill_id': string;
@@ -979,13 +1020,14 @@ export interface SkillShareTargetsOpenAPIResponse {
     'total': number;
 }
 export interface SkillUpdateManagedOpenAPIRequest {
+    'auto_evo'?: boolean;
     'category'?: string;
     'content'?: string;
     'description'?: string;
     'file_ext'?: string;
     'is_enabled'?: boolean;
-    'auto_evo'?: boolean;
     'name'?: string;
+    'parent_skill_name'?: string;
     'tags'?: Array<string>;
 }
 export interface StartTaskRequest {
@@ -10774,7 +10816,7 @@ export class MemoryApi extends BaseAPI {
 export const ModelProvidersApiAxiosParamCreator = function (configuration?: Configuration) {
     return {
         /**
-         * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).
+         * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. The current user identity is injected by the auth gateway from the token. Query parameter keyword filters by provider name (SQL LIKE).
          * @summary List user model providers
          * @param {string} [keyword] 
          * @param {*} [options] Override http request option.
@@ -10843,7 +10885,7 @@ export const ModelProvidersApiAxiosParamCreator = function (configuration?: Conf
             };
         },
         /**
-         * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.
+         * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.
          * @summary Check model provider connectivity
          * @param {string} modelProviderId 
          * @param {string} groupId 
@@ -10886,7 +10928,7 @@ export const ModelProvidersApiAxiosParamCreator = function (configuration?: Conf
             };
         },
         /**
-         * Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.
+         * Soft-deletes the group and its user_model_provider_group_models rows. The current user identity is injected by the auth gateway from the token.
          * @summary Delete model provider connection group
          * @param {string} modelProviderId 
          * @param {string} groupId 
@@ -10962,7 +11004,7 @@ export const ModelProvidersApiAxiosParamCreator = function (configuration?: Conf
             };
         },
         /**
-         * Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.
+         * Soft-deletes one user_model_provider_group_models row. The current user identity is injected by the auth gateway from the token.
          * @summary Delete model under a connection group
          * @param {string} modelProviderId 
          * @param {string} groupId 
@@ -11229,7 +11271,7 @@ export const ModelProvidersApiAxiosParamCreator = function (configuration?: Conf
             };
         },
         /**
-         * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.
+         * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. The current user identity is injected by the auth gateway from the token. Same response shape as GET /model_providers.
          * @summary List user model providers that have groups
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -11268,7 +11310,7 @@ export const ModelProvidersApiFp = function(configuration?: Configuration) {
     const localVarAxiosParamCreator = ModelProvidersApiAxiosParamCreator(configuration)
     return {
         /**
-         * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).
+         * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. The current user identity is injected by the auth gateway from the token. Query parameter keyword filters by provider name (SQL LIKE).
          * @summary List user model providers
          * @param {string} [keyword] 
          * @param {*} [options] Override http request option.
@@ -11294,7 +11336,7 @@ export const ModelProvidersApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.
+         * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.
          * @summary Check model provider connectivity
          * @param {string} modelProviderId 
          * @param {string} groupId 
@@ -11309,7 +11351,7 @@ export const ModelProvidersApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.
+         * Soft-deletes the group and its user_model_provider_group_models rows. The current user identity is injected by the auth gateway from the token.
          * @summary Delete model provider connection group
          * @param {string} modelProviderId 
          * @param {string} groupId 
@@ -11337,7 +11379,7 @@ export const ModelProvidersApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.
+         * Soft-deletes one user_model_provider_group_models row. The current user identity is injected by the auth gateway from the token.
          * @summary Delete model under a connection group
          * @param {string} modelProviderId 
          * @param {string} groupId 
@@ -11434,7 +11476,7 @@ export const ModelProvidersApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
-         * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.
+         * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. The current user identity is injected by the auth gateway from the token. Same response shape as GET /model_providers.
          * @summary List user model providers that have groups
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -11455,7 +11497,7 @@ export const ModelProvidersApiFactory = function (configuration?: Configuration,
     const localVarFp = ModelProvidersApiFp(configuration)
     return {
         /**
-         * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).
+         * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. The current user identity is injected by the auth gateway from the token. Query parameter keyword filters by provider name (SQL LIKE).
          * @summary List user model providers
          * @param {ModelProvidersApiApiCoreModelProvidersGetRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
@@ -11475,7 +11517,7 @@ export const ModelProvidersApiFactory = function (configuration?: Configuration,
             return localVarFp.apiCoreModelProvidersModelProviderIdGroupsGet(requestParameters.modelProviderId, options).then((request) => request(axios, basePath));
         },
         /**
-         * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.
+         * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.
          * @summary Check model provider connectivity
          * @param {ModelProvidersApiApiCoreModelProvidersModelProviderIdGroupsGroupIdCheckPostRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
@@ -11485,7 +11527,7 @@ export const ModelProvidersApiFactory = function (configuration?: Configuration,
             return localVarFp.apiCoreModelProvidersModelProviderIdGroupsGroupIdCheckPost(requestParameters.modelProviderId, requestParameters.groupId, requestParameters.checkModelProviderOpenAPIRequest, options).then((request) => request(axios, basePath));
         },
         /**
-         * Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.
+         * Soft-deletes the group and its user_model_provider_group_models rows. The current user identity is injected by the auth gateway from the token.
          * @summary Delete model provider connection group
          * @param {ModelProvidersApiApiCoreModelProvidersModelProviderIdGroupsGroupIdDeleteRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
@@ -11505,7 +11547,7 @@ export const ModelProvidersApiFactory = function (configuration?: Configuration,
             return localVarFp.apiCoreModelProvidersModelProviderIdGroupsGroupIdModelsGet(requestParameters.modelProviderId, requestParameters.groupId, options).then((request) => request(axios, basePath));
         },
         /**
-         * Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.
+         * Soft-deletes one user_model_provider_group_models row. The current user identity is injected by the auth gateway from the token.
          * @summary Delete model under a connection group
          * @param {ModelProvidersApiApiCoreModelProvidersModelProviderIdGroupsGroupIdModelsModelIdDeleteRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
@@ -11574,7 +11616,7 @@ export const ModelProvidersApiFactory = function (configuration?: Configuration,
             return localVarFp.apiCoreModelProvidersSelectedModelsPut(requestParameters.setSelectedModelsOpenAPIRequest, options).then((request) => request(axios, basePath));
         },
         /**
-         * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.
+         * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. The current user identity is injected by the auth gateway from the token. Same response shape as GET /model_providers.
          * @summary List user model providers that have groups
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -11689,7 +11731,7 @@ export interface ModelProvidersApiApiCoreModelProvidersSelectedModelsPutRequest 
  */
 export class ModelProvidersApi extends BaseAPI {
     /**
-     * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).
+     * Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. The current user identity is injected by the auth gateway from the token. Query parameter keyword filters by provider name (SQL LIKE).
      * @summary List user model providers
      * @param {ModelProvidersApiApiCoreModelProvidersGetRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -11711,7 +11753,7 @@ export class ModelProvidersApi extends BaseAPI {
     }
 
     /**
-     * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.
+     * Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.
      * @summary Check model provider connectivity
      * @param {ModelProvidersApiApiCoreModelProvidersModelProviderIdGroupsGroupIdCheckPostRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -11722,7 +11764,7 @@ export class ModelProvidersApi extends BaseAPI {
     }
 
     /**
-     * Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.
+     * Soft-deletes the group and its user_model_provider_group_models rows. The current user identity is injected by the auth gateway from the token.
      * @summary Delete model provider connection group
      * @param {ModelProvidersApiApiCoreModelProvidersModelProviderIdGroupsGroupIdDeleteRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -11744,7 +11786,7 @@ export class ModelProvidersApi extends BaseAPI {
     }
 
     /**
-     * Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.
+     * Soft-deletes one user_model_provider_group_models row. The current user identity is injected by the auth gateway from the token.
      * @summary Delete model under a connection group
      * @param {ModelProvidersApiApiCoreModelProvidersModelProviderIdGroupsGroupIdModelsModelIdDeleteRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
@@ -11820,7 +11862,7 @@ export class ModelProvidersApi extends BaseAPI {
     }
 
     /**
-     * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.
+     * Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. The current user identity is injected by the auth gateway from the token. Same response shape as GET /model_providers.
      * @summary List user model providers that have groups
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -12549,7 +12591,7 @@ export const SkillEvolutionApiAxiosParamCreator = function (configuration?: Conf
         },
         /**
          * 
-         * @summary Delete skill directly from internal request
+         * @summary Delete skill by ID
          * @param {InternalSkillRemoveOpenAPIRequest} internalSkillRemoveOpenAPIRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -12641,7 +12683,7 @@ export const SkillEvolutionApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @summary Delete skill directly from internal request
+         * @summary Delete skill by ID
          * @param {InternalSkillRemoveOpenAPIRequest} internalSkillRemoveOpenAPIRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -12686,7 +12728,7 @@ export const SkillEvolutionApiFactory = function (configuration?: Configuration,
         },
         /**
          * 
-         * @summary Delete skill directly from internal request
+         * @summary Delete skill by ID
          * @param {SkillEvolutionApiApiCoreSkillRemovePostRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -12745,7 +12787,7 @@ export class SkillEvolutionApi extends BaseAPI {
 
     /**
      * 
-     * @summary Delete skill directly from internal request
+     * @summary Delete skill by ID
      * @param {SkillEvolutionApiApiCoreSkillRemovePostRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}
@@ -15760,6 +15802,41 @@ export const WordGroupApiAxiosParamCreator = function (configuration?: Configura
             };
         },
         /**
+         * Creates a new word group (term, aliases, description). If group_ids is non-empty, inserts the conflict word as alias into each existing group (skips duplicates). Soft-deletes the conflict row by id.
+         * @summary Create word group from conflict and optionally add conflict word to existing groups
+         * @param {CreateWordGroupFromConflictRequest} createWordGroupFromConflictRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreWordGroupConflictCreateGroupPost: async (createWordGroupFromConflictRequest: CreateWordGroupFromConflictRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'createWordGroupFromConflictRequest' is not null or undefined
+            assertParamExists('apiCoreWordGroupConflictCreateGroupPost', 'createWordGroupFromConflictRequest', createWordGroupFromConflictRequest)
+            const localVarPath = `/api/core/word_group_conflict:createGroup`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(createWordGroupFromConflictRequest, localVarRequestOptions, configuration)
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
          * 
          * @summary List pending word group conflicts (updated_at DESC)
          * @param {string} [pageToken] 
@@ -15827,6 +15904,41 @@ export const WordGroupApiAxiosParamCreator = function (configuration?: Configura
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Merge word groups from merges list, add word into group_ids, resolve conflict
+         * @param {MergeAndAddWordRequest} mergeAndAddWordRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreWordGroupConflictMergeAndAddWordPost: async (mergeAndAddWordRequest: MergeAndAddWordRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'mergeAndAddWordRequest' is not null or undefined
+            assertParamExists('apiCoreWordGroupConflictMergeAndAddWordPost', 'mergeAndAddWordRequest', mergeAndAddWordRequest)
+            const localVarPath = `/api/core/word_group_conflict:mergeAndAddWord`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(mergeAndAddWordRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -15943,42 +16055,7 @@ export const WordGroupApiAxiosParamCreator = function (configuration?: Configura
         },
         /**
          * 
-         * @summary Merge word groups then add one word into merged group as alias
-         * @param {MergeAndAddWordRequest} mergeAndAddWordRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        apiCoreWordGroupMergeAndAddWordPost: async (mergeAndAddWordRequest: MergeAndAddWordRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
-            // verify required parameter 'mergeAndAddWordRequest' is not null or undefined
-            assertParamExists('apiCoreWordGroupMergeAndAddWordPost', 'mergeAndAddWordRequest', mergeAndAddWordRequest)
-            const localVarPath = `/api/core/word_group:mergeAndAddWord`;
-            // use dummy base URL string because the URL constructor only accepts absolute URLs.
-            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
-            let baseOptions;
-            if (configuration) {
-                baseOptions = configuration.baseOptions;
-            }
-
-            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
-            const localVarHeaderParameter = {} as any;
-            const localVarQueryParameter = {} as any;
-
-            localVarHeaderParameter['Content-Type'] = 'application/json';
-            localVarHeaderParameter['Accept'] = 'application/json';
-
-            setSearchParams(localVarUrlObj, localVarQueryParameter);
-            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
-            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
-            localVarRequestOptions.data = serializeDataIfNeeded(mergeAndAddWordRequest, localVarRequestOptions, configuration)
-
-            return {
-                url: toPathString(localVarUrlObj),
-                options: localVarRequestOptions,
-            };
-        },
-        /**
-         * 
-         * @summary Merge word groups into the first group_id (first term kept; others become aliases)
+         * @summary Merge word groups: soft-delete merged groups\' words, recreate master group from term, aliases, description
          * @param {MergeWordGroupsRequest} mergeWordGroupsRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -16178,6 +16255,19 @@ export const WordGroupApiFp = function(configuration?: Configuration) {
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
+         * Creates a new word group (term, aliases, description). If group_ids is non-empty, inserts the conflict word as alias into each existing group (skips duplicates). Soft-deletes the conflict row by id.
+         * @summary Create word group from conflict and optionally add conflict word to existing groups
+         * @param {CreateWordGroupFromConflictRequest} createWordGroupFromConflictRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiCoreWordGroupConflictCreateGroupPost(createWordGroupFromConflictRequest: CreateWordGroupFromConflictRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CreateWordGroupFromConflictResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreWordGroupConflictCreateGroupPost(createWordGroupFromConflictRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['WordGroupApi.apiCoreWordGroupConflictCreateGroupPost']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
          * 
          * @summary List pending word group conflicts (updated_at DESC)
          * @param {string} [pageToken] 
@@ -16202,6 +16292,19 @@ export const WordGroupApiFp = function(configuration?: Configuration) {
             const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreWordGroupConflictIdDelete(id, options);
             const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
             const localVarOperationServerBasePath = operationServerMap['WordGroupApi.apiCoreWordGroupConflictIdDelete']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
+         * @summary Merge word groups from merges list, add word into group_ids, resolve conflict
+         * @param {MergeAndAddWordRequest} mergeAndAddWordRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiCoreWordGroupConflictMergeAndAddWordPost(mergeAndAddWordRequest: MergeAndAddWordRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<MergeAndAddWordResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreWordGroupConflictMergeAndAddWordPost(mergeAndAddWordRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['WordGroupApi.apiCoreWordGroupConflictMergeAndAddWordPost']?.[localVarOperationServerIndex]?.url;
             return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
         },
         /**
@@ -16246,20 +16349,7 @@ export const WordGroupApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
-         * @summary Merge word groups then add one word into merged group as alias
-         * @param {MergeAndAddWordRequest} mergeAndAddWordRequest 
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        async apiCoreWordGroupMergeAndAddWordPost(mergeAndAddWordRequest: MergeAndAddWordRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<CreateWordGroupResponse>> {
-            const localVarAxiosArgs = await localVarAxiosParamCreator.apiCoreWordGroupMergeAndAddWordPost(mergeAndAddWordRequest, options);
-            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
-            const localVarOperationServerBasePath = operationServerMap['WordGroupApi.apiCoreWordGroupMergeAndAddWordPost']?.[localVarOperationServerIndex]?.url;
-            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
-        },
-        /**
-         * 
-         * @summary Merge word groups into the first group_id (first term kept; others become aliases)
+         * @summary Merge word groups: soft-delete merged groups\' words, recreate master group from term, aliases, description
          * @param {MergeWordGroupsRequest} mergeWordGroupsRequest 
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -16359,6 +16449,16 @@ export const WordGroupApiFactory = function (configuration?: Configuration, base
             return localVarFp.apiCoreWordGroupConflictAddToGroupPost(requestParameters.addWordGroupConflictToGroupsRequest, options).then((request) => request(axios, basePath));
         },
         /**
+         * Creates a new word group (term, aliases, description). If group_ids is non-empty, inserts the conflict word as alias into each existing group (skips duplicates). Soft-deletes the conflict row by id.
+         * @summary Create word group from conflict and optionally add conflict word to existing groups
+         * @param {WordGroupApiApiCoreWordGroupConflictCreateGroupPostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreWordGroupConflictCreateGroupPost(requestParameters: WordGroupApiApiCoreWordGroupConflictCreateGroupPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<CreateWordGroupFromConflictResponse> {
+            return localVarFp.apiCoreWordGroupConflictCreateGroupPost(requestParameters.createWordGroupFromConflictRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
          * 
          * @summary List pending word group conflicts (updated_at DESC)
          * @param {WordGroupApiApiCoreWordGroupConflictGetRequest} requestParameters Request parameters.
@@ -16377,6 +16477,16 @@ export const WordGroupApiFactory = function (configuration?: Configuration, base
          */
         apiCoreWordGroupConflictIdDelete(requestParameters: WordGroupApiApiCoreWordGroupConflictIdDeleteRequest, options?: RawAxiosRequestConfig): AxiosPromise<DeleteWordGroupConflictResponse> {
             return localVarFp.apiCoreWordGroupConflictIdDelete(requestParameters.id, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
+         * @summary Merge word groups from merges list, add word into group_ids, resolve conflict
+         * @param {WordGroupApiApiCoreWordGroupConflictMergeAndAddWordPostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiCoreWordGroupConflictMergeAndAddWordPost(requestParameters: WordGroupApiApiCoreWordGroupConflictMergeAndAddWordPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<MergeAndAddWordResponse> {
+            return localVarFp.apiCoreWordGroupConflictMergeAndAddWordPost(requestParameters.mergeAndAddWordRequest, options).then((request) => request(axios, basePath));
         },
         /**
          * 
@@ -16410,17 +16520,7 @@ export const WordGroupApiFactory = function (configuration?: Configuration, base
         },
         /**
          * 
-         * @summary Merge word groups then add one word into merged group as alias
-         * @param {WordGroupApiApiCoreWordGroupMergeAndAddWordPostRequest} requestParameters Request parameters.
-         * @param {*} [options] Override http request option.
-         * @throws {RequiredError}
-         */
-        apiCoreWordGroupMergeAndAddWordPost(requestParameters: WordGroupApiApiCoreWordGroupMergeAndAddWordPostRequest, options?: RawAxiosRequestConfig): AxiosPromise<CreateWordGroupResponse> {
-            return localVarFp.apiCoreWordGroupMergeAndAddWordPost(requestParameters.mergeAndAddWordRequest, options).then((request) => request(axios, basePath));
-        },
-        /**
-         * 
-         * @summary Merge word groups into the first group_id (first term kept; others become aliases)
+         * @summary Merge word groups: soft-delete merged groups\' words, recreate master group from term, aliases, description
          * @param {WordGroupApiApiCoreWordGroupMergePostRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
          * @throws {RequiredError}
@@ -16490,6 +16590,13 @@ export interface WordGroupApiApiCoreWordGroupConflictAddToGroupPostRequest {
 }
 
 /**
+ * Request parameters for apiCoreWordGroupConflictCreateGroupPost operation in WordGroupApi.
+ */
+export interface WordGroupApiApiCoreWordGroupConflictCreateGroupPostRequest {
+    readonly createWordGroupFromConflictRequest: CreateWordGroupFromConflictRequest
+}
+
+/**
  * Request parameters for apiCoreWordGroupConflictGet operation in WordGroupApi.
  */
 export interface WordGroupApiApiCoreWordGroupConflictGetRequest {
@@ -16503,6 +16610,13 @@ export interface WordGroupApiApiCoreWordGroupConflictGetRequest {
  */
 export interface WordGroupApiApiCoreWordGroupConflictIdDeleteRequest {
     readonly id: string
+}
+
+/**
+ * Request parameters for apiCoreWordGroupConflictMergeAndAddWordPost operation in WordGroupApi.
+ */
+export interface WordGroupApiApiCoreWordGroupConflictMergeAndAddWordPostRequest {
+    readonly mergeAndAddWordRequest: MergeAndAddWordRequest
 }
 
 /**
@@ -16526,13 +16640,6 @@ export interface WordGroupApiApiCoreWordGroupGroupIdDeleteRequest {
  */
 export interface WordGroupApiApiCoreWordGroupGroupIdGetRequest {
     readonly groupId: string
-}
-
-/**
- * Request parameters for apiCoreWordGroupMergeAndAddWordPost operation in WordGroupApi.
- */
-export interface WordGroupApiApiCoreWordGroupMergeAndAddWordPostRequest {
-    readonly mergeAndAddWordRequest: MergeAndAddWordRequest
 }
 
 /**
@@ -16612,6 +16719,17 @@ export class WordGroupApi extends BaseAPI {
     }
 
     /**
+     * Creates a new word group (term, aliases, description). If group_ids is non-empty, inserts the conflict word as alias into each existing group (skips duplicates). Soft-deletes the conflict row by id.
+     * @summary Create word group from conflict and optionally add conflict word to existing groups
+     * @param {WordGroupApiApiCoreWordGroupConflictCreateGroupPostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiCoreWordGroupConflictCreateGroupPost(requestParameters: WordGroupApiApiCoreWordGroupConflictCreateGroupPostRequest, options?: RawAxiosRequestConfig) {
+        return WordGroupApiFp(this.configuration).apiCoreWordGroupConflictCreateGroupPost(requestParameters.createWordGroupFromConflictRequest, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
      * 
      * @summary List pending word group conflicts (updated_at DESC)
      * @param {WordGroupApiApiCoreWordGroupConflictGetRequest} requestParameters Request parameters.
@@ -16631,6 +16749,17 @@ export class WordGroupApi extends BaseAPI {
      */
     public apiCoreWordGroupConflictIdDelete(requestParameters: WordGroupApiApiCoreWordGroupConflictIdDeleteRequest, options?: RawAxiosRequestConfig) {
         return WordGroupApiFp(this.configuration).apiCoreWordGroupConflictIdDelete(requestParameters.id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Merge word groups from merges list, add word into group_ids, resolve conflict
+     * @param {WordGroupApiApiCoreWordGroupConflictMergeAndAddWordPostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiCoreWordGroupConflictMergeAndAddWordPost(requestParameters: WordGroupApiApiCoreWordGroupConflictMergeAndAddWordPostRequest, options?: RawAxiosRequestConfig) {
+        return WordGroupApiFp(this.configuration).apiCoreWordGroupConflictMergeAndAddWordPost(requestParameters.mergeAndAddWordRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**
@@ -16668,18 +16797,7 @@ export class WordGroupApi extends BaseAPI {
 
     /**
      * 
-     * @summary Merge word groups then add one word into merged group as alias
-     * @param {WordGroupApiApiCoreWordGroupMergeAndAddWordPostRequest} requestParameters Request parameters.
-     * @param {*} [options] Override http request option.
-     * @throws {RequiredError}
-     */
-    public apiCoreWordGroupMergeAndAddWordPost(requestParameters: WordGroupApiApiCoreWordGroupMergeAndAddWordPostRequest, options?: RawAxiosRequestConfig) {
-        return WordGroupApiFp(this.configuration).apiCoreWordGroupMergeAndAddWordPost(requestParameters.mergeAndAddWordRequest, options).then((request) => request(this.axios, this.basePath));
-    }
-
-    /**
-     * 
-     * @summary Merge word groups into the first group_id (first term kept; others become aliases)
+     * @summary Merge word groups: soft-delete merged groups\' words, recreate master group from term, aliases, description
      * @param {WordGroupApiApiCoreWordGroupMergePostRequest} requestParameters Request parameters.
      * @param {*} [options] Override http request option.
      * @throws {RequiredError}

@@ -134,8 +134,6 @@ components:
             properties:
                 action:
                     type: string
-                create_user_id:
-                    type: string
                 description:
                     type: string
                 group_ids:
@@ -144,17 +142,19 @@ components:
                     type: string
                 reason:
                     type: string
+                user_id:
+                    type: string
                 words:
                     items:
                         type: string
                     type: array
             required:
                 - action
-                - create_user_id
                 - description
                 - group_ids
                 - message_ids
                 - reason
+                - user_id
             type: object
         ApplyWordGroupActionRequest:
             properties:
@@ -332,6 +332,8 @@ components:
             type: object
         CheckModelProviderData:
             properties:
+                message:
+                    type: string
                 success:
                     type: boolean
             required:
@@ -586,6 +588,56 @@ components:
                         $ref: '#/components/schemas/TaskResponse'
                     type: array
             type: object
+        CreateWordGroupFromConflictRequest:
+            properties:
+                aliases:
+                    items:
+                        type: string
+                    type: array
+                description:
+                    type: string
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+                id:
+                    type: string
+                term:
+                    type: string
+                word:
+                    type: string
+            required:
+                - description
+                - id
+                - term
+                - word
+            type: object
+        CreateWordGroupFromConflictResponse:
+            properties:
+                added_groups:
+                    items:
+                        type: string
+                    type: array
+                createWordGroupResponse:
+                    $ref: '#/components/schemas/CreateWordGroupResponse'
+                deleted_conflict_rows:
+                    format: int64
+                    type: integer
+                group_ids:
+                    items:
+                        type: string
+                    type: array
+                skipped_groups:
+                    items:
+                        type: string
+                    type: array
+                word:
+                    type: string
+            required:
+                - createWordGroupResponse
+                - deleted_conflict_rows
+                - word
+            type: object
         CreateWordGroupRequest:
             properties:
                 aliases:
@@ -687,6 +739,10 @@ components:
                     items:
                         $ref: '#/components/schemas/ParserConfig'
                     type: array
+                scan_managed:
+                    type: boolean
+                scan_source_type:
+                    type: string
                 segment_count:
                     format: int64
                     type: integer
@@ -1136,18 +1192,40 @@ components:
                     type: array
                 id:
                     type: string
+                merges:
+                    items:
+                        $ref: '#/components/schemas/MergeWordGroupsRequest'
+                    type: array
                 word:
                     type: string
             required:
                 - id
                 - word
             type: object
+        MergeAndAddWordResponse:
+            properties:
+                items:
+                    items:
+                        $ref: '#/components/schemas/CreateWordGroupResponse'
+                    type: array
+            type: object
         MergeWordGroupsRequest:
             properties:
+                aliases:
+                    items:
+                        type: string
+                    type: array
+                description:
+                    type: string
                 group_ids:
                     items:
                         type: string
                     type: array
+                term:
+                    type: string
+            required:
+                - description
+                - term
             type: object
         ParserConfig:
             properties:
@@ -1870,16 +1948,10 @@ components:
             type: object
         internalSkillRemoveOpenAPIRequest:
             properties:
-                category:
-                    type: string
-                session_id:
-                    type: string
-                skill_name:
+                id:
                     type: string
             required:
-                - category
-                - session_id
-                - skill_name
+                - id
             type: object
         internalSkillSuggestionOpenAPIRequest:
             properties:
@@ -1985,6 +2057,15 @@ components:
             type: object
         managedStateOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
+                auto_evo_apply_status:
+                    type: string
+                auto_evo_error:
+                    type: string
+                auto_evo_generation:
+                    format: int64
+                    type: integer
                 content:
                     type: string
                 content_summary:
@@ -2000,6 +2081,10 @@ components:
                 title:
                     type: string
             required:
+                - auto_evo
+                - auto_evo_apply_status
+                - auto_evo_error
+                - auto_evo_generation
                 - content
                 - content_summary
                 - has_pending_review_suggestions
@@ -2010,6 +2095,8 @@ components:
             type: object
         managedStateUpsertOpenAPIRequest:
             properties:
+                auto_evo:
+                    type: boolean
                 content:
                     type: string
             required:
@@ -2108,12 +2195,12 @@ components:
             type: object
         skillChildCreateOpenAPIRequest:
             properties:
+                auto_evo:
+                    type: boolean
                 content:
                     type: string
                 file_ext:
                     type: string
-                is_locked:
-                    type: boolean
                 name:
                     type: string
             required:
@@ -2122,6 +2209,8 @@ components:
             type: object
         skillCreateManagedOpenAPIRequest:
             properties:
+                auto_evo:
+                    type: boolean
                 category:
                     type: string
                 children:
@@ -2135,8 +2224,6 @@ components:
                 file_ext:
                     type: string
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2160,6 +2247,15 @@ components:
             type: object
         skillDetailChildOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
+                auto_evo_apply_status:
+                    type: string
+                auto_evo_error:
+                    type: string
+                auto_evo_generation:
+                    format: int64
+                    type: integer
                 content:
                     type: string
                 description:
@@ -2169,8 +2265,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2185,12 +2279,15 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
+                - auto_evo_apply_status
+                - auto_evo_error
+                - auto_evo_generation
                 - content
                 - description
                 - file_ext
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - parent_skill_name
@@ -2200,6 +2297,15 @@ components:
             type: object
         skillDetailOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
+                auto_evo_apply_status:
+                    type: string
+                auto_evo_error:
+                    type: string
+                auto_evo_generation:
+                    format: int64
+                    type: integer
                 category:
                     type: string
                 children:
@@ -2215,8 +2321,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2235,13 +2339,16 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
+                - auto_evo_apply_status
+                - auto_evo_error
+                - auto_evo_generation
                 - category
                 - content
                 - description
                 - file_ext
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - parent_skill_name
@@ -2312,6 +2419,15 @@ components:
             type: object
         skillListChildOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
+                auto_evo_apply_status:
+                    type: string
+                auto_evo_error:
+                    type: string
+                auto_evo_generation:
+                    format: int64
+                    type: integer
                 description:
                     type: string
                 file_ext:
@@ -2319,8 +2435,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2333,11 +2447,14 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
+                - auto_evo_apply_status
+                - auto_evo_error
+                - auto_evo_generation
                 - description
                 - file_ext
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - skill_id
@@ -2346,6 +2463,15 @@ components:
             type: object
         skillListItemOpenAPIResponse:
             properties:
+                auto_evo:
+                    type: boolean
+                auto_evo_apply_status:
+                    type: string
+                auto_evo_error:
+                    type: string
+                auto_evo_generation:
+                    format: int64
+                    type: integer
                 category:
                     type: string
                 children:
@@ -2357,8 +2483,6 @@ components:
                 has_pending_review_suggestions:
                     type: boolean
                 is_enabled:
-                    type: boolean
-                is_locked:
                     type: boolean
                 name:
                     type: string
@@ -2375,11 +2499,14 @@ components:
                 update_status:
                     type: string
             required:
+                - auto_evo
+                - auto_evo_apply_status
+                - auto_evo_error
+                - auto_evo_generation
                 - category
                 - description
                 - has_pending_review_suggestions
                 - is_enabled
-                - is_locked
                 - name
                 - node_type
                 - skill_id
@@ -2633,6 +2760,8 @@ components:
             type: object
         skillUpdateManagedOpenAPIRequest:
             properties:
+                auto_evo:
+                    type: boolean
                 category:
                     type: string
                 content:
@@ -2643,9 +2772,9 @@ components:
                     type: string
                 is_enabled:
                     type: boolean
-                is_locked:
-                    type: boolean
                 name:
+                    type: string
+                parent_skill_name:
                     type: string
                 tags:
                     items:
@@ -5261,7 +5390,7 @@ paths:
                 - memory
     /api/core/model_providers:
         get:
-            description: Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. Requires X-User-Id; optional X-User-Name is stored on new rows. Query parameter keyword filters by provider name (SQL LIKE).
+            description: Per-user model provider list. On first request for a user, rows are copied from the built-in default_model_providers table. The current user identity is injected by the auth gateway from the token. Query parameter keyword filters by provider name (SQL LIKE).
             parameters:
                 - in: query
                   name: keyword
@@ -5323,7 +5452,7 @@ paths:
                 - model_providers
     /api/core/model_providers/{model_provider_id}/groups/{group_id}:
         delete:
-            description: Soft-deletes the group and its user_model_provider_group_models rows. Requires X-User-Id.
+            description: Soft-deletes the group and its user_model_provider_group_models rows. The current user identity is injected by the auth gateway from the token.
             parameters:
                 - in: path
                   name: model_provider_id
@@ -5429,7 +5558,7 @@ paths:
                 - model_providers
     /api/core/model_providers/{model_provider_id}/groups/{group_id}/models/{model_id}:
         delete:
-            description: Soft-deletes one user_model_provider_group_models row. Requires X-User-Id.
+            description: Soft-deletes one user_model_provider_group_models row. The current user identity is injected by the auth gateway from the token.
             parameters:
                 - in: path
                   name: model_provider_id
@@ -5458,7 +5587,7 @@ paths:
                 - model_providers
     /api/core/model_providers/{model_provider_id}/groups/{group_id}:check:
         post:
-            description: Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. Requires X-User-Id. Response data is the algorithm JSON payload.
+            description: Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.
             parameters:
                 - in: path
                   name: model_provider_id
@@ -5482,7 +5611,7 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/CheckModelProviderData'
-                    description: data contains only success (bool), mapped from algorithm /api/model/check
+                    description: 'data: success and message from algorithm /api/model/check'
             summary: Check model provider connectivity
             tags:
                 - model_providers
@@ -5538,7 +5667,7 @@ paths:
                 - model_providers
     /api/core/model_providers:with_groups:
         get:
-            description: Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. Requires X-User-Id. Same response shape as GET /model_providers.
+            description: Returns user_model_providers for the current user that have at least one non-deleted row in user_model_provider_groups. The current user identity is injected by the auth gateway from the token. Same response shape as GET /model_providers.
             responses:
                 "200":
                     content:
@@ -5879,7 +6008,7 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/skillDeleteOpenAPIResponse'
                     description: Deleted skill
-            summary: Delete skill directly from internal request
+            summary: Delete skill by ID
             tags:
                 - skill-evolution
     /api/core/skill/suggestion:
@@ -6528,25 +6657,7 @@ paths:
                             schema:
                                 $ref: '#/components/schemas/CreateWordGroupResponse'
                     description: Merged word group
-            summary: Merge word groups into the first group_id (first term kept; others become aliases)
-            tags:
-                - word_group
-    /api/core/word_group:mergeAndAddWord:
-        post:
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            $ref: '#/components/schemas/MergeAndAddWordRequest'
-                required: true
-            responses:
-                "200":
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/CreateWordGroupResponse'
-                    description: Merged word group with added word
-            summary: Merge word groups then add one word into merged group as alias
+            summary: 'Merge word groups: soft-delete merged groups'' words, recreate master group from term, aliases, description'
             tags:
                 - word_group
     /api/core/word_group:search:
@@ -6642,6 +6753,43 @@ paths:
                                 $ref: '#/components/schemas/AddWordGroupConflictToGroupsResponse'
                     description: Conflict word add-to-group result
             summary: Add conflict word to selected groups
+            tags:
+                - word_group
+    /api/core/word_group_conflict:createGroup:
+        post:
+            description: Creates a new word group (term, aliases, description). If group_ids is non-empty, inserts the conflict word as alias into each existing group (skips duplicates). Soft-deletes the conflict row by id.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateWordGroupFromConflictRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CreateWordGroupFromConflictResponse'
+                    description: Created word group from conflict
+            summary: Create word group from conflict and optionally add conflict word to existing groups
+            tags:
+                - word_group
+    /api/core/word_group_conflict:mergeAndAddWord:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/MergeAndAddWordRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/MergeAndAddWordResponse'
+                    description: Merged word groups with added word (one item per merge batch)
+            summary: Merge word groups from merges list, add word into group_ids, resolve conflict
             tags:
                 - word_group
 servers:
