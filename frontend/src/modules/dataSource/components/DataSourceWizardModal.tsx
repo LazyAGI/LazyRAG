@@ -515,29 +515,20 @@ export default function DataSourceWizardModal({
                               name="scheduleCycle"
                             >
                               <Select
-                                options={
-                                  selectedType === "feishu"
-                                    ? [
-                                        {
-                                          label: t("admin.dataSourceCycleDaily"),
-                                          value: "daily",
-                                        },
-                                      ]
-                                    : [
-                                        {
-                                          label: t("admin.dataSourceCycleDaily"),
-                                          value: "daily",
-                                        },
-                                        {
-                                          label: t("admin.dataSourceCycleTwoDays"),
-                                          value: "twoDays",
-                                        },
-                                        {
-                                          label: t("admin.dataSourceCycleWeekly"),
-                                          value: "weekly",
-                                        },
-                                      ]
-                                }
+                                options={[
+                                  {
+                                    label: t("admin.dataSourceCycleDaily"),
+                                    value: "daily",
+                                  },
+                                  {
+                                    label: t("admin.dataSourceCycleTwoDays"),
+                                    value: "twoDays",
+                                  },
+                                  {
+                                    label: t("admin.dataSourceCycleWeekly"),
+                                    value: "weekly",
+                                  },
+                                ]}
                               />
                             </Form.Item>
                           </Col>

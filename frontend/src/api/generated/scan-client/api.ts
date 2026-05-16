@@ -134,6 +134,7 @@ export interface CreateKnowledgeBaseResponse {
 }
 export interface CreateSourceRequest {
     'agent_id': string;
+    'create_user_id'?: string;
     'dataset_id'?: string;
     'default_origin_platform'?: string;
     'default_origin_type'?: string;
@@ -391,6 +392,7 @@ export interface Source {
     'watch_enabled': boolean;
 }
 export interface SourceDocumentItem {
+    'baseline_version'?: string;
     'core_dataset_id'?: string;
     'core_task_id'?: string;
     'core_task_state'?: string;
@@ -398,17 +400,60 @@ export interface SourceDocumentItem {
     'document_id': number;
     'file_type'?: string;
     'has_update'?: boolean;
+    'knowledge_base_present'?: boolean;
+    'last_error'?: string;
     'last_synced_at'?: string;
     'name': string;
+    'next_sync_at'?: string;
+    'object_key'?: string;
     'parse_state': string;
     'path': string;
+    'pending_action'?: SourceDocumentItemPendingActionEnum;
     'scan_orchestration_status'?: string;
     'size_bytes': number;
+    'source_state'?: SourceDocumentItemSourceStateEnum;
     'source_updated_at'?: string;
+    'source_version'?: string;
+    'sync_state'?: SourceDocumentItemSyncStateEnum;
     'tags'?: Array<string>;
     'update_desc'?: string;
-    'update_type'?: string;
+    'update_type'?: SourceDocumentItemUpdateTypeEnum;
 }
+
+export const SourceDocumentItemPendingActionEnum = {
+    None: 'NONE',
+    Create: 'CREATE',
+    Update: 'UPDATE',
+    Delete: 'DELETE'
+} as const;
+
+export type SourceDocumentItemPendingActionEnum = typeof SourceDocumentItemPendingActionEnum[keyof typeof SourceDocumentItemPendingActionEnum];
+export const SourceDocumentItemSourceStateEnum = {
+    Unchanged: 'UNCHANGED',
+    New: 'NEW',
+    Modified: 'MODIFIED',
+    Deleted: 'DELETED'
+} as const;
+
+export type SourceDocumentItemSourceStateEnum = typeof SourceDocumentItemSourceStateEnum[keyof typeof SourceDocumentItemSourceStateEnum];
+export const SourceDocumentItemSyncStateEnum = {
+    Idle: 'IDLE',
+    Pending: 'PENDING',
+    Scheduled: 'SCHEDULED',
+    Running: 'RUNNING',
+    Failed: 'FAILED'
+} as const;
+
+export type SourceDocumentItemSyncStateEnum = typeof SourceDocumentItemSyncStateEnum[keyof typeof SourceDocumentItemSyncStateEnum];
+export const SourceDocumentItemUpdateTypeEnum = {
+    New: 'NEW',
+    Modified: 'MODIFIED',
+    Deleted: 'DELETED',
+    Unchanged: 'UNCHANGED'
+} as const;
+
+export type SourceDocumentItemUpdateTypeEnum = typeof SourceDocumentItemUpdateTypeEnum[keyof typeof SourceDocumentItemUpdateTypeEnum];
+
 export interface SourceDocumentsResponse {
     'items': Array<SourceDocumentItem>;
     'page': number;
@@ -451,13 +496,55 @@ export interface TreeNode {
     'has_update'?: boolean;
     'is_dir': boolean;
     'key': string;
+    'knowledge_base_present'?: boolean;
+    'last_error'?: string;
+    'next_sync_at'?: string;
+    'object_key'?: string;
     'parse_queue_state'?: string;
+    'pending_action'?: TreeNodePendingActionEnum;
     'selectable'?: boolean;
+    'source_state'?: TreeNodeSourceStateEnum;
     'status_source'?: string;
+    'sync_state'?: TreeNodeSyncStateEnum;
     'title': string;
     'update_desc'?: string;
-    'update_type'?: string;
+    'update_type'?: TreeNodeUpdateTypeEnum;
 }
+
+export const TreeNodePendingActionEnum = {
+    None: 'NONE',
+    Create: 'CREATE',
+    Update: 'UPDATE',
+    Delete: 'DELETE'
+} as const;
+
+export type TreeNodePendingActionEnum = typeof TreeNodePendingActionEnum[keyof typeof TreeNodePendingActionEnum];
+export const TreeNodeSourceStateEnum = {
+    Unchanged: 'UNCHANGED',
+    New: 'NEW',
+    Modified: 'MODIFIED',
+    Deleted: 'DELETED'
+} as const;
+
+export type TreeNodeSourceStateEnum = typeof TreeNodeSourceStateEnum[keyof typeof TreeNodeSourceStateEnum];
+export const TreeNodeSyncStateEnum = {
+    Idle: 'IDLE',
+    Pending: 'PENDING',
+    Scheduled: 'SCHEDULED',
+    Running: 'RUNNING',
+    Failed: 'FAILED'
+} as const;
+
+export type TreeNodeSyncStateEnum = typeof TreeNodeSyncStateEnum[keyof typeof TreeNodeSyncStateEnum];
+export const TreeNodeUpdateTypeEnum = {
+    New: 'NEW',
+    Modified: 'MODIFIED',
+    Deleted: 'DELETED',
+    Unchanged: 'UNCHANGED'
+} as const;
+
+export type TreeNodeUpdateTypeEnum = typeof TreeNodeUpdateTypeEnum[keyof typeof TreeNodeUpdateTypeEnum];
+
 export interface TriggerCloudSyncRequest {
     'paths'?: Array<string>;
     'trigger_type'?: string;
@@ -491,6 +578,16 @@ export interface UpsertCloudSourceBindingRequest {
     'schedule_tz'?: string;
     'target_ref'?: string;
     'target_type'?: string;
+}
+export interface ValidateCloudTargetRequest {
+    'auth_connection_id': string;
+    'provider': string;
+    'provider_options'?: { [key: string]: any; };
+    'target_ref'?: string;
+    'target_type'?: string;
+}
+export interface ValidateCloudTargetResponse {
+    'valid': boolean;
 }
 export interface WatchToggleResponse {
     'accepted': boolean;
@@ -631,6 +728,41 @@ export const DefaultApiAxiosParamCreator = function (configuration?: Configurati
             setSearchParams(localVarUrlObj, localVarQueryParameter);
             let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
             localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+
+            return {
+                url: toPathString(localVarUrlObj),
+                options: localVarRequestOptions,
+            };
+        },
+        /**
+         * 
+         * @summary Validate cloud target
+         * @param {ValidateCloudTargetRequest} validateCloudTargetRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiScanCloudTargetValidatePost: async (validateCloudTargetRequest: ValidateCloudTargetRequest, options: RawAxiosRequestConfig = {}): Promise<RequestArgs> => {
+            // verify required parameter 'validateCloudTargetRequest' is not null or undefined
+            assertParamExists('apiScanCloudTargetValidatePost', 'validateCloudTargetRequest', validateCloudTargetRequest)
+            const localVarPath = `/api/scan/cloud/target/validate`;
+            // use dummy base URL string because the URL constructor only accepts absolute URLs.
+            const localVarUrlObj = new URL(localVarPath, DUMMY_BASE_URL);
+            let baseOptions;
+            if (configuration) {
+                baseOptions = configuration.baseOptions;
+            }
+
+            const localVarRequestOptions = { method: 'POST', ...baseOptions, ...options};
+            const localVarHeaderParameter = {} as any;
+            const localVarQueryParameter = {} as any;
+
+            localVarHeaderParameter['Content-Type'] = 'application/json';
+            localVarHeaderParameter['Accept'] = 'application/json';
+
+            setSearchParams(localVarUrlObj, localVarQueryParameter);
+            let headersFromBaseOptions = baseOptions && baseOptions.headers ? baseOptions.headers : {};
+            localVarRequestOptions.headers = {...localVarHeaderParameter, ...headersFromBaseOptions, ...options.headers};
+            localVarRequestOptions.data = serializeDataIfNeeded(validateCloudTargetRequest, localVarRequestOptions, configuration)
 
             return {
                 url: toPathString(localVarUrlObj),
@@ -1838,6 +1970,19 @@ export const DefaultApiFp = function(configuration?: Configuration) {
         },
         /**
          * 
+         * @summary Validate cloud target
+         * @param {ValidateCloudTargetRequest} validateCloudTargetRequest 
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        async apiScanCloudTargetValidatePost(validateCloudTargetRequest: ValidateCloudTargetRequest, options?: RawAxiosRequestConfig): Promise<(axios?: AxiosInstance, basePath?: string) => AxiosPromise<ValidateCloudTargetResponse>> {
+            const localVarAxiosArgs = await localVarAxiosParamCreator.apiScanCloudTargetValidatePost(validateCloudTargetRequest, options);
+            const localVarOperationServerIndex = configuration?.serverIndex ?? 0;
+            const localVarOperationServerBasePath = operationServerMap['DefaultApi.apiScanCloudTargetValidatePost']?.[localVarOperationServerIndex]?.url;
+            return (axios, basePath) => createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration)(axios, localVarOperationServerBasePath || basePath);
+        },
+        /**
+         * 
          * @summary Create knowledge base in core and grant current user read permission
          * @param {CreateKnowledgeBaseRequest} createKnowledgeBaseRequest 
          * @param {*} [options] Override http request option.
@@ -2296,6 +2441,16 @@ export const DefaultApiFactory = function (configuration?: Configuration, basePa
         },
         /**
          * 
+         * @summary Validate cloud target
+         * @param {DefaultApiApiScanCloudTargetValidatePostRequest} requestParameters Request parameters.
+         * @param {*} [options] Override http request option.
+         * @throws {RequiredError}
+         */
+        apiScanCloudTargetValidatePost(requestParameters: DefaultApiApiScanCloudTargetValidatePostRequest, options?: RawAxiosRequestConfig): AxiosPromise<ValidateCloudTargetResponse> {
+            return localVarFp.apiScanCloudTargetValidatePost(requestParameters.validateCloudTargetRequest, options).then((request) => request(axios, basePath));
+        },
+        /**
+         * 
          * @summary Create knowledge base in core and grant current user read permission
          * @param {DefaultApiApiScanKnowledgeBasesPostRequest} requestParameters Request parameters.
          * @param {*} [options] Override http request option.
@@ -2617,6 +2772,13 @@ export interface DefaultApiApiScanAgentsIdGetRequest {
 }
 
 /**
+ * Request parameters for apiScanCloudTargetValidatePost operation in DefaultApi.
+ */
+export interface DefaultApiApiScanCloudTargetValidatePostRequest {
+    readonly validateCloudTargetRequest: ValidateCloudTargetRequest
+}
+
+/**
  * Request parameters for apiScanKnowledgeBasesPost operation in DefaultApi.
  */
 export interface DefaultApiApiScanKnowledgeBasesPostRequest {
@@ -2901,6 +3063,17 @@ export class DefaultApi extends BaseAPI {
      */
     public apiScanAgentsIdGet(requestParameters: DefaultApiApiScanAgentsIdGetRequest, options?: RawAxiosRequestConfig) {
         return DefaultApiFp(this.configuration).apiScanAgentsIdGet(requestParameters.id, options).then((request) => request(this.axios, this.basePath));
+    }
+
+    /**
+     * 
+     * @summary Validate cloud target
+     * @param {DefaultApiApiScanCloudTargetValidatePostRequest} requestParameters Request parameters.
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     */
+    public apiScanCloudTargetValidatePost(requestParameters: DefaultApiApiScanCloudTargetValidatePostRequest, options?: RawAxiosRequestConfig) {
+        return DefaultApiFp(this.configuration).apiScanCloudTargetValidatePost(requestParameters.validateCloudTargetRequest, options).then((request) => request(this.axios, this.basePath));
     }
 
     /**

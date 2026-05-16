@@ -959,6 +959,22 @@ const enUS = {
     dataSourceFileUpdateDeletedDetailTitle: "Deleted at source",
     dataSourceFileUpdateDeletedDetail: "Deleted at source and pending index cleanup",
     dataSourceFileUpdateUnchangedDetail: "File is already up to date",
+    dataSourceFileUpdateDeletedPendingDetail:
+      "Deleted at source. Still kept in the knowledge base until next sync removes it.",
+    dataSourceFileUpdateDeletedDoneDetail:
+      "Deletion synced. Document removed from the knowledge base.",
+    dataSourceSourceStateNew: "Added at source",
+    dataSourceSourceStateModified: "Updated at source",
+    dataSourceSourceStateDeleted: "Deleted at source",
+    dataSourceSourceStateUnchanged: "In sync",
+    dataSourceSyncStateIdle: "Up to date",
+    dataSourceSyncStatePending: "Pending sync",
+    dataSourceSyncStateScheduled: "Awaiting scheduled sync",
+    dataSourceSyncStateScheduledAt: "Scheduled sync: {{time}}",
+    dataSourceSyncStateRunning: "Syncing",
+    dataSourceSyncStateFailed: "Sync failed",
+    dataSourceSyncStateFailedWithError: "Sync failed: {{error}}",
+    dataSourceScheduleAutoSuffix: "auto sync",
     dataSourceDetailSelectFileFirst: "Please select files first.",
     dataSourceDetailSyncNoChange:
       "Manual pull checked {{checkedCount}} files. No updates found, backend ignored automatically.",
