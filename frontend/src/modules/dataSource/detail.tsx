@@ -42,10 +42,8 @@ import {
   buildDocumentStatusDetail,
   formatBytes,
   formatDateTime,
-  getFileUpdateMeta,
   getSourceStateMeta,
   getSyncStateMeta,
-  normalizeDataSourceFileUpdateState,
   normalizeDataSourceParseStatus,
   normalizeDataSourceStatus,
   normalizePendingAction,
@@ -940,11 +938,23 @@ export default function DataSourceDetail() {
     const toDataNode = (nodes: ScanTreeNode[]): DataNode[] =>
       nodes.map((node) => {
         const children = node.children ? toDataNode(node.children) : undefined;
-        const updateState = getTreeNodeUpdateState(node);
-        const updateMeta = getFileUpdateMeta(updateState, t);
-        const updateText = `${node.update_desc || ""}`.trim() || updateMeta.text;
-        const hasUpdateStatus =
-          typeof node.has_update === "boolean" || Boolean(node.update_type || node.update_desc);
+        const sourceState = resolveSourceState(node);
+        const syncState = resolveSyncState(node);
+        const sourceMeta =
+          sourceState !== "UNCHANGED" ? getSourceStateMeta(sourceState, t) : null;
+        const syncMeta =
+          syncState !== "IDLE"
+            ? getSyncStateMeta(
+                syncState,
+                {
+                  nextSyncAt: node.next_sync_at,
+                  lastError: node.last_error,
+                  knowledgeBasePresent: node.knowledge_base_present,
+                  sourceState,
+                },
+                t,
+              )
+            : null;
 
         return {
           key: node.key,
@@ -954,12 +964,19 @@ export default function DataSourceDetail() {
             <div className="data-source-sync-tree-file">
               <div className="data-source-sync-tree-file-main">
                 <span>{node.title}</span>
-                {hasUpdateStatus ? (
+                {sourceMeta ? (
                   <span
-                    className={`data-source-sync-tree-chip data-source-sync-tree-chip-${updateState}`}
-                    title={updateText}
+                    className={`data-source-sync-tree-chip data-source-sync-tree-chip-${sourceMeta.tone}`}
                   >
-                    {updateText}
+                    {sourceMeta.text}
+                  </span>
+                ) : null}
+                {syncMeta ? (
+                  <span
+                    className="data-source-sync-tree-chip data-source-sync-tree-chip-sync"
+                    title={syncMeta.text}
+                  >
+                    {syncMeta.text}
                   </span>
                 ) : null}
               </div>
@@ -1062,18 +1079,15 @@ export default function DataSourceDetail() {
           },
           t,
         );
-        const shouldShowSyncState = syncState !== "IDLE";
         return (
           <div className="data-source-detail-update-state">
             <span className={`data-source-update-chip data-source-update-chip-${sourceMeta.tone}`}>
               <span className="data-source-update-chip-dot" />
               {sourceMeta.text}
             </span>
-            {shouldShowSyncState ? (
-              <Tag color={syncMeta.color} style={{ marginInlineEnd: 0 }}>
-                {syncMeta.text}
-              </Tag>
-            ) : null}
+            <Tag color={syncMeta.color} style={{ marginInlineEnd: 0 }}>
+              {syncMeta.text}
+            </Tag>
             <Text type="secondary" title={detail}>
               {detail}
             </Text>
