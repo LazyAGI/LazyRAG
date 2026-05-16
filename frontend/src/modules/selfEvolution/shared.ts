@@ -1751,6 +1751,35 @@ export function buildApplyEventDisplayText(
   return undefined;
 }
 
+export function buildDatasetEventDisplayText(
+  action: string | undefined,
+  payload: Record<string, unknown> | undefined,
+) {
+  const eventData = getEventPayloadData(payload);
+  const current = getNumberField(eventData, ["current", "completed", "done", "processed"]);
+  const total = getNumberField(eventData, ["total", "num_cases", "cases", "count"]);
+  const countText =
+    typeof current === "number" && typeof total === "number" && total > 0
+      ? `，进度 ${current}/${total}`
+      : typeof total === "number" && total > 0
+        ? `，共 ${total} 条样本`
+        : "";
+
+  if (isActionKind(action, "start")) {
+    return "已启动数据集生成，正在准备评测样本。";
+  }
+  if (isActionKind(action, "finish")) {
+    return "数据集生成已完成，可下载查看结果。";
+  }
+  if (isActionKind(action, "cancel")) {
+    return "数据集生成已取消。";
+  }
+  if (isActionKind(action, "pause")) {
+    return "数据集生成已暂停，等待继续执行。";
+  }
+  return `数据集生成正在执行${countText}。`;
+}
+
 export function buildEvalEventDisplayText(
   action: string | undefined,
   type: string,
@@ -2519,10 +2548,12 @@ export function normalizeThreadEvent(frame: ThreadEventFrame): NormalizedThreadE
   const actionLabel = action ? eventActionLabels[action] || action : "事件更新";
   const detail = content || compactPayloadForDisplay(payload);
   const displayText =
+    (stage === "dataset_gen" && buildDatasetEventDisplayText(action, payload)) ||
     (stage === "run" && buildAnalysisEventDisplayText(action, type, payload)) ||
     (stage === "apply" && buildApplyEventDisplayText(action, type, payload)) ||
     (stage === "eval" && buildEvalEventDisplayText(action, type, payload)) ||
     (stage === "abtest" && buildAbtestEventDisplayText(action)) ||
+    (stage === "dataset_gen" && "数据集生成正在执行。") ||
     (detail ? `${stageLabels[stage]}：${actionLabel}，${detail}` : `${stageLabels[stage]}：${actionLabel}`);
   const progress = getWorkflowProgressSnapshot(stage, action, payload, type);
   const progressPhase = stage === "eval" ? getEvalPayloadPhase(action, type, payload) : undefined;

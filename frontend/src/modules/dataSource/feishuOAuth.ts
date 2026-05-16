@@ -471,6 +471,10 @@ export function saveFeishuDataSourceWizardDraft(
   sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
 }
 
+export function clearFeishuDataSourceWizardDraft() {
+  sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+}
+
 export function consumeFeishuDataSourceWizardDraft() {
   const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY);
   if (!raw) {

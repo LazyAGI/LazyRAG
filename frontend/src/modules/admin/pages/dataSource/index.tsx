@@ -49,6 +49,7 @@ import DataSourceSummaryCards from "./components/DataSourceSummaryCards";
 import DataSourceWizardModal from "./components/DataSourceWizardModal";
 import {
   FEISHU_DATA_SOURCE_OAUTH_CHANNEL,
+  clearFeishuDataSourceWizardDraft,
   consumeFeishuDataSourceOAuthResult,
   consumeFeishuDataSourceWizardDraft,
   finishFeishuDataSourceOAuth,
@@ -965,6 +966,7 @@ export default function DataSourceManagement() {
 
   const handleCloseWizard = () => {
     setWizardOpen(false);
+    clearFeishuDataSourceWizardDraft();
     resetWizard();
   };
 
