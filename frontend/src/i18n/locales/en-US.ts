@@ -1218,6 +1218,8 @@ const enUS = {
     memorySkillDetailLoadFailed: "Failed to load skill detail",
     memorySkillDetailMarkdownPreview: "Markdown Preview",
     memorySkillDetailPlainPreview: "Content",
+    memorySkillDetailInlineEditHint:
+      "Only the body content is editable here. Name and metadata are read-only on this page.",
     memoryExperienceDetailTitle: "Habit Detail",
     memoryExperienceDetailContent: "Content",
     memoryDiffReviewAction: "Review Diff",

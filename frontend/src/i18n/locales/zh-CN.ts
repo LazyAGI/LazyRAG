@@ -1149,6 +1149,7 @@ const zhCN = {
     memorySkillDetailLoadFailed: "加载技能详情失败",
     memorySkillDetailMarkdownPreview: "Markdown 预览",
     memorySkillDetailPlainPreview: "内容",
+    memorySkillDetailInlineEditHint: "仅支持编辑正文，名称与元信息在此页面只读展示。",
     memoryExperienceDetailTitle: "使用习惯详情",
     memoryExperienceDetailContent: "内容",
     memoryDiffReviewAction: "审阅变更",
