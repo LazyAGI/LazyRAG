@@ -51,7 +51,7 @@ func normalizeReconcilePolicy(reconcileSeconds int64, reconcileSchedule string, 
 		}
 		return reconcileSeconds, "", nil
 	}
-	if _, _, _, err := parseReconcileScheduleExpr(schedule); err != nil {
+	if _, _, _, _, err := parseReconcileScheduleExpr(schedule); err != nil {
 		return 0, "", err
 	}
 	if reconcileSeconds <= 0 {
@@ -72,38 +72,38 @@ func normalizeStoredCloudScheduleExpr(expr string) string {
 	return expr
 }
 
-func parseReconcileScheduleExpr(expr string) (everyDays int, hour int, minute int, err error) {
+func parseReconcileScheduleExpr(expr string) (everyDays int, hour int, minute int, second int, err error) {
 	raw := strings.TrimSpace(expr)
 	if raw == "" {
-		return 0, 0, 0, fmt.Errorf("reconcile_schedule is empty")
+		return 0, 0, 0, 0, fmt.Errorf("reconcile_schedule is empty")
 	}
 	lower := strings.ToLower(raw)
 	if strings.HasPrefix(lower, "daily@") {
-		h, m, perr := parseHourMinuteToken(raw[len("daily@"):])
+		h, m, sec, perr := parseHourMinuteToken(raw[len("daily@"):])
 		if perr != nil {
-			return 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
+			return 0, 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
 		}
-		return 1, h, m, nil
+		return 1, h, m, sec, nil
 	}
 	if strings.HasPrefix(lower, "every") && strings.Contains(lower, "d@") {
 		pos := strings.Index(lower, "d@")
 		dayToken := strings.TrimSpace(raw[len("every"):pos])
 		days, derr := strconv.Atoi(dayToken)
 		if derr != nil || days <= 0 {
-			return 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: invalid everyNd day token", expr)
+			return 0, 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: invalid everyNd day token", expr)
 		}
-		h, m, perr := parseHourMinuteToken(raw[pos+2:])
+		h, m, sec, perr := parseHourMinuteToken(raw[pos+2:])
 		if perr != nil {
-			return 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
+			return 0, 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
 		}
-		return days, h, m, nil
+		return days, h, m, sec, nil
 	}
 	if strings.HasPrefix(raw, "每天") {
-		h, m, perr := parseHourMinuteToken(strings.TrimSpace(strings.TrimPrefix(raw, "每天")))
+		h, m, sec, perr := parseHourMinuteToken(strings.TrimSpace(strings.TrimPrefix(raw, "每天")))
 		if perr != nil {
-			return 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
+			return 0, 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
 		}
-		return 1, h, m, nil
+		return 1, h, m, sec, nil
 	}
 	if strings.HasPrefix(raw, "每") && strings.Contains(raw, "天") {
 		pos := strings.Index(raw, "天")
@@ -111,53 +111,55 @@ func parseReconcileScheduleExpr(expr string) (everyDays int, hour int, minute in
 		timeToken := strings.TrimSpace(raw[pos+len("天"):])
 		days, derr := parseDayToken(dayToken)
 		if derr != nil {
-			return 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, derr)
+			return 0, 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, derr)
 		}
-		h, m, perr := parseHourMinuteToken(timeToken)
+		h, m, sec, perr := parseHourMinuteToken(timeToken)
 		if perr != nil {
-			return 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
+			return 0, 0, 0, 0, fmt.Errorf("invalid reconcile_schedule %q: %w", expr, perr)
 		}
-		return days, h, m, nil
+		return days, h, m, sec, nil
 	}
-	return 0, 0, 0, fmt.Errorf("invalid reconcile_schedule format: %q", expr)
+	return 0, 0, 0, 0, fmt.Errorf("invalid reconcile_schedule format: %q", expr)
 }
 
-func parseHourMinuteToken(token string) (int, int, error) {
+func parseHourMinuteToken(token string) (int, int, int, error) {
 	value := strings.TrimSpace(token)
 	if value == "" {
-		return 0, 0, fmt.Errorf("time token is empty")
+		return 0, 0, 0, fmt.Errorf("time token is empty")
 	}
 	value = strings.ReplaceAll(value, "：", ":")
 	if strings.Contains(value, ":") {
 		parts := strings.Split(value, ":")
 		if len(parts) != 2 && len(parts) != 3 {
-			return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
+			return 0, 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
 		}
 		h, errH := strconv.Atoi(strings.TrimSpace(parts[0]))
 		m, errM := strconv.Atoi(strings.TrimSpace(parts[1]))
 		if errH != nil || errM != nil {
-			return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
+			return 0, 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
 		}
+		second := 0
 		if len(parts) == 3 {
-			second, errS := strconv.Atoi(strings.TrimSpace(parts[2]))
-			if errS != nil || second < 0 || second > 59 {
-				return 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
+			parsedSecond, errS := strconv.Atoi(strings.TrimSpace(parts[2]))
+			if errS != nil || parsedSecond < 0 || parsedSecond > 59 {
+				return 0, 0, 0, fmt.Errorf("invalid hh:mm[:ss]")
 			}
+			second = parsedSecond
 		}
 		if h < 0 || h > 23 || m < 0 || m > 59 {
-			return 0, 0, fmt.Errorf("hour/minute out of range")
+			return 0, 0, 0, fmt.Errorf("hour/minute out of range")
 		}
-		return h, m, nil
+		return h, m, second, nil
 	}
 	value = strings.ReplaceAll(value, "时", "点")
 	if strings.Contains(value, "点") {
 		parts := strings.SplitN(value, "点", 2)
 		if len(parts) != 2 {
-			return 0, 0, fmt.Errorf("invalid 点 format")
+			return 0, 0, 0, fmt.Errorf("invalid 点 format")
 		}
 		h, err := strconv.Atoi(strings.TrimSpace(parts[0]))
 		if err != nil {
-			return 0, 0, fmt.Errorf("invalid hour")
+			return 0, 0, 0, fmt.Errorf("invalid hour")
 		}
 		minuteRaw := strings.TrimSpace(parts[1])
 		minuteRaw = strings.TrimSuffix(minuteRaw, "分")
@@ -165,24 +167,24 @@ func parseHourMinuteToken(token string) (int, int, error) {
 		if strings.TrimSpace(minuteRaw) != "" {
 			mv, err := strconv.Atoi(strings.TrimSpace(minuteRaw))
 			if err != nil {
-				return 0, 0, fmt.Errorf("invalid minute")
+				return 0, 0, 0, fmt.Errorf("invalid minute")
 			}
 			m = mv
 		}
 		if h < 0 || h > 23 || m < 0 || m > 59 {
-			return 0, 0, fmt.Errorf("hour/minute out of range")
+			return 0, 0, 0, fmt.Errorf("hour/minute out of range")
 		}
-		return h, m, nil
+		return h, m, 0, nil
 	}
 	// Fallback: only hour token.
 	h, err := strconv.Atoi(value)
 	if err != nil {
-		return 0, 0, fmt.Errorf("invalid hour")
+		return 0, 0, 0, fmt.Errorf("invalid hour")
 	}
 	if h < 0 || h > 23 {
-		return 0, 0, fmt.Errorf("hour out of range")
+		return 0, 0, 0, fmt.Errorf("hour out of range")
 	}
-	return h, 0, nil
+	return h, 0, 0, nil
 }
 
 func parseDayToken(token string) (int, error) {
@@ -297,17 +299,6 @@ func decodeMapJSON(raw string) map[string]any {
 }
 
 func (s *Store) computeNextSyncAt(scheduleExpr, scheduleTZ string, nowUTC time.Time) *time.Time {
-	expr := strings.TrimSpace(scheduleExpr)
-	if expr == "" {
-		return nil
-	}
-	everyDays, hour, minute, err := parseReconcileScheduleExpr(expr)
-	if err != nil {
-		return nil
-	}
-	if everyDays <= 0 {
-		everyDays = 1
-	}
 	tz := strings.TrimSpace(scheduleTZ)
 	if tz == "" {
 		tz = strings.TrimSpace(s.defaultScheduleTZ)
@@ -315,17 +306,7 @@ func (s *Store) computeNextSyncAt(scheduleExpr, scheduleTZ string, nowUTC time.T
 			tz = defaultScheduleTZ
 		}
 	}
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		loc = time.UTC
-	}
-	localNow := nowUTC.In(loc)
-	next := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, minute, 0, 0, loc)
-	for !next.After(localNow) {
-		next = next.AddDate(0, 0, everyDays)
-	}
-	nextUTC := next.UTC()
-	return &nextUTC
+	return computeNextReconcileTimeWithTZ(scheduleExpr, tz, nowUTC)
 }
 
 func (s *Store) EnsureSourceByRootPath(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {

@@ -31,7 +31,7 @@ func (s *Store) CreateSource(ctx context.Context, req model.CreateSourceRequest)
 	if req.RootPath == "" {
 		return model.Source{}, fmt.Errorf("root_path is required for local source")
 	}
-	return s.ensureSourceByRootPath(ctx, req)
+	return s.createLocalSource(ctx, req)
 }
 
 func (s *Store) createCloudSource(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {
@@ -92,6 +92,108 @@ func (s *Store) createCloudSource(ctx context.Context, req model.CreateSourceReq
 		)
 	}
 	return toModelSource(src), nil
+}
+
+func (s *Store) createLocalSource(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {
+	existing, found, err := s.findSourceByRootPath(ctx, req.TenantID, req.CreateUserID, req.AgentID, req.RootPath)
+	if err != nil {
+		return model.Source{}, err
+	}
+	if found {
+		return model.Source{}, fmt.Errorf("%w: local source root_path %q already exists as source %s", ErrSourceAlreadyExists, existing.RootPath, existing.ID)
+	}
+	rootPath := filepath.Clean(strings.TrimSpace(req.RootPath))
+	idle := req.IdleWindowSeconds
+	if idle <= 0 {
+		idle = int64(s.defaultIdleWindow.Seconds())
+	}
+	reconcile, reconcileSchedule, err := normalizeReconcilePolicy(req.ReconcileSeconds, req.ReconcileSchedule, 600)
+	if err != nil {
+		return model.Source{}, err
+	}
+	defaultOriginType := strings.TrimSpace(req.DefaultOriginType)
+	if defaultOriginType == "" {
+		defaultOriginType = string(model.OriginTypeLocalFS)
+	}
+	defaultOriginPlatform := strings.TrimSpace(req.DefaultOriginPlatform)
+	if defaultOriginPlatform == "" {
+		defaultOriginPlatform = "LOCAL"
+	}
+	defaultTriggerPolicy := strings.TrimSpace(req.DefaultTriggerPolicy)
+	if defaultTriggerPolicy == "" {
+		defaultTriggerPolicy = string(model.TriggerPolicyIdleWindow)
+	}
+	now := time.Now().UTC()
+	status := model.SourceStatusDisabled
+	if req.WatchEnabled {
+		status = model.SourceStatusEnabled
+	}
+	var watchUpdatedAt *time.Time
+	if req.WatchEnabled {
+		watchUpdatedAt = &now
+	}
+	src := sourceEntity{
+		ID:                    sourceID(),
+		TenantID:              req.TenantID,
+		CreateUserID:          req.CreateUserID,
+		Name:                  req.Name,
+		SourceType:            "local_fs",
+		RootPath:              rootPath,
+		Status:                string(status),
+		WatchEnabled:          req.WatchEnabled,
+		WatchUpdatedAt:        watchUpdatedAt,
+		IdleWindowSeconds:     idle,
+		ReconcileSeconds:      reconcile,
+		ReconcileSchedule:     reconcileSchedule,
+		AgentID:               req.AgentID,
+		DatasetID:             strings.TrimSpace(req.DatasetID),
+		DefaultOriginType:     defaultOriginType,
+		DefaultOriginPlatform: defaultOriginPlatform,
+		DefaultTriggerPolicy:  defaultTriggerPolicy,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&src).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return fmt.Errorf("%w: local source root_path %q already exists", ErrSourceAlreadyExists, rootPath)
+			}
+			return err
+		}
+		if !req.WatchEnabled {
+			return nil
+		}
+		return enqueueSourceCommand(tx, src.AgentID, model.CommandStartSource, model.SourcePayload{
+			SourceID:          src.ID,
+			TenantID:          src.TenantID,
+			RootPath:          src.RootPath,
+			SkipInitialScan:   false,
+			ReconcileSeconds:  src.ReconcileSeconds,
+			ReconcileSchedule: src.ReconcileSchedule,
+		})
+	})
+	if err != nil {
+		return model.Source{}, err
+	}
+	return toModelSource(src), nil
+}
+
+func (s *Store) findSourceByRootPath(ctx context.Context, tenantID, createUserID, agentID, rootPath string) (sourceEntity, bool, error) {
+	rootPath = filepath.Clean(strings.TrimSpace(rootPath))
+	if rootPath == "" || rootPath == "." {
+		return sourceEntity{}, false, nil
+	}
+	var existing sourceEntity
+	err := s.db.WithContext(ctx).
+		Where("tenant_id = ? AND agent_id = ? AND root_path = ? AND create_user_id = ?", strings.TrimSpace(tenantID), strings.TrimSpace(agentID), rootPath, strings.TrimSpace(createUserID)).
+		Take(&existing).Error
+	if err == nil {
+		return existing, true, nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return sourceEntity{}, false, nil
+	}
+	return sourceEntity{}, false, err
 }
 
 func (s *Store) ensureSourceByRootPath(ctx context.Context, req model.CreateSourceRequest) (model.Source, error) {
@@ -232,7 +334,20 @@ func (s *Store) UpdateSource(ctx context.Context, id string, req model.UpdateSou
 		src.Name = req.Name
 	}
 	if req.RootPath != "" {
-		src.RootPath = filepath.Clean(strings.TrimSpace(req.RootPath))
+		rootPath := filepath.Clean(strings.TrimSpace(req.RootPath))
+		if rootPath == "." || rootPath == "" {
+			return model.Source{}, fmt.Errorf("root_path is required")
+		}
+		if rootPath != src.RootPath {
+			existing, found, err := s.findSourceByRootPath(ctx, src.TenantID, src.CreateUserID, src.AgentID, rootPath)
+			if err != nil {
+				return model.Source{}, err
+			}
+			if found && existing.ID != src.ID {
+				return model.Source{}, fmt.Errorf("%w: source root_path %q already exists as source %s", ErrSourceAlreadyExists, existing.RootPath, existing.ID)
+			}
+		}
+		src.RootPath = rootPath
 	}
 	if strings.TrimSpace(req.DatasetID) != "" {
 		src.DatasetID = strings.TrimSpace(req.DatasetID)
@@ -265,6 +380,9 @@ func (s *Store) UpdateSource(ctx context.Context, id string, req model.UpdateSou
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&src).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return fmt.Errorf("%w: source root_path %q already exists", ErrSourceAlreadyExists, src.RootPath)
+			}
 			return err
 		}
 		if src.Status == string(model.SourceStatusEnabled) && src.WatchEnabled {
@@ -377,6 +495,7 @@ func (s *Store) DeleteSource(ctx context.Context, id string) error {
 			return err
 		}
 		for _, cleanup := range []any{
+			&sourceDocumentStateEntity{},
 			&sourceSnapshotRelationEntity{},
 			&sourceBaselineSnapshotEntity{},
 			&reconcileSnapshotEntity{},
@@ -536,7 +655,7 @@ func (s *Store) UpsertCloudSourceBinding(ctx context.Context, sourceID string, r
 			scheduleExpr = "daily@02:00"
 		}
 		if scheduleExpr != "" {
-			if _, _, _, err := parseReconcileScheduleExpr(scheduleExpr); err != nil {
+			if _, _, _, _, err := parseReconcileScheduleExpr(scheduleExpr); err != nil {
 				return fmt.Errorf("invalid schedule_expr: %w", err)
 			}
 		}
@@ -1363,6 +1482,28 @@ func (s *Store) BuildCloudTreeByPath(ctx context.Context, sourceID, path string,
 
 	nodeMap := make(map[string]*model.TreeNode, len(rows))
 	childMap := make(map[string]map[string]struct{}, len(rows))
+	treePathByExternalID := make(map[string]string, len(rows))
+	rowByExternalID := make(map[string]cloudObjectIndexEntity, len(rows))
+	for _, row := range rows {
+		objectPath := resolveCloudObjectLocalPath(rootPath, row)
+		if objectPath == "" {
+			continue
+		}
+		objectPath = filepath.Clean(objectPath)
+		if !pathInScope(objectPath, []string{rootPath}) {
+			continue
+		}
+		treeObjectPath := cloudObjectTreePath(objectPath, row)
+		if treeObjectPath == "" || treeObjectPath == "." || !pathInScope(treeObjectPath, []string{rootPath}) {
+			continue
+		}
+		externalID := strings.TrimSpace(row.ExternalObjectID)
+		if externalID == "" {
+			continue
+		}
+		treePathByExternalID[externalID] = treeObjectPath
+		rowByExternalID[externalID] = row
+	}
 	hasScopedObject := false
 	pathIsFile := false
 
@@ -1375,28 +1516,33 @@ func (s *Store) BuildCloudTreeByPath(ctx context.Context, sourceID, path string,
 		if !pathInScope(objectPath, []string{rootPath}) {
 			continue
 		}
+		treeObjectPath := cloudObjectTreePath(objectPath, row)
+		if treeObjectPath == "" || treeObjectPath == "." || !pathInScope(treeObjectPath, []string{rootPath}) {
+			continue
+		}
 
 		isDir := cloudObjectIsDirectory(row.ExternalKind)
-		if objectPath == targetPath {
+		treeIsDir := isDir && !cloudObjectWikiPageShouldFold(objectPath, row)
+		if treeObjectPath == targetPath {
 			hasScopedObject = true
-			if !isDir {
+			if !isDir && treeObjectPath == objectPath {
 				pathIsFile = true
-			} else {
-				ensureCloudNode(nodeMap, childMap, objectPath, true, strings.TrimSpace(row.ExternalName), "")
+			} else if treeIsDir {
+				ensureCloudNode(nodeMap, childMap, treeObjectPath, true, cloudObjectDisplayTitle(treeObjectPath, row, true), "")
 			}
 		}
 
-		if !pathInScope(objectPath, []string{targetPath}) {
+		if !pathInScope(treeObjectPath, []string{targetPath}) {
 			continue
 		}
 		hasScopedObject = true
 
-		depth := treeRelativeDepth(targetPath, objectPath)
+		depth := treeRelativeDepth(targetPath, treeObjectPath)
 		if depth < 0 {
 			continue
 		}
 		if depth > 0 {
-			ensureCloudAncestorNodes(nodeMap, childMap, targetPath, objectPath, maxDepth)
+			ensureCloudAncestorNodes(nodeMap, childMap, targetPath, treeObjectPath, maxDepth)
 		}
 		if depth == 0 {
 			continue
@@ -1411,7 +1557,23 @@ func (s *Store) BuildCloudTreeByPath(ctx context.Context, sourceID, path string,
 		if !isDir {
 			externalFileID = strings.TrimSpace(row.ExternalObjectID)
 		}
-		ensureCloudNode(nodeMap, childMap, objectPath, isDir, strings.TrimSpace(row.ExternalName), externalFileID)
+		parentTreePath := ""
+		if parentID := strings.TrimSpace(row.ExternalParentID); parentID != "" {
+			if parentPath := strings.TrimSpace(treePathByExternalID[parentID]); parentPath != "" {
+				parentTreePath = parentPath
+				if _, ok := nodeMap[parentPath]; !ok {
+					parentRow := rowByExternalID[parentID]
+					parentObjectPath := resolveCloudObjectLocalPath(rootPath, parentRow)
+					parentIsDir := cloudObjectIsDirectory(parentRow.ExternalKind) && !cloudObjectWikiPageShouldFold(parentObjectPath, parentRow)
+					ensureCloudNode(nodeMap, childMap, parentPath, parentIsDir, cloudObjectDisplayTitle(parentPath, parentRow, parentIsDir), strings.TrimSpace(parentRow.ExternalObjectID))
+				}
+			}
+		}
+		if treeObjectPath == objectPath {
+			ensureCloudNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, treeIsDir, cloudObjectDisplayTitle(treeObjectPath, row, treeIsDir), externalFileID)
+			continue
+		}
+		ensureCloudNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, false, cloudObjectDisplayTitle(treeObjectPath, row, false), externalFileID)
 	}
 
 	if targetPath != rootPath {

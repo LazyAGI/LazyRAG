@@ -27,6 +27,38 @@ func inferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus str
 	return "UNKNOWN"
 }
 
+func documentSettledForSnapshotNew(desiredVersionID, currentVersionID, parseStatus string, latestTask parseTaskDocJoin, hasLatestTask bool) bool {
+	if inferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus) == "UNCHANGED" {
+		return true
+	}
+	if !hasLatestTask {
+		return false
+	}
+	targetVersion := strings.TrimSpace(latestTask.TargetVersionID)
+	desiredVersion := strings.TrimSpace(desiredVersionID)
+	if targetVersion == "" || desiredVersion == "" || targetVersion != desiredVersion {
+		return false
+	}
+	switch strings.ToUpper(strings.TrimSpace(latestTask.ScanOrchestrationStatus)) {
+	case "SUCCEEDED", "SUCCESS", "COMPLETED", "DONE", "FINISHED":
+		return true
+	}
+	switch strings.ToUpper(strings.TrimSpace(latestTask.Status)) {
+	case "SUCCEEDED", "SUCCESS", "COMPLETED", "DONE", "FINISHED":
+		return true
+	default:
+		return false
+	}
+}
+
+func effectiveDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus string, latestTask parseTaskDocJoin, hasLatestTask bool) string {
+	updateType := inferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus)
+	if updateType == "NEW" && documentSettledForSnapshotNew(desiredVersionID, currentVersionID, parseStatus, latestTask, hasLatestTask) {
+		return "UNCHANGED"
+	}
+	return updateType
+}
+
 func InferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus string) string {
 	return inferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus)
 }

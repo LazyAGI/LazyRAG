@@ -3,6 +3,9 @@ package cloudsync
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazyrag/scan_control_plane/internal/store"
 )
 
 func TestNormalizeManualScopePaths(t *testing.T) {
@@ -42,5 +45,36 @@ func TestPathInRequestedScope(t *testing.T) {
 	}
 	if pathInRequestedScope("/data/ragscan/source/src_ut_001/mirror/other.md", scope) {
 		t.Fatalf("did not expect unrelated path to match")
+	}
+}
+
+func TestCloudObjectInRequestedScopeMatchesWikiDisplayPath(t *testing.T) {
+	t.Parallel()
+	item := store.CloudObjectIndexRecord{
+		ExternalObjectID: "wiki_parent",
+		ExternalKind:     "docx",
+		LocalAbsPath:     "/data/ragscan/source/src_ut_001/mirror/test2/test2.md",
+		ProviderMeta:     map[string]any{"has_child": true},
+	}
+	if !cloudObjectInRequestedScope(item, []string{"/data/ragscan/source/src_ut_001/mirror/test2"}) {
+		t.Fatalf("expected wiki display path to match mirrored parent page file")
+	}
+	if cloudObjectInRequestedScope(item, []string{"/data/ragscan/source/src_ut_001/mirror/other"}) {
+		t.Fatalf("did not expect unrelated manual scope to match")
+	}
+}
+
+func TestSanitizeRelativePathForWikiPageWithChildren(t *testing.T) {
+	t.Parallel()
+	obj := provider.RemoteObject{
+		ExternalPath: "test2",
+		ExternalName: "test2",
+		ProviderMeta: map[string]any{
+			"has_child": true,
+		},
+	}
+	got := sanitizeRelativePathForObject(obj, "node_test2", "docx")
+	if got != "test2/test2.md" {
+		t.Fatalf("expected wiki page content under its own directory, got %q", got)
 	}
 }

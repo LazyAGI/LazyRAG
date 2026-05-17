@@ -293,11 +293,6 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "store not initialized", http.StatusInternalServerError)
 		return
 	}
-	userID := strings.TrimSpace(store.UserID(r))
-	if userID == "" {
-		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
-		return
-	}
 
 	var req removeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -309,23 +304,30 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 	req.Category = strings.TrimSpace(req.Category)
 	req.SkillName = strings.TrimSpace(req.SkillName)
 	req.Reason = strings.TrimSpace(req.Reason)
+	userID, err := resolveRemoveRequestUser(r.Context(), db, r, req)
+	if err != nil {
+		appLog.Logger.Warn().
+			Err(err).
+			Str("route", "/skill/remove").
+			Str("session_id", req.SessionID).
+			Str("skill_id", req.ID).
+			Msg("skill remove request rejected: unable to resolve user")
+		common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	appLog.Logger.Info().
 		Str("route", "/skill/remove").
 		Str("user_id", userID).
 		Str("skill_id", req.ID).
 		Str("payload", payloadForLog(req)).
 		Msg("skill remove request received")
-	if req.ID == "" {
-		appLog.Logger.Warn().
-			Str("route", "/skill/remove").
-			Str("user_id", userID).
-			Msg("skill remove request rejected: missing id")
-		common.ReplyErr(w, "id required", http.StatusBadRequest)
-		return
-	}
 
-	var skillRow orm.SkillResource
-	if err := db.WithContext(r.Context()).Where("owner_user_id = ? AND id = ?", userID, req.ID).Take(&skillRow).Error; err != nil {
+	skillRow, err := loadRemoveSkill(r.Context(), db, userID, req)
+	if err != nil {
+		if errors.Is(err, errRemoveTargetRequired) {
+			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			common.ReplyErr(w, "skill not found", http.StatusNotFound)
 			return
@@ -335,12 +337,26 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 			Str("route", "/skill/remove").
 			Str("user_id", userID).
 			Str("skill_id", req.ID).
+			Str("category", req.Category).
+			Str("skill_name", req.SkillName).
 			Msg("internal skill remove request failed to query skill")
 		common.ReplyErr(w, "query skill failed", http.StatusInternalServerError)
 		return
 	}
+	req.ID = firstNonEmpty(req.ID, strings.TrimSpace(skillRow.ID))
 	req.Category = firstNonEmpty(req.Category, strings.TrimSpace(skillRow.Category))
 	req.SkillName = firstNonEmpty(req.SkillName, strings.TrimSpace(skillRow.SkillName))
+
+	if req.ID == "" {
+		appLog.Logger.Warn().
+			Str("route", "/skill/remove").
+			Str("user_id", userID).
+			Str("category", req.Category).
+			Str("skill_name", req.SkillName).
+			Msg("skill remove request rejected: missing resolved id")
+		common.ReplyErr(w, "id required", http.StatusBadRequest)
+		return
+	}
 
 	status := evolution.SuggestionStatusPendingReview
 	invalidReason := ""
@@ -467,6 +483,41 @@ func Remove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	common.ReplyOK(w, map[string]any{"items": []evolution.RecordedSuggestion{result}})
+}
+
+var errRemoveTargetRequired = errors.New("id or category/skill_name required")
+
+func resolveRemoveRequestUser(ctx context.Context, db *gorm.DB, r *http.Request, req removeRequest) (string, error) {
+	if userID := strings.TrimSpace(store.UserID(r)); userID != "" {
+		return userID, nil
+	}
+	if req.SessionID == "" {
+		return "", errors.New("session_id required")
+	}
+	userID, _, err := evolution.ResolveSessionUser(ctx, db, req.SessionID)
+	if err != nil || strings.TrimSpace(userID) == "" {
+		if err != nil {
+			return "", fmt.Errorf("unable to resolve session user: %w", err)
+		}
+		return "", errors.New("unable to resolve session user")
+	}
+	return strings.TrimSpace(userID), nil
+}
+
+func loadRemoveSkill(ctx context.Context, db *gorm.DB, userID string, req removeRequest) (orm.SkillResource, error) {
+	if req.ID != "" {
+		var skillRow orm.SkillResource
+		err := db.WithContext(ctx).Where("owner_user_id = ? AND id = ?", userID, req.ID).Take(&skillRow).Error
+		return skillRow, err
+	}
+	if req.Category == "" || req.SkillName == "" {
+		return orm.SkillResource{}, errRemoveTargetRequired
+	}
+	state, err := evolution.LoadParentSkillState(ctx, db, userID, req.Category, req.SkillName)
+	if err != nil {
+		return orm.SkillResource{}, err
+	}
+	return *state.Resource, nil
 }
 
 func init() {

@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
 )
 
 func (s *Store) IngestEvents(ctx context.Context, req model.ReportEventsRequest) error {
@@ -49,6 +50,9 @@ func (s *Store) IngestScanResults(ctx context.Context, req model.ReportScanResul
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, m := range mutations {
 			if err := applyDocumentMutation(tx, m, s.log); err != nil {
+				return err
+			}
+			if err := upsertSourceDocumentStateFromMutationTx(tx, m, s.log); err != nil {
 				return err
 			}
 		}
@@ -198,6 +202,282 @@ func (s *Store) persistSourceScanResultSnapshotMetadataTx(tx *gorm.DB, sourceID 
 	}).Error
 }
 
+func (s *Store) commitCloudDocumentSnapshotAfterTaskSucceededTx(tx *gorm.DB, task parseTaskEntity, doc documentEntity, at time.Time, targetVersion string) error {
+	var src sourceEntity
+	if err := tx.Select("id", "tenant_id", "root_path", "default_origin_type").Take(&src, "id = ?", strings.TrimSpace(doc.SourceID)).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	if !sourcelayout.IsCloudOriginType(src.DefaultOriginType) &&
+		!sourcelayout.IsCloudOriginType(task.OriginType) &&
+		!sourcelayout.IsCloudOriginType(doc.OriginType) {
+		return nil
+	}
+
+	path := filepath.Clean(strings.TrimSpace(doc.SourceObjectID))
+	if path == "" || path == "." || isTransientSourceFilePath(path, false) {
+		return nil
+	}
+
+	var relation sourceSnapshotRelationEntity
+	if err := tx.Take(&relation, "source_id = ?", src.ID).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		relation = sourceSnapshotRelationEntity{SourceID: src.ID}
+	}
+	baseItems, baseSnapshotID, err := s.snapshotItemsForDiffBaseDB(tx, src.ID, relation.LastCommittedSnapshotID)
+	if err != nil {
+		return err
+	}
+	merged := make(map[string]sourceFileSnapshotItemEntity, len(baseItems)+1)
+	for itemPath, item := range baseItems {
+		merged[itemPath] = item
+	}
+
+	if normalizeTaskAction(task.TaskAction) == taskActionDelete {
+		paths, err := s.cloudDocumentSnapshotEquivalentPathsTx(tx, src, doc)
+		if err != nil {
+			return err
+		}
+		changed := false
+		for _, itemPath := range paths {
+			if _, ok := merged[itemPath]; ok {
+				delete(merged, itemPath)
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		return s.commitCloudSourceSnapshotItemsTx(tx, src, baseSnapshotID, merged, at)
+	}
+
+	item, equivalentPaths, ok, err := s.cloudSnapshotItemForDocumentTx(tx, src, task, doc, at, targetVersion)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	changed := false
+	for _, itemPath := range equivalentPaths {
+		if itemPath == item.Path {
+			continue
+		}
+		if _, ok := merged[itemPath]; ok {
+			delete(merged, itemPath)
+			changed = true
+		}
+	}
+	if existing, exists := merged[item.Path]; !exists || !cloudSnapshotItemSame(existing, item) {
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	merged[item.Path] = item
+	return s.commitCloudSourceSnapshotItemsTx(tx, src, baseSnapshotID, merged, at)
+}
+
+func (s *Store) cloudSnapshotItemForDocumentTx(tx *gorm.DB, src sourceEntity, task parseTaskEntity, doc documentEntity, at time.Time, targetVersion string) (sourceFileSnapshotItemEntity, []string, bool, error) {
+	path := filepath.Clean(strings.TrimSpace(doc.SourceObjectID))
+	if row, ok, err := cloudObjectIndexForDocumentTx(tx, src.ID, doc, true); err != nil {
+		return sourceFileSnapshotItemEntity{}, nil, false, err
+	} else if ok && !row.IsDeleted {
+		item := cloudSnapshotItemFromIndex(src, row, path, targetVersion, doc)
+		if item.Path == "" || item.Path == "." || isTransientSourceFilePath(item.Path, false) {
+			return sourceFileSnapshotItemEntity{}, nil, false, nil
+		}
+		return item, cloudSnapshotEquivalentPaths(src, row, path), true, nil
+	}
+
+	var state sourceDocumentStateEntity
+	stateQuery := tx.Where("document_id = ? OR active_task_id = ?", doc.ID, task.ID)
+	if originRef := strings.TrimSpace(doc.OriginRef); originRef != "" {
+		stateQuery = stateQuery.Or("source_id = ? AND object_key = ?", src.ID, originRef)
+	}
+	if path != "" && path != "." {
+		stateQuery = stateQuery.Or("source_id = ? AND path = ?", src.ID, path)
+	}
+	if err := stateQuery.Order("id DESC").Take(&state).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return sourceFileSnapshotItemEntity{}, nil, false, err
+	} else if err == nil && state.SourceExists {
+		itemPath := filepath.Clean(strings.TrimSpace(firstNonEmpty(state.Path, path)))
+		if itemPath == "" || itemPath == "." || isTransientSourceFilePath(itemPath, false) {
+			return sourceFileSnapshotItemEntity{}, nil, false, nil
+		}
+		item := sourceFileSnapshotItemEntity{
+			Path:           itemPath,
+			IsDir:          false,
+			SizeBytes:      state.SourceSizeBytes,
+			Checksum:       strings.TrimSpace(firstNonEmpty(state.SourceVersion, state.SourceChecksum, targetVersion, doc.CurrentVersionID, doc.DesiredVersionID)),
+			ExternalFileID: strings.TrimSpace(state.OriginRef),
+		}
+		if state.SourceModifiedAt != nil && !state.SourceModifiedAt.IsZero() {
+			mt := state.SourceModifiedAt.UTC()
+			item.ModTime = &mt
+		} else if doc.LastModifiedAt != nil && !doc.LastModifiedAt.IsZero() {
+			mt := doc.LastModifiedAt.UTC()
+			item.ModTime = &mt
+		}
+		return item, uniqueCleanSnapshotPaths(path, itemPath), true, nil
+	}
+
+	if targetVersion = strings.TrimSpace(firstNonEmpty(targetVersion, doc.CurrentVersionID, doc.DesiredVersionID, task.TargetVersionID)); targetVersion == "" {
+		return sourceFileSnapshotItemEntity{}, nil, false, nil
+	}
+	item := sourceFileSnapshotItemEntity{
+		Path:      path,
+		IsDir:     false,
+		Checksum:  targetVersion,
+		SizeBytes: 0,
+	}
+	if doc.LastModifiedAt != nil && !doc.LastModifiedAt.IsZero() {
+		mt := doc.LastModifiedAt.UTC()
+		item.ModTime = &mt
+	}
+	return item, []string{path}, true, nil
+}
+
+func (s *Store) cloudDocumentSnapshotEquivalentPathsTx(tx *gorm.DB, src sourceEntity, doc documentEntity) ([]string, error) {
+	path := filepath.Clean(strings.TrimSpace(doc.SourceObjectID))
+	row, ok, err := cloudObjectIndexForDocumentTx(tx, src.ID, doc, true)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return uniqueCleanSnapshotPaths(path), nil
+	}
+	return cloudSnapshotEquivalentPaths(src, row, path), nil
+}
+
+func cloudObjectIndexForDocumentTx(tx *gorm.DB, sourceID string, doc documentEntity, includeDeleted bool) (cloudObjectIndexEntity, bool, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	path := filepath.Clean(strings.TrimSpace(doc.SourceObjectID))
+	originRef := strings.TrimSpace(doc.OriginRef)
+	take := func(query *gorm.DB) (cloudObjectIndexEntity, bool, error) {
+		if !includeDeleted {
+			query = query.Where("is_deleted = ?", false)
+		}
+		var row cloudObjectIndexEntity
+		err := query.Order("id DESC").Take(&row).Error
+		if err == nil {
+			return row, true, nil
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return cloudObjectIndexEntity{}, false, nil
+		}
+		return cloudObjectIndexEntity{}, false, err
+	}
+	if sourceID == "" {
+		return cloudObjectIndexEntity{}, false, nil
+	}
+	if originRef != "" {
+		if row, ok, err := take(tx.Where("source_id = ? AND external_object_id = ?", sourceID, originRef)); err != nil || ok {
+			return row, ok, err
+		}
+	}
+	if path != "" && path != "." {
+		if row, ok, err := take(tx.Where("source_id = ? AND local_abs_path = ?", sourceID, path)); err != nil || ok {
+			return row, ok, err
+		}
+	}
+	return cloudObjectIndexEntity{}, false, nil
+}
+
+func cloudSnapshotItemFromIndex(src sourceEntity, row cloudObjectIndexEntity, fallbackPath, targetVersion string, doc documentEntity) sourceFileSnapshotItemEntity {
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	path := filepath.Clean(strings.TrimSpace(resolveCloudObjectLocalPath(mirrorRoot, row)))
+	if path == "" || path == "." {
+		path = filepath.Clean(strings.TrimSpace(fallbackPath))
+	}
+	item := sourceFileSnapshotItemEntity{
+		Path:           path,
+		IsDir:          false,
+		SizeBytes:      row.SizeBytes,
+		Checksum:       strings.TrimSpace(firstNonEmpty(row.ExternalVersion, row.Checksum, targetVersion, doc.CurrentVersionID, doc.DesiredVersionID)),
+		ExternalFileID: strings.TrimSpace(row.ExternalObjectID),
+	}
+	if row.ExternalModifiedAt != nil && !row.ExternalModifiedAt.IsZero() {
+		mt := row.ExternalModifiedAt.UTC()
+		item.ModTime = &mt
+	} else if doc.LastModifiedAt != nil && !doc.LastModifiedAt.IsZero() {
+		mt := doc.LastModifiedAt.UTC()
+		item.ModTime = &mt
+	}
+	return item
+}
+
+func cloudSnapshotEquivalentPaths(src sourceEntity, row cloudObjectIndexEntity, fallbackPath string) []string {
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	objectPath := filepath.Clean(strings.TrimSpace(resolveCloudObjectLocalPath(mirrorRoot, row)))
+	if objectPath == "" || objectPath == "." {
+		objectPath = filepath.Clean(strings.TrimSpace(fallbackPath))
+	}
+	treePath := filepath.Clean(cloudObjectTreePath(objectPath, row))
+	return uniqueCleanSnapshotPaths(fallbackPath, objectPath, treePath)
+}
+
+func uniqueCleanSnapshotPaths(paths ...string) []string {
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, rawPath := range paths {
+		path := filepath.Clean(strings.TrimSpace(rawPath))
+		if path == "" || path == "." {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	return out
+}
+
+func cloudSnapshotItemSame(existing, current sourceFileSnapshotItemEntity) bool {
+	return existing.IsDir == current.IsDir &&
+		strings.TrimSpace(existing.ExternalFileID) == strings.TrimSpace(current.ExternalFileID) &&
+		!snapshotItemChanged(existing, current)
+}
+
+func (s *Store) commitCloudSourceSnapshotItemsTx(tx *gorm.DB, src sourceEntity, baseSnapshotID string, items map[string]sourceFileSnapshotItemEntity, at time.Time) error {
+	now := at.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	committedID := sourceSnapshotID()
+	committed := sourceFileSnapshotEntity{
+		SnapshotID:     committedID,
+		SourceID:       src.ID,
+		TenantID:       src.TenantID,
+		SnapshotType:   "COMMITTED",
+		BaseSnapshotID: strings.TrimSpace(baseSnapshotID),
+		FileCount:      int64(len(items)),
+		CreatedAt:      now,
+	}
+	if err := tx.Create(&committed).Error; err != nil {
+		return err
+	}
+	if err := createSnapshotItemsTx(tx, committedID, items); err != nil {
+		return err
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "source_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"last_committed_snapshot_id": committedID,
+			"updated_at":                 now,
+		}),
+	}).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error
+}
+
 func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.FileEvent) ([]DocumentMutation, error) {
 	mutations := make([]DocumentMutation, 0, len(events))
 	sourceCache := make(map[string]sourceEntity)
@@ -280,6 +560,10 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			idleSeconds = int64(s.defaultIdleWindow.Seconds())
 		}
 
+		scheduleAt := automaticMutationScheduleAt(src, occurred)
+		if scheduleAt == nil && sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+			scheduleAt = s.cloudSourceMutationScheduleAt(ctx, src.ID, occurred)
+		}
 		mutations = append(mutations, DocumentMutation{
 			TenantID:          src.TenantID,
 			SourceID:          src.ID,
@@ -287,6 +571,7 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 			IdleWindowSeconds: idleSeconds,
 			EventType:         normalizeEventType(ev.EventType),
 			OccurredAt:        occurred,
+			ScheduleAt:        scheduleAt,
 			OriginType:        firstNonEmpty(strings.TrimSpace(ev.OriginType), src.DefaultOriginType, string(model.OriginTypeLocalFS)),
 			OriginPlatform:    firstNonEmpty(strings.TrimSpace(ev.OriginPlatform), src.DefaultOriginPlatform, "LOCAL"),
 			OriginRef:         strings.TrimSpace(ev.OriginRef),
@@ -307,6 +592,76 @@ func (s *Store) BuildMutationsFromEvents(ctx context.Context, events []model.Fil
 	return mutations, nil
 }
 
+func automaticMutationScheduleAt(src sourceEntity, occurred time.Time) *time.Time {
+	if !src.WatchEnabled {
+		return nil
+	}
+	occurred = occurred.UTC()
+	if occurred.IsZero() {
+		occurred = time.Now().UTC()
+	}
+	if strings.TrimSpace(src.ReconcileSchedule) != "" {
+		next := computeNextReconcileTime(src.ReconcileSchedule, occurred)
+		return next
+	}
+	reconcileSeconds := src.ReconcileSeconds
+	if reconcileSeconds <= 0 {
+		return nil
+	}
+	anchor := occurred
+	if src.WatchUpdatedAt != nil && !src.WatchUpdatedAt.IsZero() {
+		anchor = src.WatchUpdatedAt.UTC()
+	}
+	next := nextIntervalReconcileTime(anchor, occurred, time.Duration(reconcileSeconds)*time.Second)
+	return &next
+}
+
+func nextIntervalReconcileTime(anchor, after time.Time, interval time.Duration) time.Time {
+	anchor = anchor.UTC()
+	after = after.UTC()
+	if interval <= 0 {
+		return after
+	}
+	if anchor.IsZero() || anchor.After(after) {
+		return after.Add(interval)
+	}
+	steps := int64(after.Sub(anchor) / interval)
+	next := anchor.Add(time.Duration(steps+1) * interval)
+	for !next.After(after) {
+		next = next.Add(interval)
+	}
+	return next
+}
+
+func computeNextReconcileTime(scheduleExpr string, afterUTC time.Time) *time.Time {
+	return computeNextReconcileTimeWithTZ(scheduleExpr, defaultScheduleTZ, afterUTC)
+}
+
+func computeNextReconcileTimeWithTZ(scheduleExpr, scheduleTZ string, afterUTC time.Time) *time.Time {
+	everyDays, hour, minute, second, err := parseReconcileScheduleExpr(scheduleExpr)
+	if err != nil {
+		return nil
+	}
+	if everyDays <= 0 {
+		everyDays = 1
+	}
+	tz := strings.TrimSpace(scheduleTZ)
+	if tz == "" {
+		tz = defaultScheduleTZ
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		loc = time.Local
+	}
+	localAfter := afterUTC.In(loc)
+	next := time.Date(localAfter.Year(), localAfter.Month(), localAfter.Day(), hour, minute, second, 0, loc)
+	for !next.After(localAfter) {
+		next = next.AddDate(0, 0, everyDays)
+	}
+	nextUTC := next.UTC()
+	return &nextUTC
+}
+
 func (s *Store) BatchApplyDocumentMutations(ctx context.Context, mutations []DocumentMutation) error {
 	if len(mutations) == 0 {
 		return nil
@@ -316,9 +671,178 @@ func (s *Store) BatchApplyDocumentMutations(ctx context.Context, mutations []Doc
 			if err := applyDocumentMutation(tx, m, s.log); err != nil {
 				return err
 			}
+			if err := upsertSourceDocumentStateFromMutationTx(tx, m, s.log); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
+}
+
+func upsertSourceDocumentStateFromMutationTx(tx *gorm.DB, m DocumentMutation, log *zap.Logger) error {
+	if strings.TrimSpace(m.SourceID) == "" || strings.TrimSpace(m.SourceObjectID) == "" {
+		return nil
+	}
+	var src sourceEntity
+	if err := tx.Take(&src, "id = ?", strings.TrimSpace(m.SourceID)).Error; err != nil {
+		return err
+	}
+	occurred := m.OccurredAt.UTC()
+	if occurred.IsZero() {
+		occurred = time.Now().UTC()
+	}
+	path := filepath.Clean(strings.TrimSpace(m.SourceObjectID))
+	if path == "" || path == "." || isTransientSourceFilePath(path, false) {
+		return nil
+	}
+	var existing sourceDocumentStateEntity
+	objectKey := sourceObjectKey(path, m.OriginRef)
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("source_id = ? AND object_key = ?", src.ID, objectKey).
+		Take(&existing).Error
+	if err == gorm.ErrRecordNotFound && strings.TrimSpace(m.OriginRef) != "" {
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("source_id = ? AND path = ?", src.ID, path).
+			Order("id DESC").
+			Take(&existing).Error
+	}
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return err
+	}
+	hasExisting := err == nil
+	if hasExisting && !m.ManualSync && !m.ForceSync && !existing.LastDetectedAt.IsZero() && !occurred.After(existing.LastDetectedAt.UTC()) {
+		if log != nil {
+			log.Debug("source document state skipped",
+				zap.String("reason", "old_timestamp"),
+				zap.String("source_id", src.ID),
+				zap.String("source_object_id", path),
+				zap.Time("event_occurred_at", occurred),
+				zap.Time("last_detected_at", existing.LastDetectedAt.UTC()),
+			)
+		}
+		return nil
+	}
+	doc, hasDoc, err := resolveStateDocumentTx(tx, src.ID, path, m.OriginRef)
+	if err != nil {
+		return err
+	}
+	baseline := ""
+	if hasExisting {
+		baseline = strings.TrimSpace(existing.BaselineVersion)
+	}
+	if baseline == "" && hasDoc {
+		baseline = strings.TrimSpace(doc.CurrentVersionID)
+	}
+	knowledgeBaseSeen := false
+	if hasExisting {
+		knowledgeBaseSeen = existing.KnowledgeBaseSeen
+	}
+	if hasDoc && (strings.TrimSpace(doc.CurrentVersionID) != "" || strings.TrimSpace(doc.CoreDocumentID) != "") {
+		knowledgeBaseSeen = true
+	}
+	exists := normalizeEventType(m.EventType) != "deleted"
+	version := ""
+	if exists {
+		version = "v_" + occurred.Format(time.RFC3339Nano)
+		if (m.ManualSync || m.ForceSync) && hasExisting && strings.TrimSpace(existing.SourceVersion) != "" {
+			version = strings.TrimSpace(existing.SourceVersion)
+		}
+	}
+	obj := observedSourceObject{
+		SourceID:        src.ID,
+		TenantID:        src.TenantID,
+		ObjectKey:       objectKey,
+		Path:            path,
+		Name:            filepath.Base(path),
+		SourceExists:    exists,
+		OriginType:      firstNonEmpty(m.OriginType, src.DefaultOriginType, string(model.OriginTypeLocalFS)),
+		OriginPlatform:  firstNonEmpty(m.OriginPlatform, src.DefaultOriginPlatform, "LOCAL"),
+		OriginRef:       strings.TrimSpace(m.OriginRef),
+		SourceVersion:   version,
+		DetectedAt:      occurred,
+		BaselineVersion: baseline,
+	}
+	sourceState, syncState, pendingAction, nextSyncAt := computeSourceDocumentStateTx(tx, src, obj, baseline, knowledgeBaseSeen)
+	if (m.ManualSync || m.ForceSync) && pendingAction != pendingActionNone {
+		syncState = syncStatePending
+		nextSyncAt = nil
+	}
+	now := time.Now().UTC()
+	row := sourceDocumentStateEntity{
+		TenantID:          src.TenantID,
+		SourceID:          src.ID,
+		ObjectKey:         obj.ObjectKey,
+		Path:              path,
+		Name:              filepath.Base(path),
+		SourceExists:      exists,
+		OriginType:        obj.OriginType,
+		OriginPlatform:    obj.OriginPlatform,
+		OriginRef:         obj.OriginRef,
+		SourceVersion:     version,
+		BaselineVersion:   baseline,
+		SourceState:       sourceState,
+		SyncState:         syncState,
+		PendingAction:     pendingAction,
+		NextSyncAt:        nextSyncAt,
+		LastDetectedAt:    occurred,
+		KnowledgeBaseSeen: knowledgeBaseSeen,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if hasDoc {
+		row.DocumentID = doc.ID
+		row.CoreDocumentID = strings.TrimSpace(doc.CoreDocumentID)
+		if strings.TrimSpace(doc.CurrentVersionID) != "" {
+			t := doc.UpdatedAt.UTC()
+			row.LastSyncedAt = &t
+		}
+	}
+	if sourceState == sourceStateDeleted {
+		t := occurred.UTC()
+		row.DeletedAtSource = &t
+	}
+	if sourceState == sourceStateUnchanged && pendingAction == pendingActionNone && !knowledgeBaseSeen && !hasDoc {
+		if hasExisting {
+			return tx.Delete(&sourceDocumentStateEntity{}, "id = ?", existing.ID).Error
+		}
+		return nil
+	}
+	if hasExisting {
+		row.ID = existing.ID
+		row.CreatedAt = existing.CreatedAt
+		if strings.TrimSpace(existing.LastError) != "" && sourceState == existing.SourceState && pendingAction == existing.PendingAction {
+			row.LastError = existing.LastError
+		}
+		updates := map[string]any{
+			"tenant_id":           row.TenantID,
+			"path":                row.Path,
+			"name":                row.Name,
+			"source_exists":       row.SourceExists,
+			"origin_type":         row.OriginType,
+			"origin_platform":     row.OriginPlatform,
+			"origin_ref":          row.OriginRef,
+			"source_version":      row.SourceVersion,
+			"baseline_version":    row.BaselineVersion,
+			"source_state":        row.SourceState,
+			"sync_state":          row.SyncState,
+			"pending_action":      row.PendingAction,
+			"document_id":         row.DocumentID,
+			"core_document_id":    row.CoreDocumentID,
+			"last_detected_at":    row.LastDetectedAt,
+			"last_error":          row.LastError,
+			"knowledge_base_seen": row.KnowledgeBaseSeen,
+			"updated_at":          row.UpdatedAt,
+		}
+		setNullableTimeColumn(updates, "next_sync_at", row.NextSyncAt)
+		setNullableTimeColumn(updates, "last_synced_at", row.LastSyncedAt)
+		setNullableTimeColumn(updates, "deleted_at_source", row.DeletedAtSource)
+		return tx.Model(&sourceDocumentStateEntity{}).Where("id = ?", existing.ID).Updates(updates).Error
+	}
+	if err := tx.Create(&row).Error; err != nil && log != nil {
+		log.Warn("upsert source document state from mutation failed", zap.String("source_id", src.ID), zap.String("path", path), zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) error {
@@ -331,7 +855,11 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 	var nextParse *time.Time
 	if normalizeEventType(m.EventType) != "deleted" {
 		when := occurred
-		if policy == string(model.TriggerPolicyIdleWindow) {
+		if m.ManualSync || m.ForceSync {
+			when = occurred
+		} else if m.ScheduleAt != nil {
+			when = m.ScheduleAt.UTC()
+		} else if policy == string(model.TriggerPolicyIdleWindow) {
 			idle := m.IdleWindowSeconds
 			if idle <= 0 {
 				idle = 1
@@ -352,7 +880,7 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 	}
 	// For the same file, accept only newer event timestamps.
 	// This avoids duplicate task triggers from identical mtimes during full-scan or restart.
-	if !existingLast.IsZero() && !occurred.After(existingLast) {
+	if !m.ManualSync && !m.ForceSync && !existingLast.IsZero() && !occurred.After(existingLast) {
 		if log != nil {
 			log.Debug("event skipped",
 				zap.String("reason", "old_timestamp"),
@@ -368,11 +896,44 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 
 	if normalizeEventType(m.EventType) == "deleted" {
 		desiredVersion := fmt.Sprintf("d_%d", occurred.UnixNano())
-		nextDeleteAt := occurred
+		var nextDeleteAt *time.Time
+		activeDeleteQueued := false
+		if !m.ManualSync && err == nil && strings.EqualFold(strings.TrimSpace(doc.ParseStatus), "DELETED") && doc.NextParseAt == nil && strings.TrimSpace(doc.CoreDocumentID) != "" {
+			active, activeErr := hasActiveDeleteTaskTx(tx, doc.ID)
+			if activeErr != nil {
+				return activeErr
+			}
+			activeDeleteQueued = active
+		}
+		if activeDeleteQueued {
+			if existingDesired := strings.TrimSpace(doc.DesiredVersionID); existingDesired != "" {
+				desiredVersion = existingDesired
+			}
+		} else {
+			nextDeleteAtValue := occurred
+			if m.ManualSync || m.ForceSync {
+				nextDeleteAtValue = occurred
+			} else if m.ScheduleAt != nil {
+				nextDeleteAtValue = m.ScheduleAt.UTC()
+			} else if policy == string(model.TriggerPolicyIdleWindow) {
+				idle := m.IdleWindowSeconds
+				if idle <= 0 {
+					idle = 1
+				}
+				nextDeleteAtValue = occurred.Add(time.Duration(idle) * time.Second)
+			}
+			if !m.ManualSync && err == nil && strings.EqualFold(strings.TrimSpace(doc.ParseStatus), "DELETED") && doc.NextParseAt != nil {
+				existingNext := doc.NextParseAt.UTC()
+				if existingNext.Before(nextDeleteAtValue) || existingNext.Equal(nextDeleteAtValue) {
+					nextDeleteAtValue = existingNext
+				}
+			}
+			nextDeleteAt = &nextDeleteAtValue
+		}
 		updates := map[string]any{
 			"desired_version_id": desiredVersion,
 			"last_modified_at":   occurred,
-			"next_parse_at":      &nextDeleteAt,
+			"next_parse_at":      nextDeleteAt,
 			"parse_status":       "DELETED",
 			"origin_type":        firstNonEmpty(m.OriginType, string(model.OriginTypeLocalFS)),
 			"origin_platform":    firstNonEmpty(m.OriginPlatform, "LOCAL"),
@@ -387,7 +948,7 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 				SourceObjectID:   m.SourceObjectID,
 				DesiredVersionID: desiredVersion,
 				LastModifiedAt:   &occurred,
-				NextParseAt:      &nextDeleteAt,
+				NextParseAt:      nextDeleteAt,
 				ParseStatus:      "DELETED",
 				OriginType:       firstNonEmpty(m.OriginType, string(model.OriginTypeLocalFS)),
 				OriginPlatform:   firstNonEmpty(m.OriginPlatform, "LOCAL"),
@@ -435,6 +996,16 @@ func applyDocumentMutation(tx *gorm.DB, m DocumentMutation, log *zap.Logger) err
 		return tx.Create(&doc).Error
 	}
 	return tx.Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(updates).Error
+}
+
+func hasActiveDeleteTaskTx(tx *gorm.DB, documentID int64) (bool, error) {
+	var count int64
+	if err := tx.Model(&parseTaskEntity{}).
+		Where("document_id = ? AND task_action = ? AND status IN ?", documentID, taskActionDelete, []string{"PENDING", "RETRY_WAITING", "RUNNING", "SUBMITTED"}).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func resolveMutationDocument(tx *gorm.DB, m DocumentMutation, now time.Time, log *zap.Logger) (documentEntity, error) {
@@ -531,15 +1102,17 @@ func shouldResolveCloudDocumentByOriginRef(originType, originRef string) bool {
 }
 
 func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, error) {
-	var docs []documentEntity
-	if err := s.db.WithContext(ctx).
-		Where("next_parse_at IS NOT NULL AND next_parse_at <= ?", now.UTC()).
-		Find(&docs).Error; err != nil {
-		return 0, err
-	}
-
 	created := 0
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.materializeDueSourceDocumentStatesTx(tx, now); err != nil {
+			return err
+		}
+		var docs []documentEntity
+		if err := tx.
+			Where("next_parse_at IS NOT NULL AND next_parse_at <= ?", now.UTC()).
+			Find(&docs).Error; err != nil {
+			return err
+		}
 		for _, doc := range docs {
 			if isTransientSourceFilePath(doc.SourceObjectID, false) {
 				if err := tx.Model(&documentEntity{}).Where("id = ?", doc.ID).Updates(map[string]any{
@@ -620,6 +1193,11 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 					zap.String("old_version", oldVersion),
 					zap.String("new_version", targetVersion),
 				)
+				pendingTask.ID = pendingTaskID
+				pendingTask.DocumentID = doc.ID
+				if err := updateSourceDocumentStateTaskQueuedTx(tx, pendingTask, now); err != nil {
+					return err
+				}
 			}
 
 			if updateRes.RowsAffected == 0 {
@@ -667,6 +1245,11 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 							zap.String("old_version", oldVersion),
 							zap.String("new_version", targetVersion),
 						)
+						pendingTask.ID = pendingTaskID
+						pendingTask.DocumentID = doc.ID
+						if err := updateSourceDocumentStateTaskQueuedTx(tx, pendingTask, now); err != nil {
+							return err
+						}
 					} else {
 						return err
 					}
@@ -679,6 +1262,9 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 						zap.String("new_version", targetVersion),
 					)
 					created++
+					if err := updateSourceDocumentStateTaskQueuedTx(tx, task, now); err != nil {
+						return err
+					}
 				}
 			}
 
@@ -698,6 +1284,47 @@ func (s *Store) ScheduleDueParses(ctx context.Context, now time.Time) (int, erro
 		return nil
 	})
 	return created, err
+}
+
+func (s *Store) materializeDueSourceDocumentStatesTx(tx *gorm.DB, now time.Time) error {
+	var states []sourceDocumentStateEntity
+	if err := tx.
+		Where("next_sync_at IS NOT NULL AND next_sync_at <= ? AND source_state IN ? AND sync_state IN ?", now.UTC(), []string{sourceStateNew, sourceStateModified, sourceStateDeleted}, []string{syncStateScheduled, syncStatePending, syncStateFailed}).
+		Find(&states).Error; err != nil {
+		return err
+	}
+	for _, state := range states {
+		if state.IsDir || isTransientSourceFilePath(state.Path, false) {
+			continue
+		}
+		occurred := state.LastDetectedAt.UTC()
+		if occurred.IsZero() {
+			occurred = now.UTC()
+		}
+		eventType := "modified"
+		if strings.EqualFold(strings.TrimSpace(state.SourceState), sourceStateDeleted) {
+			eventType = "deleted"
+		}
+		mutation := DocumentMutation{
+			TenantID:       state.TenantID,
+			SourceID:       state.SourceID,
+			SourceObjectID: state.Path,
+			EventType:      eventType,
+			OccurredAt:     occurred,
+			ScheduleAt:     &now,
+			ForceSync:      true,
+			OriginType:     state.OriginType,
+			OriginPlatform: state.OriginPlatform,
+			OriginRef:      state.OriginRef,
+		}
+		if err := applyDocumentMutation(tx, mutation, s.log); err != nil {
+			return err
+		}
+		if err := upsertSourceDocumentStateFromMutationTx(tx, mutation, s.log); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) ClaimDueTasks(ctx context.Context, leaseOwner string, now time.Time, limit int, leaseDuration time.Duration) ([]PendingTask, error) {
@@ -835,6 +1462,49 @@ func (s *Store) MarkTaskStaging(ctx context.Context, taskID int64) error {
 	}).Error
 }
 
+func (s *Store) ValidateTaskSubmission(ctx context.Context, taskID int64) (TaskSubmissionValidation, error) {
+	var row struct {
+		TaskID           int64
+		DocumentID       int64
+		TaskAction       string
+		TargetVersionID  string
+		TaskStatus       string
+		DesiredVersionID string
+		ParseStatus      string
+		CoreDocumentID   string
+	}
+	if err := s.db.WithContext(ctx).
+		Table("parse_tasks pt").
+		Select("pt.id AS task_id, pt.document_id, pt.task_action, pt.target_version_id, pt.status AS task_status, d.desired_version_id, d.parse_status, d.core_document_id").
+		Joins("JOIN documents d ON d.id = pt.document_id").
+		Where("pt.id = ?", taskID).
+		Take(&row).Error; err != nil {
+		return TaskSubmissionValidation{}, err
+	}
+	status := strings.ToUpper(strings.TrimSpace(row.TaskStatus))
+	switch status {
+	case "RUNNING", "STAGING":
+	default:
+		return TaskSubmissionValidation{
+			Valid:  false,
+			Reason: fmt.Sprintf("task status %s is not submittable", row.TaskStatus),
+		}, nil
+	}
+	if normalizeTaskAction(row.TaskAction) != inferTaskActionForSubmission(row.DesiredVersionID, row.ParseStatus, row.CoreDocumentID) {
+		return TaskSubmissionValidation{
+			Valid:  false,
+			Reason: "task_action no longer matches document state",
+		}, nil
+	}
+	if strings.TrimSpace(row.TargetVersionID) != strings.TrimSpace(row.DesiredVersionID) {
+		return TaskSubmissionValidation{
+			Valid:  false,
+			Reason: "target_version_id no longer matches desired_version_id",
+		}, nil
+	}
+	return TaskSubmissionValidation{Valid: true}, nil
+}
+
 func (s *Store) MarkTaskSubmitted(ctx context.Context, taskID int64, coreDatasetID, coreDocumentID, coreTaskID string, submitAt time.Time) error {
 	at := submitAt.UTC()
 	if at.IsZero() {
@@ -873,7 +1543,10 @@ func (s *Store) MarkTaskSubmitted(ctx context.Context, taskID int64, coreDataset
 		} else {
 			docUpdates["parse_status"] = "QUEUED"
 		}
-		return tx.Model(&documentEntity{}).Where("id = ?", task.DocumentID).Updates(docUpdates).Error
+		if err := tx.Model(&documentEntity{}).Where("id = ?", task.DocumentID).Updates(docUpdates).Error; err != nil {
+			return err
+		}
+		return updateSourceDocumentStateTaskRunningTx(tx, task, at, coreDocumentID)
 	})
 }
 
@@ -953,6 +1626,9 @@ func (s *Store) MarkTaskFailed(ctx context.Context, taskID int64, lastError stri
 		}).Error; err != nil {
 			return err
 		}
+		if err := updateSourceDocumentStateTaskFailedTx(tx, task, now, lastError); err != nil {
+			return err
+		}
 		dead := parseTaskDeadLetterEntity{
 			TaskID:          task.ID,
 			TenantID:        task.TenantID,
@@ -1001,7 +1677,17 @@ func (s *Store) MarkTaskSucceeded(ctx context.Context, taskID int64, documentID 
 			docUpdates["current_version_id"] = targetVersion
 			docUpdates["parse_status"] = "SUCCEEDED"
 		}
-		return tx.Model(&documentEntity{}).Where("id = ?", documentID).Updates(docUpdates).Error
+		if err := tx.Model(&documentEntity{}).Where("id = ?", documentID).Updates(docUpdates).Error; err != nil {
+			return err
+		}
+		var doc documentEntity
+		if err := tx.Take(&doc, "id = ?", documentID).Error; err != nil {
+			return err
+		}
+		if err := updateSourceDocumentStateTaskSucceededTx(tx, task, doc, now, targetVersion); err != nil {
+			return err
+		}
+		return s.commitCloudDocumentSnapshotAfterTaskSucceededTx(tx, task, doc, now, targetVersion)
 	})
 }
 
@@ -1019,6 +1705,19 @@ func (s *Store) DesiredVersionMatches(ctx context.Context, documentID int64, tar
 		return false, err
 	}
 	return strings.TrimSpace(doc.DesiredVersionID) == strings.TrimSpace(targetVersion), nil
+}
+
+func inferTaskActionForSubmission(desiredVersionID, parseStatus, coreDocumentID string) string {
+	if strings.EqualFold(strings.TrimSpace(parseStatus), "DELETED") {
+		return taskActionDelete
+	}
+	if strings.TrimSpace(coreDocumentID) != "" {
+		return taskActionReparse
+	}
+	if strings.TrimSpace(desiredVersionID) == "" {
+		return ""
+	}
+	return taskActionCreate
 }
 
 func (s *Store) MarkAgentsOffline(ctx context.Context, now time.Time, timeout time.Duration) (int64, error) {

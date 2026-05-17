@@ -93,13 +93,25 @@ func callExternalAddDocs(r *http.Request, req addRequest) ([]addResultItem, erro
 }
 
 func callExternalReparseDocs(r *http.Request, req reparseRequest) ([]string, error) {
-	var resp struct {
-		TaskIDs []string `json:"task_ids"`
-	}
+	var resp reparseResponse
 	if err := common.ApiPost(r.Context(), common.JoinURL(parsingServiceEndpoint(), "/v1/docs/reparse"), req, nil, &resp, 15*time.Second); err != nil {
 		return nil, err
 	}
-	return resp.TaskIDs, nil
+	return parseReparseTaskIDs(resp), nil
+}
+
+type reparseResponse struct {
+	TaskIDs []string `json:"task_ids"`
+	Data    struct {
+		TaskIDs []string `json:"task_ids"`
+	} `json:"data"`
+}
+
+func parseReparseTaskIDs(resp reparseResponse) []string {
+	if len(resp.TaskIDs) > 0 {
+		return resp.TaskIDs
+	}
+	return resp.Data.TaskIDs
 }
 
 func callExternalTransferDocs(r *http.Request, req transferRequest) error {

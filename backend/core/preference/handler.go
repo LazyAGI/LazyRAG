@@ -64,21 +64,38 @@ func upsertManagedPreferenceContent(r *http.Request, db *gorm.DB, userID, userNa
 	resolvedAutoEvo := true
 	if autoEvo != nil {
 		resolvedAutoEvo = *autoEvo
+	} else if existing != nil {
+		resolvedAutoEvo = existing.AutoEvo
 	}
 	if existing == nil {
 		row := orm.SystemUserPreference{
-			ID:            evolution.NewID(),
-			UserID:        userID,
-			Content:       content,
-			ContentHash:   evolution.HashContent(content),
-			Version:       1,
-			AutoEvo:       resolvedAutoEvo,
-			UpdatedBy:     userID,
-			UpdatedByName: userName,
-			CreatedAt:     now,
-			UpdatedAt:     now,
+			ID:                 evolution.NewID(),
+			UserID:             userID,
+			Content:            content,
+			ContentHash:        evolution.HashContent(content),
+			Version:            1,
+			AutoEvo:            resolvedAutoEvo,
+			AutoEvoApplyStatus: evolution.AutoEvoApplyStatusIdle,
+			AutoEvoError:       "",
+			UpdatedBy:          userID,
+			UpdatedByName:      userName,
+			CreatedAt:          now,
+			UpdatedAt:          now,
 		}
-		if err := db.WithContext(r.Context()).Create(&row).Error; err != nil {
+		if err := db.WithContext(r.Context()).Model(&orm.SystemUserPreference{}).Create(map[string]any{
+			"id":                    row.ID,
+			"user_id":               row.UserID,
+			"content":               row.Content,
+			"content_hash":          row.ContentHash,
+			"version":               row.Version,
+			"auto_evo":              row.AutoEvo,
+			"auto_evo_apply_status": row.AutoEvoApplyStatus,
+			"auto_evo_error":        row.AutoEvoError,
+			"updated_by":            row.UpdatedBy,
+			"updated_by_name":       row.UpdatedByName,
+			"created_at":            row.CreatedAt,
+			"updated_at":            row.UpdatedAt,
+		}).Error; err != nil {
 			return nil, err
 		}
 		return &row, nil
@@ -88,12 +105,12 @@ func upsertManagedPreferenceContent(r *http.Request, db *gorm.DB, userID, userNa
 		"content":         content,
 		"content_hash":    evolution.HashContent(content),
 		"version":         existing.Version + 1,
-		"auto_evo":        resolvedAutoEvo,
 		"updated_by":      userID,
 		"updated_by_name": userName,
 		"updated_at":      now,
 	}
 	if autoEvo != nil {
+		update["auto_evo"] = resolvedAutoEvo
 		update["auto_evo_generation"] = gorm.Expr("auto_evo_generation + 1")
 		update["auto_evo_apply_status"] = evolution.AutoEvoApplyStatusIdle
 		update["auto_evo_error"] = ""
@@ -120,8 +137,8 @@ func upsertManagedPreferenceContent(r *http.Request, db *gorm.DB, userID, userNa
 	existing.Content = content
 	existing.ContentHash = evolution.HashContent(content)
 	existing.Version++
-	existing.AutoEvo = resolvedAutoEvo
 	if autoEvo != nil {
+		existing.AutoEvo = resolvedAutoEvo
 		existing.AutoEvoGeneration++
 		existing.AutoEvoApplyStatus = evolution.AutoEvoApplyStatusIdle
 		existing.AutoEvoError = ""

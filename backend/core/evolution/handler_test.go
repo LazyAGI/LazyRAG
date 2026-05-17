@@ -379,10 +379,10 @@ func TestListSuggestionsSupportsEvolutionIDFiltersWithoutResourceKey(t *testing.
 			wantTotal: 1,
 		},
 		{
-			name:      "filter by typed evolution id for child skill uses parent suggestion key",
+			name:      "filter by typed evolution id for child skill does not include parent suggestion",
 			query:     "/api/core/evolution/suggestions?evolution_id=skill:skill-child",
-			wantIDs:   []string{"s-skill-legacy"},
-			wantTotal: 1,
+			wantIDs:   nil,
+			wantTotal: 0,
 		},
 		{
 			name:      "filter by typed evolution id for memory",

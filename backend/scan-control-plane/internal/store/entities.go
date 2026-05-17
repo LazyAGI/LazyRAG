@@ -166,6 +166,41 @@ type documentEntity struct {
 
 func (documentEntity) TableName() string { return "documents" }
 
+type sourceDocumentStateEntity struct {
+	ID                int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	TenantID          string     `gorm:"column:tenant_id;type:text;not null;index:idx_source_document_states_tenant_source,priority:1"`
+	SourceID          string     `gorm:"column:source_id;type:text;not null;uniqueIndex:uk_source_document_state_object,priority:1;index:idx_source_document_states_source_state,priority:1;index:idx_source_document_states_next_sync,priority:1;index:idx_source_document_states_path,priority:1;index:idx_source_document_states_tenant_source,priority:2"`
+	ObjectKey         string     `gorm:"column:object_key;type:text;not null;uniqueIndex:uk_source_document_state_object,priority:2"`
+	Path              string     `gorm:"column:path;type:text;not null;index:idx_source_document_states_path,priority:2"`
+	Name              string     `gorm:"column:name;type:text"`
+	IsDir             bool       `gorm:"column:is_dir;not null;default:false"`
+	SourceExists      bool       `gorm:"column:source_exists;not null;default:true"`
+	OriginType        string     `gorm:"column:origin_type;type:text"`
+	OriginPlatform    string     `gorm:"column:origin_platform;type:text"`
+	OriginRef         string     `gorm:"column:origin_ref;type:text"`
+	SourceVersion     string     `gorm:"column:source_version;type:text"`
+	BaselineVersion   string     `gorm:"column:baseline_version;type:text"`
+	SourceChecksum    string     `gorm:"column:source_checksum;type:text"`
+	SourceSizeBytes   int64      `gorm:"column:source_size_bytes;not null;default:0"`
+	SourceModifiedAt  *time.Time `gorm:"column:source_modified_at"`
+	SourceState       string     `gorm:"column:source_state;type:text;not null;index:idx_source_document_states_source_state,priority:2"`
+	SyncState         string     `gorm:"column:sync_state;type:text;not null;index:idx_source_document_states_source_state,priority:3"`
+	PendingAction     string     `gorm:"column:pending_action;type:text;not null"`
+	NextSyncAt        *time.Time `gorm:"column:next_sync_at;index:idx_source_document_states_next_sync,priority:2"`
+	DocumentID        int64      `gorm:"column:document_id;index:idx_source_document_states_document"`
+	CoreDocumentID    string     `gorm:"column:core_document_id;type:text"`
+	ActiveTaskID      int64      `gorm:"column:active_task_id;index:idx_source_document_states_active_task"`
+	LastDetectedAt    time.Time  `gorm:"column:last_detected_at;not null"`
+	LastSyncedAt      *time.Time `gorm:"column:last_synced_at"`
+	LastError         string     `gorm:"column:last_error;type:text"`
+	DeletedAtSource   *time.Time `gorm:"column:deleted_at_source"`
+	KnowledgeBaseSeen bool       `gorm:"column:knowledge_base_seen;not null;default:false"`
+	CreatedAt         time.Time  `gorm:"column:created_at;not null"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at;not null"`
+}
+
+func (sourceDocumentStateEntity) TableName() string { return "source_document_states" }
+
 type parseTaskEntity struct {
 	ID                      int64      `gorm:"column:id;primaryKey;autoIncrement"`
 	TenantID                string     `gorm:"column:tenant_id;type:text;not null;index:idx_parse_tasks_tenant_status_updated,priority:1"`
