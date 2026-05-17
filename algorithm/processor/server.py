@@ -8,7 +8,7 @@ from processor.env import env_int
 
 db_config = require_shared_db_config('DocumentProcessor')
 doc_processor = DocumentProcessor(
-    port=env_int('LAZYRAG_DOCUMENT_PROCESSOR_PORT', 8000),
+    port=env_int('LAZYMIND_DOCUMENT_PROCESSOR_PORT', 8000),
     db_config=db_config,
     num_workers=0,  # use separate worker container
 )

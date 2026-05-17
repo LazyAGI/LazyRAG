@@ -1,17 +1,17 @@
 package main
 
 import (
-	"lazyrag/core/acl"
-	"lazyrag/core/agent"
-	"lazyrag/core/chat"
-	"lazyrag/core/doc"
-	"lazyrag/core/evolution"
-	"lazyrag/core/file"
-	"lazyrag/core/memory"
-	"lazyrag/core/modelprovider"
-	"lazyrag/core/preference"
-	"lazyrag/core/skill"
-	"lazyrag/core/wordgroup"
+	"lazymind/core/acl"
+	"lazymind/core/agent"
+	"lazymind/core/chat"
+	"lazymind/core/doc"
+	"lazymind/core/evolution"
+	"lazymind/core/file"
+	"lazymind/core/memory"
+	"lazymind/core/modelprovider"
+	"lazymind/core/preference"
+	"lazymind/core/skill"
+	"lazymind/core/wordgroup"
 
 	"github.com/gorilla/mux"
 )

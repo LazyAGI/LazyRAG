@@ -10,8 +10,8 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/store"
+	"lazymind/core/common/orm"
+	"lazymind/core/store"
 )
 
 type listSuggestionsAPITestResponse struct {

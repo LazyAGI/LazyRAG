@@ -3,7 +3,7 @@ package chat
 import (
 	"testing"
 
-	"lazyrag/core/common/orm"
+	"lazymind/core/common/orm"
 )
 
 func TestStripToolTagsPreservesDisplayTags(t *testing.T) {

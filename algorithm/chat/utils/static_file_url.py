@@ -16,18 +16,18 @@ def _upload_root() -> str:
             value = ''
         if value:
             return str(Path(value).resolve())
-    env = (os.environ.get('LAZYRAG_UPLOAD_ROOT') or os.environ.get('LAZYRAG_SHARED_UPLOAD_DIR') or '').strip()
+    env = (os.environ.get('LAZYMIND_UPLOAD_ROOT') or os.environ.get('LAZYMIND_SHARED_UPLOAD_DIR') or '').strip()
     if env:
         return str(Path(env).resolve())
-    return '/var/lib/lazyrag/uploads'
+    return '/var/lib/lazymind/uploads'
 
 
 def _sign_secret() -> str:
-    return (os.environ.get('LAZYRAG_FILE_URL_SIGN_SECRET') or 'lazyrag-file-url-secret').strip()
+    return (os.environ.get('LAZYMIND_FILE_URL_SIGN_SECRET') or 'lazymind-file-url-secret').strip()
 
 
 def _expire_seconds() -> int:
-    raw = (os.environ.get('LAZYRAG_FILE_URL_EXPIRE_SECONDS') or '3600').strip()
+    raw = (os.environ.get('LAZYMIND_FILE_URL_EXPIRE_SECONDS') or '3600').strip()
     try:
         value = int(raw)
     except ValueError:
@@ -90,7 +90,7 @@ def local_path_from_static_file_url(path_or_url: str) -> str:
             return ''
         rel = '/'.join(unquote(part) for part in rel_encoded.split('/'))
         return str((root / rel).resolve())
-    marker = '/var/lib/lazyrag/uploads/'
+    marker = '/var/lib/lazymind/uploads/'
     if raw.startswith(marker):
         return str(Path(raw.split('?', 1)[0]).resolve())
     try:
@@ -133,12 +133,12 @@ def static_file_url_from_any(path: str) -> str:
     if raw.startswith('/static-files/'):
         return raw
     if raw.startswith('http://') or raw.startswith('https://'):
-        marker = '/var/lib/lazyrag/uploads/'
+        marker = '/var/lib/lazymind/uploads/'
         idx = raw.find(marker)
         if idx >= 0:
             return static_file_url_from_full_path(raw[idx:])
         return ''
-    if raw.startswith('/var/lib/lazyrag/uploads/'):
+    if raw.startswith('/var/lib/lazymind/uploads/'):
         return static_file_url_from_full_path(raw)
     joined = os.path.join(_upload_root(), raw.lstrip('/'))
     return static_file_url_from_full_path(joined)

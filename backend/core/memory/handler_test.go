@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/evolution"
-	"lazyrag/core/store"
+	"lazymind/core/common/orm"
+	"lazymind/core/evolution"
+	"lazymind/core/store"
 )
 
 type upsertMemoryAPITestResponse struct {
@@ -268,7 +268,7 @@ func TestGenerateOverwritesExistingPendingDraft(t *testing.T) {
 	server := &http.Server{Handler: handler}
 	go func() { _ = server.Serve(listener) }()
 	defer func() { _ = server.Shutdown(context.Background()) }()
-	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+	t.Setenv("LAZYMIND_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
 
 	now := time.Now()
 	row := orm.SystemMemory{
@@ -373,7 +373,7 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	server := &http.Server{Handler: handler}
 	go func() { _ = server.Serve(listener) }()
 	defer func() { _ = server.Shutdown(context.Background()) }()
-	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+	t.Setenv("LAZYMIND_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
 
 	now := time.Now()
 	row := orm.SystemMemory{

@@ -36,12 +36,12 @@ func Specs() []TableSpec {
 	}
 }
 
-// LAZYRAG_READONLY_TABLES supports items like:
+// LAZYMIND_READONLY_TABLES supports items like:
 // - "ragservice.documents"
 // - "ragservice.documents,ragservice.jobs"
 // - "documents" (schema defaults to public)
 func specsFromEnv() []TableSpec {
-	raw := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_TABLES"))
+	raw := strings.TrimSpace(os.Getenv("LAZYMIND_READONLY_TABLES"))
 	if raw == "" {
 		return nil
 	}

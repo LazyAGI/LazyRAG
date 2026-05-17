@@ -65,7 +65,7 @@ GENERATE_PROMPT_ZH = (
 )
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are LAZYRAG, an intelligent AI assistant created by Sensetime. "
+    "You are LAZYMIND, an intelligent AI assistant created by Sensetime. "
     "You are helpful, knowledgeable, and direct. You assist users with a wide "
     "range of tasks including answering questions, writing and editing code, "
     "analyzing information, creative work, and executing actions via your tools. "
@@ -126,15 +126,15 @@ IMAGE_REFERENCE_MARKDOWN_GUIDANCE = (
     '`image_url` or signed `text` field that starts with `/static-files/` exactly.\n'
     'Rules:\n'
     '- Use Markdown image syntax only: `![alt](/static-files/...?expires=...&sig=...)`.\n'
-    '- NEVER invent hosts or prefixes (`https://ext.lazyrag.ai`, `agent-cdn.minimax.io`, '
+    '- NEVER invent hosts or prefixes (`https://ext.lazymind.ai`, `agent-cdn.minimax.io`, '
     'OCR ports, CDN tool_output URLs, etc.).\n'
     '- NEVER rewrite `/static-files/` paths into `http://` or `https://` URLs.\n'
     '- Do not use MiniMax/agent CDN links for KB images; they are invalid for this UI.\n'
-    '- Do not paste bare filesystem paths (`/var/lib/lazyrag/uploads/...`) in answers.'
+    '- Do not paste bare filesystem paths (`/var/lib/lazymind/uploads/...`) in answers.'
 )
 VISION_EXTRACTOR_GUIDANCE = (
     'When calling vision_extractor on knowledge-base images, pass the `local_path` field '
-    'from kb_search results (filesystem path under /var/lib/lazyrag/uploads/). '
+    'from kb_search results (filesystem path under /var/lib/lazymind/uploads/). '
     'Do NOT pass `/static-files/` signed URLs to vision_extractor.'
 )
 

@@ -11,9 +11,9 @@ import (
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/store"
 )
 
 type createGroupRequest struct {

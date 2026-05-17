@@ -10,9 +10,9 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/evolution"
-	"lazyrag/core/store"
+	"lazymind/core/common/orm"
+	"lazymind/core/evolution"
+	"lazymind/core/store"
 )
 
 type listSkillShareTargetsAPITestResponse struct {
@@ -169,8 +169,8 @@ func TestShareExpandsTargetGroupsFromAuthService(t *testing.T) {
 		}
 	}))
 	defer authServer.Close()
-	t.Setenv("LAZYRAG_AUTH_SERVICE_URL", authServer.URL)
-	t.Setenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN", internalToken)
+	t.Setenv("LAZYMIND_AUTH_SERVICE_URL", authServer.URL)
+	t.Setenv("LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN", internalToken)
 
 	now := time.Now().UTC()
 	parent := newShareTestSkillResource("skill-1", "u1", "User 1", "release-check", now)
@@ -235,7 +235,7 @@ func TestShareGroupTargetsExcludeLocallyCachedDisabledUsers(t *testing.T) {
 		}
 	}))
 	defer authServer.Close()
-	t.Setenv("LAZYRAG_AUTH_SERVICE_URL", authServer.URL)
+	t.Setenv("LAZYMIND_AUTH_SERVICE_URL", authServer.URL)
 
 	now := time.Now().UTC()
 	parent := newShareTestSkillResource("skill-1", "u1", "User 1", "release-check", now)

@@ -14,8 +14,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common/orm"
-	appLog "lazyrag/core/log"
+	"lazymind/core/common/orm"
+	appLog "lazymind/core/log"
 )
 
 type SkillState struct {

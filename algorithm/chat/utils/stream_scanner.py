@@ -1,4 +1,4 @@
-# lazyrag/utils/stream_scanner.py
+# lazymind/utils/stream_scanner.py
 from __future__ import annotations
 
 import re

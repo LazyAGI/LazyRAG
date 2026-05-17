@@ -45,7 +45,7 @@ import "./index.scss";
 
 const { Content, Sider } = Layout;
 const MAINLAND_CHINA_PHONE_REGEX = /^1[3-9]\d{9}$/;
-const MAIN_MENU_COLLAPSED_STORAGE_KEY = "lazyrag:main-menu-collapsed";
+const MAIN_MENU_COLLAPSED_STORAGE_KEY = "lazymind:main-menu-collapsed";
 const MAIN_MENU_TRANSITION_MS = 240;
 
 function readStoredMainMenuCollapsed() {
@@ -211,7 +211,7 @@ export default function MainLayout() {
       refreshLayoutUser();
     };
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === "lazyrag:user") {
+      if (event.key === "lazymind:user") {
         setUserInfo(AgentAppsAuth.getUserInfo());
       }
     };
@@ -606,8 +606,8 @@ export default function MainLayout() {
               type="button"
               className="sider-brand"
               onClick={handleNewChat}
-              aria-label="LazyRAG"
-              title="LazyRAG"
+              aria-label="LazyMind"
+              title="LazyMind"
             >
               {logoSrc ? (
                 <img src={logoSrc} alt="logo" />

@@ -13,7 +13,7 @@ export type DetailParseStatus = "parsed" | "reindexing" | "duplicate" | "deleted
 export type DataSourceKind = "local" | "feishu";
 
 export const DEFAULT_SCAN_TENANT_ID = "tenant-demo";
-export const FEISHU_APP_SETUP_STORAGE_KEY = "lazyrag:datasource:feishu:app-setup";
+export const FEISHU_APP_SETUP_STORAGE_KEY = "lazymind:datasource:feishu:app-setup";
 export const FEISHU_DEFAULT_SCOPES = [
   "offline_access",
   "drive:drive",

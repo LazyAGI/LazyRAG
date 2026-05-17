@@ -11,7 +11,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/model"
 )
 
 func sourceID() string {

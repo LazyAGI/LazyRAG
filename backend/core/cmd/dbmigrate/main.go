@@ -13,9 +13,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/log"
-	coremigrate "lazyrag/core/migrate"
+	"lazymind/core/common/orm"
+	"lazymind/core/log"
+	coremigrate "lazymind/core/migrate"
 )
 
 func main() {

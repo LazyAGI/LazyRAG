@@ -1,4 +1,4 @@
-# Runtime model roles for LazyRAG (online/cloud deployment).
+# Runtime model roles for LazyMind (online/cloud deployment).
 # Chat/rerank roles use source=dynamic: model config is injected per-request via globals.config.
 # Embedding roles stay static so lazyllm-algo can initialize vector-store schema at startup.
 

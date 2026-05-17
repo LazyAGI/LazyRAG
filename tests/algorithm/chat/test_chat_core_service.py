@@ -34,7 +34,7 @@ def _import_chat_service_module(monkeypatch, *, chat_server=None):
     fake_config.RAG_MODE = True
     fake_config.MULTIMODAL_MODE = True
     fake_config.MAX_CONCURRENCY = 2
-    fake_config.LAZYRAG_LLM_PRIORITY = 5
+    fake_config.LAZYMIND_LLM_PRIORITY = 5
     fake_config.SENSITIVE_FILTER_RESPONSE_TEXT = 'blocked'
     fake_config.resolve_dataset_url = lambda dataset: f'http://kb-service/{dataset}'
 

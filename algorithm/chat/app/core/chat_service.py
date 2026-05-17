@@ -11,7 +11,7 @@ from lazyllm.tracing.collect import runtime as tracing_runtime
 from fastapi.responses import StreamingResponse
 from chat.app.core.trace_sink import ensure_local_trace_sink, local_trace_enabled
 from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
-                         LAZYRAG_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT,
+                         LAZYMIND_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT,
                          URL_MAP, resolve_dataset_url)
 from chat.utils.helpers import validate_and_resolve_files
 from chat.app.core.chat_server import chat_server
@@ -181,7 +181,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       user_id: Optional[str] = None,
                       model_config: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
-    priority = LAZYRAG_LLM_PRIORITY if priority is None else priority
+    priority = LAZYMIND_LLM_PRIORITY if priority is None else priority
 
     if not chat_server.has_dataset(dataset):
         return _resp(400, f'dataset {dataset} not found', None, 0.0)

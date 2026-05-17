@@ -2,7 +2,7 @@ import core.database as database
 
 
 def test_resolve_database_url_defaults_to_sqlite(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_DATABASE_URL', raising=False)
+    monkeypatch.delenv('LAZYMIND_DATABASE_URL', raising=False)
 
     result = database._resolve_database_url()
 
@@ -11,7 +11,7 @@ def test_resolve_database_url_defaults_to_sqlite(monkeypatch):
 
 
 def test_resolve_database_url_uses_env_value(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_DATABASE_URL', 'postgresql+psycopg://user:pass@db/app')
+    monkeypatch.setenv('LAZYMIND_DATABASE_URL', 'postgresql+psycopg://user:pass@db/app')
 
     result = database._resolve_database_url()
 

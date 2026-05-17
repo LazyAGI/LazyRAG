@@ -13,10 +13,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	appLog "lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	appLog "lazymind/core/log"
+	"lazymind/core/store"
 )
 
 var errInvalidSuggestionFilter = errors.New("invalid suggestion filter")

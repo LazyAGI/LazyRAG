@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"lazyrag/core/common"
-	"lazyrag/core/log"
+	"lazymind/core/common"
+	"lazymind/core/log"
 )
 
 const (

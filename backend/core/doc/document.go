@@ -20,12 +20,12 @@ import (
 	"strings"
 	"time"
 
-	"lazyrag/core/acl"
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/common/readonlyorm"
-	"lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/acl"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/common/readonlyorm"
+	"lazymind/core/log"
+	"lazymind/core/store"
 
 	"github.com/gorilla/mux"
 )
@@ -63,7 +63,7 @@ func replyDatasetForbidden(w http.ResponseWriter) {
 }
 
 func publicBaseURL() string {
-	if v := strings.TrimSpace(os.Getenv("LAZYRAG_PUBLIC_BASE_URL")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LAZYMIND_PUBLIC_BASE_URL")); v != "" {
 		return strings.TrimRight(v, "/")
 	}
 	return "http://localhost:8000/api/core"
@@ -81,14 +81,14 @@ func absoluteCoreURL(path string) string {
 }
 
 func signedFileSecret() string {
-	if v := strings.TrimSpace(os.Getenv("LAZYRAG_FILE_URL_SIGN_SECRET")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LAZYMIND_FILE_URL_SIGN_SECRET")); v != "" {
 		return v
 	}
-	return "lazyrag-file-url-secret"
+	return "lazymind-file-url-secret"
 }
 
 func signedFileExpireSeconds() int64 {
-	if v := strings.TrimSpace(os.Getenv("LAZYRAG_FILE_URL_EXPIRE_SECONDS")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LAZYMIND_FILE_URL_EXPIRE_SECONDS")); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 			return n
 		}

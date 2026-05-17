@@ -16,12 +16,12 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/authclient"
-	cloudprovider "github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
-	"github.com/lazyrag/scan_control_plane/internal/coreclient"
-	"github.com/lazyrag/scan_control_plane/internal/model"
-	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
-	"github.com/lazyrag/scan_control_plane/internal/store"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/authclient"
+	cloudprovider "github.com/lazymind/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazymind/scan_control_plane/internal/coreclient"
+	"github.com/lazymind/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/sourcelayout"
+	"github.com/lazymind/scan_control_plane/internal/store"
 )
 
 func newServerTestStore(t *testing.T) *store.Store {

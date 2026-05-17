@@ -1,3 +1,3 @@
 # LazyLLM Algorithm Tests
 
-Tests for `LazyRAG/algorithm/lazyllm`.
+Tests for `LazyMind/algorithm/lazyllm`.

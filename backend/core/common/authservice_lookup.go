@@ -135,8 +135,8 @@ func authServiceRequestHeaders(r *http.Request) map[string]string {
 
 func authServiceInternalRequestHeaders(r *http.Request) map[string]string {
 	headers := authServiceRequestHeaders(r)
-	if value := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN")); value != "" {
-		headers["X-LazyRAG-Internal-Token"] = value
+	if value := strings.TrimSpace(os.Getenv("LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN")); value != "" {
+		headers["X-LazyMind-Internal-Token"] = value
 	}
 	return headers
 }

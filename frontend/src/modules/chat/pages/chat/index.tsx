@@ -78,8 +78,8 @@ const ChatPage: FC = () => {
           },
         },
         models: enableMultipleAnswers
-          ? ["LazyRAG", "DeepSeek"]
-          : ["LazyRAG"],
+          ? ["LazyMind", "DeepSeek"]
+          : ["LazyMind"],
         stream: true,
         input,
         environment_context: buildEnvironmentContext(),

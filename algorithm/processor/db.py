@@ -4,7 +4,7 @@ from urllib.parse import unquote, urlparse
 
 from config import config as _cfg
 
-SHARED_DB_ENV_KEY = 'LAZYRAG_DATABASE_URL'
+SHARED_DB_ENV_KEY = 'LAZYMIND_DATABASE_URL'
 
 
 def parse_db_url(url: Optional[str]) -> Optional[Dict[str, Any]]:

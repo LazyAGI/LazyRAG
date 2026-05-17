@@ -5,22 +5,22 @@ import (
 	"net/http"
 	"os"
 
-	"lazyrag/core/common"
+	"lazymind/core/common"
 )
 
 // parseServiceURL text Python text（Document）text base URL。
-// text LAZYRAG_PARSING_SERVICE_URL text，Default http://localhost:8000。
+// text LAZYMIND_PARSING_SERVICE_URL text，Default http://localhost:8000。
 func parseServiceURL() string {
-	if u := os.Getenv("LAZYRAG_PARSING_SERVICE_URL"); u != "" {
+	if u := os.Getenv("LAZYMIND_PARSING_SERVICE_URL"); u != "" {
 		return u
 	}
 	return "http://localhost:8000"
 }
 
 // processorServiceURL textUploadtext base URL（text doc-manager text add_doc）。
-// text LAZYRAG_PROCESSOR_SERVICE_URL text，Default http://localhost:8001。
+// text LAZYMIND_PROCESSOR_SERVICE_URL text，Default http://localhost:8001。
 func processorServiceURL() string {
-	if u := os.Getenv("LAZYRAG_PROCESSOR_SERVICE_URL"); u != "" {
+	if u := os.Getenv("LAZYMIND_PROCESSOR_SERVICE_URL"); u != "" {
 		return u
 	}
 	return "http://localhost:8001"

@@ -54,7 +54,7 @@ def _required_permissions_for(method: str, path: str) -> list[str] | None:
 
 def load_api_permissions() -> None:
     global API_PERMISSIONS_MAP
-    path = os.environ.get('LAZYRAG_AUTH_API_PERMISSIONS_FILE')
+    path = os.environ.get('LAZYMIND_AUTH_API_PERMISSIONS_FILE')
     path = Path(path) if path else Path(__file__).resolve().parent.parent / 'api_permissions.json'
     if not path.exists():
         logger.warning('api_permissions.json not found at %s; RBAC authorize will allow all', path)

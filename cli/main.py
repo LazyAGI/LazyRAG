@@ -1,4 +1,4 @@
-"""LazyRAG CLI entry point: argument parsing and command dispatch."""
+"""LazyMind CLI entry point: argument parsing and command dispatch."""
 
 import argparse
 import sys
@@ -19,12 +19,12 @@ from cli.commands.upload import cmd_task_get, cmd_task_list, cmd_upload
 def _add_server_arg(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--server', metavar='URL',
-        help='LazyRAG server URL (default: from login)',
+        help='LazyMind server URL (default: from login)',
     )
 
 
 def _add_dataset_arg(parser: argparse.ArgumentParser,
-                     help_text: str = 'Dataset ID (default: from `lazyrag use`)') -> None:
+                     help_text: str = 'Dataset ID (default: from `lazymind use`)') -> None:
     parser.add_argument('--dataset', default=None, help=help_text)
 
 
@@ -37,8 +37,8 @@ def _add_json_arg(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog='lazyrag',
-        description='LazyRAG CLI - manage knowledge bases and documents',
+        prog='lazymind',
+        description='LazyMind CLI - manage knowledge bases and documents',
     )
     sub = parser.add_subparsers(dest='command', required=True)
 
@@ -314,7 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     retrieve.add_argument(
         '--dataset',
-        help='Knowledge base / dataset ID to filter on (default: from `lazyrag use`)',
+        help='Knowledge base / dataset ID to filter on (default: from `lazymind use`)',
     )
     retrieve.add_argument(
         '--algo-dataset',

@@ -21,8 +21,8 @@ def _get_bytes(url: str) -> bytes:
 
 
 def main() -> int:
-    algo_port = _env_int('LAZYRAG_ALGO_SERVER_PORT', _env_int('LAZYRAG_DOCUMENT_SERVER_PORT', 8000))
-    processor_url = os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000').rstrip('/')
+    algo_port = _env_int('LAZYMIND_ALGO_SERVER_PORT', _env_int('LAZYMIND_DOCUMENT_SERVER_PORT', 8000))
+    processor_url = os.getenv('LAZYMIND_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000').rstrip('/')
 
     _get_bytes(f'http://127.0.0.1:{algo_port}/docs')
     payload = json.loads(_get_bytes(f'{processor_url}/algo/list').decode('utf-8'))

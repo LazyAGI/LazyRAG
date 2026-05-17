@@ -38,10 +38,10 @@ def test_get_algo_server_port_prefers_algo_port(monkeypatch):
 
 
 def test_build_store_config_reads_required_and_optional_env(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_MILVUS_URI', 'http://milvus.test')
-    monkeypatch.setenv('LAZYRAG_OPENSEARCH_URI', 'https://opensearch.test')
-    monkeypatch.setenv('LAZYRAG_OPENSEARCH_USER', 'user')
-    monkeypatch.setenv('LAZYRAG_OPENSEARCH_PASSWORD', 'pass')
+    monkeypatch.setenv('LAZYMIND_MILVUS_URI', 'http://milvus.test')
+    monkeypatch.setenv('LAZYMIND_OPENSEARCH_URI', 'https://opensearch.test')
+    monkeypatch.setenv('LAZYMIND_OPENSEARCH_USER', 'user')
+    monkeypatch.setenv('LAZYMIND_OPENSEARCH_PASSWORD', 'pass')
 
     config = build_document._build_store_config({'index': 'flat'})
 
@@ -57,7 +57,7 @@ def test_build_store_config_raises_for_missing_milvus_uri(monkeypatch):
     # when required config values are missing.
     monkeypatch.setitem(build_document._cfg._impl, 'milvus_uri', '')
 
-    with pytest.raises(ValueError, match='LAZYRAG_MILVUS_URI is required'):
+    with pytest.raises(ValueError, match='LAZYMIND_MILVUS_URI is required'):
         build_document._build_store_config({})
 
 
@@ -164,7 +164,7 @@ def test_build_document_wires_readers_groups_and_embeddings(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _build_pdf_reader — explicit LAZYRAG_MINERU_UPLOAD_MODE override
+# _build_pdf_reader — explicit LAZYMIND_MINERU_UPLOAD_MODE override
 # ---------------------------------------------------------------------------
 
 def test_build_pdf_reader_mineru_upload_mode_explicit_true(monkeypatch):

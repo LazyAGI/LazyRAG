@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"lazyrag/core/acl"
-	"lazyrag/core/common/orm"
+	"lazymind/core/acl"
+	"lazymind/core/common/orm"
 
 	"github.com/gorilla/mux"
 )
@@ -126,7 +126,7 @@ func TestCreateDatasetUsesNamespacedAlgoDisplayName(t *testing.T) {
 		}
 	})
 	t.Cleanup(func() { http.DefaultTransport = prevTransport })
-	t.Setenv("LAZYRAG_ALGO_SERVICE_URL", "http://algo.test")
+	t.Setenv("LAZYMIND_ALGO_SERVICE_URL", "http://algo.test")
 
 	body := `{"display_name":"datasource-bendi","desc":"local data","algo":{"algo_id":"general_algo","display_name":"General"},"tags":["local"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/core/datasets?dataset_id=ds_test", strings.NewReader(body))
@@ -167,7 +167,7 @@ func TestCreateDatasetRejectsReservedDisplayNamePrefixes(t *testing.T) {
 		return testJSONResponse(http.StatusInternalServerError, `{"message":"unexpected call"}`), nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = prevTransport })
-	t.Setenv("LAZYRAG_ALGO_SERVICE_URL", "http://algo.test")
+	t.Setenv("LAZYMIND_ALGO_SERVICE_URL", "http://algo.test")
 
 	for _, name := range []string{"user@abc", "feishu@abc", "local@abc", " User@abc"} {
 		t.Run(name, func(t *testing.T) {
@@ -222,7 +222,7 @@ func TestUpdateDatasetUsesNamespacedAlgoDisplayName(t *testing.T) {
 		return testJSONResponse(http.StatusOK, `{}`), nil
 	})
 	t.Cleanup(func() { http.DefaultTransport = prevTransport })
-	t.Setenv("LAZYRAG_ALGO_SERVICE_URL", "http://algo.test")
+	t.Setenv("LAZYMIND_ALGO_SERVICE_URL", "http://algo.test")
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/core/datasets/ds-update", strings.NewReader(`{"display_name":"new name"}`))
 	req = mux.SetURLVars(req, map[string]string{"dataset": "ds-update"})

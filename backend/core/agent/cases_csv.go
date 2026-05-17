@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"lazyrag/core/doc"
+	"lazymind/core/doc"
 )
 
 const defaultCaseCSVField = "case_csv_file"

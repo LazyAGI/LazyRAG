@@ -200,20 +200,20 @@ def auth_request(
     server = resolve_server_url(server)
     token = credentials.access_token()
     if token is None:
-        print('Not logged in. Run `lazyrag login` first.', file=sys.stderr)
+        print('Not logged in. Run `lazymind login` first.', file=sys.stderr)
         raise SystemExit(1)
 
     if credentials.is_token_expired():
         if not _try_refresh(server):
             print(
-                'Session expired.  Run `lazyrag login` to re-authenticate.',
+                'Session expired.  Run `lazymind login` to re-authenticate.',
                 file=sys.stderr,
             )
             raise SystemExit(1)
         token = credentials.access_token()
         if token is None:
             print(
-                'Session expired.  Run `lazyrag login` to re-authenticate.',
+                'Session expired.  Run `lazymind login` to re-authenticate.',
                 file=sys.stderr,
             )
             raise SystemExit(1)
@@ -234,7 +234,7 @@ def auth_request(
                 token = credentials.access_token()
                 if token is None:
                     print(
-                        'Session expired.  Run `lazyrag login` to '
+                        'Session expired.  Run `lazymind login` to '
                         're-authenticate.',
                         file=sys.stderr,
                     )
@@ -245,7 +245,7 @@ def auth_request(
                 return raw_request(method, url, payload=payload, headers=hdrs,
                                    body=body, timeout=timeout)
             print(
-                'Session expired.  Run `lazyrag login` to re-authenticate.',
+                'Session expired.  Run `lazymind login` to re-authenticate.',
                 file=sys.stderr,
             )
             raise SystemExit(1)
@@ -272,7 +272,7 @@ def build_multipart_body(
     file_content: bytes,
 ) -> Tuple[bytes, Dict[str, str]]:
     """Build a multipart/form-data body with one file."""
-    boundary = f'----LazyRAGBoundary{uuid.uuid4().hex}'
+    boundary = f'----LazyMindBoundary{uuid.uuid4().hex}'
     parts: List[bytes] = []
 
     for key, value in fields.items():
@@ -308,7 +308,7 @@ def build_multipart_file(
     source_path: str,
 ) -> Tuple[BinaryIO, Dict[str, str]]:
     """Build a multipart/form-data payload backed by a temp file."""
-    boundary = f'----LazyRAGBoundary{uuid.uuid4().hex}'
+    boundary = f'----LazyMindBoundary{uuid.uuid4().hex}'
     handle = tempfile.SpooledTemporaryFile(max_size=1024 * 1024)
 
     try:

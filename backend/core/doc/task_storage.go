@@ -7,18 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 
-	"lazyrag/core/common"
+	"lazymind/core/common"
 )
 
 func uploadRoot() string {
-	if v := strings.TrimSpace(os.Getenv("LAZYRAG_UPLOAD_ROOT")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LAZYMIND_UPLOAD_ROOT")); v != "" {
 		return strings.TrimRight(v, "/")
 	}
-	return "/var/lib/lazyrag/uploads"
+	return "/var/lib/lazymind/uploads"
 }
 
 func parsingServiceEndpoint() string {
-	if v := strings.TrimSpace(os.Getenv("LAZYRAG_DOCUMENT_SERVICE_URL")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LAZYMIND_DOCUMENT_SERVICE_URL")); v != "" {
 		return strings.TrimRight(v, "/")
 	}
 	return common.AlgoServiceEndpoint()

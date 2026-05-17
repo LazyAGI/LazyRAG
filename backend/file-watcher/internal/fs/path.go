@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	internal "github.com/lazyrag/file_watcher/internal"
+	internal "github.com/lazymind/file_watcher/internal"
 )
 
 // PathValidator validates filesystem paths.

@@ -11,9 +11,9 @@ import (
 
 	"go.uber.org/zap"
 
-	internal "github.com/lazyrag/file_watcher/internal"
-	"github.com/lazyrag/file_watcher/internal/config"
-	"github.com/lazyrag/file_watcher/internal/fs"
+	internal "github.com/lazymind/file_watcher/internal"
+	"github.com/lazymind/file_watcher/internal/config"
+	"github.com/lazymind/file_watcher/internal/fs"
 )
 
 // Manager defines the Source lifecycle management interface.

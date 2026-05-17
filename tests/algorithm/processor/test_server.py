@@ -36,7 +36,7 @@ def _fresh_import_server(monkeypatch):
 
 
 def test_server_constructs_document_processor_from_env(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '8123')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_PROCESSOR_PORT', '8123')
 
     module = _fresh_import_server(monkeypatch)
 
@@ -98,7 +98,7 @@ def test_server_main_starts_waits_and_registers_signals(monkeypatch):
     monkeypatch.setattr(processor.db, 'require_shared_db_config', lambda service_name: {'service': service_name})
     monkeypatch.setattr(threading, 'Event', FakeEvent)
     monkeypatch.setattr(signal, 'signal', lambda sig, handler: signal_calls.append((sig, handler.__name__)))
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '8125')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_PROCESSOR_PORT', '8125')
     sys.modules.pop('processor.server', None)
 
     runpy.run_module('processor.server', run_name='__main__')

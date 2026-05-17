@@ -25,7 +25,7 @@ app = FastAPI(
 )
 
 OFFICE_EXTENSIONS = {'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'}
-DEFAULT_ALLOWED_ROOTS = '/var/lib/lazyrag/uploads'
+DEFAULT_ALLOWED_ROOTS = '/var/lib/lazymind/uploads'
 DEFAULT_TIMEOUT_SECONDS = 900
 DEFAULT_CONCURRENCY = 4
 

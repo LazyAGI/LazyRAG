@@ -12,9 +12,9 @@ import (
 )
 
 // MustRedisFromEnv textCreate Redis text Ping，Failedtext panic。
-// text LAZYRAG_REDIS_URL（redis://user:pass@host:port/db）。
+// text LAZYMIND_REDIS_URL（redis://user:pass@host:port/db）。
 func MustRedisFromEnv() *redis.Client {
-	if raw := strings.TrimSpace(os.Getenv("LAZYRAG_REDIS_URL")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv("LAZYMIND_REDIS_URL")); raw != "" {
 		u, err := url.Parse(raw)
 		if err == nil && u.Scheme == "redis" {
 			addr := u.Host

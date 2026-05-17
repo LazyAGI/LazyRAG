@@ -23,7 +23,7 @@ export type SyncStateValue =
 export type PendingActionValue = "NONE" | "CREATE" | "UPDATE" | "DELETE";
 
 export const DEFAULT_SCAN_TENANT_ID = "tenant-demo";
-export const FEISHU_APP_SETUP_STORAGE_KEY = "lazyrag:datasource:feishu:app-setup";
+export const FEISHU_APP_SETUP_STORAGE_KEY = "lazymind:datasource:feishu:app-setup";
 export const FEISHU_DEFAULT_SCOPES = [
   "offline_access",
   "drive:drive",

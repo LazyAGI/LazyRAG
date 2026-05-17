@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/model"
 )
 
 func inferDocumentUpdateType(desiredVersionID, currentVersionID, parseStatus string) string {

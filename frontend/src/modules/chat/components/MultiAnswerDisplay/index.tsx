@@ -125,7 +125,7 @@ const MultiAnswerDisplay: React.FC<MultiAnswerDisplayProps> = ({
           >
             <div className="answer-header">
               <span className="answer-label">
-                {index === 0 ? t("chat.lazyRagModel") : "DeepSeek"}
+                {index === 0 ? t("chat.lazyMindModel") : "DeepSeek"}
               </span>
             </div>
             <div className="answer-content">
@@ -152,7 +152,7 @@ const MultiAnswerDisplay: React.FC<MultiAnswerDisplayProps> = ({
             buttonStyle="solid"
           >
             <Space size="middle">
-              <Radio.Button value="prefer_first">{t("chat.lazyRagModel")}</Radio.Button>
+              <Radio.Button value="prefer_first">{t("chat.lazyMindModel")}</Radio.Button>
               <Radio.Button value="prefer_second">DeepSeek</Radio.Button>
               <Radio.Button value="similar">{t("chat.bothGood")}</Radio.Button>
               <Radio.Button value="neither">{t("chat.bothBad")}</Radio.Button>

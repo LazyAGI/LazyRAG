@@ -10,12 +10,12 @@ from pathlib import Path
 # Must set env before importing app
 _test_dir = os.path.dirname(os.path.abspath(__file__))
 _db_path = Path(_test_dir) / '.auth_service_test.sqlite3'
-os.environ['LAZYRAG_DATABASE_URL'] = f'sqlite:///{_db_path}'
-os.environ['LAZYRAG_JWT_SECRET'] = 'test-secret'
-os.environ['LAZYRAG_JWT_TTL_MINUTES'] = '60'
-os.environ['LAZYRAG_JWT_REFRESH_TTL_DAYS'] = '7'
-os.environ['LAZYRAG_AUTH_API_PERMISSIONS_FILE'] = os.path.join(_test_dir, 'api_permissions_test.json')
-os.environ['LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN'] = 'test-internal-token'
+os.environ['LAZYMIND_DATABASE_URL'] = f'sqlite:///{_db_path}'
+os.environ['LAZYMIND_JWT_SECRET'] = 'test-secret'
+os.environ['LAZYMIND_JWT_TTL_MINUTES'] = '60'
+os.environ['LAZYMIND_JWT_REFRESH_TTL_DAYS'] = '7'
+os.environ['LAZYMIND_AUTH_API_PERMISSIONS_FILE'] = os.path.join(_test_dir, 'api_permissions_test.json')
+os.environ['LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN'] = 'test-internal-token'
 
 # Add auth-service to path (run from project root: pytest tests/backend/auth-service/)
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
