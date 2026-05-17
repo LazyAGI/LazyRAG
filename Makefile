@@ -18,6 +18,29 @@ comma := ,
 #        make down COMPOSE_PROJECT=myproj  →  docker compose -p myproj down
 # ---------------------------------------------------------------------------
 _COMPOSE := DOCKER_BUILDKIT=$(DOCKER_BUILDKIT) docker compose $(if $(COMPOSE_PROJECT),-p $(COMPOSE_PROJECT),)
+# ---------------------------------------------------------------------------
+# Mirror profile: cn (domestic/default) or intl (international).
+# Selects which .env.mirrors.<profile> file to load for all build-time source
+# URLs (Docker Hub mirror, PyPI, APT, Alpine, npm, Go proxy, GitHub proxy).
+#
+# Priority (highest → lowest):
+#   1. Command-line:  make up MIRROR_PROFILE=intl
+#   2. .env file:     MIRROR_PROFILE=intl  (or any individual VAR=value)
+#   3. Profile file:  .env.mirrors.cn / .env.mirrors.intl
+#   4. Makefile ?=:   hard-coded domestic fallbacks below
+#
+# Usage without Makefile (docker compose directly):
+#   docker compose --env-file .env.mirrors.intl up -d
+# ---------------------------------------------------------------------------
+# Read MIRROR_PROFILE from .env via shell before any include, so that setting
+# MIRROR_PROFILE=intl in .env correctly selects the intl profile file.
+MIRROR_PROFILE ?= $(or $(shell grep -m1 '^MIRROR_PROFILE=' .env 2>/dev/null | cut -d= -f2-),cn)
+_MIRROR_ENV_FILE := .env.mirrors.$(MIRROR_PROFILE)
+ifneq (,$(wildcard $(_MIRROR_ENV_FILE)))
+include $(_MIRROR_ENV_FILE)
+export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' $(_MIRROR_ENV_FILE))
+endif
+# Load .env after the profile so individual variable overrides in .env win.
 ifneq (,$(wildcard .env))
 include .env
 export $(shell sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' .env)
@@ -160,6 +183,12 @@ help:
 	@echo "  make reset-all  - Stop services, wipe ALL persistent data (KB + users, auth, Redis, etc.)"
 	@echo "                    Equivalent to a clean first-run state"
 	@echo "  make fresh-start - reset-kb + up with LAZYRAG_RESET_ALGO_ON_STARTUP=true (standard clean restart)"
+	@echo ""
+	@echo "Mirror profile (build-time source URLs):"
+	@echo "  make up MIRROR_PROFILE=cn    - Use domestic mirrors (default: Aliyun/goproxy.cn/daocloud)"
+	@echo "  make up MIRROR_PROFILE=intl  - Use international mirrors (Docker Hub/PyPI/golang.org)"
+	@echo "  Set MIRROR_PROFILE=intl in .env for a persistent override."
+	@echo "  Without Makefile: docker compose --env-file .env.mirrors.intl up -d"
 
 # Require flake8 to be installed (e.g. in a venv). Do not auto pip-install to avoid PEP 668 errors.
 install-flake8:
