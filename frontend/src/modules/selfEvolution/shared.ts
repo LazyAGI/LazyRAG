@@ -607,6 +607,16 @@ export function createInitialWorkflowRuntimeState(): WorkflowRuntimeState {
   };
 }
 
+export function createThreadRestoreWorkflowRuntimeState(): WorkflowRuntimeState {
+  return {
+    dataset: { status: "pending" },
+    "px-report": { status: "pending" },
+    analysis: { status: "pending" },
+    "code-optimize": { status: "pending" },
+    "ab-test": { status: "pending" },
+  };
+}
+
 export function createInitialWorkflowResultsState(): WorkflowResultsState {
   return {
     datasets: { loading: false, loaded: false },
@@ -1427,6 +1437,13 @@ export function getCompletedProgressSnapshot(): WorkflowProgressSnapshot {
   };
 }
 
+function updateProgressStatusText(
+  progress: WorkflowProgressSnapshot | undefined,
+  statusText: string,
+): WorkflowProgressSnapshot | undefined {
+  return progress ? { ...progress, statusText } : progress;
+}
+
 const evalProgressPhaseDefinitions: Record<WorkflowProgressPhaseId, Omit<WorkflowProgressPhaseSnapshot, "statusText" | "percent">> = {
   rag: {
     id: "rag",
@@ -1486,9 +1503,10 @@ function updateEvalProgressPhases(
       : next;
   }
 
+  const currentPhase = next.find((item) => item.id === phase);
   const progressSnapshot = progress || {
     statusText: getEvalProgressStatusLabel(action, phase),
-    percent: isActionKind(action, "finish") ? 100 : 0,
+    percent: isActionKind(action, "finish") ? 100 : currentPhase?.percent ?? 0,
   };
 
   return next.map((item) => {
@@ -1733,6 +1751,35 @@ export function buildApplyEventDisplayText(
   return undefined;
 }
 
+export function buildDatasetEventDisplayText(
+  action: string | undefined,
+  payload: Record<string, unknown> | undefined,
+) {
+  const eventData = getEventPayloadData(payload);
+  const current = getNumberField(eventData, ["current", "completed", "done", "processed"]);
+  const total = getNumberField(eventData, ["total", "num_cases", "cases", "count"]);
+  const countText =
+    typeof current === "number" && typeof total === "number" && total > 0
+      ? `，进度 ${current}/${total}`
+      : typeof total === "number" && total > 0
+        ? `，共 ${total} 条样本`
+        : "";
+
+  if (isActionKind(action, "start")) {
+    return "已启动数据集生成，正在准备评测样本。";
+  }
+  if (isActionKind(action, "finish")) {
+    return "数据集生成已完成，可下载查看结果。";
+  }
+  if (isActionKind(action, "cancel")) {
+    return "数据集生成已取消。";
+  }
+  if (isActionKind(action, "pause")) {
+    return "数据集生成已暂停，等待继续执行。";
+  }
+  return `数据集生成正在执行${countText}。`;
+}
+
 export function buildEvalEventDisplayText(
   action: string | undefined,
   type: string,
@@ -1809,18 +1856,34 @@ export function getWorkflowProgressSnapshot(
   const progressData = stage === "eval" ? getEvalPhasePayloadData(payload, evalPhase) : eventData;
   const current = getNumberField(progressData, ["current", "completed", "done", "processed"]);
   const total = getNumberField(progressData, ["total", "num_cases", "cases", "count"]);
+  const explicitPercent = getNumberField(progressData, ["percent", "percentage", "progress"]);
+  const hasProgressValue =
+    typeof explicitPercent === "number" ||
+    (typeof current === "number" && typeof total === "number" && total > 0);
   const percent =
     isActionKind(action, "finish")
       ? 100
       : isActionKind(action, "start")
-        ? 0
-        : typeof current === "number" && typeof total === "number" && total > 0
-          ? (current / total) * 100
-          : undefined;
+        ? typeof explicitPercent === "number"
+          ? explicitPercent
+          : typeof current === "number" && typeof total === "number" && total > 0
+            ? (current / total) * 100
+            : hasProgressValue
+              ? 0
+              : undefined
+        : typeof explicitPercent === "number"
+          ? explicitPercent
+          : typeof current === "number" && typeof total === "number" && total > 0
+            ? (current / total) * 100
+            : undefined;
+
+  if (typeof percent !== "number") {
+    return undefined;
+  }
 
   return {
     statusText: stage === "eval" ? getEvalProgressStatusLabel(action, evalPhase) : getRuntimeProgressStatusLabel(action),
-    percent: clampPercent(percent ?? 0),
+    percent: clampPercent(percent),
   };
 }
 
@@ -2485,10 +2548,12 @@ export function normalizeThreadEvent(frame: ThreadEventFrame): NormalizedThreadE
   const actionLabel = action ? eventActionLabels[action] || action : "事件更新";
   const detail = content || compactPayloadForDisplay(payload);
   const displayText =
+    (stage === "dataset_gen" && buildDatasetEventDisplayText(action, payload)) ||
     (stage === "run" && buildAnalysisEventDisplayText(action, type, payload)) ||
     (stage === "apply" && buildApplyEventDisplayText(action, type, payload)) ||
     (stage === "eval" && buildEvalEventDisplayText(action, type, payload)) ||
     (stage === "abtest" && buildAbtestEventDisplayText(action)) ||
+    (stage === "dataset_gen" && "数据集生成正在执行。") ||
     (detail ? `${stageLabels[stage]}：${actionLabel}，${detail}` : `${stageLabels[stage]}：${actionLabel}`);
   const progress = getWorkflowProgressSnapshot(stage, action, payload, type);
   const progressPhase = stage === "eval" ? getEvalPayloadPhase(action, type, payload) : undefined;
@@ -2604,10 +2669,17 @@ export function buildWorkflowStepRuntimeFromEvents(events: NormalizedThreadEvent
       snapshot.status = "failed";
     } else if (event.action === "pause") {
       snapshot.status = "paused";
+      if (event.stage !== "eval") {
+        snapshot.progress =
+          event.progress ||
+          updateProgressStatusText(snapshot.progress, getRuntimeProgressStatusLabel(event.action));
+      }
     } else {
       snapshot.status = "running";
       if (event.stage !== "eval") {
-        snapshot.progress = event.progress || snapshot.progress;
+        snapshot.progress =
+          event.progress ||
+          updateProgressStatusText(snapshot.progress, getRuntimeProgressStatusLabel(event.action));
       }
     }
     snapshot.runtimeText = event.progress ? undefined : event.displayText;
@@ -3127,14 +3199,29 @@ export function reduceWorkflowRuntimeState(
     current.status = "failed";
   } else if (action === "pause") {
     current.status = "paused";
+    if (event.stage !== "eval") {
+      current.progress =
+        event.progress ||
+        updateProgressStatusText(current.progress, getRuntimeProgressStatusLabel(action));
+    }
   } else {
     current.status = "running";
     if (event.stage !== "eval") {
-      current.progress = event.progress || current.progress;
+      current.progress =
+        event.progress ||
+        updateProgressStatusText(current.progress, getRuntimeProgressStatusLabel(action));
     }
   }
   current.runtimeText = event.progress ? undefined : event.displayText;
   return next;
+}
+
+export function getThreadTitleFromHistoryPayload(payload: ThreadRestorePayload) {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  return getNestedStringField(payload, ["title"]);
 }
 
 export function getThreadTitleFromPayload(payload: ThreadRestorePayload) {

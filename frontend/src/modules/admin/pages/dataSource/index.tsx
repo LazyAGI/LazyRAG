@@ -10,6 +10,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
@@ -48,6 +49,7 @@ import DataSourceSummaryCards from "./components/DataSourceSummaryCards";
 import DataSourceWizardModal from "./components/DataSourceWizardModal";
 import {
   FEISHU_DATA_SOURCE_OAUTH_CHANNEL,
+  clearFeishuDataSourceWizardDraft,
   consumeFeishuDataSourceOAuthResult,
   consumeFeishuDataSourceWizardDraft,
   finishFeishuDataSourceOAuth,
@@ -520,6 +522,7 @@ export default function DataSourceManagement() {
   const [knowledgeBaseNames, setKnowledgeBaseNames] = useState<string[]>([]);
   const [scanLoading, setScanLoading] = useState(false);
   const [validatedAgentId, setValidatedAgentId] = useState<string | null>(null);
+  const [wizardSaving, setWizardSaving] = useState(false);
 
   const syncMode = Form.useWatch("syncMode", form) || "scheduled";
   const feishuTargetType = (Form.useWatch("targetType", form) || "wiki_space") as FeishuTargetType;
@@ -964,6 +967,7 @@ export default function DataSourceManagement() {
 
   const handleCloseWizard = () => {
     setWizardOpen(false);
+    clearFeishuDataSourceWizardDraft();
     resetWizard();
   };
 
@@ -1452,6 +1456,49 @@ export default function DataSourceManagement() {
     }
   };
 
+  const validateFeishuTargetBeforeSave = async (
+    client: ScanDefaultApi,
+    authConnectionId: string,
+    targetType: FeishuTargetType,
+    targetRef: string,
+  ) => {
+    try {
+      const response = await client.apiScanCloudTargetValidatePost({
+        validateCloudTargetRequest: {
+          provider: "feishu",
+          auth_connection_id: authConnectionId,
+          target_type: targetType,
+          target_ref: targetRef,
+        },
+      });
+
+      if (response.data.valid) {
+        return true;
+      }
+
+      const validation = response.data as typeof response.data & {
+        reason?: string;
+        message?: string;
+        detail?: string;
+      };
+      const errorMessage =
+        validation.reason ||
+        validation.message ||
+        validation.detail ||
+        t("admin.dataSourceFeishuTargetValidateFailed");
+      form.setFields([{ name: "target", errors: [errorMessage] }]);
+      message.error(errorMessage);
+      return false;
+    } catch (error) {
+      const errorMessage =
+        getLocalizedErrorMessage(error, t("admin.dataSourceFeishuTargetValidateFailed")) ||
+        t("admin.dataSourceFeishuTargetValidateFailed");
+      form.setFields([{ name: "target", errors: [errorMessage] }]);
+      message.error(errorMessage);
+      return false;
+    }
+  };
+
   const handleSaveFeishuSource = async (values: SourceFormValues) => {
     const sourceName = `${values.knowledgeBase || getSourceTypeTitle("feishu", t)}`.trim();
     const targetRef = `${values.target || ""}`.trim();
@@ -1492,6 +1539,16 @@ export default function DataSourceManagement() {
     }
 
     try {
+      const targetValid = await validateFeishuTargetBeforeSave(
+        client,
+        authConnectionId,
+        targetType,
+        targetRef,
+      );
+      if (!targetValid) {
+        return;
+      }
+
       let sourceId = currentFeishuSource?.id || "";
       if (currentFeishuSource?.scanManaged) {
         await client.apiScanSourcesIdPut({
@@ -1595,39 +1652,44 @@ export default function DataSourceManagement() {
   };
 
   const handleSave = async () => {
-    if (!selectedType) {
+    if (!selectedType || wizardSaving) {
       return;
     }
 
-    const syncStrategyFields =
-      form.getFieldValue("syncMode") === "scheduled"
-        ? ["syncMode", "scheduleCycle", "scheduleTime"]
-        : ["syncMode"];
+    setWizardSaving(true);
+    try {
+      const syncStrategyFields =
+        form.getFieldValue("syncMode") === "scheduled"
+          ? ["syncMode", "scheduleCycle", "scheduleTime"]
+          : ["syncMode"];
 
-    if (wizardMode === "edit") {
-      await form.validateFields(syncStrategyFields);
-    } else {
-      await form.validateFields();
+      if (wizardMode === "edit") {
+        await form.validateFields(syncStrategyFields);
+      } else {
+        await form.validateFields();
+      }
+
+      const values = form.getFieldsValue(true);
+
+      if (
+        wizardMode !== "edit" &&
+        !(await ensureKnowledgeBaseNameUnique(values.knowledgeBase))
+      ) {
+        return;
+      }
+
+      if (wizardMode !== "edit" && !validateConnectionBeforeSave()) {
+        return;
+      }
+
+      if (selectedType === "local") {
+        await handleSaveLocalSource(values);
+        return;
+      }
+      await handleSaveFeishuSource(values);
+    } finally {
+      setWizardSaving(false);
     }
-
-    const values = form.getFieldsValue(true);
-
-    if (
-      wizardMode !== "edit" &&
-      !(await ensureKnowledgeBaseNameUnique(values.knowledgeBase))
-    ) {
-      return;
-    }
-
-    if (wizardMode !== "edit" && !validateConnectionBeforeSave()) {
-      return;
-    }
-
-    if (selectedType === "local") {
-      await handleSaveLocalSource(values);
-      return;
-    }
-    await handleSaveFeishuSource(values);
   };
 
   const columns: ColumnsType<DataSourceItem> = [
@@ -1649,9 +1711,15 @@ export default function DataSourceManagement() {
             >
               {record.name}
             </Button>
-            <Text type="secondary" className="data-source-ellipsis">
-              {record.description}
-            </Text>
+            <Tooltip title={record.description} placement="topLeft">
+              <Text
+                type="secondary"
+                className="data-source-ellipsis"
+                tabIndex={0}
+              >
+                {record.description}
+              </Text>
+            </Tooltip>
           </div>
         </div>
       ),
@@ -1898,6 +1966,7 @@ export default function DataSourceManagement() {
         connectionVerified={connectionVerified}
         syncMode={syncMode}
         feishuTargetType={feishuTargetType}
+        saving={wizardSaving}
         onClose={handleCloseWizard}
         onPrev={() => setWizardStep((step) => step - 1)}
         onNext={handleNextStep}

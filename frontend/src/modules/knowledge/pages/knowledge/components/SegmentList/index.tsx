@@ -32,6 +32,7 @@ interface IProps {
   onGetItemInfo?: (segment: Segment) => void;
   loading?: boolean;
   scrollToId?: string;
+  showNumber?: boolean;
 }
 
 const SegmentList = forwardRef<SegmentListImperativeProps, IProps>(
@@ -50,6 +51,7 @@ const SegmentList = forwardRef<SegmentListImperativeProps, IProps>(
       onGetItemInfo,
       loading = false,
       scrollToId,
+      showNumber = true,
     } = props;
     const segmentDetailRef = useRef<ISegmentDetailModalRef>(null);
     console.log("segments", segments);
@@ -118,6 +120,7 @@ const SegmentList = forwardRef<SegmentListImperativeProps, IProps>(
                 onUpdateStatus={onUpdateStatus}
                 editable={editable}
                 contentReadOnly={contentReadOnly}
+                showNumber={showNumber}
               />
             );
           }}

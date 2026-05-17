@@ -10,6 +10,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
@@ -48,6 +49,7 @@ import DataSourceSummaryCards from "./components/DataSourceSummaryCards";
 import DataSourceWizardModal from "./components/DataSourceWizardModal";
 import {
   FEISHU_DATA_SOURCE_OAUTH_CHANNEL,
+  clearFeishuDataSourceWizardDraft,
   consumeFeishuDataSourceOAuthResult,
   consumeFeishuDataSourceWizardDraft,
   finishFeishuDataSourceOAuth,
@@ -256,41 +258,64 @@ function isFeishuScanSource(source: ScanSource) {
 }
 
 function parseFeishuScheduleExpr(expr?: string) {
-  if (!expr) {
+  const parsed = parseReconcileSchedule(expr);
+  if (!parsed) {
     return null;
   }
-
-  const trimmed = expr.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const normalized = trimmed.toLowerCase();
-  if (normalized === "manual" || normalized === "manual_only") {
-    return null;
-  }
-
-  const dailyMatch = trimmed.match(/^daily@(([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)$/i);
-  if (dailyMatch) {
-    return {
-      syncMode: "scheduled" as const,
-      scheduleCycle: "daily",
-      scheduleTime: normalizeScheduleTime(dailyMatch[1]),
-    };
-  }
-
   return {
     syncMode: "scheduled" as const,
-    scheduleCycle: "daily",
-    scheduleTime: DEFAULT_SCHEDULE_TIME,
+    scheduleCycle: parsed.scheduleCycle,
+    scheduleTime: parsed.scheduleTime,
   };
 }
 
-function buildFeishuScheduleExpr(scheduleTime?: string) {
-  return `daily@${normalizeScheduleTime(scheduleTime)}`;
+function buildFeishuScheduleExpr(scheduleCycle?: string, scheduleTime?: string) {
+  return buildReconcileSchedule(scheduleCycle, scheduleTime);
 }
 
 function buildFeishuManualScheduleExpr() {
   return "manual";
+}
+
+// Shared schedule expression helpers (used by both local reconcile_schedule and
+// cloud schedule_expr). Format follows backend: `daily@HH:MM:SS`,
+// `every2d@HH:MM:SS`, `every7d@HH:MM:SS`, or `manual`.
+function parseReconcileSchedule(expr?: string): {
+  scheduleCycle: "daily" | "twoDays" | "weekly";
+  scheduleTime: string;
+} | null {
+  if (!expr) return null;
+  const trimmed = expr.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (lower === "manual" || lower === "manual_only") return null;
+
+  const dailyMatch = trimmed.match(/^daily@(([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)$/i);
+  if (dailyMatch) {
+    return { scheduleCycle: "daily", scheduleTime: normalizeScheduleTime(dailyMatch[1]) };
+  }
+  const everyMatch = trimmed.match(/^every(\d+)d@(([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)$/i);
+  if (everyMatch) {
+    const days = Number(everyMatch[1]);
+    const time = normalizeScheduleTime(everyMatch[2]);
+    if (days === 2) return { scheduleCycle: "twoDays", scheduleTime: time };
+    if (days === 7) return { scheduleCycle: "weekly", scheduleTime: time };
+    return { scheduleCycle: "daily", scheduleTime: time };
+  }
+  return null;
+}
+
+function buildReconcileSchedule(scheduleCycle?: string, scheduleTime?: string): string {
+  const time = normalizeScheduleTime(scheduleTime);
+  if (scheduleCycle === "twoDays") return `every2d@${time}`;
+  if (scheduleCycle === "weekly") return `every7d@${time}`;
+  return `daily@${time}`;
+}
+
+function getScheduleCycleLabel(scheduleCycle: string, t: TFunction): string {
+  if (scheduleCycle === "twoDays") return t("admin.dataSourceCycleTwoDays");
+  if (scheduleCycle === "weekly") return t("admin.dataSourceCycleWeekly");
+  return t("admin.dataSourceCycleDaily");
 }
 
 function buildFeishuScheduleLabel(binding: CloudSourceBinding | null, t: TFunction) {
@@ -300,7 +325,7 @@ function buildFeishuScheduleLabel(binding: CloudSourceBinding | null, t: TFuncti
   }
 
   return t("admin.dataSourceScheduleLabel", {
-    cycle: t("admin.dataSourceCycleDaily"),
+    cycle: getScheduleCycleLabel(parsed.scheduleCycle, t),
     time: parsed.scheduleTime,
   });
 }
@@ -520,6 +545,7 @@ export default function DataSourceManagement() {
   const [knowledgeBaseNames, setKnowledgeBaseNames] = useState<string[]>([]);
   const [scanLoading, setScanLoading] = useState(false);
   const [validatedAgentId, setValidatedAgentId] = useState<string | null>(null);
+  const [wizardSaving, setWizardSaving] = useState(false);
 
   const syncMode = Form.useWatch("syncMode", form) || "scheduled";
   const feishuTargetType = (Form.useWatch("targetType", form) || "wiki_space") as FeishuTargetType;
@@ -540,6 +566,12 @@ export default function DataSourceManagement() {
       return t("admin.dataSourceSyncModeManual");
     }
 
+    const parsed = parseReconcileSchedule(source.reconcile_schedule);
+    if (parsed) {
+      const cycleLabel = getScheduleCycleLabel(parsed.scheduleCycle, t);
+      return `${cycleLabel} ${parsed.scheduleTime} ${t("admin.dataSourceScheduleAutoSuffix")}`;
+    }
+
     const reconcileSeconds = source.reconcile_seconds || 0;
     if (reconcileSeconds === 7 * 24 * 60 * 60) {
       return `${t("admin.dataSourceCycleWeekly")} (${reconcileSeconds}s)`;
@@ -556,6 +588,10 @@ export default function DataSourceManagement() {
   const buildScanNextSyncLabel = (source: ScanSource) => {
     if (!source.watch_enabled) {
       return t("admin.dataSourceNextSyncManual");
+    }
+    const parsed = parseReconcileSchedule(source.reconcile_schedule);
+    if (parsed) {
+      return t("admin.dataSourceNextSyncPlanned", { time: parsed.scheduleTime });
     }
     const reconcileSeconds = source.reconcile_seconds || 0;
     const hourEstimate = Math.max(1, Math.round(reconcileSeconds / 3600));
@@ -964,6 +1000,7 @@ export default function DataSourceManagement() {
 
   const handleCloseWizard = () => {
     setWizardOpen(false);
+    clearFeishuDataSourceWizardDraft();
     resetWizard();
   };
 
@@ -1334,6 +1371,9 @@ export default function DataSourceManagement() {
     const sourceName = `${values.knowledgeBase || getSourceTypeTitle("local", t)}`.trim();
     const isScheduled = (values.syncMode || "scheduled") === "scheduled";
     const reconcileSeconds = getReconcileSeconds(values.scheduleCycle);
+    const reconcileSchedule = isScheduled
+      ? buildReconcileSchedule(values.scheduleCycle, values.scheduleTime)
+      : "manual";
     const currentLocalSource =
       editingId && selectedType === "local"
         ? sources.find((item) => item.id === editingId && item.type === "local")
@@ -1369,6 +1409,7 @@ export default function DataSourceManagement() {
             name: sourceName,
             root_path: rootPath,
             reconcile_seconds: reconcileSeconds,
+            reconcile_schedule: reconcileSchedule,
             idle_window_seconds: 300,
           },
         });
@@ -1378,6 +1419,7 @@ export default function DataSourceManagement() {
             id: currentLocalSource.id,
             enableWatchRequest: {
               reconcile_seconds: reconcileSeconds,
+              reconcile_schedule: reconcileSchedule,
             },
           });
         } else {
@@ -1414,6 +1456,7 @@ export default function DataSourceManagement() {
             root_path: rootPath,
             watch_enabled: isScheduled,
             reconcile_seconds: reconcileSeconds,
+            reconcile_schedule: reconcileSchedule,
             idle_window_seconds: 300,
           },
         });
@@ -1429,6 +1472,7 @@ export default function DataSourceManagement() {
             id: createdSourceId,
             enableWatchRequest: {
               reconcile_seconds: reconcileSeconds,
+              reconcile_schedule: reconcileSchedule,
             },
           });
         } else {
@@ -1449,6 +1493,49 @@ export default function DataSourceManagement() {
         getLocalizedErrorMessage(error, t("common.requestFailed")) ||
           t("common.requestFailed"),
       );
+    }
+  };
+
+  const validateFeishuTargetBeforeSave = async (
+    client: ScanDefaultApi,
+    authConnectionId: string,
+    targetType: FeishuTargetType,
+    targetRef: string,
+  ) => {
+    try {
+      const response = await client.apiScanCloudTargetValidatePost({
+        validateCloudTargetRequest: {
+          provider: "feishu",
+          auth_connection_id: authConnectionId,
+          target_type: targetType,
+          target_ref: targetRef,
+        },
+      });
+
+      if (response.data.valid) {
+        return true;
+      }
+
+      const validation = response.data as typeof response.data & {
+        reason?: string;
+        message?: string;
+        detail?: string;
+      };
+      const errorMessage =
+        validation.reason ||
+        validation.message ||
+        validation.detail ||
+        t("admin.dataSourceFeishuTargetValidateFailed");
+      form.setFields([{ name: "target", errors: [errorMessage] }]);
+      message.error(errorMessage);
+      return false;
+    } catch (error) {
+      const errorMessage =
+        getLocalizedErrorMessage(error, t("admin.dataSourceFeishuTargetValidateFailed")) ||
+        t("admin.dataSourceFeishuTargetValidateFailed");
+      form.setFields([{ name: "target", errors: [errorMessage] }]);
+      message.error(errorMessage);
+      return false;
     }
   };
 
@@ -1492,6 +1579,16 @@ export default function DataSourceManagement() {
     }
 
     try {
+      const targetValid = await validateFeishuTargetBeforeSave(
+        client,
+        authConnectionId,
+        targetType,
+        targetRef,
+      );
+      if (!targetValid) {
+        return;
+      }
+
       let sourceId = currentFeishuSource?.id || "";
       if (currentFeishuSource?.scanManaged) {
         await client.apiScanSourcesIdPut({
@@ -1561,7 +1658,10 @@ export default function DataSourceManagement() {
           max_object_size_bytes: FEISHU_MAX_OBJECT_SIZE_BYTES,
           ...(values.syncMode === "scheduled"
             ? {
-                schedule_expr: buildFeishuScheduleExpr(values.scheduleTime),
+                schedule_expr: buildFeishuScheduleExpr(
+                  values.scheduleCycle,
+                  values.scheduleTime,
+                ),
                 schedule_tz: "Asia/Shanghai",
               }
             : {
@@ -1595,39 +1695,44 @@ export default function DataSourceManagement() {
   };
 
   const handleSave = async () => {
-    if (!selectedType) {
+    if (!selectedType || wizardSaving) {
       return;
     }
 
-    const syncStrategyFields =
-      form.getFieldValue("syncMode") === "scheduled"
-        ? ["syncMode", "scheduleCycle", "scheduleTime"]
-        : ["syncMode"];
+    setWizardSaving(true);
+    try {
+      const syncStrategyFields =
+        form.getFieldValue("syncMode") === "scheduled"
+          ? ["syncMode", "scheduleCycle", "scheduleTime"]
+          : ["syncMode"];
 
-    if (wizardMode === "edit") {
-      await form.validateFields(syncStrategyFields);
-    } else {
-      await form.validateFields();
+      if (wizardMode === "edit") {
+        await form.validateFields(syncStrategyFields);
+      } else {
+        await form.validateFields();
+      }
+
+      const values = form.getFieldsValue(true);
+
+      if (
+        wizardMode !== "edit" &&
+        !(await ensureKnowledgeBaseNameUnique(values.knowledgeBase))
+      ) {
+        return;
+      }
+
+      if (wizardMode !== "edit" && !validateConnectionBeforeSave()) {
+        return;
+      }
+
+      if (selectedType === "local") {
+        await handleSaveLocalSource(values);
+        return;
+      }
+      await handleSaveFeishuSource(values);
+    } finally {
+      setWizardSaving(false);
     }
-
-    const values = form.getFieldsValue(true);
-
-    if (
-      wizardMode !== "edit" &&
-      !(await ensureKnowledgeBaseNameUnique(values.knowledgeBase))
-    ) {
-      return;
-    }
-
-    if (wizardMode !== "edit" && !validateConnectionBeforeSave()) {
-      return;
-    }
-
-    if (selectedType === "local") {
-      await handleSaveLocalSource(values);
-      return;
-    }
-    await handleSaveFeishuSource(values);
   };
 
   const columns: ColumnsType<DataSourceItem> = [
@@ -1649,9 +1754,15 @@ export default function DataSourceManagement() {
             >
               {record.name}
             </Button>
-            <Text type="secondary" className="data-source-ellipsis">
-              {record.description}
-            </Text>
+            <Tooltip title={record.description} placement="topLeft">
+              <Text
+                type="secondary"
+                className="data-source-ellipsis"
+                tabIndex={0}
+              >
+                {record.description}
+              </Text>
+            </Tooltip>
           </div>
         </div>
       ),
@@ -1898,6 +2009,7 @@ export default function DataSourceManagement() {
         connectionVerified={connectionVerified}
         syncMode={syncMode}
         feishuTargetType={feishuTargetType}
+        saving={wizardSaving}
         onClose={handleCloseWizard}
         onPrev={() => setWizardStep((step) => step - 1)}
         onNext={handleNextStep}

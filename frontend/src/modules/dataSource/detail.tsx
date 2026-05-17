@@ -37,12 +37,21 @@ import {
   type DataSourceDetailState,
   type DataSourceSummary,
   type DocumentStatusRow,
+  type SourceStateValue,
+  type SyncStateValue,
+  buildDocumentStatusDetail,
   formatBytes,
   formatDateTime,
   getFileUpdateMeta,
+  getSourceStateMeta,
+  getSyncStateMeta,
   normalizeDataSourceFileUpdateState,
   normalizeDataSourceParseStatus,
   normalizeDataSourceStatus,
+  normalizePendingAction,
+  resolveSourceState,
+  resolveSyncState,
+  sourceStateToFileUpdate,
 } from "./shared";
 
 const { Text } = Typography;
@@ -228,35 +237,6 @@ function getParseStatusMeta(status: DocumentStatusRow["parseStatus"], t: TFuncti
   };
 }
 
-function getUpdateStateMeta(status: DocumentStatusRow["updateState"], t: TFunction) {
-  if (status === "new") {
-    return {
-      text: t("admin.dataSourceFileUpdateNew"),
-      detail: t("admin.dataSourceFileUpdateNewDetail"),
-      tone: "new" as const,
-    };
-  }
-  if (status === "changed") {
-    return {
-      text: t("admin.dataSourceFileUpdateChangedDetailTitle"),
-      detail: t("admin.dataSourceFileUpdateChangedDetail"),
-      tone: "changed" as const,
-    };
-  }
-  if (status === "deleted") {
-    return {
-      text: t("admin.dataSourceFileUpdateDeletedDetailTitle"),
-      detail: t("admin.dataSourceFileUpdateDeletedDetail"),
-      tone: "deleted" as const,
-    };
-  }
-  return {
-    text: t("admin.dataSourceFileUpdateUnchanged"),
-    detail: t("admin.dataSourceFileUpdateUnchangedDetail"),
-    tone: "unchanged" as const,
-  };
-}
-
 function isDocumentNeedSync(status: DocumentStatusRow["updateState"]) {
   return status === "new" || status === "changed" || status === "deleted";
 }
@@ -310,10 +290,9 @@ function mapScanSyncDetail(updateState: DocumentStatusRow["updateState"]) {
 }
 
 function mapScanDocumentToDetail(item: ScanSourceDocumentItem): DocumentStatusRow {
-  const updateState = normalizeDataSourceFileUpdateState(
-    item.update_type,
-    item.has_update,
-  );
+  const sourceState = resolveSourceState(item);
+  const syncState = resolveSyncState(item);
+  const updateState = sourceStateToFileUpdate(sourceState);
   const parseState = [
     item.parse_state,
     item.core_task_state,
@@ -333,6 +312,12 @@ function mapScanDocumentToDetail(item: ScanSourceDocumentItem): DocumentStatusRo
     parseStatus: normalizeDataSourceParseStatus(parseState),
     sourceUpdatedAt: lastSyncedAt || "-",
     updatedAt: lastSyncedAt || "-",
+    sourceState,
+    syncState,
+    pendingAction: normalizePendingAction(item.pending_action),
+    nextSyncAt: item.next_sync_at,
+    lastError: item.last_error,
+    knowledgeBasePresent: item.knowledge_base_present,
   };
 }
 
@@ -373,19 +358,12 @@ function buildDetailSummaryFromSource(
   };
 }
 
-function getTreeNodeUpdateState(node: ScanTreeNode) {
-  return normalizeDataSourceFileUpdateState(node.update_type, node.has_update);
-}
-
 function collectScanTreeFileKeys(nodes: ScanTreeNode[]): string[] {
   const keys: string[] = [];
   const walk = (items: ScanTreeNode[]) => {
     items.forEach((node) => {
-      if (node.is_dir) {
-        if (node.children?.length) {
-          walk(node.children);
-        }
-        return;
+      if (node.children?.length) {
+        walk(node.children);
       }
       if (node.selectable === false) {
         return;
@@ -395,6 +373,10 @@ function collectScanTreeFileKeys(nodes: ScanTreeNode[]): string[] {
   };
   walk(nodes);
   return keys;
+}
+
+function getTreeNodeUpdateState(node: ScanTreeNode) {
+  return normalizeDataSourceFileUpdateState(node.update_type, node.has_update);
 }
 
 function shouldPollByParseStatus(items: DocumentStatusRow[]) {
@@ -818,10 +800,33 @@ export default function DataSourceDetail() {
         generateTasksRequest.selection_token = syncSelectionToken;
       }
 
-      const generateResponse = await client.apiScanSourcesIdTasksGeneratePost({
-        id: detailSource.id,
-        generateTasksRequest,
-      });
+      // If at least one selected target is a deleted-state synthetic node,
+      // attempting with a stale selection_token may be rejected by backend.
+      // Retry once without the token in that case.
+      const hasDeletedTarget = documents.some(
+        (item) =>
+          (targetSet.has(item.id) || targetSet.has(item.path)) &&
+          (item.sourceState === "DELETED" || item.updateState === "deleted"),
+      );
+
+      let generateResponse;
+      try {
+        generateResponse = await client.apiScanSourcesIdTasksGeneratePost({
+          id: detailSource.id,
+          generateTasksRequest,
+        });
+      } catch (err) {
+        if (hasDeletedTarget && generateTasksRequest.selection_token) {
+          const retryRequest = { ...generateTasksRequest };
+          delete retryRequest.selection_token;
+          generateResponse = await client.apiScanSourcesIdTasksGeneratePost({
+            id: detailSource.id,
+            generateTasksRequest: retryRequest,
+          });
+        } else {
+          throw err;
+        }
+      }
       const result = generateResponse.data;
       const checkedCount = result.requested_count ?? targetPaths.length;
       const syncedCount = result.accepted_count ?? 0;
@@ -936,24 +941,25 @@ export default function DataSourceDetail() {
       nodes.map((node) => {
         const children = node.children ? toDataNode(node.children) : undefined;
         const updateState = getTreeNodeUpdateState(node);
-        const updateMeta =
-          updateState !== "unchanged" ? getFileUpdateMeta(updateState, t) : null;
+        const updateMeta = getFileUpdateMeta(updateState, t);
+        const updateText = `${node.update_desc || ""}`.trim() || updateMeta.text;
+        const hasUpdateStatus =
+          typeof node.has_update === "boolean" || Boolean(node.update_type || node.update_desc);
 
         return {
           key: node.key,
           isLeaf: !node.is_dir,
           disableCheckbox: !node.is_dir && node.selectable === false,
-          title: node.is_dir ? (
-            <span>{node.title}</span>
-          ) : (
+          title: (
             <div className="data-source-sync-tree-file">
               <div className="data-source-sync-tree-file-main">
                 <span>{node.title}</span>
-                {updateMeta ? (
+                {hasUpdateStatus ? (
                   <span
                     className={`data-source-sync-tree-chip data-source-sync-tree-chip-${updateState}`}
+                    title={updateText}
                   >
-                    {updateMeta.text}
+                    {updateText}
                   </span>
                 ) : null}
               </div>
@@ -1022,16 +1028,55 @@ export default function DataSourceDetail() {
       title: t("admin.dataSourceDetailTableUpdateState"),
       dataIndex: "updateState",
       key: "updateState",
-      width: 220,
-      render: (updateState: DocumentStatusRow["updateState"]) => {
-        const meta = getUpdateStateMeta(updateState, t);
+      width: 240,
+      render: (_value, record) => {
+        const sourceState: SourceStateValue =
+          record.sourceState ||
+          (() => {
+            if (record.updateState === "new") return "NEW";
+            if (record.updateState === "changed") return "MODIFIED";
+            if (record.updateState === "deleted") return "DELETED";
+            return "UNCHANGED";
+          })();
+        const syncState: SyncStateValue = record.syncState || "IDLE";
+        const sourceMeta = getSourceStateMeta(sourceState, t);
+        const syncMeta = getSyncStateMeta(
+          syncState,
+          {
+            nextSyncAt: record.nextSyncAt,
+            lastError: record.lastError,
+            knowledgeBasePresent: record.knowledgeBasePresent,
+            sourceState,
+          },
+          t,
+        );
+        const detail = buildDocumentStatusDetail(
+          {
+            source_state: sourceState,
+            sync_state: syncState,
+            next_sync_at: record.nextSyncAt,
+            last_error: record.lastError,
+            knowledge_base_present: record.knowledgeBasePresent,
+            update_type: record.updateState.toUpperCase(),
+            has_update: record.updateState !== "unchanged",
+          },
+          t,
+        );
+        const shouldShowSyncState = syncState !== "IDLE";
         return (
           <div className="data-source-detail-update-state">
-            <span className={`data-source-update-chip data-source-update-chip-${meta.tone}`}>
+            <span className={`data-source-update-chip data-source-update-chip-${sourceMeta.tone}`}>
               <span className="data-source-update-chip-dot" />
-              {meta.text}
+              {sourceMeta.text}
             </span>
-            <Text type="secondary">{meta.detail}</Text>
+            {shouldShowSyncState ? (
+              <Tag color={syncMeta.color} style={{ marginInlineEnd: 0 }}>
+                {syncMeta.text}
+              </Tag>
+            ) : null}
+            <Text type="secondary" title={detail}>
+              {detail}
+            </Text>
           </div>
         );
       },

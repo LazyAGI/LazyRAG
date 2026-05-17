@@ -26,6 +26,7 @@ import { AgentAppsAuth } from "@/components/auth";
 import MarkdownViewer from "@/modules/knowledge/components/MarkdownViewer";
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
 import { axiosInstance, getLocalizedErrorMessage } from "@/components/request";
+import type { AxiosError } from "axios";
 import {
   DatasetWorkflowStep,
   PxReportWorkflowStep,
@@ -85,6 +86,7 @@ import {
   getTimeLabel,
   getSessionTitleByMessage,
   createInitialWorkflowRuntimeState,
+  createThreadRestoreWorkflowRuntimeState,
   createInitialWorkflowResultsState,
   isRecord,
   getStringField,
@@ -131,6 +133,7 @@ import {
   isTerminalAbtestCheckpoint,
   isThreadEventAfter,
   reduceWorkflowRuntimeState,
+  getThreadTitleFromHistoryPayload,
   getThreadTitleFromPayload,
   getThreadKnowledgeBaseId,
   getThreadModeFromPayload,
@@ -488,6 +491,10 @@ export function SelfEvolutionPageController({
   const activeSession = chatSessions.find((item) => item.id === activeSessionId) || chatSessions[0];
   const activeMessages = activeSession?.messages ?? [];
   const activeThreadId = activeSession?.threadId || routeThreadId;
+  const activeRemoteThreadTitle = useMemo(
+    () => remoteThreadHistory.find((item) => item.threadId === activeThreadId)?.title,
+    [activeThreadId, remoteThreadHistory],
+  );
   const isAutoInteractionActive = mode === "auto" && Boolean(activeThreadId);
   const threadDialogueMessages = useMemo(
     () => {
@@ -784,6 +791,24 @@ export function SelfEvolutionPageController({
   useEffect(() => {
     setWorkflowResults(createInitialWorkflowResultsState());
   }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!activeThreadId || !activeRemoteThreadTitle) {
+      return;
+    }
+
+    setChatSessions((prev) => {
+      let hasChanged = false;
+      const nextSessions = prev.map((session) => {
+        if (session.threadId === activeThreadId && session.title !== activeRemoteThreadTitle) {
+          hasChanged = true;
+          return { ...session, title: activeRemoteThreadTitle };
+        }
+        return session;
+      });
+      return hasChanged ? nextSessions : prev;
+    });
+  }, [activeRemoteThreadTitle, activeThreadId]);
 
   useEffect(() => {
     const chatStream = chatStreamRef.current;
@@ -1338,34 +1363,17 @@ export function SelfEvolutionPageController({
 
     try {
       const encodedThreadId = encodeURIComponent(threadId);
-      const threadResult = await axiosInstance.get(`${AGENT_API_BASE}/threads/${encodedThreadId}`, { signal });
-
-      if (signal?.aborted || restoreRequestIdRef.current !== requestId) {
-        return;
-      }
-
-      const threadPayload = threadResult.data as ThreadRestorePayload;
-      const title =
-        getThreadTitleFromPayload(threadPayload) ||
-        `自进化详情 ${threadId.slice(0, 8)}`;
-      const knowledgeBaseId = getThreadKnowledgeBaseId(threadPayload);
-      if (knowledgeBaseId) {
-        setSelectedKb(knowledgeBaseId);
-      }
-      const restoredMode = getThreadModeFromPayload(threadPayload);
-      if (restoredMode) {
-        setMode(restoredMode);
-      }
+      let historyTitle: string | undefined;
       let historyMessages: ChatMessage[] = [];
       try {
-        historyMessages = normalizeThreadHistoryMessages(
-          (
-            await axiosInstance.get(
-              `${AGENT_API_BASE}/threads/${encodedThreadId}/history`,
-              { signal },
-            )
-          ).data as ThreadRestorePayload,
-        );
+        const historyPayload = (
+          await axiosInstance.get(
+            `${AGENT_API_BASE}/threads/${encodedThreadId}/history`,
+            { signal },
+          )
+        ).data as ThreadRestorePayload;
+        historyTitle = getThreadTitleFromHistoryPayload(historyPayload);
+        historyMessages = normalizeThreadHistoryMessages(historyPayload);
       } catch (error) {
         if (signal?.aborted || isCanceledRequest(error)) {
           return;
@@ -1375,35 +1383,70 @@ export function SelfEvolutionPageController({
       if (signal?.aborted || restoreRequestIdRef.current !== requestId) {
         return;
       }
-      const nowLabel = getTimeLabel();
 
-      setChatSessions((prev) =>
-        prev.map((session) =>
-          session.id === restoredSessionId
-            ? {
-                ...session,
-                title,
-                updatedAt: nowLabel,
-                threadId,
-                messages:
-                  historyMessages.length > 0
-                    ? historyMessages
-                    : session.messages.length === 1 &&
-                        session.messages[0]?.id === `${threadId}-restore-loading`
-                      ? []
-                      : session.messages,
-              }
-            : session,
-        ),
-      );
+      const applySessionRestore = (title?: string, forceUseHistoryMessages = false) => {
+        const nowLabel = getTimeLabel();
+        setChatSessions((prev) =>
+          prev.map((session) =>
+            session.id === restoredSessionId
+              ? {
+                  ...session,
+                  title: title || session.title,
+                  updatedAt: nowLabel,
+                  threadId,
+                  messages:
+                    historyMessages.length > 0
+                      ? historyMessages
+                      : forceUseHistoryMessages &&
+                          session.messages.length === 1 &&
+                          session.messages[0]?.id === `${threadId}-restore-loading`
+                        ? []
+                        : session.messages,
+                }
+              : session,
+          ),
+        );
+      };
+
+      const titleFromHistory =
+        historyTitle ||
+        remoteThreadHistory.find((item) => item.threadId === threadId)?.title ||
+        `自进化详情 ${threadId.slice(0, 8)}`;
+      applySessionRestore(titleFromHistory, true);
       setActiveSessionId(restoredSessionId);
       window.localStorage.setItem(SELF_EVOLUTION_LAST_THREAD_STORAGE_KEY, threadId);
+
+      const threadResult = await axiosInstance.get(`${AGENT_API_BASE}/threads/${encodedThreadId}`, { signal });
+      if (signal?.aborted || restoreRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const threadPayload = threadResult.data as ThreadRestorePayload;
+      const detailTitle = getThreadTitleFromPayload(threadPayload);
+      const knowledgeBaseId = getThreadKnowledgeBaseId(threadPayload);
+      if (knowledgeBaseId) {
+        setSelectedKb(knowledgeBaseId);
+      }
+      const restoredMode = getThreadModeFromPayload(threadPayload);
+      if (restoredMode) {
+        setMode(restoredMode);
+      }
+      if (!historyTitle && detailTitle) {
+        applySessionRestore(detailTitle);
+      }
     } catch (error) {
       if (signal?.aborted || isCanceledRequest(error)) {
         return;
       }
+      const responseStatus = (error as AxiosError | undefined)?.response?.status;
+      const errorTextRaw = getLocalizedErrorMessage(error, "线程详情恢复失败，请稍后重试。") || "";
+      const isThreadNotFound = responseStatus === 404 && errorTextRaw.toLowerCase().includes("thread not found");
+      if (isThreadNotFound) {
+        setWorkflowRuntimeState(createThreadRestoreWorkflowRuntimeState());
+        setWorkflowResults(createInitialWorkflowResultsState());
+      }
       const errorText =
-        getLocalizedErrorMessage(error, "线程详情恢复失败，请稍后重试。") ||
+        errorTextRaw ||
         "线程详情恢复失败，请稍后重试。";
       setThreadRestoreError(errorText);
       setChatSessions([
@@ -1772,10 +1815,20 @@ export function SelfEvolutionPageController({
   const onSelectHistorySession = (entry: {
     sessionId?: string;
     threadId?: string;
+    title?: string;
   }) => {
     if (entry.threadId) {
       const matchedSession = chatSessions.find((session) => session.threadId === entry.threadId);
       if (matchedSession) {
+        if (entry.title && matchedSession.title !== entry.title) {
+          setChatSessions((prev) =>
+            prev.map((session) =>
+              session.id === matchedSession.id
+                ? { ...session, title: entry.title || session.title }
+                : session,
+            ),
+          );
+        }
         setActiveSessionId(matchedSession.id);
       }
       setIsHistorySessionModalOpen(false);
@@ -2407,7 +2460,7 @@ export function SelfEvolutionPageController({
     );
   };
 
-  const renderPxMultiCategoryLine = (categoryMetrics: PxCategoryMetricAverage[]) => {
+  const renderPxMultiCategoryBars = (categoryMetrics: PxCategoryMetricAverage[]) => {
     const width = 640;
     const height = 280;
     const padding = { top: 18, right: 24, bottom: 46, left: 44 };
@@ -2415,14 +2468,19 @@ export function SelfEvolutionPageController({
     const chartHeight = height - padding.top - padding.bottom;
     const categoryCount = categoryMetrics.length;
     const yToPx = (value: number) => padding.top + (1 - clampScore(value)) * chartHeight;
-    const xToPx = (index: number) =>
-      padding.left + (categoryCount <= 1 ? chartWidth / 2 : (index / (categoryCount - 1)) * chartWidth);
+    const groupWidth = chartWidth / Math.max(categoryCount, 1);
+    const metricCount = pxMetricMeta.length;
+    const barGap = 4;
+    const groupInnerWidth = Math.min(96, groupWidth * 0.74);
+    const barWidth = Math.max(5, Math.min(18, (groupInnerWidth - barGap * (metricCount - 1)) / metricCount));
+    const groupBarsWidth = barWidth * metricCount + barGap * (metricCount - 1);
+    const xToCenter = (index: number) => padding.left + groupWidth * index + groupWidth / 2;
     const axisTicks = [0, 0.25, 0.5, 0.75, 1];
 
     return (
-      <div className="self-evolution-px-chart-wrap" aria-label="多分类指标折线图">
-        <svg className="self-evolution-px-line-chart" viewBox={`0 0 ${width} ${height}`} role="img">
-          <title>问题分类指标均值折线图</title>
+      <div className="self-evolution-px-chart-wrap" aria-label="多分类指标柱状图">
+        <svg className="self-evolution-px-bar-chart" viewBox={`0 0 ${width} ${height}`} role="img">
+          <title>问题分类指标均值柱状图</title>
           {axisTicks.map((tick) => {
             const y = yToPx(tick);
             return (
@@ -2449,39 +2507,34 @@ export function SelfEvolutionPageController({
             className="self-evolution-px-axis-line"
           />
 
-          {pxMetricMeta.map((metric) => {
-            const pointValues = categoryMetrics.map((item, index) => ({
-              x: xToPx(index),
-              y: yToPx(item.metrics[metric.key]),
-              value: item.metrics[metric.key],
-            }));
-            const points = pointValues.map((point) => `${point.x},${point.y}`).join(" ");
+          {categoryMetrics.map((item, categoryIndex) => {
+            const groupStartX = xToCenter(categoryIndex) - groupBarsWidth / 2;
             return (
-              <g key={metric.key}>
-                <polyline
-                  points={points}
-                  fill="none"
-                  stroke={metric.color}
-                  strokeWidth={2.4}
-                  className="self-evolution-px-series-line"
-                />
-                {pointValues.map((point, index) => (
-                  <circle
-                    key={`${metric.key}-${categoryMetrics[index].category}`}
-                    cx={point.x}
-                    cy={point.y}
-                    r={3.8}
-                    fill={metric.color}
-                  >
-                    <title>{`${metric.label} ${categoryMetrics[index].category}: ${formatPercent(point.value)}`}</title>
-                  </circle>
-                ))}
+              <g key={`px-bar-group-${item.category}`}>
+                {pxMetricMeta.map((metric, metricIndex) => {
+                  const value = clampScore(item.metrics[metric.key]);
+                  const y = yToPx(value);
+                  return (
+                    <rect
+                      key={`${item.category}-${metric.key}`}
+                      x={groupStartX + metricIndex * (barWidth + barGap)}
+                      y={y}
+                      width={barWidth}
+                      height={padding.top + chartHeight - y}
+                      rx={3}
+                      fill={metric.color}
+                      className="self-evolution-px-bar"
+                    >
+                      <title>{`${metric.label} ${item.category}: ${formatPercent(value)}`}</title>
+                    </rect>
+                  );
+                })}
               </g>
             );
           })}
 
           {categoryMetrics.map((item, index) => {
-            const x = xToPx(index);
+            const x = xToCenter(index);
             return (
               <text
                 key={item.category}
@@ -2561,8 +2614,8 @@ export function SelfEvolutionPageController({
           </div>
         </div>
       ) : (
-        <div className="self-evolution-px-panel is-line">
-          {renderPxMultiCategoryLine(pxReportCategoryMetrics)}
+        <div className="self-evolution-px-panel is-bar">
+          {renderPxMultiCategoryBars(pxReportCategoryMetrics)}
           <div className="self-evolution-px-legend is-compact">
             {pxMetricMeta.map((metric) => (
               <div key={metric.key} className="self-evolution-px-legend-item">

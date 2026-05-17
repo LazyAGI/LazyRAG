@@ -269,6 +269,8 @@ components:
             properties:
                 agent_id:
                     type: string
+                create_user_id:
+                    type: string
                 dataset_id:
                     type: string
                 default_origin_platform:
@@ -955,6 +957,8 @@ components:
             type: object
         SourceDocumentItem:
             properties:
+                baseline_version:
+                    type: string
                 core_dataset_id:
                     type: string
                 core_task_id:
@@ -970,22 +974,55 @@ components:
                     type: string
                 has_update:
                     type: boolean
+                knowledge_base_present:
+                    type: boolean
+                last_error:
+                    type: string
                 last_synced_at:
                     format: date-time
                     type: string
                 name:
                     type: string
+                next_sync_at:
+                    format: date-time
+                    type: string
+                object_key:
+                    type: string
                 parse_state:
                     type: string
                 path:
+                    type: string
+                pending_action:
+                    enum:
+                        - NONE
+                        - CREATE
+                        - UPDATE
+                        - DELETE
                     type: string
                 scan_orchestration_status:
                     type: string
                 size_bytes:
                     format: int64
                     type: integer
+                source_state:
+                    enum:
+                        - UNCHANGED
+                        - NEW
+                        - MODIFIED
+                        - DELETED
+                    type: string
                 source_updated_at:
                     format: date-time
+                    type: string
+                source_version:
+                    type: string
+                sync_state:
+                    enum:
+                        - IDLE
+                        - PENDING
+                        - SCHEDULED
+                        - RUNNING
+                        - FAILED
                     type: string
                 tags:
                     items:
@@ -994,6 +1031,11 @@ components:
                 update_desc:
                     type: string
                 update_type:
+                    enum:
+                        - NEW
+                        - MODIFIED
+                        - DELETED
+                        - UNCHANGED
                     type: string
             required:
                 - document_id
@@ -1122,17 +1164,53 @@ components:
                     type: boolean
                 key:
                     type: string
+                knowledge_base_present:
+                    type: boolean
+                last_error:
+                    type: string
+                next_sync_at:
+                    format: date-time
+                    type: string
+                object_key:
+                    type: string
                 parse_queue_state:
+                    type: string
+                pending_action:
+                    enum:
+                        - NONE
+                        - CREATE
+                        - UPDATE
+                        - DELETE
                     type: string
                 selectable:
                     type: boolean
+                source_state:
+                    enum:
+                        - UNCHANGED
+                        - NEW
+                        - MODIFIED
+                        - DELETED
+                    type: string
                 status_source:
+                    type: string
+                sync_state:
+                    enum:
+                        - IDLE
+                        - PENDING
+                        - SCHEDULED
+                        - RUNNING
+                        - FAILED
                     type: string
                 title:
                     type: string
                 update_desc:
                     type: string
                 update_type:
+                    enum:
+                        - NEW
+                        - MODIFIED
+                        - DELETED
+                        - UNCHANGED
                     type: string
             required:
                 - title
@@ -1219,6 +1297,30 @@ components:
             required:
                 - provider
                 - auth_connection_id
+            type: object
+        ValidateCloudTargetRequest:
+            properties:
+                auth_connection_id:
+                    type: string
+                provider:
+                    type: string
+                provider_options:
+                    additionalProperties: true
+                    type: object
+                target_ref:
+                    type: string
+                target_type:
+                    type: string
+            required:
+                - provider
+                - auth_connection_id
+            type: object
+        ValidateCloudTargetResponse:
+            properties:
+                valid:
+                    type: boolean
+            required:
+                - valid
             type: object
         WatchToggleResponse:
             properties:
@@ -1332,6 +1434,28 @@ paths:
                                 $ref: '#/components/schemas/ErrorResponse'
                     description: Error
             summary: Validate path via agent
+    /api/scan/cloud/target/validate:
+        post:
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ValidateCloudTargetRequest'
+                required: true
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ValidateCloudTargetResponse'
+                    description: Validation result
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+                    description: Error
+            summary: Validate cloud target
     /api/scan/knowledge-bases:
         post:
             requestBody:

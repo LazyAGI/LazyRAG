@@ -79,7 +79,7 @@ export function HistorySessionItem({
 type HistorySessionTabProps = {
   entry: SelfEvolutionHistoryEntry;
   isDeleting: boolean;
-  onSelect: (entry: Pick<SelfEvolutionHistoryEntry, "sessionId" | "threadId">) => void;
+  onSelect: (entry: Pick<SelfEvolutionHistoryEntry, "sessionId" | "threadId" | "title">) => void;
   onDelete: (entry: SelfEvolutionHistoryEntry, event: MouseEvent<HTMLElement>) => void;
 };
 
@@ -95,7 +95,7 @@ export function HistorySessionTab({
       <button
         type="button"
         className="self-evolution-history-tab-main"
-        onClick={() => onSelect({ sessionId: entry.sessionId, threadId: entry.threadId })}
+        onClick={() => onSelect({ sessionId: entry.sessionId, threadId: entry.threadId, title: entry.title })}
         disabled={isDeleting}
       >
         <span className="self-evolution-history-tab-icon">
