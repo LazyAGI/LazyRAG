@@ -91,6 +91,8 @@ export LAZYMIND_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/co
 export LAZYMIND_OCR_SERVER_TYPE ?= none
 export LAZYMIND_OCR_SERVICE_VARIANT ?= online
 export LAZYMIND_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYMIND_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYMIND_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
+# patch_applied is only meaningful for offline (local patch-server) mode; force False for online API
+export LAZYMIND_OCR_PATCH_APPLIED := $(if $(filter online,$(LAZYMIND_OCR_SERVICE_VARIANT)),False,$(or $(LAZYMIND_OCR_PATCH_APPLIED),False))
 
 # Vector / segment stores — override to use external services (skips built-in profile)
 export LAZYMIND_MILVUS_URI ?= http://milvus:19530
