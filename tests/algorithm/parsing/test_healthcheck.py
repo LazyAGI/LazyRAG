@@ -38,8 +38,8 @@ def test_main_checks_local_docs_and_processor_registration(monkeypatch):
             return b'{"data":[{"algo_id":"general_algo"}]}'
         return b''
 
-    monkeypatch.setenv('LAZYRAG_ALGO_SERVER_PORT', '18000')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://processor.test/')
+    monkeypatch.setenv('LAZYMIND_ALGO_SERVER_PORT', '18000')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_PROCESSOR_URL', 'http://processor.test/')
     monkeypatch.setattr(healthcheck, '_get_bytes', fake_get_bytes)
 
     assert healthcheck.main() == 0
@@ -56,8 +56,8 @@ def test_main_uses_document_server_port_fallback(monkeypatch):
         seen_urls.append(url)
         return b'{"data":[{"algo_id":"general_algo"}]}'
 
-    monkeypatch.delenv('LAZYRAG_ALGO_SERVER_PORT', raising=False)
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_SERVER_PORT', '18001')
+    monkeypatch.delenv('LAZYMIND_ALGO_SERVER_PORT', raising=False)
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_SERVER_PORT', '18001')
     monkeypatch.setattr(healthcheck, '_get_bytes', fake_get_bytes)
 
     assert healthcheck.main() == 0

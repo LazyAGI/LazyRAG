@@ -11,11 +11,11 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/evolution"
-	appLog "lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/evolution"
+	appLog "lazymind/core/log"
+	"lazymind/core/store"
 )
 
 type suggestionRequest struct {

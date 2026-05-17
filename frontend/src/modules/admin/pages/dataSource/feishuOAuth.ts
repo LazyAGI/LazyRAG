@@ -4,13 +4,13 @@ import i18n from "@/i18n";
 
 
 const API_BASE = `${BASE_URL || window.location.origin}/api/authservice/v1`;
-const RESULT_STORAGE_KEY = "lazyrag:datasource:feishu-oauth:result";
-const DRAFT_STORAGE_KEY = "lazyrag:datasource:feishu-oauth:draft";
-const PENDING_STORAGE_KEY = "lazyrag:datasource:feishu-oauth:pending";
+const RESULT_STORAGE_KEY = "lazymind:datasource:feishu-oauth:result";
+const DRAFT_STORAGE_KEY = "lazymind:datasource:feishu-oauth:draft";
+const PENDING_STORAGE_KEY = "lazymind:datasource:feishu-oauth:pending";
 const PENDING_STORAGE_KEY_PREFIX = `${PENDING_STORAGE_KEY}:`;
 
 export const FEISHU_DATA_SOURCE_OAUTH_CHANNEL =
-  "lazyrag:datasource:feishu-oauth";
+  "lazymind:datasource:feishu-oauth";
 
 export type FeishuConnectionStatus =
   | "pending"

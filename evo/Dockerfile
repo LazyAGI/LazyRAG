@@ -17,11 +17,11 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
     PIP_RETRIES=${PIP_RETRIES} \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    LAZYRAG_EVO_CODE_BINARY=/usr/local/bin/opencode \
-    LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
-    LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
-    LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
-    LAZYRAG_MODEL_CONFIG_PATH=dynamic \
+    LAZYMIND_EVO_CODE_BINARY=/usr/local/bin/opencode \
+    LAZYMIND_EVO_CODE_DATA_DIR=/var/lib/lazymind/evo/opencode \
+    LAZYMIND_EVO_BASE_DIR=/var/lib/lazymind/evo \
+    LAZYMIND_EVO_CHAT_SOURCE=/var/lib/lazymind/chat-source \
+    LAZYMIND_MODEL_CONFIG_PATH=dynamic \
     PYTHONPATH=/opt/lazyllm:/app
 
 RUN set -eu; \

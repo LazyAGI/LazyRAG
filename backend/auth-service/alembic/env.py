@@ -23,7 +23,7 @@ target_metadata = Base.metadata
 
 
 def _get_url() -> str:
-    return os.environ.get('LAZYRAG_DATABASE_URL') or DATABASE_URL
+    return os.environ.get('LAZYMIND_DATABASE_URL') or DATABASE_URL
 
 
 def run_migrations_offline() -> None:

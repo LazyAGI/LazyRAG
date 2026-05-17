@@ -1,8 +1,8 @@
 from lazyllm.configs import Config
 
 # Single Config instance for the entire algorithm package.
-# All LAZYRAG_* environment variables are registered here.
-config = Config(prefix='LAZYRAG', home='~/.lazyllm_rag')
+# All LAZYMIND_* environment variables are registered here.
+config = Config(prefix='LAZYMIND', home='~/.lazyllm_rag')
 
 # ---------------------------------------------------------------------------
 # Chat
@@ -13,7 +13,7 @@ config.add('llm_priority', int, 0, 'LLM_PRIORITY', description='LLM priority lev
 config.add('max_concurrency', int, 10, 'MAX_CONCURRENCY', description='Max concurrent requests.')
 config.add('rag_mode', bool, True, 'RAG_MODE', description='Enable RAG mode.')
 config.add('multimodal_mode', bool, True, 'MULTIMODAL_MODE', description='Enable multimodal mode.')
-config.add('shared_upload_dir', str, '/var/lib/lazyrag/uploads', 'SHARED_UPLOAD_DIR', description='Shared upload dir for normalized images and frames.')
+config.add('shared_upload_dir', str, '/var/lib/lazymind/uploads', 'SHARED_UPLOAD_DIR', description='Shared upload dir for normalized images and frames.')
 config.add('upload_host_dir', str, None, 'UPLOAD_HOST_DIR', description='Optional host-side override for shared_upload_dir (used in local naive debug).')
 config.add('local_naive_debug', bool, False, 'LOCAL_NAIVE_DEBUG', description='Map shared_upload_dir back to host paths when running locally.')
 config.add('whisper_model', str, 'base', 'WHISPER_MODEL', description='OpenAI whisper model version for video/audio transcription.')
@@ -107,7 +107,7 @@ config.add('upload_server_port', int, 8001, 'UPLOAD_SERVER_PORT', description='U
 config.add('core_database_url', str, None, 'CORE_DATABASE_URL', description='Core service PostgreSQL URL.')
 config.add('word_group_apply_url', str, None, 'WORD_GROUP_APPLY_URL', description='Word group apply endpoint URL.')
 config.add('core_service_url', str, None, 'CORE_SERVICE_URL', description='Core service base URL.')
-# ACL_DB_DSN: now requires LAZYRAG_ACL_DB_DSN prefix.
+# ACL_DB_DSN: now requires LAZYMIND_ACL_DB_DSN prefix.
 config.add('acl_db_dsn', str, None, 'ACL_DB_DSN', description='ACL database DSN (PostgreSQL connection string).')
 
 # ---------------------------------------------------------------------------

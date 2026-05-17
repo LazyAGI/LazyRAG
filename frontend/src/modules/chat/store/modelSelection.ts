@@ -1,14 +1,14 @@
 import { create } from "zustand";
 
 export const MODEL_API_LABELS = {
-  lazyRag: "LazyRAG 大模型",
+  lazyMind: "LazyMind 大模型",
   deepSeek: "DeepSeek",
 } as const;
 
 export type ModelSelectionType = "value_engineering" | "deepseek" | "both";
 
 export const MODEL_SELECTION_SUMMARY_KEYS: Record<ModelSelectionType, string> = {
-  value_engineering: "chat.modelSelectionTriggerLazyRag",
+  value_engineering: "chat.modelSelectionTriggerLazyMind",
   deepseek: "chat.modelSelectionTriggerDeepSeek",
   both: "chat.dualModeCompare",
 };
@@ -16,8 +16,8 @@ export const MODEL_SELECTION_SUMMARY_KEYS: Record<ModelSelectionType, string> = 
 export const MODEL_OPTIONS = [
   {
     value: "value_engineering" as const,
-    labelKey: "chat.lazyRagModel",
-    descriptionKey: "chat.lazyRagModelDesc",
+    labelKey: "chat.lazyMindModel",
+    descriptionKey: "chat.lazyMindModelDesc",
   },
   {
     value: "deepseek" as const,
@@ -38,9 +38,9 @@ export function parseModelSelectionFromModels(
 
   const hasValueEngineering = models.some(
     (m) =>
-      m === MODEL_API_LABELS.lazyRag ||
-      m === "LazyRAG" ||
-      m === "lazyRag",
+      m === MODEL_API_LABELS.lazyMind ||
+      m === "LazyMind" ||
+      m === "lazyMind",
   );
   const hasDeepSeek = models.some(
     (m) => m === MODEL_API_LABELS.deepSeek || m === "DeepSeek",

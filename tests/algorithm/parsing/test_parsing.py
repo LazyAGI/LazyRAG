@@ -133,9 +133,9 @@ def test_main_waits_starts_docs_and_exits_on_keyboard_interrupt(monkeypatch):
         def start(self):
             calls.append(('docs.start',))
 
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://processor.test/')
-    monkeypatch.setenv('LAZYRAG_STARTUP_RETRY_INTERVAL', '0.5')
-    monkeypatch.setenv('LAZYRAG_STARTUP_TIMEOUT', '3')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_PROCESSOR_URL', 'http://processor.test/')
+    monkeypatch.setenv('LAZYMIND_STARTUP_RETRY_INTERVAL', '0.5')
+    monkeypatch.setenv('LAZYMIND_STARTUP_TIMEOUT', '3')
     monkeypatch.setattr(parsing_runtime, 'build_document', lambda: FakeDocs())
     monkeypatch.setattr(parsing_runtime, 'get_algo_server_port', lambda: 18000)
     monkeypatch.setattr(

@@ -75,37 +75,39 @@ RAGSCAN_FILE_WATCHER_CONSOLE_LOG := $(RAGSCAN_BASE_ROOT_ABS)/logs/file_watcher.c
 # ---------------------------------------------------------------------------
 
 # Auth — credentials and secrets (change in production)
-export LAZYRAG_DATABASE_URL ?= postgresql+psycopg://app:app@db:5432/app
-export LAZYRAG_JWT_SECRET ?= dev-secret-change-me
-export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME ?= admin
-export LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD ?= admin
-export LAZYRAG_RESET_ALGO_ON_STARTUP ?= false
-export LAZYRAG_RESET_ALL_ON_STARTUP ?= false
+export LAZYMIND_DATABASE_URL ?= postgresql+psycopg://app:app@db:5432/app
+export LAZYMIND_JWT_SECRET ?= dev-secret-change-me
+export LAZYMIND_BOOTSTRAP_ADMIN_USERNAME ?= admin
+export LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD ?= admin
+export LAZYMIND_RESET_ALGO_ON_STARTUP ?= false
+export LAZYMIND_RESET_ALL_ON_STARTUP ?= false
 export LAZYLLM_ALGO_REGISTER_POLICY ?= none
 
 # Core database
-export LAZYRAG_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/core
+export LAZYMIND_CORE_DATABASE_URL ?= postgresql+psycopg://root:123456@db:5432/core
 
 # OCR backend selection (none=built-in PDFReader, mineru, paddleocr)
-# Auto-derives LAZYRAG_OCR_SERVER_URL when not set.
-export LAZYRAG_OCR_SERVER_TYPE ?= none
-export LAZYRAG_OCR_SERVICE_VARIANT ?= online
-export LAZYRAG_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
+# Auto-derives LAZYMIND_OCR_SERVER_URL when not set.
+export LAZYMIND_OCR_SERVER_TYPE ?= none
+export LAZYMIND_OCR_SERVICE_VARIANT ?= online
+export LAZYMIND_OCR_SERVER_URL ?= $(if $(filter mineru,$(LAZYMIND_OCR_SERVER_TYPE)),http://mineru:8000,$(if $(filter paddleocr,$(LAZYMIND_OCR_SERVER_TYPE)),http://paddleocr:8080,http://localhost:8000))
+# patch_applied is only meaningful for offline (local patch-server) mode; force False for online API
+export LAZYMIND_OCR_PATCH_APPLIED := $(if $(filter online,$(LAZYMIND_OCR_SERVICE_VARIANT)),False,$(or $(LAZYMIND_OCR_PATCH_APPLIED),False))
 
 # Vector / segment stores — override to use external services (skips built-in profile)
-export LAZYRAG_MILVUS_URI ?= http://milvus:19530
-export LAZYRAG_OPENSEARCH_URI ?= https://opensearch:9200
-export LAZYRAG_OPENSEARCH_USER ?= admin
-export LAZYRAG_OPENSEARCH_PASSWORD ?= LazyRAG_OpenSearch123!
+export LAZYMIND_MILVUS_URI ?= http://milvus:19530
+export LAZYMIND_OPENSEARCH_URI ?= https://opensearch:9200
+export LAZYMIND_OPENSEARCH_USER ?= admin
+export LAZYMIND_OPENSEARCH_PASSWORD ?= LazyRAG_OpenSearch123!
 
 # Dashboard toggles (set to 1 to enable Attu / OpenSearch Dashboards)
-export LAZYRAG_ENABLE_STORE_DASHBOARDS ?= 0
-export LAZYRAG_ENABLE_MILVUS_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
-export LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD ?= $(LAZYRAG_ENABLE_STORE_DASHBOARDS)
+export LAZYMIND_ENABLE_STORE_DASHBOARDS ?= 0
+export LAZYMIND_ENABLE_MILVUS_DASHBOARD ?= $(LAZYMIND_ENABLE_STORE_DASHBOARDS)
+export LAZYMIND_ENABLE_OPENSEARCH_DASHBOARD ?= $(LAZYMIND_ENABLE_STORE_DASHBOARDS)
 
 # Chat tuning
-export LAZYRAG_MAX_CONCURRENCY ?= 10
-export LAZYRAG_LLM_PRIORITY ?= 0
+export LAZYMIND_MAX_CONCURRENCY ?= 10
+export LAZYMIND_LLM_PRIORITY ?= 0
 
 # Tracing (set LAZYLLM_TRACE_ENABLED=0 to disable; requires LANGFUSE_* keys when enabled)
 export LAZYLLM_TRACE_ENABLED ?= 1
@@ -135,24 +137,24 @@ export GITHUB_PROXY ?= https://gh-proxy.com/
 
 # Pluggable parent images for the algorithm Dockerfile's multi-stage chain:
 #
-#   FROM ${BASE_LAZYLLM_IMAGE}  AS base_lazyrag    # adds `lazyllm install rag`
-#   FROM ${BASE_LAZYRAG_IMAGE}  AS algorithm       # adds algorithm code + reqs
+#   FROM ${BASE_LAZYLLM_IMAGE}  AS base_lazymind    # adds `lazyllm install rag`
+#   FROM ${BASE_LAZYMIND_IMAGE}  AS algorithm       # adds algorithm code + reqs
 #
-# Defaults wire up the in-tree chain: base -> base_lazyrag -> algorithm.
+# Defaults wire up the in-tree chain: base -> base_lazymind -> algorithm.
 # Override either variable with an external prebuilt image tag to skip the
 # corresponding stage's heavy build (useful for CI cache reuse), e.g.:
-#   BASE_LAZYRAG_IMAGE=registry.example.com/lazyrag/base_lazyrag:latest
-# Or set BASE_LAZYRAG_IMAGE=base to skip the rag install layer entirely for
+#   BASE_LAZYMIND_IMAGE=registry.example.com/lazymind/base_lazymind:latest
+# Or set BASE_LAZYMIND_IMAGE=base to skip the rag install layer entirely for
 # fast dev builds when RAG extras are not needed.
 export BASE_LAZYLLM_IMAGE ?= base
-export BASE_LAZYRAG_IMAGE ?= base_lazyrag
-# export BASE_LAZYRAG_IMAGE ?= registry.cn-sh-01.sensecore.cn/ai-expert-service/lazyrag-base:2026.05.15.beta
+export BASE_LAZYMIND_IMAGE ?= base_lazymind
+# export BASE_LAZYMIND_IMAGE ?= registry.cn-sh-01.sensecore.cn/ai-expert-service/lazymind-base:2026.05.15.beta
 
 # model config path
-export LAZYRAG_MODEL_CONFIG_PATH ?= dynamic
+export LAZYMIND_MODEL_CONFIG_PATH ?= dynamic
 
 # Frontend port (default 8090; override if the port is occupied, e.g. by Cursor)
-export LAZYRAG_FRONTEND_PORT ?= 8090
+export LAZYMIND_FRONTEND_PORT ?= 8090
 
 # Python dirs to lint (exclude submodule algorithm/lazyllm via .flake8)
 PYTHON_DIRS := algorithm backend evo
@@ -161,7 +163,7 @@ PYTHON_DIRS := algorithm backend evo
 GO_DIRS := backend/core
 
 help:
-	@echo "LazyRAG Make targets:"
+	@echo "LazyMind Make targets:"
 	@echo "  make up         - Start services in background (with derived profiles)"
 	@echo "                    file-watcher runs in compose by default"
 	@echo "                    Use RAGSCAN_FILE_WATCHER_MODE=host for host-process debugging"
@@ -172,17 +174,17 @@ help:
 	@echo "                    Use SERVICES=svc1,svc2 to stop specific services only"
 	@echo "  make build      - Build compose services (mineru profile only when needed)"
 	@echo "                    Use SERVICES=svc1,svc2 to build specific services"
-	@echo "                    Use LAZYRAG_ENABLE_STORE_DASHBOARDS=1 to add Attu/OpenSearch Dashboards for built-in stores"
+	@echo "                    Use LAZYMIND_ENABLE_STORE_DASHBOARDS=1 to add Attu/OpenSearch Dashboards for built-in stores"
 	@echo "  make file-watcher-start - Rebuild and start host file-watcher"
 	@echo "  make file-watcher-stop  - Stop host file-watcher started by Makefile"
 	@echo "  make lint       - Run Python flake8 and Go gofmt checks"
 	@echo "  make test       - Run project test script"
 	@echo "  make clear      - Stop services, remove volumes, clear Python cache"
 	@echo "  make reset-kb   - Stop services, wipe KB data (Milvus, OpenSearch, uploads, lazyllm DB tables)"
-	@echo "                    Set LAZYRAG_RESET_ALGO_ON_STARTUP=true to also clear algo state on next startup"
+	@echo "                    Set LAZYMIND_RESET_ALGO_ON_STARTUP=true to also clear algo state on next startup"
 	@echo "  make reset-all  - Stop services, wipe ALL persistent data (KB + users, auth, Redis, etc.)"
 	@echo "                    Equivalent to a clean first-run state"
-	@echo "  make fresh-start - reset-kb + up with LAZYRAG_RESET_ALGO_ON_STARTUP=true (standard clean restart)"
+	@echo "  make fresh-start - reset-kb + up with LAZYMIND_RESET_ALGO_ON_STARTUP=true (standard clean restart)"
 	@echo ""
 	@echo "Mirror profile (build-time source URLs):"
 	@echo "  make up MIRROR_PROFILE=cn    - Use domestic mirrors (default: Aliyun/goproxy.cn/daocloud)"
@@ -221,8 +223,8 @@ lint: lint-python lint-go
 test:
 	@./tests/run-all.sh
 
-# Only build/start mineru/paddleocr when LAZYRAG_OCR_SERVER_TYPE is mineru/paddleocr
-# AND LAZYRAG_OCR_SERVER_URL points to the internal service (user has not specified external URL).
+# Only build/start mineru/paddleocr when LAZYMIND_OCR_SERVER_TYPE is mineru/paddleocr
+# AND LAZYMIND_OCR_SERVER_URL points to the internal service (user has not specified external URL).
 # Only mineru has build:; paddleocr/milvus/opensearch use image: only, so only needed for up.
 #  OCR_SERVER_TYPE	OCR_SERVICE_VARIANT	     OCR_SERVER_URL	     _need_mineru
 # mineru/paddleocr         online                Any                 false
@@ -230,15 +232,15 @@ test:
 #     paddleocr        offline or none   http://paddleocr:8000        true
 # mineru/paddleocr         offline            external URL           false 
 
-_need_mineru := $(and $(filter mineru,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYRAG_OCR_SERVER_URL)),$(filter-out online,$(LAZYRAG_OCR_SERVICE_VARIANT)))
-_need_paddleocr := $(and $(filter paddleocr,$(LAZYRAG_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYRAG_OCR_SERVER_URL)),$(filter-out online,$(LAZYRAG_OCR_SERVICE_VARIANT)))
+_need_mineru := $(and $(filter mineru,$(LAZYMIND_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYMIND_OCR_SERVER_URL)),$(filter-out online,$(LAZYMIND_OCR_SERVICE_VARIANT)))
+_need_paddleocr := $(and $(filter paddleocr,$(LAZYMIND_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYMIND_OCR_SERVER_URL)),$(filter-out online,$(LAZYMIND_OCR_SERVICE_VARIANT)))
 # Deploy milvus/opensearch only when URI exactly matches the built-in services; external URIs = no deployment
 _builtin_milvus_uris := http://milvus:19530 http://milvus:19530/
 _builtin_opensearch_uris := https://opensearch:9200 https://opensearch:9200/
-_need_milvus := $(filter $(strip $(LAZYRAG_MILVUS_URI)),$(_builtin_milvus_uris))
-_need_opensearch := $(filter $(strip $(LAZYRAG_OPENSEARCH_URI)),$(_builtin_opensearch_uris))
-_enable_milvus_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_MILVUS_DASHBOARD))
-_enable_opensearch_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD))
+_need_milvus := $(filter $(strip $(LAZYMIND_MILVUS_URI)),$(_builtin_milvus_uris))
+_need_opensearch := $(filter $(strip $(LAZYMIND_OPENSEARCH_URI)),$(_builtin_opensearch_uris))
+_enable_milvus_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYMIND_ENABLE_MILVUS_DASHBOARD))
+_enable_opensearch_dashboard := $(filter 1 true TRUE yes YES on ON,$(LAZYMIND_ENABLE_OPENSEARCH_DASHBOARD))
 _need_milvus_dashboard := $(and $(_need_milvus),$(_enable_milvus_dashboard))
 _need_opensearch_dashboard := $(and $(_need_opensearch),$(_enable_opensearch_dashboard))
 
@@ -370,7 +372,7 @@ clear:
 #   lazyllm_documents, lazyllm_doc_service_tasks,
 #   lazyllm_kb_documents, lazyllm_kb_algorithm
 #
-# After this, run: make up LAZYRAG_RESET_ALGO_ON_STARTUP=true
+# After this, run: make up LAZYMIND_RESET_ALGO_ON_STARTUP=true
 # ---------------------------------------------------------------------------
 _KB_VOLUMES := milvus-etcd milvus-minio milvus-data opensearch-data rag-uploads
 
@@ -455,12 +457,12 @@ reset-all: reset-kb
 	@echo "✅ Full reset done. All persistent data removed."
 
 # ---------------------------------------------------------------------------
-# fresh-start: reset-kb + up with LAZYRAG_RESET_ALGO_ON_STARTUP=true.
+# fresh-start: reset-kb + up with LAZYMIND_RESET_ALGO_ON_STARTUP=true.
 #
 # This is the standard "wipe everything KB-related and restart clean" flow.
 # reset-kb alone is not enough: lazyllm_* table schemas are only rebuilt by
-# the algo service on startup when LAZYRAG_RESET_ALGO_ON_STARTUP=true.
+# the algo service on startup when LAZYMIND_RESET_ALGO_ON_STARTUP=true.
 # ---------------------------------------------------------------------------
 fresh-start: reset-kb
-	@echo "🚀 Rebuilding images and starting services with LAZYRAG_RESET_ALGO_ON_STARTUP=true..."
-	@$(MAKE) --no-print-directory up-build LAZYRAG_RESET_ALGO_ON_STARTUP=true
+	@echo "🚀 Rebuilding images and starting services with LAZYMIND_RESET_ALGO_ON_STARTUP=true..."
+	@$(MAKE) --no-print-directory up-build LAZYMIND_RESET_ALGO_ON_STARTUP=true

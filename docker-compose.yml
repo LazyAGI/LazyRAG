@@ -12,7 +12,7 @@ x-mirror-args: &mirror-args
   GOSUMDB: ${GOSUMDB:-sum.golang.google.cn}
   GITHUB_PROXY: ${GITHUB_PROXY:-https://gh-proxy.com/}
   BASE_LAZYLLM_IMAGE: ${BASE_LAZYLLM_IMAGE:-base}
-  BASE_LAZYRAG_IMAGE: ${BASE_LAZYRAG_IMAGE:-base_lazyrag}
+  BASE_LAZYMIND_IMAGE: ${BASE_LAZYMIND_IMAGE:-base_lazymind}
 
 x-trace-config: &trace-config
   LANGFUSE_HOST: ${LANGFUSE_HOST:-}
@@ -21,11 +21,11 @@ x-trace-config: &trace-config
   LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
   LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
   LAZYLLM_TRACE_BACKEND: ${LAZYLLM_TRACE_BACKEND:-langfuse}
-  LAZYRAG_LOCAL_TRACE_SINK: ${LAZYRAG_LOCAL_TRACE_SINK:-false}
+  LAZYMIND_LOCAL_TRACE_SINK: ${LAZYMIND_LOCAL_TRACE_SINK:-false}
   LOCAL_TRACE_SINK: ${LOCAL_TRACE_SINK:-false}
   OTEL_EXPORTER_OTLP_TIMEOUT: 60
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: 60
-  LAZYRAG_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: 70000
+  LAZYMIND_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: 70000
 
 x-proxy-env: &proxy-env
   http_proxy: ${http_proxy:-}
@@ -38,12 +38,12 @@ x-proxy-env: &proxy-env
 x-core-env: &core-env
   ACL_DB_DRIVER: postgres
   ACL_DB_DSN: "host=db user=root password=123456 dbname=core port=5432 sslmode=disable TimeZone=UTC"
-  LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-  LAZYRAG_UPLOAD_ROOT: /var/lib/lazyrag/uploads
-  LAZYRAG_PUBLIC_BASE_URL: http://localhost:8000/api/core
-  LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
-  LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
-  LAZYRAG_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
+  LAZYMIND_REDIS_URL: redis://test:123456@redis:6379/0
+  LAZYMIND_UPLOAD_ROOT: /var/lib/lazymind/uploads
+  LAZYMIND_PUBLIC_BASE_URL: http://localhost:8000/api/core
+  LAZYMIND_FILE_URL_SIGN_SECRET: changeme-in-production
+  LAZYMIND_FILE_URL_EXPIRE_SECONDS: "3600"
+  LAZYMIND_OFFICE_CONVERT_URL: http://office-convert-service:8080/v1/office/to-pdf
 
 x-llm-api-keys: &llm-api-keys
   LAZYLLM_OPENAI_API_KEY: ${LAZYLLM_OPENAI_API_KEY:-}
@@ -57,27 +57,27 @@ x-llm-api-keys: &llm-api-keys
   LAZYLLM_SILICONFLOW_API_KEY: ${LAZYLLM_SILICONFLOW_API_KEY:-}
   LAZYLLM_MINIMAX_API_KEY: ${LAZYLLM_MINIMAX_API_KEY:-}
   LAZYLLM_AIPING_API_KEY: ${LAZYLLM_AIPING_API_KEY:-}
-  LAZYRAG_MAAS_API_KEY: ${LAZYRAG_MAAS_API_KEY:-}
+  LAZYMIND_MAAS_API_KEY: ${LAZYMIND_MAAS_API_KEY:-}
 
 
 x-upload-paths: &upload-paths
-  LAZYRAG_UPLOAD_HOST_DIR: ./data/core/uploads
-  LAZYRAG_SHARED_UPLOAD_DIR: /var/lib/lazyrag/uploads
+  LAZYMIND_UPLOAD_HOST_DIR: ./data/core/uploads
+  LAZYMIND_SHARED_UPLOAD_DIR: /var/lib/lazymind/uploads
 
 x-db-conn: &db-conn
-  LAZYRAG_DATABASE_URL: ${LAZYRAG_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
+  LAZYMIND_DATABASE_URL: ${LAZYMIND_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
 
 x-core-db-conn: &core-db-conn
-  LAZYRAG_CORE_DATABASE_URL: ${LAZYRAG_CORE_DATABASE_URL:-postgresql+psycopg://root:123456@db:5432/core}
+  LAZYMIND_CORE_DATABASE_URL: ${LAZYMIND_CORE_DATABASE_URL:-postgresql+psycopg://root:123456@db:5432/core}
 
 x-ocr-env: &ocr-env
-  LAZYRAG_OCR_SERVICE_VARIANT: online
-  LAZYRAG_OCR_SERVER_TYPE: mineru
-  LAZYRAG_MINERU_UPLOAD_MODE: "True"
-  LAZYRAG_OCR_PATCH_APPLIED: "True"
+  LAZYMIND_OCR_SERVICE_VARIANT: ${LAZYMIND_OCR_SERVICE_VARIANT:-online}
+  LAZYMIND_OCR_SERVER_TYPE: ${LAZYMIND_OCR_SERVER_TYPE:-none}
+  LAZYMIND_MINERU_UPLOAD_MODE: "True"
+  LAZYMIND_OCR_PATCH_APPLIED: ${LAZYMIND_OCR_PATCH_APPLIED:-True}
   LAZYLLM_MINERU_API_KEY: ${LAZYLLM_MINERU_API_KEY:-}
   LAZYLLM_PADDLE_API_KEY: ${LAZYLLM_PADDLE_API_KEY:-}
-  LAZYRAG_OCR_SERVER_URL: ${LAZYRAG_OCR_SERVER_URL:-http://host.docker.internal:8000/api/v1/pdf_parse}
+  LAZYMIND_OCR_SERVER_URL: ${LAZYMIND_OCR_SERVER_URL:-http://host.docker.internal:8000/api/v1/pdf_parse}
 
 services:
 
@@ -136,7 +136,7 @@ services:
 
   file-watcher-artifact:
     profiles: ["file-watcher-artifact"]
-    image: lazyrag-file-watcher-artifact:20260417-1
+    image: lazymind-file-watcher-artifact:20260417-1
     environment:
       OUTPUT_DIR: /output
     volumes:
@@ -155,7 +155,7 @@ services:
       - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
       - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
       - ${RAGSCAN_BASE_ROOT:-./data/scan}/staging:/data/staging
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -222,15 +222,15 @@ services:
       - "8000"
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     environment:
-      LAZYRAG_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/authservice
-      LAZYRAG_REDIS_URL: redis://test:123456@redis:6379/0
-      LAZYRAG_JWT_SECRET: dev-secret-change-me
-      LAZYRAG_JWT_TTL_MINUTES: "60"
-      LAZYRAG_JWT_REFRESH_TTL_DAYS: "7"
+      LAZYMIND_DATABASE_URL: postgresql+psycopg://root:123456@db:5432/authservice
+      LAZYMIND_REDIS_URL: redis://test:123456@redis:6379/0
+      LAZYMIND_JWT_SECRET: dev-secret-change-me
+      LAZYMIND_JWT_TTL_MINUTES: "60"
+      LAZYMIND_JWT_REFRESH_TTL_DAYS: "7"
       RAGSCAN_SECRET_KEY: dev-ragscan-secret-key-change-me
-      LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
-      LAZYRAG_BOOTSTRAP_ADMIN_USERNAME: ${LAZYRAG_BOOTSTRAP_ADMIN_USERNAME:-admin}
-      LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYMIND_BOOTSTRAP_ADMIN_USERNAME: ${LAZYMIND_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD:-admin}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
@@ -254,10 +254,10 @@ services:
     expose:
       - "8080"
     environment:
-      OFFICE_CONVERT_ALLOWED_ROOTS: /var/lib/lazyrag/uploads
+      OFFICE_CONVERT_ALLOWED_ROOTS: /var/lib/lazymind/uploads
       OFFICE_CONVERT_TIMEOUT_SECONDS: "900"
     volumes:
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 15s
@@ -273,25 +273,25 @@ services:
         <<: *mirror-args
     volumes:
       - ./api/backend:/openapi-export
-      - /tmp/evo:/var/lib/lazyrag/evo
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - /tmp/evo:/var/lib/lazymind/evo
+      - ./data/core/uploads:/var/lib/lazymind/uploads
     expose:
       - "8000"
     environment:
       <<: *core-env
       MIGRATIONS_DIR: /migrations
-      LAZYRAG_ALGO_SERVICE_URL: http://lazyllm-doc-server:8000
-      LAZYRAG_READONLY_VALIDATE: "0"
-      LAZYRAG_READONLY_DB_DRIVER: postgres
-      LAZYRAG_READONLY_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
-      LAZYRAG_READONLY_SCHEMA: public
-      LAZYRAG_READONLY_TABLES: "public.lazyllm_documents,public.lazyllm_doc_service_tasks,public.lazyllm_kb_documents"
-      LAZYRAG_DOCUMENT_SERVICE_URL: http://lazyllm-doc-server:8000
-      LAZYRAG_PARSING_SERVICE_URL: http://lazyllm-parse-server:8000
-      LAZYRAG_CHAT_SERVICE_URL: http://chat:8046
-      LAZYRAG_EVO_SERVICE_URL: http://evo-api:8047
-      LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
-      LAZYRAG_OFFICE_CONVERT_WORKERS: "4"
+      LAZYMIND_ALGO_SERVICE_URL: http://lazyllm-doc-server:8000
+      LAZYMIND_READONLY_VALIDATE: "0"
+      LAZYMIND_READONLY_DB_DRIVER: postgres
+      LAZYMIND_READONLY_DB_DSN: "host=db user=app password=app dbname=app port=5432 sslmode=disable TimeZone=UTC"
+      LAZYMIND_READONLY_SCHEMA: public
+      LAZYMIND_READONLY_TABLES: "public.lazyllm_documents,public.lazyllm_doc_service_tasks,public.lazyllm_kb_documents"
+      LAZYMIND_DOCUMENT_SERVICE_URL: http://lazyllm-doc-server:8000
+      LAZYMIND_PARSING_SERVICE_URL: http://lazyllm-parse-server:8000
+      LAZYMIND_CHAT_SERVICE_URL: http://chat:8046
+      LAZYMIND_EVO_SERVICE_URL: http://evo-api:8047
+      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYMIND_OFFICE_CONVERT_WORKERS: "4"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
@@ -313,7 +313,7 @@ services:
     command: ["sleep", "infinity"]
     volumes:
       - ./backend/core:/app
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
     environment:
       <<: *core-env
     depends_on:
@@ -333,7 +333,7 @@ services:
       args:
         <<: *mirror-args
     ports:
-      - "${LAZYRAG_FRONTEND_PORT:-8080}:80"
+      - "${LAZYMIND_FRONTEND_PORT:-8080}:80"
     expose:
       - "80"
     depends_on:
@@ -358,20 +358,20 @@ services:
     expose:
       - "8000"
     volumes:
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
       # Image bakes /app/algorithm; Python may import lazyllm from there (not /opt/lazyllm). Mount repo
       # so doc_manager matches Core /v1/docs/add (kb bound to general_algo, no algo_id in body).
       - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       <<: [*db-conn, *upload-paths, *llm-api-keys]
-      LAZYRAG_DOCUMENT_SERVICE_PORT: "8000"
-      LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
-      LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL: http://doc-server:8000/v1/internal/callbacks/tasks
-      LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR: /var/lib/lazyrag/uploads
-      LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
-      LAZYRAG_RESET_ALL_ON_STARTUP: ${LAZYRAG_RESET_ALL_ON_STARTUP:-false}
-      LAZYRAG_UPLOAD_DIR: /var/lib/lazyrag/uploads
+      LAZYMIND_DOCUMENT_SERVICE_PORT: "8000"
+      LAZYMIND_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
+      LAZYMIND_DOCUMENT_SERVICE_CALLBACK_URL: http://doc-server:8000/v1/internal/callbacks/tasks
+      LAZYMIND_DOCUMENT_SERVICE_STORAGE_DIR: /var/lib/lazymind/uploads
+      LAZYMIND_RESET_ALGO_ON_STARTUP: ${LAZYMIND_RESET_ALGO_ON_STARTUP:-false}
+      LAZYMIND_RESET_ALL_ON_STARTUP: ${LAZYMIND_RESET_ALL_ON_STARTUP:-false}
+      LAZYMIND_UPLOAD_DIR: /var/lib/lazymind/uploads
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "backend/core/doc/doc_server.py"]
     healthcheck:
@@ -422,10 +422,10 @@ services:
     environment:
       <<: *llm-api-keys
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
-      LAZYRAG_MINERU_SERVER_PORT: "8000"
-      LAZYRAG_MINERU_BACKEND: pipeline
-      LAZYRAG_MINERU_CACHE_DIR: /app/.mineru-cache
-      LAZYRAG_MINERU_IMAGE_SAVE_DIR: /app/.mineru-images
+      LAZYMIND_MINERU_SERVER_PORT: "8000"
+      LAZYMIND_MINERU_BACKEND: pipeline
+      LAZYMIND_MINERU_CACHE_DIR: /app/.mineru-cache
+      LAZYMIND_MINERU_IMAGE_SAVE_DIR: /app/.mineru-images
     command: ["python", "parsing/mineru.py"]
 
   # PaddleOCR-VL document parsing service (official images).
@@ -496,10 +496,10 @@ services:
     expose:
       - "8000"
     volumes:
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
-      LAZYRAG_DOCUMENT_PROCESSOR_PORT: "8000"
+      LAZYMIND_DOCUMENT_PROCESSOR_PORT: "8000"
       <<: [*db-conn, *upload-paths, *llm-api-keys]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/server.py"]
@@ -530,16 +530,16 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
-      LAZYRAG_DOCUMENT_WORKER_PORT: "8001"
-      LAZYRAG_DOCUMENT_WORKER_NUM_WORKERS: "1"
-      LAZYRAG_DOCUMENT_WORKER_LEASE_DURATION: "300"
-      LAZYRAG_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL: "60"
-      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ""
-      LAZYRAG_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: "false"
-      LAZYRAG_DOCUMENT_WORKER_POLL_MODE: direct
+      LAZYMIND_DOCUMENT_WORKER_PORT: "8001"
+      LAZYMIND_DOCUMENT_WORKER_NUM_WORKERS: "1"
+      LAZYMIND_DOCUMENT_WORKER_LEASE_DURATION: "300"
+      LAZYMIND_DOCUMENT_WORKER_LEASE_RENEW_INTERVAL: "60"
+      LAZYMIND_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ""
+      LAZYMIND_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: "false"
+      LAZYMIND_DOCUMENT_WORKER_POLL_MODE: direct
       <<: [*db-conn, *upload-paths, *llm-api-keys, *ocr-env]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/worker.py"]
@@ -573,7 +573,7 @@ services:
       - "8000"
     working_dir: /app
     volumes:
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
@@ -589,20 +589,20 @@ services:
       retries: 10
       start_period: 120s
     environment:
-      LAZYRAG_UPLOAD_ROOT: /var/lib/lazyrag/uploads
+      LAZYMIND_UPLOAD_ROOT: /var/lib/lazymind/uploads
       <<: [*upload-paths, *llm-api-keys, *ocr-env]
-      LAZYRAG_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
-      LAZYRAG_ALGO_SERVER_PORT: "8000"
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-dynamic}
+      LAZYMIND_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
+      LAZYMIND_ALGO_SERVER_PORT: "8000"
+      LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
       PYTHONPATH: /opt/lazyllm:/app
       LAZYLLM_ALGO_REGISTER_POLICY: ${LAZYLLM_ALGO_REGISTER_POLICY:-}
-      LAZYRAG_USE_INNER_MODEL: "true"
-      LAZYRAG_MILVUS_URI: ${LAZYRAG_MILVUS_URI:-http://milvus:19530}
-      LAZYRAG_OPENSEARCH_URI: ${LAZYRAG_OPENSEARCH_URI:-https://opensearch:9200}
-      LAZYRAG_OPENSEARCH_USER: ${LAZYRAG_OPENSEARCH_USER:-admin}
-      LAZYRAG_OPENSEARCH_PASSWORD: ${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
-      LAZYRAG_RESET_ALGO_ON_STARTUP: ${LAZYRAG_RESET_ALGO_ON_STARTUP:-false}
-      LAZYRAG_RESET_ALL_ON_STARTUP: ${LAZYRAG_RESET_ALL_ON_STARTUP:-false}
+      LAZYMIND_USE_INNER_MODEL: "true"
+      LAZYMIND_MILVUS_URI: ${LAZYMIND_MILVUS_URI:-http://milvus:19530}
+      LAZYMIND_OPENSEARCH_URI: ${LAZYMIND_OPENSEARCH_URI:-https://opensearch:9200}
+      LAZYMIND_OPENSEARCH_USER: ${LAZYMIND_OPENSEARCH_USER:-admin}
+      LAZYMIND_OPENSEARCH_PASSWORD: ${LAZYMIND_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
+      LAZYMIND_RESET_ALGO_ON_STARTUP: ${LAZYMIND_RESET_ALGO_ON_STARTUP:-false}
+      LAZYMIND_RESET_ALL_ON_STARTUP: ${LAZYMIND_RESET_ALL_ON_STARTUP:-false}
     command: ["python", "-m", "parsing.parsing"]
     depends_on:
       lazyllm-parse-server:
@@ -625,7 +625,7 @@ services:
     expose:
       - "8046"
     volumes:
-      - ./data/core/uploads:/var/lib/lazyrag/uploads
+      - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
@@ -640,29 +640,28 @@ services:
       retries: 5
       start_period: 120s
     environment:
-      LAZYRAG_DOCUMENT_SERVER_URL: http://parsing:8000,general_algo
-      LAZYRAG_SHARED_UPLOAD_DIR: /var/lib/lazyrag/uploads
-      LAZYRAG_MOUNT_BASE_DIR: /var/lib/lazyrag/uploads
-      LAZYLLM_MOUNT_DIR: /var/lib/lazyrag/uploads
-      LAZYRAG_USE_INNER_MODEL: "true"
-      LAZYRAG_MAX_CONCURRENCY: ${LAZYRAG_MAX_CONCURRENCY:-10}
-      LAZYRAG_LLM_PRIORITY: ${LAZYRAG_LLM_PRIORITY:-0}
-      LAZYRAG_DEFAULT_CHAT_DATASET: algo
-      LAZYRAG_CORE_API_URL: http://core:8000
-      LAZYRAG_FILE_URL_SIGN_SECRET: changeme-in-production
-      LAZYRAG_FILE_URL_EXPIRE_SECONDS: "3600"
-      LAZYRAG_MAX_RETRIES: "20"
-      LAZYRAG_REVIEW_MAX_RETRIES: "5"
-      LAZYRAG_MEMORY_REVIEW_INTERVAL: "1"
-      LAZYRAG_SKILL_REVIEW_INTERVAL: "5"
-      LAZYRAG_SKILL_REVIEW_DEBUG: "false"
-      LAZYRAG_SKIP_STARTUP_PIPELINE: "1"
+      LAZYMIND_DOCUMENT_SERVER_URL: http://parsing:8000,general_algo
+      LAZYMIND_SHARED_UPLOAD_DIR: /var/lib/lazymind/uploads
+      LAZYMIND_MOUNT_BASE_DIR: /var/lib/lazymind/uploads
+      LAZYMIND_USE_INNER_MODEL: "true"
+      LAZYMIND_MAX_CONCURRENCY: ${LAZYMIND_MAX_CONCURRENCY:-10}
+      LAZYMIND_LLM_PRIORITY: ${LAZYMIND_LLM_PRIORITY:-0}
+      LAZYMIND_DEFAULT_CHAT_DATASET: algo
+      LAZYMIND_CORE_API_URL: http://core:8000
+      LAZYMIND_FILE_URL_SIGN_SECRET: changeme-in-production
+      LAZYMIND_FILE_URL_EXPIRE_SECONDS: "3600"
+      LAZYMIND_MAX_RETRIES: "20"
+      LAZYMIND_REVIEW_MAX_RETRIES: "5"
+      LAZYMIND_MEMORY_REVIEW_INTERVAL: "1"
+      LAZYMIND_SKILL_REVIEW_INTERVAL: "5"
+      LAZYMIND_SKILL_REVIEW_DEBUG: "false"
+      LAZYMIND_SKIP_STARTUP_PIPELINE: "1"
       # Chat uses the shared model config selector. Default dynamic mode enables
-      # per-user model/API-key selection from core; set LAZYRAG_MODEL_CONFIG_PATH=online
+      # per-user model/API-key selection from core; set LAZYMIND_MODEL_CONFIG_PATH=online
       # or inner only when forcing a static config.
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-dynamic}
-      LAZYRAG_CORE_SERVICE_URL: http://core:8000
-      LAZYRAG_WORD_GROUP_APPLY_URL: ""
+      LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
+      LAZYMIND_CORE_SERVICE_URL: http://core:8000
+      LAZYMIND_WORD_GROUP_APPLY_URL: ""
       <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
@@ -682,27 +681,27 @@ services:
     ports:
       - "8050:8047"
     environment:
-      LAZYRAG_EVO_API_PORT: "8047"
-      LAZYRAG_EVO_BASE_DIR: /var/lib/lazyrag/evo
-      LAZYRAG_EVO_CHAT_SOURCE: /var/lib/lazyrag/chat-source
-      LAZYRAG_EVO_CODE_MAP: /app/evo/code_map.json
-      LAZYRAG_EVO_CODE_BINARY: /usr/local/bin/opencode
-      LAZYRAG_EVO_CODE_PROVIDER: ${LAZYRAG_EVO_CODE_PROVIDER:-qwen}
-      LAZYRAG_EVO_CODE_MODEL: ${LAZYRAG_EVO_CODE_MODEL:-qwen3-max}
-      LAZYRAG_EVO_CODE_API_KEY: ${LAZYRAG_EVO_CODE_API_KEY:-}
-      LAZYRAG_EVO_CODE_BASE_URL: ${LAZYRAG_EVO_CODE_BASE_URL:-}
-      LAZYRAG_EVO_CODE_LABEL: ${LAZYRAG_EVO_CODE_LABEL:-qwen}
-      LAZYRAG_EVO_CODE_TIMEOUT_S: "900"
-      LAZYRAG_EVO_LLM_ROLE: evo_llm
-      LAZYRAG_EVO_KB_BASE_URL: http://doc-server:8000
-      LAZYRAG_EVO_CHUNK_BASE_URL: http://doc-server:8000
-      LAZYRAG_EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
-      LAZYRAG_MODEL_CONFIG_PATH: ${LAZYRAG_MODEL_CONFIG_PATH:-dynamic}
+      LAZYMIND_EVO_API_PORT: "8047"
+      LAZYMIND_EVO_BASE_DIR: /var/lib/lazymind/evo
+      LAZYMIND_EVO_CHAT_SOURCE: /var/lib/lazymind/chat-source
+      LAZYMIND_EVO_CODE_MAP: /app/evo/code_map.json
+      LAZYMIND_EVO_CODE_BINARY: /usr/local/bin/opencode
+      LAZYMIND_EVO_CODE_PROVIDER: ${LAZYMIND_EVO_CODE_PROVIDER:-qwen}
+      LAZYMIND_EVO_CODE_MODEL: ${LAZYMIND_EVO_CODE_MODEL:-qwen3-max}
+      LAZYMIND_EVO_CODE_API_KEY: ${LAZYMIND_EVO_CODE_API_KEY:-}
+      LAZYMIND_EVO_CODE_BASE_URL: ${LAZYMIND_EVO_CODE_BASE_URL:-}
+      LAZYMIND_EVO_CODE_LABEL: ${LAZYMIND_EVO_CODE_LABEL:-qwen}
+      LAZYMIND_EVO_CODE_TIMEOUT_S: "900"
+      LAZYMIND_EVO_LLM_ROLE: evo_llm
+      LAZYMIND_EVO_KB_BASE_URL: http://doc-server:8000
+      LAZYMIND_EVO_CHUNK_BASE_URL: http://doc-server:8000
+      LAZYMIND_EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
+      LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
       <<: [*trace-config, *proxy-env, *llm-api-keys]
     volumes:
-      - /tmp/evo:/var/lib/lazyrag/evo
-      - ./data/core/uploads:/var/lib/lazyrag/uploads:ro
-      - ./algorithm/chat:/var/lib/lazyrag/chat-source:ro
+      - /tmp/evo:/var/lib/lazymind/evo
+      - ./data/core/uploads:/var/lib/lazymind/uploads:ro
+      - ./algorithm/chat:/var/lib/lazymind/chat-source:ro
       - ./algorithm/config.py:/app/config.py:ro
       - ./algorithm/config.py:/app/algorithm/config.py:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
@@ -802,7 +801,7 @@ services:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${LAZYRAG_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${LAZYMIND_OPENSEARCH_PASSWORD:-LazyRAG_OpenSearch123!}
     ulimits:
       memlock:
         soft: -1

@@ -11,16 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/log"
+	"lazymind/core/store"
 
 	"gorm.io/gorm"
 )
 
 func wordGroupServiceURL() string {
-	if u := os.Getenv("LAZYRAG_CHAT_SERVICE_URL"); u != "" {
+	if u := os.Getenv("LAZYMIND_CHAT_SERVICE_URL"); u != "" {
 		return u
 	}
 	return "http://chat:8046"

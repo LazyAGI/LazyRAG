@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/log"
+	"lazymind/core/common/orm"
+	"lazymind/core/log"
 )
 
 // Store text ORM text ACL text。
@@ -346,8 +346,8 @@ func fetchUserGroupIDsFromAuthService(ctx context.Context, userID string) []stri
 		log.Logger.Warn().Err(err).Str("user_id", userID).Str("url", endpoint).Msg("build auth-service request failed")
 		return nil
 	}
-	if tok := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN")); tok != "" {
-		req.Header.Set("X-LazyRAG-Internal-Token", tok)
+	if tok := strings.TrimSpace(os.Getenv("LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN")); tok != "" {
+		req.Header.Set("X-LazyMind-Internal-Token", tok)
 	}
 	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
 	if err != nil {
@@ -398,7 +398,7 @@ func fetchUserGroupIDsFromAuthService(ctx context.Context, userID string) []stri
 }
 
 func authServiceBaseURL() string {
-	if u := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_URL")); u != "" {
+	if u := strings.TrimSpace(os.Getenv("LAZYMIND_AUTH_SERVICE_URL")); u != "" {
 		base := strings.TrimRight(u, "/")
 		if strings.HasSuffix(base, "/api/authservice") {
 			return base

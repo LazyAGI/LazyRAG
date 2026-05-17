@@ -20,11 +20,11 @@ import (
 	"sync"
 	"time"
 
-	"lazyrag/core/acl"
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/common/readonlyorm"
-	"lazyrag/core/store"
+	"lazymind/core/acl"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/common/readonlyorm"
+	"lazymind/core/store"
 
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"

@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common/orm"
+	"lazymind/core/common/orm"
 )
 
 type SuggestionOutdatedResolver struct {

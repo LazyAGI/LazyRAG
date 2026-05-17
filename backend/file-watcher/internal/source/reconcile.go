@@ -13,8 +13,8 @@ import (
 
 	"go.uber.org/zap"
 
-	internal "github.com/lazyrag/file_watcher/internal"
-	"github.com/lazyrag/file_watcher/internal/fs"
+	internal "github.com/lazymind/file_watcher/internal"
+	"github.com/lazymind/file_watcher/internal/fs"
 )
 
 // Reconciler runs periodic snapshot diffs to compensate for watcher events that may have been missed.

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lazyrag/file_watcher/internal/config"
+	"github.com/lazymind/file_watcher/internal/config"
 )
 
 // PathMapper converts between the user/control-plane path space and the

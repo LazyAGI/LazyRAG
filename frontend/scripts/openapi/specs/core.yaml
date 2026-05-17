@@ -2996,7 +2996,7 @@ components:
                 - name
             type: object
 info:
-    description: LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。
+    description: LazyMind Go backend core API - proxies to algorithm services. text Kong text /api/core。
     title: Backend Core API
     version: 0.1.0
 openapi: 3.0.3
@@ -5587,7 +5587,7 @@ paths:
                 - model_providers
     /api/core/model_providers/{model_provider_id}/groups/{group_id}:check:
         post:
-            description: Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.
+            description: Validates credentials by proxying to the algorithm POST /api/model/check (LAZYMIND_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.
             parameters:
                 - in: path
                   name: model_provider_id

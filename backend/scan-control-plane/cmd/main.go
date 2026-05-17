@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lazyrag/scan_control_plane/internal/app"
-	"github.com/lazyrag/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/app"
+	"github.com/lazymind/scan_control_plane/internal/config"
 )
 
 func main() {

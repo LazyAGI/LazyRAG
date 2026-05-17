@@ -1,3 +1,3 @@
 # Processor Algorithm Tests
 
-Tests for `LazyRAG/algorithm/processor`.
+Tests for `LazyMind/algorithm/processor`.

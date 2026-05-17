@@ -1,5 +1,5 @@
-export const DEVELOPER_ACTIVE_STORAGE_KEY = "lazyrag:developer-active";
-export const DEVELOPER_ACTIVE_EVENT = "lazyrag:developer-active-change";
+export const DEVELOPER_ACTIVE_STORAGE_KEY = "lazymind:developer-active";
+export const DEVELOPER_ACTIVE_EVENT = "lazymind:developer-active-change";
 
 export function isDeveloperModeActive() {
   try {

@@ -15,8 +15,8 @@ import (
 
 	"go.uber.org/zap"
 
-	internal "github.com/lazyrag/file_watcher/internal"
-	"github.com/lazyrag/file_watcher/internal/config"
+	internal "github.com/lazymind/file_watcher/internal"
+	"github.com/lazymind/file_watcher/internal/config"
 )
 
 // StagingService stages files.

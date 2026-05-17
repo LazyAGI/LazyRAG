@@ -1,4 +1,4 @@
-"""Standalone DocServer launcher for LazyRAG.
+"""Standalone DocServer launcher for LazyMind.
 
 This entrypoint runs LazyLLM's DocServer as an independent Python service and
 connects it to a remote parsing/processor service.
@@ -30,9 +30,9 @@ from lazyllm.tools.rag.doc_service import DocServer  # noqa: E402
 
 def _default_storage_dir() -> str:
     return (
-        os.getenv('LAZYRAG_DOCUMENT_SERVICE_STORAGE_DIR')
-        or os.getenv('LAZYRAG_UPLOAD_DIR')
-        or str(REPO_ROOT / '.lazyrag' / 'uploads')
+        os.getenv('LAZYMIND_DOCUMENT_SERVICE_STORAGE_DIR')
+        or os.getenv('LAZYMIND_UPLOAD_DIR')
+        or str(REPO_ROOT / '.lazymind' / 'uploads')
     )
 
 
@@ -42,9 +42,9 @@ def build_doc_server(
     parser_url: Optional[str] = None,
     callback_url: Optional[str] = None,
 ) -> DocServer:
-    resolved_port = port or env_int('LAZYRAG_DOCUMENT_SERVICE_PORT', 8000)
-    resolved_parser_url = parser_url or os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
-    resolved_callback_url = callback_url or os.getenv('LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL')
+    resolved_port = port or env_int('LAZYMIND_DOCUMENT_SERVICE_PORT', 8000)
+    resolved_parser_url = parser_url or os.getenv('LAZYMIND_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000')
+    resolved_callback_url = callback_url or os.getenv('LAZYMIND_DOCUMENT_SERVICE_CALLBACK_URL')
     db_config = require_shared_db_config('DocServer')
 
     return DocServer(
@@ -52,34 +52,34 @@ def build_doc_server(
         parser_url=resolved_parser_url,
         db_config=db_config,
         parser_db_config=db_config,
-        parser_poll_interval=env_float('LAZYRAG_DOCUMENT_SERVICE_PARSER_POLL_INTERVAL', 0.05),
+        parser_poll_interval=env_float('LAZYMIND_DOCUMENT_SERVICE_PARSER_POLL_INTERVAL', 0.05),
         storage_dir=_default_storage_dir(),
         callback_url=resolved_callback_url,
     )
 
 
 def _resolve_runtime_callback_url(callback_url: Optional[str]) -> Optional[str]:
-    return callback_url or os.getenv('LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL')
+    return callback_url or os.getenv('LAZYMIND_DOCUMENT_SERVICE_CALLBACK_URL')
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Run LazyRAG standalone DocServer.')
+    parser = argparse.ArgumentParser(description='Run LazyMind standalone DocServer.')
     parser.add_argument(
         '--port',
         type=int,
-        default=env_int('LAZYRAG_DOCUMENT_SERVICE_PORT', 8000),
+        default=env_int('LAZYMIND_DOCUMENT_SERVICE_PORT', 8000),
         help='DocServer listen port.',
     )
     parser.add_argument(
         '--parser-url',
         type=str,
-        default=os.getenv('LAZYRAG_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000'),
+        default=os.getenv('LAZYMIND_DOCUMENT_PROCESSOR_URL', 'http://localhost:8000'),
         help='Remote DocumentProcessor base URL.',
     )
     parser.add_argument(
         '--callback-url',
         type=str,
-        default=os.getenv('LAZYRAG_DOCUMENT_SERVICE_CALLBACK_URL'),
+        default=os.getenv('LAZYMIND_DOCUMENT_SERVICE_CALLBACK_URL'),
         help='Optional callback URL override.',
     )
     parser.add_argument(

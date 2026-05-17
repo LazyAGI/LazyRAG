@@ -3,7 +3,7 @@ package store
 import (
 	"net/http"
 
-	"lazyrag/core/common"
+	"lazymind/core/common"
 )
 
 // UserID returns request header X-User-Id.

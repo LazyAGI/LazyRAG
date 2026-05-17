@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lazyrag/scan_control_plane/internal/config"
-	"github.com/lazyrag/scan_control_plane/internal/coreclient"
-	"github.com/lazyrag/scan_control_plane/internal/store"
+	"github.com/lazymind/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/coreclient"
+	"github.com/lazymind/scan_control_plane/internal/store"
 	"go.uber.org/zap"
 )
 

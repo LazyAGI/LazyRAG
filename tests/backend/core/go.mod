@@ -1,12 +1,12 @@
-module lazyrag-core-tests
+module lazymind-core-tests
 
 go 1.24.0
 
-replace lazyrag/core => ../../../backend/core
+replace lazymind/core => ../../../backend/core
 
 require (
 	github.com/gorilla/mux v1.8.1
-	lazyrag/core v0.0.0
+	lazymind/core v0.0.0
 )
 
 require (

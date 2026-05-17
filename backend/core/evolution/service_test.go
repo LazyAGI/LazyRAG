@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"lazyrag/core/common/orm"
+	"lazymind/core/common/orm"
 )
 
 func newTestDB(t *testing.T) *orm.DB {

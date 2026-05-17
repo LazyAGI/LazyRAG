@@ -8,9 +8,9 @@ from jose import jwt
 
 
 def jwt_secret() -> str:
-    s = os.environ.get('LAZYRAG_JWT_SECRET')
+    s = os.environ.get('LAZYMIND_JWT_SECRET')
     if not s:
-        raise RuntimeError('LAZYRAG_JWT_SECRET is required')
+        raise RuntimeError('LAZYMIND_JWT_SECRET is required')
     return s
 
 
@@ -22,7 +22,7 @@ def _env_int(key: str, default: int) -> int:
 
 
 def jwt_ttl_minutes() -> int:
-    return _env_int('LAZYRAG_JWT_TTL_MINUTES', 60)
+    return _env_int('LAZYMIND_JWT_TTL_MINUTES', 60)
 
 
 def jwt_ttl_seconds() -> int:
@@ -30,7 +30,7 @@ def jwt_ttl_seconds() -> int:
 
 
 def refresh_token_ttl_days() -> int:
-    return _env_int('LAZYRAG_JWT_REFRESH_TTL_DAYS', 7)
+    return _env_int('LAZYMIND_JWT_REFRESH_TTL_DAYS', 7)
 
 
 def refresh_token_ttl_seconds() -> int:

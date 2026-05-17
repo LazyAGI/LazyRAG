@@ -12,8 +12,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/lazyrag/scan_control_plane/internal/model"
-	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
+	"github.com/lazymind/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/sourcelayout"
 )
 
 func newTestStore(t *testing.T) *Store {

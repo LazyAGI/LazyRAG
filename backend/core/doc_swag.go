@@ -4,7 +4,7 @@ package main
 // Swagger text（swag init text）
 // @title           Backend Core API
 // @version         0.1.0
-// @description     LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。
+// @description     LazyMind Go backend core API - proxies to algorithm services. text Kong text /api/core。
 // @BasePath        /api/core
 // @schemes         http https
 func _swagGeneral() {}

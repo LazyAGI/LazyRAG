@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"lazyrag/core/chat"
-	"lazyrag/core/doc"
-	"lazyrag/core/modelprovider"
-	"lazyrag/core/wordgroup"
+	"lazymind/core/chat"
+	"lazymind/core/doc"
+	"lazymind/core/modelprovider"
+	"lazymind/core/wordgroup"
 )
 
 type schemaSource struct {
@@ -1544,7 +1544,7 @@ func registeredCoreOperations() []openAPIOperation {
 			Method:      "POST",
 			Path:        "/model_providers/{model_provider_id}/groups/{group_id}:check",
 			Summary:     "Check model provider connectivity",
-			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYRAG_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.",
+			Description: "Validates credentials by proxying to the algorithm POST /api/model/check (LAZYMIND_ALGO_SERVICE_URL). Maps provider_name→source, base_url→url, api_key→api_key. The current user identity is injected by the auth gateway from the token. Response data is the algorithm JSON payload.",
 			Tags:        []string{"model_providers"},
 			RequestBody: jsonBodyOf(checkModelProviderOpenAPIRequest{}, true),
 			Responses:   map[int]openAPIResponse{200: resp("data: success and message from algorithm /api/model/check", modelprovider.CheckModelProviderData{})},

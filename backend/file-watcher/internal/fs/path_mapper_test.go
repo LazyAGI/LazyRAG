@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lazyrag/file_watcher/internal/config"
+	"github.com/lazymind/file_watcher/internal/config"
 )
 
 func TestPathMapperIdentity(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/store"
+	"lazymind/core/common/orm"
+	"lazymind/core/store"
 )
 
 type personalizationSettingAPITestResponse struct {

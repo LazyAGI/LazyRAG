@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/provider"
 	"go.uber.org/zap"
 )
 

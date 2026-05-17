@@ -173,7 +173,7 @@ def _allowlist_violation_context(paths: list[str]) -> str:
 
 def _sanitize_path_text(text: str, chat_source: Path) -> str:
     base = str(chat_source.resolve()).rstrip('/')
-    return text.replace(base + '/', '').replace('/var/lib/lazyrag/chat-source/', '')
+    return text.replace(base + '/', '').replace('/var/lib/lazymind/chat-source/', '')
 
 
 def _build_modification_plan(actions: list[dict], chat_source: Path) -> list[dict]:

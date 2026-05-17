@@ -3,7 +3,7 @@
 # and leaves them unsubstituted ("base name (${...}) should not be blank").
 ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
 ARG BASE_LAZYLLM_IMAGE=base
-ARG BASE_LAZYRAG_IMAGE=base_lazyrag
+ARG BASE_LAZYMIND_IMAGE=base_lazymind
 
 # Stage: base - lazyllm[rag] only. Rebuilt only when upgrading lazyllm version.
 FROM ${DOCKER_MIRROR}python:3.11-slim AS base
@@ -59,45 +59,44 @@ RUN set -eu; \
     chmod 0755 /usr/local/bin/lazyllm
 
 
-# Stage: base_lazyrag - base.
-FROM ${BASE_LAZYLLM_IMAGE} AS base_lazyrag
-ARG LAZYRAG_GIT_SHA=unknown
+# Stage: base_lazymind - base.
+FROM ${BASE_LAZYLLM_IMAGE} AS base_lazymind
+ARG LAZYMIND_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
-LABEL org.opencontainers.image.title="LazyRAG algorithm/chat"
-LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
-LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
-LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
+LABEL org.opencontainers.image.title="LazyMind algorithm/chat"
+LABEL org.opencontainers.image.revision="${LAZYMIND_GIT_SHA}"
+LABEL io.lazymind.lazymind_git_sha="${LAZYMIND_GIT_SHA}"
+LABEL io.lazymind.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 RUN cd /opt/lazyllm && lazyllm install rag
 
 
 # Stage: algorithm - base + requirements.txt + code. Rebuilt when requirements.txt or code changes.
-FROM ${BASE_LAZYRAG_IMAGE} AS algorithm
-ARG LAZYRAG_PRELOAD_WHISPER_MODEL=0
-ARG LAZYRAG_WHISPER_MODEL=base
+FROM ${BASE_LAZYMIND_IMAGE} AS algorithm
+ARG LAZYMIND_PRELOAD_WHISPER_MODEL=0
+ARG LAZYMIND_WHISPER_MODEL=base
 
 COPY algorithm/requirements.txt /app/algorithm/requirements.txt
 RUN pip install --no-cache-dir -r algorithm/requirements.txt
 
-RUN if [ "$LAZYRAG_PRELOAD_WHISPER_MODEL" = "1" ]; then \
-        python -c "import whisper; whisper.load_model('${LAZYRAG_WHISPER_MODEL}')"; \
+RUN if [ "$LAZYMIND_PRELOAD_WHISPER_MODEL" = "1" ]; then \
+        python -c "import whisper; whisper.load_model('${LAZYMIND_WHISPER_MODEL}')"; \
     fi
 COPY algorithm/ /app/algorithm/
 RUN chmod +x /app/algorithm/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
-  LAZYRAG_DOCUMENT_SERVER_URL=http://parsing:8000 \
-  LAZYRAG_SHARED_UPLOAD_DIR=/var/lib/lazyrag/uploads \
-  LAZYLLM_MOUNT_DIR=/var/lib/lazyrag/uploads \
-  LAZYRAG_MAX_CONCURRENCY=10 \
-  LAZYRAG_LLM_PRIORITY=0 \
-  LAZYRAG_DEFAULT_CHAT_DATASET=algo \
-  LAZYRAG_CORE_API_URL=http://core:8000 \
-  LAZYRAG_MAX_RETRIES=20 \
-  LAZYRAG_REVIEW_MAX_RETRIES=5 \
-  LAZYRAG_MEMORY_REVIEW_INTERVAL=1 \
-  LAZYRAG_SKILL_REVIEW_INTERVAL=5 \
-  LAZYRAG_SKILL_REVIEW_DEBUG=false \
-  LAZYRAG_USE_INNER_MODEL=true \
-  LAZYRAG_MODEL_CONFIG_PATH=dynamic
+  LAZYMIND_DOCUMENT_SERVER_URL=http://parsing:8000 \
+  LAZYMIND_SHARED_UPLOAD_DIR=/var/lib/lazymind/uploads \
+  LAZYMIND_MAX_CONCURRENCY=10 \
+  LAZYMIND_LLM_PRIORITY=0 \
+  LAZYMIND_DEFAULT_CHAT_DATASET=algo \
+  LAZYMIND_CORE_API_URL=http://core:8000 \
+  LAZYMIND_MAX_RETRIES=20 \
+  LAZYMIND_REVIEW_MAX_RETRIES=5 \
+  LAZYMIND_MEMORY_REVIEW_INTERVAL=1 \
+  LAZYMIND_SKILL_REVIEW_INTERVAL=5 \
+  LAZYMIND_SKILL_REVIEW_DEBUG=false \
+  LAZYMIND_USE_INNER_MODEL=true \
+  LAZYMIND_MODEL_CONFIG_PATH=dynamic
 WORKDIR /app/algorithm
 ENTRYPOINT ["/app/algorithm/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
@@ -121,11 +120,11 @@ ARG OPENCODE_VERSION=1.14.28
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    LAZYRAG_EVO_CODE_BINARY=/usr/local/bin/opencode \
-    LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
-    LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
-    LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
-    LAZYRAG_MODEL_CONFIG_PATH=dynamic \
+    LAZYMIND_EVO_CODE_BINARY=/usr/local/bin/opencode \
+    LAZYMIND_EVO_CODE_DATA_DIR=/var/lib/lazymind/evo/opencode \
+    LAZYMIND_EVO_BASE_DIR=/var/lib/lazymind/evo \
+    LAZYMIND_EVO_CHAT_SOURCE=/var/lib/lazymind/chat-source \
+    LAZYMIND_MODEL_CONFIG_PATH=dynamic \
     PYTHONPATH=/opt/lazyllm:/app/algorithm
   
 RUN set -eu; \
@@ -172,12 +171,12 @@ ENTRYPOINT ["/app/evo/service/entrypoint.sh"]
 
 # Stage: mineru - base + requirements.txt + configurable mineru extra + code.
 FROM base AS mineru
-ARG LAZYRAG_GIT_SHA=unknown
+ARG LAZYMIND_GIT_SHA=unknown
 ARG LAZYLLM_GIT_SHA=unknown
-LABEL org.opencontainers.image.title="LazyRAG algorithm/mineru"
-LABEL org.opencontainers.image.revision="${LAZYRAG_GIT_SHA}"
-LABEL io.lazyrag.lazyrag_git_sha="${LAZYRAG_GIT_SHA}"
-LABEL io.lazyrag.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
+LABEL org.opencontainers.image.title="LazyMind algorithm/mineru"
+LABEL org.opencontainers.image.revision="${LAZYMIND_GIT_SHA}"
+LABEL io.lazymind.lazymind_git_sha="${LAZYMIND_GIT_SHA}"
+LABEL io.lazymind.lazyllm_git_sha="${LAZYLLM_GIT_SHA}"
 ARG MINERU_VERSION=2.7.1
 ARG MINERU_PACKAGE_VARIANT=pipeline
 ARG MINERU_PREINSTALL_CPU_TORCH=1

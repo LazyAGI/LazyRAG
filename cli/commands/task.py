@@ -16,7 +16,7 @@ def _call_task_action(
 ):
     """Post to /tasks/{task}:<action>.
 
-    Both IDs are user-controlled (dataset via `lazyrag use` / --dataset,
+    Both IDs are user-controlled (dataset via `lazymind use` / --dataset,
     task via CLI argument), so they go through ``quote(..., safe='')``
     before interpolation to prevent path injection or accidental 404s on
     IDs containing ``/``, ``#``, or spaces.

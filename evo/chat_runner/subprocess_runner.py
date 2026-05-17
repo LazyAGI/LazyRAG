@@ -37,7 +37,7 @@ class SubprocessChatRunner:
         self, *, source_dir: Path, label: str, env: dict | None = None, owner_thread_id: str | None = None
     ) -> ChatInstance:
         child_env = {**os.environ, **(env or {})}
-        cwd = Path(child_env.pop('LAZYRAG_EVO_CANDIDATE_CWD', source_dir))
+        cwd = Path(child_env.pop('LAZYMIND_EVO_CANDIDATE_CWD', source_dir))
         if cwd.resolve() == Path(source_dir).resolve():
             _ensure_chat_import_alias(Path(source_dir))
         port = _free_port()

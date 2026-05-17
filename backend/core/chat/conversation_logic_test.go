@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"lazyrag/core/evolution"
+	"lazymind/core/evolution"
 )
 
 func TestBuildChatRequestBodyUsesConversationIDDerivedSessionID(t *testing.T) {
@@ -169,8 +169,8 @@ func TestBuildChatRequestBodyMergesInputURIsIntoFiles(t *testing.T) {
 	body := buildChatRequestBody("conv-1", "sid", "what animal", nil, map[string]any{
 		"input": []any{
 			map[string]any{"input_type": "text", "text": "hello"},
-			map[string]any{"input_type": "image", "uri": "/var/lib/lazyrag/uploads/tmp/u1/a.png"},
-			map[string]any{"input_type": "file", "uri": "/var/lib/lazyrag/uploads/tmp/u1/b.pdf"},
+			map[string]any{"input_type": "image", "uri": "/var/lib/lazymind/uploads/tmp/u1/a.png"},
+			map[string]any{"input_type": "file", "uri": "/var/lib/lazymind/uploads/tmp/u1/b.pdf"},
 		},
 	}, nil, "")
 
@@ -178,7 +178,7 @@ func TestBuildChatRequestBodyMergesInputURIsIntoFiles(t *testing.T) {
 	if !ok || len(files) != 2 {
 		t.Fatalf("expected 2 file paths from input, got %#v", body["files"])
 	}
-	if files[0] != "/var/lib/lazyrag/uploads/tmp/u1/a.png" || files[1] != "/var/lib/lazyrag/uploads/tmp/u1/b.pdf" {
+	if files[0] != "/var/lib/lazymind/uploads/tmp/u1/a.png" || files[1] != "/var/lib/lazymind/uploads/tmp/u1/b.pdf" {
 		t.Fatalf("unexpected files order/content: %#v", files)
 	}
 }

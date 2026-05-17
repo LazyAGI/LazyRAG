@@ -145,7 +145,7 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
           sessId ?? sessionId ?? currentConversationIdRef.current ?? "";
         if (preference === "prefer_first") {
           setModelSelection(sid, "value_engineering");
-          message.success("后续回答将为 LazyRAG 大模型");
+          message.success("后续回答将为 LazyMind 大模型");
         } else if (preference === "prefer_second") {
           setModelSelection(sid, "deepseek");
           message.success("后续回答将为DeepSeek");
