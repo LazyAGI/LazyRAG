@@ -101,6 +101,9 @@ func TestUpsertCreatesThenUpdatesPreference(t *testing.T) {
 	if created.Version != 1 {
 		t.Fatalf("expected created version 1, got %d", created.Version)
 	}
+	if !created.AutoEvo {
+		t.Fatalf("expected created auto_evo to default true")
+	}
 
 	secondReq := httptest.NewRequest(http.MethodPut, "/api/core/user-preference", strings.NewReader(`{"content":"第二版偏好内容"}`))
 	secondReq.Header.Set("Content-Type", "application/json")
@@ -126,6 +129,59 @@ func TestUpsertCreatesThenUpdatesPreference(t *testing.T) {
 	}
 	if updated.Version != 2 {
 		t.Fatalf("expected updated version 2, got %d", updated.Version)
+	}
+}
+
+func TestUpsertPreservesPreferenceAutoEvoWhenOmitted(t *testing.T) {
+	db := newPreferenceTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	createReq := httptest.NewRequest(http.MethodPut, "/api/core/user-preference", strings.NewReader(`{"content":"第一版偏好内容","auto_evo":false}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-User-Id", "u1")
+	createReq.Header.Set("X-User-Name", "User 1")
+	createRec := httptest.NewRecorder()
+
+	Upsert(createRec, createReq)
+
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", createRec.Code, createRec.Body.String())
+	}
+	var created orm.SystemUserPreference
+	if err := db.Where("user_id = ?", "u1").Take(&created).Error; err != nil {
+		t.Fatalf("query created preference: %v", err)
+	}
+	if created.AutoEvo {
+		t.Fatalf("expected explicit auto_evo=false to be persisted on create")
+	}
+	if created.AutoEvoGeneration != 0 {
+		t.Fatalf("expected create to keep auto_evo_generation 0, got %d", created.AutoEvoGeneration)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/core/user-preference", strings.NewReader(`{"content":"第二版偏好内容"}`))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.Header.Set("X-User-Id", "u1")
+	updateReq.Header.Set("X-User-Name", "User 1")
+	updateRec := httptest.NewRecorder()
+
+	Upsert(updateRec, updateReq)
+
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+	var updated orm.SystemUserPreference
+	if err := db.Where("user_id = ?", "u1").Take(&updated).Error; err != nil {
+		t.Fatalf("query updated preference: %v", err)
+	}
+	if updated.AutoEvo {
+		t.Fatalf("expected omitted auto_evo to preserve false")
+	}
+	if updated.AutoEvoGeneration != created.AutoEvoGeneration {
+		t.Fatalf("expected omitted auto_evo to preserve generation %d, got %d", created.AutoEvoGeneration, updated.AutoEvoGeneration)
+	}
+	if updated.Content != "第二版偏好内容" {
+		t.Fatalf("unexpected updated content: %q", updated.Content)
 	}
 }
 

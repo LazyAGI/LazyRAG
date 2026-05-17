@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/lazyrag/scan_control_plane/internal/model"
 	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
@@ -36,6 +38,7 @@ func createTestSource(t *testing.T, st *Store) model.Source {
 		AgentID:           "agent-1",
 		WatchEnabled:      true,
 		IdleWindowSeconds: 10,
+		ReconcileSeconds:  10,
 	})
 	if err != nil {
 		t.Fatalf("create source failed: %v", err)
@@ -84,6 +87,18 @@ func TestBatchApplyDocumentMutationsLatestWins(t *testing.T) {
 	}
 	if !doc.LastModifiedAt.Equal(newer) {
 		t.Fatalf("expected last_modified_at=%v, got %v", newer, doc.LastModifiedAt)
+	}
+	var state sourceDocumentStateEntity
+	if err := st.db.WithContext(context.Background()).
+		Where("source_id = ? AND path = ?", src.ID, "/tmp/watch/a.txt").
+		Take(&state).Error; err != nil {
+		t.Fatalf("load source document state failed: %v", err)
+	}
+	if !state.LastDetectedAt.Equal(newer) {
+		t.Fatalf("expected source state last_detected_at=%v, got %v", newer, state.LastDetectedAt)
+	}
+	if got, want := state.SourceVersion, "v_"+newer.Format(time.RFC3339Nano); got != want {
+		t.Fatalf("expected source_version=%s, got %s", want, got)
 	}
 }
 
@@ -494,6 +509,118 @@ func TestScheduleDueParsesMergesSinglePendingTask(t *testing.T) {
 	}
 }
 
+func TestAutomaticWatchUpsertsWaitForReconcileSchedule(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "scheduled-watch-upsert",
+		RootPath:          "/tmp/scheduled-watch-upsert",
+		AgentID:           "agent-1",
+		WatchEnabled:      true,
+		IdleWindowSeconds: 10,
+		ReconcileSeconds:  3600,
+	})
+	if err != nil {
+		t.Fatalf("create scheduled watch source failed: %v", err)
+	}
+
+	baseAt := time.Now().UTC().Add(-2 * time.Minute)
+	newPath := "/tmp/scheduled-watch-upsert/new-later.txt"
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "created", Path: newPath, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build create mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply create mutation failed: %v", err)
+	}
+	newDoc := loadDocumentByPath(t, st, src, newPath)
+	if newDoc.NextParseAt == nil {
+		t.Fatalf("expected new document next_parse_at to be set")
+	}
+	expectedNext := newDoc.NextParseAt.UTC()
+	if !expectedNext.After(baseAt) {
+		t.Fatalf("expected new document next_parse_at after create event time %v, got %v", baseAt, expectedNext)
+	}
+
+	created, err := st.ScheduleDueParses(ctx, baseAt.Add(30*time.Second))
+	if err != nil {
+		t.Fatalf("schedule before reconcile failed: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("expected no create task before reconcile schedule, got %d", created)
+	}
+	if tasks := loadTasksByDocumentID(t, st, newDoc.ID); len(tasks) != 0 {
+		t.Fatalf("expected no tasks before reconcile schedule, got %+v", tasks)
+	}
+
+	created, err = st.ScheduleDueParses(ctx, expectedNext.Add(time.Second))
+	if err != nil {
+		t.Fatalf("schedule create at reconcile failed: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("expected one create task at reconcile schedule, got %d", created)
+	}
+	tasks := loadTasksByDocumentID(t, st, newDoc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one create task, got %d", len(tasks))
+	}
+	if normalizeTaskAction(tasks[0].TaskAction) != taskActionCreate {
+		t.Fatalf("expected create task action, got %s", tasks[0].TaskAction)
+	}
+
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, newDoc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark create task succeeded failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", newDoc.ID).
+		Update("core_document_id", "core-doc-scheduled-watch-upsert").Error; err != nil {
+		t.Fatalf("seed core document id after create failed: %v", err)
+	}
+	modifiedAt := expectedNext.Add(2 * time.Minute)
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: newPath, OccurredAt: modifiedAt},
+	})
+	if err != nil {
+		t.Fatalf("build modify mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply modify mutation failed: %v", err)
+	}
+	modifiedDoc := loadDocumentByPath(t, st, src, newPath)
+	if modifiedDoc.NextParseAt == nil {
+		t.Fatalf("expected modified document next_parse_at to be set")
+	}
+	expectedModifiedNext := modifiedDoc.NextParseAt.UTC()
+	if !expectedModifiedNext.After(modifiedAt) {
+		t.Fatalf("expected modified document next_parse_at after modify event time %v, got %v", modifiedAt, expectedModifiedNext)
+	}
+	created, err = st.ScheduleDueParses(ctx, modifiedAt.Add(30*time.Second))
+	if err != nil {
+		t.Fatalf("schedule before modify reconcile failed: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("expected no reparse task before reconcile schedule, got %d", created)
+	}
+	created, err = st.ScheduleDueParses(ctx, expectedModifiedNext.Add(time.Second))
+	if err != nil {
+		t.Fatalf("schedule modify at reconcile failed: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("expected one reparse task at reconcile schedule, got %d", created)
+	}
+	tasks = loadTasksByDocumentID(t, st, newDoc.ID)
+	if len(tasks) != 2 {
+		t.Fatalf("expected create and reparse task history, got %d", len(tasks))
+	}
+	if normalizeTaskAction(tasks[1].TaskAction) != taskActionReparse {
+		t.Fatalf("expected reparse task action, got %s", tasks[1].TaskAction)
+	}
+}
+
 func TestClaimDueTasksIncludesSourceCreator(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -550,7 +677,115 @@ func TestClaimDueTasksIncludesSourceCreator(t *testing.T) {
 	}
 }
 
-func TestCreateSourceReusesSameRootPath(t *testing.T) {
+func TestValidateTaskSubmissionRejectsStaleVersionAfterStaging(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	path := "/tmp/watch/stale-version.txt"
+	baseAt := time.Now().UTC().Add(-30 * time.Second)
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build first mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply first mutation failed: %v", err)
+	}
+	if created, err := st.ScheduleDueParses(ctx, baseAt.Add(20*time.Second)); err != nil {
+		t.Fatalf("schedule first task failed: %v", err)
+	} else if created != 1 {
+		t.Fatalf("expected one task, got %d", created)
+	}
+	claimed, err := st.ClaimDueTasks(ctx, "worker-1", baseAt.Add(20*time.Second), 1, time.Minute)
+	if err != nil {
+		t.Fatalf("claim first task failed: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("expected one claimed task, got %d", len(claimed))
+	}
+	if err := st.MarkTaskStaging(ctx, claimed[0].TaskID); err != nil {
+		t.Fatalf("mark staging failed: %v", err)
+	}
+
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: baseAt.Add(5 * time.Second)},
+	})
+	if err != nil {
+		t.Fatalf("build newer mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply newer mutation failed: %v", err)
+	}
+	validation, err := st.ValidateTaskSubmission(ctx, claimed[0].TaskID)
+	if err != nil {
+		t.Fatalf("validate stale task failed: %v", err)
+	}
+	if validation.Valid {
+		t.Fatalf("expected stale staged task to be rejected")
+	}
+	if !strings.Contains(validation.Reason, "target_version_id") {
+		t.Fatalf("expected stale version reason, got %q", validation.Reason)
+	}
+}
+
+func TestValidateTaskSubmissionRejectsStaleActionAfterDelete(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	path := "/tmp/watch/stale-action.txt"
+	baseAt := time.Now().UTC().Add(-30 * time.Second)
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build create mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply create mutation failed: %v", err)
+	}
+	if created, err := st.ScheduleDueParses(ctx, baseAt.Add(20*time.Second)); err != nil {
+		t.Fatalf("schedule create task failed: %v", err)
+	} else if created != 1 {
+		t.Fatalf("expected one task, got %d", created)
+	}
+	claimed, err := st.ClaimDueTasks(ctx, "worker-1", baseAt.Add(20*time.Second), 1, time.Minute)
+	if err != nil {
+		t.Fatalf("claim create task failed: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("expected one claimed task, got %d", len(claimed))
+	}
+	if err := st.MarkTaskStaging(ctx, claimed[0].TaskID); err != nil {
+		t.Fatalf("mark staging failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"parse_status":     "DELETED",
+			"core_document_id": "core-doc-stale-action",
+		}).Error; err != nil {
+		t.Fatalf("seed deleted document state failed: %v", err)
+	}
+
+	validation, err := st.ValidateTaskSubmission(ctx, claimed[0].TaskID)
+	if err != nil {
+		t.Fatalf("validate stale action task failed: %v", err)
+	}
+	if validation.Valid {
+		t.Fatalf("expected stale action task to be rejected")
+	}
+	if !strings.Contains(validation.Reason, "task_action") {
+		t.Fatalf("expected stale action reason, got %q", validation.Reason)
+	}
+}
+
+func TestCreateSourceRejectsSameRootPath(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
 	ctx := context.Background()
@@ -566,14 +801,57 @@ func TestCreateSourceReusesSameRootPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first source failed: %v", err)
 	}
+	req.Name = "src-2"
+	if _, err := st.CreateSource(ctx, req); !errors.Is(err, ErrSourceAlreadyExists) {
+		t.Fatalf("expected ErrSourceAlreadyExists, got %v", err)
+	}
+	var count int64
+	if err := st.db.WithContext(ctx).Model(&sourceEntity{}).Count(&count).Error; err != nil {
+		t.Fatalf("count sources failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected only 1 source row, got %d", count)
+	}
+	var current sourceEntity
+	if err := st.db.WithContext(ctx).Take(&current, "id = ?", first.ID).Error; err != nil {
+		t.Fatalf("load first source failed: %v", err)
+	}
+	if current.Name != "src-1" {
+		t.Fatalf("expected original source to remain unchanged, got name %q", current.Name)
+	}
+	var cmdCount int64
+	if err := st.db.WithContext(ctx).Model(&agentCommandEntity{}).Count(&cmdCount).Error; err != nil {
+		t.Fatalf("count commands failed: %v", err)
+	}
+	if cmdCount != 0 {
+		t.Fatalf("expected no commands when duplicate create is rejected, got %d", cmdCount)
+	}
+}
+
+func TestEnsureSourceByRootPathReusesSameRootPath(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	req := model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-1",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	}
+	first, err := st.EnsureSourceByRootPath(ctx, req)
+	if err != nil {
+		t.Fatalf("ensure first source failed: %v", err)
+	}
 	oldCreatedAt := first.CreatedAt.Add(-time.Hour)
 	if err := st.db.WithContext(ctx).Model(&sourceEntity{}).Where("id = ?", first.ID).Update("created_at", oldCreatedAt).Error; err != nil {
 		t.Fatalf("backdate first source created_at failed: %v", err)
 	}
 	req.Name = "src-2"
-	second, err := st.CreateSource(ctx, req)
+	second, err := st.EnsureSourceByRootPath(ctx, req)
 	if err != nil {
-		t.Fatalf("create second source failed: %v", err)
+		t.Fatalf("ensure second source failed: %v", err)
 	}
 	if first.ID != second.ID {
 		t.Fatalf("expected same source id, got first=%s second=%s", first.ID, second.ID)
@@ -594,6 +872,46 @@ func TestCreateSourceReusesSameRootPath(t *testing.T) {
 	}
 	if cmdCount != 0 {
 		t.Fatalf("expected no commands when watch disabled, got %d", cmdCount)
+	}
+}
+
+func TestUpdateSourceRejectsDuplicateRootPath(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	first, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-1",
+		RootPath:          "/tmp/watch-a",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create first source failed: %v", err)
+	}
+	second, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-2",
+		RootPath:          "/tmp/watch-b",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create second source failed: %v", err)
+	}
+
+	if _, err := st.UpdateSource(ctx, second.ID, model.UpdateSourceRequest{RootPath: first.RootPath}); !errors.Is(err, ErrSourceAlreadyExists) {
+		t.Fatalf("expected ErrSourceAlreadyExists, got %v", err)
+	}
+	reloaded, err := st.GetSource(ctx, second.ID)
+	if err != nil {
+		t.Fatalf("reload second source failed: %v", err)
+	}
+	if reloaded.RootPath != second.RootPath {
+		t.Fatalf("expected second root path to remain %q, got %q", second.RootPath, reloaded.RootPath)
 	}
 }
 
@@ -906,6 +1224,482 @@ func findTreeNodeByPath(items []model.TreeNode, path string) (model.TreeNode, bo
 	return model.TreeNode{}, false
 }
 
+func countTreeNodesByPath(items []model.TreeNode, path string) int {
+	count := 0
+	for _, item := range items {
+		if item.Key == path {
+			count++
+		}
+		if len(item.Children) > 0 {
+			count += countTreeNodesByPath(item.Children, path)
+		}
+	}
+	return count
+}
+
+type sourceStateMatrixKind string
+
+const (
+	sourceStateMatrixLocal sourceStateMatrixKind = "local"
+	sourceStateMatrixDrive sourceStateMatrixKind = "drive"
+	sourceStateMatrixWiki  sourceStateMatrixKind = "wiki"
+)
+
+type sourceStateMatrixChange string
+
+const (
+	sourceStateMatrixNew      sourceStateMatrixChange = "new"
+	sourceStateMatrixModified sourceStateMatrixChange = "modified"
+	sourceStateMatrixDeleted  sourceStateMatrixChange = "deleted"
+)
+
+type sourceStateMatrixSync string
+
+const (
+	sourceStateMatrixManual    sourceStateMatrixSync = "manual"
+	sourceStateMatrixAutomatic sourceStateMatrixSync = "automatic"
+)
+
+type sourceStateMatrixCase struct {
+	kind       sourceStateMatrixKind
+	change     sourceStateMatrixChange
+	sync       sourceStateMatrixSync
+	sourceRoot string
+	objectPath string
+	displayKey string
+	title      string
+	originRef  string
+}
+
+func TestSourceDocumentStateMatrix(t *testing.T) {
+	cases := make([]sourceStateMatrixCase, 0, 18)
+	for _, kind := range []sourceStateMatrixKind{sourceStateMatrixLocal, sourceStateMatrixDrive, sourceStateMatrixWiki} {
+		for _, change := range []sourceStateMatrixChange{sourceStateMatrixNew, sourceStateMatrixModified, sourceStateMatrixDeleted} {
+			for _, syncMode := range []sourceStateMatrixSync{sourceStateMatrixManual, sourceStateMatrixAutomatic} {
+				cases = append(cases, newSourceStateMatrixCase(kind, change, syncMode))
+			}
+		}
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(string(tc.kind)+"/"+string(tc.change)+"/"+string(tc.sync), func(t *testing.T) {
+			t.Parallel()
+			st := newTestStore(t)
+			ctx := context.Background()
+			src := createSourceStateMatrixSource(t, st, tc)
+			seedSourceStateMatrixBaseline(t, st, src, tc)
+
+			observedAt := time.Now().UTC().Add(-5 * time.Minute)
+			tree, token := observeSourceStateMatrixChange(t, st, src, tc, observedAt)
+			node, ok := findTreeNodeByPath(tree, tc.displayKey)
+			if !ok {
+				t.Fatalf("missing observed tree node %s in %+v", tc.displayKey, tree)
+			}
+			expectedUpdate := sourceStateMatrixExpectedUpdate(tc.change)
+			if node.UpdateType != expectedUpdate {
+				t.Fatalf("expected tree update_type=%s, got %s", expectedUpdate, node.UpdateType)
+			}
+			if node.SourceState != expectedUpdate {
+				t.Fatalf("expected source_state=%s, got %s", expectedUpdate, node.SourceState)
+			}
+			expectedSyncState := syncStatePending
+			if tc.sync == sourceStateMatrixAutomatic {
+				expectedSyncState = syncStateScheduled
+			}
+			if node.SyncState != expectedSyncState {
+				t.Fatalf("expected sync_state=%s before sync, got %s", expectedSyncState, node.SyncState)
+			}
+
+			resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+				TenantID: src.TenantID,
+				Page:     1,
+				PageSize: 20,
+			})
+			if err != nil {
+				t.Fatalf("list source documents before sync failed: %v", err)
+			}
+			listItem, ok := sourceStateMatrixFindDocumentItem(resp.Items, tc.objectPath)
+			if !ok {
+				t.Fatalf("missing document list item for %s in %+v", tc.objectPath, resp.Items)
+			}
+			if listItem.UpdateType != expectedUpdate || listItem.SourceState != expectedUpdate || listItem.SyncState != expectedSyncState {
+				t.Fatalf("expected list state update=%s source=%s sync=%s, got item=%+v", expectedUpdate, expectedUpdate, expectedSyncState, listItem)
+			}
+
+			if tc.sync == sourceStateMatrixAutomatic {
+				assertSourceStateMatrixAutomaticWaits(t, st, src, tc)
+			}
+
+			tasks := triggerSourceStateMatrixSync(t, st, src, tc, token)
+			if len(tasks) != 1 {
+				t.Fatalf("expected one task, got %d", len(tasks))
+			}
+			expectedAction := sourceStateMatrixExpectedTaskAction(tc.change)
+			if normalizeTaskAction(tasks[0].TaskAction) != expectedAction {
+				t.Fatalf("expected task_action=%s, got %s", expectedAction, tasks[0].TaskAction)
+			}
+			doc := loadDocumentByPath(t, st, src, tc.objectPath)
+			if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+				t.Fatalf("mark task succeeded failed: %v", err)
+			}
+			assertSourceStateMatrixClearedAfterSuccess(t, st, src, tc)
+		})
+	}
+}
+
+func newSourceStateMatrixCase(kind sourceStateMatrixKind, change sourceStateMatrixChange, syncMode sourceStateMatrixSync) sourceStateMatrixCase {
+	root := "/tmp/source-state-matrix/" + string(kind) + "/" + string(change) + "/" + string(syncMode)
+	tc := sourceStateMatrixCase{
+		kind:       kind,
+		change:     change,
+		sync:       syncMode,
+		sourceRoot: root,
+		objectPath: filepath.Join(root, "doc.md"),
+		displayKey: filepath.Join(root, "doc.md"),
+		title:      "doc.md",
+	}
+	switch kind {
+	case sourceStateMatrixDrive:
+		mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(root))
+		tc.objectPath = filepath.Join(mirrorRoot, "drive-doc.md")
+		tc.displayKey = tc.objectPath
+		tc.title = "drive-doc.md"
+		tc.originRef = "drive_" + string(change) + "_" + string(syncMode)
+	case sourceStateMatrixWiki:
+		mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(root))
+		tc.displayKey = filepath.Join(mirrorRoot, "wiki-page")
+		tc.objectPath = filepath.Join(tc.displayKey, "wiki-page.md")
+		tc.title = "wiki-page"
+		tc.originRef = "wiki_" + string(change) + "_" + string(syncMode)
+	}
+	return tc
+}
+
+func createSourceStateMatrixSource(t *testing.T, st *Store, tc sourceStateMatrixCase) model.Source {
+	t.Helper()
+	req := model.CreateSourceRequest{
+		TenantID:          "tenant-matrix",
+		Name:              "matrix-" + string(tc.kind) + "-" + string(tc.change) + "-" + string(tc.sync),
+		RootPath:          tc.sourceRoot,
+		AgentID:           "agent-" + string(tc.kind) + "-" + string(tc.change) + "-" + string(tc.sync),
+		WatchEnabled:      tc.sync == sourceStateMatrixAutomatic,
+		IdleWindowSeconds: 10,
+		ReconcileSeconds:  3600,
+	}
+	if tc.sync == sourceStateMatrixAutomatic {
+		req.ReconcileSchedule = "daily@02:00:03"
+	}
+	if tc.kind != sourceStateMatrixLocal {
+		req.DefaultOriginType = string(model.OriginTypeCloudSync)
+		req.DefaultOriginPlatform = "FEISHU"
+	}
+	src, err := st.CreateSource(context.Background(), req)
+	if err != nil {
+		t.Fatalf("create matrix source failed: %v", err)
+	}
+	if tc.kind != sourceStateMatrixLocal {
+		scheduleExpr := "manual"
+		if tc.sync == sourceStateMatrixAutomatic {
+			scheduleExpr = "daily@02:00:03"
+		}
+		if _, err := st.UpsertCloudSourceBinding(context.Background(), src.ID, model.UpsertCloudSourceBindingRequest{
+			Provider:         "feishu",
+			Enabled:          boolPtr(true),
+			AuthConnectionID: "conn-" + string(tc.kind) + "-" + string(tc.change) + "-" + string(tc.sync),
+			TargetType:       string(tc.kind),
+			TargetRef:        tc.originRef,
+			ScheduleExpr:     scheduleExpr,
+			ScheduleTZ:       defaultScheduleTZ,
+		}); err != nil {
+			t.Fatalf("create matrix cloud binding failed: %v", err)
+		}
+	}
+	return src
+}
+
+func seedSourceStateMatrixBaseline(t *testing.T, st *Store, src model.Source, tc sourceStateMatrixCase) {
+	t.Helper()
+	if tc.kind != sourceStateMatrixLocal {
+		seedSourceStateMatrixCloudObject(t, st, src, tc, false)
+	}
+	if tc.change == sourceStateMatrixNew {
+		return
+	}
+	now := time.Now().UTC().Add(-10 * time.Minute)
+	doc := documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   tc.objectPath,
+		DesiredVersionID: "v_base",
+		CurrentVersionID: "v_base",
+		ParseStatus:      "SUCCEEDED",
+		CoreDocumentID:   "core-" + string(tc.kind) + "-" + string(tc.change) + "-" + string(tc.sync),
+		OriginType:       firstNonEmpty(src.DefaultOriginType, string(model.OriginTypeLocalFS)),
+		OriginPlatform:   firstNonEmpty(src.DefaultOriginPlatform, "LOCAL"),
+		OriginRef:        tc.originRef,
+		UpdatedAt:        now,
+	}
+	modAt := now.UTC()
+	doc.LastModifiedAt = &modAt
+	if err := st.db.WithContext(context.Background()).Create(&doc).Error; err != nil {
+		t.Fatalf("seed matrix document failed: %v", err)
+	}
+	if err := st.db.WithContext(context.Background()).Create(&sourceDocumentStateEntity{
+		TenantID:          src.TenantID,
+		SourceID:          src.ID,
+		ObjectKey:         sourceObjectKey(tc.objectPath, tc.originRef),
+		Path:              tc.objectPath,
+		Name:              filepath.Base(tc.objectPath),
+		SourceExists:      true,
+		OriginType:        doc.OriginType,
+		OriginPlatform:    doc.OriginPlatform,
+		OriginRef:         tc.originRef,
+		SourceVersion:     "v_base",
+		BaselineVersion:   "v_base",
+		SourceState:       sourceStateUnchanged,
+		SyncState:         syncStateIdle,
+		PendingAction:     pendingActionNone,
+		DocumentID:        doc.ID,
+		CoreDocumentID:    doc.CoreDocumentID,
+		LastDetectedAt:    now,
+		LastSyncedAt:      &modAt,
+		KnowledgeBaseSeen: true,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("seed matrix source state failed: %v", err)
+	}
+}
+
+func seedSourceStateMatrixCloudObject(t *testing.T, st *Store, src model.Source, tc sourceStateMatrixCase, deleted bool) {
+	t.Helper()
+	now := time.Now().UTC()
+	kind := "file"
+	localRel := strings.TrimPrefix(tc.objectPath, filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))+string(filepath.Separator))
+	if tc.kind == sourceStateMatrixWiki {
+		kind = "docx"
+		localRel = filepath.Join(filepath.Base(tc.displayKey), filepath.Base(tc.objectPath))
+	}
+	row := cloudObjectIndexEntity{
+		SourceID:         src.ID,
+		Provider:         "feishu",
+		ExternalObjectID: tc.originRef,
+		ExternalName:     tc.title,
+		ExternalKind:     kind,
+		LocalRelPath:     localRel,
+		LocalAbsPath:     tc.objectPath,
+		IsDeleted:        deleted,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if tc.kind == sourceStateMatrixWiki {
+		row.ProviderMetaJSON = encodeJSON(map[string]any{"has_child": true})
+	}
+	if err := st.db.WithContext(context.Background()).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "source_id"}, {Name: "external_object_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"external_name":      row.ExternalName,
+			"external_kind":      row.ExternalKind,
+			"local_rel_path":     row.LocalRelPath,
+			"local_abs_path":     row.LocalAbsPath,
+			"is_deleted":         row.IsDeleted,
+			"provider_meta_json": row.ProviderMetaJSON,
+			"updated_at":         row.UpdatedAt,
+		}),
+	}).Create(&row).Error; err != nil {
+		t.Fatalf("seed matrix cloud object failed: %v", err)
+	}
+}
+
+func observeSourceStateMatrixChange(t *testing.T, st *Store, src model.Source, tc sourceStateMatrixCase, observedAt time.Time) ([]model.TreeNode, string) {
+	t.Helper()
+	eventType := "modified"
+	if tc.change == sourceStateMatrixDeleted {
+		eventType = "deleted"
+	}
+	events := []model.FileEvent{{
+		SourceID:       src.ID,
+		EventType:      eventType,
+		Path:           tc.objectPath,
+		OccurredAt:     observedAt,
+		OriginType:     firstNonEmpty(src.DefaultOriginType, string(model.OriginTypeLocalFS)),
+		OriginPlatform: firstNonEmpty(src.DefaultOriginPlatform, "LOCAL"),
+		OriginRef:      tc.originRef,
+	}}
+	mutations, err := st.BuildMutationsFromEvents(context.Background(), events)
+	if err != nil {
+		t.Fatalf("build matrix mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(context.Background(), mutations); err != nil {
+		t.Fatalf("apply matrix mutation failed: %v", err)
+	}
+	if tc.change == sourceStateMatrixDeleted {
+		if tc.kind != sourceStateMatrixLocal {
+			seedSourceStateMatrixCloudObject(t, st, src, tc, true)
+		}
+		tree, token, err := st.BuildTreeUpdateState(context.Background(), src.ID, nil, nil)
+		if err != nil {
+			t.Fatalf("observe matrix deleted state failed: %v", err)
+		}
+		return tree, token
+	}
+	if tc.kind != sourceStateMatrixLocal {
+		seedSourceStateMatrixCloudObject(t, st, src, tc, false)
+	}
+	size := int64(10)
+	checksum := "rev-new"
+	if tc.change == sourceStateMatrixModified {
+		size = 20
+		checksum = "rev-modified"
+	}
+	item := model.TreeNode{Title: tc.title, Key: tc.displayKey, IsDir: false}
+	stats := map[string]model.TreeFileStat{
+		tc.displayKey: {
+			Path:     tc.displayKey,
+			Size:     size,
+			ModTime:  &observedAt,
+			Checksum: checksum,
+		},
+	}
+	tree, token, err := st.BuildTreeUpdateState(context.Background(), src.ID, []model.TreeNode{item}, stats)
+	if err != nil {
+		t.Fatalf("observe matrix state failed: %v", err)
+	}
+	return tree, token
+}
+
+func sourceStateMatrixExpectedUpdate(change sourceStateMatrixChange) string {
+	switch change {
+	case sourceStateMatrixNew:
+		return "NEW"
+	case sourceStateMatrixModified:
+		return "MODIFIED"
+	case sourceStateMatrixDeleted:
+		return "DELETED"
+	default:
+		return "UNCHANGED"
+	}
+}
+
+func sourceStateMatrixExpectedTaskAction(change sourceStateMatrixChange) string {
+	if change == sourceStateMatrixDeleted {
+		return taskActionDelete
+	}
+	if change == sourceStateMatrixModified {
+		return taskActionReparse
+	}
+	return taskActionCreate
+}
+
+func sourceStateMatrixFindDocumentItem(items []model.SourceDocumentItem, path string) (model.SourceDocumentItem, bool) {
+	for _, item := range items {
+		if filepath.Clean(item.Path) == filepath.Clean(path) {
+			return item, true
+		}
+	}
+	return model.SourceDocumentItem{}, false
+}
+
+func assertSourceStateMatrixAutomaticWaits(t *testing.T, st *Store, src model.Source, tc sourceStateMatrixCase) {
+	t.Helper()
+	var state sourceDocumentStateEntity
+	if err := st.db.WithContext(context.Background()).Where("source_id = ? AND path = ?", src.ID, tc.objectPath).Take(&state).Error; err != nil {
+		t.Fatalf("load matrix source state failed: %v", err)
+	}
+	if state.NextSyncAt == nil {
+		t.Fatalf("expected automatic matrix state to have next_sync_at")
+	}
+	created, err := st.ScheduleDueParses(context.Background(), state.NextSyncAt.Add(-time.Second))
+	if err != nil {
+		t.Fatalf("schedule before matrix due failed: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("expected no task before due, got %d", created)
+	}
+	var count int64
+	if err := st.db.WithContext(context.Background()).Model(&parseTaskEntity{}).Count(&count).Error; err != nil {
+		t.Fatalf("count parse tasks failed: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no parse tasks before due, got %d", count)
+	}
+}
+
+func triggerSourceStateMatrixSync(t *testing.T, st *Store, src model.Source, tc sourceStateMatrixCase, token string) []parseTaskEntity {
+	t.Helper()
+	ctx := context.Background()
+	if tc.sync == sourceStateMatrixManual {
+		resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+			Mode:           "partial",
+			Paths:          []string{tc.displayKey},
+			SelectionToken: sourceStateMatrixSelectionToken(tc, token),
+			TriggerPolicy:  string(model.TriggerPolicyImmediate),
+			UpdatedOnly:    false,
+		})
+		if err != nil {
+			t.Fatalf("generate matrix task failed: %v", err)
+		}
+		if resp.AcceptedCount != 1 {
+			t.Fatalf("expected accepted_count=1, got %+v", resp)
+		}
+	} else {
+		var state sourceDocumentStateEntity
+		if err := st.db.WithContext(ctx).Where("source_id = ? AND path = ?", src.ID, tc.objectPath).Take(&state).Error; err != nil {
+			t.Fatalf("load matrix source state before due failed: %v", err)
+		}
+		created, err := st.ScheduleDueParses(ctx, state.NextSyncAt.Add(time.Second))
+		if err != nil {
+			t.Fatalf("schedule matrix due failed: %v", err)
+		}
+		if created != 1 {
+			t.Fatalf("expected created=1 at due, got %d", created)
+		}
+	}
+	doc := loadDocumentByPath(t, st, src, tc.objectPath)
+	return loadTasksByDocumentID(t, st, doc.ID)
+}
+
+func sourceStateMatrixSelectionToken(tc sourceStateMatrixCase, token string) string {
+	if tc.change == sourceStateMatrixDeleted {
+		return ""
+	}
+	return token
+}
+
+func assertSourceStateMatrixClearedAfterSuccess(t *testing.T, st *Store, src model.Source, tc sourceStateMatrixCase) {
+	t.Helper()
+	resp, err := st.ListSourceDocuments(context.Background(), src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list matrix documents after success failed: %v", err)
+	}
+	if tc.change == sourceStateMatrixDeleted {
+		if _, ok := sourceStateMatrixFindDocumentItem(resp.Items, tc.objectPath); ok {
+			t.Fatalf("expected deleted matrix item to be hidden after success, got %+v", resp.Items)
+		}
+		return
+	}
+	item, ok := sourceStateMatrixFindDocumentItem(resp.Items, tc.objectPath)
+	if !ok {
+		t.Fatalf("expected matrix item after success")
+	}
+	if item.UpdateType != "UNCHANGED" || item.SourceState != sourceStateUnchanged {
+		t.Fatalf("expected matrix item cleared after success, got %+v", item)
+	}
+}
+
+func hasTopLevelTreeNode(items []model.TreeNode, path string) bool {
+	for _, item := range items {
+		if item.Key == path {
+			return true
+		}
+	}
+	return false
+}
+
 func TestListParseTasksAndStats(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1037,6 +1831,25 @@ func TestDeleteSourceCascadesAndStopsWatcher(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("create manual pull job failed: %v", err)
 	}
+	if err := st.db.WithContext(ctx).Create(&sourceDocumentStateEntity{
+		TenantID:       src.TenantID,
+		SourceID:       src.ID,
+		ObjectKey:      "delete-source-state",
+		Path:           path,
+		Name:           "delete-source.txt",
+		SourceExists:   true,
+		OriginType:     string(model.OriginTypeLocalFS),
+		OriginPlatform: "LOCAL",
+		SourceVersion:  "c_delete_source_state",
+		SourceState:    sourceStateNew,
+		SyncState:      syncStateScheduled,
+		PendingAction:  pendingActionCreate,
+		LastDetectedAt: now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}).Error; err != nil {
+		t.Fatalf("create source document state failed: %v", err)
+	}
 
 	if err := st.DeleteSource(ctx, src.ID); err != nil {
 		t.Fatalf("delete source failed: %v", err)
@@ -1047,6 +1860,7 @@ func TestDeleteSourceCascadesAndStopsWatcher(t *testing.T) {
 
 	for name, target := range map[string]any{
 		"documents":                  &documentEntity{},
+		"source_document_states":     &sourceDocumentStateEntity{},
 		"parse_tasks":                &parseTaskEntity{},
 		"parse_task_dead_letters":    &parseTaskDeadLetterEntity{},
 		"source_file_snapshots":      &sourceFileSnapshotEntity{},
@@ -1168,6 +1982,265 @@ func TestRetryParseTaskRejectsNonSubmitFailed(t *testing.T) {
 	}
 	if _, err := st.RetryParseTask(ctx, taskID); err == nil {
 		t.Fatalf("expected retry to fail for FAILED status")
+	}
+}
+
+func TestDeleteCloudSourceCleansParsedDocumentsBeforeRecreate(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	rootPath := "/tmp/cloud/delete-recreate"
+	now := time.Now().UTC()
+
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud-delete",
+		Name:                  "cloud source",
+		RootPath:              rootPath,
+		AgentID:               "agent-cloud-delete",
+		DatasetID:             "dataset-old",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_delete_recreate",
+		TargetType:       "wiki",
+		TargetRef:        "space_old",
+		ScheduleExpr:     "manual",
+		ScheduleTZ:       "Asia/Shanghai",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	doc := documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   rootPath + "/mirror/wiki/old.md",
+		CoreDocumentID:   "core_old_doc",
+		CurrentVersionID: "rev-old",
+		DesiredVersionID: "rev-old",
+		LastModifiedAt:   &now,
+		ParseStatus:      "SUCCEEDED",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "node_old",
+		TriggerPolicy:    string(model.TriggerPolicyImmediate),
+		UpdatedAt:        now,
+	}
+	if err := st.db.WithContext(ctx).Create(&doc).Error; err != nil {
+		t.Fatalf("create parsed cloud document failed: %v", err)
+	}
+	task := parseTaskEntity{
+		TenantID:                src.TenantID,
+		DocumentID:              doc.ID,
+		TaskAction:              taskActionCreate,
+		TargetVersionID:         "rev-old",
+		OriginType:              string(model.OriginTypeCloudSync),
+		OriginPlatform:          "FEISHU",
+		TriggerPolicy:           string(model.TriggerPolicyImmediate),
+		Status:                  "SUCCEEDED",
+		CoreDatasetID:           src.DatasetID,
+		CoreDocumentID:          "core_old_doc",
+		CoreTaskID:              "core_task_old",
+		ScanOrchestrationStatus: "SUCCEEDED",
+		SubmitAt:                &now,
+		NextRunAt:               now,
+		StartedAt:               &now,
+		FinishedAt:              &now,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}
+	if err := st.db.WithContext(ctx).Create(&task).Error; err != nil {
+		t.Fatalf("create parse task failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&parseTaskDeadLetterEntity{
+		TaskID:          task.ID,
+		TenantID:        src.TenantID,
+		DocumentID:      doc.ID,
+		TargetVersionID: "rev-old",
+		RetryCount:      8,
+		OriginType:      string(model.OriginTypeCloudSync),
+		OriginPlatform:  "FEISHU",
+		TriggerPolicy:   string(model.TriggerPolicyImmediate),
+		LastError:       "old failure",
+		FailedAt:        now,
+		CreatedAt:       now,
+	}).Error; err != nil {
+		t.Fatalf("create dead letter failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceDocumentStateEntity{
+		TenantID:          src.TenantID,
+		SourceID:          src.ID,
+		ObjectKey:         "node_old",
+		Path:              doc.SourceObjectID,
+		Name:              "old.md",
+		SourceExists:      true,
+		OriginType:        string(model.OriginTypeCloudSync),
+		OriginPlatform:    "FEISHU",
+		OriginRef:         "node_old",
+		SourceVersion:     "rev-old",
+		BaselineVersion:   "rev-old",
+		SourceState:       sourceStateUnchanged,
+		SyncState:         syncStateIdle,
+		PendingAction:     pendingActionNone,
+		DocumentID:        doc.ID,
+		CoreDocumentID:    "core_old_doc",
+		ActiveTaskID:      task.ID,
+		LastDetectedAt:    now,
+		LastSyncedAt:      &now,
+		KnowledgeBaseSeen: true,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("create source document state failed: %v", err)
+	}
+	snapshotID := "snapshot_delete_recreate"
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   snapshotID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "committed",
+		FileCount:    1,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID:     snapshotID,
+		Path:           doc.SourceObjectID,
+		IsDir:          false,
+		SizeBytes:      32,
+		ModTime:        &now,
+		Checksum:       "rev-old",
+		ExternalFileID: "node_old",
+	}).Error; err != nil {
+		t.Fatalf("create snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: snapshotID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceBaselineSnapshotEntity{
+		SourceID:    src.ID,
+		SnapshotRef: "cloud://baseline/delete-recreate",
+		FileCount:   1,
+		TakenAt:     now,
+		Reason:      "DELETE_RECREATE_TEST",
+		UpdatedAt:   now,
+	}).Error; err != nil {
+		t.Fatalf("create baseline snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&reconcileSnapshotEntity{
+		SourceID:    src.ID,
+		SnapshotRef: "cloud://reconcile/delete-recreate",
+		FileCount:   1,
+		TakenAt:     now,
+		UpdatedAt:   now,
+	}).Error; err != nil {
+		t.Fatalf("create reconcile snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&manualPullJobEntity{
+		JobID:     "manual_delete_recreate",
+		TenantID:  src.TenantID,
+		SourceID:  src.ID,
+		Status:    "SUCCEEDED",
+		Mode:      "partial",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("create manual pull job failed: %v", err)
+	}
+	if _, err := st.TriggerCloudSync(ctx, src.ID, model.TriggerCloudSyncRequest{TriggerType: "manual"}); err != nil {
+		t.Fatalf("trigger cloud sync failed: %v", err)
+	}
+	if err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []CloudObjectIndexRecord{
+		{
+			ExternalObjectID: "node_old",
+			ExternalPath:     "/wiki/old.md",
+			ExternalName:     "old.md",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-old",
+			LocalAbsPath:     doc.SourceObjectID,
+			Checksum:         "rev-old",
+			SizeBytes:        32,
+		},
+	}, now); err != nil {
+		t.Fatalf("upsert cloud object index failed: %v", err)
+	}
+
+	if err := st.DeleteSource(ctx, src.ID); err != nil {
+		t.Fatalf("delete cloud source failed: %v", err)
+	}
+	for name, target := range map[string]any{
+		"documents":                  &documentEntity{},
+		"source_document_states":     &sourceDocumentStateEntity{},
+		"parse_tasks":                &parseTaskEntity{},
+		"parse_task_dead_letters":    &parseTaskDeadLetterEntity{},
+		"source_file_snapshots":      &sourceFileSnapshotEntity{},
+		"source_file_snapshot_items": &sourceFileSnapshotItemEntity{},
+		"source_snapshot_relations":  &sourceSnapshotRelationEntity{},
+		"source_baseline_snapshots":  &sourceBaselineSnapshotEntity{},
+		"reconcile_snapshots":        &reconcileSnapshotEntity{},
+		"manual_pull_jobs":           &manualPullJobEntity{},
+		"cloud_source_bindings":      &cloudSourceBindingEntity{},
+		"cloud_sync_checkpoints":     &cloudSyncCheckpointEntity{},
+		"cloud_sync_runs":            &cloudSyncRunEntity{},
+		"cloud_object_index":         &cloudObjectIndexEntity{},
+	} {
+		var count int64
+		if err := st.db.WithContext(ctx).Model(target).Count(&count).Error; err != nil {
+			t.Fatalf("count %s failed: %v", name, err)
+		}
+		if count != 0 {
+			t.Fatalf("expected %s to be empty after cloud source delete, got %d", name, count)
+		}
+	}
+
+	recreated, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              src.TenantID,
+		Name:                  "cloud source recreated",
+		RootPath:              rootPath,
+		AgentID:               src.AgentID,
+		DatasetID:             "dataset-new",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("recreate cloud source failed: %v", err)
+	}
+	if recreated.ID == src.ID {
+		t.Fatalf("expected recreated source to have a new id")
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, recreated.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn_delete_recreate",
+		TargetType:       "wiki",
+		TargetRef:        "space_new",
+		ScheduleExpr:     "manual",
+		ScheduleTZ:       "Asia/Shanghai",
+	}); err != nil {
+		t.Fatalf("upsert recreated binding failed: %v", err)
+	}
+	resp, err := st.ListSourceDocuments(ctx, recreated.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list recreated source documents failed: %v", err)
+	}
+	if resp.Total != 0 || len(resp.Items) != 0 || resp.Summary.TotalDocumentCount != 0 || resp.Summary.ParsedDocumentCount != 0 {
+		t.Fatalf("expected recreated source to have no old documents, got total=%d parsed=%d items=%+v", resp.Total, resp.Summary.ParsedDocumentCount, resp.Items)
 	}
 }
 
@@ -1594,6 +2667,284 @@ func TestListSourceDocumentsUsesFeishuCloudObjectMetadata(t *testing.T) {
 	}
 }
 
+func TestListSourceDocumentsUsesCloudIndexSnapshotDiff(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-feishu-diff",
+		Name:                  "src-feishu-diff",
+		RootPath:              "/tmp/cloud/feishu-diff",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create feishu source failed: %v", err)
+	}
+	changedPath := filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "changed.md")
+	deletedPath := filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "deleted.md")
+	now := time.Now().UTC()
+	docs := []documentEntity{
+		{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   changedPath,
+			DesiredVersionID: "v1",
+			CurrentVersionID: "v1",
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        "obj_changed",
+			UpdatedAt:        now,
+		},
+		{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   deletedPath,
+			DesiredVersionID: "v1",
+			CurrentVersionID: "v1",
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        "obj_deleted",
+			UpdatedAt:        now,
+		},
+	}
+	if err := st.db.WithContext(ctx).Create(&docs).Error; err != nil {
+		t.Fatalf("create cloud documents failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]sourceDocumentStateEntity{
+		{
+			TenantID:          src.TenantID,
+			SourceID:          src.ID,
+			ObjectKey:         "obj_changed",
+			Path:              changedPath,
+			Name:              "changed.md",
+			SourceExists:      true,
+			KnowledgeBaseSeen: true,
+			OriginType:        string(model.OriginTypeCloudSync),
+			OriginPlatform:    "FEISHU",
+			OriginRef:         "obj_changed",
+			SourceVersion:     "v1",
+			SourceState:       sourceStateUnchanged,
+			SyncState:         syncStateIdle,
+			PendingAction:     pendingActionNone,
+			DocumentID:        docs[0].ID,
+			LastDetectedAt:    now,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+		{
+			TenantID:          src.TenantID,
+			SourceID:          src.ID,
+			ObjectKey:         "obj_deleted",
+			Path:              deletedPath,
+			Name:              "deleted.md",
+			SourceExists:      true,
+			KnowledgeBaseSeen: true,
+			OriginType:        string(model.OriginTypeCloudSync),
+			OriginPlatform:    "FEISHU",
+			OriginRef:         "obj_deleted",
+			SourceVersion:     "v1",
+			SourceState:       sourceStateUnchanged,
+			SyncState:         syncStateIdle,
+			PendingAction:     pendingActionNone,
+			DocumentID:        docs[1].ID,
+			LastDetectedAt:    now,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create unchanged source states failed: %v", err)
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    2,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]sourceFileSnapshotItemEntity{
+		{SnapshotID: committedID, Path: changedPath, SizeBytes: 10, Checksum: "rev-old", ExternalFileID: "obj_changed"},
+		{SnapshotID: committedID, Path: deletedPath, SizeBytes: 20, Checksum: "rev-deleted", ExternalFileID: "obj_deleted"},
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot items failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]cloudObjectIndexEntity{
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "obj_changed",
+			ExternalPath:     "changed",
+			ExternalName:     "changed",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-new",
+			LocalAbsPath:     changedPath,
+			Checksum:         "rev-new",
+			SizeBytes:        11,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "obj_deleted",
+			ExternalPath:     "deleted",
+			ExternalName:     "deleted",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-deleted",
+			LocalAbsPath:     deletedPath,
+			Checksum:         "rev-deleted",
+			SizeBytes:        20,
+			IsDeleted:        true,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("create cloud object index rows failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	itemsByPath := map[string]model.SourceDocumentItem{}
+	for _, item := range resp.Items {
+		itemsByPath[item.Path] = item
+	}
+	if itemsByPath[changedPath].UpdateType != "MODIFIED" {
+		t.Fatalf("expected changed cloud doc MODIFIED, got %+v", itemsByPath[changedPath])
+	}
+	if itemsByPath[deletedPath].UpdateType != "DELETED" {
+		t.Fatalf("expected deleted cloud doc DELETED, got %+v", itemsByPath[deletedPath])
+	}
+	if resp.Summary.ModifiedCount != 1 || resp.Summary.DeletedCount != 1 || resp.Summary.PendingPullCount != 2 {
+		t.Fatalf("unexpected summary %+v", resp.Summary)
+	}
+
+	modified, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID:   src.TenantID,
+		UpdateType: "MODIFIED",
+		Page:       1,
+		PageSize:   20,
+	})
+	if err != nil {
+		t.Fatalf("list modified documents failed: %v", err)
+	}
+	if modified.Total != 1 || len(modified.Items) != 1 || modified.Items[0].Path != changedPath {
+		t.Fatalf("expected modified filter to return changed doc, got total=%d items=%+v", modified.Total, modified.Items)
+	}
+
+	deleted, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID:   src.TenantID,
+		UpdateType: "DELETED",
+		Page:       1,
+		PageSize:   20,
+	})
+	if err != nil {
+		t.Fatalf("list deleted documents failed: %v", err)
+	}
+	if deleted.Total != 1 || len(deleted.Items) != 1 || deleted.Items[0].Path != deletedPath {
+		t.Fatalf("expected deleted filter to return deleted doc, got total=%d items=%+v", deleted.Total, deleted.Items)
+	}
+}
+
+func TestListSourceDocumentsUsesCloudIndexAgainstEmptySnapshot(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-feishu-empty-snapshot",
+		Name:                  "src-feishu-empty-snapshot",
+		RootPath:              "/tmp/cloud/feishu-empty-snapshot",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create feishu source failed: %v", err)
+	}
+	path := filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "new.md")
+	now := time.Now().UTC()
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		DesiredVersionID: "v1",
+		ParseStatus:      "PENDING",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "obj_new",
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create cloud document failed: %v", err)
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    0,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create empty committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&cloudObjectIndexEntity{
+		SourceID:         src.ID,
+		Provider:         "feishu",
+		ExternalObjectID: "obj_new",
+		ExternalName:     "new",
+		ExternalKind:     "docx",
+		ExternalVersion:  "rev-new",
+		LocalAbsPath:     path,
+		Checksum:         "rev-new",
+		SizeBytes:        8,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create cloud object index row failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].UpdateType != "NEW" {
+		t.Fatalf("expected cloud doc NEW against empty snapshot, got %+v", resp.Items)
+	}
+	if resp.Summary.NewCount != 1 || resp.Summary.PendingPullCount != 1 {
+		t.Fatalf("unexpected summary %+v", resp.Summary)
+	}
+}
+
 func TestBuildMutationsFromEventsSkipsTransientFiles(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1732,12 +3083,16 @@ func TestListSourceDocumentsShowsProcessingDuringResync(t *testing.T) {
 	if len(resp.Items) != 1 {
 		t.Fatalf("expected 1 source document, got %d", len(resp.Items))
 	}
-	if resp.Items[0].ParseState != "PENDING" {
-		t.Fatalf("expected pending parse state while resync is queued, got %s", resp.Items[0].ParseState)
+	if resp.Items[0].ParseState != "SUCCEEDED" {
+		t.Fatalf("expected pending source update not to look processing before parse task exists, got %s", resp.Items[0].ParseState)
 	}
 
-	if _, err := st.ScheduleDueParses(ctx, secondAt.Add(12*time.Second)); err != nil {
+	created, err := st.ScheduleDueParses(ctx, secondAt.Add(12*time.Second))
+	if err != nil {
 		t.Fatalf("schedule second parse failed: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("expected second parse task to be created, got %d", created)
 	}
 	resp, err = st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
 		TenantID: src.TenantID,
@@ -1752,6 +3107,179 @@ func TestListSourceDocumentsShowsProcessingDuringResync(t *testing.T) {
 	}
 	if resp.Items[0].ParseState != "PENDING" {
 		t.Fatalf("expected latest pending task to override old failure, got %s", resp.Items[0].ParseState)
+	}
+}
+
+func TestListSourceDocumentsScheduledSourceStateDoesNotLookProcessing(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "scheduled-docs",
+		RootPath:          "/tmp/scheduled-docs",
+		AgentID:           "agent-1",
+		WatchEnabled:      true,
+		IdleWindowSeconds: 10,
+		ReconcileSchedule: "daily@02:00:03",
+	})
+	if err != nil {
+		t.Fatalf("create scheduled source failed: %v", err)
+	}
+
+	path := "/tmp/scheduled-docs/new.md"
+	detectedAt := time.Date(2026, 5, 16, 1, 50, 0, 0, time.UTC)
+	nextSyncAt := time.Date(2026, 5, 17, 2, 0, 3, 0, time.UTC)
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		DesiredVersionID: "c_rev-new",
+		ParseStatus:      "PENDING",
+		OriginType:       string(model.OriginTypeLocalFS),
+		OriginPlatform:   "LOCAL",
+		TriggerPolicy:    string(model.TriggerPolicyIdleWindow),
+		NextParseAt:      &nextSyncAt,
+		UpdatedAt:        detectedAt,
+	}).Error; err != nil {
+		t.Fatalf("seed pending document failed: %v", err)
+	}
+	var doc documentEntity
+	if err := st.db.WithContext(ctx).Where("source_id = ? AND source_object_id = ?", src.ID, path).Take(&doc).Error; err != nil {
+		t.Fatalf("load seeded document failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceDocumentStateEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		ObjectKey:        path,
+		Path:             path,
+		Name:             "new.md",
+		SourceExists:     true,
+		OriginType:       string(model.OriginTypeLocalFS),
+		OriginPlatform:   "LOCAL",
+		SourceVersion:    "c_rev-new",
+		SourceState:      sourceStateNew,
+		SyncState:        syncStateScheduled,
+		PendingAction:    pendingActionCreate,
+		NextSyncAt:       &nextSyncAt,
+		DocumentID:       doc.ID,
+		LastDetectedAt:   detectedAt,
+		SourceModifiedAt: &detectedAt,
+		CreatedAt:        detectedAt,
+		UpdatedAt:        detectedAt,
+	}).Error; err != nil {
+		t.Fatalf("seed scheduled source document state failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %+v", resp.Items)
+	}
+	item := resp.Items[0]
+	if item.SyncState != syncStateScheduled || item.SourceState != sourceStateNew || item.NextSyncAt == nil {
+		t.Fatalf("expected scheduled source state to remain visible, got %+v", item)
+	}
+	if item.ParseState != "SUCCEEDED" {
+		t.Fatalf("expected legacy parse_state to avoid processing before due sync, got %s", item.ParseState)
+	}
+}
+
+func TestListSourceDocumentsScheduledUpdateIgnoresStaleSuccessfulTask(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	baseAt := time.Now().UTC().Add(-5 * time.Minute)
+	path := "/tmp/watch/stale-success-update.txt"
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build initial mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply initial mutation failed: %v", err)
+	}
+	if _, err := st.ScheduleDueParses(ctx, baseAt.Add(12*time.Second)); err != nil {
+		t.Fatalf("schedule initial parse failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected initial task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark initial task succeeded failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).Where("id = ?", doc.ID).Update("core_document_id", "core-old").Error; err != nil {
+		t.Fatalf("seed core document id failed: %v", err)
+	}
+
+	updateAt := baseAt.Add(2 * time.Minute)
+	nextSyncAt := updateAt.Add(24 * time.Hour)
+	if err := st.db.WithContext(ctx).Model(&sourceEntity{}).
+		Where("id = ?", src.ID).
+		Updates(map[string]any{"reconcile_schedule": "daily@08:03:03"}).Error; err != nil {
+		t.Fatalf("mark source scheduled failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"desired_version_id": "v_pending_update",
+			"parse_status":       "PENDING",
+			"last_modified_at":   &updateAt,
+			"next_parse_at":      &nextSyncAt,
+			"updated_at":         updateAt,
+		}).Error; err != nil {
+		t.Fatalf("mark document pending update failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&sourceDocumentStateEntity{}).
+		Where("source_id = ? AND object_key = ?", src.ID, path).
+		Updates(map[string]any{
+			"name":                filepath.Base(path),
+			"source_exists":       true,
+			"source_version":      "v_pending_update",
+			"baseline_version":    tasks[0].TargetVersionID,
+			"source_state":        sourceStateModified,
+			"sync_state":          syncStateScheduled,
+			"pending_action":      pendingActionUpdate,
+			"next_sync_at":        &nextSyncAt,
+			"document_id":         doc.ID,
+			"core_document_id":    "core-old",
+			"knowledge_base_seen": true,
+			"last_detected_at":    updateAt,
+			"source_modified_at":  &updateAt,
+			"deleted_at_source":   nil,
+			"updated_at":          updateAt,
+		}).Error; err != nil {
+		t.Fatalf("seed scheduled modified source state failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected one document, got %+v", resp.Items)
+	}
+	item := resp.Items[0]
+	if item.UpdateType != "MODIFIED" || item.SyncState != syncStateScheduled {
+		t.Fatalf("expected scheduled modified state, got %+v", item)
+	}
+	if item.ParseState != "SUCCEEDED" {
+		t.Fatalf("expected stale successful task not to look processing, got %s", item.ParseState)
 	}
 }
 
@@ -1876,6 +3404,200 @@ func TestGenerateTasksForSourceIgnoresUnchangedSelectionPaths(t *testing.T) {
 	}
 }
 
+func TestGenerateTasksForSourceSelectionUsesPendingSourceState(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	baseAt := time.Now().UTC().Add(-5 * time.Minute)
+	path := "/tmp/watch/selection-state-update.txt"
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build initial mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply initial mutation failed: %v", err)
+	}
+	if _, err := st.ScheduleDueParses(ctx, baseAt.Add(12*time.Second)); err != nil {
+		t.Fatalf("schedule initial parse failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected initial task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark initial task succeeded failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).Where("id = ?", doc.ID).Update("core_document_id", "core-old").Error; err != nil {
+		t.Fatalf("seed core document id failed: %v", err)
+	}
+
+	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: filepath.Base(path), Key: path, IsDir: false},
+	}, nil)
+	if err != nil {
+		t.Fatalf("build unchanged tree state failed: %v", err)
+	}
+	updateAt := baseAt.Add(2 * time.Minute)
+	nextSyncAt := updateAt.Add(24 * time.Hour)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"desired_version_id": "v_pending_update",
+			"parse_status":       "PENDING",
+			"last_modified_at":   &updateAt,
+			"next_parse_at":      &nextSyncAt,
+			"updated_at":         updateAt,
+		}).Error; err != nil {
+		t.Fatalf("mark document pending update failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&sourceDocumentStateEntity{}).
+		Where("source_id = ? AND object_key = ?", src.ID, path).
+		Updates(map[string]any{
+			"name":                filepath.Base(path),
+			"source_exists":       true,
+			"source_version":      "v_pending_update",
+			"baseline_version":    tasks[0].TargetVersionID,
+			"source_state":        sourceStateModified,
+			"sync_state":          syncStateScheduled,
+			"pending_action":      pendingActionUpdate,
+			"next_sync_at":        &nextSyncAt,
+			"document_id":         doc.ID,
+			"core_document_id":    "core-old",
+			"knowledge_base_seen": true,
+			"last_detected_at":    updateAt,
+			"source_modified_at":  &updateAt,
+			"deleted_at_source":   nil,
+			"updated_at":          updateAt,
+		}).Error; err != nil {
+		t.Fatalf("seed scheduled modified source state failed: %v", err)
+	}
+
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		UpdatedOnly:    false,
+		SelectionToken: token,
+		TriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("generate tasks with source state update failed: %v", err)
+	}
+	if resp.IgnoredUnchangedCount != 0 || resp.AcceptedCount != 1 {
+		t.Fatalf("expected source state update to be accepted, got %+v", resp)
+	}
+	if _, err := st.ScheduleDueParses(ctx, time.Now().UTC().Add(time.Second)); err != nil {
+		t.Fatalf("schedule source state update failed: %v", err)
+	}
+	tasks = loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 2 {
+		t.Fatalf("expected second task for source state update, got %+v", tasks)
+	}
+	if normalizeTaskAction(tasks[1].TaskAction) != taskActionReparse {
+		t.Fatalf("expected reparse task, got %+v", tasks[1])
+	}
+}
+
+func TestGenerateTasksForSourceSelectionUsesPendingSourceDeleteState(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	src := createTestSource(t, st)
+	ctx := context.Background()
+	baseAt := time.Now().UTC().Add(-5 * time.Minute)
+	path := "/tmp/watch/selection-state-delete.txt"
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build initial mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply initial mutation failed: %v", err)
+	}
+	if _, err := st.ScheduleDueParses(ctx, baseAt.Add(12*time.Second)); err != nil {
+		t.Fatalf("schedule initial parse failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected initial task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark initial task succeeded failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).Where("id = ?", doc.ID).Update("core_document_id", "core-delete-old").Error; err != nil {
+		t.Fatalf("seed core document id failed: %v", err)
+	}
+
+	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: filepath.Base(path), Key: path, IsDir: false},
+	}, nil)
+	if err != nil {
+		t.Fatalf("build unchanged tree state failed: %v", err)
+	}
+	deleteAt := baseAt.Add(2 * time.Minute)
+	nextSyncAt := deleteAt.Add(24 * time.Hour)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"desired_version_id": "d_pending_delete",
+			"parse_status":       "DELETED",
+			"last_modified_at":   &deleteAt,
+			"next_parse_at":      &nextSyncAt,
+			"updated_at":         deleteAt,
+		}).Error; err != nil {
+		t.Fatalf("mark document pending delete failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Model(&sourceDocumentStateEntity{}).
+		Where("source_id = ? AND object_key = ?", src.ID, path).
+		Updates(map[string]any{
+			"name":                filepath.Base(path),
+			"source_exists":       false,
+			"baseline_version":    tasks[0].TargetVersionID,
+			"source_state":        sourceStateDeleted,
+			"sync_state":          syncStateScheduled,
+			"pending_action":      pendingActionDelete,
+			"next_sync_at":        &nextSyncAt,
+			"document_id":         doc.ID,
+			"core_document_id":    "core-delete-old",
+			"knowledge_base_seen": true,
+			"last_detected_at":    deleteAt,
+			"deleted_at_source":   &deleteAt,
+			"updated_at":          deleteAt,
+		}).Error; err != nil {
+		t.Fatalf("seed scheduled deleted source state failed: %v", err)
+	}
+
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		UpdatedOnly:    false,
+		SelectionToken: token,
+		TriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("generate tasks with source state delete failed: %v", err)
+	}
+	if resp.IgnoredUnchangedCount != 0 || resp.AcceptedCount != 1 {
+		t.Fatalf("expected source state delete to be accepted, got %+v", resp)
+	}
+	if _, err := st.ScheduleDueParses(ctx, time.Now().UTC().Add(time.Second)); err != nil {
+		t.Fatalf("schedule source state delete failed: %v", err)
+	}
+	tasks = loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 2 {
+		t.Fatalf("expected second task for source state delete, got %+v", tasks)
+	}
+	if normalizeTaskAction(tasks[1].TaskAction) != taskActionDelete {
+		t.Fatalf("expected delete task, got %+v", tasks[1])
+	}
+}
+
 func TestGenerateTasksForWatchSourceRecreatesDeletedPathPresentInPreview(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1943,8 +3665,8 @@ func TestGenerateTasksForWatchSourceRecreatesDeletedPathPresentInPreview(t *test
 		t.Fatalf("expected accepted_count=1, got %d", resp.AcceptedCount)
 	}
 	doc = loadDocumentByPath(t, st, src, path)
-	if doc.ParseStatus != "PENDING" {
-		t.Fatalf("expected recreated path to be pending, got %s", doc.ParseStatus)
+	if doc.ParseStatus != "QUEUED" {
+		t.Fatalf("expected recreated path to be queued immediately, got %s", doc.ParseStatus)
 	}
 	if !strings.HasPrefix(doc.DesiredVersionID, "v_") {
 		t.Fatalf("expected recreated path desired version to be content version, got %s", doc.DesiredVersionID)
@@ -2071,6 +3793,143 @@ func TestGenerateTasksForWatchSourceDeletesPathMissingFromPreview(t *testing.T) 
 	}
 }
 
+func TestAutomaticWatchDeleteWaitsForReconcileSchedule(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "scheduled-watch",
+		RootPath:          "/tmp/scheduled-watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      true,
+		IdleWindowSeconds: 10,
+		ReconcileSeconds:  3600,
+	})
+	if err != nil {
+		t.Fatalf("create scheduled watch source failed: %v", err)
+	}
+	baseAt := time.Now().UTC().Add(-2 * time.Minute)
+	deletedPath := "/tmp/scheduled-watch/deleted-later.txt"
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: deletedPath, OccurredAt: baseAt},
+	})
+	if err != nil {
+		t.Fatalf("build create mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply create mutation failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, deletedPath)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"core_document_id":   "core-doc-scheduled-delete",
+			"current_version_id": "v_old",
+			"parse_status":       "SUCCEEDED",
+		}).Error; err != nil {
+		t.Fatalf("seed succeeded document failed: %v", err)
+	}
+
+	deletedAt := baseAt.Add(time.Minute)
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "deleted", Path: deletedPath, OccurredAt: deletedAt},
+	})
+	if err != nil {
+		t.Fatalf("build delete mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply delete mutation failed: %v", err)
+	}
+	doc = loadDocumentByPath(t, st, src, deletedPath)
+	if doc.ParseStatus != "DELETED" {
+		t.Fatalf("expected document to be marked deleted, got %s", doc.ParseStatus)
+	}
+	if doc.NextParseAt == nil {
+		t.Fatalf("expected automatic delete to wait for next reconcile")
+	}
+	expectedNext := deletedAt.Add(time.Duration(src.ReconcileSeconds) * time.Second)
+	if !doc.NextParseAt.Equal(expectedNext) {
+		t.Fatalf("expected next_parse_at=%v, got %v", expectedNext, doc.NextParseAt)
+	}
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "deleted", Path: deletedPath, OccurredAt: expectedNext.Add(time.Second)},
+	})
+	if err != nil {
+		t.Fatalf("build repeated delete mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply repeated delete mutation failed: %v", err)
+	}
+	doc = loadDocumentByPath(t, st, src, deletedPath)
+	if doc.NextParseAt == nil || !doc.NextParseAt.Equal(expectedNext) {
+		t.Fatalf("expected repeated automatic delete to keep earliest next_parse_at=%v, got %v", expectedNext, doc.NextParseAt)
+	}
+
+	created, err := st.ScheduleDueParses(ctx, deletedAt.Add(30*time.Second))
+	if err != nil {
+		t.Fatalf("schedule before reconcile failed: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("expected no delete task before reconcile schedule, got %d", created)
+	}
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 0 {
+		t.Fatalf("expected no tasks before reconcile schedule, got %+v", tasks)
+	}
+	listBeforeSchedule, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list documents before schedule failed: %v", err)
+	}
+	if listBeforeSchedule.Total != 1 || len(listBeforeSchedule.Items) != 1 || listBeforeSchedule.Items[0].Path != deletedPath {
+		t.Fatalf("expected pending deleted document to remain visible before schedule, total=%d items=%+v", listBeforeSchedule.Total, listBeforeSchedule.Items)
+	}
+
+	created, err = st.ScheduleDueParses(ctx, expectedNext.Add(time.Second))
+	if err != nil {
+		t.Fatalf("schedule at reconcile failed: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("expected one delete task at reconcile schedule, got %d", created)
+	}
+	tasks = loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one task after reconcile schedule, got %d", len(tasks))
+	}
+	if normalizeTaskAction(tasks[0].TaskAction) != taskActionDelete {
+		t.Fatalf("expected delete task action, got %s", tasks[0].TaskAction)
+	}
+	taskTarget := tasks[0].TargetVersionID
+	mutations, err = st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "deleted", Path: deletedPath, OccurredAt: expectedNext.Add(2 * time.Second)},
+	})
+	if err != nil {
+		t.Fatalf("build post-schedule delete mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply post-schedule delete mutation failed: %v", err)
+	}
+	doc = loadDocumentByPath(t, st, src, deletedPath)
+	if doc.NextParseAt != nil {
+		t.Fatalf("expected queued delete task to keep next_parse_at nil, got %v", doc.NextParseAt)
+	}
+	if doc.DesiredVersionID != taskTarget {
+		t.Fatalf("expected queued delete task target %q to remain desired version, got %q", taskTarget, doc.DesiredVersionID)
+	}
+	matched, err := st.DesiredVersionMatches(ctx, doc.ID, taskTarget)
+	if err != nil {
+		t.Fatalf("check desired version failed: %v", err)
+	}
+	if !matched {
+		t.Fatalf("expected queued delete task to remain executable")
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }
@@ -2117,6 +3976,24 @@ func TestCloudBindingAcceptsScheduleExprWithSeconds(t *testing.T) {
 	}
 	if binding.NextSyncAt == nil {
 		t.Fatalf("expected next_sync_at to be computed")
+	}
+}
+
+func TestReconcileScheduleExprPreservesSeconds(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	st.SetDefaultCloudScheduleTZ("UTC")
+
+	next := st.computeNextSyncAt("daily@02:00:03", "UTC", time.Date(2026, 5, 16, 1, 59, 59, 0, time.UTC))
+	if next == nil {
+		t.Fatalf("expected next_sync_at")
+	}
+	expected := time.Date(2026, 5, 16, 2, 0, 3, 0, time.UTC)
+	if !next.Equal(expected) {
+		t.Fatalf("expected next_sync_at=%v, got %v", expected, next)
+	}
+	if _, _, _, _, err := parseReconcileScheduleExpr("daily@02:00:99"); err == nil {
+		t.Fatalf("expected invalid seconds to fail")
 	}
 }
 
@@ -2482,6 +4359,31 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 	if _, ok := findTreeNodeByPath(items, "/tmp/cloud-mirror/src-cloud/mirror/readme.md"); ok {
 		t.Fatalf("unexpected readme.md in docs subtree")
 	}
+	driveDocPath := "/tmp/cloud-mirror/src-cloud/mirror/docs/report/report.md"
+	if err := st.db.WithContext(ctx).Create(&cloudObjectIndexEntity{
+		SourceID:         src.ID,
+		Provider:         "feishu",
+		ExternalObjectID: "doc_report",
+		ExternalName:     "report.md",
+		ExternalKind:     "docx",
+		ProviderMetaJSON: encodeJSON(map[string]any{"type": "docx"}),
+		LocalRelPath:     "docs/report/report.md",
+		LocalAbsPath:     driveDocPath,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("seed drive docx cloud_object_index failed: %v", err)
+	}
+	itemsWithDriveDoc, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/mirror/docs", 3, true)
+	if err != nil {
+		t.Fatalf("build cloud tree with drive docx failed: %v", err)
+	}
+	if _, ok := findTreeNodeByPath(itemsWithDriveDoc, driveDocPath); !ok {
+		t.Fatalf("expected drive docx path %s to stay visible", driveDocPath)
+	}
+	if foldedDriveDoc, ok := findTreeNodeByPath(itemsWithDriveDoc, "/tmp/cloud-mirror/src-cloud/mirror/docs/report"); ok && !foldedDriveDoc.IsDir {
+		t.Fatalf("did not expect drive docx to fold into page node: %+v", foldedDriveDoc)
+	}
 
 	itemsNoFiles, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/mirror/docs", 1, false)
 	if err != nil {
@@ -2497,6 +4399,1483 @@ func TestBuildCloudTreeByPath(t *testing.T) {
 	_, err = st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud/mirror/not-found", 2, true)
 	if !errors.Is(err, ErrTreePathInvalid) {
 		t.Fatalf("expected ErrTreePathInvalid, got %v", err)
+	}
+}
+
+func TestBuildTreeUpdateStateCloudDeletedNodesUseMirrorScope(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-delete-tree",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-delete-tree",
+		AgentID:               "agent-1",
+		WatchEnabled:          true,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	folderPath := filepath.Join(mirrorRoot, "folder-1")
+	testPath := filepath.Join(folderPath, "test1.md")
+	siblingPath := filepath.Join(mirrorRoot, "handpull-feishu-drive-2.md")
+	deletedRootFile := filepath.Join(mirrorRoot, "handtouch-feishu-drive-1.md")
+	deletedChildFile := filepath.Join(folderPath, "deleted-child.md")
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    4,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]sourceFileSnapshotItemEntity{
+		{SnapshotID: committedID, Path: testPath, SizeBytes: 10},
+		{SnapshotID: committedID, Path: siblingPath, SizeBytes: 20},
+		{SnapshotID: committedID, Path: deletedRootFile, SizeBytes: 30},
+		{SnapshotID: committedID, Path: deletedChildFile, SizeBytes: 40},
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot items failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+
+	treeItems := []model.TreeNode{
+		{
+			Title:    "folder-1",
+			Key:      folderPath,
+			IsDir:    true,
+			Children: []model.TreeNode{{Title: "test1", Key: testPath, IsDir: false}},
+		},
+		{Title: "handpull-feishu-drive-2", Key: siblingPath, IsDir: false},
+	}
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, treeItems, nil)
+	if err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	if token == "" {
+		t.Fatalf("expected selection token")
+	}
+	for _, leaked := range []string{filepath.Clean(src.RootPath), mirrorRoot} {
+		if _, ok := findTreeNodeByPath(tree, leaked); ok {
+			t.Fatalf("did not expect physical root %s to be rendered as a tree node: %+v", leaked, tree)
+		}
+	}
+	if !hasTopLevelTreeNode(tree, deletedRootFile) {
+		t.Fatalf("expected deleted root file %s to be inserted at top level, got %+v", deletedRootFile, tree)
+	}
+	deletedNode, ok := findTreeNodeByPath(tree, deletedRootFile)
+	if !ok || deletedNode.UpdateType != "DELETED" {
+		t.Fatalf("expected root deleted node update_type DELETED, got %+v", deletedNode)
+	}
+	folderNode, ok := findTreeNodeByPath(tree, folderPath)
+	if !ok {
+		t.Fatalf("missing folder node %s", folderPath)
+	}
+	if folderNode.UpdateType != "" && folderNode.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected folder with deleted child to remain unchanged, got %+v", folderNode)
+	}
+	if folderNode.HasUpdate != nil && *folderNode.HasUpdate {
+		t.Fatalf("expected folder with deleted child not to be marked as updated, got %+v", folderNode)
+	}
+	if !hasTopLevelTreeNode(folderNode.Children, deletedChildFile) {
+		t.Fatalf("expected deleted child file %s under folder, got %+v", deletedChildFile, folderNode.Children)
+	}
+
+	treeOnlyFolder, _, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{treeItems[0]}, nil)
+	if err != nil {
+		t.Fatalf("build single-folder tree update state failed: %v", err)
+	}
+	if !hasTopLevelTreeNode(treeOnlyFolder, deletedRootFile) {
+		t.Fatalf("expected root deleted file %s to remain in root scope when only one folder is listed, got %+v", deletedRootFile, treeOnlyFolder)
+	}
+}
+
+func TestBuildCloudTreeByPathWikiPageWithChildren(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-wiki",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-wiki",
+		AgentID:               "agent-1",
+		WatchEnabled:          true,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     "CLOUD_SYNC",
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	rows := []cloudObjectIndexEntity{
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_test2",
+			ExternalName:     "test2",
+			ExternalKind:     "docx",
+			ProviderMetaJSON: encodeJSON(map[string]any{"has_child": true}),
+			LocalRelPath:     "test2/test2.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test2.md",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_test222",
+			ExternalParentID: "node_test2",
+			ExternalName:     "test222",
+			ExternalKind:     "docx",
+			LocalRelPath:     "test2/test222.md",
+			LocalAbsPath:     "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test222.md",
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}
+	if err := st.db.WithContext(ctx).Create(&rows).Error; err != nil {
+		t.Fatalf("seed cloud_object_index failed: %v", err)
+	}
+
+	items, err := st.BuildCloudTreeByPath(ctx, src.ID, "/tmp/cloud-mirror/src-cloud-wiki/mirror", 8, true)
+	if err != nil {
+		t.Fatalf("build cloud tree failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one top-level wiki node, got %+v", items)
+	}
+	root := items[0]
+	if root.IsDir || root.Title != "test2" || root.Key != "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2" || root.ExternalFileID != "node_test2" {
+		t.Fatalf("expected single selectable test2 wiki page, got %+v", root)
+	}
+	if _, ok := findTreeNodeByPath(root.Children, "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test2.md"); ok {
+		t.Fatalf("did not expect mirrored parent page file as a visible child")
+	}
+	if _, ok := findTreeNodeByPath(root.Children, "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test222.md"); !ok {
+		t.Fatalf("expected child wiki page")
+	}
+	child, _ := findTreeNodeByPath(root.Children, "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test222.md")
+	if child.Title != "test222" {
+		t.Fatalf("expected child page title to preserve source title, got %q", child.Title)
+	}
+
+	treeItems := []model.TreeNode{root}
+	stats := map[string]model.TreeFileStat{
+		"/tmp/cloud-mirror/src-cloud-wiki/mirror/test2": {
+			Path:     "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2",
+			Checksum: "rev-test2",
+		},
+		"/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test222.md": {
+			Path:     "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test222.md",
+			Checksum: "rev-test222",
+		},
+	}
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, treeItems, stats)
+	if err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	if token == "" {
+		t.Fatalf("expected selection token")
+	}
+	if len(tree) != 1 || tree[0].UpdateType != "NEW" {
+		t.Fatalf("expected parent wiki node to be marked new, got %+v", tree)
+	}
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Paths:          []string{"/tmp/cloud-mirror/src-cloud-wiki/mirror/test2"},
+		SelectionToken: token,
+		UpdatedOnly:    true,
+	})
+	if err != nil {
+		t.Fatalf("generate tasks failed: %v", err)
+	}
+	if resp.AcceptedCount != 1 {
+		t.Fatalf("expected one accepted parent wiki task, got %+v", resp)
+	}
+	var doc documentEntity
+	if err := st.db.WithContext(ctx).
+		Where("source_id = ? AND source_object_id = ?", src.ID, "/tmp/cloud-mirror/src-cloud-wiki/mirror/test2/test2.md").
+		Take(&doc).Error; err != nil {
+		t.Fatalf("expected task to target mirrored parent page file: %v", err)
+	}
+}
+
+func TestManualFeishuWikiDeletedAfterCloudSyncUsesDocumentState(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-wiki-delete",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-wiki-delete",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	wikiDisplayPath := filepath.Join(mirrorRoot, "test2")
+	wikiObjectPath := filepath.Join(wikiDisplayPath, "test2.md")
+	if err := st.db.WithContext(ctx).Create(&cloudObjectIndexEntity{
+		SourceID:         src.ID,
+		Provider:         "feishu",
+		ExternalObjectID: "node_test2",
+		ExternalName:     "test2",
+		ExternalKind:     "docx",
+		ProviderMetaJSON: encodeJSON(map[string]any{"has_child": true}),
+		LocalRelPath:     "test2/test2.md",
+		LocalAbsPath:     wikiObjectPath,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       wikiDisplayPath,
+		SizeBytes:  100,
+		Checksum:   "rev-old",
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "test2", Key: wikiDisplayPath, IsDir: false},
+	}, map[string]model.TreeFileStat{
+		wikiDisplayPath: {Path: wikiDisplayPath, Size: 100, Checksum: "rev-old"},
+	})
+	if err != nil {
+		t.Fatalf("build unchanged wiki preview failed: %v", err)
+	}
+	if token == "" {
+		t.Fatalf("expected selection token")
+	}
+	node, ok := findTreeNodeByPath(tree, wikiDisplayPath)
+	if !ok {
+		t.Fatalf("expected wiki display node in tree")
+	}
+	if node.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected initial wiki preview unchanged, got %s", node.UpdateType)
+	}
+
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{
+			SourceID:       src.ID,
+			EventType:      "deleted",
+			Path:           wikiObjectPath,
+			OccurredAt:     now.Add(-time.Minute),
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: "FEISHU",
+			OriginRef:      "node_test2",
+		},
+	})
+	if err != nil {
+		t.Fatalf("build cloud delete mutation failed: %v", err)
+	}
+	for i := range mutations {
+		mutations[i].ManualSync = true
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply cloud delete mutation failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, wikiObjectPath)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"core_document_id":   "core-doc-wiki-test2",
+			"current_version_id": "v_old",
+		}).Error; err != nil {
+		t.Fatalf("seed deleted wiki core identity failed: %v", err)
+	}
+
+	treeAfterDelete, _, err := st.BuildTreeUpdateState(ctx, src.ID, nil, nil)
+	if err != nil {
+		t.Fatalf("build tree update state after delete failed: %v", err)
+	}
+	deletedNode, ok := findTreeNodeByPath(treeAfterDelete, wikiDisplayPath)
+	if !ok {
+		t.Fatalf("expected deleted wiki display path to be shown after cloud delete, got %+v", treeAfterDelete)
+	}
+	if deletedNode.UpdateType != "DELETED" {
+		t.Fatalf("expected deleted wiki node update_type DELETED, got %+v", deletedNode)
+	}
+
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{wikiDisplayPath},
+		SelectionToken: token,
+		TriggerPolicy:  string(model.TriggerPolicyImmediate),
+		UpdatedOnly:    false,
+	})
+	if err != nil {
+		t.Fatalf("generate tasks for deleted wiki display path failed: %v", err)
+	}
+	if resp.AcceptedCount != 1 {
+		t.Fatalf("expected one accepted wiki delete task, got %+v", resp)
+	}
+	doc = loadDocumentByPath(t, st, src, wikiObjectPath)
+	if doc.ParseStatus != "DELETED" {
+		t.Fatalf("expected wiki document to remain DELETED, got %s", doc.ParseStatus)
+	}
+	if _, err := st.ScheduleDueParses(ctx, time.Now().UTC().Add(time.Second)); err != nil {
+		t.Fatalf("schedule wiki delete parse failed: %v", err)
+	}
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one wiki delete task, got %d", len(tasks))
+	}
+	if normalizeTaskAction(tasks[0].TaskAction) != taskActionDelete {
+		t.Fatalf("expected wiki delete task action, got %s", tasks[0].TaskAction)
+	}
+}
+
+func TestBuildTreeUpdateStateWikiSettledPageUsesObjectPathBaseline(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-wiki-settled",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-wiki-settled",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-2 * time.Minute)
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	displayPath := filepath.Join(mirrorRoot, "test4", "11111")
+	objectPath := filepath.Join(displayPath, "11111.md")
+	if err := st.db.WithContext(ctx).Create(&cloudObjectIndexEntity{
+		SourceID:         src.ID,
+		Provider:         "feishu",
+		ExternalObjectID: "node_11111",
+		ExternalName:     "11111",
+		ExternalKind:     "docx",
+		ProviderMetaJSON: encodeJSON(map[string]any{"has_child": true}),
+		LocalRelPath:     "test4/11111/11111.md",
+		LocalAbsPath:     objectPath,
+		Checksum:         "rev-1",
+		SizeBytes:        14,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("seed wiki cloud object failed: %v", err)
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       objectPath,
+		IsDir:      false,
+		SizeBytes:  14,
+		Checksum:   "rev-1",
+		ModTime:    &now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   objectPath,
+		CoreDocumentID:   "core-wiki-11111",
+		DesiredVersionID: "rev-1",
+		CurrentVersionID: "rev-1",
+		LastModifiedAt:   &now,
+		ParseStatus:      "SUCCEEDED",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "node_11111",
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create synced wiki document failed: %v", err)
+	}
+
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "11111", Key: displayPath, IsDir: false},
+	}, map[string]model.TreeFileStat{
+		displayPath: {Path: displayPath, Size: 14, Checksum: "rev-1", ModTime: &now},
+	})
+	if err != nil {
+		t.Fatalf("build wiki tree state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, displayPath)
+	if !ok {
+		t.Fatalf("missing wiki display node in %+v", tree)
+	}
+	if node.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected synced wiki page unchanged, got %+v", node)
+	}
+	payload, ok, err := decodeReadOnlySelectionToken(token, time.Now().UTC())
+	if err != nil || !ok {
+		t.Fatalf("decode selection token failed ok=%v err=%v", ok, err)
+	}
+	if payload.Diff[displayPath] != "UNCHANGED" {
+		t.Fatalf("expected selection token keyed by display path unchanged, got %+v", payload.Diff)
+	}
+	pullResp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{displayPath},
+		SelectionToken: token,
+		UpdatedOnly:    true,
+	})
+	if err != nil {
+		t.Fatalf("generate unchanged wiki pull failed: %v", err)
+	}
+	if pullResp.AcceptedCount != 0 || pullResp.IgnoredUnchangedCount != 1 {
+		t.Fatalf("expected unchanged wiki pull ignored, got %+v", pullResp)
+	}
+	treeAfterPull, _, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "11111", Key: displayPath, IsDir: false},
+	}, map[string]model.TreeFileStat{
+		displayPath: {Path: displayPath, Size: 14, Checksum: "rev-1", ModTime: &now},
+	})
+	if err != nil {
+		t.Fatalf("build wiki tree after ignored pull failed: %v", err)
+	}
+	nodeAfterPull, ok := findTreeNodeByPath(treeAfterPull, displayPath)
+	if !ok {
+		t.Fatalf("missing wiki display node after pull in %+v", treeAfterPull)
+	}
+	if nodeAfterPull.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected synced wiki page unchanged after ignored pull, got %+v", nodeAfterPull)
+	}
+}
+
+func TestBuildTreeUpdateStateWikiModifiedPageUsesObjectPathBaseline(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-wiki-modified",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-wiki-modified",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-2 * time.Minute)
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	displayPath := filepath.Join(mirrorRoot, "test4", "11111")
+	objectPath := filepath.Join(displayPath, "11111.md")
+	if err := st.db.WithContext(ctx).Create(&cloudObjectIndexEntity{
+		SourceID:         src.ID,
+		Provider:         "feishu",
+		ExternalObjectID: "node_11111",
+		ExternalName:     "11111",
+		ExternalKind:     "docx",
+		ProviderMetaJSON: encodeJSON(map[string]any{"has_child": true}),
+		LocalRelPath:     "test4/11111/11111.md",
+		LocalAbsPath:     objectPath,
+		Checksum:         "rev-2",
+		SizeBytes:        18,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("seed wiki cloud object failed: %v", err)
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       objectPath,
+		IsDir:      false,
+		SizeBytes:  14,
+		Checksum:   "rev-1",
+		ModTime:    &now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   objectPath,
+		CoreDocumentID:   "core-wiki-11111",
+		DesiredVersionID: "rev-1",
+		CurrentVersionID: "rev-1",
+		LastModifiedAt:   &now,
+		ParseStatus:      "SUCCEEDED",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "node_11111",
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create synced wiki document failed: %v", err)
+	}
+
+	changedAt := now.Add(time.Minute)
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "11111", Key: displayPath, IsDir: false},
+	}, map[string]model.TreeFileStat{
+		displayPath: {Path: displayPath, Size: 18, Checksum: "rev-2", ModTime: &changedAt},
+	})
+	if err != nil {
+		t.Fatalf("build wiki tree state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, displayPath)
+	if !ok {
+		t.Fatalf("missing wiki display node in %+v", tree)
+	}
+	if node.UpdateType != "MODIFIED" {
+		t.Fatalf("expected synced wiki page modified, got %+v", node)
+	}
+	payload, ok, err := decodeReadOnlySelectionToken(token, time.Now().UTC())
+	if err != nil || !ok {
+		t.Fatalf("decode selection token failed ok=%v err=%v", ok, err)
+	}
+	if payload.Diff[displayPath] != "MODIFIED" {
+		t.Fatalf("expected selection token keyed by display path modified, got %+v", payload.Diff)
+	}
+	resp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{displayPath},
+		SelectionToken: token,
+		TriggerPolicy:  string(model.TriggerPolicyImmediate),
+		UpdatedOnly:    true,
+	})
+	if err != nil {
+		t.Fatalf("generate modified wiki pull failed: %v", err)
+	}
+	if resp.AcceptedCount != 1 {
+		t.Fatalf("expected modified wiki pull accepted, got %+v", resp)
+	}
+	doc := loadDocumentByPath(t, st, src, objectPath)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 || normalizeTaskAction(tasks[0].TaskAction) != taskActionReparse {
+		t.Fatalf("expected one wiki reparse task, got %+v", tasks)
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark modified wiki task succeeded failed: %v", err)
+	}
+	treeAfterSuccess, tokenAfterSuccess, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "11111", Key: displayPath, IsDir: false},
+	}, map[string]model.TreeFileStat{
+		displayPath: {Path: displayPath, Size: 18, Checksum: "rev-2", ModTime: &changedAt},
+	})
+	if err != nil {
+		t.Fatalf("build wiki tree state after success failed: %v", err)
+	}
+	nodeAfterSuccess, ok := findTreeNodeByPath(treeAfterSuccess, displayPath)
+	if !ok {
+		t.Fatalf("missing wiki display node after success in %+v", treeAfterSuccess)
+	}
+	if nodeAfterSuccess.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected wiki page unchanged after parse success committed snapshot, got %+v", nodeAfterSuccess)
+	}
+	payloadAfterSuccess, ok, err := decodeReadOnlySelectionToken(tokenAfterSuccess, time.Now().UTC())
+	if err != nil || !ok {
+		t.Fatalf("decode selection token after success failed ok=%v err=%v", ok, err)
+	}
+	if payloadAfterSuccess.Diff[displayPath] != "UNCHANGED" {
+		t.Fatalf("expected selection token after success keyed by display path unchanged, got %+v", payloadAfterSuccess.Diff)
+	}
+	var relation sourceSnapshotRelationEntity
+	if err := st.db.WithContext(ctx).Take(&relation, "source_id = ?", src.ID).Error; err != nil {
+		t.Fatalf("load snapshot relation after success failed: %v", err)
+	}
+	itemsByPath, err := st.snapshotItemsByPath(ctx, relation.LastCommittedSnapshotID)
+	if err != nil {
+		t.Fatalf("load committed snapshot items after success failed: %v", err)
+	}
+	item, ok := itemsByPath[objectPath]
+	if !ok {
+		t.Fatalf("expected committed snapshot item for object path %s, got %+v", objectPath, itemsByPath)
+	}
+	if item.SizeBytes != 18 || item.Checksum != "rev-2" || item.ExternalFileID != "node_11111" {
+		t.Fatalf("expected committed snapshot advanced to rev-2, got %+v", item)
+	}
+}
+
+func TestBuildTreeUpdateStateWikiDeletedLeafUsesDisplayPath(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-wiki-leaf-delete",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-wiki-leaf-delete",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	parentPath := filepath.Join(mirrorRoot, "test2")
+	leafPath := filepath.Join(parentPath, "q we q w.md")
+	if err := st.db.WithContext(ctx).Create(&[]cloudObjectIndexEntity{
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_test2",
+			ExternalName:     "test2",
+			ExternalKind:     "docx",
+			ProviderMetaJSON: encodeJSON(map[string]any{"has_child": true}),
+			LocalRelPath:     "test2/test2.md",
+			LocalAbsPath:     filepath.Join(parentPath, "test2.md"),
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_leaf",
+			ExternalParentID: "node_test2",
+			ExternalName:     "q we q w",
+			ExternalKind:     "docx",
+			LocalRelPath:     "test2/q we q w.md",
+			LocalAbsPath:     leafPath,
+			IsDeleted:        true,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceDocumentStateEntity{
+		SourceID:          src.ID,
+		TenantID:          src.TenantID,
+		ObjectKey:         "node_leaf",
+		Path:              leafPath,
+		Name:              "q we q w.md",
+		SourceExists:      false,
+		KnowledgeBaseSeen: true,
+		SourceState:       sourceStateDeleted,
+		SyncState:         syncStateScheduled,
+		PendingAction:     pendingActionDelete,
+		NextSyncAt:        &now,
+		LastDetectedAt:    now,
+		OriginType:        string(model.OriginTypeCloudSync),
+		OriginPlatform:    "FEISHU",
+		OriginRef:         "node_leaf",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("seed deleted source document state failed: %v", err)
+	}
+
+	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "test2", Key: parentPath, IsDir: false, Children: []model.TreeNode{
+			{Title: "test2222222", Key: filepath.Join(parentPath, "test2222222.md"), IsDir: false},
+		}},
+	}, map[string]model.TreeFileStat{
+		parentPath: {Path: parentPath, Checksum: "rev-parent"},
+		filepath.Join(parentPath, "test2222222.md"): {Path: filepath.Join(parentPath, "test2222222.md"), Checksum: "rev-child"},
+	})
+	if err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	root, ok := findTreeNodeByPath(tree, parentPath)
+	if !ok {
+		t.Fatalf("missing parent wiki node in %+v", tree)
+	}
+	deletedLeaf, ok := findTreeNodeByPath(root.Children, leafPath)
+	if !ok {
+		t.Fatalf("expected deleted leaf to remain visible under parent, got %+v", root.Children)
+	}
+	if deletedLeaf.UpdateType != "DELETED" || deletedLeaf.SourceState != sourceStateDeleted {
+		t.Fatalf("expected deleted leaf state, got %+v", deletedLeaf)
+	}
+}
+
+func TestBuildTreeUpdateStateDriveSettledFileUsesObjectPathBaseline(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-drive-settled",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-drive-settled",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-2 * time.Minute)
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	objectPath := filepath.Join(mirrorRoot, "test4", "drive-doc.md")
+	if err := st.db.WithContext(ctx).Create(&cloudObjectIndexEntity{
+		SourceID:         src.ID,
+		Provider:         "feishu",
+		ExternalObjectID: "drive_doc_1",
+		ExternalName:     "drive-doc.md",
+		ExternalKind:     "file",
+		LocalRelPath:     "test4/drive-doc.md",
+		LocalAbsPath:     objectPath,
+		Checksum:         "drive-rev-1",
+		SizeBytes:        14,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("seed drive cloud object failed: %v", err)
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       objectPath,
+		IsDir:      false,
+		SizeBytes:  14,
+		Checksum:   "drive-rev-1",
+		ModTime:    &now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   objectPath,
+		CoreDocumentID:   "core-drive-doc",
+		DesiredVersionID: "drive-rev-1",
+		CurrentVersionID: "drive-rev-1",
+		LastModifiedAt:   &now,
+		ParseStatus:      "SUCCEEDED",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "drive_doc_1",
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create synced drive document failed: %v", err)
+	}
+
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "drive-doc.md", Key: objectPath, IsDir: false},
+	}, map[string]model.TreeFileStat{
+		objectPath: {Path: objectPath, Size: 14, Checksum: "drive-rev-1", ModTime: &now},
+	})
+	if err != nil {
+		t.Fatalf("build drive tree state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, objectPath)
+	if !ok {
+		t.Fatalf("missing drive node in %+v", tree)
+	}
+	if node.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected synced drive file unchanged, got %+v", node)
+	}
+	pullResp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{objectPath},
+		SelectionToken: token,
+		UpdatedOnly:    true,
+	})
+	if err != nil {
+		t.Fatalf("generate unchanged drive pull failed: %v", err)
+	}
+	if pullResp.AcceptedCount != 0 || pullResp.IgnoredUnchangedCount != 1 {
+		t.Fatalf("expected unchanged drive pull ignored, got %+v", pullResp)
+	}
+}
+
+func TestBuildTreeUpdateStateDriveDeletedCloudFileRemainsSelectable(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-drive-delete",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-drive-delete",
+		AgentID:               "agent-1",
+		WatchEnabled:          true,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-time.Minute)
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	currentPath := filepath.Join(mirrorRoot, "folder", "current.md")
+	deletedPath := filepath.Join(mirrorRoot, "folder", "deleted.md")
+	if err := st.db.WithContext(ctx).Create(&[]cloudObjectIndexEntity{
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "drive_current",
+			ExternalName:     "current.md",
+			ExternalKind:     "file",
+			LocalRelPath:     "folder/current.md",
+			LocalAbsPath:     currentPath,
+			Checksum:         "rev-current",
+			SizeBytes:        10,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "drive_deleted",
+			ExternalName:     "deleted.md",
+			ExternalKind:     "file",
+			LocalRelPath:     "folder/deleted.md",
+			LocalAbsPath:     deletedPath,
+			Checksum:         "rev-deleted",
+			SizeBytes:        9,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed drive cloud object index failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]documentEntity{
+		{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   currentPath,
+			CoreDocumentID:   "core-current",
+			DesiredVersionID: "rev-current",
+			CurrentVersionID: "rev-current",
+			LastModifiedAt:   &now,
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        "drive_current",
+			UpdatedAt:        now,
+		},
+		{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   deletedPath,
+			CoreDocumentID:   "core-deleted",
+			DesiredVersionID: "rev-deleted",
+			CurrentVersionID: "rev-deleted",
+			LastModifiedAt:   &now,
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        "drive_deleted",
+			UpdatedAt:        now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed drive documents failed: %v", err)
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    2,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]sourceFileSnapshotItemEntity{
+		{SnapshotID: committedID, Path: currentPath, SizeBytes: 10, Checksum: "rev-current"},
+		{SnapshotID: committedID, Path: deletedPath, SizeBytes: 9, Checksum: "rev-deleted"},
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot items failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{{
+		Title:    "folder",
+		Key:      filepath.Join(mirrorRoot, "folder"),
+		IsDir:    true,
+		Children: []model.TreeNode{{Title: "current.md", Key: currentPath, IsDir: false}},
+	}}, map[string]model.TreeFileStat{
+		currentPath: {Path: currentPath, Size: 10, Checksum: "rev-current"},
+	})
+	if err != nil {
+		t.Fatalf("build drive tree state failed: %v", err)
+	}
+	if token == "" {
+		t.Fatalf("expected selection token")
+	}
+	deletedNode, ok := findTreeNodeByPath(tree, deletedPath)
+	if !ok {
+		t.Fatalf("expected deleted drive file %s to remain visible, got %+v", deletedPath, tree)
+	}
+	if deletedNode.UpdateType != "DELETED" {
+		t.Fatalf("expected deleted drive file update_type DELETED, got %+v", deletedNode)
+	}
+	folderNode, ok := findTreeNodeByPath(tree, filepath.Join(mirrorRoot, "folder"))
+	if !ok {
+		t.Fatalf("expected folder node, got %+v", tree)
+	}
+	if folderNode.UpdateType != "" && folderNode.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected folder with deleted file to remain unchanged, got %+v", folderNode)
+	}
+	if folderNode.HasUpdate != nil && *folderNode.HasUpdate {
+		t.Fatalf("expected folder with deleted file not to be marked as updated, got %+v", folderNode)
+	}
+	if deletedNode.Selectable == nil || !*deletedNode.Selectable {
+		t.Fatalf("expected deleted drive file selectable, got %+v", deletedNode)
+	}
+	pullResp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{deletedPath},
+		SelectionToken: token,
+		UpdatedOnly:    true,
+	})
+	if err != nil {
+		t.Fatalf("generate deleted drive pull failed: %v", err)
+	}
+	if pullResp.AcceptedCount != 1 {
+		t.Fatalf("expected deleted drive pull accepted, got %+v", pullResp)
+	}
+}
+
+func TestBuildTreeUpdateStateDriveDeletedCloudFileWithoutSnapshotUsesDocuments(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-drive-delete-no-snapshot",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-drive-delete-no-snapshot",
+		AgentID:               "agent-1",
+		WatchEnabled:          true,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-time.Minute)
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	currentPath := filepath.Join(mirrorRoot, "folder-1", "q we q we.md")
+	deletedPath := filepath.Join(mirrorRoot, "folder-1", "test1.md")
+	if err := st.db.WithContext(ctx).Create(&[]cloudObjectIndexEntity{
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "drive_current",
+			ExternalName:     "q we q we",
+			ExternalKind:     "docx",
+			LocalRelPath:     "folder-1/q we q we.md",
+			LocalAbsPath:     currentPath,
+			Checksum:         "rev-current",
+			SizeBytes:        43,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "drive_deleted",
+			ExternalName:     "test1",
+			ExternalKind:     "docx",
+			LocalRelPath:     "folder-1/test1.md",
+			LocalAbsPath:     deletedPath,
+			Checksum:         "rev-deleted",
+			SizeBytes:        24,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed drive cloud object index failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]documentEntity{
+		{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   currentPath,
+			CoreDocumentID:   "core-current",
+			DesiredVersionID: "rev-current",
+			CurrentVersionID: "rev-current",
+			LastModifiedAt:   &now,
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        "drive_current",
+			UpdatedAt:        now,
+		},
+		{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   deletedPath,
+			CoreDocumentID:   "core-deleted",
+			DesiredVersionID: "rev-deleted",
+			CurrentVersionID: "rev-deleted",
+			LastModifiedAt:   &now,
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        "drive_deleted",
+			UpdatedAt:        now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed drive documents failed: %v", err)
+	}
+
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{{
+		Title:    "folder-1",
+		Key:      filepath.Join(mirrorRoot, "folder-1"),
+		IsDir:    true,
+		Children: []model.TreeNode{{Title: "q we q we", Key: currentPath, IsDir: false}},
+	}}, map[string]model.TreeFileStat{
+		currentPath: {Path: currentPath, Size: 43, Checksum: "rev-current"},
+	})
+	if err != nil {
+		t.Fatalf("build drive tree state without snapshot failed: %v", err)
+	}
+	if token == "" {
+		t.Fatalf("expected selection token")
+	}
+	deletedNode, ok := findTreeNodeByPath(tree, deletedPath)
+	if !ok {
+		t.Fatalf("expected documents fallback to render deleted drive file %s, got %+v", deletedPath, tree)
+	}
+	if deletedNode.UpdateType != "DELETED" {
+		t.Fatalf("expected deleted drive file update_type DELETED, got %+v", deletedNode)
+	}
+	if deletedNode.Selectable == nil || !*deletedNode.Selectable {
+		t.Fatalf("expected deleted drive file selectable, got %+v", deletedNode)
+	}
+}
+
+func TestBuildTreeUpdateStateMergesDeletedWikiChildIntoExistingPageNode(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-wiki-merge-deleted",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-wiki-merge-deleted",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	rootPath := filepath.Join(mirrorRoot, "zhouqi-feishu-wiki")
+	existingChildPath := filepath.Join(rootPath, "test1")
+	deletedChildPath := filepath.Join(rootPath, "test3.md")
+	if err := st.db.WithContext(ctx).Create(&sourceDocumentStateEntity{
+		SourceID:          src.ID,
+		TenantID:          src.TenantID,
+		ObjectKey:         "wiki-deleted-child",
+		Path:              deletedChildPath,
+		Name:              "test3.md",
+		IsDir:             false,
+		SourceExists:      false,
+		KnowledgeBaseSeen: true,
+		SourceState:       sourceStateDeleted,
+		SyncState:         syncStateScheduled,
+		PendingAction:     pendingActionDelete,
+		NextSyncAt:        &now,
+		LastDetectedAt:    now,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}).Error; err != nil {
+		t.Fatalf("seed deleted source document state failed: %v", err)
+	}
+
+	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{
+			Title: "zhouqi-feishu-wiki",
+			Key:   rootPath,
+			IsDir: false,
+			Children: []model.TreeNode{
+				{Title: "test1", Key: existingChildPath, IsDir: false},
+			},
+		},
+	}, map[string]model.TreeFileStat{
+		existingChildPath: {Path: existingChildPath, Checksum: "rev-test1"},
+	})
+	if err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	if len(tree) != 1 {
+		t.Fatalf("expected one merged top-level wiki node, got %+v", tree)
+	}
+	root := tree[0]
+	if root.Key != rootPath {
+		t.Fatalf("expected root path %s, got %+v", rootPath, root)
+	}
+	if countTreeNodesByPath(tree, rootPath) != 1 {
+		t.Fatalf("expected one root node after merging deleted child, got %+v", tree)
+	}
+	deletedChild, ok := findTreeNodeByPath(root.Children, deletedChildPath)
+	if !ok {
+		t.Fatalf("expected deleted child under existing root, got %+v", root.Children)
+	}
+	if deletedChild.UpdateType != "DELETED" || deletedChild.SourceState != sourceStateDeleted || deletedChild.SyncState != syncStateScheduled {
+		t.Fatalf("expected deleted child state to be preserved, got %+v", deletedChild)
+	}
+}
+
+func TestBuildTreeUpdateStateMergesSnapshotDeletedWikiChildIntoExistingPageNode(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-wiki-snapshot-child-delete",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-wiki-snapshot-child-delete",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	rootPath := filepath.Join(mirrorRoot, "test4")
+	parentPath := filepath.Join(rootPath, "11111")
+	deletedChildPath := filepath.Join(parentPath, "33333.md")
+	leafPath := filepath.Join(rootPath, "55555.md")
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    4,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]sourceFileSnapshotItemEntity{
+		{SnapshotID: committedID, Path: rootPath, SizeBytes: 6, Checksum: "rev-root", ExternalFileID: "node_test4"},
+		{SnapshotID: committedID, Path: parentPath, SizeBytes: 29, Checksum: "rev-parent", ExternalFileID: "node_11111"},
+		{SnapshotID: committedID, Path: deletedChildPath, SizeBytes: 50, Checksum: "rev-deleted", ExternalFileID: "node_33333"},
+		{SnapshotID: committedID, Path: leafPath, SizeBytes: 17, Checksum: "rev-leaf", ExternalFileID: "node_55555"},
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot items failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&[]cloudObjectIndexEntity{
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_test4",
+			ExternalName:     "test4",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-root",
+			LocalAbsPath:     filepath.Join(rootPath, "test4.md"),
+			Checksum:         "rev-root",
+			SizeBytes:        6,
+			ProviderMetaJSON: encodeJSON(map[string]any{"has_child": true}),
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_11111",
+			ExternalParentID: "node_test4",
+			ExternalName:     "11111",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-parent",
+			LocalAbsPath:     filepath.Join(parentPath, "11111.md"),
+			Checksum:         "rev-parent",
+			SizeBytes:        29,
+			ProviderMetaJSON: encodeJSON(map[string]any{"has_child": true}),
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_33333",
+			ExternalParentID: "node_11111",
+			ExternalName:     "33333",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-deleted",
+			LocalAbsPath:     deletedChildPath,
+			Checksum:         "rev-deleted",
+			SizeBytes:        50,
+			IsDeleted:        true,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			SourceID:         src.ID,
+			Provider:         "feishu",
+			ExternalObjectID: "node_55555",
+			ExternalParentID: "node_test4",
+			ExternalName:     "55555",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-leaf",
+			LocalAbsPath:     leafPath,
+			Checksum:         "rev-leaf",
+			SizeBytes:        17,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+
+	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{
+			Title:      "test4",
+			Key:        rootPath,
+			IsDir:      false,
+			UpdateType: "UNCHANGED",
+			Children: []model.TreeNode{
+				{Title: "11111", Key: parentPath, IsDir: false, UpdateType: "UNCHANGED"},
+				{Title: "55555", Key: leafPath, IsDir: false, UpdateType: "UNCHANGED"},
+			},
+		},
+	}, map[string]model.TreeFileStat{
+		rootPath:   {Path: rootPath, Checksum: "rev-root"},
+		parentPath: {Path: parentPath, Checksum: "rev-parent"},
+		leafPath:   {Path: leafPath, Checksum: "rev-leaf"},
+	})
+	if err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+	if countTreeNodesByPath(tree, parentPath) != 1 {
+		t.Fatalf("expected one 11111 node after merging deleted child, got %+v", tree)
+	}
+	parent, ok := findTreeNodeByPath(tree, parentPath)
+	if !ok {
+		t.Fatalf("expected parent wiki page %s, got %+v", parentPath, tree)
+	}
+	if parent.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected parent wiki page to remain unchanged, got %+v", parent)
+	}
+	deletedChild, ok := findTreeNodeByPath(parent.Children, deletedChildPath)
+	if !ok {
+		t.Fatalf("expected deleted child under existing parent, got %+v", parent.Children)
+	}
+	if deletedChild.UpdateType != "DELETED" {
+		t.Fatalf("expected deleted child update_type DELETED, got %+v", deletedChild)
+	}
+}
+
+func TestBuildTreeUpdateStateDoesNotMutateCloudSourceDocumentStates(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-observe-key",
+		RootPath:              "/tmp/cloud-mirror/src-cloud-observe-key",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC()
+	mirrorRoot := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	objectPath := filepath.Join(mirrorRoot, "test4", "222222.md")
+	externalID := "feishu-node-222222"
+	if err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []CloudObjectIndexRecord{
+		{
+			ExternalObjectID: externalID,
+			ExternalName:     "222222",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-1",
+			LocalRelPath:     "test4/222222.md",
+			LocalAbsPath:     objectPath,
+			Checksum:         "rev-1",
+			SizeBytes:        12,
+		},
+	}, now); err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+	nextSyncAt := now.Add(24 * time.Hour)
+	if err := st.db.WithContext(ctx).Create(&[]sourceDocumentStateEntity{
+		{
+			TenantID:       src.TenantID,
+			SourceID:       src.ID,
+			ObjectKey:      externalID,
+			Path:           objectPath,
+			Name:           "222222.md",
+			SourceExists:   true,
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: "FEISHU",
+			OriginRef:      externalID,
+			SourceVersion:  "c_rev-1",
+			SourceChecksum: "rev-1",
+			SourceState:    sourceStateNew,
+			SyncState:      syncStateScheduled,
+			PendingAction:  pendingActionCreate,
+			NextSyncAt:     &nextSyncAt,
+			LastDetectedAt: now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+		{
+			TenantID:       src.TenantID,
+			SourceID:       src.ID,
+			ObjectKey:      objectPath,
+			Path:           objectPath,
+			Name:           "222222.md",
+			SourceExists:   true,
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: "FEISHU",
+			SourceVersion:  "c_rev-1",
+			SourceChecksum: "rev-1",
+			SourceState:    sourceStateNew,
+			SyncState:      syncStateScheduled,
+			PendingAction:  pendingActionCreate,
+			NextSyncAt:     &nextSyncAt,
+			LastDetectedAt: now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed duplicate source document states failed: %v", err)
+	}
+
+	if _, _, err := st.BuildTreeUpdateState(ctx, src.ID, []model.TreeNode{
+		{Title: "222222", Key: objectPath, IsDir: false},
+	}, map[string]model.TreeFileStat{
+		objectPath: {Path: objectPath, Size: 12, Checksum: "rev-2"},
+	}); err != nil {
+		t.Fatalf("build tree update state failed: %v", err)
+	}
+
+	var states []sourceDocumentStateEntity
+	if err := st.db.WithContext(ctx).
+		Where("source_id = ? AND path = ?", src.ID, objectPath).
+		Order("id ASC").
+		Find(&states).Error; err != nil {
+		t.Fatalf("load source document states failed: %v", err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("expected tree query not to collapse duplicate states, got %+v", states)
+	}
+	for _, state := range states {
+		if state.SourceChecksum != "rev-1" || state.SourceVersion != "c_rev-1" {
+			t.Fatalf("expected tree query not to update source state, got %+v", state)
+		}
 	}
 }
 
@@ -2900,11 +6279,21 @@ func TestNonWatchSnapshotDiffAndSelectionToken(t *testing.T) {
 	}
 
 	var relation sourceSnapshotRelationEntity
-	if err := st.db.WithContext(ctx).Take(&relation, "source_id = ?", src.ID).Error; err != nil {
+	if err := st.db.WithContext(ctx).Take(&relation, "source_id = ?", src.ID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("load snapshot relation failed: %v", err)
 	}
-	if relation.LastCommittedSnapshotID == "" {
-		t.Fatalf("expected committed snapshot after generate")
+	if relation.LastCommittedSnapshotID != "" {
+		t.Fatalf("expected manual generate not to commit snapshot before sync, got %s", relation.LastCommittedSnapshotID)
+	}
+	if relation.LastPreviewSnapshotID != "" {
+		t.Fatalf("expected tree query not to persist preview snapshot, got %s", relation.LastPreviewSnapshotID)
+	}
+	for _, path := range []string{pathA, pathB} {
+		doc := loadDocumentByPath(t, st, src, path)
+		tasks := loadTasksByDocumentID(t, st, doc.ID)
+		if len(tasks) != 1 {
+			t.Fatalf("expected %s to have one queued task, got %d", path, len(tasks))
+		}
 	}
 
 	modA2 := modA1.Add(3 * time.Minute)
@@ -2928,8 +6317,8 @@ func TestNonWatchSnapshotDiffAndSelectionToken(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing node for path %s", pathA)
 	}
-	if nodeA.UpdateType != "MODIFIED" {
-		t.Fatalf("expected %s MODIFIED, got %s", pathA, nodeA.UpdateType)
+	if nodeA.UpdateType != "NEW" {
+		t.Fatalf("expected %s to remain NEW before first sync succeeds, got %s", pathA, nodeA.UpdateType)
 	}
 	nodeB, ok := findTreeNodeByPath(tree2, pathB)
 	if !ok {
@@ -2973,6 +6362,90 @@ func TestNonWatchSnapshotDiffAndSelectionToken(t *testing.T) {
 	docB := loadDocumentByPath(t, st, src, pathB)
 	if docB.ParseStatus != "DELETED" {
 		t.Fatalf("expected deleted path parse_status=DELETED, got %s", docB.ParseStatus)
+	}
+}
+
+func TestScheduledTreeObservedSourceStateMaterializesAtDueTime(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "scheduled-tree-observed",
+		RootPath:          "/tmp/scheduled-tree-observed",
+		AgentID:           "agent-1",
+		WatchEnabled:      true,
+		IdleWindowSeconds: 10,
+		ReconcileSchedule: "daily@02:00:03",
+	})
+	if err != nil {
+		t.Fatalf("create scheduled source failed: %v", err)
+	}
+
+	path := "/tmp/scheduled-tree-observed/new-from-tree.txt"
+	modAt := time.Date(2026, 5, 16, 1, 59, 0, 0, time.UTC)
+	mutations, err := st.BuildMutationsFromEvents(ctx, []model.FileEvent{
+		{SourceID: src.ID, EventType: "modified", Path: path, OccurredAt: modAt},
+	})
+	if err != nil {
+		t.Fatalf("build scheduled source mutation failed: %v", err)
+	}
+	if err := st.BatchApplyDocumentMutations(ctx, mutations); err != nil {
+		t.Fatalf("apply scheduled source mutation failed: %v", err)
+	}
+	var state sourceDocumentStateEntity
+	if err := st.db.WithContext(ctx).Where("source_id = ? AND path = ?", src.ID, path).Take(&state).Error; err != nil {
+		t.Fatalf("load source state before tree query failed: %v", err)
+	}
+	if state.NextSyncAt == nil {
+		t.Fatalf("expected next_sync_at before tree query")
+	}
+
+	items := []model.TreeNode{{Title: "new-from-tree.txt", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{path: {Path: path, Size: 10, ModTime: &modAt}}
+	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build tree state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, path)
+	if !ok {
+		t.Fatalf("missing tree node %s", path)
+	}
+	if node.UpdateType != "NEW" || node.SyncState != syncStateScheduled {
+		t.Fatalf("expected scheduled NEW state before due time, got update=%s sync=%s", node.UpdateType, node.SyncState)
+	}
+
+	beforeDue := state.NextSyncAt.Add(-time.Second)
+	created, err := st.ScheduleDueParses(ctx, beforeDue)
+	if err != nil {
+		t.Fatalf("schedule before due failed: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("expected no task before due time, got %d", created)
+	}
+
+	due := state.NextSyncAt.Add(time.Second)
+	created, err = st.ScheduleDueParses(ctx, due)
+	if err != nil {
+		t.Fatalf("schedule at due time failed: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("expected one task at due time, got %d", created)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one task, got %d", len(tasks))
+	}
+	if normalizeTaskAction(tasks[0].TaskAction) != taskActionCreate {
+		t.Fatalf("expected create task, got %s", tasks[0].TaskAction)
+	}
+	var queuedState sourceDocumentStateEntity
+	if err := st.db.WithContext(ctx).Where("source_id = ? AND path = ?", src.ID, path).Take(&queuedState).Error; err != nil {
+		t.Fatalf("load source state failed: %v", err)
+	}
+	if queuedState.SyncState != syncStatePending || queuedState.ActiveTaskID != tasks[0].ID || queuedState.NextSyncAt != nil {
+		t.Fatalf("expected pending queued state, got sync=%s active=%d next=%v", queuedState.SyncState, queuedState.ActiveTaskID, queuedState.NextSyncAt)
 	}
 }
 
@@ -3024,8 +6497,8 @@ func TestNonWatchManualPullDoesNotCommitUnselectedFiles(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing node for path %s", pathA)
 	}
-	if nodeA.UpdateType != "UNCHANGED" {
-		t.Fatalf("expected selected path %s UNCHANGED, got %s", pathA, nodeA.UpdateType)
+	if nodeA.UpdateType != "NEW" {
+		t.Fatalf("expected selected path %s to remain NEW until sync succeeds, got %s", pathA, nodeA.UpdateType)
 	}
 	nodeB, ok := findTreeNodeByPath(tree, pathB)
 	if !ok {
@@ -3033,6 +6506,194 @@ func TestNonWatchManualPullDoesNotCommitUnselectedFiles(t *testing.T) {
 	}
 	if nodeB.UpdateType != "NEW" {
 		t.Fatalf("expected unselected path %s to remain NEW, got %s", pathB, nodeB.UpdateType)
+	}
+}
+
+func TestNonWatchSnapshotNewDoesNotOverrideParsedDocument(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		Name:                  "src-parsed-missing-snapshot",
+		RootPath:              "/tmp/watch",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/Test.md"
+	now := time.Now().UTC()
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		DesiredVersionID: "v1",
+		CurrentVersionID: "v1",
+		LastModifiedAt:   &now,
+		ParseStatus:      "SUCCEEDED",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "doc_test",
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create parsed document failed: %v", err)
+	}
+
+	items := []model.TreeNode{{Title: "Test.md", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, ModTime: &now, Checksum: "rev1"},
+	}
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build tree state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, path)
+	if !ok {
+		t.Fatalf("missing node for path %s", path)
+	}
+	if node.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected parsed document to ignore snapshot NEW, got %s", node.UpdateType)
+	}
+	if node.HasUpdate == nil || *node.HasUpdate {
+		t.Fatalf("expected has_update=false for parsed document, got %+v", node.HasUpdate)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	}
+	if resp.Items[0].UpdateType != "UNCHANGED" {
+		t.Fatalf("expected list update_type UNCHANGED, got %s", resp.Items[0].UpdateType)
+	}
+	if resp.Summary.PendingPullCount != 0 {
+		t.Fatalf("expected pending_pull_count=0, got %d", resp.Summary.PendingPullCount)
+	}
+
+	pullResp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		SelectionToken: token,
+		UpdatedOnly:    true,
+	})
+	if err != nil {
+		t.Fatalf("generate tasks failed: %v", err)
+	}
+	if pullResp.AcceptedCount != 0 || pullResp.IgnoredUnchangedCount != 1 {
+		t.Fatalf("expected parsed path ignored, got accepted=%d ignored=%d", pullResp.AcceptedCount, pullResp.IgnoredUnchangedCount)
+	}
+
+	treeAfter, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build tree after ignored pull failed: %v", err)
+	}
+	nodeAfter, ok := findTreeNodeByPath(treeAfter, path)
+	if !ok {
+		t.Fatalf("missing node after ignored pull for path %s", path)
+	}
+	if nodeAfter.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected snapshot baseline to be promoted, got %s", nodeAfter.UpdateType)
+	}
+}
+
+func TestNonWatchSnapshotNewDoesNotOverrideSucceededLatestTask(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "src-succeeded-task-missing-snapshot",
+		RootPath:          "/tmp/watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+	})
+	if err != nil {
+		t.Fatalf("create non-watch source failed: %v", err)
+	}
+
+	path := "/tmp/watch/Test.md"
+	now := time.Now().UTC()
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		DesiredVersionID: "v1",
+		LastModifiedAt:   &now,
+		ParseStatus:      "PENDING",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create document failed: %v", err)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	if err := st.db.WithContext(ctx).Create(&parseTaskEntity{
+		TenantID:                src.TenantID,
+		DocumentID:              doc.ID,
+		TaskAction:              taskActionCreate,
+		TargetVersionID:         "v1",
+		Status:                  "SUCCEEDED",
+		ScanOrchestrationStatus: "SUCCEEDED",
+		NextRunAt:               now,
+		FinishedAt:              &now,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create parse task failed: %v", err)
+	}
+
+	items := []model.TreeNode{{Title: "Test.md", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, ModTime: &now, Checksum: "rev1"},
+	}
+	tree, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build tree state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, path)
+	if !ok {
+		t.Fatalf("missing node for path %s", path)
+	}
+	if node.UpdateType != "UNCHANGED" {
+		t.Fatalf("expected succeeded task to ignore snapshot NEW, got %s", node.UpdateType)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].UpdateType != "UNCHANGED" {
+		t.Fatalf("expected list update_type UNCHANGED, got %+v", resp.Items)
+	}
+
+	pullResp, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
+		Mode:           "partial",
+		Paths:          []string{path},
+		SelectionToken: token,
+		UpdatedOnly:    true,
+	})
+	if err != nil {
+		t.Fatalf("generate tasks failed: %v", err)
+	}
+	if pullResp.AcceptedCount != 0 || pullResp.IgnoredUnchangedCount != 1 {
+		t.Fatalf("expected succeeded task path ignored, got accepted=%d ignored=%d", pullResp.AcceptedCount, pullResp.IgnoredUnchangedCount)
 	}
 }
 
@@ -3161,11 +6822,39 @@ func TestListSourceDocumentsKeepsUnselectedManualPreviewUpdates(t *testing.T) {
 	for _, item := range resp.Items {
 		updates[item.Path] = item.UpdateType
 	}
-	if updates[pathA] != "UNCHANGED" {
-		t.Fatalf("expected selected path %s UNCHANGED, got %s", pathA, updates[pathA])
+	if updates[pathA] != "NEW" {
+		t.Fatalf("expected selected path %s to remain NEW until sync succeeds, got %s", pathA, updates[pathA])
 	}
-	if updates[pathB] != "MODIFIED" {
-		t.Fatalf("expected unselected path %s to remain MODIFIED, got %s", pathB, updates[pathB])
+	if updates[pathB] != "NEW" {
+		t.Fatalf("expected unselected path %s to remain NEW before first sync, got %s", pathB, updates[pathB])
+	}
+
+	docA := loadDocumentByPath(t, st, src, pathA)
+	tasksA := loadTasksByDocumentID(t, st, docA.ID)
+	if len(tasksA) != 1 {
+		t.Fatalf("expected selected path %s to have one task, got %d", pathA, len(tasksA))
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasksA[0].ID, docA.ID, tasksA[0].TargetVersionID); err != nil {
+		t.Fatalf("mark selected task succeeded failed: %v", err)
+	}
+
+	resp, err = st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents after selected sync failed: %v", err)
+	}
+	updates = make(map[string]string, len(resp.Items))
+	for _, item := range resp.Items {
+		updates[item.Path] = item.UpdateType
+	}
+	if updates[pathA] != "UNCHANGED" {
+		t.Fatalf("expected selected path %s UNCHANGED after sync succeeds, got %s", pathA, updates[pathA])
+	}
+	if updates[pathB] != "NEW" {
+		t.Fatalf("expected unselected path %s to remain NEW before its first sync, got %s", pathB, updates[pathB])
 	}
 }
 
@@ -3204,11 +6893,15 @@ func TestSnapshotSourceAckDoesNotReplaceCommittedSnapshotItems(t *testing.T) {
 	}
 
 	var before sourceSnapshotRelationEntity
-	if err := st.db.WithContext(ctx).Take(&before, "source_id = ?", src.ID).Error; err != nil {
-		t.Fatalf("load relation before ack failed: %v", err)
+	beforeErr := st.db.WithContext(ctx).Take(&before, "source_id = ?", src.ID).Error
+	if beforeErr != nil && !errors.Is(beforeErr, gorm.ErrRecordNotFound) {
+		t.Fatalf("load relation before ack failed: %v", beforeErr)
 	}
-	if before.LastCommittedSnapshotID == "" {
-		t.Fatalf("expected committed snapshot before ack")
+	if before.LastCommittedSnapshotID != "" {
+		t.Fatalf("expected manual generate not to commit snapshot before sync, got %s", before.LastCommittedSnapshotID)
+	}
+	if before.LastPreviewSnapshotID != "" {
+		t.Fatalf("expected tree query not to persist preview snapshot, got %s", before.LastPreviewSnapshotID)
 	}
 
 	pulled, err := st.PullPendingCommands(ctx, model.PullCommandsRequest{
@@ -3232,11 +6925,15 @@ func TestSnapshotSourceAckDoesNotReplaceCommittedSnapshotItems(t *testing.T) {
 	}
 
 	var after sourceSnapshotRelationEntity
-	if err := st.db.WithContext(ctx).Take(&after, "source_id = ?", src.ID).Error; err != nil {
-		t.Fatalf("load relation after ack failed: %v", err)
+	afterErr := st.db.WithContext(ctx).Take(&after, "source_id = ?", src.ID).Error
+	if afterErr != nil && !errors.Is(afterErr, gorm.ErrRecordNotFound) {
+		t.Fatalf("load relation after ack failed: %v", afterErr)
 	}
-	if after.LastCommittedSnapshotID != before.LastCommittedSnapshotID {
+	if strings.TrimSpace(before.LastCommittedSnapshotID) != "" && after.LastCommittedSnapshotID != before.LastCommittedSnapshotID {
 		t.Fatalf("snapshot_source ack replaced committed snapshot: before=%s after=%s", before.LastCommittedSnapshotID, after.LastCommittedSnapshotID)
+	}
+	if strings.TrimSpace(before.LastCommittedSnapshotID) == "" && strings.TrimSpace(after.LastCommittedSnapshotID) != "" {
+		t.Fatalf("snapshot_source ack should not synthesize committed item snapshots, got %s", after.LastCommittedSnapshotID)
 	}
 
 	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
@@ -3247,8 +6944,8 @@ func TestSnapshotSourceAckDoesNotReplaceCommittedSnapshotItems(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing node for path %s", path)
 	}
-	if node.UpdateType != "UNCHANGED" {
-		t.Fatalf("expected unchanged after snapshot_source ack, got %s", node.UpdateType)
+	if node.UpdateType != "NEW" {
+		t.Fatalf("expected source state to remain NEW after snapshot_source ack before sync, got %s", node.UpdateType)
 	}
 }
 
@@ -3347,20 +7044,9 @@ func TestListSourceDocumentsUsesLatestNonWatchSnapshotState(t *testing.T) {
 		t.Fatalf("generate tasks with selection token failed: %v", err)
 	}
 
-	doc := loadDocumentByPath(t, st, src, path)
-	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
-		Where("id = ?", doc.ID).
-		Updates(map[string]any{
-			"desired_version_id": "v_stale_desired",
-			"current_version_id": "v_current",
-			"parse_status":       "SUCCEEDED",
-		}).Error; err != nil {
-		t.Fatalf("seed stale document versions failed: %v", err)
-	}
-
 	_, _, err = st.BuildTreeUpdateState(ctx, src.ID, items, stats)
 	if err != nil {
-		t.Fatalf("build unchanged preview failed: %v", err)
+		t.Fatalf("build pending preview failed: %v", err)
 	}
 
 	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
@@ -3374,14 +7060,41 @@ func TestListSourceDocumentsUsesLatestNonWatchSnapshotState(t *testing.T) {
 	if len(resp.Items) != 1 {
 		t.Fatalf("expected 1 document, got %d", len(resp.Items))
 	}
+	if resp.Items[0].UpdateType != "NEW" {
+		t.Fatalf("expected source state to remain NEW until sync, got %s", resp.Items[0].UpdateType)
+	}
+	if resp.Items[0].HasUpdate == nil || !*resp.Items[0].HasUpdate {
+		t.Fatalf("expected has_update=true before sync, got %+v", resp.Items[0].HasUpdate)
+	}
+	if resp.Summary.NewCount != 1 || resp.Summary.PendingPullCount != 1 {
+		t.Fatalf("expected source state to keep pending counts until sync, got new=%d pending=%d", resp.Summary.NewCount, resp.Summary.PendingPullCount)
+	}
+
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one parse task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark task succeeded failed: %v", err)
+	}
+
+	resp, err = st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents after sync failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document after sync, got %d", len(resp.Items))
+	}
 	if resp.Items[0].UpdateType != "UNCHANGED" {
-		t.Fatalf("expected snapshot state to mark document UNCHANGED, got %s", resp.Items[0].UpdateType)
+		t.Fatalf("expected sync success to clear source state, got %s", resp.Items[0].UpdateType)
 	}
-	if resp.Items[0].HasUpdate == nil || *resp.Items[0].HasUpdate {
-		t.Fatalf("expected has_update=false from snapshot state, got %+v", resp.Items[0].HasUpdate)
-	}
-	if resp.Summary.ModifiedCount != 0 || resp.Summary.PendingPullCount != 0 {
-		t.Fatalf("expected snapshot state to clear pending counts, got modified=%d pending=%d", resp.Summary.ModifiedCount, resp.Summary.PendingPullCount)
+	if resp.Summary.PendingPullCount != 0 {
+		t.Fatalf("expected pending_pull_count=0 after sync success, got %d", resp.Summary.PendingPullCount)
 	}
 }
 
@@ -3419,14 +7132,14 @@ func TestListSourceDocumentsIgnoresConsumedNonWatchPreview(t *testing.T) {
 		t.Fatalf("generate tasks with selection token failed: %v", err)
 	}
 
-	var consumed sourceFileSnapshotEntity
-	if err := st.db.WithContext(ctx).
+	var persistedPreviewCount int64
+	if err := st.db.WithContext(ctx).Model(&sourceFileSnapshotEntity{}).
 		Where("source_id = ? AND selection_token = ?", src.ID, token).
-		Take(&consumed).Error; err != nil {
-		t.Fatalf("load consumed snapshot failed: %v", err)
+		Count(&persistedPreviewCount).Error; err != nil {
+		t.Fatalf("count persisted previews failed: %v", err)
 	}
-	if consumed.ConsumedAt == nil {
-		t.Fatalf("expected preview to be consumed after generate tasks")
+	if persistedPreviewCount != 0 {
+		t.Fatalf("expected read-only selection token not to persist preview snapshots, got %d", persistedPreviewCount)
 	}
 
 	doc := loadDocumentByPath(t, st, src, path)
@@ -3486,15 +7199,22 @@ func TestListSourceDocumentsUsesConsumedWatchPreviewMetadata(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("generate watch tasks with selection token failed: %v", err)
 	}
-
-	var consumed sourceFileSnapshotEntity
-	if err := st.db.WithContext(ctx).
-		Where("source_id = ? AND selection_token = ?", src.ID, token).
-		Take(&consumed).Error; err != nil {
-		t.Fatalf("load consumed watch snapshot failed: %v", err)
+	if err := st.db.WithContext(ctx).Model(&sourceDocumentStateEntity{}).
+		Where("source_id = ? AND path = ?", src.ID, path).
+		Updates(map[string]any{
+			"source_size_bytes":  1234,
+			"source_modified_at": &modAt,
+		}).Error; err != nil {
+		t.Fatalf("seed source state metadata failed: %v", err)
 	}
-	if consumed.ConsumedAt == nil {
-		t.Fatalf("expected watch preview to be consumed after generate tasks")
+	var persistedPreviewCount int64
+	if err := st.db.WithContext(ctx).Model(&sourceFileSnapshotEntity{}).
+		Where("source_id = ? AND selection_token = ?", src.ID, token).
+		Count(&persistedPreviewCount).Error; err != nil {
+		t.Fatalf("count persisted watch previews failed: %v", err)
+	}
+	if persistedPreviewCount != 0 {
+		t.Fatalf("expected read-only selection token not to persist watch preview snapshots, got %d", persistedPreviewCount)
 	}
 
 	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
@@ -3509,10 +7229,7 @@ func TestListSourceDocumentsUsesConsumedWatchPreviewMetadata(t *testing.T) {
 		t.Fatalf("expected 1 document, got %d", len(resp.Items))
 	}
 	if resp.Items[0].SizeBytes != 1234 {
-		t.Fatalf("expected size_bytes=1234 from consumed watch preview, got %d", resp.Items[0].SizeBytes)
-	}
-	if resp.Summary.StorageBytes != 1234 {
-		t.Fatalf("expected storage_bytes=1234 from consumed watch preview, got %d", resp.Summary.StorageBytes)
+		t.Fatalf("expected size_bytes=1234 from source state metadata, got %d", resp.Items[0].SizeBytes)
 	}
 	if resp.Items[0].SourceUpdatedAt == nil || !resp.Items[0].SourceUpdatedAt.Equal(modAt) {
 		t.Fatalf("expected source_updated_at=%v, got %v", modAt, resp.Items[0].SourceUpdatedAt)
@@ -3554,14 +7271,14 @@ func TestGenerateTasksWithoutSelectionTokenConsumesNonWatchPreview(t *testing.T)
 	if resp.AcceptedCount != 1 {
 		t.Fatalf("expected accepted_count=1, got %d", resp.AcceptedCount)
 	}
-	var consumed sourceFileSnapshotEntity
-	if err := st.db.WithContext(ctx).
+	var persistedPreviewCount int64
+	if err := st.db.WithContext(ctx).Model(&sourceFileSnapshotEntity{}).
 		Where("source_id = ? AND selection_token = ?", src.ID, token).
-		Take(&consumed).Error; err != nil {
-		t.Fatalf("load consumed snapshot failed: %v", err)
+		Count(&persistedPreviewCount).Error; err != nil {
+		t.Fatalf("count persisted previews failed: %v", err)
 	}
-	if consumed.ConsumedAt == nil {
-		t.Fatalf("expected preview to be consumed after tokenless generate tasks")
+	if persistedPreviewCount != 0 {
+		t.Fatalf("expected tokenless generate to work without persisted previews, got %d", persistedPreviewCount)
 	}
 }
 
@@ -3587,25 +7304,32 @@ func TestBuildTreeUpdateStateFallsBackFromEmptyCommittedSnapshot(t *testing.T) {
 	stats := map[string]model.TreeFileStat{
 		path: {Path: path, Size: 10, ModTime: &modAt},
 	}
-	_, token, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
-	if err != nil {
-		t.Fatalf("build initial tree state failed: %v", err)
+	validCommittedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   validCommittedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("create valid committed snapshot failed: %v", err)
 	}
-	if _, err := st.GenerateTasksForSource(ctx, src.ID, model.GenerateTasksRequest{
-		Mode:           "partial",
-		Paths:          []string{path},
-		SelectionToken: token,
-	}); err != nil {
-		t.Fatalf("generate tasks with selection token failed: %v", err)
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: validCommittedID,
+		Path:       path,
+		IsDir:      false,
+		SizeBytes:  10,
+		ModTime:    &modAt,
+	}).Error; err != nil {
+		t.Fatalf("create valid committed snapshot item failed: %v", err)
 	}
-
-	var relation sourceSnapshotRelationEntity
-	if err := st.db.WithContext(ctx).Take(&relation, "source_id = ?", src.ID).Error; err != nil {
-		t.Fatalf("load relation failed: %v", err)
-	}
-	validCommittedID := relation.LastCommittedSnapshotID
-	if validCommittedID == "" {
-		t.Fatalf("expected valid committed snapshot")
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: validCommittedID,
+		UpdatedAt:               time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
 	}
 
 	emptyCommittedID := sourceSnapshotID()
@@ -3640,12 +7364,21 @@ func TestBuildTreeUpdateStateFallsBackFromEmptyCommittedSnapshot(t *testing.T) {
 	if node.UpdateType != "UNCHANGED" {
 		t.Fatalf("expected fallback baseline to mark unchanged, got %s", node.UpdateType)
 	}
-	preview, err := st.loadPreviewSnapshotBySelectionToken(ctx, src.ID, token2)
-	if err != nil {
-		t.Fatalf("load preview snapshot failed: %v", err)
+	payload, ok, err := decodeReadOnlySelectionToken(token2, time.Now().UTC())
+	if err != nil || !ok {
+		t.Fatalf("expected read-only selection token, ok=%v err=%v token=%s", ok, err, token2)
 	}
-	if preview.BaseSnapshotID != validCommittedID {
-		t.Fatalf("expected preview base snapshot %s, got %s", validCommittedID, preview.BaseSnapshotID)
+	if payload.Diff[path] != "UNCHANGED" {
+		t.Fatalf("expected read-only token to preserve unchanged diff, got %+v", payload.Diff)
+	}
+	var persistedPreviewCount int64
+	if err := st.db.WithContext(ctx).Model(&sourceFileSnapshotEntity{}).
+		Where("source_id = ? AND selection_token = ?", src.ID, token2).
+		Count(&persistedPreviewCount).Error; err != nil {
+		t.Fatalf("count persisted previews failed: %v", err)
+	}
+	if persistedPreviewCount != 0 {
+		t.Fatalf("expected tree query not to persist preview snapshot, got %d", persistedPreviewCount)
 	}
 }
 
@@ -3710,11 +7443,301 @@ func TestNonWatchSnapshotDiffMixedDirectoryAndSiblingFiles(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing node for path %s", path)
 		}
+		if node.UpdateType != "NEW" {
+			t.Fatalf("expected %s to remain NEW until sync succeeds, got %s", path, node.UpdateType)
+		}
+		if node.HasUpdate == nil || !*node.HasUpdate {
+			t.Fatalf("expected %s has_update=true before sync, got %+v", path, node.HasUpdate)
+		}
+	}
+
+	for _, path := range []string{nestedPath, siblingPath} {
+		doc := loadDocumentByPath(t, st, src, path)
+		tasks := loadTasksByDocumentID(t, st, doc.ID)
+		if len(tasks) != 1 {
+			t.Fatalf("expected %s to have one task, got %d", path, len(tasks))
+		}
+		if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+			t.Fatalf("mark task succeeded for %s failed: %v", path, err)
+		}
+	}
+
+	tree3, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build tree state after sync failed: %v", err)
+	}
+	for _, path := range []string{nestedPath, siblingPath} {
+		node, ok := findTreeNodeByPath(tree3, path)
+		if !ok {
+			t.Fatalf("missing node for path %s after sync", path)
+		}
 		if node.UpdateType != "UNCHANGED" {
-			t.Fatalf("expected %s UNCHANGED, got %s", path, node.UpdateType)
+			t.Fatalf("expected %s UNCHANGED after sync succeeds, got %s", path, node.UpdateType)
 		}
 		if node.HasUpdate == nil || *node.HasUpdate {
-			t.Fatalf("expected %s has_update=false, got %+v", path, node.HasUpdate)
+			t.Fatalf("expected %s has_update=false after sync, got %+v", path, node.HasUpdate)
 		}
+	}
+}
+
+func TestWatchTreeUsesPendingDocumentUpdateOverUnchangedSnapshot(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src := createTestSource(t, st)
+
+	path := "/tmp/watch/auto-updated.md"
+	modAt := time.Now().UTC().Add(-2 * time.Minute)
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    modAt,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       path,
+		IsDir:      false,
+		SizeBytes:  10,
+		Checksum:   "rev1",
+		ModTime:    &modAt,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               modAt,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		CoreDocumentID:   "core-doc-1",
+		DesiredVersionID: "v2",
+		CurrentVersionID: "v1",
+		LastModifiedAt:   &modAt,
+		ParseStatus:      "PENDING",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "node_auto_updated",
+		TriggerPolicy:    string(model.TriggerPolicyImmediate),
+		UpdatedAt:        modAt,
+	}).Error; err != nil {
+		t.Fatalf("create pending document failed: %v", err)
+	}
+
+	items := []model.TreeNode{{Title: "auto-updated.md", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, Checksum: "rev1", ModTime: &modAt},
+	}
+	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build watch tree state failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, path)
+	if !ok {
+		t.Fatalf("missing node for path %s", path)
+	}
+	if node.UpdateType != "MODIFIED" {
+		t.Fatalf("expected pending document update to win over unchanged snapshot, got %s", node.UpdateType)
+	}
+	if node.StatusSource != "DOCUMENTS" {
+		t.Fatalf("expected status_source DOCUMENTS, got %s", node.StatusSource)
+	}
+	if node.HasUpdate == nil || !*node.HasUpdate {
+		t.Fatalf("expected has_update=true, got %+v", node.HasUpdate)
+	}
+}
+
+func TestListSourceDocumentsKeepsPendingDocumentUpdateOverUnchangedSnapshot(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-auto-doc-list",
+		RootPath:              "/tmp/cloud-auto-doc-list",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-2 * time.Minute)
+	path := filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "docs", "auto-updated.md")
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       path,
+		IsDir:      false,
+		SizeBytes:  10,
+		Checksum:   "rev1",
+		ModTime:    &now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		CoreDocumentID:   "core-doc-cloud-1",
+		DesiredVersionID: "v2",
+		CurrentVersionID: "v1",
+		LastModifiedAt:   &now,
+		NextParseAt:      &now,
+		ParseStatus:      "PENDING",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "node_cloud_auto_updated",
+		TriggerPolicy:    string(model.TriggerPolicyImmediate),
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create pending cloud document failed: %v", err)
+	}
+
+	items := []model.TreeNode{{Title: "auto-updated.md", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, Checksum: "rev1", ModTime: &now},
+	}
+	if _, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats); err != nil {
+		t.Fatalf("build unchanged cloud preview failed: %v", err)
+	}
+
+	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
+		TenantID: src.TenantID,
+		Page:     1,
+		PageSize: 20,
+	})
+	if err != nil {
+		t.Fatalf("list source documents failed: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	}
+	if resp.Items[0].UpdateType != "MODIFIED" {
+		t.Fatalf("expected pending document update to remain MODIFIED, got %s", resp.Items[0].UpdateType)
+	}
+	if resp.Summary.ModifiedCount != 1 || resp.Summary.PendingPullCount != 1 {
+		t.Fatalf("expected modified=1 pending=1, got modified=%d pending=%d", resp.Summary.ModifiedCount, resp.Summary.PendingPullCount)
+	}
+}
+
+func TestNonWatchCloudTreeKeepsPendingDocumentUpdateOverUnchangedSnapshot(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud",
+		Name:                  "src-cloud-auto-tree",
+		RootPath:              "/tmp/cloud-auto-tree",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-2 * time.Minute)
+	path := filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "docs", "auto-updated.md")
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    1,
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotItemEntity{
+		SnapshotID: committedID,
+		Path:       path,
+		IsDir:      false,
+		SizeBytes:  10,
+		Checksum:   "rev1",
+		ModTime:    &now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot item failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&documentEntity{
+		TenantID:         src.TenantID,
+		SourceID:         src.ID,
+		SourceObjectID:   path,
+		CoreDocumentID:   "core-doc-cloud-tree-1",
+		DesiredVersionID: "v2",
+		CurrentVersionID: "v1",
+		LastModifiedAt:   &now,
+		NextParseAt:      &now,
+		ParseStatus:      "PENDING",
+		OriginType:       string(model.OriginTypeCloudSync),
+		OriginPlatform:   "FEISHU",
+		OriginRef:        "node_cloud_auto_tree_updated",
+		TriggerPolicy:    string(model.TriggerPolicyImmediate),
+		UpdatedAt:        now,
+	}).Error; err != nil {
+		t.Fatalf("create pending cloud document failed: %v", err)
+	}
+
+	items := []model.TreeNode{{Title: "auto-updated.md", Key: path, IsDir: false}}
+	stats := map[string]model.TreeFileStat{
+		path: {Path: path, Size: 10, Checksum: "rev1", ModTime: &now},
+	}
+	tree, _, err := st.BuildTreeUpdateState(ctx, src.ID, items, stats)
+	if err != nil {
+		t.Fatalf("build non-watch cloud tree failed: %v", err)
+	}
+	node, ok := findTreeNodeByPath(tree, path)
+	if !ok {
+		t.Fatalf("missing node for path %s", path)
+	}
+	if node.UpdateType != "MODIFIED" {
+		t.Fatalf("expected pending cloud document update to remain MODIFIED, got %s", node.UpdateType)
+	}
+	if node.StatusSource != "DOCUMENTS" {
+		t.Fatalf("expected status_source DOCUMENTS, got %s", node.StatusSource)
+	}
+	if node.HasUpdate == nil || !*node.HasUpdate {
+		t.Fatalf("expected has_update=true, got %+v", node.HasUpdate)
 	}
 }

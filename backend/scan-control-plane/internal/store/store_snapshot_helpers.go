@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -126,77 +125,6 @@ func (s *Store) snapshotItemsByPathDB(db *gorm.DB, snapshotID string) (map[strin
 		itemsMap[item.Path] = item
 	}
 	return itemsMap, nil
-}
-
-func (s *Store) promoteSelectedPreviewPathsToCommittedTx(tx *gorm.DB, sourceID string, preview sourceFileSnapshotEntity, selectedPaths []string, diffByPath map[string]string, now time.Time) (string, string, error) {
-	sourceID = strings.TrimSpace(sourceID)
-	previewID := strings.TrimSpace(preview.SnapshotID)
-	if sourceID == "" || previewID == "" {
-		return "", "", nil
-	}
-
-	baseItems, baseSnapshotID, err := s.snapshotItemsForDiffBaseDB(tx, sourceID, preview.BaseSnapshotID)
-	if err != nil {
-		return "", "", err
-	}
-	if len(selectedPaths) == 0 {
-		return "", baseSnapshotID, nil
-	}
-
-	previewItems, err := s.snapshotItemsByPathDB(tx, previewID)
-	if err != nil {
-		return "", "", err
-	}
-	merged := make(map[string]sourceFileSnapshotItemEntity, len(baseItems)+len(selectedPaths))
-	for path, item := range baseItems {
-		merged[path] = item
-	}
-	for _, rawPath := range selectedPaths {
-		path := filepath.Clean(strings.TrimSpace(rawPath))
-		if path == "" || path == "." {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(diffByPath[path]), "DELETED") {
-			delete(merged, path)
-			continue
-		}
-		item, ok := previewItems[path]
-		if !ok {
-			continue
-		}
-		merged[path] = item
-	}
-
-	committedID := sourceSnapshotID()
-	committed := sourceFileSnapshotEntity{
-		SnapshotID:     committedID,
-		SourceID:       sourceID,
-		TenantID:       preview.TenantID,
-		SnapshotType:   "COMMITTED",
-		BaseSnapshotID: baseSnapshotID,
-		FileCount:      int64(len(merged)),
-		CreatedAt:      now.UTC(),
-	}
-	if err := tx.Create(&committed).Error; err != nil {
-		return "", "", err
-	}
-	if err := createSnapshotItemsTx(tx, committedID, merged); err != nil {
-		return "", "", err
-	}
-	if err := tx.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "source_id"}},
-		DoUpdates: clause.Assignments(map[string]any{
-			"last_committed_snapshot_id": committedID,
-			"updated_at":                 now.UTC(),
-		}),
-	}).Create(&sourceSnapshotRelationEntity{
-		SourceID:                sourceID,
-		LastCommittedSnapshotID: committedID,
-		UpdatedAt:               now.UTC(),
-	}).Error; err != nil {
-		return "", "", err
-	}
-	return committedID, committedID, nil
 }
 
 func (s *Store) createResidualPreviewFromSelectionTx(tx *gorm.DB, sourceID string, preview sourceFileSnapshotEntity, baseSnapshotID string, now time.Time) error {

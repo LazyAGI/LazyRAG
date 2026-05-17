@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -948,6 +949,50 @@ func TestStreamUpstreamThreadEventsForwardsKeepalive(t *testing.T) {
 	}
 }
 
+func TestStreamUpstreamThreadEventsSendsKeepaliveWhenUpstreamIdle(t *testing.T) {
+	db := newAgentTestDB(t)
+	rec := newTestSSERecorder()
+	previousInterval := threadEventsKeepaliveInterval
+	threadEventsKeepaliveInterval = 20 * time.Millisecond
+	t.Cleanup(func() { threadEventsKeepaliveInterval = previousInterval })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bodyReader, bodyWriter := io.Pipe()
+	defer bodyReader.Close()
+	defer bodyWriter.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		var lastUpstreamEventID string
+		done <- streamUpstreamThreadEvents(ctx, rec, rec, db.DB, "thr_1", bodyReader, &lastUpstreamEventID, nil)
+	}()
+
+	select {
+	case chunk := <-rec.writeCh:
+		if chunk != ": keepalive\n\n" {
+			t.Fatalf("unexpected keepalive frame: %q", chunk)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for idle keepalive frame")
+	}
+
+	cancel()
+	_ = bodyWriter.Close()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("streamUpstreamThreadEvents returned unexpected error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("streamUpstreamThreadEvents did not stop after cancellation")
+	}
+
+	if got := rec.String(); !strings.Contains(got, ": keepalive\n\n") {
+		t.Fatalf("expected idle keepalive in response body, got %q", got)
+	}
+}
+
 func TestStreamMessageRecordsForwardsPublishedKeepalive(t *testing.T) {
 	db := newAgentTestDB(t)
 	session := &activeMessageStream{
@@ -1043,14 +1088,16 @@ func TestStreamThreadMessagesReturnsSSEActiveThreadError(t *testing.T) {
 	StreamThreadMessages(rec, req)
 
 	got := rec.String()
-	if !strings.Contains(got, "event: USER_ACTIVE_THREAD_EXISTS\n") {
-		t.Fatalf("expected USER_ACTIVE_THREAD_EXISTS event, got %q", got)
+	if strings.Contains(got, "event: USER_ACTIVE_THREAD_EXISTS\n") {
+		t.Fatalf("did not expect named USER_ACTIVE_THREAD_EXISTS event, got %q", got)
 	}
-	if !strings.Contains(got, `"type":"USER_ACTIVE_THREAD_EXISTS"`) {
-		t.Fatalf("expected USER_ACTIVE_THREAD_EXISTS payload type, got %q", got)
+	wantDataPrefix := `data: {"type":"USER_ACTIVE_THREAD_EXISTS","thread_id":"thr_new","message_id":"msg_thr_new_`
+	if !strings.Contains(got, wantDataPrefix) {
+		t.Fatalf("expected ordered USER_ACTIVE_THREAD_EXISTS payload, got %q", got)
 	}
-	if !strings.Contains(got, userActiveThreadExistsMessage) {
-		t.Fatalf("expected localized active thread message, got %q", got)
+	wantDataSuffix := `","message":"` + userActiveThreadExistsMessage + `","delta":"` + userActiveThreadExistsMessage + `"}`
+	if !strings.Contains(got, wantDataSuffix) {
+		t.Fatalf("expected localized active thread message fields, got %q", got)
 	}
 }
 

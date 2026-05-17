@@ -16,8 +16,11 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/lazyrag/scan_control_plane/internal/cloudsync/authclient"
+	cloudprovider "github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
 	"github.com/lazyrag/scan_control_plane/internal/coreclient"
 	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
 	"github.com/lazyrag/scan_control_plane/internal/store"
 )
 
@@ -32,6 +35,93 @@ func newServerTestStore(t *testing.T) *store.Store {
 		_ = st.Close()
 	})
 	return st
+}
+
+func TestCreateSourceRejectsDuplicateLocalRootPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	h := &Handler{store: st, core: coreclient.NewNoop(), log: zap.NewNop()}
+
+	body := `{"tenant_id":"tenant-1","name":"src-1","agent_id":"agent-1","root_path":"/tmp/watch","idle_window_seconds":300}`
+	req := httptest.NewRequest(http.MethodPost, "/api/scan/sources", strings.NewReader(body))
+	req.Header.Set("X-User-Id", "user-1")
+	w := httptest.NewRecorder()
+	h.createSource(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected first create status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/scan/sources", strings.NewReader(body))
+	req.Header.Set("X-User-Id", "user-1")
+	w = httptest.NewRecorder()
+	h.createSource(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate create status 409, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp model.ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode duplicate response failed: %v", err)
+	}
+	if resp.Code != "SOURCE_ALREADY_EXISTS" {
+		t.Fatalf("expected SOURCE_ALREADY_EXISTS, got %+v", resp)
+	}
+
+	var sources []model.Source
+	sources, err := st.ListSources(ctx, "tenant-1", "user-1")
+	if err != nil {
+		t.Fatalf("list sources failed: %v", err)
+	}
+	if len(sources) != 1 || sources[0].Name != "src-1" {
+		t.Fatalf("expected original source only, got %+v", sources)
+	}
+}
+
+func TestUpdateSourceRejectsDuplicateLocalRootPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	h := &Handler{store: st, core: coreclient.NewNoop(), log: zap.NewNop()}
+	first, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		CreateUserID:      "user-1",
+		Name:              "src-1",
+		AgentID:           "agent-1",
+		RootPath:          "/tmp/watch-a",
+		IdleWindowSeconds: 300,
+	})
+	if err != nil {
+		t.Fatalf("create first source failed: %v", err)
+	}
+	second, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		CreateUserID:      "user-1",
+		Name:              "src-2",
+		AgentID:           "agent-1",
+		RootPath:          "/tmp/watch-b",
+		IdleWindowSeconds: 300,
+	})
+	if err != nil {
+		t.Fatalf("create second source failed: %v", err)
+	}
+
+	body := fmt.Sprintf(`{"root_path":%q}`, first.RootPath)
+	req := httptest.NewRequest(http.MethodPut, "/api/scan/sources/"+second.ID, strings.NewReader(body))
+	req.SetPathValue("id", second.ID)
+	w := httptest.NewRecorder()
+	h.updateSource(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate update status 409, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp model.ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode duplicate response failed: %v", err)
+	}
+	if resp.Code != "SOURCE_ALREADY_EXISTS" {
+		t.Fatalf("expected SOURCE_ALREADY_EXISTS, got %+v", resp)
+	}
 }
 
 func TestFetchTreeFileStatsRunsInParallel(t *testing.T) {
@@ -310,6 +400,476 @@ func (f *fakeKnowledgeBaseCore) SearchTasksByDatasetAs(_ context.Context, datase
 		return f.searchStates, nil
 	}
 	return map[string]coreclient.TaskState{}, nil
+}
+
+type fakeCloudProvider struct {
+	validateErr error
+	validateReq cloudprovider.ListRequest
+	objects     []cloudprovider.RemoteObject
+}
+
+func (f *fakeCloudProvider) Name() string { return "feishu" }
+
+func (f *fakeCloudProvider) ListObjects(context.Context, cloudprovider.ListRequest) ([]cloudprovider.RemoteObject, error) {
+	if f.validateErr != nil {
+		return nil, f.validateErr
+	}
+	return append([]cloudprovider.RemoteObject(nil), f.objects...), nil
+}
+
+func (f *fakeCloudProvider) DownloadObject(context.Context, string, cloudprovider.RemoteObject) ([]byte, error) {
+	return nil, nil
+}
+
+func (f *fakeCloudProvider) ValidateTarget(_ context.Context, req cloudprovider.ListRequest) error {
+	f.validateReq = req
+	return f.validateErr
+}
+
+type fakeCloudAuth struct {
+	accessToken string
+	err         error
+}
+
+func (f fakeCloudAuth) GetAccessToken(context.Context, string) (authclient.TokenResponse, error) {
+	if f.err != nil {
+		return authclient.TokenResponse{}, f.err
+	}
+	return authclient.TokenResponse{
+		ConnectionID: "conn-1",
+		Provider:     "feishu",
+		AccessToken:  f.accessToken,
+		Status:       "ACTIVE",
+	}, nil
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func findTreeNodeByPath(items []model.TreeNode, path string) (model.TreeNode, bool) {
+	for _, item := range items {
+		if item.Key == path {
+			return item, true
+		}
+		if len(item.Children) > 0 {
+			if found, ok := findTreeNodeByPath(item.Children, path); ok {
+				return found, true
+			}
+		}
+	}
+	return model.TreeNode{}, false
+}
+
+func TestValidateCloudTargetEndpointUsesProvider(t *testing.T) {
+	provider := &fakeCloudProvider{}
+	h := &Handler{
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": provider},
+		log:            zap.NewNop(),
+	}
+
+	body := `{"provider":"feishu","auth_connection_id":"conn-1","target_type":"wiki_space","target_ref":"space-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/scan/cloud/target/validate", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.validateCloudTarget(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if provider.validateReq.AccessToken != "access-token-1" || provider.validateReq.TargetRef != "space-1" {
+		t.Fatalf("unexpected validation request: %#v", provider.validateReq)
+	}
+}
+
+func TestBuildCloudTreeBySourceLiveFoldsWikiPageWithChildren(t *testing.T) {
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		Name:                  "feishu wiki",
+		RootPath:              "/tmp/live-feishu-source",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn-1",
+		TargetType:       "wiki_space",
+		TargetRef:        "space-1",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	provider := &fakeCloudProvider{
+		objects: []cloudprovider.RemoteObject{
+			{
+				ExternalObjectID: "node_test2",
+				ExternalPath:     "test2",
+				ExternalName:     "test2",
+				ExternalKind:     "docx",
+				ExternalVersion:  "rev-test2",
+				ProviderMeta:     map[string]any{"has_child": true},
+			},
+			{
+				ExternalObjectID: "node_test222",
+				ExternalParentID: "node_test2",
+				ExternalPath:     "test2/test222",
+				ExternalName:     "test222",
+				ExternalKind:     "docx",
+				ExternalVersion:  "rev-test222",
+			},
+		},
+	}
+	h := &Handler{
+		store:          st,
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": provider},
+		log:            zap.NewNop(),
+	}
+	mirrorRoot := sourcelayout.CloudMirrorRoot(src.RootPath)
+	items, fileStats, err := h.buildCloudTreeBySourceLive(ctx, src, src.ID, mirrorRoot, 8, true)
+	if err != nil {
+		t.Fatalf("build live cloud tree failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one root wiki node, got %+v", items)
+	}
+	root := items[0]
+	if root.IsDir || root.Key != filepath.Join(mirrorRoot, "test2") || root.Title != "test2" || root.ExternalFileID != "node_test2" {
+		t.Fatalf("expected selectable parent wiki page node, got %+v", root)
+	}
+	if _, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test2", "test2.md")); ok {
+		t.Fatalf("did not expect mirrored parent page file as visible child")
+	}
+	if _, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test2", "test222.md")); !ok {
+		t.Fatalf("expected child wiki page under parent page, got %+v", root.Children)
+	}
+	if _, ok := fileStats[filepath.Join(mirrorRoot, "test2")]; !ok {
+		t.Fatalf("expected file stat keyed by tree path, got %+v", fileStats)
+	}
+	if _, ok := fileStats[filepath.Join(mirrorRoot, "test2", "test2.md")]; ok {
+		t.Fatalf("did not expect file stat keyed by mirrored parent page file")
+	}
+}
+
+func TestBuildCloudTreeBySourceLiveKeepsWikiTreeStableFromExistingIndex(t *testing.T) {
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		Name:                  "feishu wiki",
+		RootPath:              "/tmp/live-feishu-source-existing",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn-1",
+		TargetType:       "wiki_space",
+		TargetRef:        "space-1",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	mirrorRoot := sourcelayout.CloudMirrorRoot(src.RootPath)
+	now := time.Now().UTC()
+	if err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []store.CloudObjectIndexRecord{
+		{
+			ExternalObjectID: "node_test4",
+			ExternalName:     "test4",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-test4",
+			LocalRelPath:     "test4/test4.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "test4.md"),
+			Checksum:         "checksum-test4",
+			SizeBytes:        6,
+			ProviderMeta:     map[string]any{"has_child": true},
+		},
+		{
+			ExternalObjectID: "node_11111",
+			ExternalParentID: "node_test4",
+			ExternalName:     "11111",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-11111",
+			LocalRelPath:     "test4/11111/11111.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "11111", "11111.md"),
+			Checksum:         "checksum-11111",
+			SizeBytes:        14,
+			ProviderMeta:     map[string]any{"has_child": true},
+		},
+		{
+			ExternalObjectID: "node_33333",
+			ExternalParentID: "node_11111",
+			ExternalName:     "33333",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-33333",
+			LocalRelPath:     "test4/11111/33333.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "11111", "33333.md"),
+			Checksum:         "checksum-33333",
+			SizeBytes:        13,
+		},
+		{
+			ExternalObjectID: "node_222222",
+			ExternalParentID: "node_test4",
+			ExternalName:     "222222",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-222222",
+			LocalRelPath:     "test4/222222.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "222222.md"),
+			Checksum:         "checksum-222222",
+			SizeBytes:        15,
+		},
+	}, now); err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+
+	provider := &fakeCloudProvider{
+		objects: []cloudprovider.RemoteObject{
+			{ExternalObjectID: "node_test4", ExternalPath: "test4", ExternalName: "test4", ExternalKind: "docx", ExternalVersion: "rev-test4", ProviderMeta: map[string]any{"has_child": true}},
+			{ExternalObjectID: "node_11111", ExternalParentID: "node_test4", ExternalPath: "test4/11111", ExternalName: "11111", ExternalKind: "docx", ExternalVersion: "rev-11111", ProviderMeta: map[string]any{"has_child": true}},
+			{ExternalObjectID: "node_33333", ExternalParentID: "node_11111", ExternalPath: "test4/11111/33333", ExternalName: "33333", ExternalKind: "docx", ExternalVersion: "rev-33333"},
+			{ExternalObjectID: "node_222222", ExternalParentID: "node_test4", ExternalPath: "test4/222222", ExternalName: "222222", ExternalKind: "docx", ExternalVersion: "rev-222222"},
+		},
+	}
+	h := &Handler{
+		store:          st,
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": provider},
+		log:            zap.NewNop(),
+	}
+
+	items, fileStats, err := h.buildCloudTreeBySourceLive(ctx, src, src.ID, mirrorRoot, 8, true)
+	if err != nil {
+		t.Fatalf("build live cloud tree failed: %v", err)
+	}
+	root, ok := findTreeNodeByPath(items, filepath.Join(mirrorRoot, "test4"))
+	if !ok || root.IsDir {
+		t.Fatalf("expected selectable test4 wiki page, got %+v in %+v", root, items)
+	}
+	child, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test4", "11111"))
+	if !ok || child.IsDir {
+		t.Fatalf("expected selectable 11111 child page, got %+v under %+v", child, root.Children)
+	}
+	if _, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test4", "test4.md")); ok {
+		t.Fatalf("did not expect parent page mirror file as visible child")
+	}
+	if _, ok := findTreeNodeByPath(child.Children, filepath.Join(mirrorRoot, "test4", "11111", "11111.md")); ok {
+		t.Fatalf("did not expect nested parent page mirror file as visible child")
+	}
+	if _, ok := findTreeNodeByPath(child.Children, filepath.Join(mirrorRoot, "test4", "11111", "33333.md")); !ok {
+		t.Fatalf("expected 33333 leaf page under 11111, got %+v", child.Children)
+	}
+	if _, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test4", "222222.md")); !ok {
+		t.Fatalf("expected 222222 leaf page under test4, got %+v", root.Children)
+	}
+	if _, ok := fileStats[filepath.Join(mirrorRoot, "test4")]; !ok {
+		t.Fatalf("expected test4 display path stat, got %+v", fileStats)
+	}
+	if _, ok := fileStats[filepath.Join(mirrorRoot, "test4", "11111")]; !ok {
+		t.Fatalf("expected 11111 display path stat, got %+v", fileStats)
+	}
+}
+
+func TestBuildCloudTreeBySourceLiveMarksMissingIndexDeleted(t *testing.T) {
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		Name:                  "feishu drive",
+		RootPath:              "/tmp/live-feishu-delete-index",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn-1",
+		TargetType:       "drive_folder",
+		TargetRef:        "folder-1",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	mirrorRoot := sourcelayout.CloudMirrorRoot(src.RootPath)
+	now := time.Now().UTC()
+	if err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []store.CloudObjectIndexRecord{
+		{
+			ExternalObjectID: "obj_existing",
+			ExternalName:     "existing",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-1",
+			LocalRelPath:     "existing.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "existing.md"),
+			Checksum:         "rev-1",
+			SizeBytes:        10,
+		},
+		{
+			ExternalObjectID: "obj_deleted",
+			ExternalName:     "deleted",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-old",
+			LocalRelPath:     "deleted.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "deleted.md"),
+			Checksum:         "rev-old",
+			SizeBytes:        20,
+		},
+	}, now); err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+	provider := &fakeCloudProvider{
+		objects: []cloudprovider.RemoteObject{
+			{ExternalObjectID: "obj_existing", ExternalPath: "existing", ExternalName: "existing", ExternalKind: "docx", ExternalVersion: "rev-1"},
+		},
+	}
+	h := &Handler{
+		store:          st,
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": provider},
+		log:            zap.NewNop(),
+	}
+
+	if _, _, err := h.buildCloudTreeBySourceLive(ctx, src, src.ID, mirrorRoot, 8, true); err != nil {
+		t.Fatalf("build live cloud tree failed: %v", err)
+	}
+	rows, err := st.ListCloudObjectIndex(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("list cloud object index failed: %v", err)
+	}
+	deletedByID := map[string]bool{}
+	for _, row := range rows {
+		deletedByID[row.ExternalObjectID] = row.IsDeleted
+	}
+	if deletedByID["obj_existing"] {
+		t.Fatalf("expected existing object to remain active")
+	}
+	if !deletedByID["obj_deleted"] {
+		t.Fatalf("expected missing object to be marked deleted, got %+v", rows)
+	}
+}
+
+func TestUpsertCloudBindingValidationFailureCleansNewCloudSourceAndDataset(t *testing.T) {
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		CreateUserID:          "user-1",
+		Name:                  "bad feishu source",
+		AgentID:               "agent-1",
+		DatasetID:             "ds-bad-target",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	core := &fakeKnowledgeBaseCore{}
+	provider := &fakeCloudProvider{validateErr: errors.New("space not found")}
+	h := &Handler{
+		store:          st,
+		core:           core,
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": provider},
+		log:            zap.NewNop(),
+	}
+
+	body := `{"provider":"feishu","enabled":true,"auth_connection_id":"conn-1","target_type":"wiki_space","target_ref":"bad-space"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/scan/sources/"+src.ID+"/cloud/binding", strings.NewReader(body))
+	req.SetPathValue("id", src.ID)
+	req.Header.Set("X-User-Id", "user-1")
+	w := httptest.NewRecorder()
+	h.upsertCloudBinding(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := st.GetSource(ctx, src.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected newly-created source to be cleaned up, got err=%v", err)
+	}
+	if core.deleteDatasetID != "ds-bad-target" || core.deleteUserID != "user-1" {
+		t.Fatalf("expected dataset cleanup as user-1, got dataset=%q user=%q", core.deleteDatasetID, core.deleteUserID)
+	}
+	if provider.validateReq.TargetRef != "bad-space" || provider.validateReq.AccessToken != "access-token-1" {
+		t.Fatalf("unexpected validation request: %#v", provider.validateReq)
+	}
+}
+
+func TestUpsertCloudBindingValidationFailureKeepsExistingBinding(t *testing.T) {
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		CreateUserID:          "user-1",
+		Name:                  "existing feishu source",
+		AgentID:               "agent-1",
+		DatasetID:             "ds-existing",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	enabled := true
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          &enabled,
+		AuthConnectionID: "conn-1",
+		TargetType:       "wiki_space",
+		TargetRef:        "good-space",
+	}); err != nil {
+		t.Fatalf("seed cloud binding failed: %v", err)
+	}
+	core := &fakeKnowledgeBaseCore{}
+	h := &Handler{
+		store:          st,
+		core:           core,
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": &fakeCloudProvider{validateErr: errors.New("space not found")}},
+		log:            zap.NewNop(),
+	}
+
+	body := `{"provider":"feishu","enabled":true,"auth_connection_id":"conn-1","target_type":"wiki_space","target_ref":"bad-space"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/scan/sources/"+src.ID+"/cloud/binding", strings.NewReader(body))
+	req.SetPathValue("id", src.ID)
+	req.Header.Set("X-User-Id", "user-1")
+	w := httptest.NewRecorder()
+	h.upsertCloudBinding(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := st.GetSource(ctx, src.ID); err != nil {
+		t.Fatalf("existing source should not be deleted, got err=%v", err)
+	}
+	binding, err := st.GetCloudSourceBinding(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("existing binding should remain: %v", err)
+	}
+	if binding.TargetRef != "good-space" {
+		t.Fatalf("expected original binding target to remain, got %q", binding.TargetRef)
+	}
+	if core.deleteDatasetID != "" {
+		t.Fatalf("existing dataset should not be deleted, got %q", core.deleteDatasetID)
+	}
 }
 
 func TestCreateKnowledgeBaseReusesUnboundScanManagedDataset(t *testing.T) {
