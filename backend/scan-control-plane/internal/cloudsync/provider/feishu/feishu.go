@@ -251,14 +251,23 @@ func (p *Provider) walkDriveFolder(
 			rawType = strings.TrimSpace(valueAsString(item["file_type"]))
 		}
 		currentPath := joinPath(parentPath, name)
-		mod := parseFeishuTime(valueAsString(item["modified_time"]))
-		if mod == nil {
-			mod = parseFeishuTime(valueAsString(item["edit_time"]))
-		}
+		mod := parseFirstFeishuTime(
+			valueAsString(item["modified_time"]),
+			valueAsString(item["edit_time"]),
+			valueAsString(item["updated_time"]),
+			valueAsString(item["update_time"]),
+			valueAsString(item["file_modified_time"]),
+			valueAsString(item["file_edit_time"]),
+			valueAsString(item["revision"]),
+		)
 		version := firstNonEmptyString(
 			valueAsString(item["revision"]),
 			valueAsString(item["modified_time"]),
 			valueAsString(item["edit_time"]),
+			valueAsString(item["updated_time"]),
+			valueAsString(item["update_time"]),
+			valueAsString(item["file_modified_time"]),
+			valueAsString(item["file_edit_time"]),
 		)
 		size := valueAsInt64(item["size"])
 		isDir := strings.EqualFold(rawType, "folder")
@@ -480,17 +489,21 @@ func wikiNodeRemoteObject(node map[string]any, parentPath, parentID, fallbackTok
 	isDir := hasChild || objType == "folder" || objType == "wiki" || objType == "space"
 	currentPath := joinPath(parentPath, title)
 
-	mod := parseFeishuTime(valueAsString(node["update_time"]))
-	if mod == nil {
-		mod = parseFeishuTime(valueAsString(node["edit_time"]))
-	}
-	if mod == nil {
-		mod = parseFeishuTime(valueAsString(node["modified_time"]))
-	}
-	version := firstNonEmptyString(
+	mod := parseFirstFeishuTime(
+		valueAsString(node["obj_edit_time"]),
 		valueAsString(node["update_time"]),
 		valueAsString(node["edit_time"]),
 		valueAsString(node["modified_time"]),
+		valueAsString(node["node_update_time"]),
+		valueAsString(node["obj_update_time"]),
+	)
+	version := firstNonEmptyString(
+		valueAsString(node["obj_edit_time"]),
+		valueAsString(node["update_time"]),
+		valueAsString(node["edit_time"]),
+		valueAsString(node["modified_time"]),
+		valueAsString(node["node_update_time"]),
+		valueAsString(node["obj_update_time"]),
 	)
 	downloadRef := objToken
 	if downloadRef == "" {
@@ -522,6 +535,15 @@ func wikiNodeRemoteObject(node map[string]any, parentPath, parentID, fallbackTok
 			"has_child":  hasChild,
 		},
 	}, nodeToken, isDir
+}
+
+func parseFirstFeishuTime(values ...string) *time.Time {
+	for _, value := range values {
+		if parsed := parseFeishuTime(value); parsed != nil {
+			return parsed
+		}
+	}
+	return nil
 }
 
 func (p *Provider) downloadDocRaw(ctx context.Context, accessToken, docToken string, isDocx bool) ([]byte, error) {

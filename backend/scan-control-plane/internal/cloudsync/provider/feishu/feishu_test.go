@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
 )
@@ -43,6 +44,65 @@ func TestListObjectsWikiSpaceIDListsNodesDirectly(t *testing.T) {
 	}
 	if objects[0].ExternalObjectID != "node-1" || objects[0].ExternalPath != "Doc" || objects[0].DownloadRef != "docx-1" {
 		t.Fatalf("unexpected object: %#v", objects[0])
+	}
+}
+
+func TestListObjectsWikiUsesObjEditTimeForVersion(t *testing.T) {
+	p := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wiki/v2/spaces/7354/nodes":
+			writeFeishuData(w, `{"items":[{"node_token":"node-1","title":"Doc","obj_type":"docx","obj_token":"docx-1","obj_edit_time":"1710001234"}]}`)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	})
+
+	objects, err := p.ListObjects(context.Background(), provider.ListRequest{
+		AccessToken: "token",
+		TargetType:  "wiki_space",
+		TargetRef:   "7354",
+	})
+	if err != nil {
+		t.Fatalf("ListObjects failed: %v", err)
+	}
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object, got %d", len(objects))
+	}
+	if objects[0].ExternalVersion != "1710001234" {
+		t.Fatalf("expected obj_edit_time version, got %q", objects[0].ExternalVersion)
+	}
+	want := time.Unix(1710001234, 0).UTC()
+	if objects[0].ExternalModifiedAt == nil || !objects[0].ExternalModifiedAt.UTC().Equal(want) {
+		t.Fatalf("expected modified_at=%s, got %v", want, objects[0].ExternalModifiedAt)
+	}
+}
+
+func TestListObjectsDriveUsesUpdateTimeForVersion(t *testing.T) {
+	p := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/drive/v1/files":
+			writeFeishuData(w, `{"files":[{"token":"file-1","name":"Doc.md","type":"file","update_time":"1710002222"}]}`)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	})
+
+	objects, err := p.ListObjects(context.Background(), provider.ListRequest{
+		AccessToken: "token",
+		TargetType:  "drive_folder",
+	})
+	if err != nil {
+		t.Fatalf("ListObjects failed: %v", err)
+	}
+	if len(objects) != 1 {
+		t.Fatalf("expected 1 object, got %d", len(objects))
+	}
+	if objects[0].ExternalVersion != "1710002222" {
+		t.Fatalf("expected update_time version, got %q", objects[0].ExternalVersion)
+	}
+	want := time.Unix(1710002222, 0).UTC()
+	if objects[0].ExternalModifiedAt == nil || !objects[0].ExternalModifiedAt.UTC().Equal(want) {
+		t.Fatalf("expected modified_at=%s, got %v", want, objects[0].ExternalModifiedAt)
 	}
 }
 

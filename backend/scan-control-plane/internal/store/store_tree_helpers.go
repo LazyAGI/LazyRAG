@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lazyrag/scan_control_plane/internal/model"
 	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
@@ -41,8 +42,48 @@ func collectTreeFilePaths(items []model.TreeNode) []string {
 	return out
 }
 
+func collectAllTreePaths(items []model.TreeNode) []string {
+	out := make([]string, 0, 64)
+	seen := make(map[string]struct{}, 64)
+	var walk func(nodes []model.TreeNode)
+	walk = func(nodes []model.TreeNode) {
+		for _, node := range nodes {
+			p := strings.TrimSpace(node.Key)
+			if p != "" {
+				p = filepath.Clean(p)
+				if p != "" && p != "." {
+					if _, ok := seen[p]; !ok {
+						seen[p] = struct{}{}
+						out = append(out, p)
+					}
+				}
+			}
+			if len(node.Children) > 0 {
+				walk(node.Children)
+			}
+		}
+	}
+	walk(items)
+	return out
+}
+
 func CollectTreeFilePaths(items []model.TreeNode) []string {
 	return collectTreeFilePaths(items)
+}
+
+func applySourceDocumentStatesToTree(items []model.TreeNode, states map[string]sourceDocumentStateView) []model.TreeNode {
+	out := make([]model.TreeNode, 0, len(items))
+	for _, node := range items {
+		item := node
+		if len(item.Children) > 0 {
+			item.Children = applySourceDocumentStatesToTree(item.Children, states)
+		}
+		if state, ok := states[filepath.Clean(strings.TrimSpace(item.Key))]; ok {
+			item = applyStateToTreeNode(item, state)
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func (s *Store) treeDocumentRowsByPath(ctx context.Context, sourceID string, paths []string) (map[string]treeDocumentRow, error) {
@@ -180,6 +221,7 @@ func applyWatchTreeNodeStates(items []model.TreeNode, diffByPath map[string]stri
 }
 
 func watchTreeNodeUpdateType(path string, doc treeDocumentRow, hasDoc bool, latestTask parseTaskDocJoin, hasLatestTask bool, diffByPath map[string]string) string {
+	snapshotUpdate := snapshotUpdateTypeWithDocumentState(diffByPath[filepath.Clean(strings.TrimSpace(path))], doc, hasDoc, latestTask, hasLatestTask)
 	docUpdate := "UNKNOWN"
 	if hasDoc {
 		docUpdate = inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
@@ -187,7 +229,9 @@ func watchTreeNodeUpdateType(path string, doc treeDocumentRow, hasDoc bool, late
 			return docUpdate
 		}
 	}
-	snapshotUpdate := snapshotUpdateTypeWithDocumentState(diffByPath[filepath.Clean(strings.TrimSpace(path))], doc, hasDoc, latestTask, hasLatestTask)
+	if snapshotUpdate == "NEW" || snapshotUpdate == "MODIFIED" {
+		return snapshotUpdate
+	}
 	if snapshotUpdate != "" {
 		return snapshotUpdate
 	}
@@ -220,7 +264,7 @@ func applySnapshotTreeNodeStates(items []model.TreeNode, diffByPath map[string]s
 		}
 		updateType := snapshotUpdateTypeWithDocumentState(diffByPath[path], doc, hasDoc, latestTask, hasLatestTask)
 		statusSource := "SNAPSHOT"
-		if hasDoc && documentUpdateShouldWinSnapshot(docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) {
+		if hasDoc && documentUpdateShouldOverrideSnapshotChange(updateType, docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) {
 			updateType = docUpdate
 			statusSource = "DOCUMENTS"
 		}
@@ -252,6 +296,10 @@ func (s *Store) filterPathsByUpdatedOnly(ctx context.Context, sourceID string, p
 	if len(paths) == 0 {
 		return nil, 0, nil
 	}
+	stateByPath, err := s.sourceDocumentStateByPaths(ctx, sourceID, paths)
+	if err != nil {
+		return nil, 0, err
+	}
 	docMap, err := s.treeDocumentRowsByPath(ctx, sourceID, paths)
 	if err != nil {
 		return nil, 0, err
@@ -263,6 +311,11 @@ func (s *Store) filterPathsByUpdatedOnly(ctx context.Context, sourceID string, p
 	filtered := make([]string, 0, len(paths))
 	ignored := 0
 	for _, path := range paths {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if updateType := pendingSourceStateUpdateType(stateByPath[path]); updateType != "" {
+			filtered = append(filtered, path)
+			continue
+		}
 		doc, ok := docMap[path]
 		if !ok {
 			// No document record yet, treat as NEW.
@@ -288,15 +341,26 @@ func snapshotUpdateTypeWithDocumentState(rawUpdate string, doc treeDocumentRow, 
 	return updateType
 }
 
-func filterPathsByDiff(paths []string, diffByPath map[string]string, docMap map[string]treeDocumentRow, queueMap map[int64]parseTaskDocJoin) ([]string, []string, int) {
+func filterPathsByDiff(paths []string, diffByPath map[string]string, docMap map[string]treeDocumentRow, queueMap map[int64]parseTaskDocJoin, stateByPath map[string]sourceDocumentStateView, selectionTakenAt time.Time) ([]string, int) {
 	filtered := make([]string, 0, len(paths))
-	promoteOnly := make([]string, 0)
 	ignored := 0
 	for _, path := range paths {
 		path = filepath.Clean(strings.TrimSpace(path))
+		if updateType := pendingSourceStateUpdateType(stateByPath[path]); updateType != "" {
+			if !selectionTakenAt.IsZero() && stateByPath[path].LastDetectedAt.After(selectionTakenAt.UTC()) {
+				filtered = append(filtered, path)
+				continue
+			}
+			switch normalizeSnapshotUpdateType(diffByPath[path]) {
+			case "NEW", "MODIFIED", "UNCHANGED":
+				filtered = append(filtered, path)
+				continue
+			}
+			filtered = append(filtered, path)
+			continue
+		}
 		doc, hasDoc := docMap[path]
 		latestTask, hasLatestTask := queueMap[doc.ID]
-		rawUpdateType := normalizeSnapshotUpdateType(diffByPath[path])
 		if hasDoc {
 			docUpdate := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
 			if documentUpdateShouldWinSnapshot(docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) {
@@ -309,43 +373,55 @@ func filterPathsByDiff(paths []string, diffByPath map[string]string, docMap map[
 			filtered = append(filtered, path)
 			continue
 		}
-		if rawUpdateType == "NEW" && updateType == "UNCHANGED" {
-			promoteOnly = append(promoteOnly, path)
-		}
 		ignored++
 	}
-	return filtered, promoteOnly, ignored
+	return filtered, ignored
 }
 
-func mergeSnapshotPromotionPaths(paths []string, promoteOnly []string) []string {
-	if len(promoteOnly) == 0 {
-		return paths
+func effectiveSelectionDiff(paths []string, diffByPath map[string]string, docMap map[string]treeDocumentRow, queueMap map[int64]parseTaskDocJoin, stateByPath map[string]sourceDocumentStateView) map[string]string {
+	out := make(map[string]string, len(diffByPath)+len(paths))
+	for path, updateType := range diffByPath {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if path == "" || path == "." {
+			continue
+		}
+		out[path] = normalizeSnapshotUpdateType(updateType)
 	}
-	merged := make([]string, 0, len(paths)+len(promoteOnly))
-	seen := make(map[string]struct{}, len(paths)+len(promoteOnly))
 	for _, rawPath := range paths {
 		path := filepath.Clean(strings.TrimSpace(rawPath))
 		if path == "" || path == "." {
 			continue
 		}
-		if _, ok := seen[path]; ok {
-			continue
+		doc, hasDoc := docMap[path]
+		latestTask, hasLatestTask := queueMap[doc.ID]
+		update := snapshotUpdateTypeWithDocumentState(out[path], doc, hasDoc, latestTask, hasLatestTask)
+		if hasDoc {
+			docUpdate := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
+			if documentUpdateShouldOverrideSnapshotChange(update, docUpdate, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask) {
+				update = docUpdate
+			}
 		}
-		seen[path] = struct{}{}
-		merged = append(merged, path)
+		if update == "" {
+			update = "UNKNOWN"
+		}
+		if sourceUpdate := stateUpdateType(stateByPath[path]); sourceUpdate != "" && sourceStateShouldOverrideUpdate(sourceUpdate, update) {
+			update = sourceUpdate
+		}
+		out[path] = normalizeSnapshotUpdateType(update)
 	}
-	for _, rawPath := range promoteOnly {
-		path := filepath.Clean(strings.TrimSpace(rawPath))
-		if path == "" || path == "." {
-			continue
-		}
-		if _, ok := seen[path]; ok {
-			continue
-		}
-		seen[path] = struct{}{}
-		merged = append(merged, path)
+	return normalizeSnapshotUpdateOverrides(out)
+}
+
+func documentUpdateShouldOverrideSnapshotChange(snapshotUpdate, docUpdate, desiredVersionID, parseStatus string, latestTask parseTaskDocJoin, hasLatestTask bool) bool {
+	if !documentUpdateShouldWinSnapshot(docUpdate, desiredVersionID, parseStatus, latestTask, hasLatestTask) {
+		return false
 	}
-	return merged
+	switch normalizeSnapshotUpdateType(snapshotUpdate) {
+	case "NEW", "MODIFIED":
+		return strings.EqualFold(strings.TrimSpace(docUpdate), "MODIFIED")
+	default:
+		return true
+	}
 }
 
 func (s *Store) deletedDocumentPathSet(ctx context.Context, sourceID string, paths []string) (map[string]struct{}, error) {
@@ -506,12 +582,46 @@ func cloudObjectWikiPageWithChildren(row cloudObjectIndexEntity) bool {
 	return cloudObjectProviderBool(row, "has_child")
 }
 
+func cloudObjectWikiPage(row cloudObjectIndexEntity) bool {
+	switch strings.ToLower(strings.TrimSpace(row.ExternalKind)) {
+	case "doc", "docx":
+	default:
+		return false
+	}
+	if cloudObjectWikiPageWithChildren(row) {
+		return true
+	}
+	meta := decodeMapJSON(row.ProviderMetaJSON)
+	for _, key := range []string{"node_token", "space_id", "obj_token", "obj_type", "wiki_token"} {
+		if strings.TrimSpace(fmt.Sprintf("%v", meta[key])) != "" && strings.TrimSpace(fmt.Sprintf("%v", meta[key])) != "<nil>" {
+			return true
+		}
+	}
+	return false
+}
+
+func cloudObjectWikiPageShouldFold(objectPath string, row cloudObjectIndexEntity) bool {
+	if !cloudObjectWikiPage(row) {
+		return false
+	}
+	if cloudObjectWikiPageWithChildren(row) {
+		return true
+	}
+	cleanPath := filepath.Clean(strings.TrimSpace(objectPath))
+	base := filepath.Base(cleanPath)
+	parent := filepath.Base(filepath.Dir(cleanPath))
+	if base == "." || parent == "." || parent == string(filepath.Separator) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSuffix(base, filepath.Ext(base)), parent)
+}
+
 func cloudObjectTreePath(objectPath string, row cloudObjectIndexEntity) string {
 	objectPath = filepath.Clean(strings.TrimSpace(objectPath))
 	if objectPath == "" || objectPath == "." {
 		return objectPath
 	}
-	if !cloudObjectWikiPageWithChildren(row) {
+	if !cloudObjectWikiPageShouldFold(objectPath, row) {
 		return objectPath
 	}
 	parent := filepath.Clean(filepath.Dir(objectPath))
@@ -525,15 +635,28 @@ func cloudTreePathToObjectPath(ctx context.Context, s *Store, sourceID, treePath
 	return cloudTreePathToObjectPathIncludingDeleted(ctx, s, sourceID, treePath, mirrorRoot, false)
 }
 
+type cloudTreeObjectRef struct {
+	ObjectPath       string
+	ExternalObjectID string
+}
+
 func cloudTreePathToObjectPathIncludingDeleted(ctx context.Context, s *Store, sourceID, treePath, mirrorRoot string, includeDeleted bool) (string, error) {
+	ref, err := cloudTreePathToObjectRefIncludingDeleted(ctx, s, sourceID, treePath, mirrorRoot, includeDeleted)
+	if err != nil {
+		return "", err
+	}
+	return ref.ObjectPath, nil
+}
+
+func cloudTreePathToObjectRefIncludingDeleted(ctx context.Context, s *Store, sourceID, treePath, mirrorRoot string, includeDeleted bool) (cloudTreeObjectRef, error) {
 	if s == nil {
-		return "", nil
+		return cloudTreeObjectRef{}, nil
 	}
 	sourceID = strings.TrimSpace(sourceID)
 	treePath = filepath.Clean(strings.TrimSpace(treePath))
 	mirrorRoot = filepath.Clean(strings.TrimSpace(mirrorRoot))
 	if sourceID == "" || treePath == "" || treePath == "." || mirrorRoot == "" || mirrorRoot == "." {
-		return "", nil
+		return cloudTreeObjectRef{}, nil
 	}
 	var rows []cloudObjectIndexEntity
 	query := s.db.WithContext(ctx).Where("source_id = ?", sourceID)
@@ -541,8 +664,10 @@ func cloudTreePathToObjectPathIncludingDeleted(ctx context.Context, s *Store, so
 		query = query.Where("is_deleted = ?", false)
 	}
 	if err := query.Find(&rows).Error; err != nil {
-		return "", err
+		return cloudTreeObjectRef{}, err
 	}
+	bestScore := -1
+	var best cloudTreeObjectRef
 	for _, row := range rows {
 		objectPath := resolveCloudObjectLocalPath(mirrorRoot, row)
 		if objectPath == "" {
@@ -550,10 +675,35 @@ func cloudTreePathToObjectPathIncludingDeleted(ctx context.Context, s *Store, so
 		}
 		objectPath = filepath.Clean(objectPath)
 		if cloudObjectTreePath(objectPath, row) == treePath {
-			return objectPath, nil
+			score := cloudTreeObjectRefScore(treePath, objectPath, row)
+			if score <= bestScore {
+				continue
+			}
+			bestScore = score
+			best = cloudTreeObjectRef{
+				ObjectPath:       objectPath,
+				ExternalObjectID: strings.TrimSpace(row.ExternalObjectID),
+			}
 		}
 	}
-	return "", nil
+	return best, nil
+}
+
+func cloudTreeObjectRefScore(treePath, objectPath string, row cloudObjectIndexEntity) int {
+	score := 0
+	if !cloudObjectIsDirectory(row.ExternalKind) {
+		score += 100
+	}
+	if cloudObjectWikiPageShouldFold(objectPath, row) {
+		score += 20
+	}
+	if filepath.Clean(strings.TrimSpace(objectPath)) != filepath.Clean(strings.TrimSpace(treePath)) {
+		score += 10
+	}
+	if strings.TrimSpace(row.ExternalObjectID) != "" {
+		score++
+	}
+	return score
 }
 
 func (s *Store) cloudTreePathsToObjectPaths(ctx context.Context, sourceID string, paths []string) (map[string]string, error) {
@@ -593,6 +743,91 @@ func (s *Store) cloudTreePathsToObjectPathsIncludingDeleted(ctx context.Context,
 		if strings.TrimSpace(objectPath) != "" {
 			out[treePath] = objectPath
 		}
+	}
+	return out, nil
+}
+
+func (s *Store) cloudTreePathsToObjectRefsIncludingDeleted(ctx context.Context, sourceID string, paths []string, includeDeleted bool) (map[string]cloudTreeObjectRef, error) {
+	out := make(map[string]cloudTreeObjectRef, len(paths))
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" || len(paths) == 0 {
+		return out, nil
+	}
+	var src sourceEntity
+	if err := s.db.WithContext(ctx).Take(&src, "id = ?", sourceID).Error; err != nil {
+		return nil, err
+	}
+	rootPath := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	if rootPath == "" || rootPath == "." {
+		return out, nil
+	}
+	wanted := make(map[string]struct{}, len(paths))
+	for _, rawPath := range paths {
+		path := filepath.Clean(strings.TrimSpace(rawPath))
+		if path == "" || path == "." {
+			continue
+		}
+		wanted[path] = struct{}{}
+	}
+	for treePath := range wanted {
+		ref, err := cloudTreePathToObjectRefIncludingDeleted(ctx, s, sourceID, treePath, rootPath, includeDeleted)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(ref.ObjectPath) != "" {
+			out[treePath] = ref
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) cloudObjectPathsToTreePathsIncludingDeleted(ctx context.Context, sourceID string, paths []string, includeDeleted bool) (map[string]string, error) {
+	out := make(map[string]string, len(paths))
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" || len(paths) == 0 {
+		return out, nil
+	}
+	var src sourceEntity
+	if err := s.db.WithContext(ctx).Take(&src, "id = ?", sourceID).Error; err != nil {
+		return nil, err
+	}
+	rootPath := filepath.Clean(sourcelayout.CloudMirrorRoot(src.RootPath))
+	if rootPath == "" || rootPath == "." {
+		return out, nil
+	}
+	wanted := make(map[string]struct{}, len(paths))
+	for _, rawPath := range paths {
+		path := filepath.Clean(strings.TrimSpace(rawPath))
+		if path == "" || path == "." {
+			continue
+		}
+		wanted[path] = struct{}{}
+	}
+	if len(wanted) == 0 {
+		return out, nil
+	}
+	var rows []cloudObjectIndexEntity
+	query := s.db.WithContext(ctx).Where("source_id = ?", sourceID)
+	if !includeDeleted {
+		query = query.Where("is_deleted = ?", false)
+	}
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		objectPath := resolveCloudObjectLocalPath(rootPath, row)
+		if objectPath == "" {
+			continue
+		}
+		objectPath = filepath.Clean(objectPath)
+		if _, ok := wanted[objectPath]; !ok {
+			continue
+		}
+		treePath := filepath.Clean(cloudObjectTreePath(objectPath, row))
+		if treePath == "" || treePath == "." {
+			continue
+		}
+		out[objectPath] = treePath
 	}
 	return out, nil
 }
@@ -802,29 +1037,26 @@ func ensureDeletedAtPath(nodes []model.TreeNode, ancestors []string, filePath, s
 		return append(nodes, node)
 	}
 	dirPath := ancestors[0]
-	idx := findDirNodeByKey(nodes, dirPath)
+	idx := findContainerNodeByKey(nodes, dirPath)
 	if idx < 0 {
 		selectable := false
-		hasUpdate := true
 		nodes = append(nodes, model.TreeNode{
 			Title:        nodeTitleFromPath(dirPath),
 			Key:          dirPath,
 			IsDir:        true,
-			HasUpdate:    &hasUpdate,
-			UpdateType:   "DELETED",
-			UpdateDesc:   updateTypeDescription("DELETED"),
+			UpdateType:   "UNCHANGED",
+			UpdateDesc:   updateTypeDescription("UNCHANGED"),
 			Selectable:   &selectable,
-			StatusSource: statusSource,
+			StatusSource: "UNKNOWN",
 		})
 		idx = len(nodes) - 1
 	}
 	child := nodes[idx]
-	if child.IsDir {
-		hasUpdate := true
-		child.HasUpdate = &hasUpdate
-		if strings.TrimSpace(child.UpdateType) == "" || strings.EqualFold(strings.TrimSpace(child.UpdateType), "UNKNOWN") {
-			child.UpdateType = "DELETED"
-			child.UpdateDesc = updateTypeDescription("DELETED")
+	if strings.TrimSpace(child.UpdateType) == "" || strings.EqualFold(strings.TrimSpace(child.UpdateType), "UNKNOWN") {
+		child.UpdateType = "UNCHANGED"
+		child.UpdateDesc = updateTypeDescription("UNCHANGED")
+		if child.StatusSource == "" {
+			child.StatusSource = "UNKNOWN"
 		}
 	}
 	child.Children = ensureDeletedAtPath(child.Children, ancestors[1:], filePath, statusSource, docMap, queueMap)
@@ -866,6 +1098,15 @@ func buildAncestorPaths(filePath, rootPath string) []string {
 func findDirNodeByKey(nodes []model.TreeNode, key string) int {
 	for i := range nodes {
 		if nodes[i].Key == key && nodes[i].IsDir {
+			return i
+		}
+	}
+	return -1
+}
+
+func findContainerNodeByKey(nodes []model.TreeNode, key string) int {
+	for i := range nodes {
+		if nodes[i].Key == key {
 			return i
 		}
 	}
@@ -995,11 +1236,53 @@ func (s *Store) deletedDocumentPaths(ctx context.Context, sourceID string, scope
 	var rows []struct {
 		SourceObjectID string
 	}
+	currentSet := make(map[string]struct{}, len(currentPaths))
+	for _, path := range currentPaths {
+		currentSet[filepath.Clean(strings.TrimSpace(path))] = struct{}{}
+	}
 	query := s.db.WithContext(ctx).
 		Table("documents").
 		Select("source_object_id").
 		Where("source_id = ?", sourceID)
 	query = applyPendingDeletedDocumentFilter(query, "parse_status")
+	query = applyTransientPathFilter(query, "source_object_id")
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		path := filepath.Clean(strings.TrimSpace(row.SourceObjectID))
+		if path == "" || path == "." {
+			continue
+		}
+		if len(scopeRoots) > 0 && !pathInScope(path, scopeRoots) {
+			continue
+		}
+		if _, ok := currentSet[path]; ok {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out, nil
+}
+
+func (s *Store) missingDocumentPaths(ctx context.Context, sourceID string, scopeRoots []string, currentPaths []string) ([]string, error) {
+	var rows []struct {
+		SourceObjectID string
+	}
+	query := s.db.WithContext(ctx).
+		Table("documents").
+		Select("source_object_id").
+		Where("source_id = ?", sourceID)
+	var src sourceEntity
+	if err := s.db.WithContext(ctx).Take(&src, "id = ?", strings.TrimSpace(sourceID)).Error; err == nil && sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
+		query = query.Where("UPPER(COALESCE(parse_status, '')) <> ?", "DELETED").
+			Where("(COALESCE(current_version_id, '') <> '' OR COALESCE(core_document_id, '') <> '')")
+	} else {
+		query = query.
+			Where("UPPER(COALESCE(parse_status, '')) IN ?", []string{"PENDING", "QUEUED", "RUNNING"}).
+			Where("COALESCE(current_version_id, '') = '' AND COALESCE(core_document_id, '') = ''")
+	}
 	query = applyTransientPathFilter(query, "source_object_id")
 	if err := query.Scan(&rows).Error; err != nil {
 		return nil, err

@@ -559,6 +559,212 @@ func TestBuildCloudTreeBySourceLiveFoldsWikiPageWithChildren(t *testing.T) {
 	}
 }
 
+func TestBuildCloudTreeBySourceLiveKeepsWikiTreeStableFromExistingIndex(t *testing.T) {
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		Name:                  "feishu wiki",
+		RootPath:              "/tmp/live-feishu-source-existing",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn-1",
+		TargetType:       "wiki_space",
+		TargetRef:        "space-1",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	mirrorRoot := sourcelayout.CloudMirrorRoot(src.RootPath)
+	now := time.Now().UTC()
+	if err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []store.CloudObjectIndexRecord{
+		{
+			ExternalObjectID: "node_test4",
+			ExternalName:     "test4",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-test4",
+			LocalRelPath:     "test4/test4.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "test4.md"),
+			Checksum:         "checksum-test4",
+			SizeBytes:        6,
+			ProviderMeta:     map[string]any{"has_child": true},
+		},
+		{
+			ExternalObjectID: "node_11111",
+			ExternalParentID: "node_test4",
+			ExternalName:     "11111",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-11111",
+			LocalRelPath:     "test4/11111/11111.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "11111", "11111.md"),
+			Checksum:         "checksum-11111",
+			SizeBytes:        14,
+			ProviderMeta:     map[string]any{"has_child": true},
+		},
+		{
+			ExternalObjectID: "node_33333",
+			ExternalParentID: "node_11111",
+			ExternalName:     "33333",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-33333",
+			LocalRelPath:     "test4/11111/33333.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "11111", "33333.md"),
+			Checksum:         "checksum-33333",
+			SizeBytes:        13,
+		},
+		{
+			ExternalObjectID: "node_222222",
+			ExternalParentID: "node_test4",
+			ExternalName:     "222222",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-222222",
+			LocalRelPath:     "test4/222222.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "test4", "222222.md"),
+			Checksum:         "checksum-222222",
+			SizeBytes:        15,
+		},
+	}, now); err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+
+	provider := &fakeCloudProvider{
+		objects: []cloudprovider.RemoteObject{
+			{ExternalObjectID: "node_test4", ExternalPath: "test4", ExternalName: "test4", ExternalKind: "docx", ExternalVersion: "rev-test4", ProviderMeta: map[string]any{"has_child": true}},
+			{ExternalObjectID: "node_11111", ExternalParentID: "node_test4", ExternalPath: "test4/11111", ExternalName: "11111", ExternalKind: "docx", ExternalVersion: "rev-11111", ProviderMeta: map[string]any{"has_child": true}},
+			{ExternalObjectID: "node_33333", ExternalParentID: "node_11111", ExternalPath: "test4/11111/33333", ExternalName: "33333", ExternalKind: "docx", ExternalVersion: "rev-33333"},
+			{ExternalObjectID: "node_222222", ExternalParentID: "node_test4", ExternalPath: "test4/222222", ExternalName: "222222", ExternalKind: "docx", ExternalVersion: "rev-222222"},
+		},
+	}
+	h := &Handler{
+		store:          st,
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": provider},
+		log:            zap.NewNop(),
+	}
+
+	items, fileStats, err := h.buildCloudTreeBySourceLive(ctx, src, src.ID, mirrorRoot, 8, true)
+	if err != nil {
+		t.Fatalf("build live cloud tree failed: %v", err)
+	}
+	root, ok := findTreeNodeByPath(items, filepath.Join(mirrorRoot, "test4"))
+	if !ok || root.IsDir {
+		t.Fatalf("expected selectable test4 wiki page, got %+v in %+v", root, items)
+	}
+	child, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test4", "11111"))
+	if !ok || child.IsDir {
+		t.Fatalf("expected selectable 11111 child page, got %+v under %+v", child, root.Children)
+	}
+	if _, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test4", "test4.md")); ok {
+		t.Fatalf("did not expect parent page mirror file as visible child")
+	}
+	if _, ok := findTreeNodeByPath(child.Children, filepath.Join(mirrorRoot, "test4", "11111", "11111.md")); ok {
+		t.Fatalf("did not expect nested parent page mirror file as visible child")
+	}
+	if _, ok := findTreeNodeByPath(child.Children, filepath.Join(mirrorRoot, "test4", "11111", "33333.md")); !ok {
+		t.Fatalf("expected 33333 leaf page under 11111, got %+v", child.Children)
+	}
+	if _, ok := findTreeNodeByPath(root.Children, filepath.Join(mirrorRoot, "test4", "222222.md")); !ok {
+		t.Fatalf("expected 222222 leaf page under test4, got %+v", root.Children)
+	}
+	if _, ok := fileStats[filepath.Join(mirrorRoot, "test4")]; !ok {
+		t.Fatalf("expected test4 display path stat, got %+v", fileStats)
+	}
+	if _, ok := fileStats[filepath.Join(mirrorRoot, "test4", "11111")]; !ok {
+		t.Fatalf("expected 11111 display path stat, got %+v", fileStats)
+	}
+}
+
+func TestBuildCloudTreeBySourceLiveMarksMissingIndexDeleted(t *testing.T) {
+	ctx := context.Background()
+	st := newServerTestStore(t)
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-1",
+		Name:                  "feishu drive",
+		RootPath:              "/tmp/live-feishu-delete-index",
+		AgentID:               "agent-1",
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+		DefaultTriggerPolicy:  string(model.TriggerPolicyImmediate),
+	})
+	if err != nil {
+		t.Fatalf("create source failed: %v", err)
+	}
+	if _, err := st.UpsertCloudSourceBinding(ctx, src.ID, model.UpsertCloudSourceBindingRequest{
+		Provider:         "feishu",
+		Enabled:          boolPtr(true),
+		AuthConnectionID: "conn-1",
+		TargetType:       "drive_folder",
+		TargetRef:        "folder-1",
+	}); err != nil {
+		t.Fatalf("upsert cloud binding failed: %v", err)
+	}
+
+	mirrorRoot := sourcelayout.CloudMirrorRoot(src.RootPath)
+	now := time.Now().UTC()
+	if err := st.UpsertCloudObjectIndexBatch(ctx, src.ID, "feishu", []store.CloudObjectIndexRecord{
+		{
+			ExternalObjectID: "obj_existing",
+			ExternalName:     "existing",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-1",
+			LocalRelPath:     "existing.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "existing.md"),
+			Checksum:         "rev-1",
+			SizeBytes:        10,
+		},
+		{
+			ExternalObjectID: "obj_deleted",
+			ExternalName:     "deleted",
+			ExternalKind:     "docx",
+			ExternalVersion:  "rev-old",
+			LocalRelPath:     "deleted.md",
+			LocalAbsPath:     filepath.Join(mirrorRoot, "deleted.md"),
+			Checksum:         "rev-old",
+			SizeBytes:        20,
+		},
+	}, now); err != nil {
+		t.Fatalf("seed cloud object index failed: %v", err)
+	}
+	provider := &fakeCloudProvider{
+		objects: []cloudprovider.RemoteObject{
+			{ExternalObjectID: "obj_existing", ExternalPath: "existing", ExternalName: "existing", ExternalKind: "docx", ExternalVersion: "rev-1"},
+		},
+	}
+	h := &Handler{
+		store:          st,
+		cloudAuth:      fakeCloudAuth{accessToken: "access-token-1"},
+		cloudProviders: map[string]cloudprovider.Provider{"feishu": provider},
+		log:            zap.NewNop(),
+	}
+
+	if _, _, err := h.buildCloudTreeBySourceLive(ctx, src, src.ID, mirrorRoot, 8, true); err != nil {
+		t.Fatalf("build live cloud tree failed: %v", err)
+	}
+	rows, err := st.ListCloudObjectIndex(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("list cloud object index failed: %v", err)
+	}
+	deletedByID := map[string]bool{}
+	for _, row := range rows {
+		deletedByID[row.ExternalObjectID] = row.IsDeleted
+	}
+	if deletedByID["obj_existing"] {
+		t.Fatalf("expected existing object to remain active")
+	}
+	if !deletedByID["obj_deleted"] {
+		t.Fatalf("expected missing object to be marked deleted, got %+v", rows)
+	}
+}
+
 func TestUpsertCloudBindingValidationFailureCleansNewCloudSourceAndDataset(t *testing.T) {
 	ctx := context.Background()
 	st := newServerTestStore(t)

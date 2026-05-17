@@ -345,6 +345,7 @@ func schemas() map[string]any {
 		}, []string{"id", "tenant_id", "name", "source_type", "root_path", "status", "watch_enabled", "idle_window_seconds", "reconcile_seconds", "agent_id", "created_at", "updated_at"}),
 		"CreateSourceRequest": inlineObj(map[string]any{
 			"tenant_id":               strSchema(),
+			"create_user_id":          strSchema(),
 			"name":                    strSchema(),
 			"root_path":               strSchema(),
 			"agent_id":                strSchema(),
@@ -580,7 +581,7 @@ func schemas() map[string]any {
 			"directory":                 strSchema(),
 			"tags":                      arrSchema(strSchema()),
 			"has_update":                boolSchema(),
-			"update_type":               strSchema(),
+			"update_type":               enumSchema("NEW", "MODIFIED", "DELETED", "UNCHANGED"),
 			"update_desc":               strSchema(),
 			"parse_state":               strSchema(),
 			"file_type":                 strSchema(),
@@ -591,6 +592,15 @@ func schemas() map[string]any {
 			"core_task_id":              strSchema(),
 			"core_task_state":           strSchema(),
 			"scan_orchestration_status": strSchema(),
+			"object_key":                strSchema(),
+			"source_state":              enumSchema("UNCHANGED", "NEW", "MODIFIED", "DELETED"),
+			"sync_state":                enumSchema("IDLE", "PENDING", "SCHEDULED", "RUNNING", "FAILED"),
+			"pending_action":            enumSchema("NONE", "CREATE", "UPDATE", "DELETE"),
+			"source_version":            strSchema(),
+			"baseline_version":          strSchema(),
+			"next_sync_at":              dateTimeSchema(),
+			"knowledge_base_present":    boolSchema(),
+			"last_error":                strSchema(),
 		}, []string{"document_id", "name", "path", "directory", "parse_state", "size_bytes"}),
 		"SourceDocumentsResponse": inlineObj(map[string]any{
 			"source":    refSchema("SourceDocumentsSource"),
@@ -783,18 +793,25 @@ func schemas() map[string]any {
 			"updated_only":  boolSchema(),
 		}, nil),
 		"TreeNode": inlineObj(map[string]any{
-			"title":             strSchema(),
-			"key":               strSchema(),
-			"is_dir":            boolSchema(),
-			"has_update":        boolSchema(),
-			"update_type":       strSchema(),
-			"update_desc":       strSchema(),
-			"selectable":        boolSchema(),
-			"external_file_id":  strSchema(),
-			"parse_queue_state": strSchema(),
-			"core_task_state":   strSchema(),
-			"status_source":     strSchema(),
-			"children":          arrSchema(refSchema("TreeNode")),
+			"title":                  strSchema(),
+			"key":                    strSchema(),
+			"is_dir":                 boolSchema(),
+			"has_update":             boolSchema(),
+			"update_type":            enumSchema("NEW", "MODIFIED", "DELETED", "UNCHANGED"),
+			"update_desc":            strSchema(),
+			"selectable":             boolSchema(),
+			"external_file_id":       strSchema(),
+			"parse_queue_state":      strSchema(),
+			"core_task_state":        strSchema(),
+			"status_source":          strSchema(),
+			"object_key":             strSchema(),
+			"source_state":           enumSchema("UNCHANGED", "NEW", "MODIFIED", "DELETED"),
+			"sync_state":             enumSchema("IDLE", "PENDING", "SCHEDULED", "RUNNING", "FAILED"),
+			"pending_action":         enumSchema("NONE", "CREATE", "UPDATE", "DELETE"),
+			"next_sync_at":           dateTimeSchema(),
+			"last_error":             strSchema(),
+			"knowledge_base_present": boolSchema(),
+			"children":               arrSchema(refSchema("TreeNode")),
 		}, []string{"title", "key", "is_dir"}),
 		"AgentPathTreeResponse": inlineObj(map[string]any{
 			"items":           arrSchema(refSchema("TreeNode")),
@@ -904,6 +921,17 @@ func arrSchema(item map[string]any) map[string]any {
 
 func strSchema() map[string]any {
 	return map[string]any{"type": "string"}
+}
+
+func enumSchema(values ...string) map[string]any {
+	items := make([]any, 0, len(values))
+	for _, value := range values {
+		items = append(items, value)
+	}
+	return map[string]any{
+		"type": "string",
+		"enum": items,
+	}
 }
 
 func intSchema() map[string]any {

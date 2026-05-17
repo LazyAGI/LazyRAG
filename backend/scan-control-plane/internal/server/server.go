@@ -1694,6 +1694,9 @@ func (h *Handler) buildCloudTreeBySourceLive(
 	nodeMap := make(map[string]*model.TreeNode, len(objects))
 	childMap := make(map[string]map[string]struct{}, len(objects))
 	fileStats := make(map[string]model.TreeFileStat, len(objects))
+	now := time.Now().UTC()
+	seenIndexIDs := make(map[string]struct{}, len(objects))
+	indexUpserts := make([]store.CloudObjectIndexRecord, 0, len(objects))
 	hasScopedObject := false
 	pathIsFile := false
 	filteredByPattern := 0
@@ -1712,6 +1715,10 @@ func (h *Handler) buildCloudTreeBySourceLive(
 	decisionSamples := make([]string, 0, 12)
 
 	for _, obj := range objects {
+		objectID := strings.TrimSpace(obj.ExternalObjectID)
+		if objectID != "" {
+			seenIndexIDs[objectID] = struct{}{}
+		}
 		decision := cloudIncludeObjectDecision(obj, binding.IncludePatterns, binding.ExcludePatterns)
 		decisionSamples = appendCloudFilterDecisionSample(decisionSamples, obj, decision, 12)
 		if !decision.Include {
@@ -1734,7 +1741,6 @@ func (h *Handler) buildCloudTreeBySourceLive(
 		default:
 			keptByNoIncludeRules++
 		}
-		objectID := strings.TrimSpace(obj.ExternalObjectID)
 		if objectID == "" {
 			continue
 		}
@@ -1751,6 +1757,38 @@ func (h *Handler) buildCloudTreeBySourceLive(
 			filteredByRootScope++
 			continue
 		}
+		externalVersion := strings.TrimSpace(obj.ExternalVersion)
+		sizeBytes := obj.SizeBytes
+		checksum := externalVersion
+		if existing, ok := existingByID[objectID]; ok {
+			if externalVersion == "" {
+				externalVersion = strings.TrimSpace(existing.ExternalVersion)
+			}
+			if strings.TrimSpace(existing.Checksum) != "" {
+				checksum = strings.TrimSpace(existing.Checksum)
+			}
+			if sizeBytes <= 0 {
+				sizeBytes = existing.SizeBytes
+			}
+		}
+		indexUpserts = append(indexUpserts, store.CloudObjectIndexRecord{
+			SourceID:           sourceID,
+			Provider:           providerName,
+			ExternalObjectID:   objectID,
+			ExternalParentID:   strings.TrimSpace(obj.ExternalParentID),
+			ExternalPath:       strings.TrimSpace(obj.ExternalPath),
+			ExternalName:       strings.TrimSpace(obj.ExternalName),
+			ExternalKind:       kind,
+			ExternalVersion:    externalVersion,
+			ExternalModifiedAt: obj.ExternalModifiedAt,
+			LocalRelPath:       strings.TrimSpace(relPath),
+			LocalAbsPath:       objectPath,
+			Checksum:           checksum,
+			SizeBytes:          sizeBytes,
+			IsDeleted:          false,
+			LastSyncedAt:       &now,
+			ProviderMeta:       obj.ProviderMeta,
+		})
 
 		treeObjectPath := cloudObjectTreePath(objectPath, kind, obj.ProviderMeta)
 		if treeObjectPath == "" || treeObjectPath == "." || !pathInSourceRoot(treeObjectPath, rootPath) {
@@ -1758,11 +1796,12 @@ func (h *Handler) buildCloudTreeBySourceLive(
 			continue
 		}
 
+		treeIsDir := isDir && !cloudWikiPageShouldFold(objectPath, kind, obj.ProviderMeta)
 		if treeObjectPath == treePath {
 			hasScopedObject = true
 			if !isDir && treeObjectPath == objectPath {
 				pathIsFile = true
-			} else if isDir {
+			} else if treeIsDir {
 				cloudEnsureNode(nodeMap, childMap, treeObjectPath, true, cloudObjectDisplayTitle(treeObjectPath, obj, true), "")
 			}
 		}
@@ -1823,7 +1862,7 @@ func (h *Handler) buildCloudTreeBySourceLive(
 			parentTreePath = strings.TrimSpace(cloudTreePathByObjectID(rootPath, parentID, objects, existingByID, pathOwner))
 		}
 		if treeObjectPath == objectPath {
-			cloudEnsureNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, isDir, cloudObjectDisplayTitle(treeObjectPath, obj, isDir), externalFileID)
+			cloudEnsureNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, treeIsDir, cloudObjectDisplayTitle(treeObjectPath, obj, treeIsDir), externalFileID)
 		} else {
 			cloudEnsureNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, false, cloudObjectDisplayTitle(treeObjectPath, obj, false), externalFileID)
 		}
@@ -1861,6 +1900,27 @@ func (h *Handler) buildCloudTreeBySourceLive(
 				zap.Strings("sample_filtered_by_pattern", filteredPatternSamples),
 				zap.Strings("sample_passed_pattern", passedPatternSamples),
 			)
+		}
+	}
+	if len(indexUpserts) > 0 {
+		if err := h.store.UpsertCloudObjectIndexBatch(ctx, sourceID, providerName, indexUpserts, now); err != nil {
+			return nil, nil, fmt.Errorf("refresh cloud object index failed: %w", err)
+		}
+	}
+	missingIndexIDs := make([]string, 0)
+	for _, row := range indexRows {
+		id := strings.TrimSpace(row.ExternalObjectID)
+		if id == "" || row.IsDeleted {
+			continue
+		}
+		if _, ok := seenIndexIDs[id]; ok {
+			continue
+		}
+		missingIndexIDs = append(missingIndexIDs, id)
+	}
+	if len(missingIndexIDs) > 0 {
+		if err := h.store.MarkCloudObjectsDeleted(ctx, sourceID, missingIndexIDs, now); err != nil {
+			return nil, nil, fmt.Errorf("refresh cloud object deleted marks failed: %w", err)
 		}
 	}
 
@@ -2052,6 +2112,39 @@ func cloudWikiPageWithChildren(kind string, meta map[string]any) bool {
 	return cloudBoolOption(meta, "has_child")
 }
 
+func cloudWikiPageObject(kind string, meta map[string]any) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "doc", "docx":
+	default:
+		return false
+	}
+	if cloudWikiPageWithChildren(kind, meta) {
+		return true
+	}
+	for _, key := range []string{"node_token", "space_id", "obj_token", "obj_type", "wiki_token"} {
+		if raw, ok := meta[key]; ok && raw != nil && strings.TrimSpace(fmt.Sprintf("%v", raw)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func cloudWikiPageShouldFold(objectPath, kind string, meta map[string]any) bool {
+	if !cloudWikiPageObject(kind, meta) {
+		return false
+	}
+	if cloudWikiPageWithChildren(kind, meta) {
+		return true
+	}
+	cleanPath := filepath.Clean(strings.TrimSpace(objectPath))
+	base := filepath.Base(cleanPath)
+	parent := filepath.Base(filepath.Dir(cleanPath))
+	if base == "." || parent == "." || parent == string(filepath.Separator) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSuffix(base, filepath.Ext(base)), parent)
+}
+
 func cloudNormalizeKind(kind string, meta map[string]any) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	if kind != "" {
@@ -2100,7 +2193,7 @@ func cloudObjectTreePath(objectPath, kind string, meta map[string]any) string {
 	if objectPath == "" || objectPath == "." {
 		return objectPath
 	}
-	if !cloudWikiPageWithChildren(kind, meta) {
+	if !cloudWikiPageShouldFold(objectPath, kind, meta) {
 		return objectPath
 	}
 	parent := filepath.Clean(filepath.Dir(objectPath))

@@ -495,6 +495,7 @@ func (s *Store) DeleteSource(ctx context.Context, id string) error {
 			return err
 		}
 		for _, cleanup := range []any{
+			&sourceDocumentStateEntity{},
 			&sourceSnapshotRelationEntity{},
 			&sourceBaselineSnapshotEntity{},
 			&reconcileSnapshotEntity{},
@@ -654,7 +655,7 @@ func (s *Store) UpsertCloudSourceBinding(ctx context.Context, sourceID string, r
 			scheduleExpr = "daily@02:00"
 		}
 		if scheduleExpr != "" {
-			if _, _, _, err := parseReconcileScheduleExpr(scheduleExpr); err != nil {
+			if _, _, _, _, err := parseReconcileScheduleExpr(scheduleExpr); err != nil {
 				return fmt.Errorf("invalid schedule_expr: %w", err)
 			}
 		}
@@ -1521,11 +1522,12 @@ func (s *Store) BuildCloudTreeByPath(ctx context.Context, sourceID, path string,
 		}
 
 		isDir := cloudObjectIsDirectory(row.ExternalKind)
+		treeIsDir := isDir && !cloudObjectWikiPageShouldFold(objectPath, row)
 		if treeObjectPath == targetPath {
 			hasScopedObject = true
 			if !isDir && treeObjectPath == objectPath {
 				pathIsFile = true
-			} else if isDir {
+			} else if treeIsDir {
 				ensureCloudNode(nodeMap, childMap, treeObjectPath, true, cloudObjectDisplayTitle(treeObjectPath, row, true), "")
 			}
 		}
@@ -1561,12 +1563,14 @@ func (s *Store) BuildCloudTreeByPath(ctx context.Context, sourceID, path string,
 				parentTreePath = parentPath
 				if _, ok := nodeMap[parentPath]; !ok {
 					parentRow := rowByExternalID[parentID]
-					ensureCloudNode(nodeMap, childMap, parentPath, cloudObjectIsDirectory(parentRow.ExternalKind), cloudObjectDisplayTitle(parentPath, parentRow, cloudObjectIsDirectory(parentRow.ExternalKind)), strings.TrimSpace(parentRow.ExternalObjectID))
+					parentObjectPath := resolveCloudObjectLocalPath(rootPath, parentRow)
+					parentIsDir := cloudObjectIsDirectory(parentRow.ExternalKind) && !cloudObjectWikiPageShouldFold(parentObjectPath, parentRow)
+					ensureCloudNode(nodeMap, childMap, parentPath, parentIsDir, cloudObjectDisplayTitle(parentPath, parentRow, parentIsDir), strings.TrimSpace(parentRow.ExternalObjectID))
 				}
 			}
 		}
 		if treeObjectPath == objectPath {
-			ensureCloudNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, isDir, cloudObjectDisplayTitle(treeObjectPath, row, isDir), externalFileID)
+			ensureCloudNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, treeIsDir, cloudObjectDisplayTitle(treeObjectPath, row, treeIsDir), externalFileID)
 			continue
 		}
 		ensureCloudNodeWithParent(nodeMap, childMap, treeObjectPath, parentTreePath, false, cloudObjectDisplayTitle(treeObjectPath, row, false), externalFileID)

@@ -31,6 +31,7 @@ type DocumentMutation struct {
 	OccurredAt        time.Time
 	ScheduleAt        *time.Time
 	ManualSync        bool
+	ForceSync         bool
 	OriginType        string
 	OriginPlatform    string
 	OriginRef         string
@@ -59,6 +60,11 @@ type PendingTask struct {
 	DesiredVersionID     string
 	AgentID              string
 	AgentListenAddr      string
+}
+
+type TaskSubmissionValidation struct {
+	Valid  bool
+	Reason string
 }
 
 type StageCommandPayload struct {
@@ -268,6 +274,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		&agentEntity{},
 		&agentCommandEntity{},
 		&documentEntity{},
+		&sourceDocumentStateEntity{},
 		&parseTaskEntity{},
 		&parseTaskDeadLetterEntity{},
 		&reconcileSnapshotEntity{},
