@@ -760,6 +760,8 @@ const zhCN = {
     dataSourceFeishuTargetTypeDrive: "Drive 文件夹",
     dataSourceFeishuTargetPlaceholderWiki: "例如：7354xxxxxxxxxxxx",
     dataSourceFeishuTargetPlaceholderDrive: "例如：fldxxxxxxxxxxxx",
+    dataSourceFeishuTargetValidateFailed:
+      "飞书目标校验未通过，请检查目标标识是否正确且当前账号有访问权限。",
     dataSourceSyncStrategyTitle: "同步策略",
     dataSourceSyncModeTitle: "同步方式",
     dataSourceSyncModeScheduled: "周期调度",

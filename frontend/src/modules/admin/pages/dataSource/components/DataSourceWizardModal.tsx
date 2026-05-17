@@ -74,6 +74,7 @@ interface DataSourceWizardModalProps {
   connectionVerified: boolean;
   syncMode: SyncMode;
   feishuTargetType: FeishuTargetType;
+  saving: boolean;
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
@@ -100,6 +101,7 @@ export default function DataSourceWizardModal({
   connectionVerified,
   syncMode,
   feishuTargetType,
+  saving,
   onClose,
   onPrev,
   onNext,
@@ -277,23 +279,27 @@ export default function DataSourceWizardModal({
       title={wizardMode === "edit" ? t("admin.dataSourceEdit") : t("admin.dataSourceCreate")}
       open={wizardOpen}
       width={980}
-      onCancel={onClose}
+      onCancel={() => {
+        if (!saving) {
+          onClose();
+        }
+      }}
       destroyOnHidden
       maskClosable={false}
       footer={
         <div className="data-source-wizard-footer">
-          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
           <Space>
             {wizardStep > 0 && !isEditMode ? (
-              <Button onClick={onPrev}>{t("admin.dataSourceWizardPrev")}</Button>
+              <Button disabled={saving} onClick={onPrev}>{t("admin.dataSourceWizardPrev")}</Button>
             ) : null}
             {wizardStep < 1 ? (
-              <Button type="primary" onClick={onNext}>
+              <Button type="primary" disabled={saving} onClick={onNext}>
                 {t("admin.dataSourceWizardNext")}
               </Button>
             ) : null}
             {wizardStep === 1 ? (
-              <Button type="primary" onClick={onSave}>
+              <Button type="primary" loading={saving} onClick={onSave}>
                 {t("admin.dataSourceSaveConfig")}
               </Button>
             ) : null}

@@ -804,6 +804,8 @@ const enUS = {
     dataSourceFeishuTargetTypeDrive: "Drive Folder",
     dataSourceFeishuTargetPlaceholderWiki: "e.g. 7354xxxxxxxxxxxx",
     dataSourceFeishuTargetPlaceholderDrive: "e.g. fldxxxxxxxxxxxx",
+    dataSourceFeishuTargetValidateFailed:
+      "Feishu target validation failed. Check that the target identifier is correct and accessible to the connected account.",
     dataSourceSyncStrategyTitle: "Sync Strategy",
     dataSourceSyncModeTitle: "Sync Mode",
     dataSourceSyncModeScheduled: "Scheduled",
