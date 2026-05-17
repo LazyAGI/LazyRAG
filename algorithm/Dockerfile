@@ -86,7 +86,6 @@ RUN chmod +x /app/algorithm/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
   LAZYMIND_DOCUMENT_SERVER_URL=http://parsing:8000 \
   LAZYMIND_SHARED_UPLOAD_DIR=/var/lib/lazymind/uploads \
-  LAZYLLM_MOUNT_DIR=/var/lib/lazymind/uploads \
   LAZYMIND_MAX_CONCURRENCY=10 \
   LAZYMIND_LLM_PRIORITY=0 \
   LAZYMIND_DEFAULT_CHAT_DATASET=algo \
