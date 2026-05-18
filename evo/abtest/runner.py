@@ -168,22 +168,6 @@ class _Ctx:
 
 
 def _phase_launch_chat(c: _Ctx) -> None:
-    if c.candidate is None and c.inputs.target_chat_url:
-        base_url = _chat_base_url(c.inputs.target_chat_url)
-        c.candidate = ChatInstance(
-            chat_id=c.inputs.candidate_chat_id or f'chat-{c.inputs.abtest_id}',
-            pid=None,
-            port=_url_port(base_url),
-            base_url=base_url,
-            source_dir=c.inputs.apply_worktree,
-            health_url=f'{base_url}/health',
-            status='healthy',
-            owner_thread_id=c.inputs.thread_id,
-        )
-        c.registry.register(c.candidate)
-        if not _probe_health(c.candidate, timeout_s=REUSE_HEALTH_TIMEOUT_S):
-            c.registry.purge(c.candidate.chat_id)
-            c.candidate = None
     if c.candidate is None or c.candidate.status != 'healthy':
         c.candidate = c.runner.launch(
             source_dir=c.inputs.apply_worktree,
@@ -269,6 +253,7 @@ def _phase_run_eval(c: _Ctx) -> None:
         filters=c.inputs.eval_options.get('filters') or {},
         require_trace=False,
         persist_report=False,
+        attempt_id=c.inputs.abtest_id,
         on_progress=lambda current, total: c.log.append_event(
             'abtest.progress',
             task_id=c.inputs.abtest_id,
