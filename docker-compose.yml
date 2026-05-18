@@ -327,7 +327,7 @@ services:
       args:
         <<: *mirror-args
     ports:
-      - "${LAZYRAG_FRONTEND_PORT:-8080}:80"
+      - "${LAZYMIND_FRONTEND_PORT:-8080}:80"
     expose:
       - "80"
     depends_on:
