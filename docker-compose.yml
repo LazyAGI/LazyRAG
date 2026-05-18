@@ -97,8 +97,6 @@ services:
     volumes:
       - ./kong.yml:/kong/kong.yml
       - ./kong/plugins/rbac-auth:/usr/local/share/lua/5.1/kong/plugins/rbac-auth
-    ports:
-      - "${KONG_PORT:-8080}:8000"
     depends_on:
       auth-service:
         condition: service_healthy
@@ -148,6 +146,8 @@ services:
       args:
         <<: *mirror-args
     command: ["-config", "/app/configs/control-plane.scan.yml"]
+    environment:
+      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
     volumes:
       - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
       - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
@@ -249,6 +249,7 @@ services:
     environment:
       OFFICE_CONVERT_ALLOWED_ROOTS: /var/lib/lazymind/uploads
       OFFICE_CONVERT_TIMEOUT_SECONDS: "900"
+      OFFICE_CONVERT_CONCURRENCY: ${OFFICE_CONVERT_CONCURRENCY:-4}
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
     healthcheck:
@@ -327,6 +328,8 @@ services:
         <<: *mirror-args
     expose:
       - "80"
+    ports:
+      - "${LAZYRAG_FRONTEND_PORT:-8080}:80"
     depends_on:
       kong:
         condition: service_started
@@ -553,6 +556,7 @@ services:
           - processor-worker
 
   lazyllm-algo:
+    image: lazyllm-algo:20260518-1
     build:
       network: host
       context: .
