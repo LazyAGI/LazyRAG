@@ -221,7 +221,7 @@ services:
       LAZYMIND_JWT_TTL_MINUTES: "60"
       LAZYMIND_JWT_REFRESH_TTL_DAYS: "7"
       RAGSCAN_SECRET_KEY: dev-ragscan-secret-key-change-me
-      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+       LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
       LAZYMIND_BOOTSTRAP_ADMIN_USERNAME: ${LAZYMIND_BOOTSTRAP_ADMIN_USERNAME:-admin}
       LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD:-admin}
     healthcheck:
@@ -284,7 +284,7 @@ services:
       LAZYMIND_PARSING_SERVICE_URL: http://lazyllm-parse-server:8000
       LAZYMIND_CHAT_SERVICE_URL: http://chat:8046
       LAZYMIND_EVO_SERVICE_URL: http://evo-api:8047
-      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+       LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
       LAZYMIND_OFFICE_CONVERT_WORKERS: "4"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
@@ -773,6 +773,8 @@ services:
     profiles:
       - milvus-dashboard
     image: zilliz/attu:v2.6.3
+    # ports:
+    #   - '127.0.0.1:3000:3000'
     environment:
       MILVUS_URL: milvus:19530
     depends_on:
@@ -813,6 +815,8 @@ services:
     profiles:
       - opensearch-dashboard
     image: opensearchproject/opensearch-dashboards:2.18.0
+    # ports:
+    #   - '127.0.0.1:5601:5601'
     expose:
       - '5601'
     environment:
