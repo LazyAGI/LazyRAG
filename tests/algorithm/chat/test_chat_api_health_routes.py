@@ -37,7 +37,7 @@ def test_health_route_reports_reachable_document_server(monkeypatch):
     module = _load_health_routes_module()
     client = _FakeAsyncClient(timeout=3.0)
 
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://doc-service:8080/path/')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_SERVER_URL', 'http://doc-service:8080/path/')
     monkeypatch.setattr(module.httpx, 'AsyncClient', lambda timeout: client)
 
     result = asyncio.run(module.health())
@@ -56,7 +56,7 @@ def test_health_route_captures_connection_error(monkeypatch):
         async def get(self, url):
             raise httpx.ConnectError('network down')
 
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_SERVER_URL', 'http://doc-service:8080')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_SERVER_URL', 'http://doc-service:8080')
     monkeypatch.setattr(module.httpx, 'AsyncClient', lambda timeout: _FailingAsyncClient(timeout=timeout))
 
     result = asyncio.run(module.health())

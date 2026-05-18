@@ -1,6 +1,6 @@
 """Upload state management: run directories, manifest, state, uploaded index.
 
-Directory layout under ~/.lazyrag/:
+Directory layout under ~/.lazymind/:
   datasets/<dataset_id>/uploaded.json  - cross-run index: relative_path -> entry
   runs/<run_id>/                        - per-run state
     manifest.json                       - directory snapshot
@@ -58,7 +58,7 @@ def _sanitize_dataset_id(dataset_id: str) -> str:
     """Reduce a dataset id to filesystem-safe chars for local paths.
 
     The backend permits slashes and other characters in ``dataset_id``, but
-    we use the id as a directory name under ``~/.lazyrag`` — a value like
+    we use the id as a directory name under ``~/.lazymind`` — a value like
     ``a/b`` or ``x/../y`` would otherwise create escaping or nested paths.
     Sanitise by replacing unsafe chars with ``_``; to keep collision-free
     with ids that only differ in those unsafe chars (e.g. ``team/a`` vs
@@ -240,7 +240,7 @@ def read_result(run_dir: Path) -> Dict[str, Any]:
 def _server_key(server_url: Optional[str]) -> str:
     """Short stable per-server token for namespacing local state.
 
-    The LazyRAG CLI can be used against multiple deployments; keying
+    The LazyMind CLI can be used against multiple deployments; keying
     dedup metadata by dataset_id alone would let uploads in one
     environment poison dedup decisions for another. When a server URL is
     known we prefix the path with a short hash of it; when it's not, we

@@ -5,13 +5,13 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	apidocs "lazyrag/core/docs"
+	apidocs "lazymind/core/docs"
 )
 
 const (
 	openAPITitle       = "Backend Core API"
 	openAPIVersion     = "0.1.0"
-	openAPIDescription = "LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。"
+	openAPIDescription = "LazyMind Go backend core API - proxies to algorithm services. text Kong text /api/core。"
 	apiPrefix          = "/api/core"
 )
 

@@ -70,9 +70,20 @@ export interface GlossaryChangeProposal {
 
 export type GlossaryConflictResolveMode = "separate" | "merge" | "create";
 
+export interface GlossaryMergeDraft {
+  groupIds: string[];
+  term: string;
+  aliases: string[];
+  content: string;
+}
+
 export interface GlossaryConflictResolution {
   mode: GlossaryConflictResolveMode;
   selectedGroupIds: string[];
+  mergeGroupIds?: string[];
+  mergeGroups?: string[][];
+  mergeDrafts?: GlossaryMergeDraft[];
+  writeGroupIds?: string[];
   newGroupTerm: string;
   newGroupAliases?: string[];
   newGroupContent?: string;

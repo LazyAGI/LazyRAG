@@ -6,7 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/lazyrag/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/config"
 )
 
 type Store interface {

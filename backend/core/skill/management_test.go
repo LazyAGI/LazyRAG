@@ -16,9 +16,9 @@ import (
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/evolution"
-	"lazyrag/core/store"
+	"lazymind/core/common/orm"
+	"lazymind/core/evolution"
+	"lazymind/core/store"
 )
 
 type generateSkillAPITestResponse struct {
@@ -383,7 +383,7 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 	defer func() {
 		_ = algoServer.Shutdown(context.Background())
 	}()
-	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+	t.Setenv("LAZYMIND_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
 
 	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
 	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
@@ -505,7 +505,7 @@ func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	algoServer := &http.Server{Handler: handler}
 	go func() { _ = algoServer.Serve(listener) }()
 	defer func() { _ = algoServer.Shutdown(context.Background()) }()
-	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+	t.Setenv("LAZYMIND_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
 
 	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
 	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
@@ -684,7 +684,7 @@ func TestGenerateAllowsGeneratedDescriptionChange(t *testing.T) {
 	algoServer := &http.Server{Handler: handler}
 	go func() { _ = algoServer.Serve(listener) }()
 	defer func() { _ = algoServer.Shutdown(context.Background()) }()
-	t.Setenv("LAZYRAG_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
+	t.Setenv("LAZYMIND_CHAT_SERVICE_URL", fmt.Sprintf("http://%s", listener.Addr().String()))
 
 	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
 	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"

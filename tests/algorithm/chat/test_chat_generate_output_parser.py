@@ -9,7 +9,7 @@ from processor.table_image_map import serialize_table_image_map
 
 def build_node(
     uid='node-1',
-    text='LazyRAG supports citations.',
+    text='LazyMind supports citations.',
     metadata=None,
     global_metadata=None,
 ):

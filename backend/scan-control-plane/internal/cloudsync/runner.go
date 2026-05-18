@@ -13,14 +13,14 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/authclient"
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/mirror"
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider/feishu"
-	"github.com/lazyrag/scan_control_plane/internal/config"
-	"github.com/lazyrag/scan_control_plane/internal/model"
-	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
-	"github.com/lazyrag/scan_control_plane/internal/store"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/authclient"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/mirror"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/provider/feishu"
+	"github.com/lazymind/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/sourcelayout"
+	"github.com/lazymind/scan_control_plane/internal/store"
 )
 
 type Store interface {

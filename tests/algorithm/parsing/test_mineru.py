@@ -31,10 +31,10 @@ def test_mineru_main_starts_configured_server(monkeypatch):
     monkeypatch.setitem(sys.modules, 'lazyllm.tools.servers', types.ModuleType('lazyllm.tools.servers'))
     monkeypatch.setitem(sys.modules, 'lazyllm.tools.servers.mineru', types.ModuleType('lazyllm.tools.servers.mineru'))
     monkeypatch.setitem(sys.modules, 'lazyllm.tools.servers.mineru.mineru_server_module', mineru_module)
-    monkeypatch.setenv('LAZYRAG_MINERU_SERVER_PORT', '19000')
-    monkeypatch.setenv('LAZYRAG_MINERU_BACKEND', 'vlm')
-    monkeypatch.setenv('LAZYRAG_MINERU_CACHE_DIR', '/tmp/mineru-cache')
-    monkeypatch.setenv('LAZYRAG_MINERU_IMAGE_SAVE_DIR', '/tmp/mineru-images')
+    monkeypatch.setenv('LAZYMIND_MINERU_SERVER_PORT', '19000')
+    monkeypatch.setenv('LAZYMIND_MINERU_BACKEND', 'vlm')
+    monkeypatch.setenv('LAZYMIND_MINERU_CACHE_DIR', '/tmp/mineru-cache')
+    monkeypatch.setenv('LAZYMIND_MINERU_IMAGE_SAVE_DIR', '/tmp/mineru-images')
 
     runpy.run_module('parsing.mineru', run_name='__main__')
 

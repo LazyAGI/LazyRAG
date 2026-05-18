@@ -99,7 +99,7 @@ def test_load_model_config_preserves_agentic_section(tmp_path):
 
 
 def test_get_config_path_returns_dynamic_by_default(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_MODEL_CONFIG_PATH', raising=False)
+    monkeypatch.delenv('LAZYMIND_MODEL_CONFIG_PATH', raising=False)
     path = get_config_path()
     assert path.endswith('runtime_models.yaml')
     assert 'inner' not in path
@@ -107,13 +107,13 @@ def test_get_config_path_returns_dynamic_by_default(monkeypatch):
 
 
 def test_get_config_path_alias_online(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', 'online')
+    monkeypatch.setenv('LAZYMIND_MODEL_CONFIG_PATH', 'online')
     path = get_config_path()
     assert path.endswith('runtime_models.online.yaml')
 
 
 def test_get_config_path_alias_dynamic(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', 'dynamic')
+    monkeypatch.setenv('LAZYMIND_MODEL_CONFIG_PATH', 'dynamic')
     path = get_config_path()
     assert path.endswith('runtime_models.yaml')
     assert 'inner' not in path
@@ -121,14 +121,14 @@ def test_get_config_path_alias_dynamic(monkeypatch):
 
 
 def test_get_config_path_alias_inner(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', 'inner')
+    monkeypatch.setenv('LAZYMIND_MODEL_CONFIG_PATH', 'inner')
     path = get_config_path()
     assert 'inner' in path
 
 
 def test_get_config_path_custom_override(monkeypatch, tmp_path):
     custom = str(tmp_path / 'custom.yaml')
-    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', custom)
+    monkeypatch.setenv('LAZYMIND_MODEL_CONFIG_PATH', custom)
     path = get_config_path()
     assert path == custom
 

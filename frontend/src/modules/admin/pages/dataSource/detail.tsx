@@ -381,11 +381,8 @@ function collectScanTreeFileKeys(nodes: ScanTreeNode[]): string[] {
   const keys: string[] = [];
   const walk = (items: ScanTreeNode[]) => {
     items.forEach((node) => {
-      if (node.is_dir) {
-        if (node.children?.length) {
-          walk(node.children);
-        }
-        return;
+      if (node.children?.length) {
+        walk(node.children);
       }
       if (node.selectable === false) {
         return;
@@ -936,24 +933,25 @@ export default function DataSourceDetail() {
       nodes.map((node) => {
         const children = node.children ? toDataNode(node.children) : undefined;
         const updateState = getTreeNodeUpdateState(node);
-        const updateMeta =
-          updateState !== "unchanged" ? getFileUpdateMeta(updateState, t) : null;
+        const updateMeta = getFileUpdateMeta(updateState, t);
+        const updateText = `${node.update_desc || ""}`.trim() || updateMeta.text;
+        const hasUpdateStatus =
+          typeof node.has_update === "boolean" || Boolean(node.update_type || node.update_desc);
 
         return {
           key: node.key,
           isLeaf: !node.is_dir,
           disableCheckbox: !node.is_dir && node.selectable === false,
-          title: node.is_dir ? (
-            <span>{node.title}</span>
-          ) : (
+          title: (
             <div className="data-source-sync-tree-file">
               <div className="data-source-sync-tree-file-main">
                 <span>{node.title}</span>
-                {updateMeta ? (
+                {hasUpdateStatus ? (
                   <span
                     className={`data-source-sync-tree-chip data-source-sync-tree-chip-${updateState}`}
+                    title={updateText}
                   >
-                    {updateMeta.text}
+                    {updateText}
                   </span>
                 ) : null}
               </div>

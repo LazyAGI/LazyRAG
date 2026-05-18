@@ -4,7 +4,7 @@ import redis
 
 
 _CLIENT: redis.Redis | None = None
-REDIS_URL_ENV = 'LAZYRAG_REDIS_URL'
+REDIS_URL_ENV = 'LAZYMIND_REDIS_URL'
 
 
 def redis_url() -> str:

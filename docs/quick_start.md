@@ -18,7 +18,7 @@ All commands are run from the repository root by default.
 
 ### 1. Model configuration
 
-Select a model config via `LAZYRAG_MODEL_CONFIG_PATH`. Three built-in shorthand values:
+Select a model config via `LAZYMIND_MODEL_CONFIG_PATH`. Three built-in shorthand values:
 
 | Value | Description |
 |-------|-------------|
@@ -32,7 +32,7 @@ For public cloud APIs, export the corresponding API key. The variable name must 
 
 ```bash
 export LAZYLLM_SILICONFLOW_API_KEY=your-key
-export LAZYRAG_MODEL_CONFIG_PATH=online
+export LAZYMIND_MODEL_CONFIG_PATH=online
 ```
 
 If the config references multiple providers, export all the corresponding keys at once. `docker-compose.yml` already passes through common LLM API key variables (`LAZYLLM_OPENAI_API_KEY`, `LAZYLLM_DEEPSEEK_API_KEY`, `LAZYLLM_SILICONFLOW_API_KEY`, etc.).
@@ -40,7 +40,7 @@ If the config references multiple providers, export all the corresponding keys a
 For on-premises models:
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=inner
+export LAZYMIND_MODEL_CONFIG_PATH=inner
 ```
 
 ### 2. OCR
@@ -48,30 +48,30 @@ export LAZYRAG_MODEL_CONFIG_PATH=inner
 OCR is disabled by default (built-in PDFReader is used):
 
 ```bash
-export LAZYRAG_OCR_SERVER_TYPE=none   # default, can be omitted
+export LAZYMIND_OCR_SERVER_TYPE=none   # default, can be omitted
 ```
 
 To enable local MinerU:
 
 ```bash
-export LAZYRAG_OCR_SERVER_TYPE=mineru
-# LAZYRAG_OCR_SERVER_URL is auto-derived to http://mineru:8000 when not set
+export LAZYMIND_OCR_SERVER_TYPE=mineru
+# LAZYMIND_OCR_SERVER_URL is auto-derived to http://mineru:8000 when not set
 ```
 
 To reuse an existing MinerU deployed on ECS / intranet:
 
 ```bash
-export LAZYRAG_OCR_SERVER_TYPE=mineru
-export LAZYRAG_OCR_SERVER_URL=http://your-inner-mineru:port
+export LAZYMIND_OCR_SERVER_TYPE=mineru
+export LAZYMIND_OCR_SERVER_URL=http://your-inner-mineru:port
 ```
 
-When `LAZYRAG_OCR_SERVER_URL` points to an external address, `make up` will not start the local `mineru` profile.
+When `LAZYMIND_OCR_SERVER_URL` points to an external address, `make up` will not start the local `mineru` profile.
 
 To enable PaddleOCR (GPU required):
 
 ```bash
-export LAZYRAG_OCR_SERVER_TYPE=paddleocr
-# LAZYRAG_OCR_SERVER_URL is auto-derived to http://paddleocr:8080 when not set
+export LAZYMIND_OCR_SERVER_TYPE=paddleocr
+# LAZYMIND_OCR_SERVER_URL is auto-derived to http://paddleocr:8080 when not set
 ```
 
 ### 3. Vector / segment stores
@@ -79,10 +79,10 @@ export LAZYRAG_OCR_SERVER_TYPE=paddleocr
 By default, Milvus and OpenSearch are deployed in-stack. To use external services:
 
 ```bash
-export LAZYRAG_MILVUS_URI=http://your-milvus:19530
-export LAZYRAG_OPENSEARCH_URI=https://your-opensearch:9200
-export LAZYRAG_OPENSEARCH_USER=admin
-export LAZYRAG_OPENSEARCH_PASSWORD=your-password
+export LAZYMIND_MILVUS_URI=http://your-milvus:19530
+export LAZYMIND_OPENSEARCH_URI=https://your-opensearch:9200
+export LAZYMIND_OPENSEARCH_USER=admin
+export LAZYMIND_OPENSEARCH_PASSWORD=your-password
 ```
 
 When the URIs stay at `http://milvus:19530` and `https://opensearch:9200`, the built-in services are deployed automatically.
@@ -92,7 +92,7 @@ When the URIs stay at `http://milvus:19530` and `https://opensearch:9200`, the b
 The frontend defaults to port **8090**. Override if the port is occupied:
 
 ```bash
-export LAZYRAG_FRONTEND_PORT=8080
+export LAZYMIND_FRONTEND_PORT=8080
 ```
 
 ### 5. Auth credentials (production)
@@ -100,9 +100,9 @@ export LAZYRAG_FRONTEND_PORT=8080
 Change these before deploying to production:
 
 ```bash
-export LAZYRAG_JWT_SECRET=your-strong-secret
-export LAZYRAG_BOOTSTRAP_ADMIN_USERNAME=admin
-export LAZYRAG_BOOTSTRAP_ADMIN_PASSWORD=your-password
+export LAZYMIND_JWT_SECRET=your-strong-secret
+export LAZYMIND_BOOTSTRAP_ADMIN_USERNAME=admin
+export LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD=your-password
 ```
 
 ### 6. Using a `.env` file
@@ -111,10 +111,10 @@ All variables above can be placed in a `.env` file at the repository root. The M
 
 ```bash
 # .env
-LAZYRAG_MODEL_CONFIG_PATH=online
+LAZYMIND_MODEL_CONFIG_PATH=online
 LAZYLLM_SILICONFLOW_API_KEY=your-key
-LAZYRAG_OCR_SERVER_TYPE=none
-LAZYRAG_FRONTEND_PORT=8090
+LAZYMIND_OCR_SERVER_TYPE=none
+LAZYMIND_FRONTEND_PORT=8090
 ```
 
 ---
@@ -146,14 +146,14 @@ make up SERVICES=chat,core
 ### Start with MinerU OCR
 
 ```bash
-export LAZYRAG_OCR_SERVER_TYPE=mineru
+export LAZYMIND_OCR_SERVER_TYPE=mineru
 make up
 ```
 
 ### Start with PaddleOCR (GPU)
 
 ```bash
-export LAZYRAG_OCR_SERVER_TYPE=paddleocr
+export LAZYMIND_OCR_SERVER_TYPE=paddleocr
 make up
 ```
 
@@ -161,18 +161,18 @@ make up
 
 ```bash
 make up \
-  LAZYRAG_MILVUS_URI=http://your-milvus:19530 \
-  LAZYRAG_OPENSEARCH_URI=https://your-opensearch:9200
+  LAZYMIND_MILVUS_URI=http://your-milvus:19530 \
+  LAZYMIND_OPENSEARCH_URI=https://your-opensearch:9200
 ```
 
 ### Enable store dashboards
 
 ```bash
-make up LAZYRAG_ENABLE_STORE_DASHBOARDS=1
+make up LAZYMIND_ENABLE_STORE_DASHBOARDS=1
 ```
 
 - Attu (Milvus): http://127.0.0.1:3000
-- OpenSearch Dashboards: http://127.0.0.1:5601 (login: `admin` / `LAZYRAG_OPENSEARCH_PASSWORD`)
+- OpenSearch Dashboards: http://127.0.0.1:5601 (login: `admin` / `LAZYMIND_OPENSEARCH_PASSWORD`)
 
 Dashboards bind to `127.0.0.1` only and are not started if the corresponding store is external.
 
@@ -233,10 +233,10 @@ Wipes Milvus, OpenSearch, uploads, and KB-related PostgreSQL tables. User accoun
 
 ```bash
 make reset-kb
-make up LAZYRAG_RESET_ALGO_ON_STARTUP=true
+make up LAZYMIND_RESET_ALGO_ON_STARTUP=true
 ```
 
-`LAZYRAG_RESET_ALGO_ON_STARTUP=true` is required after `reset-kb` so the algo service rebuilds its schema tables on next startup.
+`LAZYMIND_RESET_ALGO_ON_STARTUP=true` is required after `reset-kb` so the algo service rebuilds its schema tables on next startup.
 
 ### Fresh start (standard clean restart)
 
@@ -272,8 +272,8 @@ make up-build
 
 ```bash
 export LAZYLLM_SILICONFLOW_API_KEY=your-key
-export LAZYRAG_MODEL_CONFIG_PATH=online
-export LAZYRAG_OCR_SERVER_TYPE=none
+export LAZYMIND_MODEL_CONFIG_PATH=online
+export LAZYMIND_OCR_SERVER_TYPE=none
 
 make up-build
 ```
@@ -281,8 +281,8 @@ make up-build
 ### On-premises model + local MinerU
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=inner
-export LAZYRAG_OCR_SERVER_TYPE=mineru
+export LAZYMIND_MODEL_CONFIG_PATH=inner
+export LAZYMIND_OCR_SERVER_TYPE=mineru
 
 make up-build
 ```
@@ -290,9 +290,9 @@ make up-build
 ### On-premises model + external MinerU
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=inner
-export LAZYRAG_OCR_SERVER_TYPE=mineru
-export LAZYRAG_OCR_SERVER_URL=http://your-inner-mineru:port
+export LAZYMIND_MODEL_CONFIG_PATH=inner
+export LAZYMIND_OCR_SERVER_TYPE=mineru
+export LAZYMIND_OCR_SERVER_URL=http://your-inner-mineru:port
 
 make up-build
 ```
@@ -300,11 +300,11 @@ make up-build
 ### On-premises model + external Milvus / OpenSearch
 
 ```bash
-export LAZYRAG_MODEL_CONFIG_PATH=inner
-export LAZYRAG_MILVUS_URI=http://your-milvus:19530
-export LAZYRAG_OPENSEARCH_URI=https://your-opensearch:9200
-export LAZYRAG_OPENSEARCH_USER=admin
-export LAZYRAG_OPENSEARCH_PASSWORD=your-password
+export LAZYMIND_MODEL_CONFIG_PATH=inner
+export LAZYMIND_MILVUS_URI=http://your-milvus:19530
+export LAZYMIND_OPENSEARCH_URI=https://your-opensearch:9200
+export LAZYMIND_OPENSEARCH_USER=admin
+export LAZYMIND_OPENSEARCH_PASSWORD=your-password
 
 make up-build
 ```

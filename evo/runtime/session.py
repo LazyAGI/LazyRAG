@@ -98,7 +98,7 @@ class AnalysisSession:
 
                 self._llm_client = AutoModel(model=self.config.model_config.llm_role, config=get_config_path())
         if self._llm_client is None:
-            raise RuntimeError('LLM factory returned None; check LAZYRAG_EVO_LLM_ROLE and LAZYRAG_MODEL_CONFIG_PATH.')
+            raise RuntimeError('LLM factory returned None; check LAZYMIND_EVO_LLM_ROLE and LAZYMIND_MODEL_CONFIG_PATH.')
         return self._llm_client
 
     def get_embed_client(self) -> Any:

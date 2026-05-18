@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"lazyrag/core/log"
+	"lazymind/core/log"
 )
 
 const (

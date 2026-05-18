@@ -8,7 +8,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"lazyrag/core/log"
+	"lazymind/core/log"
 )
 
 // DB text *gorm.DB，text ACL text。text PostgreSQL、SQLite、MySQL。

@@ -123,7 +123,7 @@ def _round_summary(rr: RoundResult) -> str:
 
 
 def candidate_launch_env(worktree, alias_root=None) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k.startswith(('LAZYRAG_', 'EVO_', 'MAAS_'))}
+    env = {k: v for k, v in os.environ.items() if k.startswith(('LAZYMIND_', 'EVO_', 'MAAS_'))}
     env['PYTHONPATH'] = _candidate_pythonpath(worktree, alias_root)
     return env
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/provider"
 )
 
 func TestListObjectsWikiSpaceIDListsNodesDirectly(t *testing.T) {

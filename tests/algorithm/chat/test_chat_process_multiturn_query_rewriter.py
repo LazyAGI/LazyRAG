@@ -12,7 +12,7 @@ from chat.components.process.multiturn_query_rewriter import (
 
 def test_rewriter_input_validates_history_and_dates():
     data = RewriterInput(
-        chat_history=[{'role': 'user', 'content': '介绍 LazyRAG'}],
+        chat_history=[{'role': 'user', 'content': '介绍 LazyMind'}],
         last_user_query='它支持图片吗？',
         current_date=date(2026, 4, 16),
         has_appendix=False,
@@ -36,7 +36,7 @@ def test_multiturn_query_rewriter_updates_query_when_llm_returns_json(monkeypatc
         def __call__(self, payload, **kwargs):
             captured['payload'] = payload
             captured['kwargs'] = kwargs
-            return {'rewritten_query': 'LazyRAG 是否支持图片检索？'}
+            return {'rewritten_query': 'LazyMind 是否支持图片检索？'}
 
     class FakeLLM:
         def share(self, **kwargs):
@@ -48,11 +48,11 @@ def test_multiturn_query_rewriter_updates_query_when_llm_returns_json(monkeypatc
         types.SimpleNamespace(today=lambda: date(2026, 4, 16)),
     )
     rewriter = MultiturnQueryRewriter(FakeLLM())
-    user_input = {'query': '它支持图片吗？', 'history': [{'role': 'user', 'content': '介绍 LazyRAG'}]}
+    user_input = {'query': '它支持图片吗？', 'history': [{'role': 'user', 'content': '介绍 LazyMind'}]}
 
     result = rewriter.forward(user_input, temperature=0)
 
-    assert result['query'] == 'LazyRAG 是否支持图片检索？'
+    assert result['query'] == 'LazyMind 是否支持图片检索？'
     assert result['origin_query'] == '它支持图片吗？'
     assert '"current_date":"2026-04-16"' in captured['payload']
     assert captured['share_kwargs']['stream'] is False

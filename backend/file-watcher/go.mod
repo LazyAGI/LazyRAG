@@ -1,4 +1,4 @@
-module github.com/lazyrag/file_watcher
+module github.com/lazymind/file_watcher
 
 go 1.22
 

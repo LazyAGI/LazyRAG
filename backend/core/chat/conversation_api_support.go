@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"lazyrag/core/acl"
-	"lazyrag/core/common"
+	"lazymind/core/acl"
+	"lazymind/core/common"
 )
 
 func chatServiceURL() string {

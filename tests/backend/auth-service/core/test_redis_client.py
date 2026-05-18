@@ -6,7 +6,7 @@ import core.redis_client as redis_client_module
 def test_redis_url_requires_env(monkeypatch):
     monkeypatch.delenv(redis_client_module.REDIS_URL_ENV, raising=False)
 
-    with pytest.raises(RuntimeError, match='LAZYRAG_REDIS_URL is required'):
+    with pytest.raises(RuntimeError, match='LAZYMIND_REDIS_URL is required'):
         redis_client_module.redis_url()
 
 

@@ -1,4 +1,4 @@
-# lazyrag/utils/stream_scanner.py
+# lazymind/utils/stream_scanner.py
 from __future__ import annotations
 
 import re
@@ -164,6 +164,22 @@ class ImagePlugin(BasePlugin):
 
         # If all found, a complete '![...](...)'  exists; return None (no unclosed)
         return None
+
+
+def markdown_image_incomplete_pos(buf: str) -> int | None:
+    return ImagePlugin({}).last_incomplete_pos(buf)
+
+
+class MarkdownImageHoldPlugin(BasePlugin):
+    """Keep unclosed ``![alt](url)`` tokens in the scanner buffer across chunks."""
+
+    prefix_set = {'!'}
+
+    def match(self, src: str, pos: int):
+        return None
+
+    def last_incomplete_pos(self, buf: str) -> int | None:
+        return markdown_image_incomplete_pos(buf)
 
 
 # ============================================================

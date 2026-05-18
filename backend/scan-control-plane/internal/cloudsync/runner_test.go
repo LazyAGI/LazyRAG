@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
-	"github.com/lazyrag/scan_control_plane/internal/store"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazymind/scan_control_plane/internal/store"
 )
 
 func TestNormalizeManualScopePaths(t *testing.T) {

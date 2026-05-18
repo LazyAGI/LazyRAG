@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"time"
 
-	"lazyrag/core/acl"
+	"lazymind/core/acl"
 )
 
 // ACLCheckItem text ACL text。

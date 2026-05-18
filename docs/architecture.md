@@ -1,6 +1,6 @@
 # Architecture Reference
 
-This document covers the full service dependency graph, request auth chain, environment variables, and optional service configuration for LazyRAG.
+This document covers the full service dependency graph, request auth chain, environment variables, and optional service configuration for LazyMind.
 
 ---
 
@@ -49,16 +49,16 @@ db
 
 | Service | Profile | When enabled | Purpose |
 |---------|---------|--------------|---------|
-| **mineru** | `mineru` | `LAZYRAG_OCR_SERVER_TYPE=mineru` and URL `http://mineru:8000` | MinerU PDF parsing (layout analysis; install variant/backend configurable) |
-| **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYRAG_OCR_SERVER_TYPE=paddleocr` and URL `http://paddleocr:8080` | PaddleOCR-VL PDF parsing (GPU required) |
-| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYRAG_MILVUS_URI=http://milvus:19530` | Vector store for embeddings |
-| **attu** | `milvus-dashboard` | `LAZYRAG_ENABLE_MILVUS_DASHBOARD=1` and `LAZYRAG_MILVUS_URI=http://milvus:19530` | Milvus dashboard for collections, schema, and index troubleshooting |
-| **opensearch** | `opensearch` | `LAZYRAG_OPENSEARCH_URI=https://opensearch:9200` | Segment store for document chunks |
-| **opensearch-dashboards** | `opensearch-dashboard` | `LAZYRAG_ENABLE_OPENSEARCH_DASHBOARD=1` and `LAZYRAG_OPENSEARCH_URI=https://opensearch:9200` | OpenSearch dashboard for index, mapping, and query inspection |
+| **mineru** | `mineru` | `LAZYMIND_OCR_SERVER_TYPE=mineru` and URL `http://mineru:8000` | MinerU PDF parsing (layout analysis; install variant/backend configurable) |
+| **paddleocr** + **paddleocr-vlm-server** | `paddleocr` | `LAZYMIND_OCR_SERVER_TYPE=paddleocr` and URL `http://paddleocr:8080` | PaddleOCR-VL PDF parsing (GPU required) |
+| **milvus** + **milvus-etcd** + **milvus-minio** | `milvus` | `LAZYMIND_MILVUS_URI=http://milvus:19530` | Vector store for embeddings |
+| **attu** | `milvus-dashboard` | `LAZYMIND_ENABLE_MILVUS_DASHBOARD=1` and `LAZYMIND_MILVUS_URI=http://milvus:19530` | Milvus dashboard for collections, schema, and index troubleshooting |
+| **opensearch** | `opensearch` | `LAZYMIND_OPENSEARCH_URI=https://opensearch:9200` | Segment store for document chunks |
+| **opensearch-dashboards** | `opensearch-dashboard` | `LAZYMIND_ENABLE_OPENSEARCH_DASHBOARD=1` and `LAZYMIND_OPENSEARCH_URI=https://opensearch:9200` | OpenSearch dashboard for index, mapping, and query inspection |
 
 **Store for parsing** (required when using Processor/Worker):
 
-Milvus + OpenSearch are always required. If `LAZYRAG_MILVUS_URI` / `LAZYRAG_OPENSEARCH_URI` point to built-in services (`milvus:19530`, `opensearch:9200`), they are deployed automatically. If you provide external URIs, no deployment is needed.
+Milvus + OpenSearch are always required. If `LAZYMIND_MILVUS_URI` / `LAZYMIND_OPENSEARCH_URI` point to built-in services (`milvus:19530`, `opensearch:9200`), they are deployed automatically. If you provide external URIs, no deployment is needed.
 
 **OCR modes for parsing:**
 
@@ -70,17 +70,17 @@ Built-in store dashboards are disabled by default. When enabled, they bind only 
 
 - Attu (Milvus): http://127.0.0.1:3000
 - OpenSearch Dashboards: http://127.0.0.1:5601
-- OpenSearch Dashboards login: `admin` / `LAZYRAG_OPENSEARCH_PASSWORD`
+- OpenSearch Dashboards login: `admin` / `LAZYMIND_OPENSEARCH_PASSWORD`
 
-If `LAZYRAG_MILVUS_URI` or `LAZYRAG_OPENSEARCH_URI` points to an external service, the matching built-in dashboard is not deployed even when the flag is set.
+If `LAZYMIND_MILVUS_URI` or `LAZYMIND_OPENSEARCH_URI` points to an external service, the matching built-in dashboard is not deployed even when the flag is set.
 
 **MinerU configuration layers:**
 
-- Install variant: `LAZYRAG_MINERU_PACKAGE_VARIANT` (e.g. `pipeline` or `all`).
-- Runtime backend: `LAZYRAG_MINERU_BACKEND` (e.g. `pipeline` or `hybrid-auto-engine`).
-- Compatibility pin: `LAZYRAG_MINERU_NUMPY_VERSION` defaults to `1.26.4`.
+- Install variant: `LAZYMIND_MINERU_PACKAGE_VARIANT` (e.g. `pipeline` or `all`).
+- Runtime backend: `LAZYMIND_MINERU_BACKEND` (e.g. `pipeline` or `hybrid-auto-engine`).
+- Compatibility pin: `LAZYMIND_MINERU_NUMPY_VERSION` defaults to `1.26.4`.
 
-For local CPU development on macOS, the default combination is `LAZYRAG_MINERU_PACKAGE_VARIANT=pipeline` plus `LAZYRAG_MINERU_BACKEND=pipeline`.
+For local CPU development on macOS, the default combination is `LAZYMIND_MINERU_PACKAGE_VARIANT=pipeline` plus `LAZYMIND_MINERU_BACKEND=pipeline`.
 
 ---
 
@@ -138,9 +138,9 @@ Frontend
 | auth-service | `JWT_SECRET`, `JWT_TTL_MINUTES`, `JWT_REFRESH_TTL_DAYS` | Token config |
 | auth-service | `BOOTSTRAP_ADMIN_*` | Initial admin user |
 | processor-* | `DOC_TASK_DATABASE_URL` | Same DB for doc tasks |
-| parsing | `LAZYRAG_OCR_SERVER_TYPE` | `none` \| `mineru` \| `paddleocr` |
-| parsing | `LAZYRAG_MILVUS_URI`, `LAZYRAG_OPENSEARCH_URI`, `LAZYRAG_OPENSEARCH_USER`, `LAZYRAG_OPENSEARCH_PASSWORD` | Vector/segment stores (required) |
-| opensearch (profile) | `LAZYRAG_OPENSEARCH_PASSWORD` | Override for production |
+| parsing | `LAZYMIND_OCR_SERVER_TYPE` | `none` \| `mineru` \| `paddleocr` |
+| parsing | `LAZYMIND_MILVUS_URI`, `LAZYMIND_OPENSEARCH_URI`, `LAZYMIND_OPENSEARCH_USER`, `LAZYMIND_OPENSEARCH_PASSWORD` | Vector/segment stores (required) |
+| opensearch (profile) | `LAZYMIND_OPENSEARCH_PASSWORD` | Override for production |
 | milvus-minio (profile) | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Override for production |
 | chat | `DOCUMENT_SERVER_URL`, `MAX_CONCURRENCY` | Document API and concurrency |
 
@@ -150,10 +150,10 @@ Override store endpoints when using external Milvus/OpenSearch; built-in service
 
 ## Runtime Model Config
 
-- Use `LAZYRAG_MODEL_CONFIG_PATH` to select the config file. Three shorthand values are supported: `inner` (intranet/on-prem, default), `online` (public cloud API), `dynamic` (fully dynamic, key injected per request). An explicit file path is also accepted.
+- Use `LAZYMIND_MODEL_CONFIG_PATH` to select the config file. Three shorthand values are supported: `dynamic` (fully dynamic, key injected per request, default), `online` (public cloud API), `inner` (intranet/on-prem). An explicit file path is also accepted.
 - Configure `llm`, `reranker`, and `embed_1~embed_3` directly with `source/api_key/model/type/url`.
 - Keep real secrets out of git. Prefer env placeholders such as `${LAZYLLM_SILICONFLOW_API_KEY}`.
-- For local debugging with a temporary config file, set `LAZYRAG_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`; `docker-compose.yml` mounts the repository `tmp/` directory into `/app/tmp` inside the containers.
+- For local debugging with a temporary config file, set `LAZYMIND_MODEL_CONFIG_PATH=/app/tmp/your-config.yaml`; `docker-compose.yml` mounts the repository `tmp/` directory into `/app/tmp` inside the containers.
 - If only `embed_1` is configured, indexing, ingestion, and retrieval run in single-embedding mode automatically. Enabling `embed_2/embed_3` keeps parsing and retrieval on the same `embed_key` set.
 
 ---
@@ -171,7 +171,7 @@ Python uses flake8 (excluding submodule `algorithm/lazyllm` per `.flake8`); Go u
 
 ## Go Module
 
-`backend/core` uses `module lazyrag/core` by design; the short module path keeps imports concise.
+`backend/core` uses `module lazymind/core` by design; the short module path keeps imports concise.
 
 ## OpenAPI Specs
 

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/common/readonlyorm"
-	"lazyrag/core/store"
+	"lazymind/core/common/orm"
+	"lazymind/core/common/readonlyorm"
+	"lazymind/core/store"
 
 	"github.com/gorilla/mux"
 )
@@ -27,7 +27,7 @@ func TestDetectDocumentContentTypeCSV(t *testing.T) {
 
 func TestStreamLocalFileInlineUsesActualFilenameForCSV(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", root)
+	t.Setenv("LAZYMIND_UPLOAD_ROOT", root)
 
 	fullPath := filepath.Join(root, "agent-results", "thr-1", "datasets", "cases.csv")
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
@@ -58,7 +58,7 @@ func TestStreamLocalFileInlineUsesActualFilenameForCSV(t *testing.T) {
 func newDocumentTestDB(t *testing.T) *orm.DB {
 	t.Helper()
 
-	t.Setenv("LAZYRAG_READONLY_SCHEMA", "main")
+	t.Setenv("LAZYMIND_READONLY_SCHEMA", "main")
 	dsn := fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"), time.Now().UnixNano())
 	db, err := orm.Connect(orm.DriverSQLite, dsn)
 	if err != nil {

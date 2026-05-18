@@ -17,6 +17,7 @@ import GlossaryListSection from "../../components/GlossaryListSection";
 
 const defaultMemoryListPageSize = 6;
 const memoryListPageSizeOptions = [6, 12, 20, 50];
+const showGlossaryInboxUi = true;
 
 export default function MemoryManagementListPage() {
   const listContentRef = useRef<HTMLDivElement>(null);
@@ -223,7 +224,7 @@ export default function MemoryManagementListPage() {
               })}
             </Button>
           ) : null}
-          {activeTab === "glossary" ? (
+          {showGlossaryInboxUi && activeTab === "glossary" ? (
             <Button onClick={() => setGlossaryInboxOpen(true)}>
               {t("admin.memoryGlossaryInboxButton", {
                 count: glossaryChangeProposals.length,
@@ -322,9 +323,7 @@ export default function MemoryManagementListPage() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             onSearch={(value) => setQuery(value)}
-            placeholder={t("admin.memorySearchPlaceholder", {
-              unit: currentTabMeta.unit,
-            })}
+            placeholder={t("admin.memorySearchPlaceholder")}
             className="memory-filter-search"
           />
           {activeTab === "tools" || activeTab === "skills" ? (

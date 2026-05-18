@@ -13,12 +13,12 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/algo"
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/evolution"
-	appLog "lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/algo"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/evolution"
+	appLog "lazymind/core/log"
+	"lazymind/core/store"
 )
 
 var (

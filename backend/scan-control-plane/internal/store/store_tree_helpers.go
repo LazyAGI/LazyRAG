@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lazyrag/scan_control_plane/internal/model"
-	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
+	"github.com/lazymind/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/sourcelayout"
 	"gorm.io/gorm"
 )
 

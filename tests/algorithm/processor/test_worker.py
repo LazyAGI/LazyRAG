@@ -139,7 +139,7 @@ def test_worker_main_starts_waits_and_registers_signals(monkeypatch):
     monkeypatch.setattr(processor.db, 'require_shared_db_config', lambda service_name: {'service': service_name})
     monkeypatch.setattr(threading, 'Event', FakeEvent)
     monkeypatch.setattr(signal, 'signal', lambda sig, handler: signal_calls.append((sig, handler.__name__)))
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_WORKER_PORT', '8126')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_WORKER_PORT', '8126')
     sys.modules.pop('processor.worker', None)
 
     runpy.run_module('processor.worker', run_name='__main__')

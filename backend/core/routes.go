@@ -1,17 +1,17 @@
 package main
 
 import (
-	"lazyrag/core/acl"
-	"lazyrag/core/agent"
-	"lazyrag/core/chat"
-	"lazyrag/core/doc"
-	"lazyrag/core/evolution"
-	"lazyrag/core/file"
-	"lazyrag/core/memory"
-	"lazyrag/core/modelprovider"
-	"lazyrag/core/preference"
-	"lazyrag/core/skill"
-	"lazyrag/core/wordgroup"
+	"lazymind/core/acl"
+	"lazymind/core/agent"
+	"lazymind/core/chat"
+	"lazymind/core/doc"
+	"lazymind/core/evolution"
+	"lazymind/core/file"
+	"lazymind/core/memory"
+	"lazymind/core/modelprovider"
+	"lazymind/core/preference"
+	"lazymind/core/skill"
+	"lazymind/core/wordgroup"
 
 	"github.com/gorilla/mux"
 )
@@ -83,6 +83,7 @@ func registerAllRoutes(r *mux.Router) {
 	handleAPI(r, "POST", "/datasets/{dataset}/uploads/{upload_id}:abort", []string{"document.write"}, doc.AbortUpload)
 	// text URL：text，text :file text。
 	handleAPI(r, "GET", "/static-files/{path:.*}", nil, doc.GetSignedStaticFile)
+	handleAPI(r, "POST", "/static-files:sign", []string{"document.read"}, doc.SignStaticFiles)
 
 	// ----- RAG text（text） -----
 	handleAPI(r, "POST", "/upload_files", []string{"document.write"}, file.UploadFiles)

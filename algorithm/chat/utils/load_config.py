@@ -24,12 +24,14 @@ _TYPE_TO_SLOT: Dict[str, str] = {
 # Prefix convention for embed-type roles in the flat yaml format.
 # Any top-level key starting with this prefix is treated as an embed role.
 _EMBED_KEY_PREFIX = 'embed_'
+_EMBED_TYPES = {'embed', 'cross_modal_embed'}
+_IMAGE_EMBED_TYPES = {'cross_modal_embed'}
 
 
 def get_config_path() -> str:
     '''Return the active runtime_models config file path as a string.
 
-    Controlled entirely by LAZYRAG_MODEL_CONFIG_PATH.  Three shorthand values
+    Controlled entirely by LAZYMIND_MODEL_CONFIG_PATH.  Three shorthand values
     are accepted in addition to an explicit file path:
 
         inner    → runtime_models.inner.yaml   (intranet / on-prem deployment)
@@ -58,7 +60,7 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     '''Load and return the raw model config dict (yaml parsed, no env expansion).
 
     When config_path is None, falls back to the path resolved by get_config_path()
-    (controlled by LAZYRAG_MODEL_CONFIG_PATH).
+    (controlled by LAZYMIND_MODEL_CONFIG_PATH).
     '''
     with Path(config_path or get_config_path()).open(encoding='utf-8') as f:
         return yaml.safe_load(f) or {}
@@ -141,6 +143,33 @@ def _make_bucket(cfg: Dict[str, Any]) -> Dict[str, Any]:
                               'skip_auth': coerce_bool(cfg.get('skip_auth'))}.items() if v is not None}
 
 
+def _api_key_state(value: Any) -> str:
+    return 'set' if value else 'empty'
+
+
+def summarize_model_config_for_log(model_config: Optional[Dict[str, Any]]) -> str:
+    '''Return a deterministic, API-key-safe summary for model_config logs.'''
+    if not model_config:
+        return 'roles=[]'
+
+    parts = []
+    for role in sorted(str(k) for k in model_config.keys()):
+        role_cfg = model_config.get(role)
+        if not isinstance(role_cfg, dict):
+            parts.append(f'{role}(type={type(role_cfg).__name__})')
+            continue
+        fields = [
+            f'source={role_cfg.get("source", "")}',
+            f'model={role_cfg.get("model", "")}',
+            f'base_url={role_cfg.get("base_url", "")}',
+            f'api_key={_api_key_state(role_cfg.get("api_key"))}',
+        ]
+        if 'skip_auth' in role_cfg:
+            fields.append(f'skip_auth={coerce_bool(role_cfg.get("skip_auth"))}')
+        parts.append(f'{role}(' + ', '.join(fields) + ')')
+    return f'roles={sorted(str(k) for k in model_config.keys())} ' + '; '.join(parts)
+
+
 def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     '''Inject per-request model configuration into lazyllm globals.
 
@@ -154,7 +183,7 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
 
     After this call, globals has the following structure:
 
-        globals['config']['dynamic_model_configs'] = ConfigsDict({
+        globals.config['dynamic_model_configs'] = ConfigsDict({
             'llm':          {'chat':  {'source': 'openai',      'model': 'gpt-4o',      ...}},
             'embed_main':   {'embed': {'source': 'siliconflow', 'model': 'bge-m3',       ...}},
             'reranker':     {'embed': {'source': 'siliconflow', 'model': 'bge-reranker', ...}},
@@ -162,10 +191,10 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
         # api_key is NOT stored in dynamic_model_configs.  It lives in the
         # per-source config key so that _GlobalConfig.__getitem__ can resolve it
         # dynamically via the stack lookup (stack = [config_id, role_name, group_id]):
-        globals['config']['openai_api_key'] = ConfigsDict({
+        globals.config['openai_api_key'] = ConfigsDict({
             'llm':          'sk-...',
         })
-        globals['config']['siliconflow_api_key'] = ConfigsDict({
+        globals.config['siliconflow_api_key'] = ConfigsDict({
             'embed_main': 'sk-...',
             'reranker':   'sk-...',
         })
@@ -184,8 +213,9 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     are fully isolated because the ConfigsDict is keyed by role name, and each
     module's stack contains its own role name.
 
-    Raises ValueError if any dynamic role defined in runtime_models.yaml is
-    missing from model_config — there is no fallback for dynamic sources.
+    Missing dynamic roles are logged and left unconfigured.  If a later pipeline
+    uses one of those roles, LazyLLM will fail with a role-specific "No source"
+    error instead of silently falling back to a static provider.
     '''
     import lazyllm
     from lazyllm import LOG
@@ -194,13 +224,23 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     # Pass the active config path so get_dynamic_role_slot_map reads the correct
     # file (e.g. runtime_models.online.yaml) instead of always falling back to
     # _DYNAMIC_CONFIG_PATH (runtime_models.yaml), which has no dynamic roles when
-    # LAZYRAG_MODEL_CONFIG_PATH=online/inner.
-    role_slot_map = get_dynamic_role_slot_map(get_config_path())
+    # LAZYMIND_MODEL_CONFIG_PATH=online/inner.
+    config_path = get_config_path()
+    role_slot_map = get_dynamic_role_slot_map(config_path)
 
     if not role_slot_map:
+        if model_config:
+            LOG.warning(
+                f'[ChatServer] [MODEL_CONFIG_SKIPPED] [reason=no_dynamic_roles] '
+                f'[active_config={config_path}] [{summarize_model_config_for_log(model_config)}]'
+            )
         return
 
     if not model_config:
+        LOG.error(
+            f'[ChatServer] [MODEL_CONFIG_MISSING] [active_config={config_path}] '
+            f'[dynamic_roles={sorted(role_slot_map)}]'
+        )
         raise ValueError(
             f'model_config is required when dynamic roles are configured: '
             f'{sorted(role_slot_map)}'
@@ -208,22 +248,23 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
 
     missing = sorted(role for role in role_slot_map if role not in model_config)
     if missing:
-        raise ValueError(
-            f'model_config is missing required dynamic roles: {missing}. '
-            f'All dynamic roles must be provided: {sorted(role_slot_map)}'
+        LOG.warning(
+            f'[ChatServer] [MODEL_CONFIG_PARTIAL] [active_config={config_path}] '
+            f'[missing_roles={missing}] [dynamic_roles={sorted(role_slot_map)}] '
+            f'[{summarize_model_config_for_log(model_config)}]'
         )
 
-    # Build the new dynamic_model_configs ConfigsDict (source/model/url/skip_auth only).
-    # We read the existing value directly from the underlying globals['config'] dict
-    # (not via globals.config[...]) because the latter requires a non-empty stack and
-    # is intended for per-forward reads, not for the write path here.
-    cfg = lazyllm.globals['config'].get('dynamic_model_configs') or ConfigsDict()
-    if not isinstance(cfg, ConfigsDict):
-        cfg = ConfigsDict(cfg)
+    # Build the per-request dynamic_model_configs ConfigsDict (source/model/url/skip_auth only).
+    # Use globals.config[...] for writes so LazyLLM's supported-config registry is respected.
+    # We avoid reading existing ConfigsDict via globals.config[...] here because stack-based
+    # lookup is for per-forward reads; this request supplies the full dynamic role set.
+    cfg = ConfigsDict()
+    api_key_configs: Dict[str, Any] = {}
+    injected_roles = []
 
     for role, role_cfg in model_config.items():
         if role not in role_slot_map:
-            LOG.warning(f'[ChatServer] [MODEL_CONFIG] Unknown role {role!r}, skipping')
+            LOG.warning(f'[ChatServer] [MODEL_CONFIG_UNKNOWN_ROLE] [role={role!r}] [active_config={config_path}]')
             continue
         if not isinstance(role_cfg, dict):
             raise ValueError(
@@ -237,39 +278,106 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
             )
         slot = role_slot_map[role]
         cfg.setdefault(role, {})[slot] = bucket
+        injected_roles.append(role)
 
         # Store api_key in globals.config['{source}_api_key'] as a ConfigsDict
         # keyed by role name.  _default_api_key() reads this via the stack-based
         # lookup in _GlobalConfig.__getitem__, so each role gets its own key even
         # when multiple roles share the same source.
         #
-        # We write to globals['config'] directly (bypassing _GlobalConfig.__setitem__)
-        # because {source}_api_key may not yet be in _supported_configs at call time
-        # (it is added lazily when the supplier class is first registered).
         if (api_key := role_cfg.get('api_key')) and (source := role_cfg.get('source')):
             config_key = f'{source}_api_key'
-            existing = lazyllm.globals['config'].get(config_key)
-            if not isinstance(existing, ConfigsDict):
-                existing = ConfigsDict({'default': existing} if existing else {})
-            existing[role] = api_key
-            lazyllm.globals['config'][config_key] = existing
+            api_key_configs.setdefault(config_key, ConfigsDict())[role] = api_key
 
-    lazyllm.globals['config']['dynamic_model_configs'] = cfg
+    for config_key, api_key_cfg in api_key_configs.items():
+        lazyllm.globals.config[config_key] = api_key_cfg
+    lazyllm.globals.config['dynamic_model_configs'] = cfg
+    LOG.info(
+        f'[ChatServer] [MODEL_CONFIG_INJECTED] [active_config={config_path}] '
+        f'[dynamic_roles={sorted(role_slot_map)}] [injected_roles={sorted(injected_roles)}] '
+        f'[{summarize_model_config_for_log(model_config)}]'
+    )
 
 
 @lru_cache(maxsize=1)
 def get_embed_keys(config_path: Optional[str] = None) -> list:
     '''Return the list of embed-type role names defined in the active config.
 
-    A role is considered an embed role when its key starts with the prefix
-    ``embed_`` (e.g. ``embed_main``, ``embed_sparse``).  The order matches the
-    yaml definition order, so the first key is always the primary (dense) embed.
+    A role is considered an embed role when its first-entry ``type`` is one of
+    ``embed`` / ``rerank`` / ``cross_modal_embed``. For backward compatibility,
+    keys that start with ``embed_`` are also treated as embed roles.
+    The order matches the yaml definition order, so the first key is always the
+    primary (dense) embed.
 
     Returns an empty list when no embed roles are found (caller should handle
     this as a configuration error).
     '''
     raw = load_model_config(config_path)
-    return [role for role in raw if role.startswith(_EMBED_KEY_PREFIX)]
+    return [role for role, entries in raw.items() if _is_embed_role(role, entries)]
+
+
+def _first_entry_type(entries: Any) -> str:
+    '''Return the lower-cased ``type`` field from the first entry.
+
+    Supports both yaml shapes:
+      - static (inner/online): ``role: [{type: ...}, ...]``
+      - dynamic              : ``role: {type: ...}``
+    '''
+    if isinstance(entries, list) and entries:
+        entry = entries[0]
+    elif isinstance(entries, dict):
+        entry = entries
+    else:
+        return ''
+    if not isinstance(entry, dict):
+        return ''
+    return (entry.get('type') or '').lower()
+
+
+def _is_embed_role(role: str, entries: Any) -> bool:
+    '''Return whether the role should be treated as an embed role.'''
+    entry_type = _first_entry_type(entries)
+    if entry_type in _EMBED_TYPES:
+        return True
+    return role.startswith(_EMBED_KEY_PREFIX)
+
+
+@lru_cache(maxsize=1)
+def get_image_embed_key(config_path: Optional[str] = None) -> Optional[str]:
+    '''Return the embed role name identified as the image embed.
+
+    A role is treated as the image embed when its first entry has
+    ``type: cross_modal_embed``. For backward compatibility, it also falls
+    back to ``name: siglip`` (case-insensitive) when type is not provided.
+    Returns None when no such role exists, in which case callers should skip
+    the image retrieval branch.
+    '''
+    raw = load_model_config(config_path)
+    for role, entries in raw.items():
+        if not _is_embed_role(role, entries):
+            continue
+        if isinstance(entries, list) and entries:
+            entry = entries[0]
+        elif isinstance(entries, dict):
+            entry = entries
+        else:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        entry_type = str(entry.get('type') or '').strip().lower()
+        if entry_type in _IMAGE_EMBED_TYPES:
+            return role
+        model_name = str(entry.get('name') or '').strip().lower()
+        if model_name == 'siglip':
+            return role
+    return None
+
+
+@lru_cache(maxsize=1)
+def get_text_embed_keys(config_path: Optional[str] = None) -> list:
+    '''Return embed role names excluding the cross-modal image embed.'''
+    image_key = get_image_embed_key(config_path)
+    return [k for k in get_embed_keys(config_path) if k != image_key]
 
 
 _DEFAULT_DENSE_INDEX_KWARGS = {
@@ -298,7 +406,7 @@ def get_embed_index_kwargs(config_path: Optional[str] = None) -> list:
     raw = load_model_config(config_path)
     result = []
     for role, entries in raw.items():
-        if not role.startswith(_EMBED_KEY_PREFIX):
+        if not _is_embed_role(role, entries):
             continue
         if not isinstance(entries, list) or not entries:
             continue

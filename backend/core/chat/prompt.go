@@ -9,9 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	corestore "lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	corestore "lazymind/core/store"
 )
 
 const (

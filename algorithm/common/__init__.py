@@ -1,4 +1,4 @@
-"""Common utilities shared across LazyRAG algorithm modules."""
+"""Common utilities shared across LazyMind algorithm modules."""
 
 from .remote_fs import RemoteFS, RemoteFileSystem
 
