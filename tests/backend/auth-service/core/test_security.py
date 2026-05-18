@@ -8,9 +8,9 @@ import core.security as security
 
 
 def test_jwt_secret_requires_env(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_JWT_SECRET', raising=False)
+    monkeypatch.delenv('LAZYMIND_JWT_SECRET', raising=False)
 
-    with pytest.raises(RuntimeError, match='LAZYRAG_JWT_SECRET is required'):
+    with pytest.raises(RuntimeError, match='LAZYMIND_JWT_SECRET is required'):
         security.jwt_secret()
 
 
@@ -26,8 +26,8 @@ def test_env_int_uses_default_for_missing_or_invalid_value(monkeypatch):
 
 
 def test_ttl_helpers_read_env(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_JWT_TTL_MINUTES', '2')
-    monkeypatch.setenv('LAZYRAG_JWT_REFRESH_TTL_DAYS', '3')
+    monkeypatch.setenv('LAZYMIND_JWT_TTL_MINUTES', '2')
+    monkeypatch.setenv('LAZYMIND_JWT_REFRESH_TTL_DAYS', '3')
 
     assert isinstance(security.jwt_ttl_minutes(), int)
     assert isinstance(security.jwt_ttl_seconds(), int)
@@ -40,8 +40,8 @@ def test_ttl_helpers_read_env(monkeypatch):
 
 
 def test_create_access_token_contains_expected_claims(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_JWT_SECRET', 'test-secret')
-    monkeypatch.setenv('LAZYRAG_JWT_TTL_MINUTES', '5')
+    monkeypatch.setenv('LAZYMIND_JWT_SECRET', 'test-secret')
+    monkeypatch.setenv('LAZYMIND_JWT_TTL_MINUTES', '5')
 
     token = security.create_access_token(
         subject='user-1',
@@ -87,7 +87,7 @@ def test_refresh_token_expires_at_uses_refresh_ttl(monkeypatch):
             return datetime(2026, 1, 1, tzinfo=timezone.utc)
 
     monkeypatch.setattr(security, 'datetime', FakeDatetime)
-    monkeypatch.setenv('LAZYRAG_JWT_REFRESH_TTL_DAYS', '2')
+    monkeypatch.setenv('LAZYMIND_JWT_REFRESH_TTL_DAYS', '2')
 
     result = security.refresh_token_expires_at()
 

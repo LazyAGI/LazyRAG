@@ -59,7 +59,7 @@ def test_load_api_permissions_reads_file_and_normalizes_entries(tmp_path, monkey
         ]),
         encoding='utf-8',
     )
-    monkeypatch.setenv('LAZYRAG_AUTH_API_PERMISSIONS_FILE', str(path))
+    monkeypatch.setenv('LAZYMIND_AUTH_API_PERMISSIONS_FILE', str(path))
 
     authorization_api.load_api_permissions()
 
@@ -70,27 +70,27 @@ def test_load_api_permissions_reads_file_and_normalizes_entries(tmp_path, monkey
 
 
 def test_load_api_permissions_missing_or_invalid_file_allows_all(tmp_path, monkeypatch):
-    monkeypatch.setenv('LAZYRAG_AUTH_API_PERMISSIONS_FILE', str(tmp_path / 'missing.json'))
+    monkeypatch.setenv('LAZYMIND_AUTH_API_PERMISSIONS_FILE', str(tmp_path / 'missing.json'))
     authorization_api.load_api_permissions()
     assert authorization_api.API_PERMISSIONS_MAP == {}
 
     bad = tmp_path / 'bad.json'
     bad.write_text('{bad json', encoding='utf-8')
-    monkeypatch.setenv('LAZYRAG_AUTH_API_PERMISSIONS_FILE', str(bad))
+    monkeypatch.setenv('LAZYMIND_AUTH_API_PERMISSIONS_FILE', str(bad))
     authorization_api.load_api_permissions()
     assert authorization_api.API_PERMISSIONS_MAP == {}
 
 
 def test_user_id_from_token_decodes_subject(monkeypatch):
     user_id = uuid.uuid4()
-    monkeypatch.setenv('LAZYRAG_JWT_SECRET', 'test-secret')
+    monkeypatch.setenv('LAZYMIND_JWT_SECRET', 'test-secret')
     token = authorization_api.jwt.encode({'sub': str(user_id)}, 'test-secret', algorithm='HS256')
 
     assert authorization_api._user_id_from_token(token) == user_id
 
 
 def test_user_id_from_token_rejects_invalid_tokens(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_JWT_SECRET', 'test-secret')
+    monkeypatch.setenv('LAZYMIND_JWT_SECRET', 'test-secret')
 
     with pytest.raises(AppException) as exc:
         authorization_api._user_id_from_token('not-a-token')
@@ -99,7 +99,7 @@ def test_user_id_from_token_rejects_invalid_tokens(monkeypatch):
 
 
 def test_user_id_from_token_rejects_missing_or_invalid_subject(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_JWT_SECRET', 'test-secret')
+    monkeypatch.setenv('LAZYMIND_JWT_SECRET', 'test-secret')
     token_without_sub = authorization_api.jwt.encode({}, 'test-secret', algorithm='HS256')
     token_with_bad_sub = authorization_api.jwt.encode({'sub': 'not-a-uuid'}, 'test-secret', algorithm='HS256')
 

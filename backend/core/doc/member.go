@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"lazyrag/core/acl"
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/acl"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/log"
+	"lazymind/core/store"
 )
 
 type datasetRole struct {

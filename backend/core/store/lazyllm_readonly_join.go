@@ -7,8 +7,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/common/readonlyorm"
+	"lazymind/core/common/orm"
+	"lazymind/core/common/readonlyorm"
 )
 
 // LazyLLMDocumentView is a joined view of core diff data and lazyllm base data.

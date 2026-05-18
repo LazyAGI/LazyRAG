@@ -1,6 +1,6 @@
 """Persistent CLI context: default dataset, algo config, etc.
 
-Config is stored at ~/.lazyrag/config.json alongside credentials.
+Config is stored at ~/.lazymind/config.json alongside credentials.
 Resolution order: CLI flag > config file > env var > default/error.
 """
 
@@ -87,7 +87,7 @@ def resolve_dataset(cli_value: Optional[str]) -> str:
         return stored
     print(
         'Error: no dataset specified. '
-        'Use --dataset <id> or run `lazyrag use <id>` to set a default.',
+        'Use --dataset <id> or run `lazymind use <id>` to set a default.',
         file=sys.stderr,
     )
     sys.exit(1)
@@ -101,7 +101,7 @@ def resolve_algo_url(cli_value: Optional[str]) -> str:
     if stored:
         return stored.rstrip('/')
     return os.getenv(
-        'LAZYRAG_ALGO_SERVICE_URL', 'http://localhost:8000',
+        'LAZYMIND_ALGO_SERVICE_URL', 'http://localhost:8000',
     ).rstrip('/')
 
 
@@ -112,7 +112,7 @@ def resolve_algo_dataset(cli_value: Optional[str]) -> str:
     stored = get('algo_dataset')
     if stored:
         return stored
-    env = os.getenv('LAZYRAG_ALGO_DATASET_NAME')
+    env = os.getenv('LAZYMIND_ALGO_DATASET_NAME')
     if env:
         return env
     return 'general_algo'

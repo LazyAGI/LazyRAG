@@ -29,6 +29,9 @@ type DocumentMutation struct {
 	IdleWindowSeconds int64
 	EventType         string
 	OccurredAt        time.Time
+	ScheduleAt        *time.Time
+	ManualSync        bool
+	ForceSync         bool
 	OriginType        string
 	OriginPlatform    string
 	OriginRef         string
@@ -57,6 +60,11 @@ type PendingTask struct {
 	DesiredVersionID     string
 	AgentID              string
 	AgentListenAddr      string
+}
+
+type TaskSubmissionValidation struct {
+	Valid  bool
+	Reason string
 }
 
 type StageCommandPayload struct {
@@ -200,6 +208,7 @@ const (
 
 var ErrTreePathInvalid = errors.New("tree path invalid")
 var ErrCloudSyncLocked = errors.New("cloud sync source is locked")
+var ErrSourceAlreadyExists = errors.New("source already exists")
 
 func New(driver, dsn string, defaultIdleWindow time.Duration, log *zap.Logger) (*Store, error) {
 	driver = strings.ToLower(strings.TrimSpace(driver))
@@ -265,6 +274,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		&agentEntity{},
 		&agentCommandEntity{},
 		&documentEntity{},
+		&sourceDocumentStateEntity{},
 		&parseTaskEntity{},
 		&parseTaskDeadLetterEntity{},
 		&reconcileSnapshotEntity{},

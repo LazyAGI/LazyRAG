@@ -1,10 +1,10 @@
 #!/bin/sh
 set -e
 
-if [ "${LAZYRAG_EVO_CODE_DATA_DIR:-}" = "/var/lib/lazyrag/evo/opencode" ]; then
-  LAZYRAG_EVO_CODE_DATA_DIR="/var/lib/lazyrag/evo/work/opencode"
+if [ "${LAZYMIND_EVO_CODE_DATA_DIR:-}" = "/var/lib/lazymind/evo/opencode" ]; then
+  LAZYMIND_EVO_CODE_DATA_DIR="/var/lib/lazymind/evo/work/opencode"
 fi
-OC_DATA_DIR="${LAZYRAG_EVO_CODE_DATA_DIR:-/var/lib/lazyrag/evo/work/opencode}"
+OC_DATA_DIR="${LAZYMIND_EVO_CODE_DATA_DIR:-/var/lib/lazymind/evo/work/opencode}"
 mkdir -p "$OC_DATA_DIR"
 chmod 700 "$OC_DATA_DIR"
 
@@ -18,16 +18,16 @@ elif [ -L "$LINK_TARGET" ] && [ "$(readlink "$LINK_TARGET")" != "$OC_DATA_DIR" ]
 fi
 
 if [ ! -f "$OC_DATA_DIR/auth.json" ]; then
-  if [ -n "$LAZYRAG_EVO_OPENCODE_AUTH_JSON" ]; then
-    printf '%s' "$LAZYRAG_EVO_OPENCODE_AUTH_JSON" > "$OC_DATA_DIR/auth.json"
-  elif [ -n "$LAZYRAG_EVO_OPENCODE_ANTHROPIC_KEY" ]; then
+  if [ -n "$LAZYMIND_EVO_OPENCODE_AUTH_JSON" ]; then
+    printf '%s' "$LAZYMIND_EVO_OPENCODE_AUTH_JSON" > "$OC_DATA_DIR/auth.json"
+  elif [ -n "$LAZYMIND_EVO_OPENCODE_ANTHROPIC_KEY" ]; then
     printf '{"anthropic":{"type":"api","key":"%s"}}' \
-      "$LAZYRAG_EVO_OPENCODE_ANTHROPIC_KEY" > "$OC_DATA_DIR/auth.json"
+      "$LAZYMIND_EVO_OPENCODE_ANTHROPIC_KEY" > "$OC_DATA_DIR/auth.json"
   fi
 fi
 
-if [ "${LAZYRAG_EVO_BOOTSTRAP_PIP_INSTALL:-0}" = "1" ] && [ -f /app/evo/requirements.txt ]; then
+if [ "${LAZYMIND_EVO_BOOTSTRAP_PIP_INSTALL:-0}" = "1" ] && [ -f /app/evo/requirements.txt ]; then
   pip install -r /app/evo/requirements.txt
 fi
 
-exec uvicorn evo.service.api:get_app --factory --host 0.0.0.0 --port "${LAZYRAG_EVO_API_PORT:-8047}"
+exec uvicorn evo.service.api:get_app --factory --host 0.0.0.0 --port "${LAZYMIND_EVO_API_PORT:-8047}"

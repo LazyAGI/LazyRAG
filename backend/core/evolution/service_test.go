@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"lazyrag/core/common/orm"
+	"lazymind/core/common/orm"
 )
 
 func newTestDB(t *testing.T) *orm.DB {
@@ -225,5 +225,35 @@ func TestResolveRequestUserFallsBackToConversationOwner(t *testing.T) {
 	}
 	if userName != "Conversation User" {
 		t.Fatalf("expected conversation owner name, got %q", userName)
+	}
+}
+
+func TestResolveRequestUserOnlyStripsTimestampSuffix(t *testing.T) {
+	db := newTestDB(t)
+
+	now := time.Now()
+	conversation := orm.Conversation{
+		ID:          "conv_with_under_score",
+		DisplayName: "Conversation with underscore",
+		BaseModel: orm.BaseModel{
+			CreateUserID:   "conversation-user",
+			CreateUserName: "Conversation User",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}
+	if err := db.Create(&conversation).Error; err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+
+	userID, userName, err := ResolveRequestUser(context.Background(), db.DB, "conv_with_under_score_1710000000000", "header-user", "Header User")
+	if err != nil {
+		t.Fatalf("resolve request user: %v", err)
+	}
+	if userID != "conversation-user" || userName != "Conversation User" {
+		t.Fatalf("expected conversation owner, got user_id=%q user_name=%q", userID, userName)
+	}
+	if got := conversationIDFromSessionID("conv_with_under_score_notatime"); got != "conv_with_under_score_notatime" {
+		t.Fatalf("expected non-timestamp suffix to be preserved, got %q", got)
 	}
 }

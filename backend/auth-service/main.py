@@ -33,7 +33,7 @@ _DOCS_PATH = f'{_API_PREFIX}/docs'
 app = FastAPI(
     title='Auth Service',
     description=(
-        'LazyRAG authentication and authorization service '
+        'LazyMind authentication and authorization service '
         '(login, registration, token, user/role/group management)'
     ),
     version='1.0.0',

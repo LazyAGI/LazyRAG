@@ -31,7 +31,7 @@ _IMAGE_EMBED_TYPES = {'cross_modal_embed'}
 def get_config_path() -> str:
     '''Return the active runtime_models config file path as a string.
 
-    Controlled entirely by LAZYRAG_MODEL_CONFIG_PATH.  Three shorthand values
+    Controlled entirely by LAZYMIND_MODEL_CONFIG_PATH.  Three shorthand values
     are accepted in addition to an explicit file path:
 
         inner    → runtime_models.inner.yaml   (intranet / on-prem deployment)
@@ -60,7 +60,7 @@ def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
     '''Load and return the raw model config dict (yaml parsed, no env expansion).
 
     When config_path is None, falls back to the path resolved by get_config_path()
-    (controlled by LAZYRAG_MODEL_CONFIG_PATH).
+    (controlled by LAZYMIND_MODEL_CONFIG_PATH).
     '''
     with Path(config_path or get_config_path()).open(encoding='utf-8') as f:
         return yaml.safe_load(f) or {}
@@ -224,7 +224,7 @@ def inject_model_config(model_config: Optional[Dict[str, Any]]) -> None:
     # Pass the active config path so get_dynamic_role_slot_map reads the correct
     # file (e.g. runtime_models.online.yaml) instead of always falling back to
     # _DYNAMIC_CONFIG_PATH (runtime_models.yaml), which has no dynamic roles when
-    # LAZYRAG_MODEL_CONFIG_PATH=online/inner.
+    # LAZYMIND_MODEL_CONFIG_PATH=online/inner.
     config_path = get_config_path()
     role_slot_map = get_dynamic_role_slot_map(config_path)
 

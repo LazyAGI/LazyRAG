@@ -45,7 +45,7 @@ function ConversationSettingModal(props: ConversationSettingModalProps) {
       const savedStatus = response.data.status ?? status;
       setEnableMultipleAnswers(savedStatus === 1);
       if (!newMessage && savedStatus === 0) {
-        message.success(t("chat.keepLazyRagAnswer"));
+        message.success(t("chat.keepLazyMindAnswer"));
       } else {
         message.success(t("chat.settingsSaved"));
       }

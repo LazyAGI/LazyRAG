@@ -1,3 +1,3 @@
 # Chat Algorithm Tests
 
-Tests for `LazyRAG/algorithm/chat`.
+Tests for `LazyMind/algorithm/chat`.

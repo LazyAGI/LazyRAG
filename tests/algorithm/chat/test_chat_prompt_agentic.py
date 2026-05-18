@@ -28,33 +28,33 @@ def test_agentic_template_prompts_substitute_required_variables():
         'planner': PLANNER_PROMPT.substitute(
             tool_num='1',
             tool_description='vector_search: query text',
-            original_query='What is LazyRAG?',
+            original_query='What is LazyMind?',
         ),
         'toolcall': TOOLCALL_PROMPT.substitute(
             tool_description='vector_search accepts a query parameter',
-            original_query='What is LazyRAG?',
-            current_goal='Find the definition of LazyRAG',
+            original_query='What is LazyMind?',
+            current_goal='Find the definition of LazyMind',
             previous_step_result='none',
         ),
         'extractor': EXTRACTOR_PROMPT.substitute(
-            original_query='What is LazyRAG?',
+            original_query='What is LazyMind?',
             inference='',
-            current_step='Find the definition of LazyRAG',
-            new_nodes='NODE[[0]] LazyRAG is a retrieval system.',
+            current_step='Find the definition of LazyMind',
+            new_nodes='NODE[[0]] LazyMind is a retrieval system.',
         ),
         'evaluator': EVALUATOR_PROMPT.substitute(
-            original_query='What is LazyRAG?',
+            original_query='What is LazyMind?',
             plans='[]',
         ),
         'planrefine': PLANREFINE_PROMPT.substitute(
             tool_description='vector_search: query text',
-            original_query='What is LazyRAG?',
+            original_query='What is LazyMind?',
             executed_plan_and_inferences='[]',
         ),
         'queryrefiner': QUERYREFINER_PROMPT.substitute(
-            original_query='What is LazyRAG?',
+            original_query='What is LazyMind?',
             inference='',
-            retrieval_step='Find the definition of LazyRAG',
+            retrieval_step='Find the definition of LazyMind',
             chunks='[]',
         ),
     }
@@ -66,14 +66,14 @@ def test_agentic_template_prompts_substitute_required_variables():
 
 def test_generate_prompts_include_grounding_fields():
     rendered = GENERATE_PROMPT.format(
-        inference='LazyRAG is described as a retrieval system.',
-        chunks='NODE[[0]] LazyRAG is a retrieval system.',
-        query='What is LazyRAG?',
+        inference='LazyMind is described as a retrieval system.',
+        chunks='NODE[[0]] LazyMind is a retrieval system.',
+        query='What is LazyMind?',
     )
     rendered_zh = GENERATE_PROMPT_ZH.format(
-        inference='LazyRAG 是检索系统。',
-        chunks='NODE[[0]] LazyRAG 是检索系统。',
-        query='LazyRAG 是什么？',
+        inference='LazyMind 是检索系统。',
+        chunks='NODE[[0]] LazyMind 是检索系统。',
+        query='LazyMind 是什么？',
     )
 
     assert 'Auxiliary inference' in rendered

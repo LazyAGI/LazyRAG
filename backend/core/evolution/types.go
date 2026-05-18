@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common/orm"
+	"lazymind/core/common/orm"
 )
 
 var ApplyRemoveSuggestion func(ctx context.Context, db *gorm.DB, suggestion orm.ResourceSuggestion) error

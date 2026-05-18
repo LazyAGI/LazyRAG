@@ -26,16 +26,16 @@
 
 | 外部服务 | 配置项 | 代码默认值 | docker-compose 默认值 | 主要用途 |
 | --- | --- | --- | --- | --- |
-| Chat / Generation 服务 | `LAZYRAG_CHAT_SERVICE_URL` | `http://chat:8046` | `http://chat:8046` | 对话、流式对话、技能/记忆/偏好生成、模型连通性检查、词表刷新/抽取 |
-| Algorithm / KB 服务 | `LAZYRAG_ALGO_SERVICE_URL` | `http://10.119.24.129:8850` | `http://lazyllm-doc-server:8000` | 算法列表、算法分组、KB 创建/更新/删除、chunk 查询 |
-| Document 服务 | `LAZYRAG_DOCUMENT_SERVICE_URL` | 回退到 `LAZYRAG_ALGO_SERVICE_URL` | `http://lazyllm-doc-server:8000` | 文档 add/reparse/transfer/delete、任务取消 |
-| Evo Service | `LAZYRAG_EVO_SERVICE_URL` | `http://host.docker.internal:8048` | `http://evo-api:8048` | Agent 线程、自进化流程、结果、报告和 diff 代理 |
+| Chat / Generation 服务 | `LAZYMIND_CHAT_SERVICE_URL` | `http://chat:8046` | `http://chat:8046` | 对话、流式对话、技能/记忆/偏好生成、模型连通性检查、词表刷新/抽取 |
+| Algorithm / KB 服务 | `LAZYMIND_ALGO_SERVICE_URL` | `http://10.119.24.129:8850` | `http://lazyllm-doc-server:8000` | 算法列表、算法分组、KB 创建/更新/删除、chunk 查询 |
+| Document 服务 | `LAZYMIND_DOCUMENT_SERVICE_URL` | 回退到 `LAZYMIND_ALGO_SERVICE_URL` | `http://lazyllm-doc-server:8000` | 文档 add/reparse/transfer/delete、任务取消 |
+| Evo Service | `LAZYMIND_EVO_SERVICE_URL` | `http://host.docker.internal:8048` | `http://evo-api:8048` | Agent 线程、自进化流程、结果、报告和 diff 代理 |
 
 ## 服务明细
 
 ### 1. Chat / Generation 服务
 
-基础 URL 来自 `LAZYRAG_CHAT_SERVICE_URL`，代码默认 `http://chat:8046`。
+基础 URL 来自 `LAZYMIND_CHAT_SERVICE_URL`，代码默认 `http://chat:8046`。
 
 Core 调用的端点:
 
@@ -54,7 +54,7 @@ Core 调用的端点:
 
 ### 2. Algorithm / KB 服务
 
-基础 URL 来自 `LAZYRAG_ALGO_SERVICE_URL`，代码默认 `http://10.119.24.129:8850`。在 docker-compose 中 core 将其配置为 `http://lazyllm-doc-server:8000`。
+基础 URL 来自 `LAZYMIND_ALGO_SERVICE_URL`，代码默认 `http://10.119.24.129:8850`。在 docker-compose 中 core 将其配置为 `http://lazyllm-doc-server:8000`。
 
 Core 调用的端点:
 
@@ -69,7 +69,7 @@ Core 调用的端点:
 
 ### 3. Document 服务
 
-文档服务基础 URL 优先来自 `LAZYRAG_DOCUMENT_SERVICE_URL`，未配置时回退到 `LAZYRAG_ALGO_SERVICE_URL`。
+文档服务基础 URL 优先来自 `LAZYMIND_DOCUMENT_SERVICE_URL`，未配置时回退到 `LAZYMIND_ALGO_SERVICE_URL`。
 
 Core 调用的端点:
 
@@ -84,12 +84,12 @@ Core 调用的端点:
 docker-compose 中:
 
 ```yaml
-LAZYRAG_DOCUMENT_SERVICE_URL: ${LAZYRAG_DOCUMENT_SERVICE_URL:-http://lazyllm-doc-server:8000}
+LAZYMIND_DOCUMENT_SERVICE_URL: ${LAZYMIND_DOCUMENT_SERVICE_URL:-http://lazyllm-doc-server:8000}
 ```
 
 ### 4. Evo Service
 
-基础 URL 来自 `LAZYRAG_EVO_SERVICE_URL`，代码默认 `http://host.docker.internal:8048`，docker-compose 默认 `http://evo-api:8048`。
+基础 URL 来自 `LAZYMIND_EVO_SERVICE_URL`，代码默认 `http://host.docker.internal:8048`，docker-compose 默认 `http://evo-api:8048`。
 
 Core 调用的端点:
 

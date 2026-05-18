@@ -10,7 +10,7 @@ import (
 
 	"go.uber.org/zap"
 
-	internal "github.com/lazyrag/file_watcher/internal"
+	internal "github.com/lazymind/file_watcher/internal"
 )
 
 // ControlPlaneClient defines the control-plane communication interface.

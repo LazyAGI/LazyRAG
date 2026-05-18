@@ -16,11 +16,11 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"lazyrag/core/acl"
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/evolution"
-	"lazyrag/core/store"
+	"lazymind/core/acl"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/evolution"
+	"lazymind/core/store"
 )
 
 func writeConversationJSON(w http.ResponseWriter, status int, v any) {

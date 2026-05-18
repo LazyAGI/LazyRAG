@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Auth Service
-  description: LazyRAG authentication and authorization service (login, registration,
+  description: LazyMind authentication and authorization service (login, registration,
     token, user/role/group management)
   version: 1.0.0
 paths:

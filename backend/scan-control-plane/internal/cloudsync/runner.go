@@ -13,14 +13,14 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/authclient"
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/mirror"
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider"
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync/provider/feishu"
-	"github.com/lazyrag/scan_control_plane/internal/config"
-	"github.com/lazyrag/scan_control_plane/internal/model"
-	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
-	"github.com/lazyrag/scan_control_plane/internal/store"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/authclient"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/mirror"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/provider"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync/provider/feishu"
+	"github.com/lazymind/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/sourcelayout"
+	"github.com/lazymind/scan_control_plane/internal/store"
 )
 
 type Store interface {
@@ -438,7 +438,7 @@ func (r *Runner) executeOnce(ctx context.Context, claim store.CloudSyncClaim, tr
 		kind := normalizeKind(obj.ExternalKind, obj.ProviderMeta)
 		isDir := isDirKind(kind)
 
-		localRel := sanitizeRelativePath(obj.ExternalPath, obj.ExternalName, objectID, kind)
+		localRel := sanitizeRelativePathForObject(obj, objectID, kind)
 		localRel = resolvePathCollision(localRel, objectID, pathOwner)
 		localAbs := filepath.Clean(filepath.Join(filepath.Clean(mirrorRoot), filepath.FromSlash(localRel)))
 		if !isPathUnderRoot(localAbs, mirrorRoot) {
@@ -568,41 +568,47 @@ func (r *Runner) executeOnce(ctx context.Context, claim store.CloudSyncClaim, tr
 			OriginRef:      objectID,
 		})
 	}
-	if !manualScopeEnabled {
-		for _, existingItem := range existing {
-			if existingItem.IsDeleted {
-				continue
-			}
-			id := strings.TrimSpace(existingItem.ExternalObjectID)
-			if id == "" {
-				continue
-			}
-			if _, ok := seenIDs[id]; ok {
-				continue
-			}
-			deleteIDs = append(deleteIDs, id)
-			finalize.DeletedCount++
-			if isDirKind(existingItem.ExternalKind) {
-				_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), true)
-				continue
-			}
-			_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), false)
-			events = append(events, model.FileEvent{
-				SourceID:       claim.SourceID,
-				EventType:      "deleted",
-				Path:           strings.TrimSpace(existingItem.LocalAbsPath),
-				IsDir:          false,
-				OccurredAt:     now.Add(time.Duration(len(events)) * time.Nanosecond),
-				OriginType:     string(model.OriginTypeCloudSync),
-				OriginPlatform: strings.ToUpper(strings.TrimSpace(claim.Provider)),
-				OriginRef:      id,
-			})
+	deleteScopeSkipped := 0
+	for _, existingItem := range existing {
+		if existingItem.IsDeleted {
+			continue
 		}
-	} else {
-		r.log.Info("cloud sync delete sweep skipped by manual scope",
+		id := strings.TrimSpace(existingItem.ExternalObjectID)
+		if id == "" {
+			continue
+		}
+		if _, ok := seenIDs[id]; ok {
+			continue
+		}
+		if manualScopeEnabled && !cloudObjectInRequestedScope(existingItem, requestedScopePaths) {
+			deleteScopeSkipped++
+			continue
+		}
+		deleteIDs = append(deleteIDs, id)
+		finalize.DeletedCount++
+		if isDirKind(existingItem.ExternalKind) {
+			_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), true)
+			continue
+		}
+		_ = mirror.DeletePath(strings.TrimSpace(existingItem.LocalAbsPath), false)
+		events = append(events, model.FileEvent{
+			SourceID:       claim.SourceID,
+			EventType:      "deleted",
+			Path:           strings.TrimSpace(existingItem.LocalAbsPath),
+			IsDir:          false,
+			OccurredAt:     now.Add(time.Duration(len(events)) * time.Nanosecond),
+			OriginType:     string(model.OriginTypeCloudSync),
+			OriginPlatform: strings.ToUpper(strings.TrimSpace(claim.Provider)),
+			OriginRef:      id,
+		})
+	}
+	if manualScopeEnabled {
+		r.log.Info("cloud sync delete sweep limited by manual scope",
 			zap.String("source_id", claim.SourceID),
 			zap.String("run_id", run.RunID),
 			zap.Int("skipped_by_manual_scope", skippedByManualScope),
+			zap.Int("delete_scope_skipped", deleteScopeSkipped),
+			zap.Int("deleted_records", len(deleteIDs)),
 		)
 	}
 
@@ -812,6 +818,15 @@ func kindMatchSuffixes(kind string) []string {
 	}
 }
 
+func wikiPageWithChildren(kind string, meta map[string]any) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "doc", "docx":
+	default:
+		return false
+	}
+	return boolOption(meta, "has_child")
+}
+
 func normalizeKind(kind string, meta map[string]any) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	if kind != "" {
@@ -851,6 +866,18 @@ func sanitizeRelativePath(externalPath, externalName, objectID, kind string) str
 		case "doc", "docx":
 			rel += ".md"
 		}
+	}
+	return rel
+}
+
+func sanitizeRelativePathForObject(obj provider.RemoteObject, objectID, kind string) string {
+	rel := sanitizeRelativePath(obj.ExternalPath, obj.ExternalName, objectID, kind)
+	if wikiPageWithChildren(kind, obj.ProviderMeta) {
+		dir := strings.TrimSuffix(rel, path.Ext(rel))
+		if dir == "" || dir == "." {
+			dir = sanitizeName(firstNonEmptyString(obj.ExternalName, objectID))
+		}
+		rel = path.Join(dir, path.Base(rel))
 	}
 	return rel
 }
@@ -967,6 +994,27 @@ func pathInRequestedScope(target string, scopePaths []string) bool {
 		}
 	}
 	return false
+}
+
+func cloudObjectInRequestedScope(item store.CloudObjectIndexRecord, scopePaths []string) bool {
+	localAbs := filepath.Clean(strings.TrimSpace(item.LocalAbsPath))
+	if localAbs == "" || localAbs == "." {
+		return false
+	}
+	if pathInRequestedScope(localAbs, scopePaths) {
+		return true
+	}
+	if wikiIndexRecordWithChildren(item) {
+		treePath := filepath.Clean(filepath.Dir(localAbs))
+		if treePath != "" && treePath != "." && pathInRequestedScope(treePath, scopePaths) {
+			return true
+		}
+	}
+	return false
+}
+
+func wikiIndexRecordWithChildren(item store.CloudObjectIndexRecord) bool {
+	return wikiPageWithChildren(item.ExternalKind, item.ProviderMeta)
 }
 
 func appendRemoteObjectSample(samples []string, obj provider.RemoteObject, limit int) []string {
@@ -1096,6 +1144,31 @@ func stringOption(m map[string]any, key string) string {
 		return strings.TrimSpace(x)
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", v))
+	}
+}
+
+func boolOption(m map[string]any, key string) bool {
+	if len(m) == 0 {
+		return false
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return false
+	}
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		x = strings.TrimSpace(strings.ToLower(x))
+		return x == "true" || x == "1" || x == "yes"
+	case int:
+		return x != 0
+	case int64:
+		return x != 0
+	case float64:
+		return x != 0
+	default:
+		return strings.EqualFold(strings.TrimSpace(fmt.Sprintf("%v", v)), "true")
 	}
 }
 

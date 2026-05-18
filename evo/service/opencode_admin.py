@@ -51,8 +51,8 @@ def apply_options(cfg: EvoConfig, base: OpencodeOptions | None) -> OpencodeOptio
 def active_provider(cfg: EvoConfig) -> OpencodeProviderConfig:
     active = apply_model()
     return OpencodeProviderConfig(
-        _required(active.provider, 'LAZYRAG_EVO_CODE_PROVIDER'),
-        _required(active.model, 'LAZYRAG_EVO_CODE_MODEL'),
+        _required(active.provider, 'LAZYMIND_EVO_CODE_PROVIDER'),
+        _required(active.model, 'LAZYMIND_EVO_CODE_MODEL'),
         active.api_key,
         active.base_url,
         active.label,
@@ -89,4 +89,4 @@ def _mask(value: str) -> str:
     return '' if not value else (value[:2] + '***' if len(value) <= 10 else value[:6] + '***' + value[-4:])
 
 
-_ENV_ONLY = 'opencode config is controlled by LAZYRAG_EVO_CODE_* environment variables'
+_ENV_ONLY = 'opencode config is controlled by LAZYMIND_EVO_CODE_* environment variables'

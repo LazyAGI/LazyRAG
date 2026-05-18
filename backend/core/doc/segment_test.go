@@ -10,7 +10,7 @@ import (
 
 func TestSignSegmentImageKeys(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", root)
+	t.Setenv("LAZYMIND_UPLOAD_ROOT", root)
 
 	fullPath := filepath.Join(root, "tenants", "root", "normalized_images", "root", "frame.jpg")
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
@@ -30,7 +30,7 @@ func TestSignSegmentImageKeys(t *testing.T) {
 }
 
 func TestBuildParserChunksURLUsesOffsetPagination(t *testing.T) {
-	t.Setenv("LAZYRAG_PARSING_SERVICE_URL", "http://parser:8000/")
+	t.Setenv("LAZYMIND_PARSING_SERVICE_URL", "http://parser:8000/")
 
 	got := buildParserChunksURL("kb-1", "algo-1", "doc-1", "block", 3, 12)
 	parsed, err := url.Parse(got)

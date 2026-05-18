@@ -283,8 +283,8 @@ const FIXED_EVAL_SET = "__none__";
 const FIXED_EXTRA_EVAL_STRATEGY: ExtraEvalStrategy = "generate";
 const DEFAULT_EVAL_CASE_COUNT = 100;
 const AGENT_API_BASE = `${BASE_URL}/api/core/agent`;
-const SELF_EVOLUTION_LAST_THREAD_STORAGE_KEY = "lazyrag:self-evolution:last-thread";
-const DEPRECATED_SELF_EVOLUTION_THREAD_HISTORY_STORAGE_KEY = "lazyrag:self-evolution:thread-history";
+const SELF_EVOLUTION_LAST_THREAD_STORAGE_KEY = "lazymind:self-evolution:last-thread";
+const DEPRECATED_SELF_EVOLUTION_THREAD_HISTORY_STORAGE_KEY = "lazymind:self-evolution:thread-history";
 
 const workflowResultLabels: Record<WorkflowResultKind, string> = {
   datasets: "数据集结果",
@@ -1609,9 +1609,9 @@ function getShortLabel(text: string, maxLength = 6) {
 
 function normalizeDiffPath(path: string) {
   const cleaned = path.replace(/^([ab])\//, "");
-  const lazyRagIndex = cleaned.indexOf("LazyRAG/");
-  if (lazyRagIndex >= 0) {
-    return cleaned.slice(lazyRagIndex + "LazyRAG/".length);
+  const lazyMindIndex = cleaned.indexOf("LazyMind/");
+  if (lazyMindIndex >= 0) {
+    return cleaned.slice(lazyMindIndex + "LazyMind/".length);
   }
   return cleaned;
 }

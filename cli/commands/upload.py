@@ -929,7 +929,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
 
     except KeyboardInterrupt:
         upload_state.update_state(run_dir, status='interrupted')
-        print(f'\nInterrupted. Resume with: lazyrag upload --resume {manifest.get("run_id")}',
+        print(f'\nInterrupted. Resume with: lazymind upload --resume {manifest.get("run_id")}',
               file=sys.stderr)
         return 130
     except BaseException as exc:

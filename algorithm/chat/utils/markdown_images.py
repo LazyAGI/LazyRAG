@@ -4,9 +4,9 @@ from typing import Any, Dict
 from chat.utils.static_file_url import static_file_url_from_any, basename_from_path as _basename
 
 _IMAGE_MD_RE = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
-_UPLOAD_ROOT_MARKER = '/var/lib/lazyrag/uploads/'
+_UPLOAD_ROOT_MARKER = '/var/lib/lazymind/uploads/'
 _BLOCKED_HOST_MARKERS = (
-    'ext.lazyrag.ai',
+    'ext.lazymind.ai',
     'agent-cdn.minimax.io',
 )
 

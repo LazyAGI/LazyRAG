@@ -13,7 +13,7 @@ from lazyllm.tools.rag.readers.readerBase import LazyLLMReaderBase, get_default_
 from config import config as _cfg
 from parsing.readers.imageEmbReader import ImageEmbReader
 
-FRAME_DIR = Path(tempfile.gettempdir()) / 'lazyrag_video_frames'
+FRAME_DIR = Path(tempfile.gettempdir()) / 'lazymind_video_frames'
 
 
 class _WhisperMediaReader(LazyLLMReaderBase):

@@ -9,15 +9,15 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/algo"
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/store"
+	"lazymind/core/algo"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/store"
 )
 
 const (
-	ManagedMemoryTitle     = "回复风格偏好"
-	ManagedPreferenceTitle = "输出结构偏好"
+	ManagedMemoryTitle     = "智能体工作记忆"
+	ManagedPreferenceTitle = "用户画像"
 )
 
 type ManagedStateItem struct {

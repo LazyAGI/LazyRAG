@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 def _resolve_database_url() -> str:
     # Docker-compose / local dev convention: provide full SQLAlchemy URL via env var.
     # Example: postgresql+psycopg://user:pass@db:5432/app
-    return os.environ.get('LAZYRAG_DATABASE_URL') or 'sqlite:///./app.db'
+    return os.environ.get('LAZYMIND_DATABASE_URL') or 'sqlite:///./app.db'
 
 
 DATABASE_URL = _resolve_database_url()

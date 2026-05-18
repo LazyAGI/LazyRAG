@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/lazyrag/scan_control_plane/internal/model"
+	"github.com/lazymind/scan_control_plane/internal/model"
 )
 
 func (s *Store) RegisterAgent(ctx context.Context, req model.RegisterAgentRequest) error {

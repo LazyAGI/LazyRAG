@@ -12,11 +12,11 @@ Test categories
 
 Run (from repo root, with lazyllm env activated):
     source activate lazyllm
-    cd LazyLLM && export PYTHONPATH=$PWD:$PYTHONPATH && cd ../LazyRAG
+    cd LazyLLM && export PYTHONPATH=$PWD:$PYTHONPATH && cd ../LazyMind
     python -m pytest tests/algorithm/test_vocab_manager.py -v
 
 Integration tests only:
-    LAZYRAG_CORE_DATABASE_URL=postgresql://root:123456@10.119.24.129:5432/core \
+    LAZYMIND_CORE_DATABASE_URL=postgresql://root:123456@10.119.24.129:5432/core \
         python -m pytest tests/algorithm/test_vocab_manager.py -v -m integration
 """
 from __future__ import annotations
@@ -340,8 +340,8 @@ class TestVocabDBQueryLayer:
 
         fake_engine = object()
         with patch.dict(_os.environ, {
-            'LAZYRAG_DATABASE_URL': 'postgresql://legacy-app-db',
-            'LAZYRAG_CORE_DATABASE_URL': 'postgresql://core-db',
+            'LAZYMIND_DATABASE_URL': 'postgresql://legacy-app-db',
+            'LAZYMIND_CORE_DATABASE_URL': 'postgresql://core-db',
             'ACL_DB_DSN': '',
         }, clear=False), patch('vocab.db._get_engine', return_value=fake_engine) as mock_get_engine:
             assert vocab_db._get_vocab_conn() is fake_engine
@@ -554,7 +554,7 @@ class TestVocabReloadRoute:
 # TestVocabDBIntegration  (requires real DB — skipped when env var absent)
 # ---------------------------------------------------------------------------
 
-_REAL_VOCAB_DB_URL = _os.getenv('LAZYRAG_CORE_DATABASE_URL', '') or _os.getenv('LAZYRAG_DATABASE_URL', '')
+_REAL_VOCAB_DB_URL = _os.getenv('LAZYMIND_CORE_DATABASE_URL', '') or _os.getenv('LAZYMIND_DATABASE_URL', '')
 
 
 def _real_vocab_users(limit: int = 2) -> list[str]:
@@ -598,7 +598,7 @@ def _real_deleted_vocab_entry() -> dict | None:
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(not _REAL_VOCAB_DB_URL, reason='LAZYRAG_CORE_DATABASE_URL / LAZYRAG_DATABASE_URL not set')
+@pytest.mark.skipif(not _REAL_VOCAB_DB_URL, reason='LAZYMIND_CORE_DATABASE_URL / LAZYMIND_DATABASE_URL not set')
 class TestVocabDBIntegration:
     """Integration tests that hit the real core.public.words table."""
 

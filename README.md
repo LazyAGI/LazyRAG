@@ -1,4 +1,4 @@
-# LazyRAG
+# LazyMind
 
 **[中文](README.CN.md)** | **English**
 
@@ -8,7 +8,7 @@
 
 ## What is this?
 
-LazyRAG is a **production-ready enterprise knowledge-base + RAG chat platform** with a built-in **automated RAG quality optimization loop (evo)**.
+LazyMind is a **production-ready enterprise knowledge-base + RAG chat platform** with a built-in **automated RAG quality optimization loop (evo)**.
 
 You can use it to:
 
@@ -23,7 +23,7 @@ You can use it to:
 
 ### 1. RAG Self-Evolution Loop (evo)
 
-This is LazyRAG's most distinctive capability. Traditional RAG systems rely on manual inspection after deployment. The evo module lets the system **run the entire optimization pipeline on its own**:
+This is LazyMind's most distinctive capability. Traditional RAG systems rely on manual inspection after deployment. The evo module lets the system **run the entire optimization pipeline on its own**:
 
 ```
 Generate dataset → Baseline eval → Analyze bad cases → Generate code fix → A/B test → Merge & deploy
@@ -119,16 +119,16 @@ For environment setup and detailed examples, see [`docs/quick_start.md`](docs/qu
 | Scenario | Command |
 |----------|---------|
 | Standard | `make up` |
-| MinerU OCR | `make up LAZYRAG_OCR_SERVER_TYPE=mineru` |
-| PaddleOCR (GPU) | `make up LAZYRAG_OCR_SERVER_TYPE=paddleocr` |
-| External Milvus/OpenSearch | `make up LAZYRAG_MILVUS_URI=http://your-milvus:19530 LAZYRAG_OPENSEARCH_URI=https://your-opensearch:9200` |
-| Enable store dashboards | `make up LAZYRAG_ENABLE_STORE_DASHBOARDS=1` |
+| MinerU OCR | `make up LAZYMIND_OCR_SERVER_TYPE=mineru` |
+| PaddleOCR (GPU) | `make up LAZYMIND_OCR_SERVER_TYPE=paddleocr` |
+| External Milvus/OpenSearch | `make up LAZYMIND_MILVUS_URI=http://your-milvus:19530 LAZYMIND_OPENSEARCH_URI=https://your-opensearch:9200` |
+| Enable store dashboards | `make up LAZYMIND_ENABLE_STORE_DASHBOARDS=1` |
 
 ---
 
 ## Model Configuration
 
-All algorithm services use `LAZYRAG_MODEL_CONFIG_PATH`. The default is `dynamic`,
+All algorithm services use `LAZYMIND_MODEL_CONFIG_PATH`. The default is `dynamic`,
 so the frontend's per-user model/API-key selection can be injected per request.
 Set `online` or `inner` only when forcing a static config.
 
@@ -182,7 +182,7 @@ Full API reference: [`evo/README.md`](evo/README.md).
 ## Project Layout
 
 ```
-LazyRAG/
+LazyMind/
 ├── kong.yml                    # Kong declarative config
 ├── docker-compose.yml          # All services
 ├── Makefile                    # lint / startup shortcuts
@@ -212,7 +212,7 @@ make lint              # Python (flake8) + Go (gofmt)
 make lint-only-diff    # Lint changed files only
 ```
 
-- Go module: `backend/core` uses `module lazyrag/core`
+- Go module: `backend/core` uses `module lazymind/core`
 - Python: 3.11+, dependencies in `algorithm/requirements.txt` (`lazyllm[rag-advanced]`)
 - OpenAPI specs live in `api/` — keep them in sync when adding routes
 

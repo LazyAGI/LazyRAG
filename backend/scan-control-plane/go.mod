@@ -1,4 +1,4 @@
-module github.com/lazyrag/scan_control_plane
+module github.com/lazymind/scan_control_plane
 
 go 1.23
 

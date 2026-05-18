@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -21,8 +22,8 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/store"
+	"lazymind/core/common/orm"
+	"lazymind/core/store"
 )
 
 type testSSERecorder struct {
@@ -219,7 +220,7 @@ func TestDecodeJSONArrayObjectsAllowsEmptyBody(t *testing.T) {
 }
 
 func TestThreadEventsURLDoesNotForceSince(t *testing.T) {
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", "http://evo-service:8048/")
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", "http://evo-service:8048/")
 
 	got := threadEventsURL("thr/1")
 	want := "http://evo-service:8048/v1/evo/threads/thr%2F1/events"
@@ -437,7 +438,7 @@ func TestBuildCaseCSVBytesNormalizesMultilineCells(t *testing.T) {
 
 func TestAttachCaseCSVFileURLAddsDownloadableAttachment(t *testing.T) {
 	uploadRoot := t.TempDir()
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	t.Setenv("LAZYMIND_UPLOAD_ROOT", uploadRoot)
 	payload := map[string]any{
 		"data": map[string]any{
 			"cases": []any{
@@ -481,7 +482,7 @@ func TestAttachCaseCSVFileURLAddsDownloadableAttachment(t *testing.T) {
 
 func TestAttachCaseCSVFileURLReadsCasesFromJSONPath(t *testing.T) {
 	uploadRoot := t.TempDir()
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	t.Setenv("LAZYMIND_UPLOAD_ROOT", uploadRoot)
 	tmpDir := t.TempDir()
 	jsonPath := filepath.Join(tmpDir, "eval_data.json")
 	if err := os.WriteFile(jsonPath, []byte(`{"data":[{"question":"q1","answer":"a1"}]}`), 0o644); err != nil {
@@ -555,7 +556,7 @@ func TestBuildCaseDetailsCSVBytesUsesChineseHeadersAndQuestionTypeNames(t *testi
 
 func TestAttachCaseDetailsReportResultAddsSummaryAndCSVFile(t *testing.T) {
 	uploadRoot := t.TempDir()
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	t.Setenv("LAZYMIND_UPLOAD_ROOT", uploadRoot)
 	payload := map[string]any{
 		"data": map[string]any{
 			"case_details": []any{
@@ -636,7 +637,7 @@ func TestAttachCaseDetailsReportResultAddsSummaryAndCSVFile(t *testing.T) {
 
 func TestAttachCaseDetailsReportResultReadsCaseDetailsFromJSONPath(t *testing.T) {
 	uploadRoot := t.TempDir()
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	t.Setenv("LAZYMIND_UPLOAD_ROOT", uploadRoot)
 	tmpDir := t.TempDir()
 	jsonPath := filepath.Join(tmpDir, "eval_report.json")
 	if err := os.WriteFile(jsonPath, []byte(`{"case_details":[{"question":"q1","question_type":1,"context_recall":1}]}`), 0o644); err != nil {
@@ -683,7 +684,7 @@ func TestAttachCaseDetailsReportResultReadsCaseDetailsFromJSONPath(t *testing.T)
 
 func TestAttachCaseDetailsReportResultReadsABTestCaseDetailsFromJSONPath(t *testing.T) {
 	uploadRoot := t.TempDir()
-	t.Setenv("LAZYRAG_UPLOAD_ROOT", uploadRoot)
+	t.Setenv("LAZYMIND_UPLOAD_ROOT", uploadRoot)
 	tmpDir := t.TempDir()
 	jsonPath := filepath.Join(tmpDir, "abtest_report.json")
 	if err := os.WriteFile(jsonPath, []byte(`{"case_details":[{"question":"q1","question_type":2,"doc_recall":0.5,"answer_correctness":1}]}`), 0o644); err != nil {
@@ -948,6 +949,50 @@ func TestStreamUpstreamThreadEventsForwardsKeepalive(t *testing.T) {
 	}
 }
 
+func TestStreamUpstreamThreadEventsSendsKeepaliveWhenUpstreamIdle(t *testing.T) {
+	db := newAgentTestDB(t)
+	rec := newTestSSERecorder()
+	previousInterval := threadEventsKeepaliveInterval
+	threadEventsKeepaliveInterval = 20 * time.Millisecond
+	t.Cleanup(func() { threadEventsKeepaliveInterval = previousInterval })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bodyReader, bodyWriter := io.Pipe()
+	defer bodyReader.Close()
+	defer bodyWriter.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		var lastUpstreamEventID string
+		done <- streamUpstreamThreadEvents(ctx, rec, rec, db.DB, "thr_1", bodyReader, &lastUpstreamEventID, nil)
+	}()
+
+	select {
+	case chunk := <-rec.writeCh:
+		if chunk != ": keepalive\n\n" {
+			t.Fatalf("unexpected keepalive frame: %q", chunk)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for idle keepalive frame")
+	}
+
+	cancel()
+	_ = bodyWriter.Close()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("streamUpstreamThreadEvents returned unexpected error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("streamUpstreamThreadEvents did not stop after cancellation")
+	}
+
+	if got := rec.String(); !strings.Contains(got, ": keepalive\n\n") {
+		t.Fatalf("expected idle keepalive in response body, got %q", got)
+	}
+}
+
 func TestStreamMessageRecordsForwardsPublishedKeepalive(t *testing.T) {
 	db := newAgentTestDB(t)
 	session := &activeMessageStream{
@@ -1033,7 +1078,7 @@ func TestStreamThreadMessagesReturnsSSEActiveThreadError(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "running"})
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads/thr_new:messages", strings.NewReader(`{"content":"继续"}`))
 	req = mux.SetURLVars(req, map[string]string{"thread_id": "thr_new"})
@@ -1043,14 +1088,16 @@ func TestStreamThreadMessagesReturnsSSEActiveThreadError(t *testing.T) {
 	StreamThreadMessages(rec, req)
 
 	got := rec.String()
-	if !strings.Contains(got, "event: USER_ACTIVE_THREAD_EXISTS\n") {
-		t.Fatalf("expected USER_ACTIVE_THREAD_EXISTS event, got %q", got)
+	if strings.Contains(got, "event: USER_ACTIVE_THREAD_EXISTS\n") {
+		t.Fatalf("did not expect named USER_ACTIVE_THREAD_EXISTS event, got %q", got)
 	}
-	if !strings.Contains(got, `"type":"USER_ACTIVE_THREAD_EXISTS"`) {
-		t.Fatalf("expected USER_ACTIVE_THREAD_EXISTS payload type, got %q", got)
+	wantDataPrefix := `data: {"type":"USER_ACTIVE_THREAD_EXISTS","thread_id":"thr_new","message_id":"msg_thr_new_`
+	if !strings.Contains(got, wantDataPrefix) {
+		t.Fatalf("expected ordered USER_ACTIVE_THREAD_EXISTS payload, got %q", got)
 	}
-	if !strings.Contains(got, userActiveThreadExistsMessage) {
-		t.Fatalf("expected localized active thread message, got %q", got)
+	wantDataSuffix := `","message":"` + userActiveThreadExistsMessage + `","delta":"` + userActiveThreadExistsMessage + `"}`
+	if !strings.Contains(got, wantDataSuffix) {
+		t.Fatalf("expected localized active thread message fields, got %q", got)
 	}
 }
 
@@ -1358,7 +1405,7 @@ func TestDeleteThreadHistoryCancelsRunningFlowBeforeDeleting(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1412,7 +1459,7 @@ func TestDeleteThreadHistoryDoesNotCancelEndedFlow(t *testing.T) {
 		http.Error(w, "unexpected request", http.StatusNotFound)
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1477,7 +1524,7 @@ func TestDeleteThreadHistoryCancelsRunningFlowBeforeActiveStreamConflict(t *test
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1530,7 +1577,7 @@ func TestDeleteThreadHistoryKeepsLocalRowsWhenCancelFails(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1570,7 +1617,7 @@ func TestDeleteThreadHistoryKeepsLocalRowsWhenFlowStatusFails(t *testing.T) {
 		http.Error(w, `{"message":"status failed"}`, http.StatusInternalServerError)
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/core/agent/threads/thr_1:history", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1640,7 +1687,7 @@ func TestListThreadsFiltersByUserAndPaginates(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/core/agent/threads?page_size=1", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1719,7 +1766,7 @@ func TestListThreadsFallsBackToLocalStatusWhenStatusesFail(t *testing.T) {
 		http.Error(w, "status service unavailable", http.StatusInternalServerError)
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/core/agent/threads?page_size=10", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1793,7 +1840,7 @@ func TestReserveUserActiveThreadCreationRejectsRunningThread(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "running"})
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
 	req.Header.Set("X-User-Id", "u1")
@@ -1828,7 +1875,7 @@ func TestEnsureUserCanActivateThreadRejectsDifferentRunningThread(t *testing.T) 
 		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "running"})
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads/thr_new:retry", nil)
 	req.Header.Set("X-User-Id", "u1")
@@ -1866,7 +1913,7 @@ func TestReserveUserActiveThreadCreationRejectsCheckpointThread(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "waiting_checkpoint"})
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
 	req.Header.Set("X-User-Id", "u1")
@@ -1901,7 +1948,7 @@ func TestReserveUserActiveThreadCreationReplacesEndedThread(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(threadFlowStatusResponse{ThreadID: "thr_old", Status: "completed"})
 	}))
 	defer server.Close()
-	t.Setenv("LAZYRAG_EVO_SERVICE_URL", server.URL)
+	t.Setenv("LAZYMIND_EVO_SERVICE_URL", server.URL)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/core/agent/threads", strings.NewReader(`{}`))
 	req.Header.Set("X-User-Id", "u1")
