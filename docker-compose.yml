@@ -556,7 +556,6 @@ services:
           - processor-worker
 
   lazyllm-algo:
-    image: lazyllm-algo:20260518-1
     build:
       network: host
       context: .
