@@ -326,10 +326,10 @@ services:
       context: ./frontend
       args:
         <<: *mirror-args
-    expose:
-      - "80"
     ports:
       - "${LAZYRAG_FRONTEND_PORT:-8080}:80"
+    expose:
+      - "80"
     depends_on:
       kong:
         condition: service_started
@@ -785,7 +785,6 @@ services:
     profiles:
       - opensearch
     image: opensearchproject/opensearch:2.18.0
-    # container_name: opensearch
     environment:
       - cluster.name=opensearch-cluster
       - node.name=opensearch-node1
