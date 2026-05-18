@@ -134,8 +134,8 @@ class TestInjectToGlobals:
                 inject_model_config({
                     'llm':          {'source': 'openai', 'model': 'gpt-4o',       'api_key': 'sk-a'},
                     'evo_llm': {'source': 'openai', 'model': 'gpt-4o-mini',  'api_key': 'sk-a'},
-                    'reranker':     {'source': 'sf',     'model': 'bge-reranker', 'api_key': 'sk-b'},
-                    'embed_main':   {'source': 'sf',     'model': 'bge-m3',       'api_key': 'sk-b'},
+                    'reranker':     {'source': 'siliconflow', 'model': 'bge-reranker', 'api_key': 'sk-b'},
+                    'embed_main':   {'source': 'siliconflow', 'model': 'bge-m3',       'api_key': 'sk-b'},
                 })
                 cfg = gcfg['dynamic_model_configs']
 
@@ -168,7 +168,7 @@ class TestInjectToGlobals:
             with pytest.raises(ValueError, match='model_config is required'):
                 inject_model_config(None)
 
-    def test_raises_when_role_missing_from_model_config(self, tmp_path):
+    def test_missing_role_left_unconfigured(self, tmp_path):
         with _runtime_models_yaml(tmp_path, '''
             llm:
               source: dynamic
@@ -177,11 +177,15 @@ class TestInjectToGlobals:
               source: dynamic
               type: embed
         '''):
-            with pytest.raises(ValueError, match='missing required dynamic roles'):
+            with _clean_globals() as gcfg:
                 inject_model_config({
                     'llm': {'source': 'openai', 'model': 'gpt-4o', 'api_key': 'sk-x'},
                     # embed_main is missing
                 })
+                cfg = gcfg['dynamic_model_configs']
+
+        assert cfg['llm']['chat']['model'] == 'gpt-4o'
+        assert 'embed_main' not in cfg
 
     def test_noop_when_no_dynamic_roles(self, tmp_path):
         """Static config: inject_model_config(None) should not raise."""

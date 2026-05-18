@@ -3,7 +3,7 @@
   "info": {
     "title": "Backend Core API",
     "version": "0.1.0",
-    "description": "LazyRAG Go backend core API - proxies to algorithm services"
+    "description": "LazyMind Go backend core API - proxies to algorithm services"
   },
   "servers": [{ "url": "/api/core", "description": "Kong gateway (strip_path text core text)" }],
   "paths": {

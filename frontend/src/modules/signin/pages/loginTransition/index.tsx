@@ -76,7 +76,7 @@ const LoginTransition = () => {
                 className="card-logo"
                 style={{ fontSize: 24, fontWeight: 700 }}
               >
-                LazyRAG
+                LazyMind
               </span>
             </div>
             <Button className="retry-btn" onClick={retryWithNewChallenge}>
@@ -88,7 +88,7 @@ const LoginTransition = () => {
               className="footer-logo-img"
               style={{ fontSize: 12, color: "#999" }}
             >
-              LazyRAG
+              LazyMind
             </span>
           </div>
         </div>

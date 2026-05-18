@@ -2,8 +2,6 @@ ARG DOCKER_MIRROR=docker.m.daocloud.io/library/
 FROM ${DOCKER_MIRROR}python:3.11-slim
 
 ARG OPENCODE_VERSION=1.14.28
-ARG OPENCODE_DOWNLOAD_PREFIX=https://gh-proxy.com/
-ARG TARGETARCH
 ARG LAZYLLM_GITHUB_REF=main
 ARG LAZYLLM_ARCHIVE_BASE=https://codeload.github.com/LazyAGI/LazyLLM/tar.gz/refs/heads
 ARG APT_MIRROR=http://mirrors.aliyun.com/debian
@@ -11,55 +9,36 @@ ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 ARG PIP_DEFAULT_TIMEOUT=2400
 ARG PIP_RETRIES=10
+ARG GITHUB_PROXY=https://gh-proxy.com/
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    LAZYRAG_EVO_CODE_BINARY=/usr/local/bin/opencode \
-    LAZYRAG_EVO_CODE_DATA_DIR=/var/lib/lazyrag/evo/opencode \
-    LAZYRAG_EVO_BASE_DIR=/var/lib/lazyrag/evo \
-    LAZYRAG_EVO_CHAT_SOURCE=/var/lib/lazyrag/chat-source \
-    LAZYRAG_MODEL_CONFIG_PATH=/app/chat/runtime_models.inner.yaml \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
+    PIP_RETRIES=${PIP_RETRIES} \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LAZYMIND_EVO_CODE_BINARY=/usr/local/bin/opencode \
+    LAZYMIND_EVO_CODE_DATA_DIR=/var/lib/lazymind/evo/opencode \
+    LAZYMIND_EVO_BASE_DIR=/var/lib/lazymind/evo \
+    LAZYMIND_EVO_CHAT_SOURCE=/var/lib/lazymind/chat-source \
+    LAZYMIND_MODEL_CONFIG_PATH=dynamic \
     PYTHONPATH=/opt/lazyllm:/app
 
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    apt_http_proxy="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    apt_https_proxy="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
-      [ -f "$source_file" ] || continue; \
+RUN set -eu; \
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+      [ -f "$f" ] || continue; \
       sed -i \
         -e "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
         -e "s|http://deb.debian.org/debian|${APT_MIRROR}|g" \
-        "$source_file"; \
+        "$f"; \
     done; \
-    if [ -n "$apt_http_proxy" ] || [ -n "$apt_https_proxy" ]; then \
-      { \
-        [ -z "$apt_http_proxy" ] || printf 'Acquire::http::Proxy "%s";\n' "$apt_http_proxy"; \
-        [ -z "$apt_https_proxy" ] || printf 'Acquire::https::Proxy "%s";\n' "$apt_https_proxy"; \
-        printf 'Acquire::Retries "5";\n'; \
-        printf 'Acquire::http::Timeout "120";\n'; \
-        printf 'Acquire::https::Timeout "120";\n'; \
-        printf 'Acquire::ForceIPv4 "true";\n'; \
-      } > /etc/apt/apt.conf.d/99proxy; \
-    fi; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
+    apt-get update && apt-get install -y --no-install-recommends \
         git curl ca-certificates ripgrep build-essential cmake ninja-build \
-        libgl1 libglib2.0-0; \
-    rm -f /etc/apt/apt.conf.d/99proxy; \
-    rm -rf /var/lib/apt/lists/*
+        libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Keep LazyLLM on the official main branch while avoiding the C++ editable build path.
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    proxy_http="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    proxy_https="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    export http_proxy="$proxy_http" https_proxy="$proxy_https"; \
-    export HTTP_PROXY="$proxy_http" HTTPS_PROXY="$proxy_https"; \
-    export PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT}" PIP_RETRIES="${PIP_RETRIES}"; \
-    export PIP_DISABLE_PIP_VERSION_CHECK=1; \
+RUN set -eu; \
     curl -fL --http1.1 --no-progress-meter \
       --retry 8 --retry-all-errors --retry-delay 3 \
       --connect-timeout 30 --speed-limit 1024 --speed-time 60 --max-time 900 \
@@ -80,52 +59,26 @@ RUN --mount=type=secret,id=apt_http_proxy,required=false \
       > /usr/local/bin/lazyllm; \
     chmod 0755 /usr/local/bin/lazyllm
 
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    proxy_http="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    proxy_https="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    export http_proxy="$proxy_http" https_proxy="$proxy_https"; \
-    export HTTP_PROXY="$proxy_http" HTTPS_PROXY="$proxy_https"; \
-    export PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT}" PIP_RETRIES="${PIP_RETRIES}"; \
-    export PIP_DISABLE_PIP_VERSION_CHECK=1; \
-    cd /opt/lazyllm; \
-    lazyllm install rag
+RUN cd /opt/lazyllm && lazyllm install rag
 
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    proxy_http="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    proxy_https="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    export http_proxy="$proxy_http" https_proxy="$proxy_https"; \
-    export HTTP_PROXY="$proxy_http" HTTPS_PROXY="$proxy_https"; \
-    case "${TARGETARCH:-amd64}" in \
+# Detect arch inside the container (dpkg) so the binary always matches the base image,
+# regardless of whether BuildKit injects TARGETARCH (legacy builder does not).
+RUN set -eu; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
       amd64) ARCH=x64 ;; \
       arm64) ARCH=arm64 ;; \
-      *) echo "unsupported arch ${TARGETARCH}" && exit 1 ;; \
+      *) echo "unsupported arch $arch" && exit 1 ;; \
     esac; \
-    URL="${OPENCODE_DOWNLOAD_PREFIX}https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz"; \
-    curl -fL --http1.1 --no-progress-meter \
-      --retry 8 --retry-all-errors --retry-delay 3 \
-      --connect-timeout 30 --speed-limit 1024 --speed-time 60 --max-time 900 \
-      "$URL" -o /tmp/opencode.tar.gz; \
+    curl -fL "${GITHUB_PROXY}https://github.com/sst/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz" -o /tmp/opencode.tar.gz; \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
     chmod 0755 /usr/local/bin/opencode; \
     rm /tmp/opencode.tar.gz; \
     opencode --version
 
 COPY evo/requirements.txt /tmp/evo-requirements.txt
-RUN --mount=type=secret,id=apt_http_proxy,required=false \
-    --mount=type=secret,id=apt_https_proxy,required=false \
-    set -eu; \
-    proxy_http="$(cat /run/secrets/apt_http_proxy 2>/dev/null || true)"; \
-    proxy_https="$(cat /run/secrets/apt_https_proxy 2>/dev/null || true)"; \
-    export http_proxy="$proxy_http" https_proxy="$proxy_https"; \
-    export HTTP_PROXY="$proxy_http" HTTPS_PROXY="$proxy_https"; \
-    export PIP_INDEX_URL="${PIP_INDEX_URL}" PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT}" PIP_RETRIES="${PIP_RETRIES}"; \
-    export PIP_DISABLE_PIP_VERSION_CHECK=1; \
-    pip install -r /tmp/evo-requirements.txt; \
-    pip install --no-cache-dir python-dotenv
+RUN pip install -r /tmp/evo-requirements.txt \
+    && pip install --no-cache-dir python-dotenv
 
 WORKDIR /app
 COPY evo/ /app/evo/

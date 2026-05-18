@@ -1,1 +1,1 @@
-# LazyRAG CLI
+# LazyMind CLI

@@ -108,20 +108,20 @@ def _request(headers=None):
 
 
 def test_require_internal_service_token_all_branches(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN', raising=False)
+    monkeypatch.delenv('LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN', raising=False)
     with pytest.raises(AppException) as missing_expected:
-        deps.require_internal_service_token(_request({'x-lazyrag-internal-token': 'token'}))
+        deps.require_internal_service_token(_request({'x-lazymind-internal-token': 'token'}))
     assert missing_expected.value.code == 1000302
 
-    monkeypatch.setenv('LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN', 'expected-token')
+    monkeypatch.setenv('LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN', 'expected-token')
     with pytest.raises(AppException) as missing_header:
         deps.require_internal_service_token(_request())
     assert missing_header.value.code == 1000301
 
     with pytest.raises(AppException) as wrong_header:
-        deps.require_internal_service_token(_request({'x-lazyrag-internal-token': 'wrong-token'}))
+        deps.require_internal_service_token(_request({'x-lazymind-internal-token': 'wrong-token'}))
     assert wrong_header.value.code == 1000301
 
     assert deps.require_internal_service_token(
-        _request({'x-lazyrag-internal-token': 'expected-token'})
+        _request({'x-lazymind-internal-token': 'expected-token'})
     ) is None

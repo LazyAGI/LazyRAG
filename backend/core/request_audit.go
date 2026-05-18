@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"lazyrag/core/log"
+	"lazymind/core/log"
 )
 
 type auditResponseWriter struct {

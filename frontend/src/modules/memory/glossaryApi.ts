@@ -404,3 +404,42 @@ export async function addGlossaryConflictToGroups(
     group_ids: conflict.groupIds,
   });
 }
+
+export interface GlossaryConflictMergeGroupRequest {
+  group_ids: string[];
+  term: string;
+  aliases?: string[];
+  description: string;
+}
+
+export async function mergeGlossaryConflictAndAddWord(
+  payload: {
+    id: string;
+    word: string;
+    group_ids?: string[];
+    merges?: GlossaryConflictMergeGroupRequest[];
+  },
+): Promise<GlossaryAsset[]> {
+  const response = await axiosInstance.post(
+    `${coreBasePath}/word_group_conflict:mergeAndAddWord`,
+    payload,
+  );
+  const raw = toRawObject(unwrapEnvelope<unknown>(response.data));
+  const items = Array.isArray(raw?.items) ? raw.items : [];
+  return items
+    .map((item) => normalizeGlossaryAsset(item))
+    .filter((item): item is GlossaryAsset => Boolean(item));
+}
+
+export async function createGlossaryGroupFromConflict(
+  payload: {
+    id: string;
+    word: string;
+    term: string;
+    aliases?: string[];
+    description: string;
+    group_ids?: string[];
+  },
+): Promise<void> {
+  await axiosInstance.post(`${coreBasePath}/word_group_conflict:createGroup`, payload);
+}

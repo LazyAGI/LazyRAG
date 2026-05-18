@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"lazyrag/core/common"
+	"lazymind/core/common"
 )
 
 const generateTimeout = 10 * time.Minute

@@ -1,4 +1,4 @@
-# LazyRAG Tests
+# LazyMind Tests
 
 Unit tests for four modules: **frontend**, **backend (core)**, **auth-service**, and **algorithm**.
 

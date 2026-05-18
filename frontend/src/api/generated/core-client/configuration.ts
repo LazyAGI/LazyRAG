@@ -1,7 +1,7 @@
 /* tslint:disable */
 /**
  * Backend Core API
- * LazyRAG Go backend core API - proxies to algorithm services. text Kong text /api/core。
+ * LazyMind Go backend core API - proxies to algorithm services. text Kong text /api/core。
  *
  * The version of the OpenAPI document: 0.1.0
  * 

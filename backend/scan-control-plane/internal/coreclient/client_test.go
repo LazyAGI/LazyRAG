@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lazyrag/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/config"
 )
 
 func TestSetAuthHeadersIncludesBearerToken(t *testing.T) {

@@ -14,8 +14,8 @@ def test_static_file_url_from_full_path_signs_upload_relative_path(tmp_path, mon
     image.parent.mkdir(parents=True)
     image.write_bytes(b'jpg')
 
-    monkeypatch.setenv('LAZYRAG_UPLOAD_ROOT', str(upload_root))
-    monkeypatch.setenv('LAZYRAG_FILE_URL_SIGN_SECRET', 'test-secret')
+    monkeypatch.setenv('LAZYMIND_UPLOAD_ROOT', str(upload_root))
+    monkeypatch.setenv('LAZYMIND_FILE_URL_SIGN_SECRET', 'test-secret')
 
     signed = static_file_url_from_full_path(str(image))
     assert signed.startswith('/static-files/normalized_images/exp9/frame.jpg?')
@@ -29,11 +29,11 @@ def test_static_file_url_from_any_strips_external_host_prefix(tmp_path, monkeypa
     image.parent.mkdir(parents=True)
     image.write_bytes(b'jpg')
 
-    monkeypatch.setenv('LAZYRAG_UPLOAD_ROOT', str(upload_root))
-    monkeypatch.setenv('LAZYRAG_FILE_URL_SIGN_SECRET', 'test-secret')
+    monkeypatch.setenv('LAZYMIND_UPLOAD_ROOT', str(upload_root))
+    monkeypatch.setenv('LAZYMIND_FILE_URL_SIGN_SECRET', 'test-secret')
 
     raw = (
-        'https://ext.lazyrag.ai:19537/var/lib/lazyrag/uploads/'
+        'https://ext.lazymind.ai:19537/var/lib/lazymind/uploads/'
         'normalized_images/exp9/frame.jpg'
     )
     signed = static_file_url_from_any(raw)

@@ -7,9 +7,9 @@ manager reloads and vocabulary evolution planning.
 Connection priority for vocab reads:
 
 1. explicit ``db_url`` argument
-2. ``LAZYRAG_CORE_DATABASE_URL``
+2. ``LAZYMIND_CORE_DATABASE_URL``
 3. ``ACL_DB_DSN``
-4. ``LAZYRAG_DATABASE_URL``
+4. ``LAZYMIND_DATABASE_URL``
 """
 from __future__ import annotations
 
@@ -29,9 +29,9 @@ VOCAB_SCHEMA = 'public'
 VOCAB_TABLE = 'words'
 VOCAB_TABLE_QUALIFIED = f'{VOCAB_SCHEMA}.{VOCAB_TABLE}'
 VOCAB_REFERENCE_COLUMN = 'reference_info'
-_DB_URL_ENV = 'LAZYRAG_DATABASE_URL'
-_CORE_DB_DSN_ENV = 'LAZYRAG_ACL_DB_DSN'
-_CORE_DB_URL_ENV = 'LAZYRAG_CORE_DATABASE_URL'
+_DB_URL_ENV = 'LAZYMIND_DATABASE_URL'
+_CORE_DB_DSN_ENV = 'LAZYMIND_ACL_DB_DSN'
+_CORE_DB_URL_ENV = 'LAZYMIND_CORE_DATABASE_URL'
 _VOCAB_DB_ENV_HINT = f'{_CORE_DB_URL_ENV}, {_CORE_DB_DSN_ENV}, or {_DB_URL_ENV}'
 
 _table_ensured = False

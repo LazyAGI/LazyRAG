@@ -14,7 +14,6 @@
 
 .main-layout-content {
   height: 100vh;
-  padding: 8px 8px 8px 0;
   transition: padding 0.24s cubic-bezier(0.4, 0, 0.2, 1);
 
   &.is-sidebar-collapsed {
@@ -95,7 +94,7 @@
 
   .sider-inner {
     height: 100%;
-    width: 232px;
+    width: 252px;
     display: flex;
     flex-direction: column;
     padding: 18px 12px 14px;
@@ -276,12 +275,12 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 0 2px 10px;
+    padding: 0 10px 10px;
   }
 
   .sider-history-title {
     flex: 0 0 auto;
-    padding: 0 8px 8px;
+    padding: 0 12px 8px;
     color: #9ca3af;
     font-size: 13px;
     font-weight: 600;
@@ -533,6 +532,10 @@
 
   .data-source-page .data-source-page-toolbar-left {
     box-sizing: border-box;
+  }
+
+  .data-source-detail-page .data-source-detail-back.ant-btn {
+    margin-left: 48px;
   }
 }
 

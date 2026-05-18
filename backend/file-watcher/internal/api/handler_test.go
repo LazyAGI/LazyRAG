@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	internal "github.com/lazyrag/file_watcher/internal"
-	"github.com/lazyrag/file_watcher/internal/fs"
+	internal "github.com/lazymind/file_watcher/internal"
+	"github.com/lazymind/file_watcher/internal/fs"
 )
 
 func TestTreeFiltersByKeyword(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"lazyrag/core/evolution"
+	"lazymind/core/evolution"
 )
 
 func TestBuildChatRequestBodyUsesConversationIDDerivedSessionID(t *testing.T) {
@@ -169,8 +169,8 @@ func TestBuildChatRequestBodyMergesInputURIsIntoFiles(t *testing.T) {
 	body := buildChatRequestBody("conv-1", "sid", "what animal", nil, map[string]any{
 		"input": []any{
 			map[string]any{"input_type": "text", "text": "hello"},
-			map[string]any{"input_type": "image", "uri": "/var/lib/lazyrag/uploads/tmp/u1/a.png"},
-			map[string]any{"input_type": "file", "uri": "/var/lib/lazyrag/uploads/tmp/u1/b.pdf"},
+			map[string]any{"input_type": "image", "uri": "/var/lib/lazymind/uploads/tmp/u1/a.png"},
+			map[string]any{"input_type": "file", "uri": "/var/lib/lazymind/uploads/tmp/u1/b.pdf"},
 		},
 	}, nil, "")
 
@@ -178,7 +178,7 @@ func TestBuildChatRequestBodyMergesInputURIsIntoFiles(t *testing.T) {
 	if !ok || len(files) != 2 {
 		t.Fatalf("expected 2 file paths from input, got %#v", body["files"])
 	}
-	if files[0] != "/var/lib/lazyrag/uploads/tmp/u1/a.png" || files[1] != "/var/lib/lazyrag/uploads/tmp/u1/b.pdf" {
+	if files[0] != "/var/lib/lazymind/uploads/tmp/u1/a.png" || files[1] != "/var/lib/lazymind/uploads/tmp/u1/b.pdf" {
 		t.Fatalf("unexpected files order/content: %#v", files)
 	}
 }
@@ -233,6 +233,9 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 			},
 		},
 		"user_id": "user-1",
+		"llm_config": map[string]any{
+			"llm": map[string]any{"source": "openai", "model": "gpt-4o"},
+		},
 	})
 
 	if req.Query != "hello" || req.SessionID != "conv-1" {
@@ -280,6 +283,36 @@ func TestBuildLazyChatRequestMapsAllFields(t *testing.T) {
 	}
 	if req.UserID != "user-1" {
 		t.Fatalf("unexpected user_id: %q", req.UserID)
+	}
+	if req.LLMConfig == nil || req.LLMConfig["llm"] == nil {
+		t.Fatalf("expected llm_config to be forwarded, got %#v", req.LLMConfig)
+	}
+}
+
+func TestBuildLLMConfigFromSelectedModels(t *testing.T) {
+	llmConfig := buildLLMConfig([]selectedRuntimeModel{
+		{ModelType: "llm-chat", ProviderName: "OpenAI", ModelName: "gpt-4o", BaseURL: "https://api.openai.com/v1/", APIKey: "sk-from-db"},
+		{ModelType: "llm-evo", ProviderName: "OpenAI", ModelName: "gpt-4o-mini", BaseURL: "https://api.openai.com/v1/", APIKey: "sk-from-db"},
+		{ModelType: "embedding", ProviderName: "OpenAI", ModelName: "text-embedding-3-small", BaseURL: "https://api.openai.com/v1/", APIKey: "sk-from-db"},
+		{ModelType: "rerank", ProviderName: "OpenAI", ModelName: "rerank-multilingual-v3.0", BaseURL: "https://api.openai.com/v1/", APIKey: "sk-from-db"},
+	})
+
+	chatCfg := llmConfig["llm"].(map[string]any)
+	evoCfg := llmConfig["evo_llm"].(map[string]any)
+	embedCfg := llmConfig["embed_main"].(map[string]any)
+	rerankCfg := llmConfig["reranker"].(map[string]any)
+
+	if chatCfg["source"] != "openai" || chatCfg["model"] != "gpt-4o" || chatCfg["api_key"] != "sk-from-db" {
+		t.Fatalf("unexpected llm config: %#v", chatCfg)
+	}
+	if evoCfg["model"] != "gpt-4o-mini" {
+		t.Fatalf("unexpected evo_llm config: %#v", evoCfg)
+	}
+	if embedCfg["model"] != "text-embedding-3-small" {
+		t.Fatalf("unexpected embed_main config: %#v", embedCfg)
+	}
+	if rerankCfg["model"] != "rerank-multilingual-v3.0" {
+		t.Fatalf("unexpected reranker config: %#v", rerankCfg)
 	}
 }
 

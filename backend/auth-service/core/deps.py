@@ -15,12 +15,12 @@ from repositories import UserRepository
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
-_INTERNAL_TOKEN_HEADER = 'X-LazyRAG-Internal-Token'
+_INTERNAL_TOKEN_HEADER = 'X-LazyMind-Internal-Token'
 
 
 def require_internal_service_token(request: Request) -> None:
     """Restrict server-to-server routes; core must send matching header."""
-    expected = (os.environ.get('LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN') or '').strip()
+    expected = (os.environ.get('LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN') or '').strip()
     if not expected:
         raise_error(ErrorCodes.FORBIDDEN)
     got = (request.headers.get(_INTERNAL_TOKEN_HEADER) or '').strip()

@@ -14,8 +14,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/log"
+	"lazymind/core/common/orm"
+	"lazymind/core/log"
 )
 
 type activeMessageStream struct {

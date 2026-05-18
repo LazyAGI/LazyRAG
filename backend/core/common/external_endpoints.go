@@ -7,7 +7,7 @@ import (
 
 // ChatServiceEndpoint returns the base URL for the chat/generation service.
 func ChatServiceEndpoint() string {
-	if u := strings.TrimSpace(os.Getenv("LAZYRAG_CHAT_SERVICE_URL")); u != "" {
+	if u := strings.TrimSpace(os.Getenv("LAZYMIND_CHAT_SERVICE_URL")); u != "" {
 		return strings.TrimRight(u, "/")
 	}
 	return "http://chat:8046"
@@ -15,7 +15,7 @@ func ChatServiceEndpoint() string {
 
 // AuthServiceBaseURL returns the base URL for auth-service APIs.
 func AuthServiceBaseURL() string {
-	if u := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_URL")); u != "" {
+	if u := strings.TrimSpace(os.Getenv("LAZYMIND_AUTH_SERVICE_URL")); u != "" {
 		base := strings.TrimRight(u, "/")
 		if strings.HasSuffix(base, "/api/authservice") {
 			return base
@@ -27,16 +27,16 @@ func AuthServiceBaseURL() string {
 
 // EvoServiceEndpoint returns the base URL for the dedicated evo service.
 func EvoServiceEndpoint() string {
-	if u := strings.TrimSpace(os.Getenv("LAZYRAG_EVO_SERVICE_URL")); u != "" {
+	if u := strings.TrimSpace(os.Getenv("LAZYMIND_EVO_SERVICE_URL")); u != "" {
 		return strings.TrimRight(u, "/")
 	}
 	return "http://host.docker.internal:8048"
 }
 
 // AlgoServiceEndpoint text base URL（text path）。
-// text LAZYRAG_ALGO_SERVICE_URL text；textSettextDefaulttext，text。
+// text LAZYMIND_ALGO_SERVICE_URL text；textSettextDefaulttext，text。
 func AlgoServiceEndpoint() string {
-	if u := strings.TrimSpace(os.Getenv("LAZYRAG_ALGO_SERVICE_URL")); u != "" {
+	if u := strings.TrimSpace(os.Getenv("LAZYMIND_ALGO_SERVICE_URL")); u != "" {
 		return strings.TrimRight(u, "/")
 	}
 	return "http://10.119.24.129:8850"
@@ -44,7 +44,7 @@ func AlgoServiceEndpoint() string {
 
 // ParsingServiceEndpoint returns the base URL for the parsing/processor service.
 func ParsingServiceEndpoint() string {
-	if u := strings.TrimSpace(os.Getenv("LAZYRAG_PARSING_SERVICE_URL")); u != "" {
+	if u := strings.TrimSpace(os.Getenv("LAZYMIND_PARSING_SERVICE_URL")); u != "" {
 		return strings.TrimRight(u, "/")
 	}
 	return "http://localhost:8000"

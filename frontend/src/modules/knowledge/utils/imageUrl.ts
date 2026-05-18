@@ -3,7 +3,7 @@ import { BASE_URL } from '@/components/request';
 import { normalizeProxyableUrl } from '@/modules/knowledge/utils/request';
 
 const IMAGE_MD_RE = /!\[(.*?)\]\((.*?)\)/g;
-const UPLOAD_ROOT_MARKER = '/var/lib/lazyrag/uploads/';
+const UPLOAD_ROOT_MARKER = '/var/lib/lazymind/uploads/';
 const signCache = new Map<string, string>();
 const signInflight = new Map<string, Promise<string>>();
 

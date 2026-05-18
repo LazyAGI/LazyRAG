@@ -74,7 +74,7 @@ func TestValidateAllowsDeprecatedParserConfigWithoutEndpoint(t *testing.T) {
 }
 
 func TestLoadOverridesAuthServiceInternalTokenFromEnv(t *testing.T) {
-	t.Setenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN", "env-internal-token")
+	t.Setenv("LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN", "env-internal-token")
 
 	cfgPath := filepath.Join(t.TempDir(), "control-plane.yml")
 	if err := os.WriteFile(cfgPath, []byte(`

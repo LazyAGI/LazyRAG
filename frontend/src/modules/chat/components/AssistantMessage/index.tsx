@@ -158,12 +158,6 @@ const AssistantMessage = (props: any) => {
     targetHistoryId: undefined,
   });
 
-  const hasFeedback =
-    feedbackState.localFeedbackType ===
-      FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike ||
-    feedbackState.localFeedbackType ===
-      FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike;
-
   useEffect(() => {
     dispatch({ type: "SYNC_FROM_SERVER", feedbackType: item?.feed_back });
   }, [item?.feed_back]);
@@ -310,7 +304,7 @@ const AssistantMessage = (props: any) => {
     type: FeedBackChatHistoryRequestTypeEnum,
     historyId?: string,
   ) {
-    if (hasFeedback) {
+    if (feedbackState.isSubmitting) {
       return;
     }
 
@@ -330,10 +324,7 @@ const AssistantMessage = (props: any) => {
       currentFeedBack = item.feed_back;
     }
 
-    if (
-      currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike ||
-      currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
-    ) {
+    if (currentFeedBack === type) {
       return;
     }
 
@@ -357,6 +348,10 @@ const AssistantMessage = (props: any) => {
 
   
   function handleDislikeClick(historyId?: string) {
+    if (feedbackState.isSubmitting) {
+      return;
+    }
+
     let currentFeedBack: string | undefined;
     if (historyId && item.answers) {
       const answer = item.answers.find(
@@ -368,7 +363,6 @@ const AssistantMessage = (props: any) => {
     }
 
     if (
-      currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike ||
       currentFeedBack === FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
     ) {
       return;
@@ -548,25 +542,11 @@ const AssistantMessage = (props: any) => {
               ) : (
                 <LikeOutlined
                   className="tool-btn"
-                  onClick={
-                    answerFeedBack ===
-                    FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
-                      ? undefined
-                      : () =>
-                          onFeedBack(
-                            FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike,
-                            answerHistoryId,
-                          )
-                  }
-                  style={
-                    answerFeedBack ===
-                    FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
-                      ? {
-                          cursor: "not-allowed",
-                          opacity: 0.6,
-                          pointerEvents: "none",
-                        }
-                      : {}
+                  onClick={() =>
+                    onFeedBack(
+                      FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike,
+                      answerHistoryId,
+                    )
                   }
                 />
               )}
@@ -583,22 +563,7 @@ const AssistantMessage = (props: any) => {
               ) : (
                 <DislikeOutlined
                   className="tool-btn"
-                  onClick={
-                    answerFeedBack ===
-                    FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike
-                      ? undefined
-                      : () => handleDislikeClick(answerHistoryId)
-                  }
-                  style={
-                    answerFeedBack ===
-                    FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike
-                      ? {
-                          cursor: "not-allowed",
-                          opacity: 0.6,
-                          pointerEvents: "none",
-                        }
-                      : {}
-                  }
+                  onClick={() => handleDislikeClick(answerHistoryId)}
                 />
               )}
             </Flex>
@@ -645,24 +610,10 @@ const AssistantMessage = (props: any) => {
             ) : (
               <LikeOutlined
                 className="tool-btn"
-                onClick={
-                  feedbackState.localFeedbackType ===
-                  FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
-                    ? undefined
-                    : () =>
-                        onFeedBack(
-                          FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike,
-                        )
-                }
-                style={
-                  feedbackState.localFeedbackType ===
-                  FeedBackChatHistoryRequestTypeEnum.FeedBackTypeUnlike
-                    ? {
-                        cursor: "not-allowed",
-                        opacity: 0.6,
-                        pointerEvents: "none",
-                      }
-                    : {}
+                onClick={() =>
+                  onFeedBack(
+                    FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike,
+                  )
                 }
               />
             )}
@@ -679,22 +630,7 @@ const AssistantMessage = (props: any) => {
             ) : (
               <DislikeOutlined
                 className="tool-btn"
-                onClick={
-                  feedbackState.localFeedbackType ===
-                  FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike
-                    ? undefined
-                    : () => handleDislikeClick()
-                }
-                style={
-                  feedbackState.localFeedbackType ===
-                  FeedBackChatHistoryRequestTypeEnum.FeedBackTypeLike
-                    ? {
-                        cursor: "not-allowed",
-                        opacity: 0.6,
-                        pointerEvents: "none",
-                      }
-                    : {}
-                }
+                onClick={() => handleDislikeClick()}
               />
             )}
           </Flex>

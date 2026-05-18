@@ -326,9 +326,9 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         },
         models:
           modelSelection === "both"
-            ? [MODEL_API_LABELS.lazyRag, MODEL_API_LABELS.deepSeek]
+            ? [MODEL_API_LABELS.lazyMind, MODEL_API_LABELS.deepSeek]
             : modelSelection === "value_engineering"
-              ? [MODEL_API_LABELS.lazyRag]
+              ? [MODEL_API_LABELS.lazyMind]
               : [MODEL_API_LABELS.deepSeek],
         // enable_thinking: think ? true : false,
         stream: true,

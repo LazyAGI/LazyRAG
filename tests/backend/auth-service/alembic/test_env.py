@@ -83,9 +83,9 @@ def _load_env_module(monkeypatch, offline=True, database_url=None, config_file_n
     monkeypatch.setitem(sys.modules, 'alembic', alembic_module)
 
     if database_url is None:
-        monkeypatch.delenv('LAZYRAG_DATABASE_URL', raising=False)
+        monkeypatch.delenv('LAZYMIND_DATABASE_URL', raising=False)
     else:
-        monkeypatch.setenv('LAZYRAG_DATABASE_URL', database_url)
+        monkeypatch.setenv('LAZYMIND_DATABASE_URL', database_url)
 
     module_name = f'_auth_alembic_env_test_{id(context)}'
     spec = importlib.util.spec_from_file_location(module_name, ALEMBIC_ENV)

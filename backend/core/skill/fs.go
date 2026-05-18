@@ -11,8 +11,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"lazyrag/core/common/orm"
-	"lazyrag/core/evolution"
+	"lazymind/core/common/orm"
+	"lazymind/core/evolution"
 )
 
 type parentFrontmatter struct {

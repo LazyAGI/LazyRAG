@@ -1,4 +1,4 @@
-module lazyrag/core
+module lazymind/core
 
 go 1.24.0
 

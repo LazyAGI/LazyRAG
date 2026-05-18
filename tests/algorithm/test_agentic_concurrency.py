@@ -433,14 +433,14 @@ def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
         'query': 'summarize this file',
         'available_tools': ['all'],
         'filters': {},
-        'files': ['/var/lib/lazyrag/uploads/a.pdf'],
+        'files': ['/var/lib/lazymind/uploads/a.pdf'],
     })
 
     obs = fake_pipeline.observations[-1]
-    assert obs['config']['temp_files'] == ['/var/lib/lazyrag/uploads/a.pdf']
+    assert obs['config']['temp_files'] == ['/var/lib/lazymind/uploads/a.pdf']
     assert obs['agent_kwargs_tools'] == _expected_tools_for_request({
-        'files': ['/var/lib/lazyrag/uploads/a.pdf'],
-        'temp_files': ['/var/lib/lazyrag/uploads/a.pdf'],
+        'files': ['/var/lib/lazymind/uploads/a.pdf'],
+        'temp_files': ['/var/lib/lazymind/uploads/a.pdf'],
     })
 
 
@@ -1393,7 +1393,7 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
         },
     )
     monkeypatch.setattr(lazyllm.tools.agent, 'ReactAgent', _ReviewAgent)
-    monkeypatch.setenv('LAZYRAG_REVIEW_DEBUG', '1')
+    monkeypatch.setenv('LAZYMIND_REVIEW_DEBUG', '1')
 
     agentic._spawn_background_review(
         config={
@@ -1413,8 +1413,8 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
     }
 
 
-def test_max_retries_and_force_summary_use_lazyrag_env(fake_pipeline, monkeypatch):
-    monkeypatch.setenv('LAZYRAG_MAX_RETRIES', '13')
+def test_max_retries_and_force_summary_use_lazymind_env(fake_pipeline, monkeypatch):
+    monkeypatch.setenv('LAZYMIND_MAX_RETRIES', '13')
     lazyllm.globals._init_sid(sid='max-retries-session')
     lazyllm.locals._init_sid(sid='max-retries-session')
 

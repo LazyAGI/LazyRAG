@@ -358,7 +358,7 @@ class ImageConverterNode(ModuleBase):
                     image_url = self._build_download_url(image_path)
                     if not image_url:
                         raise ValueError(
-                            'LAZYRAG_OCR_SERVER_URL is empty, cannot resolve relative image path'
+                            'LAZYMIND_OCR_SERVER_URL is empty, cannot resolve relative image path'
                         )
                     local_image_path = self._materialize_image(image_path)
                     normalized_path = self._normalize_image_file(local_image_path)

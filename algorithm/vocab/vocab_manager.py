@@ -12,8 +12,8 @@ Usage:
     enhanced = get_vocab_manager('user_001')('user query text')
 
 Environment variables:
-    LAZYRAG_CORE_DATABASE_URL / LAZYRAG_ACL_DB_DSN  core database connection
-    LAZYRAG_DATABASE_URL                             fallback connection
+    LAZYMIND_CORE_DATABASE_URL / LAZYMIND_ACL_DB_DSN  core database connection
+    LAZYMIND_DATABASE_URL                             fallback connection
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class VocabManager:
         actual_source = data_source if data_source is not None else self._load_from_db
         self._proc = QueryEnhACProcessor(
             data_source=actual_source,
-            discriminator=get_automodel('llm_instruct'),
+            discriminator=get_automodel('llm'),
         )
         LOG.info(f'[VocabManager] initialized for user_id={user_id!r}, vocab_size={self.vocab_size}')
 

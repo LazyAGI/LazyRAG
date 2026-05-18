@@ -8,7 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/lazyrag/file_watcher/internal/config"
+	"github.com/lazymind/file_watcher/internal/config"
 )
 
 // NewServer creates and configures the HTTP server.

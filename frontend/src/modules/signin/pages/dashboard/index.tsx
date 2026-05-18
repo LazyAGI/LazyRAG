@@ -55,7 +55,7 @@ const AppLayout = () => {
         </div>
       </div>
       <div className="copy-right mt-10 text-center">
-        <p>LazyRAG</p>
+        <p>LazyMind</p>
       </div>
     </div>
   );

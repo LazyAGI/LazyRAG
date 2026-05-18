@@ -125,8 +125,8 @@ Do not output any explanation other than JSON."""
 _SENTENCE_BOUNDARY_RE = re.compile(r'.*?(?:[。！？!?；;]+|[\n]+|$)', re.S)
 _WORD_GROUP_APPLY_PATH = '/api/core/inner/word_group:apply'
 _WORD_GROUP_APPLY_INTERNAL_PATH = '/inner/word_group:apply'
-_WORD_GROUP_APPLY_URL_ENV = 'LAZYRAG_WORD_GROUP_APPLY_URL'
-_CORE_SERVICE_URL_ENV = 'LAZYRAG_CORE_SERVICE_URL'
+_WORD_GROUP_APPLY_URL_ENV = 'LAZYMIND_WORD_GROUP_APPLY_URL'
+_CORE_SERVICE_URL_ENV = 'LAZYMIND_CORE_SERVICE_URL'
 _BACKEND_APPLY_TIMEOUT = 10.0
 
 
@@ -571,7 +571,7 @@ class ActionPlanningModule(ModuleBase):
     def _get_llm(self) -> Any:
         if self._llm is None:
             from chat.pipelines.builders import get_automodel
-            base_llm = self._base_llm or get_automodel('llm_instruct')
+            base_llm = self._base_llm or get_automodel('llm')
             self._llm = base_llm.share(
                 prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),
                 format=JsonFormatter(),

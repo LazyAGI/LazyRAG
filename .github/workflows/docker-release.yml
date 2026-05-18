@@ -55,40 +55,40 @@ jobs:
           - service: auth-service
             dockerfile: backend/auth-service/Dockerfile
             context: backend
-            image: lazyrag-auth-service
+            image: lazymind-auth-service
           - service: backend
             dockerfile: backend/core/Dockerfile
             context: backend
-            image: lazyrag-backend
+            image: lazymind-backend
           - service: frontend
             dockerfile: frontend/Dockerfile
             context: frontend
-            image: lazyrag-frontend
+            image: lazymind-frontend
           - service: mineru
             dockerfile: algorithm/Dockerfile
             context: algorithm
             target: mineru
-            image: lazyrag-mineru
+            image: lazymind-mineru
           - service: processor-server
             dockerfile: algorithm/Dockerfile
             context: algorithm
             target: default
-            image: lazyrag-processor-server
+            image: lazymind-processor-server
           - service: processor-worker
             dockerfile: algorithm/Dockerfile
             context: algorithm
             target: default
-            image: lazyrag-processor-worker
+            image: lazymind-processor-worker
           - service: parsing
             dockerfile: algorithm/Dockerfile
             context: algorithm
             target: default
-            image: lazyrag-parsing
+            image: lazymind-parsing
           - service: chat
             dockerfile: algorithm/Dockerfile
             context: algorithm
             target: default
-            image: lazyrag-chat
+            image: lazymind-chat
     steps:
       - name: Checkout
         uses: actions/checkout@v4

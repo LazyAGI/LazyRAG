@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/store"
 )
 
 const (

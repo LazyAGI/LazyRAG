@@ -120,7 +120,7 @@ def _serialize_doc_node_like(node: Any) -> Dict[str, Any]:
         if resolved:
             local_path = resolved
     is_image = group == 'image' or (
-        local_path.startswith('/var/lib/lazyrag/uploads/')
+        local_path.startswith('/var/lib/lazymind/uploads/')
         and local_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'))
     )
     image_markdown = None

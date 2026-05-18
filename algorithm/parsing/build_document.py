@@ -49,10 +49,10 @@ def get_algo_server_port() -> int:
 def _build_store_config(index_kwargs):
     milvus_uri = _cfg['milvus_uri']
     if not milvus_uri:
-        raise ValueError('LAZYRAG_MILVUS_URI is required')
+        raise ValueError('LAZYMIND_MILVUS_URI is required')
     opensearch_uri = _cfg['opensearch_uri']
     if not opensearch_uri:
-        raise ValueError('LAZYRAG_OPENSEARCH_URI is required')
+        raise ValueError('LAZYMIND_OPENSEARCH_URI is required')
     return {
         'vector_store': {
             'type': 'milvus',
@@ -110,7 +110,7 @@ def _build_pdf_reader():
 def reset_stores() -> None:
     '''Drop all Milvus collections and OpenSearch indices for this algo.
 
-    Called when LAZYRAG_RESET_ALGO_ON_STARTUP=true, after drop_lazyllm_tables()
+    Called when LAZYMIND_RESET_ALGO_ON_STARTUP=true, after drop_lazyllm_tables()
     and before build_document().  Clears the vector/segment data so the next
     document parse starts from a clean state.
 

@@ -1,3 +1,3 @@
 # Parsing Algorithm Tests
 
-Tests for `LazyRAG/algorithm/parsing`.
+Tests for `LazyMind/algorithm/parsing`.

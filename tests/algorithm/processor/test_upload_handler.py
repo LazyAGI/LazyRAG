@@ -52,10 +52,10 @@ class _FakeAsyncClient:
 
 
 def _fresh_import_upload_handler(monkeypatch, tmp_path):
-    monkeypatch.setenv('LAZYRAG_UPLOAD_DIR', str(tmp_path))
-    monkeypatch.setenv('LAZYRAG_DEFAULT_ALGO_ID', 'default-algo')
-    monkeypatch.setenv('LAZYRAG_DEFAULT_GROUP', 'default-group')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '18000')
+    monkeypatch.setenv('LAZYMIND_UPLOAD_DIR', str(tmp_path))
+    monkeypatch.setenv('LAZYMIND_DEFAULT_ALGO_ID', 'default-algo')
+    monkeypatch.setenv('LAZYMIND_DEFAULT_GROUP', 'default-group')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_PROCESSOR_PORT', '18000')
     sys.modules.pop('processor.upload_handler', None)
     return importlib.import_module('processor.upload_handler')
 
@@ -270,8 +270,8 @@ def test_upload_handler_main_uses_env_port(monkeypatch, tmp_path):
         def run(app, host, port):
             seen.update({'host': host, 'port': port})
 
-    monkeypatch.setenv('LAZYRAG_UPLOAD_DIR', str(tmp_path))
-    monkeypatch.setenv('LAZYRAG_UPLOAD_SERVER_PORT', '18100')
+    monkeypatch.setenv('LAZYMIND_UPLOAD_DIR', str(tmp_path))
+    monkeypatch.setenv('LAZYMIND_UPLOAD_SERVER_PORT', '18100')
     monkeypatch.setitem(sys.modules, 'uvicorn', FakeUvicorn)
     sys.modules.pop('processor.upload_handler', None)
 

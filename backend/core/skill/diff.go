@@ -1,7 +1,7 @@
 package skill
 
 import (
-	"lazyrag/core/evolution"
+	"lazymind/core/evolution"
 )
 
 func buildContentDiff(currentContent, draftContent string) (string, error) {
