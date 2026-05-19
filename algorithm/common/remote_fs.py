@@ -8,12 +8,26 @@ import lazyllm
 import requests
 
 from lazyllm.tools.fs import LazyLLMFSBase
+from chat.utils.load_config import load_model_config
 
 
 def _resolve_base_url() -> str:
-    agentic_config = lazyllm.globals['agentic_config']
-    base_url = str(agentic_config.get('core_api_url') or '').strip()
-    return base_url
+    config = lazyllm.globals.get('agentic_config') or {}
+    if not isinstance(config, dict):
+        config = {}
+    base_url = str(config.get('core_api_url') or '').strip()
+    if base_url:
+        return base_url
+    try:
+        model_config = load_model_config()
+    except Exception:
+        return ''
+    if not isinstance(model_config, dict):
+        return ''
+    agentic = model_config.get('agentic') or {}
+    if not isinstance(agentic, dict):
+        return ''
+    return str(agentic.get('core_api_url') or '').strip()
 
 
 def _resolve_session_id() -> str:

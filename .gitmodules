@@ -2,3 +2,6 @@
 	path = algorithm/lazyllm
 	url = https://github.com/LazyAGI/LazyLLM.git
 	branch = main
+[submodule "algorithm/algorithm/lazyllm"]
+	path = algorithm/algorithm/lazyllm
+	url = https://github.com/LazyAGI/LazyLLM.git

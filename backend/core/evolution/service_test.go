@@ -54,6 +54,31 @@ func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.
 	if err := db.Create(&skill).Error; err != nil {
 		t.Fatalf("create skill: %v", err)
 	}
+	builtinSkill := orm.SkillResource{
+		ID:              "builtin-skill-1",
+		OwnerUserID:     "__builtin__",
+		OwnerUserName:   "Builtin Skills",
+		SourceType:      "builtin",
+		Category:        "review",
+		ParentSkillName: "single-document-review",
+		SkillName:       "single-document-review",
+		NodeType:        SkillNodeTypeParent,
+		FileExt:         "md",
+		RelativePath:    ParentSkillRelativePath("review", "single-document-review"),
+		Content:         "---\nname: single-document-review\ndescription: review\n---\nbody",
+		ContentSize:     int64(len([]byte("---\nname: single-document-review\ndescription: review\n---\nbody"))),
+		MimeType:        "text/markdown; charset=utf-8",
+		ContentHash:     HashContent("---\nname: single-document-review\ndescription: review\n---\nbody"),
+		IsEnabled:       true,
+		UpdateStatus:    UpdateStatusUpToDate,
+		CreateUserID:    "__builtin__",
+		CreateUserName:  "Builtin Skills",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(&builtinSkill).Error; err != nil {
+		t.Fatalf("create builtin skill: %v", err)
+	}
 
 	ctx, err := BuildChatResourceContext(context.Background(), db.DB, "u1", "User 1", "session-1")
 	if err != nil {
@@ -62,7 +87,13 @@ func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.
 	if len(ctx.AvailableTools) != 1 || ctx.AvailableTools[0] != "all" {
 		t.Fatalf("unexpected available_tools: %#v", ctx.AvailableTools)
 	}
-	if len(ctx.AvailableSkills) != 1 || ctx.AvailableSkills[0] != "coding/git-workflow" {
+	if len(ctx.AvailableSkills) != 2 {
+		t.Fatalf("unexpected available_skills count: %#v", ctx.AvailableSkills)
+	}
+	if got := ctx.AvailableSkills[0]; got != "coding/git-workflow" && got != "review/single-document-review" {
+		t.Fatalf("unexpected available_skills[0]: %#v", ctx.AvailableSkills)
+	}
+	if got := ctx.AvailableSkills[1]; got != "coding/git-workflow" && got != "review/single-document-review" {
 		t.Fatalf("unexpected available_skills: %#v", ctx.AvailableSkills)
 	}
 	if ctx.Memory != "" || ctx.UserPreference != "" {
@@ -103,8 +134,8 @@ func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.
 	if err := db.Model(&orm.ResourceSessionSnapshot{}).Where("session_id = ?", "session-1").Count(&snapshotCount).Error; err != nil {
 		t.Fatalf("count snapshots: %v", err)
 	}
-	if snapshotCount != 3 {
-		t.Fatalf("expected 3 snapshots, got %d", snapshotCount)
+	if snapshotCount != 4 {
+		t.Fatalf("expected 4 snapshots, got %d", snapshotCount)
 	}
 
 	var memories []orm.SystemMemory

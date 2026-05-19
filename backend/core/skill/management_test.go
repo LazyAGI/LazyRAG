@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -101,6 +102,171 @@ func newSkillTestDB(t *testing.T) *orm.DB {
 		t.Fatalf("auto migrate: %v", err)
 	}
 	return db
+}
+
+func TestLoadVisibleSkillRowsMergesBuiltinWithUserOverride(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	now := time.Now()
+	userParent := orm.SkillResource{
+		ID:            "user-parent",
+		OwnerUserID:   "u1",
+		OwnerUserName: "User 1",
+		SourceType:    userSkillSourceType,
+		Category:      "search",
+		SkillName:     "paper-search",
+		NodeType:      evolution.SkillNodeTypeParent,
+		Description:   "user override",
+		FileExt:       "md",
+		RelativePath:  evolution.ParentSkillRelativePath("search", "paper-search"),
+		Content:       "---\nname: paper-search\ndescription: user override\n---\nbody",
+		ContentHash:   evolution.HashContent("---\nname: paper-search\ndescription: user override\n---\nbody"),
+		IsEnabled:     true,
+		CreateUserID:  "u1",
+		CreateUserName:"User 1",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	builtinParent := orm.SkillResource{
+		ID:            "builtin-parent",
+		OwnerUserID:   builtinSkillOwnerUserID,
+		OwnerUserName: builtinSkillOwnerUserName,
+		SourceType:    builtinSkillSourceType,
+		Category:      "review",
+		SkillName:     "single-document-review",
+		NodeType:      evolution.SkillNodeTypeParent,
+		Description:   "builtin review",
+		FileExt:       "md",
+		RelativePath:  evolution.ParentSkillRelativePath("review", "single-document-review"),
+		Content:       "---\nname: single-document-review\ndescription: builtin review\n---\nbody",
+		ContentHash:   evolution.HashContent("---\nname: single-document-review\ndescription: builtin review\n---\nbody"),
+		IsEnabled:     true,
+		CreateUserID:  builtinSkillOwnerUserID,
+		CreateUserName:builtinSkillOwnerUserName,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	builtinDuplicate := orm.SkillResource{
+		ID:            "builtin-duplicate",
+		OwnerUserID:   builtinSkillOwnerUserID,
+		OwnerUserName: builtinSkillOwnerUserName,
+		SourceType:    builtinSkillSourceType,
+		Category:      "search",
+		SkillName:     "paper-search",
+		NodeType:      evolution.SkillNodeTypeParent,
+		Description:   "builtin duplicate",
+		FileExt:       "md",
+		RelativePath:  evolution.ParentSkillRelativePath("search", "paper-search"),
+		Content:       "---\nname: paper-search\ndescription: builtin duplicate\n---\nbody",
+		ContentHash:   evolution.HashContent("---\nname: paper-search\ndescription: builtin duplicate\n---\nbody"),
+		IsEnabled:     true,
+		CreateUserID:  builtinSkillOwnerUserID,
+		CreateUserName:builtinSkillOwnerUserName,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := db.Create(&[]orm.SkillResource{userParent, builtinParent, builtinDuplicate}).Error; err != nil {
+		t.Fatalf("create skill rows: %v", err)
+	}
+
+	rows, err := LoadVisibleSkillRows(context.Background(), db.DB, "u1", evolution.SkillNodeTypeParent)
+	if err != nil {
+		t.Fatalf("load visible rows: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 visible rows, got %d", len(rows))
+	}
+	seen := map[string]orm.SkillResource{}
+	for _, row := range rows {
+		seen[row.RelativePath] = row
+	}
+	if got := seen[evolution.ParentSkillRelativePath("search", "paper-search")].OwnerUserID; got != "u1" {
+		t.Fatalf("expected user override for paper-search, got owner %q", got)
+	}
+	if got := seen[evolution.ParentSkillRelativePath("review", "single-document-review")].OwnerUserID; got != builtinSkillOwnerUserID {
+		t.Fatalf("expected builtin fallback for review skill, got owner %q", got)
+	}
+}
+
+func TestSeedBuiltinSkillsImportsAuxiliaryFiles(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "search", "paper-search")
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	parentContent := "---\nname: paper-search\ndescription: Search papers\n---\n# Paper Search\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(parentContent), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	scriptContent := "print('hello')\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "scripts", "search_arxiv.py"), []byte(scriptContent), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	t.Setenv("LAZYMIND_BUILTIN_SKILLS_DIR", root)
+	if err := SeedBuiltinSkills(context.Background(), db.DB); err != nil {
+		t.Fatalf("seed builtin skills: %v", err)
+	}
+
+	var parent orm.SkillResource
+	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, evolution.ParentSkillRelativePath("search", "paper-search")).Take(&parent).Error; err != nil {
+		t.Fatalf("query builtin parent: %v", err)
+	}
+	if parent.SourceType != builtinSkillSourceType {
+		t.Fatalf("expected builtin source type, got %q", parent.SourceType)
+	}
+
+	var child orm.SkillResource
+	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, "search/paper-search/scripts/search_arxiv.py").Take(&child).Error; err != nil {
+		t.Fatalf("query builtin child: %v", err)
+	}
+	if child.Content != scriptContent {
+		t.Fatalf("expected child content %q, got %q", scriptContent, child.Content)
+	}
+	if child.ParentSkillName != "paper-search" {
+		t.Fatalf("expected child parent skill name paper-search, got %q", child.ParentSkillName)
+	}
+}
+
+func TestGetReadableSkillDetailAllowsBuiltinForAnyUser(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	now := time.Now()
+	row := orm.SkillResource{
+		ID:            "builtin-detail",
+		OwnerUserID:   builtinSkillOwnerUserID,
+		OwnerUserName: builtinSkillOwnerUserName,
+		SourceType:    builtinSkillSourceType,
+		Category:      "review",
+		SkillName:     "single-document-review",
+		NodeType:      evolution.SkillNodeTypeParent,
+		Description:   "builtin review",
+		FileExt:       "md",
+		RelativePath:  evolution.ParentSkillRelativePath("review", "single-document-review"),
+		Content:       "---\nname: single-document-review\ndescription: builtin review\n---\nbody",
+		ContentHash:   evolution.HashContent("---\nname: single-document-review\ndescription: builtin review\n---\nbody"),
+		IsEnabled:     true,
+		CreateUserID:  builtinSkillOwnerUserID,
+		CreateUserName:builtinSkillOwnerUserName,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create builtin skill: %v", err)
+	}
+
+	item, err := getReadableSkillDetail(context.Background(), db.DB, "u1", row.ID)
+	if err != nil {
+		t.Fatalf("get readable builtin detail: %v", err)
+	}
+	if got := item["is_builtin"]; got != true {
+		t.Fatalf("expected is_builtin=true, got %#v", got)
+	}
+	if got := item["source_type"]; got != builtinSkillSourceType {
+		t.Fatalf("expected source_type=%q, got %#v", builtinSkillSourceType, got)
+	}
 }
 
 func TestInternalCreateCreatesSkillDirectly(t *testing.T) {

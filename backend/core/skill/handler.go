@@ -508,16 +508,22 @@ func loadRemoveSkill(ctx context.Context, db *gorm.DB, userID string, req remove
 	if req.ID != "" {
 		var skillRow orm.SkillResource
 		err := db.WithContext(ctx).Where("owner_user_id = ? AND id = ?", userID, req.ID).Take(&skillRow).Error
+		if err == nil && isBuiltinSkill(skillRow) {
+			return orm.SkillResource{}, errBuiltinSkillReadonly
+		}
 		return skillRow, err
 	}
 	if req.Category == "" || req.SkillName == "" {
 		return orm.SkillResource{}, errRemoveTargetRequired
 	}
-	state, err := evolution.LoadParentSkillState(ctx, db, userID, req.Category, req.SkillName)
+	row, err := LoadVisibleParentSkill(ctx, db, userID, req.Category, req.SkillName)
 	if err != nil {
 		return orm.SkillResource{}, err
 	}
-	return *state.Resource, nil
+	if isBuiltinSkill(row) {
+		return orm.SkillResource{}, errBuiltinSkillReadonly
+	}
+	return row, nil
 }
 
 func init() {

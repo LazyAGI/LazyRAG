@@ -180,7 +180,7 @@ def test_skill_manager_reads_reference_from_remote_mock_server(monkeypatch, mock
 
     assert skill_doc['status'] == 'ok'
     assert 'Example Skill' in skill_doc['content']
-    assert '(source: remote,' in manager.build_prompt('use example')
+    assert 'path: remote://skills/writing/example' in manager.build_prompt('use example')
     assert reference_doc == {
         'status': 'ok',
         'path': 'remote://skills/writing/example/references/examples/daily-update.md',

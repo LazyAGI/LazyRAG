@@ -9,6 +9,7 @@ type SkillResource struct {
 	ID                 string          `gorm:"column:id;type:varchar(36);primaryKey"`
 	OwnerUserID        string          `gorm:"column:owner_user_id;type:varchar(255);not null;index:idx_skill_resources_owner_node_enabled,priority:1;uniqueIndex:uk_skill_resources_owner_relative_path,priority:1"`
 	OwnerUserName      string          `gorm:"column:owner_user_name;type:varchar(255);not null;default:''"`
+	SourceType         string          `gorm:"column:source_type;type:varchar(32);not null;default:'user';index:idx_skill_resources_source_type"`
 	Category           string          `gorm:"column:category;type:varchar(128);not null;index:idx_skill_resources_owner_node_enabled,priority:4"`
 	ParentSkillName    string          `gorm:"column:parent_skill_name;type:varchar(255);not null;default:''"`
 	SkillName          string          `gorm:"column:skill_name;type:varchar(255);not null;default:''"`

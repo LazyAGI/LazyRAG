@@ -18,6 +18,7 @@ import (
 	"lazymind/core/common/readonlyorm"
 	"lazymind/core/log"
 	"lazymind/core/migrate"
+	"lazymind/core/skill"
 	"lazymind/core/store"
 	"lazymind/core/wordgroup"
 )
@@ -127,6 +128,9 @@ func main() {
 
 	// text/PrompttextInitialize（DB + Redis）。DB text ACL text；Redis textConversationtext/text/text。
 	store.Init(db.DB, readonlyDB.DB, store.MustRedisFromEnv())
+	if err := skill.SeedBuiltinSkills(context.Background(), db.DB); err != nil {
+		log.Logger.Fatal().Err(err).Msg("seed builtin skills failed")
+	}
 
 	r := mux.NewRouter()
 	r.UseEncodedPath()

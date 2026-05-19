@@ -222,11 +222,8 @@ func BuildChatResourceContext(ctx context.Context, db *gorm.DB, userID, userName
 		return nil, err
 	}
 
-	var skills []orm.SkillResource
-	if err := db.WithContext(ctx).
-		Where("owner_user_id = ? AND node_type = ? AND is_enabled = ?", userID, SkillNodeTypeParent, true).
-		Order("category ASC, skill_name ASC").
-		Find(&skills).Error; err != nil {
+	skills, err := skillVisibleParents(ctx, db, userID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -300,6 +297,49 @@ func BuildChatResourceContext(ctx context.Context, db *gorm.DB, userID, userName
 		Bool("use_personalization", context.UsePersonalization).
 		Msg("built chat resource context for algorithm request")
 	return context, nil
+}
+
+func skillVisibleParents(ctx context.Context, db *gorm.DB, userID string) ([]orm.SkillResource, error) {
+	const builtinSkillOwnerUserID = "__builtin__"
+
+	var userRows []orm.SkillResource
+	if err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ?", strings.TrimSpace(userID), SkillNodeTypeParent).
+		Find(&userRows).Error; err != nil {
+		return nil, err
+	}
+	var builtinRows []orm.SkillResource
+	if err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ?", builtinSkillOwnerUserID, SkillNodeTypeParent).
+		Find(&builtinRows).Error; err != nil {
+		return nil, err
+	}
+	rows := make([]orm.SkillResource, 0, len(userRows)+len(builtinRows))
+	seen := make(map[string]struct{}, len(userRows))
+	for _, row := range userRows {
+		rows = append(rows, row)
+		seen[filepath.ToSlash(strings.TrimSpace(row.RelativePath))] = struct{}{}
+	}
+	for _, row := range builtinRows {
+		key := filepath.ToSlash(strings.TrimSpace(row.RelativePath))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	filtered := make([]orm.SkillResource, 0, len(rows))
+	for _, row := range rows {
+		if row.IsEnabled {
+			filtered = append(filtered, row)
+		}
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].Category != filtered[j].Category {
+			return filtered[i].Category < filtered[j].Category
+		}
+		return filtered[i].SkillName < filtered[j].SkillName
+	})
+	return filtered, nil
 }
 
 func ResolveSessionUser(ctx context.Context, db *gorm.DB, sessionID string) (string, string, error) {

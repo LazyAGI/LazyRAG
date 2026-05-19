@@ -266,15 +266,15 @@ func remoteFSInfoEntry(r *http.Request, db *gorm.DB, userID string, parsed remot
 }
 
 func listRemoteFSCategories(r *http.Request, db *gorm.DB, userID string) ([]remoteFSEntry, error) {
-	var rows []orm.SkillResource
-	if err := db.WithContext(r.Context()).
-		Where("owner_user_id = ? AND node_type = ? AND is_enabled = ?", userID, evolution.SkillNodeTypeParent, true).
-		Order("category ASC, updated_at DESC").
-		Find(&rows).Error; err != nil {
+	rows, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeParent)
+	if err != nil {
 		return nil, err
 	}
 	seen := map[string]remoteFSEntry{}
 	for _, row := range rows {
+		if !row.IsEnabled {
+			continue
+		}
 		category := strings.TrimSpace(row.Category)
 		if category == "" {
 			continue
@@ -288,38 +288,44 @@ func listRemoteFSCategories(r *http.Request, db *gorm.DB, userID string) ([]remo
 }
 
 func listRemoteFSSkills(r *http.Request, db *gorm.DB, userID, category string) ([]remoteFSEntry, error) {
-	var rows []orm.SkillResource
-	if err := db.WithContext(r.Context()).
-		Where("owner_user_id = ? AND category = ? AND node_type = ? AND is_enabled = ?", userID, strings.TrimSpace(category), evolution.SkillNodeTypeParent, true).
-		Order("skill_name ASC").
-		Find(&rows).Error; err != nil {
+	rows, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeParent)
+	if err != nil {
 		return nil, err
 	}
 	entries := make([]remoteFSEntry, 0, len(rows))
 	for _, row := range rows {
+		if !row.IsEnabled || strings.TrimSpace(row.Category) != strings.TrimSpace(category) {
+			continue
+		}
 		entries = append(entries, remoteFSEntry{Name: remoteFSJoin(row.Category, row.SkillName, ""), Type: remoteFSTypeDir, Size: 0, Mtime: formatRemoteFSMtime(row.UpdatedAt)})
 	}
 	return entries, nil
 }
 
 func loadRemoteFSSkillFiles(r *http.Request, db *gorm.DB, userID, category, skillName string) (map[string]remoteFSFile, error) {
-	var rows []orm.SkillResource
-	if err := db.WithContext(r.Context()).
-		Where("owner_user_id = ? AND category = ? AND is_enabled = ? AND (skill_name = ? OR parent_skill_name = ?)",
-			strings.TrimSpace(userID), strings.TrimSpace(category), true, strings.TrimSpace(skillName), strings.TrimSpace(skillName)).
-		Order("node_type ASC, relative_path ASC").
-		Find(&rows).Error; err != nil {
+	parent, err := LoadVisibleParentSkill(r.Context(), db, userID, category, skillName)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeChild)
+	if err != nil {
 		return nil, err
 	}
 	files := map[string]remoteFSFile{}
-	foundParent := false
+	allRows := make([]orm.SkillResource, 0, len(rows)+1)
+	allRows = append(allRows, parent)
 	for _, row := range rows {
-		internal := remoteFSInternalPath(category, skillName, row)
-		if internal == "" {
+		if !row.IsEnabled {
 			continue
 		}
-		if row.NodeType == evolution.SkillNodeTypeParent {
-			foundParent = true
+		if row.Category == parent.Category && row.ParentSkillName == parent.SkillName {
+			allRows = append(allRows, row)
+		}
+	}
+	for _, row := range allRows {
+		internal := remoteFSInternalPath(parent.Category, parent.SkillName, row)
+		if internal == "" {
+			continue
 		}
 		content, err := storedSkillContent(row)
 		if err != nil {
@@ -345,9 +351,6 @@ func loadRemoteFSSkillFiles(r *http.Request, db *gorm.DB, userID, category, skil
 			Content:      content,
 			UpdatedAt:    row.UpdatedAt,
 		}
-	}
-	if !foundParent {
-		return nil, gorm.ErrRecordNotFound
 	}
 	return files, nil
 }

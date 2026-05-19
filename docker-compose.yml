@@ -275,6 +275,7 @@ services:
       - ./api/backend:/openapi-export
       - /tmp/evo:/var/lib/lazymind/evo
       - ./data/core/uploads:/var/lib/lazymind/uploads
+      - ./skills:/skills:ro
     expose:
       - "8000"
     environment:
@@ -314,6 +315,7 @@ services:
     volumes:
       - ./backend/core:/app
       - ./data/core/uploads:/var/lib/lazymind/uploads
+      - ./skills:/skills:ro
     environment:
       <<: *core-env
     depends_on:

@@ -26,6 +26,7 @@ var (
 	errDraftPreviewNotFound    = errors.New("skill draft not found")
 	errAutoEvoApplyConflict    = errors.New("auto_evo apply conflict")
 	errPendingRemoveSuggestion = errors.New("skill has pending remove suggestion")
+	errBuiltinSkillReadonly    = errors.New("builtin skill is read-only")
 )
 
 func normalizedSkillUpdateStatus(status string) string {
@@ -48,19 +49,13 @@ func List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var parents []orm.SkillResource
-	if err := db.WithContext(r.Context()).
-		Where("owner_user_id = ? AND node_type = ?", userID, evolution.SkillNodeTypeParent).
-		Order("updated_at DESC").
-		Find(&parents).Error; err != nil {
+	parents, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeParent)
+	if err != nil {
 		common.ReplyErr(w, "query skills failed", http.StatusInternalServerError)
 		return
 	}
-	var children []orm.SkillResource
-	if err := db.WithContext(r.Context()).
-		Where("owner_user_id = ? AND node_type = ?", userID, evolution.SkillNodeTypeChild).
-		Order("created_at ASC").
-		Find(&children).Error; err != nil {
+	children, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeChild)
+	if err != nil {
 		common.ReplyErr(w, "query skills failed", http.StatusInternalServerError)
 		return
 	}
@@ -73,11 +68,7 @@ func List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	childMap := make(map[string][]orm.SkillResource)
-	for _, child := range children {
-		key := child.Category + "/" + child.ParentSkillName
-		childMap[key] = append(childMap[key], child)
-	}
+	childMap := VisibleChildrenByParent(children)
 
 	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
 	category := strings.TrimSpace(r.URL.Query().Get("category"))
@@ -368,6 +359,10 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "skill not found", http.StatusNotFound)
 		return
 	}
+	if isBuiltinSkill(row) {
+		common.ReplyErr(w, errBuiltinSkillReadonly.Error(), http.StatusForbidden)
+		return
+	}
 	if row.NodeType != evolution.SkillNodeTypeParent {
 		common.ReplyErr(w, "only parent skill supports generate", http.StatusBadRequest)
 		return
@@ -517,6 +512,10 @@ func Confirm(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "skill not found", http.StatusNotFound)
 		return
 	}
+	if isBuiltinSkill(row) {
+		common.ReplyErr(w, errBuiltinSkillReadonly.Error(), http.StatusForbidden)
+		return
+	}
 	if row.NodeType != evolution.SkillNodeTypeParent {
 		common.ReplyErr(w, "only parent skill supports confirm", http.StatusBadRequest)
 		return
@@ -597,6 +596,10 @@ func Discard(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "skill not found", http.StatusNotFound)
 		return
 	}
+	if isBuiltinSkill(row) {
+		common.ReplyErr(w, errBuiltinSkillReadonly.Error(), http.StatusForbidden)
+		return
+	}
 	if row.NodeType != evolution.SkillNodeTypeParent {
 		common.ReplyErr(w, "only parent skill supports discard", http.StatusBadRequest)
 		return
@@ -630,8 +633,8 @@ func getReadableSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID st
 	if err := db.WithContext(ctx).Where("id = ?", skillID).Take(&row).Error; err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(row.OwnerUserID) == strings.TrimSpace(userID) {
-		return getSkillDetail(ctx, db, row.OwnerUserID, skillID)
+	if strings.TrimSpace(row.OwnerUserID) == strings.TrimSpace(userID) || isBuiltinSkill(row) {
+		return getSkillDetailByRow(ctx, db, userID, row)
 	}
 
 	allowed, err := hasSharedSkillReadAccess(ctx, db, userID, row)
@@ -641,7 +644,7 @@ func getReadableSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID st
 	if !allowed {
 		return nil, gorm.ErrRecordNotFound
 	}
-	return getSkillDetail(ctx, db, row.OwnerUserID, skillID)
+	return getSkillDetailByRow(ctx, db, row.OwnerUserID, row)
 }
 
 func hasSharedSkillReadAccess(ctx context.Context, db *gorm.DB, userID string, row orm.SkillResource) (bool, error) {
@@ -721,16 +724,21 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 	if err := db.WithContext(ctx).Where("id = ? AND owner_user_id = ?", skillID, userID).Take(&row).Error; err != nil {
 		return nil, err
 	}
+	return getSkillDetailByRow(ctx, db, userID, row)
+}
+
+func getSkillDetailByRow(ctx context.Context, db *gorm.DB, userID string, row orm.SkillResource) (map[string]any, error) {
 	suggestionRows := []orm.SkillResource{row}
 	if row.NodeType == evolution.SkillNodeTypeParent {
-		var children []orm.SkillResource
-		if err := db.WithContext(ctx).
-			Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).
-			Order("created_at ASC").
-			Find(&children).Error; err != nil {
+		children, err := LoadVisibleSkillRows(ctx, db, userID, evolution.SkillNodeTypeChild)
+		if err != nil {
 			return nil, err
 		}
-		suggestionRows = append(suggestionRows, children...)
+		for _, child := range children {
+			if child.Category == row.Category && child.ParentSkillName == row.SkillName {
+				suggestionRows = append(suggestionRows, child)
+			}
+		}
 	}
 	suggestionStatesByKey, err := loadSuggestionStatesByKey(ctx, db, userID, suggestionRows)
 	if err != nil {
@@ -757,6 +765,8 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 		"has_pending_remove_suggestion":  suggestionState.HasPendingRemove,
 		"suggestion_status":              suggestionState.Status,
 		"node_type":                      row.NodeType,
+		"source_type":                    firstNonEmpty(strings.TrimSpace(row.SourceType), userSkillSourceType),
+		"is_builtin":                     isBuiltinSkill(row),
 		"parent_id":                      "",
 		"parent_skill_id":                "",
 		"parent_skill_name":              row.ParentSkillName,
@@ -770,15 +780,18 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 		}
 	}
 	if row.NodeType == evolution.SkillNodeTypeParent {
-		var children []orm.SkillResource
-		if err := db.WithContext(ctx).
-			Where("owner_user_id = ? AND node_type = ? AND category = ? AND parent_skill_name = ?", userID, evolution.SkillNodeTypeChild, row.Category, row.SkillName).
-			Order("created_at ASC").
-			Find(&children).Error; err != nil {
+		children, err := LoadVisibleSkillRows(ctx, db, userID, evolution.SkillNodeTypeChild)
+		if err != nil {
 			return nil, err
 		}
-		childItems := make([]map[string]any, 0, len(children))
+		filteredChildren := make([]orm.SkillResource, 0, len(children))
 		for _, child := range children {
+			if child.Category == row.Category && child.ParentSkillName == row.SkillName {
+				filteredChildren = append(filteredChildren, child)
+			}
+		}
+		childItems := make([]map[string]any, 0, len(filteredChildren))
+		for _, child := range filteredChildren {
 			childSuggestionState := canonicalSkillSuggestionState(suggestionStatesByKey[skillSuggestionResourceKey(child)])
 			childContent, _ := storedSkillContent(child)
 			childItems = append(childItems, map[string]any{
@@ -797,6 +810,8 @@ func getSkillDetail(ctx context.Context, db *gorm.DB, userID, skillID string) (m
 				"has_pending_remove_suggestion":  childSuggestionState.HasPendingRemove,
 				"suggestion_status":              childSuggestionState.Status,
 				"node_type":                      child.NodeType,
+				"source_type":                    firstNonEmpty(strings.TrimSpace(child.SourceType), userSkillSourceType),
+				"is_builtin":                     isBuiltinSkill(child),
 				"parent_id":                      row.ID,
 				"parent_skill_id":                row.ID,
 				"parent_skill_name":              child.ParentSkillName,
@@ -814,6 +829,9 @@ func buildDraftPreviewResponse(ctx context.Context, db *gorm.DB, userID, skillID
 	var row orm.SkillResource
 	if err := db.WithContext(ctx).Where("id = ? AND owner_user_id = ?", skillID, userID).Take(&row).Error; err != nil {
 		return draftPreviewResponse{}, err
+	}
+	if isBuiltinSkill(row) {
+		return draftPreviewResponse{}, errBuiltinSkillReadonly
 	}
 	if row.NodeType != evolution.SkillNodeTypeParent {
 		return draftPreviewResponse{}, errDraftPreviewParentOnly
@@ -1059,6 +1077,9 @@ func updateSkill(ctx context.Context, db *gorm.DB, userID, userName, skillID str
 	if err := db.WithContext(ctx).Where("id = ? AND owner_user_id = ?", skillID, userID).Take(&row).Error; err != nil {
 		return err
 	}
+	if isBuiltinSkill(row) {
+		return errBuiltinSkillReadonly
+	}
 	if row.NodeType == evolution.SkillNodeTypeParent {
 		return updateParentSkill(ctx, db, userID, userName, &row, req)
 	}
@@ -1069,6 +1090,9 @@ func DeleteSkill(ctx context.Context, db *gorm.DB, userID, skillID string) error
 	var row orm.SkillResource
 	if err := db.WithContext(ctx).Where("id = ? AND owner_user_id = ?", skillID, userID).Take(&row).Error; err != nil {
 		return err
+	}
+	if isBuiltinSkill(row) {
+		return errBuiltinSkillReadonly
 	}
 	if row.NodeType == evolution.SkillNodeTypeParent {
 		return deleteParentSkill(ctx, db, userID, &row)
@@ -1933,6 +1957,8 @@ func replySkillError(w http.ResponseWriter, err error) {
 	switch {
 	case err == nil:
 		return
+	case errors.Is(err, errBuiltinSkillReadonly):
+		common.ReplyErr(w, err.Error(), http.StatusForbidden)
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		common.ReplyErr(w, "skill not found", http.StatusNotFound)
 	case errors.Is(err, gorm.ErrDuplicatedKey):

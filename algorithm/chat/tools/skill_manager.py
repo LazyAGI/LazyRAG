@@ -241,6 +241,18 @@ def _is_writable_skill_source(source: str) -> bool:
     return source == 'remote'
 
 
+def _suggestion_to_payload(item: Any) -> Dict[str, Any]:
+    if hasattr(item, 'model_dump'):
+        data = item.model_dump()
+        return data if isinstance(data, dict) else {}
+    if isinstance(item, dict):
+        return dict(item)
+    return {
+        'title': str(getattr(item, 'title', '') or ''),
+        'content': str(getattr(item, 'content', '') or ''),
+    }
+
+
 @fc_register('tool', execute_in_sandbox=False)
 @_handle_tool_errors
 def skill_manage(
@@ -315,10 +327,6 @@ def skill_manage(
                     f'Skill {name!r} already exists in category {normalized_category!r} '
                     f'with read-only source {source!r}; skill_manage can only write remote skills.'
                 )
-            return _fail(
-                f'Skill {name!r} already exists in category {normalized_category!r}; '
-                "use action='modify' to edit it or action='remove' to delete it first."
-            )
 
         result: Dict[str, Any] = {
             'name': name,
@@ -368,13 +376,13 @@ def skill_manage(
             'name': name,
             'action': action,
             'category': normalized_category,
-            'suggestions': [s.model_dump() for s in suggestions],
+            'suggestions': [_suggestion_to_payload(s) for s in suggestions],
         }
         payload = {
             'session_id': session_id,
             'skill_name': name,
             'category': normalized_category,
-            'suggestions': [s.model_dump() for s in suggestions],
+            'suggestions': [_suggestion_to_payload(s) for s in suggestions],
         }
         try:
             result.update(_post_core_api('/skill/suggestion', payload))
@@ -407,8 +415,9 @@ def skill_manage(
             'session_id': session_id,
             'skill_name': name,
             'category': normalized_category,
-            'reason': reason or '',
         }
+        if reason:
+            payload['reason'] = reason
         try:
             result.update(_post_core_api('/skill/remove', payload))
         except (requests.RequestException, RuntimeError) as exc:
