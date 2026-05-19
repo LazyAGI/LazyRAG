@@ -43,6 +43,14 @@ type draftPreviewResponse struct {
 
 const maxManagedContentChars = 1500
 
+func payloadForLog(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 func compactManagedContent(content string) string {
 	return strings.Join(strings.Fields(content), "")
 }
@@ -397,6 +405,12 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "query memory failed", http.StatusInternalServerError)
 		return
 	}
+	useDraft := len(req.SuggestionIDs) == 0 && req.UserInstruct != ""
+	content, err := memoryGenerateBaseContent(*row, useDraft)
+	if err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusNotFound)
+		return
+	}
 
 	var suggestions []orm.ResourceSuggestion
 	if len(req.SuggestionIDs) > 0 {
@@ -411,11 +425,18 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	generated, err := algo.GenerateMemory(r.Context(), algo.MemoryGenerateRequest{
-		Content:      row.Content,
+	algoReq := algo.MemoryGenerateRequest{
+		Content:      content,
 		Suggestions:  toAlgoSuggestions(suggestions),
 		UserInstruct: req.UserInstruct,
-	})
+	}
+	appLog.Logger.Info().
+		Str("route", "/memory:generate").
+		Str("memory_id", row.ID).
+		Str("user_id", userID).
+		Str("payload", payloadForLog(algoReq)).
+		Msg("requesting external memory generate")
+	generated, err := algo.GenerateMemory(r.Context(), algoReq)
 	if err != nil {
 		common.ReplyErr(w, "memory generate failed: "+err.Error(), http.StatusBadGateway)
 		return
@@ -423,6 +444,9 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	ids := suggestionIDs(suggestions)
+	if useDraft && len(ids) == 0 {
+		ids = evolution.DraftSuggestionIDs(row.Ext)
+	}
 	ext := evolution.WithDraftSuggestionIDs(row.Ext, ids)
 	update := map[string]any{
 		"draft_content":        generated,
@@ -444,6 +468,16 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		"draft_content":        generated,
 		"suggestion_ids":       ids,
 	})
+}
+
+func memoryGenerateBaseContent(row orm.SystemMemory, useDraft bool) (string, error) {
+	if !useDraft {
+		return row.Content, nil
+	}
+	if strings.TrimSpace(row.DraftStatus) != "pending_confirm" {
+		return "", errors.New("memory draft not found")
+	}
+	return row.DraftContent, nil
 }
 
 func Confirm(w http.ResponseWriter, r *http.Request) {

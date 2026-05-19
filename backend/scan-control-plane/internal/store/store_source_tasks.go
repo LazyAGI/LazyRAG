@@ -42,6 +42,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID)
 	docQuery = applyTransientPathFilter(docQuery, "source_object_id")
 	docQuery = applyVisibleDocumentFilter(docQuery, "parse_status")
+	docQuery = applySourceDocumentListVisibilityFilter(docQuery, "current_version_id", "core_document_id")
 
 	keyword := strings.TrimSpace(req.Keyword)
 	if keyword != "" {
@@ -115,6 +116,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			hasUpdate = &v
 		}
 		displayMeta := metadata[doc.ID]
+		knowledgeBasePresent := sourceDocumentHasKnowledgeBaseRelation(doc.CurrentVersionID, doc.CoreDocumentID)
 		item := model.SourceDocumentItem{
 			DocumentID:              doc.ID,
 			SourceCreateUserID:      strings.TrimSpace(src.CreateUserID),
@@ -137,6 +139,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			ParseTaskID:             latestTask.TaskID,
 			ParseTaskAction:         latestTask.TaskAction,
 			ParseTaskTargetVersion:  latestTask.TargetVersionID,
+			KnowledgeBasePresent:    &knowledgeBasePresent,
 		}
 		if state, ok := statesByPath[filepath.Clean(strings.TrimSpace(doc.SourceObjectID))]; ok {
 			item = applyStateToDocumentItem(item, state)
@@ -154,6 +157,9 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			continue
 		}
 		if _, ok := existingItemPaths[path]; ok {
+			continue
+		}
+		if !sourceDocumentStateVisibleInSourceDocuments(state) {
 			continue
 		}
 		if updateType := stateUpdateType(state); updateType != "NEW" && updateType != "DELETED" && updateType != "MODIFIED" {
@@ -186,6 +192,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		ParseStatus      string
 		DesiredVersionID string
 		CurrentVersionID string
+		CoreDocumentID   string
 		LastModifiedAt   *time.Time
 		OriginType       string
 		OriginPlatform   string
@@ -195,11 +202,12 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	var summaryDocs []summaryDoc
 	if err := s.db.WithContext(ctx).
 		Table("documents").
-		Select("id AS document_id, source_object_id, parse_status, desired_version_id, current_version_id, last_modified_at, origin_type, origin_platform, origin_ref, updated_at").
+		Select("id AS document_id, source_object_id, parse_status, desired_version_id, current_version_id, core_document_id, last_modified_at, origin_type, origin_platform, origin_ref, updated_at").
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID).
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			db = applyTransientPathFilter(db, "source_object_id")
-			return applyVisibleDocumentFilter(db, "parse_status")
+			db = applyVisibleDocumentFilter(db, "parse_status")
+			return applySourceDocumentListVisibilityFilter(db, "current_version_id", "core_document_id")
 		}).
 		Scan(&summaryDocs).Error; err != nil {
 		return resp, err
@@ -380,7 +388,8 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		Where("source_id IN ?", sourceIDs).
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			db = applyTransientPathFilter(db, "source_object_id")
-			return applyVisibleDocumentFilter(db, "parse_status")
+			db = applyVisibleDocumentFilter(db, "parse_status")
+			return applySourceDocumentListVisibilityFilter(db, "current_version_id", "core_document_id")
 		}).
 		Group("source_id")
 	if err := summaryQuery.Scan(&summaryRows).Error; err != nil {
@@ -413,6 +422,7 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		TenantID         string     `gorm:"column:tenant_id"`
 		SourceID         string     `gorm:"column:source_id"`
 		SourceObjectID   string     `gorm:"column:source_object_id"`
+		CoreDocumentID   string     `gorm:"column:core_document_id"`
 		CurrentVersionID string     `gorm:"column:current_version_id"`
 		DesiredVersionID string     `gorm:"column:desired_version_id"`
 		LastModifiedAt   *time.Time `gorm:"column:last_modified_at"`
@@ -425,13 +435,14 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 	docSubquery := s.db.WithContext(ctx).
 		Model(&documentEntity{}).
 		Select(`
-			documents.id,
-			documents.tenant_id,
-			documents.source_id,
-			documents.source_object_id,
-			documents.current_version_id,
-			documents.desired_version_id,
-			documents.last_modified_at,
+				documents.id,
+				documents.tenant_id,
+				documents.source_id,
+				documents.source_object_id,
+				documents.core_document_id,
+				documents.current_version_id,
+				documents.desired_version_id,
+				documents.last_modified_at,
 			documents.parse_status,
 			documents.origin_type,
 			documents.origin_platform,
@@ -441,6 +452,7 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		Where("source_id IN ?", sourceIDs)
 	docSubquery = applyTransientPathFilter(docSubquery, "source_object_id")
 	docSubquery = applyVisibleDocumentFilter(docSubquery, "parse_status")
+	docSubquery = applySourceDocumentListVisibilityFilter(docSubquery, "current_version_id", "core_document_id")
 
 	var docRows []sourceDocumentOverviewDocRow
 	if err := s.db.WithContext(ctx).
@@ -505,6 +517,7 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		}
 		latestTask := latestTasksByDocID[doc.ID]
 		displayMeta := overviewMetaBySourceID[doc.SourceID][doc.ID]
+		knowledgeBasePresent := sourceDocumentHasKnowledgeBaseRelation(doc.CurrentVersionID, doc.CoreDocumentID)
 		resp.Source.LastSyncedAt = displayMeta.LastSyncedAt
 		resp.Items = []model.SourceDocumentItem{
 			{
@@ -529,6 +542,7 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 				ParseTaskID:             latestTask.TaskID,
 				ParseTaskAction:         latestTask.TaskAction,
 				ParseTaskTargetVersion:  latestTask.TargetVersionID,
+				KnowledgeBasePresent:    &knowledgeBasePresent,
 			},
 		}
 		result[doc.SourceID] = resp

@@ -204,6 +204,7 @@ var errorCatalog = map[string]*AppError{
 	"request name and frontmatter name must match":                    NewAppError(http.StatusBadRequest, 2000884, "request name and frontmatter name must match"),
 	"selections required":                                             NewAppError(http.StatusBadRequest, 2000885, "selections required"),
 	"session_id required":                                             NewAppError(http.StatusBadRequest, 2000886, "session_id required"),
+	"session_id and id or category/skill_name required":               NewAppError(http.StatusBadRequest, 2000904, "session_id and id or category/skill_name required"),
 	"session_id/category/skill_name required":                         NewAppError(http.StatusBadRequest, 2000887, "session_id/category/skill_name required"),
 	"session_id/category/skill_name/content required":                 NewAppError(http.StatusBadRequest, 2000888, "session_id/category/skill_name/content required"),
 	"set_history_id required":                                         NewAppError(http.StatusBadRequest, 2000889, "set_history_id required"),

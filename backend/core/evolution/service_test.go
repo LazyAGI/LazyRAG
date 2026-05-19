@@ -106,6 +106,16 @@ func TestBuildChatResourceContextCreatesPerUserResourcesAndSnapshots(t *testing.
 	if snapshotCount != 3 {
 		t.Fatalf("expected 3 snapshots, got %d", snapshotCount)
 	}
+	var skillSnapshot orm.ResourceSessionSnapshot
+	if err := db.Where("session_id = ? AND resource_type = ?", "session-1", ResourceTypeSkill).Take(&skillSnapshot).Error; err != nil {
+		t.Fatalf("query skill snapshot: %v", err)
+	}
+	if skillSnapshot.ResourceKey != skill.ID {
+		t.Fatalf("expected skill snapshot resource_key to use skill id %q, got %q", skill.ID, skillSnapshot.ResourceKey)
+	}
+	if skillSnapshot.RelativePath != relativePath {
+		t.Fatalf("expected skill snapshot relative_path %q, got %q", relativePath, skillSnapshot.RelativePath)
+	}
 
 	var memories []orm.SystemMemory
 	if err := db.Order("user_id ASC").Find(&memories).Error; err != nil {
@@ -162,7 +172,7 @@ func TestLoadApprovedSuggestionsFiltersByUser(t *testing.T) {
 			ID:           "s-u1",
 			UserID:       "u1",
 			ResourceType: ResourceTypeSkill,
-			ResourceKey:  ParentSkillRelativePath("coding", "git-workflow"),
+			ResourceKey:  "skill-1",
 			Action:       SuggestionActionModify,
 			SessionID:    "session-u1",
 			Title:        "u1 accepted",
@@ -175,7 +185,7 @@ func TestLoadApprovedSuggestionsFiltersByUser(t *testing.T) {
 			ID:           "s-u2",
 			UserID:       "u2",
 			ResourceType: ResourceTypeSkill,
-			ResourceKey:  ParentSkillRelativePath("coding", "git-workflow"),
+			ResourceKey:  "skill-1",
 			Action:       SuggestionActionModify,
 			SessionID:    "session-u2",
 			Title:        "u2 accepted",
@@ -189,7 +199,7 @@ func TestLoadApprovedSuggestionsFiltersByUser(t *testing.T) {
 		t.Fatalf("create suggestions: %v", err)
 	}
 
-	got, err := LoadApprovedSuggestions(context.Background(), db.DB, "u1", ResourceTypeSkill, ParentSkillRelativePath("coding", "git-workflow"), nil)
+	got, err := LoadApprovedSuggestions(context.Background(), db.DB, "u1", ResourceTypeSkill, "skill-1", nil)
 	if err != nil {
 		t.Fatalf("load accepted suggestions: %v", err)
 	}

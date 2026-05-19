@@ -43,6 +43,14 @@ type draftPreviewResponse struct {
 
 const maxManagedContentChars = 1500
 
+func payloadForLog(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 func compactManagedContent(content string) string {
 	return strings.Join(strings.Fields(content), "")
 }
@@ -395,6 +403,12 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "query user_preference failed", http.StatusInternalServerError)
 		return
 	}
+	useDraft := len(req.SuggestionIDs) == 0 && req.UserInstruct != ""
+	content, err := preferenceGenerateBaseContent(*row, useDraft)
+	if err != nil {
+		common.ReplyErr(w, err.Error(), http.StatusNotFound)
+		return
+	}
 
 	var suggestions []orm.ResourceSuggestion
 	if len(req.SuggestionIDs) > 0 {
@@ -409,11 +423,18 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	generated, err := algo.GenerateUserPreference(r.Context(), algo.MemoryGenerateRequest{
-		Content:      row.Content,
+	algoReq := algo.MemoryGenerateRequest{
+		Content:      content,
 		Suggestions:  toAlgoSuggestions(suggestions),
 		UserInstruct: req.UserInstruct,
-	})
+	}
+	appLog.Logger.Info().
+		Str("route", "/user-preference:generate").
+		Str("user_preference_id", row.ID).
+		Str("user_id", userID).
+		Str("payload", payloadForLog(algoReq)).
+		Msg("requesting external user preference generate")
+	generated, err := algo.GenerateUserPreference(r.Context(), algoReq)
 	if err != nil {
 		common.ReplyErr(w, "user_preference generate failed: "+err.Error(), http.StatusBadGateway)
 		return
@@ -421,6 +442,9 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	ids := suggestionIDs(suggestions)
+	if useDraft && len(ids) == 0 {
+		ids = evolution.DraftSuggestionIDs(row.Ext)
+	}
 	update := map[string]any{
 		"draft_content":        generated,
 		"draft_source_version": row.Version,
@@ -441,6 +465,16 @@ func Generate(w http.ResponseWriter, r *http.Request) {
 		"draft_content":        generated,
 		"suggestion_ids":       ids,
 	})
+}
+
+func preferenceGenerateBaseContent(row orm.SystemUserPreference, useDraft bool) (string, error) {
+	if !useDraft {
+		return row.Content, nil
+	}
+	if strings.TrimSpace(row.DraftStatus) != "pending_confirm" {
+		return "", errors.New("user_preference draft not found")
+	}
+	return row.DraftContent, nil
 }
 
 func Confirm(w http.ResponseWriter, r *http.Request) {
