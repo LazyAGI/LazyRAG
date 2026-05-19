@@ -90,5 +90,7 @@ def _evo_test_data_env(tmp_path, monkeypatch):
 
     monkeypatch.setenv('EVO_DATA_DIR', str(data_dir))
     monkeypatch.setenv('EVO_BASE_DIR', str(base_dir))
+    monkeypatch.setenv('LAZYMIND_EVO_DATA_DIR', str(data_dir))
+    monkeypatch.setenv('LAZYMIND_EVO_BASE_DIR', str(base_dir))
     config.refresh(['evo_data_dir', 'evo_base_dir'])
     yield
