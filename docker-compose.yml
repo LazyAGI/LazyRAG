@@ -97,8 +97,8 @@ services:
     volumes:
       - ./kong.yml:/kong/kong.yml
       - ./kong/plugins/rbac-auth:/usr/local/share/lua/5.1/kong/plugins/rbac-auth
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       auth-service:
         condition: service_healthy
@@ -108,11 +108,8 @@ services:
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: "123456"
-
     expose:
       - "5432"
-    ports:
-      - "5432:5432"
     volumes:
       - ./data/state/postgres:/var/lib/postgresql/data
       - ./db-init:/docker-entrypoint-initdb.d
@@ -151,18 +148,20 @@ services:
       args:
         <<: *mirror-args
     command: ["-config", "/app/configs/control-plane.scan.yml"]
+    environment:
+      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
     volumes:
       - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
       - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
       - ${RAGSCAN_BASE_ROOT:-./data/scan}/staging:/data/staging
       - ./data/core/uploads:/var/lib/lazymind/uploads
+    expose:
+      - "18080"
     depends_on:
       db:
         condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
-    ports:
-      - "18080:18080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:18080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 5s
@@ -190,11 +189,11 @@ services:
       - ./backend/file-watcher/configs/agent.yaml:/app/configs/agent.yaml:ro
       - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
       - ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}:/watch/docs
+    expose:
+      - "19090"
     depends_on:
       scan-control-plane:
         condition: service_healthy
-    ports:
-      - "19090:19090"
     restart: unless-stopped
 
   redis:
@@ -228,7 +227,7 @@ services:
       LAZYMIND_JWT_TTL_MINUTES: "60"
       LAZYMIND_JWT_REFRESH_TTL_DAYS: "7"
       RAGSCAN_SECRET_KEY: dev-ragscan-secret-key-change-me
-      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
       LAZYMIND_BOOTSTRAP_ADMIN_USERNAME: ${LAZYMIND_BOOTSTRAP_ADMIN_USERNAME:-admin}
       LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD:-admin}
     healthcheck:
@@ -256,6 +255,7 @@ services:
     environment:
       OFFICE_CONVERT_ALLOWED_ROOTS: /var/lib/lazymind/uploads
       OFFICE_CONVERT_TIMEOUT_SECONDS: "900"
+      OFFICE_CONVERT_CONCURRENCY: ${OFFICE_CONVERT_CONCURRENCY:-4}
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
     healthcheck:
@@ -290,7 +290,7 @@ services:
       LAZYMIND_PARSING_SERVICE_URL: http://lazyllm-parse-server:8000
       LAZYMIND_CHAT_SERVICE_URL: http://chat:8046
       LAZYMIND_EVO_SERVICE_URL: http://evo-api:8047
-      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: dev-internal-service-token
+      LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
       LAZYMIND_OFFICE_CONVERT_WORKERS: "4"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
@@ -678,8 +678,6 @@ services:
         OPENCODE_VERSION: 1.14.28
     expose:
       - "8047"
-    ports:
-      - "8050:8047"
     environment:
       LAZYMIND_EVO_API_PORT: "8047"
       LAZYMIND_EVO_BASE_DIR: /var/lib/lazymind/evo
@@ -781,8 +779,8 @@ services:
     profiles:
       - milvus-dashboard
     image: zilliz/attu:v2.6.3
-    ports:
-      - '127.0.0.1:3000:3000'
+    expose:
+      - "3000"
     environment:
       MILVUS_URL: milvus:19530
     depends_on:
@@ -794,7 +792,6 @@ services:
     profiles:
       - opensearch
     image: opensearchproject/opensearch:2.18.0
-    container_name: opensearch
     environment:
       - cluster.name=opensearch-cluster
       - node.name=opensearch-node1
@@ -824,10 +821,8 @@ services:
     profiles:
       - opensearch-dashboard
     image: opensearchproject/opensearch-dashboards:2.18.0
-    ports:
-      - '127.0.0.1:5601:5601'
     expose:
-      - '5601'
+      - "5601"
     environment:
       OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
     depends_on:
