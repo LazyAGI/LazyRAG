@@ -42,6 +42,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID)
 	docQuery = applyTransientPathFilter(docQuery, "source_object_id")
 	docQuery = applyVisibleDocumentFilter(docQuery, "parse_status")
+	docQuery = applySourceDocumentListVisibilityFilter(docQuery, "current_version_id", "core_document_id")
 
 	keyword := strings.TrimSpace(req.Keyword)
 	if keyword != "" {
@@ -64,7 +65,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		}
 	}
 
-	snapshotUpdates, snapshotUpdatesAvailable, err := s.nonWatchSourceDocumentUpdateOverrides(ctx, src)
+	snapshotUpdates, snapshotUpdatesAvailable, err := s.sourceDocumentUpdateOverrides(ctx, src)
 	if err != nil {
 		return resp, err
 	}
@@ -115,6 +116,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			hasUpdate = &v
 		}
 		displayMeta := metadata[doc.ID]
+		knowledgeBasePresent := sourceDocumentHasKnowledgeBaseRelation(doc.CurrentVersionID, doc.CoreDocumentID)
 		item := model.SourceDocumentItem{
 			DocumentID:              doc.ID,
 			SourceCreateUserID:      strings.TrimSpace(src.CreateUserID),
@@ -137,6 +139,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			ParseTaskID:             latestTask.TaskID,
 			ParseTaskAction:         latestTask.TaskAction,
 			ParseTaskTargetVersion:  latestTask.TargetVersionID,
+			KnowledgeBasePresent:    &knowledgeBasePresent,
 		}
 		if state, ok := statesByPath[filepath.Clean(strings.TrimSpace(doc.SourceObjectID))]; ok {
 			item = applyStateToDocumentItem(item, state)
@@ -154,6 +157,9 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 			continue
 		}
 		if _, ok := existingItemPaths[path]; ok {
+			continue
+		}
+		if !sourceDocumentStateVisibleInSourceDocuments(state) {
 			continue
 		}
 		if updateType := stateUpdateType(state); updateType != "NEW" && updateType != "DELETED" && updateType != "MODIFIED" {
@@ -180,29 +186,72 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		resp.Items = filtered[start:end]
 	}
 
-	type summaryDoc struct {
-		DocumentID       int64
-		SourceObjectID   string
-		ParseStatus      string
-		DesiredVersionID string
-		CurrentVersionID string
-		LastModifiedAt   *time.Time
-		OriginType       string
-		OriginPlatform   string
-		OriginRef        string
-		UpdatedAt        time.Time
+	summary, latest, err := s.buildSourceDocumentsSummary(ctx, src, snapshotUpdates, snapshotUpdatesAvailable)
+	if err != nil {
+		return resp, err
 	}
-	var summaryDocs []summaryDoc
+
+	agentOnline := false
+	if strings.TrimSpace(src.AgentID) != "" {
+		var agent agentEntity
+		if err := s.db.WithContext(ctx).Take(&agent, "agent_id = ?", src.AgentID).Error; err == nil {
+			agentOnline = strings.ToUpper(strings.TrimSpace(agent.Status)) != "OFFLINE"
+		}
+	}
+
+	resp.Source = model.SourceDocumentsSource{
+		ID:                      src.ID,
+		Name:                    src.Name,
+		RootPath:                src.RootPath,
+		WatchEnabled:            src.WatchEnabled,
+		AgentID:                 src.AgentID,
+		AgentOnline:             agentOnline,
+		UpdateTrackingSupported: true,
+		LastSyncedAt:            latest,
+	}
+	resp.Summary = summary
+	if updateType == "" {
+		resp.Total = resp.Summary.TotalDocumentCount
+	}
+	return resp, nil
+}
+
+type sourceDocumentSummaryDoc struct {
+	DocumentID       int64
+	SourceObjectID   string
+	ParseStatus      string
+	DesiredVersionID string
+	CurrentVersionID string
+	CoreDocumentID   string
+	LastModifiedAt   *time.Time
+	OriginType       string
+	OriginPlatform   string
+	OriginRef        string
+	UpdatedAt        time.Time
+}
+
+func (s *Store) buildSourceDocumentsSummary(ctx context.Context, src sourceEntity, snapshotUpdates map[string]string, snapshotUpdatesAvailable bool) (model.SourceDocumentsSummary, *time.Time, error) {
+	if snapshotUpdates == nil && !snapshotUpdatesAvailable {
+		updates, available, err := s.sourceDocumentUpdateOverrides(ctx, src)
+		if err != nil {
+			return model.SourceDocumentsSummary{}, nil, err
+		}
+		snapshotUpdates = updates
+		snapshotUpdatesAvailable = available
+	}
+
+	var summaryDocs []sourceDocumentSummaryDoc
 	if err := s.db.WithContext(ctx).
 		Table("documents").
-		Select("id AS document_id, source_object_id, parse_status, desired_version_id, current_version_id, last_modified_at, origin_type, origin_platform, origin_ref, updated_at").
-		Where("tenant_id = ? AND source_id = ?", tenantID, src.ID).
+		Select("id AS document_id, source_object_id, parse_status, desired_version_id, current_version_id, core_document_id, last_modified_at, origin_type, origin_platform, origin_ref, updated_at").
+		Where("tenant_id = ? AND source_id = ?", src.TenantID, src.ID).
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			db = applyTransientPathFilter(db, "source_object_id")
-			return applyVisibleDocumentFilter(db, "parse_status")
+			db = applyVisibleDocumentFilter(db, "parse_status")
+			return applySourceDocumentListVisibilityFilter(db, "current_version_id", "core_document_id")
 		}).
 		Scan(&summaryDocs).Error; err != nil {
-		return resp, err
+		return model.SourceDocumentsSummary{}, nil, err
 	}
 
 	var (
@@ -229,11 +278,11 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 	}
 	summaryLatestTasks, err := s.latestParseTasksByDocumentIDs(ctx, summaryDocIDs)
 	if err != nil {
-		return resp, err
+		return model.SourceDocumentsSummary{}, nil, err
 	}
 	summaryMetadata, err := s.sourceDocumentDisplayMetadata(ctx, src, summaryInputs, summaryLatestTasks)
 	if err != nil {
-		return resp, err
+		return model.SourceDocumentsSummary{}, nil, err
 	}
 	for _, meta := range summaryMetadata {
 		storage += meta.SizeBytes
@@ -264,23 +313,9 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		}
 	}
 
-	agentOnline := false
-	if strings.TrimSpace(src.AgentID) != "" {
-		var agent agentEntity
-		if err := s.db.WithContext(ctx).Take(&agent, "agent_id = ?", src.AgentID).Error; err == nil {
-			agentOnline = strings.ToUpper(strings.TrimSpace(agent.Status)) != "OFFLINE"
-		}
-	}
-
-	resp.Source = model.SourceDocumentsSource{
-		ID:                      src.ID,
-		Name:                    src.Name,
-		RootPath:                src.RootPath,
-		WatchEnabled:            src.WatchEnabled,
-		AgentID:                 src.AgentID,
-		AgentOnline:             agentOnline,
-		UpdateTrackingSupported: true,
-		LastSyncedAt:            latest,
+	stateRows, err := s.sourceDocumentStatesForSource(ctx, src.ID)
+	if err != nil {
+		return model.SourceDocumentsSummary{}, nil, err
 	}
 	stateSummary := summarizeSourceDocumentStates(stateRows, len(summaryDocs), parsedCount, storage)
 	if (sourcelayout.IsCloudOriginType(src.DefaultOriginType) && snapshotUpdatesAvailable) || len(stateRows) == 0 {
@@ -289,7 +324,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		stateSummary.DeletedCount = delCount
 		stateSummary.PendingPullCount = newCount + modCount + delCount
 	}
-	resp.Summary = model.SourceDocumentsSummary{
+	return model.SourceDocumentsSummary{
 		ParsedDocumentCount: parsedCount,
 		StorageBytes:        storage,
 		TotalDocumentCount:  stateSummary.TotalDocumentCount,
@@ -297,11 +332,7 @@ func (s *Store) ListSourceDocuments(ctx context.Context, sourceID string, req mo
 		ModifiedCount:       stateSummary.ModifiedCount,
 		DeletedCount:        stateSummary.DeletedCount,
 		PendingPullCount:    stateSummary.PendingPullCount,
-	}
-	if updateType == "" {
-		resp.Total = resp.Summary.TotalDocumentCount
-	}
-	return resp, nil
+	}, latest, nil
 }
 
 func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model.Source) (map[string]model.SourceDocumentsResponse, error) {
@@ -371,16 +402,17 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 	summaryQuery := s.db.WithContext(ctx).
 		Table("documents").
 		Select(`
-			source_id,
-			COUNT(*) AS total_document_count,
-			SUM(CASE WHEN COALESCE(current_version_id, '') <> '' THEN 1 ELSE 0 END) AS parsed_document_count,
+				source_id,
+				COUNT(*) AS total_document_count,
+				SUM(CASE WHEN COALESCE(current_version_id, '') <> '' THEN 1 ELSE 0 END) AS parsed_document_count,
 			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') = '' THEN 1 ELSE 0 END) AS new_count,
 			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) <> 'DELETED' AND COALESCE(desired_version_id, '') <> '' AND COALESCE(current_version_id, '') <> '' AND desired_version_id <> current_version_id THEN 1 ELSE 0 END) AS modified_count,
 			SUM(CASE WHEN UPPER(COALESCE(parse_status, '')) = 'DELETED' THEN 1 ELSE 0 END) AS deleted_count`).
 		Where("source_id IN ?", sourceIDs).
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			db = applyTransientPathFilter(db, "source_object_id")
-			return applyVisibleDocumentFilter(db, "parse_status")
+			db = applyVisibleDocumentFilter(db, "parse_status")
+			return applySourceDocumentListVisibilityFilter(db, "current_version_id", "core_document_id")
 		}).
 		Group("source_id")
 	if err := summaryQuery.Scan(&summaryRows).Error; err != nil {
@@ -390,22 +422,45 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 	if err != nil {
 		return nil, err
 	}
+	summaryRowsBySourceID := make(map[string]sourceDocumentOverviewSummaryRow, len(summaryRows))
 	for _, row := range summaryRows {
-		resp := result[row.SourceID]
-		resp.Total = row.TotalDocumentCount
-		resp.Summary = summarizeSourceDocumentStates(statesBySourceID[row.SourceID], int(row.TotalDocumentCount), row.ParsedDocumentCount, 0)
-		if len(statesBySourceID[row.SourceID]) == 0 {
-			resp.Summary = model.SourceDocumentsSummary{
-				ParsedDocumentCount: row.ParsedDocumentCount,
-				StorageBytes:        0,
-				TotalDocumentCount:  row.TotalDocumentCount,
-				NewCount:            row.NewCount,
-				ModifiedCount:       row.ModifiedCount,
-				DeletedCount:        row.DeletedCount,
-				PendingPullCount:    row.NewCount + row.ModifiedCount + row.DeletedCount,
+		summaryRowsBySourceID[row.SourceID] = row
+	}
+	for _, sourceID := range sourceIDs {
+		src := sourceByID[sourceID]
+		row := summaryRowsBySourceID[sourceID]
+		resp := result[sourceID]
+		var summary model.SourceDocumentsSummary
+		if sourcelayout.IsCloudOriginType(src.DefaultOriginType) || !src.WatchEnabled {
+			var err error
+			summary, _, err = s.buildSourceDocumentsSummary(ctx, sourceEntity{
+				ID:                    src.ID,
+				TenantID:              src.TenantID,
+				RootPath:              src.RootPath,
+				WatchEnabled:          src.WatchEnabled,
+				DefaultOriginType:     src.DefaultOriginType,
+				DefaultOriginPlatform: src.DefaultOriginPlatform,
+			}, nil, false)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			summary = summarizeSourceDocumentStates(statesBySourceID[sourceID], int(row.TotalDocumentCount), row.ParsedDocumentCount, 0)
+			if len(statesBySourceID[sourceID]) == 0 {
+				summary = model.SourceDocumentsSummary{
+					ParsedDocumentCount: row.ParsedDocumentCount,
+					StorageBytes:        0,
+					TotalDocumentCount:  row.TotalDocumentCount,
+					NewCount:            row.NewCount,
+					ModifiedCount:       row.ModifiedCount,
+					DeletedCount:        row.DeletedCount,
+					PendingPullCount:    row.NewCount + row.ModifiedCount + row.DeletedCount,
+				}
 			}
 		}
-		result[row.SourceID] = resp
+		resp.Total = summary.TotalDocumentCount
+		resp.Summary = summary
+		result[sourceID] = resp
 	}
 
 	type sourceDocumentOverviewDocRow struct {
@@ -413,6 +468,7 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		TenantID         string     `gorm:"column:tenant_id"`
 		SourceID         string     `gorm:"column:source_id"`
 		SourceObjectID   string     `gorm:"column:source_object_id"`
+		CoreDocumentID   string     `gorm:"column:core_document_id"`
 		CurrentVersionID string     `gorm:"column:current_version_id"`
 		DesiredVersionID string     `gorm:"column:desired_version_id"`
 		LastModifiedAt   *time.Time `gorm:"column:last_modified_at"`
@@ -422,31 +478,29 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 		OriginRef        string     `gorm:"column:origin_ref"`
 		UpdatedAt        time.Time  `gorm:"column:updated_at"`
 	}
-	docSubquery := s.db.WithContext(ctx).
+	docQuery := s.db.WithContext(ctx).
 		Model(&documentEntity{}).
 		Select(`
-			documents.id,
-			documents.tenant_id,
-			documents.source_id,
-			documents.source_object_id,
-			documents.current_version_id,
-			documents.desired_version_id,
-			documents.last_modified_at,
+				documents.id,
+				documents.tenant_id,
+				documents.source_id,
+				documents.source_object_id,
+				documents.core_document_id,
+				documents.current_version_id,
+				documents.desired_version_id,
+				documents.last_modified_at,
 			documents.parse_status,
 			documents.origin_type,
 			documents.origin_platform,
 			documents.origin_ref,
-			documents.updated_at,
-			ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY updated_at DESC, id DESC) AS rn`).
+			documents.updated_at`).
 		Where("source_id IN ?", sourceIDs)
-	docSubquery = applyTransientPathFilter(docSubquery, "source_object_id")
-	docSubquery = applyVisibleDocumentFilter(docSubquery, "parse_status")
+	docQuery = applyTransientPathFilter(docQuery, "source_object_id")
+	docQuery = applyVisibleDocumentFilter(docQuery, "parse_status")
+	docQuery = applySourceDocumentListVisibilityFilter(docQuery, "current_version_id", "core_document_id")
 
 	var docRows []sourceDocumentOverviewDocRow
-	if err := s.db.WithContext(ctx).
-		Table("(?) AS ranked_documents", docSubquery).
-		Where("rn = ?", 1).
-		Scan(&docRows).Error; err != nil {
+	if err := docQuery.Order("source_id ASC, updated_at DESC, id DESC").Scan(&docRows).Error; err != nil {
 		return nil, err
 	}
 
@@ -457,6 +511,24 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 	latestTasksByDocID, err := s.latestParseTasksByDocumentIDs(ctx, docIDs)
 	if err != nil {
 		return nil, err
+	}
+	updateOverridesBySourceID := make(map[string]map[string]string, len(sourceIDs))
+	updateOverridesAvailableBySourceID := make(map[string]bool, len(sourceIDs))
+	for _, sourceID := range sourceIDs {
+		src := sourceByID[sourceID]
+		updates, available, err := s.sourceDocumentUpdateOverrides(ctx, sourceEntity{
+			ID:                    src.ID,
+			TenantID:              src.TenantID,
+			RootPath:              src.RootPath,
+			WatchEnabled:          src.WatchEnabled,
+			DefaultOriginType:     src.DefaultOriginType,
+			DefaultOriginPlatform: src.DefaultOriginPlatform,
+		})
+		if err != nil {
+			return nil, err
+		}
+		updateOverridesBySourceID[sourceID] = updates
+		updateOverridesAvailableBySourceID[sourceID] = available
 	}
 	overviewMetaBySourceID := make(map[string]map[int64]sourceDocumentDisplayMeta, len(sourceIDs))
 	rowsBySourceID := make(map[string][]sourceDocumentOverviewDocRow, len(sourceIDs))
@@ -493,7 +565,10 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 
 	for _, doc := range docRows {
 		resp := result[doc.SourceID]
-		update := inferDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus)
+		latestTask := latestTasksByDocID[doc.ID]
+		_, hasLatestTask := latestTasksByDocID[doc.ID]
+		update := effectiveDocumentUpdateType(doc.DesiredVersionID, doc.CurrentVersionID, doc.ParseStatus, latestTask, hasLatestTask)
+		update = documentUpdateTypeWithSnapshotOverride(doc.SourceObjectID, update, doc.DesiredVersionID, doc.ParseStatus, latestTask, hasLatestTask, updateOverridesBySourceID[doc.SourceID], updateOverridesAvailableBySourceID[doc.SourceID])
 		var hasUpdate *bool
 		switch update {
 		case "NEW", "MODIFIED", "DELETED":
@@ -503,34 +578,33 @@ func (s *Store) ListSourceDocumentOverviews(ctx context.Context, sources []model
 			v := false
 			hasUpdate = &v
 		}
-		latestTask := latestTasksByDocID[doc.ID]
 		displayMeta := overviewMetaBySourceID[doc.SourceID][doc.ID]
+		knowledgeBasePresent := sourceDocumentHasKnowledgeBaseRelation(doc.CurrentVersionID, doc.CoreDocumentID)
 		resp.Source.LastSyncedAt = displayMeta.LastSyncedAt
-		resp.Items = []model.SourceDocumentItem{
-			{
-				DocumentID:              doc.ID,
-				SourceCreateUserID:      strings.TrimSpace(sourceByID[doc.SourceID].CreateUserID),
-				Name:                    filepath.Base(doc.SourceObjectID),
-				Path:                    doc.SourceObjectID,
-				Directory:               filepath.Base(filepath.Dir(doc.SourceObjectID)),
-				HasUpdate:               hasUpdate,
-				UpdateType:              update,
-				UpdateDesc:              updateTypeDescription(update),
-				ParseState:              effectiveSourceDocumentParseState(doc.ParseStatus, doc.DesiredVersionID, latestTask),
-				FileType:                fileTypeFromPath(doc.SourceObjectID),
-				SizeBytes:               displayMeta.SizeBytes,
-				SourceUpdatedAt:         displayMeta.SourceUpdatedAt,
-				LastSyncedAt:            displayMeta.LastSyncedAt,
-				CoreDatasetID:           latestTask.CoreDatasetID,
-				CoreTaskID:              latestTask.CoreTaskID,
-				ScanOrchestrationStatus: latestTask.ScanOrchestrationStatus,
-				DesiredVersionID:        doc.DesiredVersionID,
-				CurrentVersionID:        doc.CurrentVersionID,
-				ParseTaskID:             latestTask.TaskID,
-				ParseTaskAction:         latestTask.TaskAction,
-				ParseTaskTargetVersion:  latestTask.TargetVersionID,
-			},
-		}
+		resp.Items = append(resp.Items, model.SourceDocumentItem{
+			DocumentID:              doc.ID,
+			SourceCreateUserID:      strings.TrimSpace(sourceByID[doc.SourceID].CreateUserID),
+			Name:                    filepath.Base(doc.SourceObjectID),
+			Path:                    doc.SourceObjectID,
+			Directory:               filepath.Base(filepath.Dir(doc.SourceObjectID)),
+			HasUpdate:               hasUpdate,
+			UpdateType:              update,
+			UpdateDesc:              updateTypeDescription(update),
+			ParseState:              effectiveSourceDocumentParseState(doc.ParseStatus, doc.DesiredVersionID, latestTask),
+			FileType:                fileTypeFromPath(doc.SourceObjectID),
+			SizeBytes:               displayMeta.SizeBytes,
+			SourceUpdatedAt:         displayMeta.SourceUpdatedAt,
+			LastSyncedAt:            displayMeta.LastSyncedAt,
+			CoreDatasetID:           latestTask.CoreDatasetID,
+			CoreTaskID:              latestTask.CoreTaskID,
+			ScanOrchestrationStatus: latestTask.ScanOrchestrationStatus,
+			DesiredVersionID:        doc.DesiredVersionID,
+			CurrentVersionID:        doc.CurrentVersionID,
+			ParseTaskID:             latestTask.TaskID,
+			ParseTaskAction:         latestTask.TaskAction,
+			ParseTaskTargetVersion:  latestTask.TargetVersionID,
+			KnowledgeBasePresent:    &knowledgeBasePresent,
+		})
 		result[doc.SourceID] = resp
 	}
 
@@ -814,6 +888,13 @@ func effectiveLatestParseTaskState(desiredVersion string, latestTask parseTaskDo
 
 func (s *Store) nonWatchSourceDocumentUpdateOverrides(ctx context.Context, src sourceEntity) (map[string]string, bool, error) {
 	if src.WatchEnabled {
+		return nil, false, nil
+	}
+	return s.sourceDocumentUpdateOverrides(ctx, src)
+}
+
+func (s *Store) sourceDocumentUpdateOverrides(ctx context.Context, src sourceEntity) (map[string]string, bool, error) {
+	if src.WatchEnabled && !sourcelayout.IsCloudOriginType(src.DefaultOriginType) {
 		return nil, false, nil
 	}
 	var relation sourceSnapshotRelationEntity

@@ -759,7 +759,7 @@ func applyStateToDocumentItem(item model.SourceDocumentItem, state sourceDocumen
 	if state.SourceModifiedAt != nil {
 		item.SourceUpdatedAt = state.SourceModifiedAt
 	}
-	kb := state.KnowledgeBasePresent
+	kb := state.KnowledgeBasePresent || (item.KnowledgeBasePresent != nil && *item.KnowledgeBasePresent)
 	item.KnowledgeBasePresent = &kb
 	if sourceDocumentStateSuppressesLegacyProcessing(item, state) {
 		item.ParseState = legacyIdleParseStateFromSourceState(state.SourceState)
@@ -854,6 +854,10 @@ func parseStateFromSourceSyncState(syncState string) string {
 	}
 }
 
+func sourceDocumentStateVisibleInSourceDocuments(state sourceDocumentStateView) bool {
+	return state.KnowledgeBasePresent
+}
+
 func summarizeSourceDocumentStates(rows []sourceDocumentStateEntity, fallbackTotal int, parsedCount, storage int64) model.SourceDocumentsSummary {
 	summary := model.SourceDocumentsSummary{
 		ParsedDocumentCount: parsedCount,
@@ -862,6 +866,10 @@ func summarizeSourceDocumentStates(rows []sourceDocumentStateEntity, fallbackTot
 	}
 	seenPaths := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
+		state := sourceDocumentStateViewFromEntity(row)
+		if !sourceDocumentStateVisibleInSourceDocuments(state) {
+			continue
+		}
 		path := filepath.Clean(strings.TrimSpace(row.Path))
 		if path == "" || path == "." || row.IsDir {
 			continue
