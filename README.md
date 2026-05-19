@@ -106,8 +106,8 @@ make up
 ```
 
 After startup:
-- Frontend: http://localhost:8080
-- API docs: http://localhost:8080/docs.html
+- Frontend: http://localhost:8090
+- API docs: http://localhost:8090/docs.html
 - Default credentials: `admin` / `admin`
 
 For environment setup and detailed examples, see [`docs/quick_start.md`](docs/quick_start.md).
