@@ -63,6 +63,7 @@ class ApplyOptions:
         )
     )
     deploy_check: Callable[[Path, str | None], dict] | None = None
+    extra_instructions: str = ''
 
 
 def _check(token: Any | None, at: str | None = None) -> None:
@@ -196,8 +197,18 @@ def _build_modification_plan(actions: list[dict], chat_source: Path) -> list[dic
     ]
 
 
-def _build_prompt(instruction: str, plan: list[dict], allow_lines: list[str], prior_failure: str) -> str:
+def _build_prompt(
+    instruction: str,
+    plan: list[dict],
+    allow_lines: list[str],
+    prior_failure: str,
+    extra_instructions: str = '',
+) -> str:
     parts: list[str] = [instruction.strip(), '']
+    if extra_instructions.strip():
+        parts.append('用户补充要求：')
+        parts.append(extra_instructions.strip())
+        parts.append('')
     parts.append('允许修改的范围（严格遵守，禁止改动其它路径）：')
     parts.extend((f'- {f}' for f in allow_lines))
     parts.append('')
@@ -394,7 +405,7 @@ def execute_apply(
                 shutil.rmtree(round_dir)
             (round_dir / 'input').mkdir(parents=True, exist_ok=True)
             rr = RoundResult(index=i, started_at=time.time())
-            prompt = _build_prompt(options.instruction, plan, allow_lines, prior_failure)
+            prompt = _build_prompt(options.instruction, plan, allow_lines, prior_failure, options.extra_instructions)
             (round_dir / 'input' / 'prompt.txt').write_text(prompt, encoding='utf-8')
             if on_round_start:
                 on_round_start(rr)

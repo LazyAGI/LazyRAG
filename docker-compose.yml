@@ -20,9 +20,9 @@ x-trace-config: &trace-config
   LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
   LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
   LAZYLLM_TRACE_ENABLED: ${LAZYLLM_TRACE_ENABLED:-1}
-  LAZYLLM_TRACE_BACKEND: ${LAZYLLM_TRACE_BACKEND:-langfuse}
-  LAZYMIND_LOCAL_TRACE_SINK: ${LAZYMIND_LOCAL_TRACE_SINK:-false}
-  LOCAL_TRACE_SINK: ${LOCAL_TRACE_SINK:-false}
+  LAZYLLM_TRACE_BACKEND: ${LAZYLLM_TRACE_BACKEND:-local}
+  LAZYLLM_TRACE_LOCAL_STORAGE_DIR: ${LAZYLLM_TRACE_LOCAL_STORAGE_DIR:-/var/lib/lazymind/traces}
+  LAZYLLM_TRACE_CONSUME_BACKEND: ${LAZYLLM_TRACE_CONSUME_BACKEND:-local}
   OTEL_EXPORTER_OTLP_TIMEOUT: 60
   OTEL_EXPORTER_OTLP_TRACES_TIMEOUT: 60
   LAZYMIND_LANGFUSE_FORCE_FLUSH_TIMEOUT_MS: 70000
@@ -63,6 +63,9 @@ x-llm-api-keys: &llm-api-keys
 x-upload-paths: &upload-paths
   LAZYMIND_UPLOAD_HOST_DIR: ./data/core/uploads
   LAZYMIND_SHARED_UPLOAD_DIR: /var/lib/lazymind/uploads
+
+x-runtime-home: &runtime-home
+  LAZYMIND_HOME: /tmp/.lazyllm_rag
 
 x-db-conn: &db-conn
   LAZYMIND_DATABASE_URL: ${LAZYMIND_DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
@@ -334,7 +337,7 @@ services:
       args:
         <<: *mirror-args
     ports:
-      - "${LAZYMIND_FRONTEND_PORT:-8080}:80"
+      - "${LAZYMIND_FRONTEND_PORT:-8090}:80"
     expose:
       - "80"
     depends_on:
@@ -360,12 +363,13 @@ services:
       - "8000"
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
+      - ./data/traces:/var/lib/lazymind/traces
       # Image bakes /app/algorithm; Python may import lazyllm from there (not /opt/lazyllm). Mount repo
       # so doc_manager matches Core /v1/docs/add (kb bound to general_algo, no algo_id in body).
       - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
-      <<: [*db-conn, *upload-paths, *llm-api-keys]
+      <<: [*db-conn, *upload-paths, *llm-api-keys, *trace-config]
       LAZYMIND_DOCUMENT_SERVICE_PORT: "8000"
       LAZYMIND_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYMIND_DOCUMENT_SERVICE_CALLBACK_URL: http://doc-server:8000/v1/internal/callbacks/tasks
@@ -498,10 +502,12 @@ services:
       - "8000"
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
+      - ./data/traces:/var/lib/lazymind/traces
+      - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       LAZYMIND_DOCUMENT_PROCESSOR_PORT: "8000"
-      <<: [*db-conn, *upload-paths, *llm-api-keys]
+      <<: [*runtime-home, *db-conn, *upload-paths, *llm-api-keys, *trace-config]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/server.py"]
     healthcheck:
@@ -532,6 +538,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
+      - ./data/traces:/var/lib/lazymind/traces
+      - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       LAZYMIND_DOCUMENT_WORKER_PORT: "8001"
@@ -541,7 +549,7 @@ services:
       LAZYMIND_DOCUMENT_WORKER_HIGH_PRIORITY_TASK_TYPES: ""
       LAZYMIND_DOCUMENT_WORKER_HIGH_PRIORITY_ONLY: "false"
       LAZYMIND_DOCUMENT_WORKER_POLL_MODE: direct
-      <<: [*db-conn, *upload-paths, *llm-api-keys, *ocr-env]
+      <<: [*runtime-home, *db-conn, *upload-paths, *llm-api-keys, *ocr-env, *trace-config]
       LAZYLLM_EXPECTED_LOG_MODULES: "all"
     command: ["python", "processor/worker.py"]
     healthcheck:
@@ -575,6 +583,8 @@ services:
     working_dir: /app
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
+      - ./data/traces:/var/lib/lazymind/traces
+      - ./algorithm:/app/algorithm:ro
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
@@ -591,7 +601,7 @@ services:
       start_period: 120s
     environment:
       LAZYMIND_UPLOAD_ROOT: /var/lib/lazymind/uploads
-      <<: [*upload-paths, *llm-api-keys, *ocr-env]
+      <<: [*runtime-home, *upload-paths, *llm-api-keys, *ocr-env, *db-conn, *trace-config]
       LAZYMIND_DOCUMENT_PROCESSOR_URL: http://processor-server:8000
       LAZYMIND_ALGO_SERVER_PORT: "8000"
       LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
@@ -627,6 +637,8 @@ services:
       - "8046"
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
+      - ./data/traces:/var/lib/lazymind/traces
+      - ./algorithm:/app/algorithm:ro
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
@@ -663,7 +675,7 @@ services:
       LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
       LAZYMIND_CORE_SERVICE_URL: http://core:8000
       LAZYMIND_WORD_GROUP_APPLY_URL: ""
-      <<: [*trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
+      <<: [*runtime-home, *trace-config, *proxy-env, *db-conn, *core-db-conn, *llm-api-keys, *upload-paths]
     command: ["python", "-m", "chat.app.chat", "--port", "8046"]
     depends_on:
       lazyllm-algo:
@@ -696,10 +708,12 @@ services:
       LAZYMIND_EVO_CHUNK_BASE_URL: http://doc-server:8000
       LAZYMIND_EVO_TARGET_CHAT_URL: http://chat:8046/api/chat
       LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
-      <<: [*trace-config, *proxy-env, *llm-api-keys]
+      <<: [*runtime-home, *trace-config, *proxy-env, *llm-api-keys]
     volumes:
       - /tmp/evo:/var/lib/lazymind/evo
+      - ./data/traces:/var/lib/lazymind/traces
       - ./data/core/uploads:/var/lib/lazymind/uploads:ro
+      - ./algorithm:/app/algorithm:ro
       - ./algorithm/chat:/var/lib/lazymind/chat-source:ro
       - ./algorithm/config.py:/app/config.py:ro
       - ./algorithm/config.py:/app/algorithm/config.py:ro
