@@ -27,7 +27,13 @@ def test_static_file_url_from_full_path_signs_upload_relative_path(tmp_path, mon
     assert 'sig=' in signed
 
 
-def test_static_file_url_from_any_strips_external_host_prefix(monkeypatch):
+def test_static_file_url_from_any_strips_external_host_prefix(tmp_path, monkeypatch):
+    upload_root = tmp_path / 'uploads'
+    image = upload_root / 'normalized_images' / 'exp9' / 'frame.jpg'
+    image.parent.mkdir(parents=True)
+    image.write_bytes(b'jpg')
+
+    _mock_upload_root(monkeypatch, upload_root)
     monkeypatch.setenv('LAZYMIND_FILE_URL_SIGN_SECRET', 'test-secret')
 
     raw = (
@@ -36,3 +42,7 @@ def test_static_file_url_from_any_strips_external_host_prefix(monkeypatch):
     )
     signed = static_file_url_from_any(raw)
     assert signed.startswith('/static-files/normalized_images/exp9/frame.jpg?')
+
+    local = local_path_from_static_file_url(signed)
+    assert local == str(image.resolve())
+    assert resolve_local_image_path(signed) == str(image.resolve())
