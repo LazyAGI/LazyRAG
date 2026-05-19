@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Empty, Form, Input, Modal, Popconfirm, Select, Tag, Tooltip, message } from "antd";
+import { Button, Empty, Form, Input, Modal, Popconfirm, Select, Tag, Tooltip, message } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   CheckCircleFilled,
@@ -172,6 +172,9 @@ const moduleConfigs: ModuleConfig[] = [
     subtitleKey: "modelProvider.module.selfEvolutionSubtitle",
   },
 ];
+
+const hiddenDefaultModuleKeys = new Set<ModelCapability>(["EMBEDDING"]);
+const visibleModuleConfigs = moduleConfigs.filter((module) => !hiddenDefaultModuleKeys.has(module.key));
 
 const builtInProviders: ProviderOption[] = [
   {
@@ -388,7 +391,7 @@ function getCapabilityByModelType(modelType?: string): ModelCapability | undefin
   if (selectedCapability) {
     return selectedCapability;
   }
-  return moduleConfigs.find((module) => selectedModelTypeByCapability[module.key].toLowerCase() === normalized)?.key;
+  return visibleModuleConfigs.find((module) => selectedModelTypeByCapability[module.key].toLowerCase() === normalized)?.key;
 }
 
 const createModelProviderFallbacks = (t: ReturnType<typeof useTranslation>["t"]) => ({
@@ -1349,15 +1352,8 @@ export default function ModelProviderPage() {
               </div>
             </div>
 
-            <Alert
-              className="model-provider-inline-alert"
-              message={t("modelProvider.embeddingLimitedAlert")}
-              showIcon
-              type="info"
-            />
-
             <div className="model-provider-default-list">
-              {moduleConfigs.map((module) => {
+              {visibleModuleConfigs.map((module) => {
                 const options = moduleModelOptions[module.key] || [];
                 const optionLoading = Boolean(moduleModelLoading[module.key]);
                 const moduleTitle = t(module.titleKey);
