@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -994,6 +995,35 @@ func TestCreateCloudSourceAutoRootPath(t *testing.T) {
 	}
 }
 
+func TestCreateLocalSourceManualReconcileScheduleClearsSchedule(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:          "tenant-1",
+		Name:              "manual-src",
+		RootPath:          "/tmp/manual-watch",
+		AgentID:           "agent-1",
+		WatchEnabled:      false,
+		IdleWindowSeconds: 10,
+		ReconcileSeconds:  86400,
+		ReconcileSchedule: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create manual source failed: %v", err)
+	}
+	if src.WatchEnabled {
+		t.Fatalf("expected watch_enabled=false")
+	}
+	if src.ReconcileSchedule != "" {
+		t.Fatalf("expected manual reconcile_schedule to be cleared, got %q", src.ReconcileSchedule)
+	}
+	if src.ReconcileSeconds != 86400 {
+		t.Fatalf("expected reconcile_seconds=86400, got %d", src.ReconcileSeconds)
+	}
+}
+
 func TestGenerateTasksForSourceQueuesBaselineSnapshot(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
@@ -1319,10 +1349,19 @@ func TestSourceDocumentStateMatrix(t *testing.T) {
 				t.Fatalf("list source documents before sync failed: %v", err)
 			}
 			listItem, ok := sourceStateMatrixFindDocumentItem(resp.Items, tc.objectPath)
-			if !ok {
+			if tc.change == sourceStateMatrixNew {
+				if ok {
+					t.Fatalf("expected new document without knowledge base relation to be hidden from document list, got %+v", listItem)
+				}
+			} else if !ok {
 				t.Fatalf("missing document list item for %s in %+v", tc.objectPath, resp.Items)
 			}
-			if listItem.UpdateType != expectedUpdate || listItem.SourceState != expectedUpdate || listItem.SyncState != expectedSyncState {
+			if tc.change == sourceStateMatrixNew {
+				// Newly discovered files belong in the directory tree until the first sync succeeds.
+				if resp.Summary.NewCount != 0 || resp.Summary.PendingPullCount != 0 {
+					t.Fatalf("expected hidden new document not to affect document list summary, got %+v", resp.Summary)
+				}
+			} else if listItem.UpdateType != expectedUpdate || listItem.SourceState != expectedUpdate || listItem.SyncState != expectedSyncState {
 				t.Fatalf("expected list state update=%s source=%s sync=%s, got item=%+v", expectedUpdate, expectedUpdate, expectedSyncState, listItem)
 			}
 
@@ -2292,11 +2331,11 @@ func TestListSourceDocumentsWithUpdateTypeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list source documents failed: %v", err)
 	}
-	if resp.Total != 2 {
-		t.Fatalf("expected pending deleted documents to remain visible, got total %d", resp.Total)
+	if resp.Total != 1 {
+		t.Fatalf("expected only knowledge-base-backed documents to remain visible, got total %d", resp.Total)
 	}
-	if resp.Summary.NewCount != 1 {
-		t.Fatalf("expected new_count=1, got %d", resp.Summary.NewCount)
+	if resp.Summary.NewCount != 0 {
+		t.Fatalf("expected new_count=0 for documents not yet in knowledge base, got %d", resp.Summary.NewCount)
 	}
 	if resp.Summary.DeletedCount != 1 {
 		t.Fatalf("expected pending deleted documents to be counted, got %d", resp.Summary.DeletedCount)
@@ -2305,11 +2344,11 @@ func TestListSourceDocumentsWithUpdateTypeFilter(t *testing.T) {
 	for _, item := range resp.Items {
 		itemsByPath[item.Path] = item
 	}
-	if len(itemsByPath) != 2 {
-		t.Fatalf("expected new and pending deleted files, got %+v", resp.Items)
+	if len(itemsByPath) != 1 {
+		t.Fatalf("expected only pending deleted file, got %+v", resp.Items)
 	}
-	if itemsByPath[newPath].UpdateType != "NEW" {
-		t.Fatalf("expected new file update_type NEW, got %+v", itemsByPath[newPath])
+	if _, ok := itemsByPath[newPath]; ok {
+		t.Fatalf("expected new file without knowledge base relation to be hidden, got %+v", itemsByPath[newPath])
 	}
 	if itemsByPath[deletePath].UpdateType != "DELETED" {
 		t.Fatalf("expected deleted file update_type DELETED, got %+v", itemsByPath[deletePath])
@@ -2324,11 +2363,11 @@ func TestListSourceDocumentsWithUpdateTypeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list source documents with update_type filter failed: %v", err)
 	}
-	if filtered.Total != 1 {
-		t.Fatalf("expected filtered total=1, got %d", filtered.Total)
+	if filtered.Total != 0 {
+		t.Fatalf("expected filtered total=0 for unparsed new file, got %d", filtered.Total)
 	}
-	if len(filtered.Items) != 1 || filtered.Items[0].Path != newPath {
-		t.Fatalf("expected only new file %s, got %+v", newPath, filtered.Items)
+	if len(filtered.Items) != 0 {
+		t.Fatalf("expected no new files in document list, got %+v", filtered.Items)
 	}
 
 	deletedFiltered, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
@@ -2357,7 +2396,9 @@ func TestListSourceDocumentsSkipsTransientFileRows(t *testing.T) {
 			SourceID:         src.ID,
 			SourceObjectID:   "/tmp/watch/normal.txt",
 			DesiredVersionID: "v1",
-			ParseStatus:      "PENDING",
+			CurrentVersionID: "v1",
+			CoreDocumentID:   "core-normal",
+			ParseStatus:      "SUCCEEDED",
 			UpdatedAt:        now,
 		},
 		{
@@ -2513,6 +2554,16 @@ func TestIngestScanResultsPersistsLocalSnapshotMetadata(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ingest scan results failed: %v", err)
 	}
+	doc := loadDocumentByPath(t, st, src, path)
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"current_version_id": strings.TrimSpace(doc.DesiredVersionID),
+			"core_document_id":   "core-doc-initial",
+			"parse_status":       "SUCCEEDED",
+		}).Error; err != nil {
+		t.Fatalf("mark ingested document synced failed: %v", err)
+	}
 
 	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
 		TenantID: src.TenantID,
@@ -2562,6 +2613,18 @@ func TestIngestScanResultsMergesSnapshotMetadataAcrossBatches(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("ingest second scan batch failed: %v", err)
+	}
+	for _, path := range []string{firstPath, secondPath} {
+		doc := loadDocumentByPath(t, st, src, path)
+		if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+			Where("id = ?", doc.ID).
+			Updates(map[string]any{
+				"current_version_id": strings.TrimSpace(doc.DesiredVersionID),
+				"core_document_id":   "core-doc-" + filepath.Base(path),
+				"parse_status":       "SUCCEEDED",
+			}).Error; err != nil {
+			t.Fatalf("mark ingested document %s synced failed: %v", path, err)
+		}
 	}
 
 	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
@@ -2937,10 +3000,10 @@ func TestListSourceDocumentsUsesCloudIndexAgainstEmptySnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list source documents failed: %v", err)
 	}
-	if len(resp.Items) != 1 || resp.Items[0].UpdateType != "NEW" {
-		t.Fatalf("expected cloud doc NEW against empty snapshot, got %+v", resp.Items)
+	if len(resp.Items) != 0 {
+		t.Fatalf("expected cloud doc without knowledge base relation to be hidden, got %+v", resp.Items)
 	}
-	if resp.Summary.NewCount != 1 || resp.Summary.PendingPullCount != 1 {
+	if resp.Summary.NewCount != 0 || resp.Summary.PendingPullCount != 0 {
 		t.Fatalf("unexpected summary %+v", resp.Summary)
 	}
 }
@@ -3028,7 +3091,7 @@ func TestTransientExistingDocumentsDoNotScheduleOrClaimParseTasks(t *testing.T) 
 	}
 }
 
-func TestListSourceDocumentsShowsProcessingDuringResync(t *testing.T) {
+func TestListSourceDocumentsHidesNewDocumentUntilKnowledgeBaseSync(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
 	src := createTestSource(t, st)
@@ -3080,11 +3143,8 @@ func TestListSourceDocumentsShowsProcessingDuringResync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list source documents after second mutation failed: %v", err)
 	}
-	if len(resp.Items) != 1 {
-		t.Fatalf("expected 1 source document, got %d", len(resp.Items))
-	}
-	if resp.Items[0].ParseState != "SUCCEEDED" {
-		t.Fatalf("expected pending source update not to look processing before parse task exists, got %s", resp.Items[0].ParseState)
+	if len(resp.Items) != 0 {
+		t.Fatalf("expected unsynced new document to be hidden before parse task exists, got %+v", resp.Items)
 	}
 
 	created, err := st.ScheduleDueParses(ctx, secondAt.Add(12*time.Second))
@@ -3102,15 +3162,12 @@ func TestListSourceDocumentsShowsProcessingDuringResync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list source documents after second schedule failed: %v", err)
 	}
-	if len(resp.Items) != 1 {
-		t.Fatalf("expected 1 source document after second schedule, got %d", len(resp.Items))
-	}
-	if resp.Items[0].ParseState != "PENDING" {
-		t.Fatalf("expected latest pending task to override old failure, got %s", resp.Items[0].ParseState)
+	if len(resp.Items) != 0 {
+		t.Fatalf("expected unsynced new document to remain hidden after schedule, got %+v", resp.Items)
 	}
 }
 
-func TestListSourceDocumentsScheduledSourceStateDoesNotLookProcessing(t *testing.T) {
+func TestListSourceDocumentsHidesScheduledNewSourceStateWithoutKnowledgeBase(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
 	ctx := context.Background()
@@ -3179,15 +3236,11 @@ func TestListSourceDocumentsScheduledSourceStateDoesNotLookProcessing(t *testing
 	if err != nil {
 		t.Fatalf("list source documents failed: %v", err)
 	}
-	if len(resp.Items) != 1 {
-		t.Fatalf("expected 1 document, got %+v", resp.Items)
+	if len(resp.Items) != 0 || resp.Total != 0 {
+		t.Fatalf("expected scheduled new document without knowledge base relation to be hidden, total=%d items=%+v", resp.Total, resp.Items)
 	}
-	item := resp.Items[0]
-	if item.SyncState != syncStateScheduled || item.SourceState != sourceStateNew || item.NextSyncAt == nil {
-		t.Fatalf("expected scheduled source state to remain visible, got %+v", item)
-	}
-	if item.ParseState != "SUCCEEDED" {
-		t.Fatalf("expected legacy parse_state to avoid processing before due sync, got %s", item.ParseState)
+	if resp.Summary.NewCount != 0 || resp.Summary.PendingPullCount != 0 {
+		t.Fatalf("expected hidden new document not to affect document list summary, got %+v", resp.Summary)
 	}
 }
 
@@ -6654,6 +6707,15 @@ func TestNonWatchSnapshotNewDoesNotOverrideSucceededLatestTask(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("create parse task failed: %v", err)
 	}
+	if err := st.db.WithContext(ctx).Model(&documentEntity{}).
+		Where("id = ?", doc.ID).
+		Updates(map[string]any{
+			"current_version_id": "v1",
+			"core_document_id":   "core-doc-succeeded-task",
+			"parse_status":       "SUCCEEDED",
+		}).Error; err != nil {
+		t.Fatalf("mark document synced failed: %v", err)
+	}
 
 	items := []model.TreeNode{{Title: "Test.md", Key: path, IsDir: false}}
 	stats := map[string]model.TreeFileStat{
@@ -6822,11 +6884,8 @@ func TestListSourceDocumentsKeepsUnselectedManualPreviewUpdates(t *testing.T) {
 	for _, item := range resp.Items {
 		updates[item.Path] = item.UpdateType
 	}
-	if updates[pathA] != "NEW" {
-		t.Fatalf("expected selected path %s to remain NEW until sync succeeds, got %s", pathA, updates[pathA])
-	}
-	if updates[pathB] != "NEW" {
-		t.Fatalf("expected unselected path %s to remain NEW before first sync, got %s", pathB, updates[pathB])
+	if len(updates) != 0 {
+		t.Fatalf("expected unsynced new paths to stay out of document list, got %+v", updates)
 	}
 
 	docA := loadDocumentByPath(t, st, src, pathA)
@@ -6853,8 +6912,8 @@ func TestListSourceDocumentsKeepsUnselectedManualPreviewUpdates(t *testing.T) {
 	if updates[pathA] != "UNCHANGED" {
 		t.Fatalf("expected selected path %s UNCHANGED after sync succeeds, got %s", pathA, updates[pathA])
 	}
-	if updates[pathB] != "NEW" {
-		t.Fatalf("expected unselected path %s to remain NEW before its first sync, got %s", pathB, updates[pathB])
+	if _, ok := updates[pathB]; ok {
+		t.Fatalf("expected unselected new path %s to stay out of document list before sync, got %s", pathB, updates[pathB])
 	}
 }
 
@@ -7057,17 +7116,11 @@ func TestListSourceDocumentsUsesLatestNonWatchSnapshotState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list source documents failed: %v", err)
 	}
-	if len(resp.Items) != 1 {
-		t.Fatalf("expected 1 document, got %d", len(resp.Items))
+	if len(resp.Items) != 0 {
+		t.Fatalf("expected source state NEW to stay out of document list until sync, got %+v", resp.Items)
 	}
-	if resp.Items[0].UpdateType != "NEW" {
-		t.Fatalf("expected source state to remain NEW until sync, got %s", resp.Items[0].UpdateType)
-	}
-	if resp.Items[0].HasUpdate == nil || !*resp.Items[0].HasUpdate {
-		t.Fatalf("expected has_update=true before sync, got %+v", resp.Items[0].HasUpdate)
-	}
-	if resp.Summary.NewCount != 1 || resp.Summary.PendingPullCount != 1 {
-		t.Fatalf("expected source state to keep pending counts until sync, got new=%d pending=%d", resp.Summary.NewCount, resp.Summary.PendingPullCount)
+	if resp.Summary.NewCount != 0 || resp.Summary.PendingPullCount != 0 {
+		t.Fatalf("expected hidden source state not to affect document list summary, got new=%d pending=%d", resp.Summary.NewCount, resp.Summary.PendingPullCount)
 	}
 
 	doc := loadDocumentByPath(t, st, src, path)
@@ -7215,6 +7268,14 @@ func TestListSourceDocumentsUsesConsumedWatchPreviewMetadata(t *testing.T) {
 	}
 	if persistedPreviewCount != 0 {
 		t.Fatalf("expected read-only selection token not to persist watch preview snapshots, got %d", persistedPreviewCount)
+	}
+	doc := loadDocumentByPath(t, st, src, path)
+	tasks := loadTasksByDocumentID(t, st, doc.ID)
+	if len(tasks) != 1 {
+		t.Fatalf("expected one parse task, got %d", len(tasks))
+	}
+	if err := st.MarkTaskSucceeded(ctx, tasks[0].ID, doc.ID, tasks[0].TargetVersionID); err != nil {
+		t.Fatalf("mark task succeeded failed: %v", err)
 	}
 
 	resp, err := st.ListSourceDocuments(ctx, src.ID, model.ListSourceDocumentsRequest{
@@ -7649,6 +7710,147 @@ func TestListSourceDocumentsKeepsPendingDocumentUpdateOverUnchangedSnapshot(t *t
 	}
 	if resp.Summary.ModifiedCount != 1 || resp.Summary.PendingPullCount != 1 {
 		t.Fatalf("expected modified=1 pending=1, got modified=%d pending=%d", resp.Summary.ModifiedCount, resp.Summary.PendingPullCount)
+	}
+
+	overviews, err := st.ListSourceDocumentOverviews(ctx, []model.Source{src})
+	if err != nil {
+		t.Fatalf("list source document overviews failed: %v", err)
+	}
+	overview := overviews[src.ID]
+	if overview.Summary.TotalDocumentCount != 1 || overview.Summary.ModifiedCount != 1 || overview.Summary.PendingPullCount != 1 {
+		t.Fatalf("expected overview summary to match document list, got %+v", overview.Summary)
+	}
+	if len(overview.Items) != 1 || overview.Items[0].UpdateType != "MODIFIED" {
+		t.Fatalf("expected overview item to remain MODIFIED, got %+v", overview.Items)
+	}
+}
+
+func TestListSourceDocumentOverviewsReturnsAllVisibleDocuments(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud-overview",
+		Name:                  "src-cloud-overview",
+		RootPath:              "/tmp/cloud-overview",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-2 * time.Minute)
+	paths := []string{
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "changed.md"),
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "same-1.md"),
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "same-2.md"),
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "same-3.md"),
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    int64(len(paths)),
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+
+	docs := make([]documentEntity, 0, len(paths))
+	snapshotItems := make([]sourceFileSnapshotItemEntity, 0, len(paths))
+	indexRows := make([]cloudObjectIndexEntity, 0, len(paths))
+	for i, path := range paths {
+		current := "v1"
+		desired := "v1"
+		sourceVersion := "rev1"
+		if i == 0 {
+			desired = "v2"
+			sourceVersion = "rev2"
+		}
+		docs = append(docs, documentEntity{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   path,
+			CoreDocumentID:   fmt.Sprintf("core-doc-%d", i),
+			DesiredVersionID: desired,
+			CurrentVersionID: current,
+			LastModifiedAt:   &now,
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        fmt.Sprintf("node_%d", i),
+			TriggerPolicy:    string(model.TriggerPolicyImmediate),
+			UpdatedAt:        now.Add(time.Duration(i) * time.Second),
+		})
+		snapshotItems = append(snapshotItems, sourceFileSnapshotItemEntity{
+			SnapshotID:     committedID,
+			Path:           path,
+			IsDir:          false,
+			SizeBytes:      10,
+			Checksum:       "rev1",
+			ExternalFileID: fmt.Sprintf("node_%d", i),
+			ModTime:        &now,
+		})
+		indexRows = append(indexRows, cloudObjectIndexEntity{
+			SourceID:           src.ID,
+			Provider:           "feishu",
+			ExternalObjectID:   fmt.Sprintf("node_%d", i),
+			ExternalPath:       filepath.Base(path),
+			ExternalName:       filepath.Base(path),
+			ExternalKind:       "docx",
+			ExternalVersion:    sourceVersion,
+			ExternalModifiedAt: &now,
+			LocalAbsPath:       path,
+			Checksum:           sourceVersion,
+			SizeBytes:          10,
+			LastSyncedAt:       &now,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		})
+	}
+	if err := st.db.WithContext(ctx).Create(&docs).Error; err != nil {
+		t.Fatalf("create overview documents failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&snapshotItems).Error; err != nil {
+		t.Fatalf("create snapshot items failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&indexRows).Error; err != nil {
+		t.Fatalf("create cloud object index rows failed: %v", err)
+	}
+
+	overviews, err := st.ListSourceDocumentOverviews(ctx, []model.Source{src})
+	if err != nil {
+		t.Fatalf("list source document overviews failed: %v", err)
+	}
+	overview := overviews[src.ID]
+	if overview.Total != 4 || overview.Summary.TotalDocumentCount != 4 {
+		t.Fatalf("expected overview total=4, got total=%d summary=%d", overview.Total, overview.Summary.TotalDocumentCount)
+	}
+	if len(overview.Items) != 4 {
+		t.Fatalf("expected overview to include all visible documents, got %+v", overview.Items)
+	}
+	if overview.Summary.ModifiedCount != 1 || overview.Summary.PendingPullCount != 1 {
+		t.Fatalf("expected modified=1 pending=1, got %+v", overview.Summary)
+	}
+	updates := map[string]int{}
+	for _, item := range overview.Items {
+		updates[item.UpdateType]++
+	}
+	if updates["MODIFIED"] != 1 || updates["UNCHANGED"] != 3 {
+		t.Fatalf("expected one modified and three unchanged items, got %+v items=%+v", updates, overview.Items)
 	}
 }
 
