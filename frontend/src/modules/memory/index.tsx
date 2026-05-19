@@ -88,8 +88,8 @@ import {
   createGlossaryGroupFromConflict,
   createGlossaryAsset,
   getGlossaryAssetDetail,
-  listGlossaryAssets,
   listGlossaryConflicts,
+  listGlossaryAssetsPage,
   mergeGlossaryAssets,
   mergeGlossaryConflictAndAddWord,
   removeGlossaryConflict,
@@ -165,6 +165,7 @@ import "./index.scss";
 
 const backendSuggestionPageSize = 20;
 const defaultSkillListPageSize = 6;
+const defaultGlossaryListPageSize = 4;
 const showGlossaryInboxUi = true;
 const MERGED_GLOSSARY_GROUP_OPTION_ID = "__merged_glossary_group__";
 const MERGED_GLOSSARY_GROUP_OPTION_ID_PREFIX = `${MERGED_GLOSSARY_GROUP_OPTION_ID}:`;
@@ -221,7 +222,8 @@ export default function MemoryManagement() {
   const reviewRouteTab = parseChangeProposalTab(reviewRouteMatch?.params.tab);
   const reviewRouteItemId = reviewRouteMatch?.params.itemId;
   const routeListTab = parseMemoryTab(tabRouteMatch?.params.tab);
-  const initialRouteTab =
+  const queryRouteTab = parseMemoryTab(searchParams.get("tab"));
+  const routeMemoryTab =
     (skillRouteItemId
       ? "skills"
       : experienceRouteItemId
@@ -230,7 +232,7 @@ export default function MemoryManagement() {
       ? "glossary"
       : reviewRouteTab ||
         routeListTab ||
-        parseMemoryTab(searchParams.get("tab")) ||
+        queryRouteTab ||
         "skills") as MemoryTab;
   const initialGlossaryDetailTarget = null;
   const initialReviewProposalId = (() => {
@@ -244,7 +246,7 @@ export default function MemoryManagement() {
       (item) => item.tab === routeTab && item.targetId === routeItemId,
     )?.id;
   })();
-  const [activeTab, setActiveTab] = useState<MemoryTab>(initialRouteTab);
+  const [activeTab, setActiveTab] = useState<MemoryTab>(routeMemoryTab);
   const [developerActive, setDeveloperActive] = useState(isDeveloperModeActive);
   const [toolAssets] = useState<StructuredAsset[]>(initialTools);
   const [skillAssets, setSkillAssets] = useState<StructuredAsset[]>(initialSkills);
@@ -254,6 +256,11 @@ export default function MemoryManagement() {
   const skillListRequestIdRef = useRef(0);
   const skillListRouteLocationKeyRef = useRef("");
   const skillListRefreshKeyRef = useRef("");
+  const experienceSectionRefreshKeyRef = useRef("");
+  const glossaryAssetsRefreshKeyRef = useRef("");
+  const glossaryAssetsFilterKeyRef = useRef("");
+  const glossaryAssetsRouteLocationKeyRef = useRef("");
+  const glossaryConflictsRefreshKeyRef = useRef("");
   const [skillListPage, setSkillListPage] = useState(1);
   const [skillListPageSize, setSkillListPageSize] = useState(defaultSkillListPageSize);
   const [skillListTotal, setSkillListTotal] = useState(initialSkills.length);
@@ -269,6 +276,11 @@ export default function MemoryManagement() {
   const [glossaryInitialized, setGlossaryInitialized] = useState(false);
   const [glossaryLoadError, setGlossaryLoadError] = useState("");
   const [glossarySaving, setGlossarySaving] = useState(false);
+  const [glossaryListPage, setGlossaryListPage] = useState(1);
+  const [glossaryListPageSize, setGlossaryListPageSize] = useState(
+    defaultGlossaryListPageSize,
+  );
+  const [glossaryListTotal, setGlossaryListTotal] = useState(0);
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [category, setCategory] = useState<string>();
@@ -680,9 +692,28 @@ export default function MemoryManagement() {
   }, [category, skillKeyword, skillListPage, skillListPageSize, tag]);
 
   const refreshGlossaryAssets = useCallback(
-    async (options?: { keyword?: string; silent?: boolean; source?: GlossarySource }) => {
+    async (options?: {
+      keyword?: string;
+      page?: number;
+      pageSize?: number;
+      silent?: boolean;
+      source?: GlossarySource;
+    }) => {
       const requestId = glossaryRequestIdRef.current + 1;
       glossaryRequestIdRef.current = requestId;
+      const nextPage = Math.max(1, options?.page ?? glossaryListPage);
+      const nextPageSize = Math.max(1, options?.pageSize ?? glossaryListPageSize);
+      const totalForToken = Math.max(glossaryListTotal, (nextPage - 1) * nextPageSize);
+      const pageToken =
+        nextPage > 1
+          ? window.btoa(
+              JSON.stringify({
+                Start: (nextPage - 1) * nextPageSize,
+                Limit: nextPageSize,
+                TotalCount: totalForToken,
+              }),
+            )
+          : "";
 
       if (!options?.silent) {
         setGlossaryLoading(true);
@@ -690,16 +721,21 @@ export default function MemoryManagement() {
       setGlossaryLoadError("");
 
       try {
-        const records = await listGlossaryAssets({
+        const result = await listGlossaryAssetsPage({
           keyword: options?.keyword,
           source: options?.source,
-          pageSize: 200,
+          pageSize: nextPageSize,
+          pageToken,
         });
 
         if (glossaryRequestIdRef.current !== requestId) {
           return;
         }
 
+        const records = result.records;
+        setGlossaryListPage(nextPage);
+        setGlossaryListPageSize(nextPageSize);
+        setGlossaryListTotal(result.total);
         setGlossaryAssets(records);
         setSelectedGlossaryAssetIds((previous) => {
           const validIds = new Set(records.map((item) => item.id));
@@ -734,7 +770,7 @@ export default function MemoryManagement() {
         }
       }
     },
-    [t],
+    [glossaryListPage, glossaryListPageSize, glossaryListTotal, t],
   );
 
   const buildGlossaryProposalFromConflict = useCallback(
@@ -947,19 +983,10 @@ export default function MemoryManagement() {
   );
 
   useEffect(() => {
-    const queryTab = parseMemoryTab(searchParams.get("tab"));
-    const routeTab =
-      skillRouteItemId
-        ? "skills"
-        : experienceRouteItemId
-        ? "experience"
-        : glossaryRouteItemId
-        ? "glossary"
-        : reviewRouteTab || routeListTab || queryTab || "skills";
     const shouldRefreshSkillAssets =
       Boolean(skillRouteItemId) ||
       reviewRouteTab === "skills" ||
-      (!experienceRouteItemId && !glossaryRouteItemId && routeTab === "skills");
+      routeMemoryTab === "skills";
 
     if (!shouldRefreshSkillAssets) {
       return;
@@ -990,15 +1017,12 @@ export default function MemoryManagement() {
     void refreshSkillAssets({ page: requestPage });
   }, [
     category,
-    experienceRouteItemId,
-    glossaryRouteItemId,
     location.key,
     location.pathname,
     location.search,
     refreshSkillAssets,
     reviewRouteTab,
-    routeListTab,
-    searchParams,
+    routeMemoryTab,
     skillKeyword,
     skillListPage,
     skillListPageSize,
@@ -1007,8 +1031,37 @@ export default function MemoryManagement() {
   ]);
 
   useEffect(() => {
-    void refreshExperienceSection({ silent: true });
-  }, [refreshExperienceSection]);
+    const shouldRefreshExperience =
+      Boolean(experienceRouteItemId) ||
+      reviewRouteTab === "experience" ||
+      routeMemoryTab === "experience";
+
+    if (!shouldRefreshExperience) {
+      return;
+    }
+
+    const refreshKey = [
+      location.key,
+      location.pathname,
+      location.search,
+      routeMemoryTab,
+    ].join("|");
+
+    if (experienceSectionRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+    experienceSectionRefreshKeyRef.current = refreshKey;
+
+    void refreshExperienceSection();
+  }, [
+    experienceRouteItemId,
+    location.key,
+    location.pathname,
+    location.search,
+    refreshExperienceSection,
+    reviewRouteTab,
+    routeMemoryTab,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "skills") {
@@ -1019,37 +1072,74 @@ export default function MemoryManagement() {
   }, [activeTab, refreshSkillShareCenter]);
 
   useEffect(() => {
-    if (activeTab !== "experience") {
+    if (routeMemoryTab !== "glossary") {
       return;
     }
 
-    void refreshExperienceSection();
-  }, [activeTab, refreshExperienceSection]);
+    const filterKey = [query, glossarySource || ""].join("|");
+    const shouldResetGlossaryPage =
+      glossaryAssetsRouteLocationKeyRef.current !== location.key ||
+      glossaryAssetsFilterKeyRef.current !== filterKey;
+    const requestPage = shouldResetGlossaryPage ? 1 : glossaryListPage;
+    const refreshKey = [
+      location.key,
+      location.pathname,
+      location.search,
+      filterKey,
+      requestPage,
+      glossaryListPageSize,
+    ].join("|");
+
+    if (glossaryAssetsRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+    glossaryAssetsRouteLocationKeyRef.current = location.key;
+    glossaryAssetsFilterKeyRef.current = filterKey;
+    glossaryAssetsRefreshKeyRef.current = refreshKey;
+
+    void refreshGlossaryAssets({
+      keyword: query,
+      page: requestPage,
+      pageSize: glossaryListPageSize,
+      source: glossarySource,
+    });
+  }, [
+    glossaryListPage,
+    glossaryListPageSize,
+    glossarySource,
+    location.key,
+    location.pathname,
+    location.search,
+    query,
+    refreshGlossaryAssets,
+    routeMemoryTab,
+  ]);
 
   useEffect(() => {
-    if (activeTab !== "glossary") {
+    if (routeMemoryTab !== "glossary") {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      void refreshGlossaryAssets({
-        keyword: query,
-        source: glossarySource,
-      });
-    }, 250);
+    const refreshKey = [
+      location.key,
+      location.pathname,
+      location.search,
+      routeMemoryTab,
+    ].join("|");
 
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [activeTab, glossarySource, query, refreshGlossaryAssets]);
-
-  useEffect(() => {
-    if (activeTab !== "glossary") {
+    if (glossaryConflictsRefreshKeyRef.current === refreshKey) {
       return;
     }
+    glossaryConflictsRefreshKeyRef.current = refreshKey;
 
     void refreshGlossaryConflicts({ silent: true });
-  }, [activeTab, refreshGlossaryConflicts]);
+  }, [
+    location.key,
+    location.pathname,
+    location.search,
+    refreshGlossaryConflicts,
+    routeMemoryTab,
+  ]);
 
   useEffect(() => {
     if (!glossaryInboxOpen) {
@@ -3488,6 +3578,8 @@ export default function MemoryManagement() {
             await removeGlossaryAsset(item.id);
             await refreshGlossaryAssets({
               keyword: query,
+              page: glossaryListPage,
+              pageSize: glossaryListPageSize,
               source: glossarySource,
               silent: true,
             });
@@ -3538,6 +3630,8 @@ export default function MemoryManagement() {
           await batchRemoveGlossaryAssets(removedIds);
           await refreshGlossaryAssets({
             keyword: query,
+            page: glossaryListPage,
+            pageSize: glossaryListPageSize,
             source: glossarySource,
             silent: true,
           });
@@ -3714,6 +3808,8 @@ export default function MemoryManagement() {
 
         await refreshGlossaryAssets({
           keyword: query,
+          page: glossaryListPage,
+          pageSize: glossaryListPageSize,
           source: glossarySource,
           silent: true,
         });
@@ -3734,6 +3830,8 @@ export default function MemoryManagement() {
           setSelectedGlossaryAssetIds([]);
           await refreshGlossaryAssets({
             keyword: query,
+            page: glossaryListPage,
+            pageSize: glossaryListPageSize,
             source: glossarySource,
             silent: true,
           });
@@ -4267,6 +4365,8 @@ export default function MemoryManagement() {
         await Promise.all([
           refreshGlossaryAssets({
             keyword: query,
+            page: glossaryListPage,
+            pageSize: glossaryListPageSize,
             source: glossarySource,
             silent: true,
           }),
@@ -4898,6 +4998,9 @@ export default function MemoryManagement() {
     glossaryChangeProposals,
     glossaryAssets,
     glossaryLoading,
+    glossaryListPage,
+    glossaryListPageSize,
+    glossaryListTotal,
     glossaryLoadError,
     refreshGlossaryAssets,
     glossaryRouteItemId,
@@ -4944,6 +5047,8 @@ export default function MemoryManagement() {
     filteredGlossaryItems,
     glossaryColumns,
     selectedGlossaryAssetIds,
+    setGlossaryListPage,
+    setGlossaryListPageSize,
     setSelectedGlossaryAssetIds,
     skillLoading,
     skillsInitialized,
