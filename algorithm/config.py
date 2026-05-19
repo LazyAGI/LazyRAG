@@ -30,9 +30,6 @@ config.add('model_config_path', str, 'dynamic', 'MODEL_CONFIG_PATH', description
 # Tracing / observability
 # ---------------------------------------------------------------------------
 config.add('langfuse_force_flush_timeout_ms', int, 5000, 'LANGFUSE_FORCE_FLUSH_TIMEOUT_MS', description='Langfuse flush timeout in ms.')
-config.add('local_trace_sink', bool, True, 'LOCAL_TRACE_SINK', description='Enable local in-memory trace sink.')
-config.add('local_trace_max_traces', int, 512, 'LOCAL_TRACE_MAX_TRACES', description='Max traces kept in local sink.')
-config.add('local_trace_ttl_s', int, 3600, 'LOCAL_TRACE_TTL_S', description='TTL in seconds for local trace entries.')
 config.add('document_server_url', str, 'http://localhost:8000', 'DOCUMENT_SERVER_URL', description='Document server URL for health checks.')
 
 # ---------------------------------------------------------------------------
