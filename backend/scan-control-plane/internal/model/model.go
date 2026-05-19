@@ -116,6 +116,18 @@ type UpsertCloudSourceBindingRequest struct {
 	ProviderOptions       map[string]any `json:"provider_options,omitempty"`
 }
 
+type ValidateCloudTargetRequest struct {
+	Provider         string         `json:"provider"`
+	AuthConnectionID string         `json:"auth_connection_id"`
+	TargetType       string         `json:"target_type,omitempty"`
+	TargetRef        string         `json:"target_ref,omitempty"`
+	ProviderOptions  map[string]any `json:"provider_options,omitempty"`
+}
+
+type ValidateCloudTargetResponse struct {
+	Valid bool `json:"valid"`
+}
+
 type CloudSourceBinding struct {
 	SourceID              string         `json:"source_id"`
 	TenantID              string         `json:"tenant_id"`
@@ -452,6 +464,15 @@ type SourceDocumentItem struct {
 	ParseTaskID             int64      `json:"-"`
 	ParseTaskAction         string     `json:"-"`
 	ParseTaskTargetVersion  string     `json:"-"`
+	ObjectKey               string     `json:"object_key,omitempty"`
+	SourceState             string     `json:"source_state,omitempty"`
+	SyncState               string     `json:"sync_state,omitempty"`
+	PendingAction           string     `json:"pending_action,omitempty"`
+	SourceVersion           string     `json:"source_version,omitempty"`
+	BaselineVersion         string     `json:"baseline_version,omitempty"`
+	NextSyncAt              *time.Time `json:"next_sync_at,omitempty"`
+	KnowledgeBasePresent    *bool      `json:"knowledge_base_present,omitempty"`
+	LastError               string     `json:"last_error,omitempty"`
 }
 
 type SourceDocumentsResponse struct {
@@ -520,18 +541,25 @@ type AgentPathValidateResponse struct {
 }
 
 type TreeNode struct {
-	Title           string     `json:"title"`
-	Key             string     `json:"key"`
-	IsDir           bool       `json:"is_dir"`
-	HasUpdate       *bool      `json:"has_update,omitempty"`
-	UpdateType      string     `json:"update_type,omitempty"`
-	UpdateDesc      string     `json:"update_desc,omitempty"`
-	Selectable      *bool      `json:"selectable,omitempty"`
-	ExternalFileID  string     `json:"external_file_id,omitempty"`
-	ParseQueueState string     `json:"parse_queue_state,omitempty"`
-	CoreTaskState   string     `json:"core_task_state,omitempty"`
-	StatusSource    string     `json:"status_source,omitempty"`
-	Children        []TreeNode `json:"children,omitempty"`
+	Title                string     `json:"title"`
+	Key                  string     `json:"key"`
+	IsDir                bool       `json:"is_dir"`
+	HasUpdate            *bool      `json:"has_update,omitempty"`
+	UpdateType           string     `json:"update_type,omitempty"`
+	UpdateDesc           string     `json:"update_desc,omitempty"`
+	Selectable           *bool      `json:"selectable,omitempty"`
+	ExternalFileID       string     `json:"external_file_id,omitempty"`
+	ParseQueueState      string     `json:"parse_queue_state,omitempty"`
+	CoreTaskState        string     `json:"core_task_state,omitempty"`
+	StatusSource         string     `json:"status_source,omitempty"`
+	ObjectKey            string     `json:"object_key,omitempty"`
+	SourceState          string     `json:"source_state,omitempty"`
+	SyncState            string     `json:"sync_state,omitempty"`
+	PendingAction        string     `json:"pending_action,omitempty"`
+	NextSyncAt           *time.Time `json:"next_sync_at,omitempty"`
+	LastError            string     `json:"last_error,omitempty"`
+	KnowledgeBasePresent *bool      `json:"knowledge_base_present,omitempty"`
+	Children             []TreeNode `json:"children,omitempty"`
 }
 
 type AgentPathTreeResponse struct {

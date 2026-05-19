@@ -942,27 +942,131 @@
 .memory-glossary-inbox-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: min(58vh, 560px);
+  gap: 14px;
+  max-height: min(64vh, 640px);
   overflow: auto;
   padding-right: 2px;
 }
 
 .memory-glossary-inbox-card {
-  border: 1px solid #e4e7ec;
-  border-radius: 8px;
-  padding: 12px;
-  background: #fcfcfd;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 16px 18px;
+  background: #ffffff;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
 .memory-glossary-inbox-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-glossary-inbox-title-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  strong {
+    color: #111827;
+    font-size: 15px;
+    line-height: 1.4;
+    font-weight: 600;
+    word-break: break-word;
+  }
+
+  span {
+    color: #667085;
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .memory-glossary-inbox-conflict-text {
+    color: #f04438;
+    font-weight: 600;
+  }
+}
+
+.memory-glossary-inbox-summary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.6;
+
+  strong {
+    color: #111827;
+    font-size: 15px;
+    line-height: 1.4;
+    font-weight: 600;
+  }
+}
+
+.memory-glossary-conflict-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.memory-glossary-term-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  padding: 1px 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #175cd3 !important;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: help;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.memory-glossary-term-tooltip {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  max-width: 280px;
+
+  div {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  span {
+    color: rgba(255, 255, 255, 0.68);
+  }
+
+  strong {
+    color: #ffffff;
+    font-weight: 500;
+    word-break: break-word;
+  }
+}
+
+.memory-glossary-inbox-note {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #667085 !important;
+  font-size: 12px !important;
 }
 
 .memory-glossary-inbox-card-body {
@@ -973,50 +1077,178 @@
 
 .memory-glossary-inbox-card-line {
   display: grid;
-  grid-template-columns: 80px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
 
   strong {
-    color: #344054;
-    font-size: 12px;
+    color: #4b5563;
+    font-size: 13px;
+    font-weight: 600;
     line-height: 1.7;
   }
 
   span {
-    color: #475467;
+    color: #4b5563;
     font-size: 13px;
     line-height: 1.7;
   }
 }
 
+.memory-glossary-inbox-card-grid {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.95fr) minmax(360px, 1.05fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.memory-glossary-action-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  background: #f8fafc;
+
+  .ant-checkbox-wrapper {
+    min-width: 0;
+    margin-inline-start: 0;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 4px;
+    transition:
+      background-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+
+  .ant-checkbox-wrapper:has(.ant-checkbox-checked) {
+    background: #ffffff;
+    box-shadow: inset 0 0 0 1px #bfdbfe;
+  }
+
+  .ant-checkbox-inner {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border-color: #d1d5db;
+  }
+
+  .ant-checkbox-checked .ant-checkbox-inner {
+    background: #3b82f6;
+    border-color: #3b82f6;
+  }
+}
+
+.memory-glossary-action-option-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  strong {
+    color: #1f2937;
+    font-size: 13px;
+    line-height: 1.45;
+    font-weight: 600;
+  }
+
+  span {
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+}
+
+.memory-glossary-action-detail {
+  min-width: 0;
+  border-left: 1px solid #e5e7eb;
+  padding: 10px 0 10px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.memory-glossary-action-empty {
+  min-height: 128px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+}
+
 .memory-glossary-target-panel {
   min-width: 0;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding-bottom: 2px;
 
   .ant-checkbox-group {
     width: 100%;
   }
 }
 
+.memory-glossary-target-panel.is-stacked {
+  overflow-x: visible;
+
+  .memory-glossary-target-grid {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .memory-glossary-target-card {
+    width: 100%;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+
+    &.is-selected {
+      background: transparent;
+    }
+  }
+
+  .memory-glossary-target-main {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+
+    strong {
+      flex: 0 0 auto;
+    }
+
+    .memory-tag-group-scroll {
+      flex: 1 1 auto;
+      max-width: none;
+      width: auto;
+    }
+  }
+}
+
 .memory-glossary-target-grid {
   display: flex;
   align-items: stretch;
-  gap: 8px;
+  gap: 10px;
   width: max-content;
   min-width: 100%;
 }
 
 .memory-glossary-target-card {
-  width: 280px;
-  flex: 0 0 280px;
+  width: 178px;
+  flex: 0 0 178px;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid #e4e7ec;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
   background: #ffffff;
   cursor: pointer;
   transition:
@@ -1024,8 +1256,8 @@
     background-color 0.2s ease;
 
   &.is-selected {
-    border-color: #91caff;
-    background: #f0f7ff;
+    border-color: #84caff;
+    background: #f5fbff;
   }
 
   .ant-checkbox-wrapper,
@@ -1042,9 +1274,195 @@
 
   strong {
     color: #101828;
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.35;
     word-break: break-word;
+  }
+}
+
+.memory-glossary-create-form {
+  padding: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.memory-glossary-merge-stage {
+  padding: 14px;
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.memory-glossary-merge-stage-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  strong {
+    color: #111827;
+    font-size: 14px;
+    line-height: 1.4;
+    font-weight: 600;
+  }
+
+  span {
+    color: #667085;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+.memory-glossary-merge-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memory-glossary-merge-stage-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+
+  .memory-glossary-target-main {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+
+    strong {
+      flex: 0 0 auto;
+    }
+
+    .memory-tag-group-scroll {
+      flex: 1 1 auto;
+      max-width: none;
+      width: auto;
+    }
+  }
+}
+
+.memory-glossary-color-select {
+  width: 92px;
+
+  .ant-select-selection-item {
+    padding-inline-end: 6px;
+  }
+}
+
+.memory-glossary-color-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  span {
+    width: 12px;
+    height: 12px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    border: 1px solid rgba(16, 24, 40, 0.1);
+  }
+}
+
+.memory-glossary-merge-color-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.memory-glossary-color-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  span {
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(16, 24, 40, 0.1);
+  }
+}
+
+.memory-glossary-merge-stage-summary {
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.memory-glossary-merge-stage-summary-terms {
+  display: inline;
+  font-weight: 700;
+}
+
+.memory-glossary-merge-stage-summary-term {
+  word-break: break-word;
+}
+
+.memory-glossary-merge-edit-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed #d0d5dd;
+  border-radius: 6px;
+  background: #f8fafc;
+
+  span {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #475467;
+  }
+}
+
+.memory-glossary-merge-edit-pagination {
+  align-self: flex-start;
+  margin-top: -2px;
+
+  .ant-pagination-item,
+  .ant-pagination-prev,
+  .ant-pagination-next {
+    min-width: 24px;
+    height: 24px;
+    line-height: 22px;
+  }
+}
+
+.memory-glossary-merge-request.ant-btn {
+  align-self: flex-end;
+  border-color: #d1d5db;
+  color: #374151;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+.memory-glossary-merge-request.ant-btn:hover {
+  border-color: #9ca3af;
+  color: #111827;
+  background: #ffffff;
+}
+
+.memory-glossary-merge-final-stage {
+  padding: 14px;
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+
+  .ant-checkbox-group {
+    display: block;
+    width: 100%;
   }
 }
 
@@ -1057,10 +1475,10 @@
 
 .memory-glossary-target-preview-card {
   min-width: 0;
-  border: 1px solid #91caff;
-  border-radius: 8px;
-  background: #f0f7ff;
-  padding: 12px 14px;
+  border: 1px solid #b2ddff;
+  border-radius: 4px;
+  background: #f5fbff;
+  padding: 8px 10px;
   display: flex;
   align-items: flex-start;
   cursor: default;
@@ -1237,11 +1655,20 @@
 }
 
 .memory-glossary-action-trigger.ant-btn {
-  border-radius: 8px;
-  min-width: 92px;
+  border-radius: 6px;
+  min-width: 104px;
+  height: 34px;
   color: #175cd3;
-  border-color: #b2ddff;
-  background: #f5fbff;
+  border-color: #bfdbfe;
+  background: #f8fbff;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.memory-glossary-action-trigger.ant-btn:hover {
+  color: #1d4ed8;
+  border-color: #93c5fd;
+  background: #eff6ff;
 }
 
 .memory-glossary-action-menu-item {
@@ -2211,6 +2638,18 @@
 
   .memory-glossary-inbox-card-line {
     grid-template-columns: 1fr;
+  }
+
+  .memory-glossary-inbox-card-grid,
+  .memory-glossary-action-options {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-glossary-action-detail {
+    border-left: 0;
+    border-top: 1px solid #d0d5dd;
+    padding-left: 0;
+    padding-top: 12px;
   }
 
   .memory-glossary-inbox-card-actions {

@@ -3,7 +3,7 @@ package chat
 import (
 	"testing"
 
-	"lazyrag/core/common/orm"
+	"lazymind/core/common/orm"
 )
 
 func TestStripToolTagsPreservesDisplayTags(t *testing.T) {
@@ -33,7 +33,7 @@ func TestStripThinkTags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := stripThinkTags(tt.raw)
 			if got != tt.want {
-				t.Fatalf("stripThinkTags: got %q want %q", got, want)
+				t.Fatalf("stripThinkTags: got %q want %q", got, tt.want)
 			}
 		})
 	}

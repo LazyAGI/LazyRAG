@@ -14,8 +14,8 @@ import (
 
 	"go.uber.org/zap"
 
-	internal "github.com/lazyrag/file_watcher/internal"
-	"github.com/lazyrag/file_watcher/internal/config"
+	internal "github.com/lazymind/file_watcher/internal"
+	"github.com/lazymind/file_watcher/internal/config"
 )
 
 // Scanner defines the scan interface.

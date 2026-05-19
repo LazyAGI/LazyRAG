@@ -38,10 +38,10 @@ def test_get_algo_server_port_prefers_algo_port(monkeypatch):
 
 
 def test_build_store_config_reads_required_and_optional_env(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_MILVUS_URI', 'http://milvus.test')
-    monkeypatch.setenv('LAZYRAG_OPENSEARCH_URI', 'https://opensearch.test')
-    monkeypatch.setenv('LAZYRAG_OPENSEARCH_USER', 'user')
-    monkeypatch.setenv('LAZYRAG_OPENSEARCH_PASSWORD', 'pass')
+    monkeypatch.setenv('LAZYMIND_MILVUS_URI', 'http://milvus.test')
+    monkeypatch.setenv('LAZYMIND_OPENSEARCH_URI', 'https://opensearch.test')
+    monkeypatch.setenv('LAZYMIND_OPENSEARCH_USER', 'user')
+    monkeypatch.setenv('LAZYMIND_OPENSEARCH_PASSWORD', 'pass')
 
     config = build_document._build_store_config({'index': 'flat'})
 
@@ -57,7 +57,7 @@ def test_build_store_config_raises_for_missing_milvus_uri(monkeypatch):
     # when required config values are missing.
     monkeypatch.setitem(build_document._cfg._impl, 'milvus_uri', '')
 
-    with pytest.raises(ValueError, match='LAZYRAG_MILVUS_URI is required'):
+    with pytest.raises(ValueError, match='LAZYMIND_MILVUS_URI is required'):
         build_document._build_store_config({})
 
 
@@ -147,6 +147,9 @@ def test_build_document_wires_readers_groups_and_embeddings(monkeypatch):
     monkeypatch.setattr(build_document, 'Document', FakeDocument)
     monkeypatch.setattr(build_document, 'DocumentProcessor', FakeDocumentProcessor)
     monkeypatch.setattr(build_document, 'get_embed_keys', lambda: ['dense', 'sparse'])
+    monkeypatch.setattr(build_document, 'get_text_embed_keys', lambda: ['dense', 'sparse'])
+    monkeypatch.setattr(build_document, 'get_image_embed_key', lambda: None)
+    monkeypatch.setattr(build_document, 'get_config_path', lambda: '/fake/config.yaml')
     monkeypatch.setattr(build_document, 'get_embed_index_kwargs', lambda: {'nlist': 16})
     monkeypatch.setattr(build_document, 'AutoModel', lambda model, config=False: f'emb-{model}')
     monkeypatch.setattr(build_document, '_build_store_config', lambda index_kwargs: {'index_kwargs': index_kwargs})
@@ -159,10 +162,10 @@ def test_build_document_wires_readers_groups_and_embeddings(monkeypatch):
 
     assert docs.kwargs['name'] == build_document.ALGO_ID
     assert docs.kwargs['embed'] == {'dense': 'emb-dense', 'sparse': 'emb-sparse'}
-    assert docs.kwargs['store_conf'] == {'index_kwargs': {'nlist': 16}}
-    assert docs.kwargs['manager'].kwargs == {'url': 'http://processor.test'}
+    assert docs.kwargs['manager'].kwargs['store_conf'] == {'index_kwargs': {'nlist': 16}}
+    assert docs.kwargs['manager'].kwargs['url'] == 'http://processor.test'
     assert docs.kwargs['server'] == 18003
-    assert docs.readers == [('*.pdf', 'pdf-reader')]
+    assert ('*.pdf', 'pdf-reader') in docs.readers
     assert [group['name'] for group in docs.node_groups] == ['block', 'line']
     assert 'parent' not in docs.node_groups[0]
     assert docs.node_groups[1]['parent'] == 'block'
@@ -170,7 +173,7 @@ def test_build_document_wires_readers_groups_and_embeddings(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _build_pdf_reader — explicit LAZYRAG_MINERU_UPLOAD_MODE override
+# _build_pdf_reader — explicit LAZYMIND_MINERU_UPLOAD_MODE override
 # ---------------------------------------------------------------------------
 
 def test_build_pdf_reader_mineru_upload_mode_explicit_true(monkeypatch):

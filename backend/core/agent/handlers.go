@@ -14,10 +14,10 @@ import (
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/log"
+	"lazymind/core/store"
 )
 
 type threadResponse struct {
@@ -65,6 +65,8 @@ type threadStatusesResponse struct {
 	Counts  map[string]int             `json:"counts,omitempty"`
 	Threads []threadFlowStatusResponse `json:"threads,omitempty"`
 }
+
+var threadEventsKeepaliveInterval = time.Second
 
 func ListThreads(w http.ResponseWriter, r *http.Request) {
 	db := store.DB()
@@ -455,13 +457,21 @@ func writeUserActiveThreadSSEError(w http.ResponseWriter, threadID string, err e
 	if strings.TrimSpace(activeErr.message) != "" {
 		message = activeErr.message
 	}
-	writeNamedSSE(w, flusher, userActiveThreadExistsType, map[string]any{
-		"type":       userActiveThreadExistsType,
-		"thread_id":  threadID,
-		"message_id": fmt.Sprintf("msg_%s_%s", threadID, newStreamRecordID()),
-		"message":    message,
-		"delta":      message,
+	writeNamedSSE(w, flusher, "", userActiveThreadSSEErrorPayload{
+		Type:      userActiveThreadExistsType,
+		ThreadID:  threadID,
+		MessageID: fmt.Sprintf("msg_%s_%s", threadID, newStreamRecordID()),
+		Message:   message,
+		Delta:     message,
 	})
+}
+
+type userActiveThreadSSEErrorPayload struct {
+	Type      string `json:"type"`
+	ThreadID  string `json:"thread_id"`
+	MessageID string `json:"message_id"`
+	Message   string `json:"message"`
+	Delta     string `json:"delta"`
 }
 
 func GetReportContent(w http.ResponseWriter, r *http.Request) {
@@ -662,12 +672,35 @@ func streamUpstreamThreadEvents(
 	readerCtx, cancelReader := context.WithCancel(ctx)
 	defer cancelReader()
 	chunks, done := readUpstreamThreadEvents(readerCtx, threadID, body, shouldContinue)
+	streamStarted := time.Now()
+	keepaliveTimer := time.NewTimer(threadEventsKeepaliveInterval)
+	defer keepaliveTimer.Stop()
+	resetKeepaliveTimer := func() {
+		if !keepaliveTimer.Stop() {
+			select {
+			case <-keepaliveTimer.C:
+			default:
+			}
+		}
+		keepaliveTimer.Reset(threadEventsKeepaliveInterval)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			cancelReader()
 			return ctx.Err()
+		case <-keepaliveTimer.C:
+			keepalive := threadEventStreamChunk{
+				Keepalive:     true,
+				FrameStarted:  time.Now(),
+				StreamElapsed: time.Since(streamStarted),
+			}
+			if err := writeThreadEventKeepalive(w, flusher, threadID, keepalive); err != nil {
+				cancelReader()
+				return err
+			}
+			keepaliveTimer.Reset(threadEventsKeepaliveInterval)
 		case chunk, ok := <-chunks:
 			if !ok {
 				result := waitThreadEventStreamResult(done)
@@ -684,6 +717,7 @@ func streamUpstreamThreadEvents(
 					cancelReader()
 					return err
 				}
+				resetKeepaliveTimer()
 				continue
 			}
 			if err := writeThreadEventStreamChunk(
@@ -697,6 +731,7 @@ func streamUpstreamThreadEvents(
 				cancelReader()
 				return err
 			}
+			resetKeepaliveTimer()
 		}
 	}
 }

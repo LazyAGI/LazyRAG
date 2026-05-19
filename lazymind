@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LazyRAG CLI wrapper — delegates to cli/ Python package.
+# LazyMind CLI wrapper — delegates to cli/ Python package.
 set -euo pipefail
 
 # Use BASH_SOURCE so the script resolves its own directory even if $0 is
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if command -v python3 &>/dev/null; then
     PYTHON=python3
 else
-    echo "error: python3 not found (LazyRAG CLI requires Python 3.9+)" >&2
+    echo "error: python3 not found (LazyMind CLI requires Python 3.9+)" >&2
     exit 1
 fi
 

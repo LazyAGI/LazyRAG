@@ -6,12 +6,12 @@ import (
 )
 
 // LazyLLMSchema returns the schema name that contains readonly external tables.
-// Prefer LAZYRAG_READONLY_SCHEMA, and keep LAZYRAG_LAZYLLM_SCHEMA as backward-compatible fallback.
+// Prefer LAZYMIND_READONLY_SCHEMA, and keep LAZYMIND_LAZYLLM_SCHEMA as backward-compatible fallback.
 func LazyLLMSchema() string {
-	if v := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_SCHEMA")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LAZYMIND_READONLY_SCHEMA")); v != "" {
 		return v
 	}
-	if v := strings.TrimSpace(os.Getenv("LAZYRAG_LAZYLLM_SCHEMA")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("LAZYMIND_LAZYLLM_SCHEMA")); v != "" {
 		return v
 	}
 	return "public"

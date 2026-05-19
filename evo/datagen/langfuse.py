@@ -91,7 +91,7 @@ def _assert_trace_complete(trace: dict[str, Any]) -> None:
         raise RuntimeError(f"trace {trace.get('trace_id')} has no execution_tree")
     names = _execution_node_names(tree)
     # Langfuse observations can be visible slightly before LazyLLM's full tree is
-    # consumable. For LazyRAG chat traces, answer/parser are the terminal stages.
+    # consumable. For LazyMind chat traces, answer/parser are the terminal stages.
     if tree.get('name') == 'run_chat_pipeline' and not {'answer', 'parser'}.issubset(set(names)):
         raise RuntimeError(
             f"trace {trace.get('trace_id')} is not complete yet; "

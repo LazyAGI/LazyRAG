@@ -2,10 +2,11 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 from evo.datagen.rag_client import call_rag_chat, RAGTargetRequiredError
 from evo.datagen.validate import require_valid_eval_case
+from evo.harness.plan import StopRequested
 
 _log = logging.getLogger('evo.datagen.queue')
 
@@ -20,6 +21,9 @@ def get_eval_queue(
     max_workers: int = 8,
     filters: dict[str, Any] | None = None,
     require_trace: bool = True,
+    skip_case_ids: set[str] | None = None,
+    on_item=None,
+    cancel=None,
     on_progress=None,
 ) -> dict[str, Any]:
     base = Path(base_dir) / 'datasets' / eval_name
@@ -29,6 +33,8 @@ def get_eval_queue(
     cases = eval_data.get('cases', [])
     if case_id:
         cases = [c for c in cases if c.get('case_id') == case_id]
+    if skip_case_ids:
+        cases = [c for c in cases if c.get('case_id') not in skip_case_ids]
     for case in cases:
         require_valid_eval_case(case)
     if not target_chat_url:
@@ -40,23 +46,53 @@ def get_eval_queue(
     eval_queue: list[dict] = []
     done = 0
     total = len(cases)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
+    executor = ThreadPoolExecutor(max_workers=workers)
+    try:
+        pending = {}
+        iterator = iter(enumerate(cases))
+
+        def submit_next() -> bool:
+            if cancel and cancel():
+                return False
+            try:
+                i, case = next(iterator)
+            except StopIteration:
+                return False
+            pending[executor.submit(
                 _build_eval_item,
                 {**case, '_order': i},
                 target_chat_url,
                 dataset_name,
                 filters or {},
                 require_trace,
-            ): case
-            for (i, case) in enumerate(cases)
-        }
-        for future in as_completed(futures):
-            eval_queue.append(future.result())
+            )] = case
+            return True
+
+        while len(pending) < workers and submit_next():
+            pass
+        while pending:
+            if cancel and cancel():
+                raise StopRequested(at_step='case')
+            done_futures, _ = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+            if not done_futures:
+                continue
+            future = done_futures.pop()
+            pending.pop(future, None)
+            try:
+                item = future.result()
+            except Exception as exc:
+                _log.warning('rag eval item failed: %s', exc)
+                item = None
+            if item:
+                eval_queue.append(item)
+                if on_item:
+                    on_item(item)
             done += 1
             if on_progress:
                 on_progress(done, total)
+            submit_next()
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
     eval_queue.sort(key=lambda row: row.get('_order', 0))
     for row in eval_queue:
         row.pop('_order', None)
@@ -65,6 +101,7 @@ def get_eval_queue(
         'eval_set_id': eval_data.get('eval_set_id', ''),
         'kb_id': eval_data.get('kb_id', ''),
         'eval_name': eval_name,
+        'total_cases': eval_data.get('total_nums') or len(eval_data.get('cases') or []),
     }
 
 

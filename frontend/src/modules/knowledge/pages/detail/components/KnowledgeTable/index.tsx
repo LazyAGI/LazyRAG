@@ -173,7 +173,7 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
 
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [currentDocInfo, setCurrentDocInfo] = useState({});
-  const [action, setAction] = useState<"copy" | "move">("copy");
+  const [action, setAction] = useState<"copy" | "move">("move");
   const [showTagEditModal, setShowTagEditModal] = useState(false);
   const [tagEditRecord, setTagEditRecord] = useState<TreeNode | null>(null);
 
@@ -943,11 +943,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
             label: t("common.edit"),
           },
           {
-            key: "copy",
-            label: t("knowledge.copyTo"),
-            disabled: !detail?.acl?.includes("DATASET_READ"),
-          },
-          {
             key: "move",
             label: t("knowledge.moveTo"),
             disabled: !detail?.acl?.includes("DATASET_WRITE"),
@@ -1123,12 +1118,6 @@ const KnowledgeTable = forwardRef<IKnowledgeListRef, Props>((props, ref) => {
           targetPath: parents.map((item) => item.display_name).join("/"),
           p_id: record.document_id,
         });
-        break;
-      }
-      case "copy": {
-        setAction("copy");
-        setShowCopyModal(true);
-        setCurrentDocInfo(record);
         break;
       }
       case "move": {

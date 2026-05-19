@@ -129,8 +129,10 @@
 
       .chat-think-text {
         max-width: 100%;
+        max-height: 30vh;
         padding-left: 24px;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
 
         white-space: pre-wrap;
         font-size: 12px;

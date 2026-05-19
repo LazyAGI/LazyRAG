@@ -125,8 +125,8 @@ Do not output any explanation other than JSON."""
 _SENTENCE_BOUNDARY_RE = re.compile(r'.*?(?:[。！？!?；;]+|[\n]+|$)', re.S)
 _WORD_GROUP_APPLY_PATH = '/api/core/inner/word_group:apply'
 _WORD_GROUP_APPLY_INTERNAL_PATH = '/inner/word_group:apply'
-_WORD_GROUP_APPLY_URL_ENV = 'LAZYRAG_WORD_GROUP_APPLY_URL'
-_CORE_SERVICE_URL_ENV = 'LAZYRAG_CORE_SERVICE_URL'
+_WORD_GROUP_APPLY_URL_ENV = 'LAZYMIND_WORD_GROUP_APPLY_URL'
+_CORE_SERVICE_URL_ENV = 'LAZYMIND_CORE_SERVICE_URL'
 _BACKEND_APPLY_TIMEOUT = 10.0
 
 
@@ -571,7 +571,7 @@ class ActionPlanningModule(ModuleBase):
     def _get_llm(self) -> Any:
         if self._llm is None:
             from chat.pipelines.builders import get_automodel
-            base_llm = self._base_llm or get_automodel('llm_instruct')
+            base_llm = self._base_llm or get_automodel('llm')
             self._llm = base_llm.share(
                 prompt=ChatPrompter(instruction=_CONFLICT_PROMPT),
                 format=JsonFormatter(),
@@ -697,6 +697,90 @@ class ActionPlanningModule(ModuleBase):
             'message_ids': _dedupe_keep_order(message_ids),
             'action': _norm_text(action),
         }
+
+    def _merge_related_actions(self, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge actions that belong to the same target so the backend receives batched groups.
+
+        When the LLM extracts pairwise candidates for the same underlying concept
+        (e.g. A=B, A=C, A=D), each pair is planned independently. Without merging,
+        ``create_new_group`` actions would produce a separate group per pair.
+
+        Strategy:
+        * ``create_new_group`` — merge via connected components (overlapping words).
+        * ``add_to_group`` / ``conflict`` — all actions sharing the same *group_ids*
+          are merged unconditionally, because they target the same existing group(s).
+        """
+        if len(actions) <= 1:
+            return actions
+
+        # ---- bucket by (action_type, sorted_group_ids) ----
+        buckets: Dict[Tuple[str, ...], List[int]] = defaultdict(list)
+        for idx, action in enumerate(actions):
+            key = (action.get('action', ''), tuple(sorted(action.get('group_ids', []))))
+            buckets[key].append(idx)
+
+        merged_indices: set = set()
+        merged_results: List[Dict[str, Any]] = []
+
+        for (action_type, _group_ids), indices in buckets.items():
+            if len(indices) <= 1:
+                continue
+
+            if action_type == 'create_new_group':
+                # Merge via connected-components on word overlap.
+                word_sets = {
+                    idx: set(_norm_key(w) for w in actions[idx].get('words', []))
+                    for idx in indices
+                }
+                remaining = set(indices)
+                while remaining:
+                    seed = remaining.pop()
+                    component = {seed}
+                    changed = True
+                    while changed:
+                        changed = False
+                        for idx in list(remaining):
+                            if any(word_sets[idx] & word_sets[ci] for ci in component):
+                                component.add(idx)
+                                remaining.discard(idx)
+                                changed = True
+                    if len(component) <= 1:
+                        continue
+                    merged_indices.update(component)
+                    merged_results.append(self._build_merged_action(actions, list(component)))
+            else:
+                # add_to_group / conflict: same group_ids → always safe to batch.
+                merged_indices.update(indices)
+                merged_results.append(self._build_merged_action(actions, list(indices)))
+
+        result: List[Dict[str, Any]] = []
+        for idx, action in enumerate(actions):
+            if idx not in merged_indices:
+                result.append(action)
+        result.extend(merged_results)
+        return result
+
+    @staticmethod
+    def _build_merged_action(
+        actions: List[Dict[str, Any]],
+        indices: List[int],
+    ) -> Dict[str, Any]:
+        """Return a single action that unions words and message_ids from *indices*."""
+        merged = dict(actions[indices[0]])
+        all_words: List[str] = []
+        all_msg_ids: List[str] = []
+        for idx in indices:
+            all_words.extend(actions[idx].get('words', []))
+            all_msg_ids.extend(actions[idx].get('message_ids', []))
+        merged['words'] = _dedupe_keep_order(all_words)
+        merged['message_ids'] = _dedupe_keep_order(all_msg_ids)
+        for idx in indices[1:]:
+            act = actions[idx]
+            if not merged.get('description') and act.get('description'):
+                merged['description'] = act['description']
+            if not merged.get('reason') and act.get('reason'):
+                merged['reason'] = act['reason']
+        return merged
 
     def _dedupe_actions(self, actions: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
         merged: Dict[Tuple[str, str, Tuple[str, ...], Tuple[str, ...]], Dict[str, Any]] = {}
@@ -900,12 +984,13 @@ class ActionPlanningModule(ModuleBase):
 
         payload = dict(payload)
         deduped_actions = self._dedupe_actions(actions)
+        merged_actions = self._merge_related_actions(deduped_actions)
         LOG.info(
             '[VocabEvolution] planner finished '
-            f'user_id={user_id!r} action_count={len(deduped_actions)} skipped_count={len(skipped)} '
-            f'actions={json.dumps([_summarize_action_for_log(item) for item in deduped_actions], ensure_ascii=False)}'
+            f'user_id={user_id!r} action_count={len(merged_actions)} skipped_count={len(skipped)} '
+            f'actions={json.dumps([_summarize_action_for_log(item) for item in merged_actions], ensure_ascii=False)}'
         )
-        payload['actions'] = deduped_actions
+        payload['actions'] = merged_actions
         payload['skipped_reasons'] = skipped
         return payload
 

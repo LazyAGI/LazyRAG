@@ -12,14 +12,14 @@ import (
 
 	"github.com/gorilla/mux"
 	"gopkg.in/yaml.v3"
-	"lazyrag/core/acl"
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	"lazyrag/core/common/readonlyorm"
-	"lazyrag/core/log"
-	"lazyrag/core/migrate"
-	"lazyrag/core/store"
-	"lazyrag/core/wordgroup"
+	"lazymind/core/acl"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	"lazymind/core/common/readonlyorm"
+	"lazymind/core/log"
+	"lazymind/core/migrate"
+	"lazymind/core/store"
+	"lazymind/core/wordgroup"
 )
 
 //go:embed docs.html
@@ -87,13 +87,13 @@ func main() {
 		log.Logger.Fatal().Err(err).Msg("run SQL migrations failed")
 	}
 
-	readonlyDriver := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_DB_DRIVER"))
-	readonlyDSN := strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_DB_DSN"))
+	readonlyDriver := strings.TrimSpace(os.Getenv("LAZYMIND_READONLY_DB_DRIVER"))
+	readonlyDSN := strings.TrimSpace(os.Getenv("LAZYMIND_READONLY_DB_DSN"))
 	if readonlyDriver == "" {
-		readonlyDriver = strings.TrimSpace(os.Getenv("LAZYRAG_LAZYLLM_DB_DRIVER"))
+		readonlyDriver = strings.TrimSpace(os.Getenv("LAZYMIND_LAZYLLM_DB_DRIVER"))
 	}
 	if readonlyDSN == "" {
-		readonlyDSN = strings.TrimSpace(os.Getenv("LAZYRAG_LAZYLLM_DB_DSN"))
+		readonlyDSN = strings.TrimSpace(os.Getenv("LAZYMIND_LAZYLLM_DB_DSN"))
 	}
 	readonlyDB := db
 	if readonlyDriver != "" || readonlyDSN != "" {
@@ -101,21 +101,21 @@ func main() {
 			readonlyDriver = driver
 		}
 		if readonlyDSN == "" {
-			log.Logger.Fatal().Msg("LAZYRAG_READONLY_DB_DSN is empty")
+			log.Logger.Fatal().Msg("LAZYMIND_READONLY_DB_DSN is empty")
 		}
 		readonlyDB = orm.MustConnect(readonlyDriver, readonlyDSN)
 	}
 
 	// Optional: validate readonly external tables at startup.
-	// Enable with LAZYRAG_READONLY_VALIDATE=1 and list tables via LAZYRAG_READONLY_TABLES.
-	if strings.TrimSpace(os.Getenv("LAZYRAG_READONLY_VALIDATE")) == "1" {
+	// Enable with LAZYMIND_READONLY_VALIDATE=1 and list tables via LAZYMIND_READONLY_TABLES.
+	if strings.TrimSpace(os.Getenv("LAZYMIND_READONLY_VALIDATE")) == "1" {
 		sqlDB, err := readonlyDB.DB.DB()
 		if err != nil {
 			log.Logger.Fatal().Err(err).Msg("get readonly sql.DB failed")
 		}
 		specs := readonlyorm.Specs()
 		if len(specs) == 0 {
-			log.Logger.Warn().Msg("readonly schema validation enabled but no LAZYRAG_READONLY_TABLES configured; skipping")
+			log.Logger.Warn().Msg("readonly schema validation enabled but no LAZYMIND_READONLY_TABLES configured; skipping")
 		} else if err := readonlyorm.Validate(context.Background(), sqlDB, specs); err != nil {
 			log.Logger.Fatal().Err(err).Msg("readonly schema validation failed")
 		} else {

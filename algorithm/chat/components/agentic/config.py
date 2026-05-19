@@ -4,6 +4,8 @@ from typing import Any, Dict, Tuple
 
 from chat.prompts.agentic import (
     DEFAULT_SYSTEM_PROMPT,
+    IMAGE_REFERENCE_MARKDOWN_GUIDANCE,
+    VISION_EXTRACTOR_GUIDANCE,
     MEMORY_GUIDANCE,
     SEARCH_GUIDANCE,
     SKILLS_GUIDANCE,
@@ -23,6 +25,7 @@ DEFAULT_TOOLS = [
     'web_search',
     'url_fetch',
     'arxiv_search',
+    'vision_extractor',
     'vocab_manage',
     'memory',
     'skill_manage',
@@ -219,7 +222,7 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
             if isinstance(user_pref, str) and user_pref.strip():
                 memory_block.append(f'## User Profile / Preferences\n{user_pref.strip()}')
             if isinstance(mem, str) and mem.strip():
-                memory_block.append(f'## Long-term Memory\n{mem.strip()}')
+                memory_block.append(f'## Agent Working Memory\n{mem.strip()}')
             prompt_parts.append('\n\n'.join(memory_block))
 
     tool_guidance: list[str] = []
@@ -235,6 +238,13 @@ def _build_runtime_system_prompt(config: dict, available_tools: list[str]) -> st
         prompt_parts.append(TOOL_CALL_STATUS_GUIDANCE)
     if any(tool.startswith('kb_') for tool in available_tools):
         prompt_parts.append(SEARCH_GUIDANCE)
+    if (
+        any(tool.startswith('kb_') for tool in available_tools)
+        or (config.get('image_files') or [])
+    ):
+        prompt_parts.append(IMAGE_REFERENCE_MARKDOWN_GUIDANCE)
+    if 'vision_extractor' in available_tools:
+        prompt_parts.append(VISION_EXTRACTOR_GUIDANCE)
 
     return '\n\n'.join(prompt_parts)
 

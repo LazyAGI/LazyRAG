@@ -1,4 +1,6 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
+import { Button, Input, Space, Tooltip } from "antd";
+import { CopyOutlined, EditOutlined } from "@ant-design/icons";
 import { RoleTypes } from "@/modules/chat/constants/common";
 import AssistantMessage from "../../AssistantMessage";
 import type { PreferenceType } from "../../MultiAnswerDisplay";
@@ -17,6 +19,13 @@ interface MessageListProps {
   chatContentRef?: React.RefObject<HTMLDivElement>;
   sessionId?: string;
   onPreferenceSelect?: (preference: PreferenceType, sessionId?: string) => void;
+  editingUserMessageIndex?: number | null;
+  editingUserMessageText?: string;
+  onUserMessageEditTextChange?: (value: string) => void;
+  onStartEditUserMessage?: (item: any, index: number) => void;
+  onCancelEditUserMessage?: () => void;
+  onResendEditedUserMessage?: (index: number, value: string) => void;
+  onCopyUserMessage?: (item: any) => void;
 }
 
 const MessageList: React.FC<MessageListProps> = ({
@@ -31,12 +40,30 @@ const MessageList: React.FC<MessageListProps> = ({
   chatContentRef,
   sessionId = "",
   onPreferenceSelect,
+  editingUserMessageIndex = null,
+  editingUserMessageText = "",
+  onUserMessageEditTextChange,
+  onStartEditUserMessage,
+  onCancelEditUserMessage,
+  onResendEditedUserMessage,
+  onCopyUserMessage,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const contentRef = chatContentRef || scrollContainerRef;
+  const lastUserIndex = useMemo(
+    () =>
+      messageList.reduce(
+        (lastIndex, msg, idx) => (msg.role === RoleTypes.USER ? idx : lastIndex),
+        -1,
+      ),
+    [messageList],
+  );
 
-  const renderUser = (item: any) => {
+  const renderUser = (item: any, index: number) => {
+    const isLastUserMessage = index === lastUserIndex;
+    const isEditing = editingUserMessageIndex === index;
+
     return (
       <div className="user-message-row">
         {item.create_time && (
@@ -44,8 +71,63 @@ const MessageList: React.FC<MessageListProps> = ({
             {dayjs(item.create_time).format("MM/DD HH:mm")}
           </div>
         )}
-        <div className="user-wrap">
-          <div className="chat-user">{renderText(item)}</div>
+        <div className={`user-wrap ${isEditing ? "editing" : ""}`}>
+          <div className="chat-user">
+            {isEditing ? (
+              <div className="chat-user-edit-wrap">
+                <Input.TextArea
+                  value={editingUserMessageText}
+                  autoSize={{ minRows: 2, maxRows: 6 }}
+                  onChange={(event) =>
+                    onUserMessageEditTextChange?.(event.target.value)
+                  }
+                />
+                <Space size={6} className="chat-user-edit-actions">
+                  <Button
+                    className="chat-user-edit-btn cancel-btn"
+                    onClick={onCancelEditUserMessage}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    className="chat-user-edit-btn send-btn"
+                    onClick={() =>
+                      onResendEditedUserMessage?.(
+                        index,
+                        editingUserMessageText,
+                      )
+                    }
+                  >
+                    发送
+                  </Button>
+                </Space>
+              </div>
+            ) : (
+              renderText(item)
+            )}
+          </div>
+          {!isEditing ? (
+            <div className="chat-user-toolbar">
+              <Tooltip title="复制">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CopyOutlined />}
+                  onClick={() => onCopyUserMessage?.(item)}
+                />
+              </Tooltip>
+              {isLastUserMessage ? (
+                <Tooltip title="编辑并重发">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => onStartEditUserMessage?.(item, index)}
+                  />
+                </Tooltip>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -62,7 +144,7 @@ const MessageList: React.FC<MessageListProps> = ({
         messageList.map((item, index) => {
           return (
             <div className="chat-item" key={`chat-${index}`}>
-              {item.role === RoleTypes.USER && renderUser(item)}
+              {item.role === RoleTypes.USER && renderUser(item, index)}
               {item.role === RoleTypes.ASSISTANT && (
                 <AssistantMessage
                   item={item}

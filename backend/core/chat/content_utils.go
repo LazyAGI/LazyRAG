@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"lazyrag/core/common/orm"
+	"lazymind/core/common/orm"
 )
 
 var (

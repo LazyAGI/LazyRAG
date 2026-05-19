@@ -17,6 +17,10 @@ import {
   normalizeProxyableUrl,
 } from "@/modules/knowledge/utils/request";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
+import {
+  DEVELOPER_ACTIVE_EVENT,
+  isDeveloperModeActive,
+} from "@/utils/developerMode";
 import { DetailPageHeader } from "@/components/ui";
 import "./index.scss";
 
@@ -33,6 +37,7 @@ const Detail = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [segmentDetail, setSegmentDetail] = useState<Segment>();
+  const [developerActive, setDeveloperActive] = useState(isDeveloperModeActive);
 
   const {
     getDatasetDetail: getKbDetail,
@@ -78,6 +83,27 @@ const Detail = () => {
       clearDataset();
     };
   }, [getDetail, getDatasetDetail, clearDataset]);
+
+  useEffect(() => {
+    const syncDeveloperActive = () => {
+      setDeveloperActive(isDeveloperModeActive());
+    };
+
+    const handleDeveloperActiveChange = (event: Event) => {
+      const nextActive = (event as CustomEvent<{ active?: boolean }>).detail?.active;
+      setDeveloperActive(
+        typeof nextActive === "boolean" ? nextActive : isDeveloperModeActive(),
+      );
+    };
+
+    window.addEventListener("storage", syncDeveloperActive);
+    window.addEventListener(DEVELOPER_ACTIVE_EVENT, handleDeveloperActiveChange);
+
+    return () => {
+      window.removeEventListener("storage", syncDeveloperActive);
+      window.removeEventListener(DEVELOPER_ACTIVE_EVENT, handleDeveloperActiveChange);
+    };
+  }, []);
 
   const getSegmentDetail = useCallback(() => {
     if (group && segmentId) {
@@ -131,27 +157,29 @@ const Detail = () => {
           }
         }}
         titleExtra={
-          <div>
-            <span
-              style={{
-                marginRight: "4px",
-                color: "var(--color-text-description)",
-              }}
-            >
-              ID: {knowledgeId}
-            </span>
-            <CopyOutlined
-              style={{ color: "var(--color-text-description)" }}
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(knowledgeId);
-                  message.success(t("knowledge.copySuccess"));
-                } catch {
-                  message.error(t("knowledge.copyFailedManual"));
-                }
-              }}
-            />
-          </div>
+          developerActive ? (
+            <div>
+              <span
+                style={{
+                  marginRight: "4px",
+                  color: "var(--color-text-description)",
+                }}
+              >
+                ID: {knowledgeId}
+              </span>
+              <CopyOutlined
+                style={{ color: "var(--color-text-description)" }}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(knowledgeId);
+                    message.success(t("knowledge.copySuccess"));
+                  } catch {
+                    message.error(t("knowledge.copyFailedManual"));
+                  }
+                }}
+              />
+            </div>
+          ) : null
         }
         extraContent={[
           { label: t("knowledge.source"), value: t("knowledge.localFile") },

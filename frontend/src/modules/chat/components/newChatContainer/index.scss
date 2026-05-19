@@ -63,6 +63,10 @@
 
       .user-wrap {
         // padding-left: var(--chat-gap);
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
 
         .chat-user {
           top: 0;
@@ -70,15 +74,94 @@
 
           float: right;
           display: inline-flex;
+          flex-direction: column;
           flex-shrink: 0;
-          align-items: center;
-          justify-content: center;
+          align-items: flex-start;
+          justify-content: flex-start;
           min-height: 46px;
           border-radius: 12px 0 12px 12px;
           padding: 10px 16px;
           // margin-left: var(--chat-gap);
 
           background-color: #d1e6ff;
+        }
+
+        .chat-user-toolbar {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+
+          .ant-btn {
+            color: #8d9ab2;
+            padding: 0 4px;
+            height: 22px;
+          }
+        }
+
+        .chat-user-edit-wrap {
+          width: 100%;
+          min-width: 0;
+          max-width: none;
+          min-height: 84px;
+          border-radius: 14px;
+          background: #e9edf3;
+          padding: 8px 10px 6px;
+
+          .ant-input {
+            background: #e9edf3;
+            border: none;
+            box-shadow: none;
+            font-size: 16px;
+            line-height: 1.6;
+            color: #111111;
+            padding: 0;
+
+            &::placeholder {
+              color: #909090;
+            }
+          }
+        }
+
+        .chat-user-edit-actions {
+          margin-top: 6px;
+          width: 100%;
+          display: flex;
+          justify-content: flex-end;
+          gap: 6px;
+        }
+
+        &.editing {
+          width: 100%;
+          align-items: stretch;
+
+          .chat-user {
+            background: transparent;
+            border-radius: 0;
+            padding: 0;
+            min-height: 0;
+          }
+        }
+
+        .chat-user-edit-btn {
+          height: 28px;
+          min-width: 56px;
+          border-radius: 999px;
+          font-size: 13px;
+          font-weight: 500;
+          line-height: 1;
+          padding: 0 12px;
+
+          &.cancel-btn {
+            border: 1px solid #c9c9c9;
+            background: #efefef;
+            color: #111111;
+          }
+
+          &.send-btn {
+            border: 1px solid #0b0b0b;
+            background: #0b0b0b;
+            color: #ffffff;
+          }
         }
       }
 
@@ -135,8 +218,10 @@
 
       .chat-think-text {
         width: 100%;
+        max-height: 30vh;
         padding-left: 24px;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
         line-height: 20px;
 
         white-space: pre-wrap;

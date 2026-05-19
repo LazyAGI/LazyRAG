@@ -111,6 +111,8 @@ class Planner:
         state = State(ctx)
         if shortcut := _checkpoint_shortcut(message, state):
             return shortcut
+        if shortcut := _stage_shortcut(message, ctx, state):
+            return shortcut
         prompt = _prompt(message, ctx, checkpoint=bool(state.checkpoint))
         try:
             return _draft_from_parsed(_parse_json(self.llm(prompt)), _source(state), prompt, None)
@@ -122,7 +124,7 @@ class Planner:
     def _intent(self, message: str, ctx: PlanContext, draft: Draft) -> Intent:
         state = State(ctx)
         previews, warnings = [], []
-        for item in _normalize(draft.ops, ctx, state):
+        for item in _normalize(draft.ops, ctx, state, message):
             op, args = item.get('op', ''), item.get('args') or {}
             if op not in caps.REGISTRY:
                 warnings.append(f'unknown op: {op}')
@@ -146,7 +148,7 @@ def _source(state: State) -> str:
     return 'checkpoint_llm' if state.checkpoint else 'llm'
 
 
-def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> list[dict[str, Any]]:
+def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State, message: str = '') -> list[dict[str, Any]]:
     out = []
     for item in ops or []:
         op, args = item.get('op'), dict(item.get('args') or {})
@@ -158,10 +160,13 @@ def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> lis
             if restart := _restart_failed_op(args.get('flow'), state):
                 op, args = restart
         if op == 'eval.run':
+            if not args.get('eval_id'):
+                args.setdefault('dataset_id', state.artifact('dataset_ids'))
             if args.get('eval_id') and not args.get('dataset_id'):
                 op = 'eval.fetch'
             if args.get('dataset_id'):
                 args.pop('eval_id', None)
+                args['resume'] = not _reset_request(message, 'eval')
             _fill_eval(args, state.inputs)
         elif op == 'run.start':
             args.setdefault('eval_id', state.latest_id('eval') if state.success('eval') else None)
@@ -176,6 +181,11 @@ def _normalize(ops: list[dict[str, Any]], ctx: PlanContext, state: State) -> lis
             args.setdefault('kb_id', state.inputs.get('kb_id'))
             args.setdefault('algo_id', state.inputs.get('algo_id') or 'general_algo')
             args.setdefault('eval_name', state.inputs.get('eval_name') or f'{ctx.thread_id}_eval')
+            args.setdefault('num_cases', state.inputs.get('num_cases'))
+            if _reset_request(message, 'dataset_gen') and 'resume' not in args:
+                args['resume'] = False
+        if op == 'eval.run' and _reset_request(message, 'eval') and 'resume' not in args:
+            args['resume'] = False
         clean_args = {k: v for k, v in args.items() if v is not None}
         out.append({'op': op, 'reason': item.get('reason', ''), 'args': clean_args})
     return out
@@ -189,7 +199,7 @@ def _checkpoint_shortcut(message: str, state: State) -> Draft | None:
     if action == 'rewind' and flow:
         return Draft(
             f'重新执行{_FLOW_LABELS[flow]}。',
-            [{'op': 'checkpoint.rewind', 'args': {'to_stage': flow}}],
+            [{'op': 'checkpoint.rewind', 'args': {'to_stage': flow, 'input_patch': {'resume': False}}}],
             'checkpoint_rule',
         )
     if action == 'continue':
@@ -203,15 +213,57 @@ def _checkpoint_next_op(state: State) -> str | None:
 
 
 _FLOW_META = {
-    'dataset_gen': ('评测集生成', ('评测集', '数据集', 'dataset', 'dataset_gen', '第1步', '第一步', 'step 1')),
-    'eval': ('评测', ('评测', 'eval', '第2步', '第二步', 'step 2')),
-    'run': ('分析', ('分析', 'run', '第3步', '第三步', 'step 3')),
-    'apply': ('代码修改', ('代码', '修改', '优化', 'apply', '第4步', '第四步', 'step 4')),
-    'abtest': ('ABTest', ('abtest', 'ab test', '第5步', '第五步', 'step 5')),
+    'dataset_gen': ('评测集生成', ('评测集', '数据集', 'dataset', 'dataset_gen', '第1步', '第一步', 'step1', 'step 1')),
+    'eval': ('评测', ('评测', 'eval', '第2步', '第二步', 'step2', 'step 2')),
+    'run': ('分析', ('分析', 'run', '第3步', '第三步', 'step3', 'step 3')),
+    'apply': ('代码修改', ('代码', '修改', '优化', 'apply', '第4步', '第四步', 'step4', 'step 4')),
+    'abtest': ('ABTest', ('abtest', 'ab test', '第5步', '第五步', 'step5', 'step 5')),
 }
 _FLOW_LABELS = {flow: meta[0] for flow, meta in _FLOW_META.items()}
-_RERUN_WORDS = ('重新', '重跑', '再跑', 'rerun', 'retry')
-_CONTINUE_WORDS = ('继续', '下一步', '确认', '执行', '开始', 'continue', 'next')
+_RERUN_WORDS = ('重新', '重跑', '再跑', '从头', '重置', 'rerun', 'reset')
+_STOP_WORDS = ('停止', '暂停', 'stop', 'pause')
+_CONTINUE_WORDS = ('继续', '续跑', '恢复', '运行', '下一步', '确认', '执行', '开始', 'continue', 'resume', 'next')
+
+
+def _stage_shortcut(message: str, ctx: PlanContext, state: State) -> Draft | None:
+    text, flow = message.strip().lower(), _mentioned_flow(message.strip().lower())
+    active_flow = _running_flow(state)
+    if active_flow and flow and flow != active_flow:
+        return Draft(
+            f'当前正在执行{_FLOW_LABELS[active_flow]}，不能操作{_FLOW_LABELS[flow]}。请先暂停或等待当前任务完成。',
+            [],
+            'stage_rule',
+        )
+    if _has(text, _STOP_WORDS):
+        args = {'flow': flow} if flow else {}
+        label = _FLOW_LABELS[flow] if flow else (_FLOW_LABELS.get(active_flow) or '当前任务')
+        return Draft(f'已暂停{label}。', [{'op': 'task.stop_active', 'args': args}], 'stage_rule')
+    if not flow:
+        return None
+    if not _has(text, _CONTINUE_WORDS + _RERUN_WORDS):
+        return None
+    if active_flow:
+        return Draft(f'{_FLOW_LABELS[flow]}正在执行中，请等待完成或先暂停当前任务。', [], 'stage_rule')
+    if (state.latest.get(flow) or {}).get('status') in RESUMABLE_STATUSES | {'stopping'}:
+        op = {'op': 'task.continue_latest', 'args': {'flow': flow}}
+        return Draft(f'继续执行{_FLOW_LABELS[flow]}。', [op], 'stage_rule')
+    if blocker := _stage_blocker(flow, state):
+        return Draft(blocker, [], 'stage_rule')
+    if _reset_request(message, flow):
+        return Draft(f'重新执行{_FLOW_LABELS[flow]}。', [_start_op(flow, ctx, state, resume=False)], 'stage_rule')
+    return Draft(f'继续执行{_FLOW_LABELS[flow]}。', [_start_op(flow, ctx, state, resume=True)], 'stage_rule')
+
+
+def _start_op(flow: str, ctx: PlanContext, state: State, *, resume: bool) -> dict[str, Any]:
+    if flow == 'eval':
+        return {'op': 'eval.run', 'args': {'dataset_id': state.artifact('dataset_ids'), 'resume': resume}}
+    if flow == 'dataset_gen':
+        return {'op': 'dataset_gen.start', 'args': {'resume': resume}}
+    if flow == 'run':
+        return {'op': 'run.start', 'args': {}}
+    if flow == 'apply':
+        return {'op': 'apply.start', 'args': {}}
+    return {'op': 'abtest.create', 'args': {}}
 
 
 def _checkpoint_action(text: str, state: State) -> tuple[str | None, str | None]:
@@ -231,8 +283,37 @@ def _mentioned_flow(text: str) -> str | None:
     return None
 
 
+def _running_flow(state: State) -> str | None:
+    for row in state.active:
+        if row.get('status') == 'running' and row.get('flow') in FLOWS:
+            return str(row.get('flow'))
+    return None
+
+
+def _stage_blocker(flow: str, state: State) -> str:
+    if flow == 'dataset_gen':
+        return ''
+    if flow == 'eval':
+        return '' if state.artifact('dataset_ids') or state.success('dataset_gen') else 'Step1 评测集生成尚未完成，不能执行评测。'
+    if flow == 'run':
+        return '' if state.success('eval') else 'Step2 评测尚未完成，不能执行分析。'
+    if flow == 'apply':
+        report_id = state.latest_payload('run').get('report_id') or (state.latest.get('run') or {}).get('report_id')
+        return '' if state.success('run') and report_id else 'Step3 分析尚未完成，不能执行代码修改。'
+    if flow == 'abtest':
+        return '' if _apply_ready(state.latest.get('apply') or {}) else 'Step4 代码修改尚未成功，不能执行 ABTest。'
+    return ''
+
+
 def _has(text: str, words: tuple[str, ...]) -> bool:
     return any(word in text for word in words)
+
+
+def _reset_request(message: str, flow: str) -> bool:
+    text = message.strip().lower()
+    reset_words = ('重新', '重跑', '从头', '重置', '重新生成', 'rerun', 'reset')
+    resume_words = ('重试', '继续', '续跑', '恢复', 'retry', 'resume', 'continue')
+    return _mentioned_flow(text) == flow and _has(text, reset_words) and not _has(text, resume_words)
 
 
 def _normalize_control_op(op: str | None, args: dict, state: State) -> tuple[str | None, dict]:
@@ -431,7 +512,7 @@ def _apply_ready(row: dict) -> bool:
 def _has_resumable(state: State, args: dict) -> bool:
     flow, task_id = args.get('flow'), args.get('task_id')
     return any(
-        row.get('status') in RESUMABLE_STATUSES
+        row.get('status') in RESUMABLE_STATUSES | {'stopping'}
         and (not flow or row.get('flow') == flow)
         and (not task_id or row.get('id') == task_id)
         for row in state.latest.values()

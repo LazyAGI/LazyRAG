@@ -4,6 +4,8 @@ python-multipart
 opensearch-py
 pymilvus==2.4.14
 milvus-lite==2.4.10
+# openai-whisper
+# pydub
 
 
 beautifulsoup4

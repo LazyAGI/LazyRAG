@@ -5,7 +5,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
-	"lazyrag/core/common"
+	"lazymind/core/common"
 )
 
 var (

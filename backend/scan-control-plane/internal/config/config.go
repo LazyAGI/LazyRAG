@@ -224,7 +224,7 @@ func (c *Config) normalizeDatabaseConfig() {
 }
 
 func (c *Config) applyEnvOverrides() {
-	if value := strings.TrimSpace(os.Getenv("LAZYRAG_AUTH_SERVICE_INTERNAL_TOKEN")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN")); value != "" {
 		c.CloudSync.AuthServiceInternalToken = value
 	}
 }

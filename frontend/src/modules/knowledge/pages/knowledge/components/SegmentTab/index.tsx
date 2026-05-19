@@ -5,7 +5,7 @@ import { useImmer } from "use-immer";
 import SegmentList, { SegmentListImperativeProps } from "../SegmentList";
 import { Segment } from "@/api/generated/knowledge-client";
 import { from, expand, EMPTY, scan, takeWhile, map } from "rxjs";
-import { message, Modal, Select } from "antd";
+import { message, Modal, Switch } from "antd";
 import { SegmentServiceApi } from "@/modules/knowledge/utils/request";
 import { CARD_PAGE_SIZE } from "@/modules/knowledge/constants/common";
 
@@ -28,7 +28,6 @@ const SegmentTab = (props: SegmentTabProps) => {
   const { t } = useTranslation();
   const { detail, names = [], editable = false, type, onGetItemInfo } = props;
 
-  const [splitTypes, setSplitTypes] = useState<string[]>([]);
   const [currentType, setCurrentType] = useState(type || names[0] || "");
   const [segments, setSegments] = useImmer<Segment[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -36,6 +35,7 @@ const SegmentTab = (props: SegmentTabProps) => {
   const [searchParams] = useSearchParams();
   const segmentListRef = useRef<SegmentListImperativeProps>(null);
   const [loading, setLoading] = useState(false);
+  const [showSequence, setShowSequence] = useState(true);
 
   const canEdit = false;
 
@@ -186,10 +186,6 @@ const SegmentTab = (props: SegmentTabProps) => {
       return;
     }
 
-    if (editable && names) {
-      setSplitTypes(names);
-    }
-
     const newCurrentType = type || (names && names[0]) || "";
     setCurrentType(newCurrentType);
 
@@ -333,17 +329,26 @@ const SegmentTab = (props: SegmentTabProps) => {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden" style={{ height: '100%' }}>
-      {splitTypes.length > 1 ? (
-        <Select
-          value={currentType}
-          options={splitTypes.map((splitType) => ({
-            value: splitType,
-            label: splitType,
-          }))}
-          onChange={onSplitTypeChanged}
-          style={{ marginBottom: 8, width: 120 }}
-        />
-      ) : null}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <span style={{ color: "var(--color-text-description)" }}>
+            {t("knowledge.sequence")}
+          </span>
+          <Switch
+            size="small"
+            checked={showSequence}
+            onChange={setShowSequence}
+          />
+        </div>
+      </div>
 
       <SegmentList
         ref={segmentListRef}
@@ -359,6 +364,7 @@ const SegmentTab = (props: SegmentTabProps) => {
         onGetItemInfo={onGetItemInfo}
         loading={loading}
         scrollToId={segmentId}
+        showNumber={showSequence}
       />
     </div>
   );

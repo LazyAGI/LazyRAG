@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
-	"lazyrag/core/acl"
-	"lazyrag/core/common/orm"
+	"lazymind/core/acl"
+	"lazymind/core/common/orm"
 )
 
 func initTestStore(t *testing.T) {

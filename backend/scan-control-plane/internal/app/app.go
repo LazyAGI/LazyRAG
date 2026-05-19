@@ -13,15 +13,15 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/lazyrag/scan_control_plane/internal/cloudsync"
-	"github.com/lazyrag/scan_control_plane/internal/config"
-	"github.com/lazyrag/scan_control_plane/internal/coreclient"
-	"github.com/lazyrag/scan_control_plane/internal/merger"
-	"github.com/lazyrag/scan_control_plane/internal/metrics"
-	"github.com/lazyrag/scan_control_plane/internal/scheduler"
-	"github.com/lazyrag/scan_control_plane/internal/server"
-	"github.com/lazyrag/scan_control_plane/internal/store"
-	"github.com/lazyrag/scan_control_plane/internal/worker"
+	"github.com/lazymind/scan_control_plane/internal/cloudsync"
+	"github.com/lazymind/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/coreclient"
+	"github.com/lazymind/scan_control_plane/internal/merger"
+	"github.com/lazymind/scan_control_plane/internal/metrics"
+	"github.com/lazymind/scan_control_plane/internal/scheduler"
+	"github.com/lazymind/scan_control_plane/internal/server"
+	"github.com/lazymind/scan_control_plane/internal/store"
+	"github.com/lazymind/scan_control_plane/internal/worker"
 )
 
 type App struct {

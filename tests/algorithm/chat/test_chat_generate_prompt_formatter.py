@@ -32,15 +32,15 @@ def test_prompt_formatter_templates_have_valid_variable_braces():
 
 def test_rag_context_formatter_uses_context_branch_and_output_type():
     formatter = RAGContextFormatter()
-    nodes = [DummyNode(text='LazyRAG content', metadata={'file_name': 'manual.md'})]
+    nodes = [DummyNode(text='LazyMind content', metadata={'file_name': 'manual.md'})]
 
-    result = formatter.forward(nodes, query='What is LazyRAG?')
+    result = formatter.forward(nodes, query='What is LazyMind?')
 
     assert isinstance(result, str)
     assert 'Reference' in result or 'reference' in result or 'document' in result.lower() or 'Document' in result
     assert '[[1]]' in result
     assert 'manual.md' in result
-    assert 'What is LazyRAG?' in result
+    assert 'What is LazyMind?' in result
 
 
 def test_rag_context_formatter_uses_image_only_and_default_branches():

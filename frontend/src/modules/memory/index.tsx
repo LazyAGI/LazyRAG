@@ -79,12 +79,13 @@ import {
   addGlossaryConflictToGroups,
   batchRemoveGlossaryAssets,
   checkGlossaryWordsExist,
+  createGlossaryGroupFromConflict,
   createGlossaryAsset,
   getGlossaryAssetDetail,
   listGlossaryAssets,
   listGlossaryConflicts,
-  mergeGlossaryAssetsAndAddConflictWord,
   mergeGlossaryAssets,
+  mergeGlossaryConflictAndAddWord,
   removeGlossaryConflict,
   removeGlossaryAsset,
   updateGlossaryAsset,
@@ -158,6 +159,10 @@ import "./index.scss";
 
 const backendSuggestionPageSize = 20;
 const defaultSkillListPageSize = 6;
+const showGlossaryInboxUi = true;
+const MERGED_GLOSSARY_GROUP_OPTION_ID = "__merged_glossary_group__";
+const MERGED_GLOSSARY_GROUP_OPTION_ID_PREFIX = `${MERGED_GLOSSARY_GROUP_OPTION_ID}:`;
+const NEW_GLOSSARY_GROUP_OPTION_ID = "__new_glossary_group__";
 const isPendingReviewSuggestionStatus = (status?: string) =>
   String(status || "").trim().toLowerCase() === "pending_review";
 const isSkillRemoveSuggestion = (suggestion: EvolutionSuggestionRecord) =>
@@ -349,6 +354,7 @@ export default function MemoryManagement() {
   const glossaryRequestIdRef = useRef(0);
   const glossaryConflictRequestIdRef = useRef(0);
   const backendSuggestionLoadMoreRequestIdRef = useRef(0);
+  const activeProposalFieldChangesRef = useRef<ProposalFieldChange[]>([]);
 
   const tabMeta: Record<
     MemoryTab,
@@ -1388,6 +1394,8 @@ export default function MemoryManagement() {
     return fieldChanges.filter((item): item is ProposalFieldChange => Boolean(item));
   }, [activeProposal, t]);
 
+  activeProposalFieldChangesRef.current = activeProposalFieldChanges;
+
   useEffect(() => {
     if (!activeProposal) {
       setProposalFieldDecisions({});
@@ -1409,12 +1417,16 @@ export default function MemoryManagement() {
       return;
     }
 
-    const defaults = activeProposalFieldChanges.reduce<
-      Record<string, ProposalFieldDecision>
-    >((result, field) => {
-      result[field.key] = "pending";
-      return result;
-    }, {});
+    const fieldChanges = activeProposal.backendSuggestions
+      ? []
+      : activeProposalFieldChangesRef.current;
+    const defaults = fieldChanges.reduce<Record<string, ProposalFieldDecision>>(
+      (result, field) => {
+        result[field.key] = "pending";
+        return result;
+      },
+      {},
+    );
 
     setProposalFieldDecisions(defaults);
     setSelectedFieldKeys([]);
@@ -1435,7 +1447,8 @@ export default function MemoryManagement() {
     if (activeProposal.tab === "experience") {
       setBackendDraftKind(resolveManagedPreferenceDraftKind(activeProposal.before.resourceType));
     }
-  }, [activeProposal, activeProposalFieldChanges]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProposal?.id]);
 
   useEffect(() => {
     backendSuggestionLoadMoreRequestIdRef.current += 1;
@@ -2248,6 +2261,9 @@ export default function MemoryManagement() {
     skillUpdateStatus?: string,
     options?: { forceReload?: boolean; syncRoute?: boolean },
   ): Promise<boolean> => {
+    if (options?.syncRoute !== false) {
+      reviewRouteReloadKeyRef.current = `${tab}:${itemId}`;
+    }
     const proposal = getPendingProposal(tab, itemId);
     const shouldReloadProposal = options?.forceReload ?? true;
     if (!proposal || shouldReloadProposal) {
@@ -2640,13 +2656,19 @@ export default function MemoryManagement() {
       setSelectedBackendSuggestionIds((previous) =>
         previous.filter((item) => item !== suggestionId),
       );
-      if (activeProposal.tab === "experience") {
-        await refreshExperienceAssets({ silent: true });
-      } else {
-        await refreshSkillAssets({ preserveChangeProposals: true });
-      }
       if (decision === "accept") {
         await loadBackendDraftPreview(nextApprovedSuggestionIds);
+        if (activeProposal.tab === "experience") {
+          await refreshExperienceAssets({ silent: true });
+        } else {
+          await refreshSkillAssets({ preserveChangeProposals: true });
+        }
+      } else {
+        if (activeProposal.tab === "experience") {
+          await refreshExperienceAssets({ silent: true });
+        } else {
+          await refreshSkillAssets({ preserveChangeProposals: true });
+        }
       }
     } catch (error) {
       console.error("Submit backend suggestion decision failed:", error);
@@ -2741,14 +2763,20 @@ export default function MemoryManagement() {
       setSelectedBackendSuggestionIds((previous) =>
         previous.filter((item) => !suggestionIds.includes(item)),
       );
-      if (activeProposal.tab === "experience") {
-        await refreshExperienceAssets({ silent: true });
-      } else {
-        await refreshSkillAssets({ preserveChangeProposals: true });
-      }
 
       if (decision === "accept") {
         await loadBackendDraftPreview(nextApprovedSuggestionIds);
+        if (activeProposal.tab === "experience") {
+          await refreshExperienceAssets({ silent: true });
+        } else {
+          await refreshSkillAssets({ preserveChangeProposals: true });
+        }
+      } else {
+        if (activeProposal.tab === "experience") {
+          await refreshExperienceAssets({ silent: true });
+        } else {
+          await refreshSkillAssets({ preserveChangeProposals: true });
+        }
       }
     } catch (error) {
       console.error("Submit backend suggestion batch decision failed:", error);
@@ -2893,7 +2921,29 @@ export default function MemoryManagement() {
           : t("admin.memoryPreferenceDraftDiscardSuccess"),
       );
       setBackendDraftPreview(null);
+      setApprovedBackendSuggestionIds([]);
+      setRejectedBackendSuggestionIds([]);
+      setSelectedBackendSuggestionIds([]);
+      if (activeProposal?.backendSuggestions) {
+        const suggestionPage = await listEvolutionSuggestions({
+          page: 1,
+          pageSize: backendSuggestionPageSize,
+          ...(activeProposal.tab === "skills"
+            ? getSkillSuggestionResourceParam(activeProposal.before)
+            : getPreferenceSuggestionResourceParam(activeProposal.before)),
+        });
+        replaceBackendSuggestionPageInProposal(activeProposal.id, suggestionPage);
+        setSelectedBackendSuggestionIds((previous) => {
+          const latestIds = new Set(suggestionPage.items.map((item) => item.id));
+          return previous.filter((item) => latestIds.has(item));
+        });
+      }
       setActiveReviewStep(0);
+      if (activeProposal?.tab === "skills") {
+        await refreshSkillAssets({ preserveChangeProposals: true });
+      } else {
+        await refreshExperienceSection({ silent: true });
+      }
     } catch (error) {
       console.error("Discard managed draft failed:", error);
       message.error(
@@ -3993,7 +4043,9 @@ export default function MemoryManagement() {
             const resolution = resolutions[proposal.id];
             const mode =
               resolution?.mode || (proposal.backendConflictGroupIds?.length ? "separate" : "create");
-            const selectedGroupIds = resolution?.selectedGroupIds?.length
+            const selectedGroupIds = resolution?.mergeGroupIds?.length
+              ? resolution.mergeGroupIds
+              : resolution?.selectedGroupIds?.length
               ? resolution.selectedGroupIds
               : proposal.backendConflictGroupIds || [];
 
@@ -4002,30 +4054,93 @@ export default function MemoryManagement() {
                 throw new Error(t("admin.memoryGlossaryInboxMergeSelectAtLeastTwo"));
               }
 
-              return mergeGlossaryAssetsAndAddConflictWord({
-                id: conflictId,
-                word: conflictWord,
-                groupIds: selectedGroupIds,
-              }).then((merged) => {
-                if (!merged || !resolution?.mergedGroupTerm?.trim()) {
-                  return merged;
-                }
-
-                return updateGlossaryAsset({
-                  ...merged,
-                  term: resolution.mergedGroupTerm.trim(),
-                  aliases: [
-                    ...new Set(
-                      (resolution.mergedGroupAliases?.length
-                        ? resolution.mergedGroupAliases
-                        : merged.aliases
-                      )
+              const targetGroups = proposal.backendConflictGroups || [];
+              const mergeGroupsFromResolution =
+                resolution?.mergeGroups?.filter((item) => item.length >= 2) || [];
+              const mergeGroups = mergeGroupsFromResolution.length
+                ? mergeGroupsFromResolution
+                : [selectedGroupIds];
+              const fallbackMergedTerm =
+                targetGroups.find((group) => mergeGroups[0]?.includes(group.id))?.term ||
+                proposal.after.term;
+              const fallbackMergedAliases = Array.from(
+                new Set(
+                  targetGroups
+                    .filter((group) => selectedGroupIds.includes(group.id))
+                    .flatMap((group) => [group.term, ...group.aliases]),
+                ),
+              );
+              const fallbackMergedContent = targetGroups
+                .filter((group) => selectedGroupIds.includes(group.id))
+                .map((group) => group.content)
+                .filter(Boolean)
+                .join("\n\n");
+              const mergePayloads = mergeGroups.map((groupIds) => {
+                const draft = resolution?.mergeDrafts?.find(
+                  (item) =>
+                    item.groupIds.length === groupIds.length &&
+                    item.groupIds.every((id) => groupIds.includes(id)),
+                );
+                const term = (
+                  draft?.term ||
+                  resolution?.mergedGroupTerm ||
+                  fallbackMergedTerm
+                ).trim();
+                const aliasesSource = draft?.aliases?.length
+                  ? draft.aliases
+                  : resolution?.mergedGroupAliases?.length
+                    ? resolution.mergedGroupAliases
+                    : fallbackMergedAliases;
+                const description = (
+                  draft?.content ??
+                  resolution?.mergedGroupContent ??
+                  fallbackMergedContent ??
+                  proposal.after.content
+                ).trim();
+                return {
+                  group_ids: groupIds,
+                  term,
+                  aliases: Array.from(
+                    new Set(
+                      aliasesSource
                         .map((item) => item.trim())
                         .filter(Boolean),
                     ),
-                  ],
-                  content: (resolution.mergedGroupContent ?? merged.content).trim(),
-                });
+                  ),
+                  description,
+                };
+              });
+              const firstMergedGroupIds = mergeGroups
+                .map((groupIds) => groupIds[0])
+                .filter(Boolean);
+              if (!firstMergedGroupIds.length) {
+                throw new Error(t("admin.memoryGlossaryInboxSelectTargetFirst"));
+              }
+              const writeGroupIds = resolution?.writeGroupIds || [];
+              const shouldWriteToMergedGroup =
+                !writeGroupIds.length ||
+                writeGroupIds.some((groupId) => groupId.startsWith(MERGED_GLOSSARY_GROUP_OPTION_ID));
+              const extraWriteGroupIds = writeGroupIds.filter(
+                (groupId) =>
+                  !groupId.startsWith(MERGED_GLOSSARY_GROUP_OPTION_ID_PREFIX) &&
+                  groupId !== MERGED_GLOSSARY_GROUP_OPTION_ID &&
+                  !selectedGroupIds.includes(groupId),
+              );
+              const targetGroupIds = Array.from(
+                new Set([
+                  ...(shouldWriteToMergedGroup ? firstMergedGroupIds : []),
+                  ...extraWriteGroupIds,
+                ]),
+              );
+              if (!targetGroupIds.length) {
+                throw new Error(t("admin.memoryGlossaryInboxSelectTargetFirst"));
+              }
+
+              return mergeGlossaryConflictAndAddWord({
+                id: conflictId,
+                word: conflictWord,
+                merges: mergePayloads,
+                group_ids: targetGroupIds,
               });
             }
 
@@ -4041,29 +4156,48 @@ export default function MemoryManagement() {
               });
             }
 
-            const newGroupTerm = (resolution?.newGroupTerm || proposal.after.term).trim();
+            const newGroupTerm = (resolution?.newGroupTerm || "").trim();
             if (!newGroupTerm) {
               throw new Error(t("admin.memoryGlossaryInboxNewGroupRequired"));
             }
+            const normalizedNewAliases = (resolution?.newGroupAliases?.length
+              ? resolution.newGroupAliases
+              : proposal.after.aliases
+            )
+              .map((item) => item.trim())
+              .filter(Boolean);
+            if (normalizedNewAliases.some((alias) => alias === newGroupTerm)) {
+              throw new Error("词组归属不允许和其中一个词相同");
+            }
+            const newGroupContent = (resolution?.newGroupContent ?? proposal.after.content).trim();
+            if (newGroupTerm && newGroupContent && newGroupTerm === newGroupContent) {
+              throw new Error("内容不可以和词相同");
+            }
 
+            const writeGroupIds = resolution?.writeGroupIds || [];
+            const shouldWriteConflictWordToNewGroup =
+              !writeGroupIds.length ||
+              writeGroupIds.includes(NEW_GLOSSARY_GROUP_OPTION_ID);
             const aliases = [
-              conflictWord,
+              ...(shouldWriteConflictWordToNewGroup ? [conflictWord] : []),
               ...(resolution?.newGroupAliases?.length
                 ? resolution.newGroupAliases
                 : proposal.after.aliases),
             ]
               .map((item) => item.trim())
-              .filter(Boolean);
-
-            return createGlossaryAsset(
-              {
-                ...proposal.after,
-                term: newGroupTerm,
-                aliases: [...new Set(aliases)],
-                content: (resolution?.newGroupContent ?? proposal.after.content).trim(),
-              },
-              { conflictId },
+              .filter((item) => Boolean(item) && item !== newGroupTerm);
+            const extraWriteGroupIds = writeGroupIds.filter(
+              (groupId) => groupId !== NEW_GLOSSARY_GROUP_OPTION_ID,
             );
+
+            return createGlossaryGroupFromConflict({
+              id: conflictId,
+              word: conflictWord,
+              term: newGroupTerm,
+              aliases: [...new Set(aliases)],
+              description: newGroupContent,
+              group_ids: extraWriteGroupIds.length ? extraWriteGroupIds : undefined,
+            });
           }),
         );
         await Promise.all([
@@ -4319,7 +4453,8 @@ export default function MemoryManagement() {
         const hasBackendPendingReview =
           activeTab === "skills" &&
           !record.autoEvo &&
-          Boolean(record.hasPendingReviewSuggestions);
+          (Boolean(record.hasPendingReviewSuggestions) ||
+            isPendingReviewSuggestionStatus(record.suggestionStatus));
         const canReviewChange =
           !record.autoEvo &&
           (Boolean(pendingProposal) ||
@@ -4831,20 +4966,22 @@ export default function MemoryManagement() {
     <div className={`admin-page memory-page ${isReviewMode ? "is-review-mode" : ""}`}>
       <Outlet context={outletContext} />
 
-      <GlossaryInboxModal
-        t={t}
-        glossaryInboxOpen={glossaryInboxOpen}
-        setGlossaryInboxOpen={setGlossaryInboxOpen}
-        glossaryChangeProposals={glossaryChangeProposals}
-        glossaryInboxLoading={glossaryInboxLoading}
-        glossaryInboxError={glossaryInboxError}
-        glossaryInboxSubmitting={glossaryInboxSubmitting}
-        refreshGlossaryConflicts={refreshGlossaryConflicts}
-        glossarySourceColorMap={glossarySourceColorMap}
-        glossarySourceLabelMap={glossarySourceLabelMap}
-        rejectGlossaryProposals={rejectGlossaryProposals}
-        applyGlossaryProposals={applyGlossaryProposals}
-      />
+      {showGlossaryInboxUi ? (
+        <GlossaryInboxModal
+          t={t}
+          glossaryInboxOpen={glossaryInboxOpen}
+          setGlossaryInboxOpen={setGlossaryInboxOpen}
+          glossaryChangeProposals={glossaryChangeProposals}
+          glossaryInboxLoading={glossaryInboxLoading}
+          glossaryInboxError={glossaryInboxError}
+          glossaryInboxSubmitting={glossaryInboxSubmitting}
+          refreshGlossaryConflicts={refreshGlossaryConflicts}
+          glossarySourceColorMap={glossarySourceColorMap}
+          glossarySourceLabelMap={glossarySourceLabelMap}
+          rejectGlossaryProposals={rejectGlossaryProposals}
+          applyGlossaryProposals={applyGlossaryProposals}
+        />
+      ) : null}
 
       <MemoryDraftModal
         t={t}

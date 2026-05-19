@@ -2,6 +2,7 @@ import { Button, Empty, Space, Tag } from "antd";
 import { LockOutlined } from "@ant-design/icons";
 import { useMemo } from "react";
 import { useParams } from "react-router-dom";
+import { DetailPageHeader } from "@/components/ui";
 import RouteLoading from "../../components/RouteLoading";
 import { useMemoryManagementOutletContext } from "../../context";
 import type { ExperienceAsset } from "../../shared";
@@ -27,26 +28,12 @@ export default function MemoryExperienceDetailPage() {
 
   return (
     <div className="memory-experience-detail-layout">
-      <div className="memory-page-header">
-        <div>
-          <h2 className="admin-page-title">
-            {t("admin.memoryExperienceDetailTitle")}
-          </h2>
-          <p className="memory-page-subtitle">
-            {experience?.title || t("admin.memoryDiffTargetMissing")}
-          </p>
-        </div>
-        <Space>
-          <Button onClick={() => navigateToMemoryList("experience")}>
-            {t("common.back")}
-          </Button>
-          {experience ? (
-            <Button type="primary" onClick={() => openModal("edit", experience)}>
-              {t("admin.memoryEditItem")}
-            </Button>
-          ) : null}
-        </Space>
-      </div>
+      <DetailPageHeader
+        className="memory-experience-detail-page-header"
+        title={t("admin.memoryExperienceDetailTitle")}
+        description={experience?.title || t("admin.memoryDiffTargetMissing")}
+        onBack={() => navigateToMemoryList("experience")}
+      />
 
       {!experience ? (
         <Empty
@@ -56,7 +43,7 @@ export default function MemoryExperienceDetailPage() {
       ) : (
         <div className="memory-experience-detail-card">
           <div className="memory-experience-detail-title">
-            <div>
+            <div className="memory-experience-detail-title-copy">
               <h3>{experience.title}</h3>
             </div>
             <div className="memory-skill-detail-meta">
@@ -69,8 +56,19 @@ export default function MemoryExperienceDetailPage() {
             </div>
           </div>
 
-          <div className="memory-form-field memory-form-field-full">
-            <label>{t("admin.memoryExperienceDetailContent")}</label>
+          <div className="memory-experience-detail-body">
+            <div className="memory-skill-detail-editor-toolbar">
+              <div className="memory-skill-detail-editor-heading">
+                <label>{t("admin.memoryExperienceDetailContent")}</label>
+              </div>
+              {experience ? (
+                <Space size={8}>
+                  <Button type="primary" onClick={() => openModal("edit", experience)}>
+                    {t("admin.memoryEditItem")}
+                  </Button>
+                </Space>
+              ) : null}
+            </div>
             <div className="memory-experience-detail-content">
               <pre>{experience.content || "-"}</pre>
             </div>

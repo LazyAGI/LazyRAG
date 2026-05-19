@@ -9,8 +9,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/lazyrag/file_watcher/internal/app"
-	"github.com/lazyrag/file_watcher/internal/config"
+	"github.com/lazymind/file_watcher/internal/app"
+	"github.com/lazymind/file_watcher/internal/config"
 )
 
 func main() {

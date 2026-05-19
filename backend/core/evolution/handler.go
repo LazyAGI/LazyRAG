@@ -13,10 +13,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"lazyrag/core/common"
-	"lazyrag/core/common/orm"
-	appLog "lazyrag/core/log"
-	"lazyrag/core/store"
+	"lazymind/core/common"
+	"lazymind/core/common/orm"
+	appLog "lazymind/core/log"
+	"lazymind/core/store"
 )
 
 var errInvalidSuggestionFilter = errors.New("invalid suggestion filter")
@@ -396,14 +396,23 @@ func applySuggestionSkillFilter(ctx context.Context, db *gorm.DB, query *gorm.DB
 
 	resourceKey := SkillSuggestionResourceKey(skill)
 	parentName := firstNonEmptyFilterValue(strings.TrimSpace(skill.ParentSkillName), strings.TrimSpace(skill.SkillName))
-	return query.Where(
-		"resource_type = ? AND (resource_key = ? OR relative_path = ? OR (category = ? AND (parent_skill_name = ? OR (TRIM(COALESCE(parent_skill_name, '')) = '' AND skill_name = ?))))",
+	skillName := strings.TrimSpace(skill.SkillName)
+	legacyFilter := "(parent_skill_name = ? AND skill_name = ?)"
+	legacyArgs := []any{parentName, skillName}
+	if strings.TrimSpace(skill.NodeType) == SkillNodeTypeParent {
+		legacyFilter = "((parent_skill_name = ? AND skill_name = ?) OR (TRIM(COALESCE(parent_skill_name, '')) = '' AND skill_name = ?))"
+		legacyArgs = []any{parentName, skillName, skillName}
+	}
+	args := []any{
 		ResourceTypeSkill,
 		resourceKey,
 		resourceKey,
 		strings.TrimSpace(skill.Category),
-		parentName,
-		parentName,
+	}
+	args = append(args, legacyArgs...)
+	return query.Where(
+		"resource_type = ? AND (resource_key = ? OR relative_path = ? OR (TRIM(COALESCE(resource_key, '')) = '' AND TRIM(COALESCE(relative_path, '')) = '' AND category = ? AND "+legacyFilter+"))",
+		args...,
 	), nil
 }
 

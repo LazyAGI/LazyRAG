@@ -52,10 +52,10 @@ class _FakeAsyncClient:
 
 
 def _fresh_import_upload_handler(monkeypatch, tmp_path):
-    monkeypatch.setenv('LAZYRAG_UPLOAD_DIR', str(tmp_path))
-    monkeypatch.setenv('LAZYRAG_DEFAULT_ALGO_ID', 'default-algo')
-    monkeypatch.setenv('LAZYRAG_DEFAULT_GROUP', 'default-group')
-    monkeypatch.setenv('LAZYRAG_DOCUMENT_PROCESSOR_PORT', '18000')
+    monkeypatch.setenv('LAZYMIND_UPLOAD_DIR', str(tmp_path))
+    monkeypatch.setenv('LAZYMIND_DEFAULT_ALGO_ID', 'default-algo')
+    monkeypatch.setenv('LAZYMIND_DEFAULT_GROUP', 'default-group')
+    monkeypatch.setenv('LAZYMIND_DOCUMENT_PROCESSOR_PORT', '18000')
     sys.modules.pop('processor.upload_handler', None)
     return importlib.import_module('processor.upload_handler')
 
@@ -82,8 +82,8 @@ def test_upload_and_add_saves_files_and_posts_add_doc_request(monkeypatch, tmp_p
     assert response.code == 200
     assert response.data == {'task_id': 'task-1', 'ids': ['doc-a.txt']}
     assert _FakeAsyncClient.posts[0]['url'] == 'http://127.0.0.1:18000/doc/add'
-    # algo_id is no longer forwarded to AddDocRequest (node-group refactor)
-    assert 'algo_id' not in _FakeAsyncClient.posts[0]['json'] or _FakeAsyncClient.posts[0]['json'].get('algo_id') is None
+    # algo_id is deprecated and always defaults to __default__
+    assert _FakeAsyncClient.posts[0]['json'].get('algo_id') == '__default__'
     # kb_id is now a top-level field on AddDocRequest
     assert _FakeAsyncClient.posts[0]['json']['kb_id'] == 'query-group'
     # metadata no longer carries a redundant kb_id
@@ -108,8 +108,8 @@ def test_upload_and_add_uses_form_values_before_query_params(monkeypatch, tmp_pa
     )
 
     assert response.data == {'task_id': 'task-2', 'ids': ['fixed-doc-id']}
-    # algo_id is no longer forwarded to AddDocRequest (node-group refactor)
-    assert 'algo_id' not in _FakeAsyncClient.posts[0]['json'] or _FakeAsyncClient.posts[0]['json'].get('algo_id') is None
+    # algo_id is deprecated and always defaults to __default__
+    assert _FakeAsyncClient.posts[0]['json'].get('algo_id') == '__default__'
     # kb_id is now a top-level field; form-group takes precedence over query-group
     assert _FakeAsyncClient.posts[0]['json']['kb_id'] == 'form-group'
     assert not (_FakeAsyncClient.posts[0]['json']['file_infos'][0].get('metadata') or {}).get('kb_id')
@@ -136,8 +136,8 @@ def test_upload_and_add_uses_defaults_and_unnamed_file(monkeypatch, tmp_path):
     saved_file = tmp_path / 'fixed-subdir' / 'unnamed'
     assert saved_file.read_bytes() == b'content'
     assert response.data == {'task_id': None, 'ids': ['doc-unnamed']}
-    # algo_id is no longer forwarded to AddDocRequest (node-group refactor)
-    assert 'algo_id' not in _FakeAsyncClient.posts[0]['json'] or _FakeAsyncClient.posts[0]['json'].get('algo_id') is None
+    # algo_id is deprecated and always defaults to __default__
+    assert _FakeAsyncClient.posts[0]['json'].get('algo_id') == '__default__'
     # kb_id (= default-group) is now a top-level field on AddDocRequest
     assert _FakeAsyncClient.posts[0]['json']['kb_id'] == 'default-group'
     assert not (_FakeAsyncClient.posts[0]['json']['file_infos'][0].get('metadata') or {}).get('kb_id')
@@ -270,8 +270,8 @@ def test_upload_handler_main_uses_env_port(monkeypatch, tmp_path):
         def run(app, host, port):
             seen.update({'host': host, 'port': port})
 
-    monkeypatch.setenv('LAZYRAG_UPLOAD_DIR', str(tmp_path))
-    monkeypatch.setenv('LAZYRAG_UPLOAD_SERVER_PORT', '18100')
+    monkeypatch.setenv('LAZYMIND_UPLOAD_DIR', str(tmp_path))
+    monkeypatch.setenv('LAZYMIND_UPLOAD_SERVER_PORT', '18100')
     monkeypatch.setitem(sys.modules, 'uvicorn', FakeUvicorn)
     sys.modules.pop('processor.upload_handler', None)
 

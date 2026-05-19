@@ -9,7 +9,7 @@ load_dotenv()
 MOUNT_BASE_DIR: str = config['mount_base_dir']
 SENSITIVE_WORDS_PATH: str = config['sensitive_words_path']
 
-LAZYRAG_LLM_PRIORITY: int = config['llm_priority']
+LAZYMIND_LLM_PRIORITY: int = config['llm_priority']
 USE_MULTIMODAL = False
 LLM_TYPE_THINK = False
 

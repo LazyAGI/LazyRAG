@@ -49,12 +49,12 @@ def test_parse_db_url_no_host():
 
 
 def test_get_doc_task_db_config_unset(monkeypatch):
-    monkeypatch.delenv('LAZYRAG_DATABASE_URL', raising=False)
+    monkeypatch.delenv('LAZYMIND_DATABASE_URL', raising=False)
     assert get_doc_task_db_config() is None
 
 
 def test_get_doc_task_db_config_set(monkeypatch):
-    monkeypatch.setenv('LAZYRAG_DATABASE_URL', 'postgresql://u:p@localhost:5432/tasks')
+    monkeypatch.setenv('LAZYMIND_DATABASE_URL', 'postgresql://u:p@localhost:5432/tasks')
     r = get_doc_task_db_config()
     assert r is not None
     assert r['db_name'] == 'tasks'

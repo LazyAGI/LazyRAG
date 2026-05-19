@@ -84,7 +84,7 @@ def _ensure_lazyllm():
     except ImportError:
         print(
             'Error: lazyllm is not installed or not on PYTHONPATH.\n'
-            'If running from the repo root, the ./lazyrag wrapper '
+            'If running from the repo root, the ./lazymind wrapper '
             'should set PYTHONPATH automatically.',
             file=sys.stderr,
         )
@@ -92,7 +92,7 @@ def _ensure_lazyllm():
 
 
 def _find_local_algo_container() -> Optional[str]:
-    override = os.getenv('LAZYRAG_ALGO_CONTAINER')
+    override = os.getenv('LAZYMIND_ALGO_CONTAINER')
     if override:
         return override
 
@@ -251,7 +251,7 @@ def _run_docker_retrieve(
     # localhost.  Allow override so non-default deployments can point at a
     # different port or host without touching code.
     container_url = os.getenv(
-        'LAZYRAG_ALGO_CONTAINER_URL', 'http://127.0.0.1:8000',
+        'LAZYMIND_ALGO_CONTAINER_URL', 'http://127.0.0.1:8000',
     )
     payload = {
         'url': container_url,
@@ -301,7 +301,7 @@ def _resolve_execution_mode(args: argparse.Namespace) -> Optional[str]:
     """
     if args.url:
         return None
-    if get_context('algo_url') or os.getenv('LAZYRAG_ALGO_SERVICE_URL'):
+    if get_context('algo_url') or os.getenv('LAZYMIND_ALGO_SERVICE_URL'):
         return None
     return _find_local_algo_container()
 

@@ -52,6 +52,10 @@ import CreateUpdateModal, {
 import { KnowledgeBaseServiceApi } from "@/modules/knowledge/utils/request";
 import { DocumentServiceApi, TaskServiceApi } from "../../utils/request";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
+import {
+  DEVELOPER_ACTIVE_EVENT,
+  isDeveloperModeActive,
+} from "@/utils/developerMode";
 
 import { DetailPageHeader } from "@/components/ui";
 
@@ -72,6 +76,7 @@ const Detail = () => {
 
   const [detail, setDetail] = useState<Dataset>();
   const [importingTotal, setImportingTotal] = useState(0);
+  const [developerActive, setDeveloperActive] = useState(isDeveloperModeActive);
 
   const { id = "" } = useParams();
 
@@ -100,6 +105,27 @@ const Detail = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getDetail, clearDataset]);
+
+  useEffect(() => {
+    const syncDeveloperActive = () => {
+      setDeveloperActive(isDeveloperModeActive());
+    };
+
+    const handleDeveloperActiveChange = (event: Event) => {
+      const nextActive = (event as CustomEvent<{ active?: boolean }>).detail?.active;
+      setDeveloperActive(
+        typeof nextActive === "boolean" ? nextActive : isDeveloperModeActive(),
+      );
+    };
+
+    window.addEventListener("storage", syncDeveloperActive);
+    window.addEventListener(DEVELOPER_ACTIVE_EVENT, handleDeveloperActiveChange);
+
+    return () => {
+      window.removeEventListener("storage", syncDeveloperActive);
+      window.removeEventListener(DEVELOPER_ACTIVE_EVENT, handleDeveloperActiveChange);
+    };
+  }, []);
 
   function getImportingTotal() {
     pollingRef.current.cancel();
@@ -239,27 +265,29 @@ const Detail = () => {
       <DetailPageHeader
         title={detail?.display_name}
         titleExtra={
-          <>
-            <span
-              style={{
-                marginRight: "4px",
-                color: "var(--color-text-description)",
-              }}
-            >
-              ID: {detail?.dataset_id}
-            </span>
-            <CopyOutlined
-              style={{ color: "var(--color-text-description)" }}
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(detail?.dataset_id || "");
-                  message.success(t("knowledge.copySuccess"));
-                } catch {
-                  message.error(t("knowledge.copyFailedManual"));
-                }
-              }}
-            />
-          </>
+          developerActive ? (
+            <>
+              <span
+                style={{
+                  marginRight: "4px",
+                  color: "var(--color-text-description)",
+                }}
+              >
+                ID: {detail?.dataset_id}
+              </span>
+              <CopyOutlined
+                style={{ color: "var(--color-text-description)" }}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(detail?.dataset_id || "");
+                    message.success(t("knowledge.copySuccess"));
+                  } catch {
+                    message.error(t("knowledge.copyFailedManual"));
+                  }
+                }}
+              />
+            </>
+          ) : null
         }
         settingsMenu={
           detail?.acl?.includes(DatasetAclEnum.DatasetWrite) && (

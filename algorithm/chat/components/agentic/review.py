@@ -85,7 +85,7 @@ def _build_existing_state_context(config: dict, review_mode: str) -> str:
                 'outdated or wrong. Do NOT simply rewrite from scratch.'
             )
             if memory_content:
-                parts.append(f'\n## Current memory (target=memory)\n{memory_content}')
+                parts.append(f'\n## Current agent working memory (target=memory)\n{memory_content}')
             if user_pref_content:
                 parts.append(f'\n## Current user_preference (target=user)\n{user_pref_content}')
             parts.append('--- END EXISTING STATE ---\n')

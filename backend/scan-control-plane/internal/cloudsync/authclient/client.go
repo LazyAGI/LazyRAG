@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const internalTokenHeader = "X-LazyRAG-Internal-Token"
+const internalTokenHeader = "X-LazyMind-Internal-Token"
 
 type TokenResponse struct {
 	ConnectionID string     `json:"connection_id"`

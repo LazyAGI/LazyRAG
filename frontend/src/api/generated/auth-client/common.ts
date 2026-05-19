@@ -2,7 +2,7 @@
 /* eslint-disable */
 /**
  * Auth Service
- * LazyRAG authentication and authorization service (login, registration, token, user/role/group management)
+ * LazyMind authentication and authorization service (login, registration, token, user/role/group management)
  *
  * The version of the OpenAPI document: 1.0.0
  * 

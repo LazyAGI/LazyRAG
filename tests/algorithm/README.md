@@ -1,6 +1,6 @@
 # Algorithm Unit Tests
 
-Tests are organized to mirror `LazyRAG/algorithm`:
+Tests are organized to mirror `LazyMind/algorithm`:
 
 - `chat/`
 - `lazyllm/`

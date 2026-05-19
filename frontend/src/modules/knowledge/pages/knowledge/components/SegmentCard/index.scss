@@ -1,7 +1,7 @@
 .segmentCard {
   align-self: flex-start;
   width: 100%;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
   border: 1px solid #dfe6ef;
   border-radius: 4px;
 
@@ -11,6 +11,18 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+
+  .segment-number {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    color: #8d9ab2;
+    font-size: 13px;
+    line-height: 18px;
+    z-index: 1;
+    pointer-events: none;
+  }
 
   &:hover {
     border: 1px solid #006ae6;
@@ -68,9 +80,15 @@
   }
 
   .contentReadOnly {
-    padding: 16px;
+    padding: 32px 12px 10px;
     overflow-y: auto !important;
     overflow-x: hidden;
+  }
+
+  &.segmentCard-no-number {
+    .contentReadOnly {
+      padding-top: 10px;
+    }
   }
 
   .contentInner {
@@ -106,7 +124,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
+    padding: 8px 12px;
     background-color: #fff;
 
     color: #8d9ab2;

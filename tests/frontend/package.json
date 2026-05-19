@@ -1,5 +1,5 @@
 {
-  "name": "lazyrag-frontend-tests",
+  "name": "lazymind-frontend-tests",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,6 +7,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
     "jsdom": "^24.0.0",
     "vitest": "^2.0.0"
   }

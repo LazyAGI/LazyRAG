@@ -15,16 +15,17 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/lazyrag/scan_control_plane/internal/config"
-	"github.com/lazyrag/scan_control_plane/internal/coreclient"
-	"github.com/lazyrag/scan_control_plane/internal/sourcelayout"
-	"github.com/lazyrag/scan_control_plane/internal/store"
+	"github.com/lazymind/scan_control_plane/internal/config"
+	"github.com/lazymind/scan_control_plane/internal/coreclient"
+	"github.com/lazymind/scan_control_plane/internal/sourcelayout"
+	"github.com/lazymind/scan_control_plane/internal/store"
 )
 
 type Store interface {
 	ClaimDueTasks(ctx context.Context, leaseOwner string, now time.Time, limit int, leaseDuration time.Duration) ([]store.PendingTask, error)
 	MarkTaskSuperseded(ctx context.Context, taskID int64, reason string) error
 	MarkTaskStaging(ctx context.Context, taskID int64) error
+	ValidateTaskSubmission(ctx context.Context, taskID int64) (store.TaskSubmissionValidation, error)
 	FindSubmittedTaskByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, excludeTaskID int64) (store.SubmittedCoreTaskRef, error)
 	MarkTaskSubmitted(ctx context.Context, taskID int64, coreDatasetID, coreDocumentID, coreTaskID string, submitAt time.Time) error
 	MarkTaskSubmitFailed(ctx context.Context, taskID int64, lastError string) error
@@ -164,6 +165,9 @@ func (w *Worker) executeTask(ctx context.Context, task store.PendingTask) {
 	}
 
 	if key := strings.TrimSpace(task.IdempotencyKey); key != "" {
+		if !w.validateTaskForSubmission(ctx, task, "idempotency pre-check") {
+			return
+		}
 		existing, err := w.store.FindSubmittedTaskByIdempotencyKey(ctx, task.TenantID, key, task.TaskID)
 		if err != nil {
 			w.failSubmitWithRetry(ctx, task, fmt.Errorf("query idempotency task failed: %w", err))
@@ -220,6 +224,9 @@ func (w *Worker) executeTask(ctx context.Context, task store.PendingTask) {
 		defer releaseLarge()
 	}
 
+	if !w.validateTaskForSubmission(ctx, task, "submit pre-check") {
+		return
+	}
 	submitResult, err := w.core.SubmitParseTask(ctx, task, firstNonEmpty(staged.ContainerPath, staged.HostPath), staged.URI, staged.Size)
 	if err != nil {
 		w.failSubmitWithRetry(ctx, task, fmt.Errorf("submit task to core failed: %w", err))
@@ -248,6 +255,30 @@ func (w *Worker) executeTask(ctx context.Context, task store.PendingTask) {
 		zap.String("core_document_id", submitResult.DocumentID),
 		zap.String("core_task_id", submitResult.TaskID),
 	)
+}
+
+func (w *Worker) validateTaskForSubmission(ctx context.Context, task store.PendingTask, phase string) bool {
+	validation, err := w.store.ValidateTaskSubmission(ctx, task.TaskID)
+	if err != nil {
+		w.failSubmitWithRetry(ctx, task, fmt.Errorf("%s validation failed: %w", phase, err))
+		return false
+	}
+	if validation.Valid {
+		return true
+	}
+	reason := strings.TrimSpace(validation.Reason)
+	if reason == "" {
+		reason = "task is no longer current"
+	}
+	_ = w.store.MarkTaskSuperseded(ctx, task.TaskID, reason)
+	w.log.Info("task superseded before core submission",
+		zap.Int64("task_id", task.TaskID),
+		zap.Int64("document_id", task.DocumentID),
+		zap.String("target_version", task.TargetVersionID),
+		zap.String("phase", phase),
+		zap.String("reason", reason),
+	)
+	return false
 }
 
 func (w *Worker) callStage(ctx context.Context, task store.PendingTask) (stageResponse, error) {

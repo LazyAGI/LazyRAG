@@ -181,7 +181,7 @@ def test_model_config_uses_env_override_path(monkeypatch, tmp_path):
         """,
     )
     monkeypatch.setenv('TEST_API_KEY', 'secret-key')
-    monkeypatch.setenv('LAZYRAG_MODEL_CONFIG_PATH', str(config_path))
+    monkeypatch.setenv('LAZYMIND_MODEL_CONFIG_PATH', str(config_path))
 
     config = load_model_config(expand_env=True)
     settings = get_retrieval_settings()

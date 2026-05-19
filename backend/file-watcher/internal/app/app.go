@@ -12,12 +12,12 @@ import (
 
 	"go.uber.org/zap"
 
-	internal "github.com/lazyrag/file_watcher/internal"
-	"github.com/lazyrag/file_watcher/internal/api"
-	"github.com/lazyrag/file_watcher/internal/config"
-	"github.com/lazyrag/file_watcher/internal/control"
-	"github.com/lazyrag/file_watcher/internal/fs"
-	"github.com/lazyrag/file_watcher/internal/source"
+	internal "github.com/lazymind/file_watcher/internal"
+	"github.com/lazymind/file_watcher/internal/api"
+	"github.com/lazymind/file_watcher/internal/config"
+	"github.com/lazymind/file_watcher/internal/control"
+	"github.com/lazymind/file_watcher/internal/fs"
+	"github.com/lazymind/file_watcher/internal/source"
 )
 
 // App coordinates the process-level lifecycle.
