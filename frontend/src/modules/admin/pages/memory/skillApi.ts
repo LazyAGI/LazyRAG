@@ -32,6 +32,8 @@ interface SkillNode {
   auto_evo_apply_status?: string;
   auto_evo_generation?: number;
   auto_evo_error?: string;
+  source_type?: string;
+  is_builtin?: boolean;
   children?: SkillNode[];
   [key: string]: unknown;
 }
@@ -54,6 +56,8 @@ export interface SkillAssetRecord {
   autoEvoApplyStatus?: string;
   autoEvoGeneration?: number;
   autoEvoError?: string;
+  sourceType?: string;
+  isBuiltin?: boolean;
 }
 
 export interface SkillDraftGeneratePayload {
@@ -289,6 +293,8 @@ const normalizeSkillNode = (raw: SkillNode, parentId?: string): SkillAssetRecord
     autoEvoApplyStatus: toStringValue(raw.auto_evo_apply_status || ""),
     autoEvoGeneration: typeof raw.auto_evo_generation === "number" ? raw.auto_evo_generation : 0,
     autoEvoError: toStringValue(raw.auto_evo_error || ""),
+    sourceType: toStringValue(raw.source_type || ""),
+    isBuiltin: toBoolean(raw.is_builtin, false),
   };
 };
 

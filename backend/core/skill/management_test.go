@@ -132,12 +132,12 @@ func TestLoadVisibleSkillRowsMergesBuiltinWithUserOverride(t *testing.T) {
 		OwnerUserID:   builtinSkillOwnerUserID,
 		OwnerUserName: builtinSkillOwnerUserName,
 		SourceType:    builtinSkillSourceType,
-		Category:      "review",
+		Category:      builtinSkillCategory,
 		SkillName:     "single-document-review",
 		NodeType:      evolution.SkillNodeTypeParent,
 		Description:   "builtin review",
 		FileExt:       "md",
-		RelativePath:  evolution.ParentSkillRelativePath("review", "single-document-review"),
+		RelativePath:  evolution.ParentSkillRelativePath(builtinSkillCategory, "single-document-review"),
 		Content:       "---\nname: single-document-review\ndescription: builtin review\n---\nbody",
 		ContentHash:   evolution.HashContent("---\nname: single-document-review\ndescription: builtin review\n---\nbody"),
 		IsEnabled:     true,
@@ -183,8 +183,62 @@ func TestLoadVisibleSkillRowsMergesBuiltinWithUserOverride(t *testing.T) {
 	if got := seen[evolution.ParentSkillRelativePath("search", "paper-search")].OwnerUserID; got != "u1" {
 		t.Fatalf("expected user override for paper-search, got owner %q", got)
 	}
-	if got := seen[evolution.ParentSkillRelativePath("review", "single-document-review")].OwnerUserID; got != builtinSkillOwnerUserID {
+	if got := seen[evolution.ParentSkillRelativePath(builtinSkillCategory, "single-document-review")].OwnerUserID; got != builtinSkillOwnerUserID {
 		t.Fatalf("expected builtin fallback for review skill, got owner %q", got)
+	}
+}
+
+func TestLoadRuntimeVisibleSkillRowsPrefersUserByName(t *testing.T) {
+	db := newSkillTestDB(t)
+
+	now := time.Now()
+	userRow := orm.SkillResource{
+		ID:             "user-deep-research",
+		OwnerUserID:    "u1",
+		OwnerUserName:  "User 1",
+		SourceType:     userSkillSourceType,
+		Category:       "research",
+		SkillName:      "deep-research",
+		NodeType:       evolution.SkillNodeTypeParent,
+		RelativePath:   evolution.ParentSkillRelativePath("research", "deep-research"),
+		Content:        "---\nname: deep-research\ndescription: user\n---\nbody",
+		ContentHash:    evolution.HashContent("---\nname: deep-research\ndescription: user\n---\nbody"),
+		IsEnabled:      true,
+		CreateUserID:   "u1",
+		CreateUserName: "User 1",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	builtinRow := orm.SkillResource{
+		ID:             "builtin-deep-research",
+		OwnerUserID:    builtinSkillOwnerUserID,
+		OwnerUserName:  builtinSkillOwnerUserName,
+		SourceType:     builtinSkillSourceType,
+		Category:       builtinSkillCategory,
+		SkillName:      "deep-research",
+		NodeType:       evolution.SkillNodeTypeParent,
+		RelativePath:   evolution.ParentSkillRelativePath(builtinSkillCategory, "deep-research"),
+		Content:        "---\nname: deep-research\ndescription: builtin\n---\nbody",
+		ContentHash:    evolution.HashContent("---\nname: deep-research\ndescription: builtin\n---\nbody"),
+		IsEnabled:      true,
+		CreateUserID:   builtinSkillOwnerUserID,
+		CreateUserName: builtinSkillOwnerUserName,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := db.Create(&[]orm.SkillResource{userRow, builtinRow}).Error; err != nil {
+		t.Fatalf("create skill rows: %v", err)
+	}
+
+	rows, err := loadRuntimeVisibleSkillRows(context.Background(), db.DB, "u1", evolution.SkillNodeTypeParent)
+	if err != nil {
+		t.Fatalf("load runtime visible rows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 runtime visible row, got %d", len(rows))
+	}
+	if rows[0].OwnerUserID != "u1" {
+		t.Fatalf("expected runtime visible row to prefer user skill, got owner %q", rows[0].OwnerUserID)
 	}
 }
 
@@ -211,7 +265,7 @@ func TestSeedBuiltinSkillsImportsAuxiliaryFiles(t *testing.T) {
 	}
 
 	var parent orm.SkillResource
-	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, evolution.ParentSkillRelativePath("search", "paper-search")).Take(&parent).Error; err != nil {
+	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, evolution.ParentSkillRelativePath(builtinSkillCategory, "paper-search")).Take(&parent).Error; err != nil {
 		t.Fatalf("query builtin parent: %v", err)
 	}
 	if parent.SourceType != builtinSkillSourceType {
@@ -219,7 +273,7 @@ func TestSeedBuiltinSkillsImportsAuxiliaryFiles(t *testing.T) {
 	}
 
 	var child orm.SkillResource
-	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, "search/paper-search/scripts/search_arxiv.py").Take(&child).Error; err != nil {
+	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, "build-in/paper-search/scripts/search_arxiv.py").Take(&child).Error; err != nil {
 		t.Fatalf("query builtin child: %v", err)
 	}
 	if child.Content != scriptContent {
@@ -2216,7 +2270,7 @@ func TestCreateChildSkillPersistsDescription(t *testing.T) {
 	}
 }
 
-func TestCreateParentSkillRejectsDuplicateParentNameAcrossCategories(t *testing.T) {
+func TestCreateParentSkillAllowsSameNameAcrossCategories(t *testing.T) {
 	db := newSkillTestDB(t)
 
 	req := createSkillRequest{
@@ -2235,16 +2289,16 @@ func TestCreateParentSkillRejectsDuplicateParentNameAcrossCategories(t *testing.
 		Category:    "ops",
 		Content:     "# Git Workflow\n\nDuplicate name should be rejected.",
 	}
-	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", duplicateReq); !errors.Is(err, gorm.ErrDuplicatedKey) {
-		t.Fatalf("expected duplicate parent skill name error, got %v", err)
+	if err := createParentSkill(context.Background(), db.DB, "u1", "User 1", duplicateReq); err != nil {
+		t.Fatalf("expected same name across categories to be allowed, got %v", err)
 	}
 
 	var count int64
 	if err := db.Model(&orm.SkillResource{}).Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", "u1", evolution.SkillNodeTypeParent, "git-workflow").Count(&count).Error; err != nil {
 		t.Fatalf("count parent skills: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("expected exactly one parent skill named git-workflow, got %d", count)
+	if count != 2 {
+		t.Fatalf("expected exactly two parent skills named git-workflow across categories, got %d", count)
 	}
 }
 
@@ -2291,7 +2345,7 @@ func TestUpdateParentSkillRebuildsContentFromBodyOnlyPayload(t *testing.T) {
 	}
 }
 
-func TestUpdateParentSkillRejectsDuplicateParentNameAcrossCategories(t *testing.T) {
+func TestUpdateParentSkillAllowsDuplicateNameAcrossCategories(t *testing.T) {
 	db := newSkillTestDB(t)
 
 	firstReq := createSkillRequest{
@@ -2319,16 +2373,16 @@ func TestUpdateParentSkillRejectsDuplicateParentNameAcrossCategories(t *testing.
 	}
 
 	updateReq := updateSkillRequest{Name: stringPtr("git-workflow")}
-	if err := updateSkill(context.Background(), db.DB, "u1", "User 1", second.ID, updateReq); !errors.Is(err, gorm.ErrDuplicatedKey) {
-		t.Fatalf("expected duplicate parent skill name error, got %v", err)
+	if err := updateSkill(context.Background(), db.DB, "u1", "User 1", second.ID, updateReq); err != nil {
+		t.Fatalf("expected duplicate name across categories to be allowed, got %v", err)
 	}
 
 	var unchanged orm.SkillResource
 	if err := db.Where("id = ?", second.ID).Take(&unchanged).Error; err != nil {
 		t.Fatalf("query unchanged parent skill: %v", err)
 	}
-	if unchanged.SkillName != "release-check" {
-		t.Fatalf("expected skill name to remain release-check, got %q", unchanged.SkillName)
+	if unchanged.SkillName != "git-workflow" {
+		t.Fatalf("expected skill name to update to git-workflow, got %q", unchanged.SkillName)
 	}
 }
 

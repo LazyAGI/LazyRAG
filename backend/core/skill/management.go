@@ -188,6 +188,10 @@ func CreateManaged(w http.ResponseWriter, r *http.Request) {
 			common.ReplyErr(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if isReservedBuiltinCategory(req.Category) {
+			common.ReplyErr(w, "build-in category is reserved", http.StatusBadRequest)
+			return
+		}
 	}
 
 	createdSkillID := ""
@@ -904,11 +908,14 @@ func createParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 }
 
 func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, userName string, req createSkillRequest, fullContent, description string) error {
+	if isReservedBuiltinCategory(req.Category) {
+		return errors.New("build-in category is reserved")
+	}
 	relPath := parentRelativePath(req.Category, req.Name)
 	var count int64
 	if err := db.WithContext(ctx).
 		Model(&orm.SkillResource{}).
-		Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", userID, evolution.SkillNodeTypeParent, req.Name).
+		Where("owner_user_id = ? AND node_type = ? AND category = ? AND skill_name = ?", userID, evolution.SkillNodeTypeParent, req.Category, req.Name).
 		Count(&count).Error; err != nil {
 		return err
 	}
@@ -1018,7 +1025,7 @@ func resolveParentSkill(ctx context.Context, db *gorm.DB, userID, parentSkillID,
 		return orm.SkillResource{}, errors.New("parent_skill_id required")
 	}
 	query := db.WithContext(ctx).
-		Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", userID, evolution.SkillNodeTypeParent, parentSkillName)
+		Where("owner_user_id = ? AND node_type = ? AND category = ? AND skill_name = ?", userID, evolution.SkillNodeTypeParent, category, parentSkillName)
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
@@ -1172,6 +1179,9 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 		if err := validatePathSegment(newCategory); err != nil {
 			return err
 		}
+		if isReservedBuiltinCategory(newCategory) {
+			return errors.New("build-in category is reserved")
+		}
 	}
 	newBody := currentBody
 	if req.Content != nil {
@@ -1188,10 +1198,10 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 	newDescription = resolvedDescription
 	if oldCategory != newCategory || oldName != newName {
 		var count int64
-		if oldName != newName {
+		if oldName != newName || oldCategory != newCategory {
 			if err := db.WithContext(ctx).
 				Model(&orm.SkillResource{}).
-				Where("owner_user_id = ? AND node_type = ? AND skill_name = ? AND id <> ?", userID, evolution.SkillNodeTypeParent, newName, row.ID).
+				Where("owner_user_id = ? AND node_type = ? AND category = ? AND skill_name = ? AND id <> ?", userID, evolution.SkillNodeTypeParent, newCategory, newName, row.ID).
 				Count(&count).Error; err != nil {
 				return err
 			}

@@ -15,6 +15,29 @@ import (
 	"lazymind/core/evolution"
 )
 
+var reservedBuiltinCategories = map[string]struct{}{
+	"build-in": {},
+	"build——in": {},
+	"builtin":  {},
+	"buildin":  {},
+	"build_in": {},
+	"build in": {},
+	"built-in": {},
+}
+
+func normalizedBuiltinCategoryAlias(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.ReplaceAll(value, "_", "-")
+	value = strings.Join(strings.Fields(value), " ")
+	return value
+}
+
+func isReservedBuiltinCategory(value string) bool {
+	normalized := normalizedBuiltinCategoryAlias(value)
+	_, ok := reservedBuiltinCategories[normalized]
+	return ok
+}
+
 type parentFrontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`

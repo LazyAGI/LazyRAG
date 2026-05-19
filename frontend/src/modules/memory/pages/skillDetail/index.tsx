@@ -77,6 +77,7 @@ export default function MemorySkillDetailPage() {
     [itemId, skillAssets],
   );
   const skill = detail || cachedSkill;
+  const isReadOnlySkill = Boolean(skill?.isBuiltin);
   const renderAsMarkdown = skill ? isMarkdownSkill(skill) : false;
   const previewContent = useMemo(
     () => stripLeadingMetaLines(skill?.content || ""),
@@ -158,6 +159,9 @@ export default function MemorySkillDetailPage() {
   }
 
   const handleStartInlineEdit = () => {
+    if (isReadOnlySkill) {
+      return;
+    }
     setInlineContentDraft(stripLeadingMetaLines(skill?.content || ""));
     setIsInlineEditing(true);
   };
@@ -232,7 +236,7 @@ export default function MemorySkillDetailPage() {
   };
 
   const handleStartTitleEdit = () => {
-    if (!skill || titleSaving) {
+    if (!skill || titleSaving || isReadOnlySkill) {
       return;
     }
     setTitleDraft(skill.name || "");
@@ -308,7 +312,7 @@ export default function MemorySkillDetailPage() {
   };
 
   const handleStartDescriptionEdit = () => {
-    if (!skill || descriptionSaving) {
+    if (!skill || descriptionSaving || isReadOnlySkill) {
       return;
     }
     setDescriptionDraft(skill.description || "");
@@ -439,13 +443,17 @@ export default function MemorySkillDetailPage() {
                 </div>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    className="memory-skill-detail-title-trigger"
-                    onClick={handleStartTitleEdit}
-                  >
+                  {isReadOnlySkill ? (
                     <h3>{skill.name}</h3>
-                  </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="memory-skill-detail-title-trigger"
+                      onClick={handleStartTitleEdit}
+                    >
+                      <h3>{skill.name}</h3>
+                    </button>
+                  )}
                   {isDescriptionEditing ? (
                     <div
                       className="memory-skill-detail-description-editor"
@@ -473,13 +481,19 @@ export default function MemorySkillDetailPage() {
                       />
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      className="memory-skill-detail-description-trigger"
-                      onClick={handleStartDescriptionEdit}
-                    >
-                      <p>{skill.description || "-"}</p>
-                    </button>
+                    <>
+                      {isReadOnlySkill ? (
+                        <p>{skill.description || "-"}</p>
+                      ) : (
+                        <button
+                          type="button"
+                          className="memory-skill-detail-description-trigger"
+                          onClick={handleStartDescriptionEdit}
+                        >
+                          <p>{skill.description || "-"}</p>
+                        </button>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -516,10 +530,14 @@ export default function MemorySkillDetailPage() {
                     ? t("admin.memorySkillDetailMarkdownPreview")
                     : t("admin.memorySkillDetailPlainPreview")}
                 </label>
-                <span>{t("admin.memorySkillDetailInlineEditHint")}</span>
+                <span>
+                  {isReadOnlySkill
+                    ? t("admin.memoryReadonlyDescription")
+                    : t("admin.memorySkillDetailInlineEditHint")}
+                </span>
               </div>
               <Space size={8}>
-                {isInlineEditing ? (
+                {isReadOnlySkill ? null : isInlineEditing ? (
                   <>
                     <Button onClick={handleCancelInlineEdit} disabled={inlineSaving}>
                       {t("common.cancel")}
@@ -540,9 +558,11 @@ export default function MemorySkillDetailPage() {
               </Space>
             </div>
             <div
-              className={`memory-skill-detail-content${!isInlineEditing ? " is-clickable" : ""}`}
+              className={`memory-skill-detail-content${
+                !isInlineEditing && !isReadOnlySkill ? " is-clickable" : ""
+              }`}
               onClick={() => {
-                if (!isInlineEditing) {
+                if (!isInlineEditing && !isReadOnlySkill) {
                   handleStartInlineEdit();
                 }
               }}

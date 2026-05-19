@@ -318,11 +318,10 @@ func skillVisibleParents(ctx context.Context, db *gorm.DB, userID string) ([]orm
 	seen := make(map[string]struct{}, len(userRows))
 	for _, row := range userRows {
 		rows = append(rows, row)
-		seen[filepath.ToSlash(strings.TrimSpace(row.RelativePath))] = struct{}{}
+		seen[strings.TrimSpace(row.SkillName)] = struct{}{}
 	}
 	for _, row := range builtinRows {
-		key := filepath.ToSlash(strings.TrimSpace(row.RelativePath))
-		if _, exists := seen[key]; exists {
+		if _, exists := seen[strings.TrimSpace(row.SkillName)]; exists {
 			continue
 		}
 		rows = append(rows, row)

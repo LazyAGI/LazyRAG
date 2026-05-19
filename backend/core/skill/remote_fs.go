@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"path/filepath"
@@ -266,7 +267,7 @@ func remoteFSInfoEntry(r *http.Request, db *gorm.DB, userID string, parsed remot
 }
 
 func listRemoteFSCategories(r *http.Request, db *gorm.DB, userID string) ([]remoteFSEntry, error) {
-	rows, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeParent)
+	rows, err := loadRemoteFSVisibleParents(r.Context(), db, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +289,7 @@ func listRemoteFSCategories(r *http.Request, db *gorm.DB, userID string) ([]remo
 }
 
 func listRemoteFSSkills(r *http.Request, db *gorm.DB, userID, category string) ([]remoteFSEntry, error) {
-	rows, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeParent)
+	rows, err := loadRemoteFSVisibleParents(r.Context(), db, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,11 +304,11 @@ func listRemoteFSSkills(r *http.Request, db *gorm.DB, userID, category string) (
 }
 
 func loadRemoteFSSkillFiles(r *http.Request, db *gorm.DB, userID, category, skillName string) (map[string]remoteFSFile, error) {
-	parent, err := LoadVisibleParentSkill(r.Context(), db, userID, category, skillName)
+	parent, err := loadRemoteFSVisibleParent(r.Context(), db, userID, skillName)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := LoadVisibleSkillRows(r.Context(), db, userID, evolution.SkillNodeTypeChild)
+	rows, err := loadRemoteFSVisibleChildren(r.Context(), db, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -353,6 +354,83 @@ func loadRemoteFSSkillFiles(r *http.Request, db *gorm.DB, userID, category, skil
 		}
 	}
 	return files, nil
+}
+
+func loadRemoteFSVisibleParents(ctx context.Context, db *gorm.DB, userID string) ([]orm.SkillResource, error) {
+	const builtinSkillOwnerUserID = "__builtin__"
+
+	var userRows []orm.SkillResource
+	if err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ?", strings.TrimSpace(userID), evolution.SkillNodeTypeParent).
+		Find(&userRows).Error; err != nil {
+		return nil, err
+	}
+	var builtinRows []orm.SkillResource
+	if err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ?", builtinSkillOwnerUserID, evolution.SkillNodeTypeParent).
+		Find(&builtinRows).Error; err != nil {
+		return nil, err
+	}
+	rows := make([]orm.SkillResource, 0, len(userRows)+len(builtinRows))
+	seen := make(map[string]struct{}, len(userRows))
+	for _, row := range userRows {
+		rows = append(rows, row)
+		seen[strings.TrimSpace(row.SkillName)] = struct{}{}
+	}
+	for _, row := range builtinRows {
+		if _, exists := seen[strings.TrimSpace(row.SkillName)]; exists {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func loadRemoteFSVisibleChildren(ctx context.Context, db *gorm.DB, userID string) ([]orm.SkillResource, error) {
+	const builtinSkillOwnerUserID = "__builtin__"
+
+	var userRows []orm.SkillResource
+	if err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ?", strings.TrimSpace(userID), evolution.SkillNodeTypeChild).
+		Find(&userRows).Error; err != nil {
+		return nil, err
+	}
+	var builtinRows []orm.SkillResource
+	if err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ?", builtinSkillOwnerUserID, evolution.SkillNodeTypeChild).
+		Find(&builtinRows).Error; err != nil {
+		return nil, err
+	}
+	rows := make([]orm.SkillResource, 0, len(userRows)+len(builtinRows))
+	seen := make(map[string]struct{}, len(userRows))
+	for _, row := range userRows {
+		rows = append(rows, row)
+		seen[strings.TrimSpace(row.ParentSkillName)+"\x00"+strings.TrimSpace(row.SkillName)] = struct{}{}
+	}
+	for _, row := range builtinRows {
+		key := strings.TrimSpace(row.ParentSkillName) + "\x00" + strings.TrimSpace(row.SkillName)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func loadRemoteFSVisibleParent(ctx context.Context, db *gorm.DB, userID, skillName string) (orm.SkillResource, error) {
+	var row orm.SkillResource
+	err := db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", strings.TrimSpace(userID), evolution.SkillNodeTypeParent, strings.TrimSpace(skillName)).
+		Take(&row).Error
+	if err == nil {
+		return row, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return orm.SkillResource{}, err
+	}
+	return row, db.WithContext(ctx).
+		Where("owner_user_id = ? AND node_type = ? AND skill_name = ?", builtinSkillOwnerUserID, evolution.SkillNodeTypeParent, strings.TrimSpace(skillName)).
+		Take(&row).Error
 }
 
 func remoteFSInternalPath(category, skillName string, row orm.SkillResource) string {

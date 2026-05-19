@@ -28,6 +28,15 @@ _FRONTMATTER_RE = re.compile(r'^---\s*\n(.*?)\n---\s*\n(.*)$', re.DOTALL)
 _MAX_DESCRIPTION_LENGTH = 1024
 _DEFAULT_CORE_API_TIMEOUT = 30
 MAX_SUGGESTIONS_PER_CALL = 5
+_RESERVED_BUILTIN_CATEGORIES = {
+    'build-in',
+    'build——in',
+    'builtin',
+    'buildin',
+    'build_in',
+    'build in',
+    'built-in',
+}
 
 
 class Suggestion(BaseModel):
@@ -128,6 +137,16 @@ def _normalize_category(category: Optional[str]) -> Optional[str]:
     if cleaned in {'.', '..'} or not _PATH_SEGMENT_RE.match(cleaned):
         return None
     return cleaned
+
+
+def _normalize_builtin_category_alias(category: Optional[str]) -> str:
+    normalized = str(category or '').strip().lower().replace('_', '-')
+    normalized = ' '.join(normalized.split())
+    return normalized
+
+
+def _is_reserved_builtin_category(category: Optional[str]) -> bool:
+    return _normalize_builtin_category_alias(category) in _RESERVED_BUILTIN_CATEGORIES
 
 
 def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
@@ -320,6 +339,8 @@ def skill_manage(
             return _fail(content_error)
         if suggestions:
             return _fail("action='create' must not include 'suggestions'.")
+        if _is_reserved_builtin_category(normalized_category):
+            return _fail("build-in category is reserved.")
         if existing_skill:
             source = existing_skill.get('source', 'file')
             if not _is_writable_skill_source(source):
@@ -368,8 +389,7 @@ def skill_manage(
         )
         if not _is_writable_skill_source(source):
             return _fail(
-                f'Skill {name!r} in category {normalized_category!r} has read-only source '
-                f'{source!r}; skill_manage can only modify remote skills.'
+                'build-in skill can not be modified/deleted'
             )
 
         result = {
@@ -401,8 +421,7 @@ def skill_manage(
         source = existing_skill.get('source', 'file')
         if not _is_writable_skill_source(source):
             return _fail(
-                f'Skill {name!r} in category {normalized_category!r} has read-only source '
-                f'{source!r}; skill_manage can only remove remote skills.'
+                'build-in skill can not be modified/deleted'
             )
 
         result = {

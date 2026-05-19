@@ -206,9 +206,38 @@ def test_skill_manage_rejects_writes_to_non_remote_skills(monkeypatch):
 
     assert modify_result == {
         'success': False,
-        'reason': "Skill 'builtin' in category 'writing' has read-only source 'file'; skill_manage can only modify remote skills.",
+        'reason': "build-in skill can not be modified/deleted",
     }
     assert remove_result == {
         'success': False,
-        'reason': "Skill 'builtin' in category 'writing' has read-only source 'file'; skill_manage can only remove remote skills.",
+        'reason': "build-in skill can not be modified/deleted",
     }
+
+
+def test_skill_manage_rejects_reserved_builtin_categories(monkeypatch):
+    monkeypatch.setattr(
+        skill_manager_mod,
+        '_agentic_config',
+        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'remote://skills,.agentic/skills'},
+    )
+    monkeypatch.setattr(skill_manager_mod, 'list_all_skill_entries', lambda _base_dir: {})
+
+    content = (
+        '---\n'
+        'name: new_skill\n'
+        'description: A test skill.\n'
+        '---\n'
+        'Use this skill for tests.\n'
+    )
+
+    for category in ['build-in', 'build——in', 'builtin', 'buildin', 'build_in']:
+        result = skill_manager_mod.skill_manage(
+            'new_skill',
+            'create',
+            category=category,
+            content=content,
+        )
+        assert result == {
+            'success': False,
+            'reason': 'build-in category is reserved.',
+        }

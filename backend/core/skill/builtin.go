@@ -21,6 +21,7 @@ const (
 	builtinSkillOwnerUserID   = "__builtin__"
 	builtinSkillOwnerUserName = "Builtin Skills"
 	builtinSkillSourceType    = "builtin"
+	builtinSkillCategory      = "build-in"
 	userSkillSourceType       = "user"
 )
 
@@ -32,7 +33,6 @@ type builtinSkillSeedSummary struct {
 }
 
 type builtinParentSeed struct {
-	Category    string
 	Name        string
 	Description string
 	Content     string
@@ -75,6 +75,36 @@ func LoadVisibleSkillRows(ctx context.Context, db *gorm.DB, userID string, nodeT
 	}
 	for _, row := range builtinRows {
 		key := filepath.ToSlash(strings.TrimSpace(row.RelativePath))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		merged = append(merged, row)
+	}
+	return merged, nil
+}
+
+func loadRuntimeVisibleSkillRows(ctx context.Context, db *gorm.DB, userID string, nodeType string) ([]orm.SkillResource, error) {
+	rows, err := LoadVisibleSkillRows(ctx, db, userID, nodeType)
+	if err != nil {
+		return nil, err
+	}
+
+	userRows := make([]orm.SkillResource, 0, len(rows))
+	builtinRows := make([]orm.SkillResource, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		if isBuiltinSkill(row) {
+			builtinRows = append(builtinRows, row)
+			continue
+		}
+		userRows = append(userRows, row)
+		seen[strings.TrimSpace(row.SkillName)+"\x00"+strings.TrimSpace(row.NodeType)] = struct{}{}
+	}
+
+	merged := make([]orm.SkillResource, 0, len(rows))
+	merged = append(merged, userRows...)
+	for _, row := range builtinRows {
+		key := strings.TrimSpace(row.SkillName) + "\x00" + strings.TrimSpace(row.NodeType)
 		if _, exists := seen[key]; exists {
 			continue
 		}
@@ -252,15 +282,12 @@ func scanBuiltinSkills(root string) ([]builtinParentSeed, error) {
 		}
 	}
 	sort.Slice(parents, func(i, j int) bool {
-		if parents[i].Category != parents[j].Category {
-			return parents[i].Category < parents[j].Category
-		}
 		return parents[i].Name < parents[j].Name
 	})
 	return parents, nil
 }
 
-func scanBuiltinSkillDir(category, skillName, skillDir string) (builtinParentSeed, error) {
+func scanBuiltinSkillDir(_ string, skillName, skillDir string) (builtinParentSeed, error) {
 	skillMDPath := filepath.Join(skillDir, "SKILL.md")
 	contentBytes, err := os.ReadFile(skillMDPath)
 	if err != nil {
@@ -318,7 +345,6 @@ func scanBuiltinSkillDir(category, skillName, skillDir string) (builtinParentSee
 		return children[i].RelativePath < children[j].RelativePath
 	})
 	return builtinParentSeed{
-		Category:    category,
 		Name:        skillName,
 		Description: description,
 		Content:     content,
@@ -330,7 +356,7 @@ func seedBuiltinSkillRows(ctx context.Context, db *gorm.DB, parents []builtinPar
 	summary := builtinSkillSeedSummary{}
 	now := time.Now()
 	for _, parent := range parents {
-		parentRelPath := parentRelativePath(parent.Category, parent.Name)
+		parentRelPath := parentRelativePath(builtinSkillCategory, parent.Name)
 		var existingParent orm.SkillResource
 		parentErr := db.WithContext(ctx).
 			Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, parentRelPath).
@@ -343,7 +369,7 @@ func seedBuiltinSkillRows(ctx context.Context, db *gorm.DB, parents []builtinPar
 				OwnerUserID:     builtinSkillOwnerUserID,
 				OwnerUserName:   builtinSkillOwnerUserName,
 				SourceType:      builtinSkillSourceType,
-				Category:        parent.Category,
+				Category:        builtinSkillCategory,
 				SkillName:       parent.Name,
 				NodeType:        evolution.SkillNodeTypeParent,
 				Description:     parent.Description,
@@ -371,7 +397,7 @@ func seedBuiltinSkillRows(ctx context.Context, db *gorm.DB, parents []builtinPar
 		}
 
 		for _, child := range parent.Children {
-			childRelPath := filepath.ToSlash(filepath.Join(parent.Category, parent.Name, child.RelativePath))
+			childRelPath := filepath.ToSlash(filepath.Join(builtinSkillCategory, parent.Name, child.RelativePath))
 			var existingChild orm.SkillResource
 			childErr := db.WithContext(ctx).
 				Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, childRelPath).
@@ -388,7 +414,7 @@ func seedBuiltinSkillRows(ctx context.Context, db *gorm.DB, parents []builtinPar
 				OwnerUserID:     builtinSkillOwnerUserID,
 				OwnerUserName:   builtinSkillOwnerUserName,
 				SourceType:      builtinSkillSourceType,
-				Category:        parent.Category,
+				Category:        builtinSkillCategory,
 				ParentSkillName: existingParent.SkillName,
 				SkillName:       child.Name,
 				NodeType:        evolution.SkillNodeTypeChild,
