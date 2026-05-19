@@ -1133,7 +1133,7 @@ func shouldKeepThreadFlowStreamAlive(flowStatus *threadFlowStatusResponse) bool 
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(flowStatus.Status)) {
-	case "running", "pending", "waiting_checkpoint":
+	case "running", "pending", "waiting_checkpoint", "paused":
 		return true
 	default:
 		return false
