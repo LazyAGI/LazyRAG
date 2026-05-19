@@ -18,7 +18,6 @@ import {
 import TagSelect from "@/modules/knowledge/components/TagSelect";
 import { useDatasetPermissionStore } from "@/modules/knowledge/store/dataset_permission";
 
-// jpg, mp3, mp4 will be supported in the future
 const ALLOWED_FILE_TYPES = ["pdf", "docx", "doc"];
 const SINGLE_FILE_MAX_SIZE = 500 * 1024 * 1024;
 const TOTAL_FILE_MAX_SIZE = 1 * 1024 * 1024 * 1024;
