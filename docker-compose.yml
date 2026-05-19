@@ -155,8 +155,8 @@ services:
       LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
     volumes:
       - ./backend/scan-control-plane/configs/control-plane.scan.yml:/app/configs/control-plane.scan.yml:ro
-      - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
-      - ${RAGSCAN_BASE_ROOT:-./data/scan}/staging:/data/staging
+      - ${LAZYMIND_FILE_WATCHER_BASE_ROOT:-./data/scan}:/data/ragscan
+      - ${LAZYMIND_FILE_WATCHER_BASE_ROOT:-./data/scan}/staging:/data/staging
       - ./data/core/uploads:/var/lib/lazymind/uploads
     expose:
       - "18080"
@@ -181,17 +181,17 @@ services:
         <<: *mirror-args
     command: ["-config", "/app/configs/agent.yaml"]
     environment:
-      RAGSCAN_AGENT_LISTEN_ADDR: "0.0.0.0:19090"
-      RAGSCAN_AGENT_ADVERTISE_ADDR: "http://file-watcher:19090"
-      RAGSCAN_CONTROL_PLANE_BASE_URL: "http://scan-control-plane:18080"
-      RAGSCAN_BASE_ROOT: /data/ragscan
-      RAGSCAN_HOST_PATH_STYLE: ${RAGSCAN_HOST_PATH_STYLE:-posix}
-      RAGSCAN_WATCH_HOST_DIR: /Users
-      RAGSCAN_WATCH_CONTAINER_DIR: /watch/docs
+      LAZYMIND_FILE_WATCHER_LISTEN_ADDR: "0.0.0.0:19090"
+      LAZYMIND_FILE_WATCHER_ADVERTISE_ADDR: "http://file-watcher:19090"
+      LAZYMIND_FILE_WATCHER_CONTROL_PLANE_BASE_URL: "http://scan-control-plane:18080"
+      LAZYMIND_FILE_WATCHER_BASE_ROOT: /data/ragscan
+      LAZYMIND_FILE_WATCHER_HOST_PATH_STYLE: ${LAZYMIND_FILE_WATCHER_HOST_PATH_STYLE:-posix}
+      LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR: ${LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR:-/Users}
+      LAZYMIND_FILE_WATCHER_WATCH_CONTAINER_DIR: /watch/docs
     volumes:
       - ./backend/file-watcher/configs/agent.yaml:/app/configs/agent.yaml:ro
-      - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
-      - /Users:/watch/docs
+      - ${LAZYMIND_FILE_WATCHER_BASE_ROOT:-./data/scan}:/data/ragscan
+      - ${LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR:-/Users}:/watch/docs
     expose:
       - "19090"
     depends_on:
@@ -229,7 +229,7 @@ services:
       LAZYMIND_JWT_SECRET: dev-secret-change-me
       LAZYMIND_JWT_TTL_MINUTES: "60"
       LAZYMIND_JWT_REFRESH_TTL_DAYS: "7"
-      RAGSCAN_SECRET_KEY: dev-ragscan-secret-key-change-me
+      LAZYMIND_AUTH_CLOUD_SECRET_KEY: dev-ragscan-secret-key-change-me
       LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
       LAZYMIND_BOOTSTRAP_ADMIN_USERNAME: ${LAZYMIND_BOOTSTRAP_ADMIN_USERNAME:-admin}
       LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD:-admin}
