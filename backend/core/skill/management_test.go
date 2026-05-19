@@ -585,6 +585,154 @@ func TestGenerateReturnsOutdatedWhenApprovedSuggestionSnapshotIsStale(t *testing
 	}
 }
 
+func TestUpdateParentAutoEvoDiscardsPendingDraftWithoutOverwritingSkillContent(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	relativePath := evolution.ParentSkillRelativePath("coding", "git-workflow")
+	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	draftContent := "---\nname: git-workflow\ndescription: git workflow\n---\ndraft body"
+	row := orm.SkillResource{
+		ID:                 "skill-1",
+		OwnerUserID:        "u1",
+		OwnerUserName:      "User 1",
+		Category:           "coding",
+		SkillName:          "git-workflow",
+		NodeType:           evolution.SkillNodeTypeParent,
+		Description:        "git workflow",
+		FileExt:            "md",
+		RelativePath:       relativePath,
+		Content:            currentContent,
+		ContentSize:        int64(len([]byte(currentContent))),
+		MimeType:           "text/markdown; charset=utf-8",
+		ContentHash:        evolution.HashContent(currentContent),
+		Version:            3,
+		DraftContent:       draftContent,
+		DraftSourceVersion: 3,
+		DraftStatus:        "pending_confirm",
+		AutoEvo:            false,
+		Ext:                evolution.WithDraftSuggestionIDs(nil, []string{"suggestion-1"}),
+		IsEnabled:          true,
+		UpdateStatus:       "pending_confirm",
+		CreateUserID:       "u1",
+		CreateUserName:     "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	req := mux.SetURLVars(
+		httptest.NewRequest(http.MethodPatch, "/api/core/skills/skill-1", strings.NewReader(`{"content":"request body should not win","auto_evo":true}`)),
+		map[string]string{"skill_id": row.ID},
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	UpdateManaged(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated orm.SkillResource
+	if err := db.Where("id = ?", row.ID).Take(&updated).Error; err != nil {
+		t.Fatalf("query updated skill: %v", err)
+	}
+	if updated.Content != row.Content {
+		t.Fatalf("expected content to remain %q, got %q", row.Content, updated.Content)
+	}
+	if updated.Version != row.Version {
+		t.Fatalf("expected version to remain %d, got %d", row.Version, updated.Version)
+	}
+	if strings.TrimSpace(updated.DraftStatus) != "" || updated.DraftContent != "" || updated.DraftSourceVersion != 0 || updated.DraftUpdatedAt != nil {
+		t.Fatalf("expected draft to be discarded, got status=%q content=%q source=%d updated_at=%v", updated.DraftStatus, updated.DraftContent, updated.DraftSourceVersion, updated.DraftUpdatedAt)
+	}
+	if gotIDs := evolution.DraftSuggestionIDs(updated.Ext); len(gotIDs) != 0 {
+		t.Fatalf("expected draft suggestion ids to be cleared, got %#v", gotIDs)
+	}
+	if !updated.AutoEvo {
+		t.Fatalf("expected auto_evo to be enabled")
+	}
+	if updated.AutoEvoGeneration != row.AutoEvoGeneration+1 {
+		t.Fatalf("expected auto_evo_generation to increment, got %d", updated.AutoEvoGeneration)
+	}
+	if updated.UpdateStatus != evolution.UpdateStatusUpToDate {
+		t.Fatalf("expected update_status up_to_date, got %q", updated.UpdateStatus)
+	}
+}
+
+func TestUpdateManagedAutoEvoReturnsConflictWhenWorkerRunning(t *testing.T) {
+	db := newSkillTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	currentContent := "---\nname: git-workflow\ndescription: git workflow\n---\ncurrent body"
+	row := orm.SkillResource{
+		ID:                 "skill-1",
+		OwnerUserID:        "u1",
+		OwnerUserName:      "User 1",
+		Category:           "coding",
+		SkillName:          "git-workflow",
+		NodeType:           evolution.SkillNodeTypeParent,
+		Description:        "git workflow",
+		FileExt:            "md",
+		RelativePath:       evolution.ParentSkillRelativePath("coding", "git-workflow"),
+		Content:            currentContent,
+		ContentSize:        int64(len([]byte(currentContent))),
+		MimeType:           "text/markdown; charset=utf-8",
+		ContentHash:        evolution.HashContent(currentContent),
+		Version:            2,
+		AutoEvo:            false,
+		AutoEvoApplyStatus: evolution.AutoEvoApplyStatusRunning,
+		AutoEvoGeneration:  7,
+		IsEnabled:          true,
+		UpdateStatus:       evolution.UpdateStatusUpToDate,
+		CreateUserID:       "u1",
+		CreateUserName:     "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	workerKey := evolution.AutoEvoWorkerKey(evolution.ResourceTypeSkill, row.ID)
+	if !evolution.TryAcquireAutoEvoWorker(workerKey) {
+		t.Fatalf("expected to acquire worker lock")
+	}
+	t.Cleanup(func() { evolution.ReleaseAutoEvoWorker(workerKey) })
+
+	req := mux.SetURLVars(
+		httptest.NewRequest(http.MethodPatch, "/api/core/skills/skill-1", strings.NewReader(`{"content":"request body should not win","auto_evo":true}`)),
+		map[string]string{"skill_id": row.ID},
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	UpdateManaged(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated orm.SkillResource
+	if err := db.Where("id = ?", row.ID).Take(&updated).Error; err != nil {
+		t.Fatalf("query updated skill: %v", err)
+	}
+	if updated.Content != row.Content || updated.Version != row.Version || updated.AutoEvo != row.AutoEvo {
+		t.Fatalf("expected skill fields unchanged, got content=%q version=%d auto_evo=%v", updated.Content, updated.Version, updated.AutoEvo)
+	}
+	if updated.AutoEvoGeneration != row.AutoEvoGeneration || updated.AutoEvoApplyStatus != row.AutoEvoApplyStatus {
+		t.Fatalf("expected auto_evo state unchanged, got generation=%d status=%q", updated.AutoEvoGeneration, updated.AutoEvoApplyStatus)
+	}
+}
+
 func TestGenerateAllowsUserInstructWithoutSuggestions(t *testing.T) {
 	db := newSkillTestDB(t)
 	store.Init(db.DB, nil, nil)

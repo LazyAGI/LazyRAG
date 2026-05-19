@@ -373,6 +373,7 @@ var errorCatalog = map[string]*AppError{
 	"当前已有任务正在运行，请先等待完成、暂停或取消后再继续该历史任务。":            NewAppError(http.StatusConflict, 2001118, "当前已有任务正在运行，请先等待完成、暂停或取消后再继续该历史任务。"),
 	"thread already has an active messages stream": NewAppError(http.StatusConflict, 2001119, "thread already has an active messages stream"),
 	"upstream messages request failed":             NewAppError(http.StatusConflict, 2001120, "upstream messages request failed"),
+	"auto_evo task is running":                     NewAppError(http.StatusConflict, 2001121, "auto_evo task is running"),
 
 	// Additional upstream errors discovered from handlers.
 	"auto_evo generated empty content":                NewAppError(http.StatusBadGateway, 2001201, "auto_evo generated empty content"),

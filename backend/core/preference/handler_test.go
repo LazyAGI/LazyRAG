@@ -185,6 +185,119 @@ func TestUpsertPreservesPreferenceAutoEvoWhenOmitted(t *testing.T) {
 	}
 }
 
+func TestUpsertAutoEvoDiscardsPendingDraftWithoutOverwritingPreferenceContent(t *testing.T) {
+	db := newPreferenceTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	row := orm.SystemUserPreference{
+		ID:                 "preference-1",
+		UserID:             "u1",
+		Content:            "current preference",
+		ContentHash:        evolution.HashContent("current preference"),
+		Version:            7,
+		DraftContent:       "draft preference",
+		DraftSourceVersion: 7,
+		DraftStatus:        "pending_confirm",
+		AutoEvo:            false,
+		Ext:                evolution.WithDraftSuggestionIDs(nil, []string{"suggestion-1"}),
+		UpdatedBy:          "u1",
+		UpdatedByName:      "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create preference: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/core/user-preference", strings.NewReader(`{"content":"request body should not win","auto_evo":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	Upsert(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated orm.SystemUserPreference
+	if err := db.Where("id = ?", row.ID).Take(&updated).Error; err != nil {
+		t.Fatalf("query updated preference: %v", err)
+	}
+	if updated.Content != row.Content {
+		t.Fatalf("expected content to remain %q, got %q", row.Content, updated.Content)
+	}
+	if updated.Version != row.Version {
+		t.Fatalf("expected version to remain %d, got %d", row.Version, updated.Version)
+	}
+	if strings.TrimSpace(updated.DraftStatus) != "" || updated.DraftContent != "" || updated.DraftSourceVersion != 0 || updated.DraftUpdatedAt != nil {
+		t.Fatalf("expected draft to be discarded, got status=%q content=%q source=%d updated_at=%v", updated.DraftStatus, updated.DraftContent, updated.DraftSourceVersion, updated.DraftUpdatedAt)
+	}
+	if gotIDs := evolution.DraftSuggestionIDs(updated.Ext); len(gotIDs) != 0 {
+		t.Fatalf("expected draft suggestion ids to be cleared, got %#v", gotIDs)
+	}
+	if !updated.AutoEvo {
+		t.Fatalf("expected auto_evo to be enabled")
+	}
+	if updated.AutoEvoGeneration != row.AutoEvoGeneration+1 {
+		t.Fatalf("expected auto_evo_generation to increment, got %d", updated.AutoEvoGeneration)
+	}
+}
+
+func TestUpsertAutoEvoReturnsConflictWhenWorkerRunning(t *testing.T) {
+	db := newPreferenceTestDB(t)
+	store.Init(db.DB, nil, nil)
+	t.Cleanup(func() { store.Init(nil, nil, nil) })
+
+	now := time.Now()
+	row := orm.SystemUserPreference{
+		ID:                 "preference-1",
+		UserID:             "u1",
+		Content:            "current preference",
+		ContentHash:        evolution.HashContent("current preference"),
+		Version:            2,
+		AutoEvo:            false,
+		AutoEvoApplyStatus: evolution.AutoEvoApplyStatusRunning,
+		AutoEvoGeneration:  7,
+		UpdatedBy:          "u1",
+		UpdatedByName:      "User 1",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create preference: %v", err)
+	}
+	workerKey := evolution.AutoEvoWorkerKey(evolution.ResourceTypeUserPreference, row.ID)
+	if !evolution.TryAcquireAutoEvoWorker(workerKey) {
+		t.Fatalf("expected to acquire worker lock")
+	}
+	t.Cleanup(func() { evolution.ReleaseAutoEvoWorker(workerKey) })
+
+	req := httptest.NewRequest(http.MethodPut, "/api/core/user-preference", strings.NewReader(`{"content":"new preference","auto_evo":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "u1")
+	req.Header.Set("X-User-Name", "User 1")
+	rec := httptest.NewRecorder()
+
+	Upsert(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated orm.SystemUserPreference
+	if err := db.Where("id = ?", row.ID).Take(&updated).Error; err != nil {
+		t.Fatalf("query updated preference: %v", err)
+	}
+	if updated.Content != row.Content || updated.Version != row.Version || updated.AutoEvo != row.AutoEvo {
+		t.Fatalf("expected preference fields unchanged, got content=%q version=%d auto_evo=%v", updated.Content, updated.Version, updated.AutoEvo)
+	}
+	if updated.AutoEvoGeneration != row.AutoEvoGeneration || updated.AutoEvoApplyStatus != row.AutoEvoApplyStatus {
+		t.Fatalf("expected auto_evo state unchanged, got generation=%d status=%q", updated.AutoEvoGeneration, updated.AutoEvoApplyStatus)
+	}
+}
+
 func TestDraftPreviewReturnsCurrentDraftAndDiff(t *testing.T) {
 	db := newPreferenceTestDB(t)
 	store.Init(db.DB, nil, nil)

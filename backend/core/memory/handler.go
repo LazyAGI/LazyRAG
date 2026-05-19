@@ -33,6 +33,8 @@ type upsertRequest struct {
 	AutoEvo *bool   `json:"auto_evo"`
 }
 
+const errAutoEvoTaskRunning = "auto_evo task is running"
+
 type draftPreviewResponse struct {
 	DraftStatus        string `json:"draft_status"`
 	DraftSourceVersion int64  `json:"draft_source_version"`
@@ -164,6 +166,45 @@ func upsertManagedMemoryContent(r *http.Request, db *gorm.DB, userID, userName, 
 	return existing, nil
 }
 
+func enableManagedMemoryAutoEvoWithDiscardedDraft(r *http.Request, db *gorm.DB, row *orm.SystemMemory, userID, userName string) (*orm.SystemMemory, error) {
+	now := time.Now()
+	update := map[string]any{
+		"auto_evo":              true,
+		"auto_evo_generation":   gorm.Expr("auto_evo_generation + 1"),
+		"auto_evo_apply_status": evolution.AutoEvoApplyStatusIdle,
+		"auto_evo_error":        "",
+		"auto_evo_finished_at":  nil,
+		"draft_content":         "",
+		"draft_source_version":  0,
+		"draft_status":          "",
+		"draft_updated_at":      nil,
+		"updated_by":            userID,
+		"updated_by_name":       userName,
+		"updated_at":            now,
+		"ext":                   evolution.WithDraftSuggestionIDs(row.Ext, nil),
+	}
+	if err := db.WithContext(r.Context()).
+		Model(&orm.SystemMemory{}).
+		Where("id = ?", row.ID).
+		Updates(update).Error; err != nil {
+		return nil, err
+	}
+	row.AutoEvo = true
+	row.AutoEvoGeneration++
+	row.AutoEvoApplyStatus = evolution.AutoEvoApplyStatusIdle
+	row.AutoEvoError = ""
+	row.AutoEvoFinishedAt = nil
+	row.DraftContent = ""
+	row.DraftSourceVersion = 0
+	row.DraftStatus = ""
+	row.DraftUpdatedAt = nil
+	row.UpdatedBy = userID
+	row.UpdatedByName = userName
+	row.UpdatedAt = now
+	row.Ext = evolution.WithDraftSuggestionIDs(row.Ext, nil)
+	return row, nil
+}
+
 func Upsert(w http.ResponseWriter, r *http.Request) {
 	db := store.DB()
 	if db == nil {
@@ -198,15 +239,29 @@ func Upsert(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, "query memory failed", http.StatusInternalServerError)
 		return
 	}
-	if existing != nil && strings.TrimSpace(existing.DraftStatus) == "pending_confirm" {
+	pendingDraft := existing != nil && strings.TrimSpace(existing.DraftStatus) == "pending_confirm"
+	if existing != nil && req.AutoEvo != nil && evolution.HasAutoEvoWorker(evolution.AutoEvoWorkerKey(evolution.ResourceTypeMemory, existing.ID)) {
+		common.ReplyErr(w, errAutoEvoTaskRunning, http.StatusConflict)
+		return
+	}
+	if pendingDraft && (req.AutoEvo == nil || !*req.AutoEvo) {
 		common.ReplyErr(w, "memory draft already pending_confirm", http.StatusConflict)
 		return
 	}
 
-	row, err := upsertManagedMemoryContent(r, db, userID, userName, content, req.AutoEvo, false)
-	if err != nil {
-		common.ReplyErr(w, "update memory failed", http.StatusInternalServerError)
-		return
+	var row *orm.SystemMemory
+	if pendingDraft {
+		row, err = enableManagedMemoryAutoEvoWithDiscardedDraft(r, db, existing, userID, userName)
+		if err != nil {
+			common.ReplyErr(w, "update memory failed", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		row, err = upsertManagedMemoryContent(r, db, userID, userName, content, req.AutoEvo, false)
+		if err != nil {
+			common.ReplyErr(w, "update memory failed", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if req.AutoEvo != nil && *req.AutoEvo {

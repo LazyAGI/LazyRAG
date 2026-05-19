@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -7709,6 +7710,147 @@ func TestListSourceDocumentsKeepsPendingDocumentUpdateOverUnchangedSnapshot(t *t
 	}
 	if resp.Summary.ModifiedCount != 1 || resp.Summary.PendingPullCount != 1 {
 		t.Fatalf("expected modified=1 pending=1, got modified=%d pending=%d", resp.Summary.ModifiedCount, resp.Summary.PendingPullCount)
+	}
+
+	overviews, err := st.ListSourceDocumentOverviews(ctx, []model.Source{src})
+	if err != nil {
+		t.Fatalf("list source document overviews failed: %v", err)
+	}
+	overview := overviews[src.ID]
+	if overview.Summary.TotalDocumentCount != 1 || overview.Summary.ModifiedCount != 1 || overview.Summary.PendingPullCount != 1 {
+		t.Fatalf("expected overview summary to match document list, got %+v", overview.Summary)
+	}
+	if len(overview.Items) != 1 || overview.Items[0].UpdateType != "MODIFIED" {
+		t.Fatalf("expected overview item to remain MODIFIED, got %+v", overview.Items)
+	}
+}
+
+func TestListSourceDocumentOverviewsReturnsAllVisibleDocuments(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	ctx := context.Background()
+	src, err := st.CreateSource(ctx, model.CreateSourceRequest{
+		TenantID:              "tenant-cloud-overview",
+		Name:                  "src-cloud-overview",
+		RootPath:              "/tmp/cloud-overview",
+		AgentID:               "agent-1",
+		WatchEnabled:          false,
+		IdleWindowSeconds:     10,
+		DefaultOriginType:     string(model.OriginTypeCloudSync),
+		DefaultOriginPlatform: "FEISHU",
+	})
+	if err != nil {
+		t.Fatalf("create cloud source failed: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-2 * time.Minute)
+	paths := []string{
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "changed.md"),
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "same-1.md"),
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "same-2.md"),
+		filepath.Join(sourcelayout.CloudMirrorRoot(src.RootPath), "same-3.md"),
+	}
+	committedID := sourceSnapshotID()
+	if err := st.db.WithContext(ctx).Create(&sourceFileSnapshotEntity{
+		SnapshotID:   committedID,
+		SourceID:     src.ID,
+		TenantID:     src.TenantID,
+		SnapshotType: "COMMITTED",
+		FileCount:    int64(len(paths)),
+		CreatedAt:    now,
+	}).Error; err != nil {
+		t.Fatalf("create committed snapshot failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&sourceSnapshotRelationEntity{
+		SourceID:                src.ID,
+		LastCommittedSnapshotID: committedID,
+		UpdatedAt:               now,
+	}).Error; err != nil {
+		t.Fatalf("create snapshot relation failed: %v", err)
+	}
+
+	docs := make([]documentEntity, 0, len(paths))
+	snapshotItems := make([]sourceFileSnapshotItemEntity, 0, len(paths))
+	indexRows := make([]cloudObjectIndexEntity, 0, len(paths))
+	for i, path := range paths {
+		current := "v1"
+		desired := "v1"
+		sourceVersion := "rev1"
+		if i == 0 {
+			desired = "v2"
+			sourceVersion = "rev2"
+		}
+		docs = append(docs, documentEntity{
+			TenantID:         src.TenantID,
+			SourceID:         src.ID,
+			SourceObjectID:   path,
+			CoreDocumentID:   fmt.Sprintf("core-doc-%d", i),
+			DesiredVersionID: desired,
+			CurrentVersionID: current,
+			LastModifiedAt:   &now,
+			ParseStatus:      "SUCCEEDED",
+			OriginType:       string(model.OriginTypeCloudSync),
+			OriginPlatform:   "FEISHU",
+			OriginRef:        fmt.Sprintf("node_%d", i),
+			TriggerPolicy:    string(model.TriggerPolicyImmediate),
+			UpdatedAt:        now.Add(time.Duration(i) * time.Second),
+		})
+		snapshotItems = append(snapshotItems, sourceFileSnapshotItemEntity{
+			SnapshotID:     committedID,
+			Path:           path,
+			IsDir:          false,
+			SizeBytes:      10,
+			Checksum:       "rev1",
+			ExternalFileID: fmt.Sprintf("node_%d", i),
+			ModTime:        &now,
+		})
+		indexRows = append(indexRows, cloudObjectIndexEntity{
+			SourceID:           src.ID,
+			Provider:           "feishu",
+			ExternalObjectID:   fmt.Sprintf("node_%d", i),
+			ExternalPath:       filepath.Base(path),
+			ExternalName:       filepath.Base(path),
+			ExternalKind:       "docx",
+			ExternalVersion:    sourceVersion,
+			ExternalModifiedAt: &now,
+			LocalAbsPath:       path,
+			Checksum:           sourceVersion,
+			SizeBytes:          10,
+			LastSyncedAt:       &now,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		})
+	}
+	if err := st.db.WithContext(ctx).Create(&docs).Error; err != nil {
+		t.Fatalf("create overview documents failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&snapshotItems).Error; err != nil {
+		t.Fatalf("create snapshot items failed: %v", err)
+	}
+	if err := st.db.WithContext(ctx).Create(&indexRows).Error; err != nil {
+		t.Fatalf("create cloud object index rows failed: %v", err)
+	}
+
+	overviews, err := st.ListSourceDocumentOverviews(ctx, []model.Source{src})
+	if err != nil {
+		t.Fatalf("list source document overviews failed: %v", err)
+	}
+	overview := overviews[src.ID]
+	if overview.Total != 4 || overview.Summary.TotalDocumentCount != 4 {
+		t.Fatalf("expected overview total=4, got total=%d summary=%d", overview.Total, overview.Summary.TotalDocumentCount)
+	}
+	if len(overview.Items) != 4 {
+		t.Fatalf("expected overview to include all visible documents, got %+v", overview.Items)
+	}
+	if overview.Summary.ModifiedCount != 1 || overview.Summary.PendingPullCount != 1 {
+		t.Fatalf("expected modified=1 pending=1, got %+v", overview.Summary)
+	}
+	updates := map[string]int{}
+	for _, item := range overview.Items {
+		updates[item.UpdateType]++
+	}
+	if updates["MODIFIED"] != 1 || updates["UNCHANGED"] != 3 {
+		t.Fatalf("expected one modified and three unchanged items, got %+v items=%+v", updates, overview.Items)
 	}
 }
 
