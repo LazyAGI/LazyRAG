@@ -241,11 +241,12 @@ test:
 # Only build/start mineru/paddleocr when LAZYMIND_OCR_SERVER_TYPE is mineru/paddleocr
 # AND LAZYMIND_OCR_SERVER_URL points to the internal service (user has not specified external URL).
 # Only mineru has build:; paddleocr/milvus/opensearch use image: only, so only needed for up.
-#  OCR_SERVER_TYPE	OCR_SERVICE_VARIANT	     OCR_SERVER_URL	     _need_mineru
-# mineru/paddleocr         online                Any                 false
-#      mineru          offline or none     http://mineru:8000         true
-#     paddleocr        offline or none   http://paddleocr:8000        true
-# mineru/paddleocr         offline            external URL           false 
+#  OCR_SERVER_TYPE	OCR_SERVICE_VARIANT	     OCR_SERVER_URL	     _need_mineru      _need_paddleocr
+# mineru/paddleocr         online                Any                 false             false
+# mineru/paddleocr          none                 Any                 false             false
+#      mineru              offline        http://mineru:8000         true              false
+#     paddleocr            offline       http://paddleocr:8000       false             true
+# mineru/paddleocr         offline            external URL           false             false
 
 _need_mineru := $(and $(filter mineru,$(LAZYMIND_OCR_SERVER_TYPE)),$(findstring mineru:8000,$(LAZYMIND_OCR_SERVER_URL)),$(filter-out online,$(LAZYMIND_OCR_SERVICE_VARIANT)))
 _need_paddleocr := $(and $(filter paddleocr,$(LAZYMIND_OCR_SERVER_TYPE)),$(findstring paddleocr:8080,$(LAZYMIND_OCR_SERVER_URL)),$(filter-out online,$(LAZYMIND_OCR_SERVICE_VARIANT)))
