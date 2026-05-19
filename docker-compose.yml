@@ -183,12 +183,12 @@ services:
       RAGSCAN_CONTROL_PLANE_BASE_URL: "http://scan-control-plane:18080"
       RAGSCAN_BASE_ROOT: /data/ragscan
       RAGSCAN_HOST_PATH_STYLE: ${RAGSCAN_HOST_PATH_STYLE:-posix}
-      RAGSCAN_WATCH_HOST_DIR: ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}
+      RAGSCAN_WATCH_HOST_DIR: /Users
       RAGSCAN_WATCH_CONTAINER_DIR: /watch/docs
     volumes:
       - ./backend/file-watcher/configs/agent.yaml:/app/configs/agent.yaml:ro
       - ${RAGSCAN_BASE_ROOT:-./data/scan}:/data/ragscan
-      - ${RAGSCAN_WATCH_HOST_DIR:-${PWD}/data/watch}:/watch/docs
+      - /Users:/watch/docs
     expose:
       - "19090"
     depends_on:
@@ -230,6 +230,7 @@ services:
       LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN: ${LAZYMIND_AUTH_SERVICE_INTERNAL_TOKEN:-dev-internal-service-token}
       LAZYMIND_BOOTSTRAP_ADMIN_USERNAME: ${LAZYMIND_BOOTSTRAP_ADMIN_USERNAME:-admin}
       LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD: ${LAZYMIND_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+      LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/authservice/auth/health')\" || exit 1"]
       interval: 10s
