@@ -3,6 +3,7 @@ from pathlib import Path
 
 import json
 import pytest
+from algorithm.config import config
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
 for _p in (_ROOT, _ROOT / 'algorithm'):
@@ -89,4 +90,5 @@ def _evo_test_data_env(tmp_path, monkeypatch):
 
     monkeypatch.setenv('EVO_DATA_DIR', str(data_dir))
     monkeypatch.setenv('EVO_BASE_DIR', str(base_dir))
+    config.refresh(['evo_data_dir', 'evo_base_dir'])
     yield

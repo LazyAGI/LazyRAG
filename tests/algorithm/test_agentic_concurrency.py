@@ -21,6 +21,7 @@ from typing import Any, Dict, List
 import pytest
 import lazyllm
 
+from config import config as algo_config
 from chat.pipelines import agentic
 from chat.components.agentic import tool_stream
 from chat.components.agentic import review as agentic_review
@@ -682,9 +683,9 @@ def test_tool_stream_frame_uses_representative_kb_arguments():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-1-1">Checking **全风化 软岩 风化岩分组 地基承载力 σ0 表** in the knowledge base for relevant material.</tp>'
+            '<tp id="toolcall-1-1">Checking **全风化 软岩 风化岩分组 地基承载力 σ0 表** in the knowledge base for relevant material.\n</tp>'
             '<tool_call>{"id":"toolcall-1-1","name":"kb_search","arguments":{"query":"全风化 软岩 风化岩分组 地基承载力 σ0 表","topk":15}}</tool_call>'
-            '<tp id="toolcall-1-2">Expanding nearby related segments around **36** for review.</tp>'
+            '<tp id="toolcall-1-2">Expanding nearby related segments around **36** for review.\n</tp>'
             '<tool_call>{"id":"toolcall-1-2","name":"kb_get_window_nodes","arguments":{"docid":"doc_7e052315556b40323f5007c5b9f549ab","number":"36","group":"block"}}</tool_call>'
         ),
         'sources': [],
@@ -915,7 +916,7 @@ def test_tool_stream_frame_serializes_full_tool_result_into_text_tags():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-2-1">Long term memory was saved successfully.</trp>'
+            '<trp id="toolcall-2-1">Long term memory for **memory saved** was saved successfully.\n</trp>'
             '<tool_result>{"id":"toolcall-2-1","name":"memory","result":{"status":"success","message":"memory saved","path":"/tmp/memory.json"}}</tool_result>'
         ),
         'sources': [],
@@ -951,7 +952,7 @@ def test_builtin_file_tool_uses_natural_preview_templates():
         'text': (
             '<tp id="toolcall-4-1">Reading file content from **/tmp/demo.txt** for review now.\n</tp>'
             '<tool_call>{"id":"toolcall-4-1","name":"read_file","arguments":{"path":"/tmp/demo.txt","start_line":1,"end_line":20}}</tool_call>'
-            '<trp id="toolcall-4-1">File content was loaded successfully now.</trp>'
+            '<trp id="toolcall-4-1">File content from **/tmp/demo.txt** was loaded successfully now.\n</trp>'
             '<tool_result>{"id":"toolcall-4-1","name":"read_file","result":{"status":"ok","path":"/tmp/demo.txt","content":"hello world"}}</tool_result>'
         ),
         'sources': [],
@@ -998,7 +999,7 @@ def test_tool_result_preview_is_truncated_to_fifty_chars():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-5-1">File content was loaded successfully now.</trp>'
+            '<trp id="toolcall-5-1">File content from **aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...** was loaded successfully now.\n</trp>'
             '<tool_result>{"id":"toolcall-5-1","name":"read_file","result":{"status":"ok","path":"/tmp/long.txt","content":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}</tool_result>'
         ),
         'sources': [],
@@ -1022,7 +1023,7 @@ def test_tool_result_failure_uses_failure_preview_template():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-6-1">File content from **/tmp/missing.txt** could not be read.</trp>'
+            '<trp id="toolcall-6-1">File content from **/tmp/missing.txt** could not be read.\n</trp>'
             '<tool_result>{"id":"toolcall-6-1","name":"read_file","result":{"status":"missing","path":"/tmp/missing.txt"}}</tool_result>'
         ),
         'sources': [],
@@ -1047,7 +1048,7 @@ def test_tool_result_needs_approval_uses_approval_preview_template():
     assert frame == {
         'think': None,
         'text': (
-            '<trp id="toolcall-7-1">Please review the confirmation note "**Deleting files requires approval.**" before deleting this file.</trp>'
+            '<trp id="toolcall-7-1">Please review the confirmation note "**Deleting files requires approval.**" before deleting this file.\n</trp>'
             '<tool_result>{"id":"toolcall-7-1","name":"delete_file","result":{"status":"needs_approval","reason":"Deleting files requires approval.","path":"/tmp/demo.txt"}}</tool_result>'
         ),
         'sources': [],
@@ -1086,11 +1087,11 @@ def test_unknown_tool_fallback_preview_omits_value():
     assert frame == {
         'think': None,
         'text': (
-            '<tp id="toolcall-8-1">Preparing the requested tool action for **/tmp/demo.txt**.</tp>'
+            '<tp id="toolcall-8-1">Preparing the requested tool action for **/tmp/demo.txt**.\n</tp>'
             '<tool_call>{"id":"toolcall-8-1","name":"unknown_tool","arguments":{"path":"/tmp/demo.txt"}}</tool_call>'
-            '<trp id="toolcall-8-1">Tool results for **done** were received successfully.</trp>'
+            '<trp id="toolcall-8-1">Tool results for **/tmp/demo.txt** were received successfully.\n</trp>'
             '<tool_result>{"id":"toolcall-8-1","name":"unknown_tool","result":{"status":"ok","content":"done"}}</tool_result>'
-            '<trp id="toolcall-8-2">The step for **boom** could not be completed.</trp>'
+            '<trp id="toolcall-8-2">The step for **boom** could not be completed.\n</trp>'
             '<tool_result>{"id":"toolcall-8-2","name":"unknown_tool","result":{"status":"failed","reason":"boom"}}</tool_result>'
         ),
         'sources': [],
@@ -1405,6 +1406,7 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
     )
     monkeypatch.setattr(lazyllm.tools.agent, 'ReactAgent', _ReviewAgent)
     monkeypatch.setenv('LAZYMIND_REVIEW_DEBUG', '1')
+    algo_config.refresh('review_debug')
 
     agentic._spawn_background_review(
         config={
@@ -1422,6 +1424,8 @@ def test_spawn_background_review_uses_all_skills_under_skill_fs_url(monkeypatch)
         'skills': ('skill_a', 'skill_b', 'skill_c'),
         'skills_dir': 'file:///tmp/skills',
     }
+    monkeypatch.delenv('LAZYMIND_REVIEW_DEBUG')
+    algo_config.refresh('review_debug')
 
 
 def test_max_retries_and_force_summary_use_lazymind_env(fake_pipeline, monkeypatch):

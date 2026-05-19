@@ -128,7 +128,10 @@ def test_get_retriever_builds_parts(monkeypatch):
 
     assert len(parts.kb_retrievers) == 1
     assert parts.tmp_retriever_pipeline is fake_pipeline
-    assert retriever_calls == [(fake_document, {'group_name': 'line', 'topk': 5})]
+    assert retriever_calls == [
+        (fake_document, {'group_name': 'line', 'topk': 5}),
+        (fake_document, {'group_name': 'image', 'topk': 3, 'embed_keys': ['embed_image']}),
+    ]
     assert automodel_calls == [retriever_mod.EMBED_MAIN]
     assert temp_calls == {'init': 'embed-model', 'sub': ('block', 3)}
     assert bind_calls == [{'query': 'pipeline-input'}]
@@ -267,5 +270,4 @@ def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch
     ppl_search_mod.get_ppl_search('http://kb-service', retriever_configs=[{'group_name': 'line'}])
 
     assert recorded['ifs']['cond']() is True
-
 
