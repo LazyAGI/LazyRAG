@@ -150,7 +150,7 @@ def _wrap(fn: ToolFn, name: str) -> ToolFn:
 
 def tool(*, name: str | None = None, tags: list[str] | None = None, lazyllm_group: str = 'tool',
          llm_exposed: bool = True, summarizer: Summarizer | None = None,
-        ) -> Callable[[ToolFn], ToolFn]:
+         ) -> Callable[[ToolFn], ToolFn]:
     def decorator(fn: ToolFn) -> ToolFn:
         tool_name = name or fn.__name__
         wrapped = _wrap(fn, tool_name)

@@ -263,7 +263,11 @@ def _stage_shortcut(message: str, ctx: PlanContext, state: State) -> Draft | Non
     if _reset_request(message, flow) or retry_restart:
         if blocker := _stage_blocker(flow, state):
             return Draft(blocker, [], 'stage_rule')
-        return Draft(f'重新执行{_FLOW_LABELS[flow]}。', [_start_op(flow, ctx, state, resume=False, message=message)], 'stage_rule')
+        return Draft(
+            f'重新执行{_FLOW_LABELS[flow]}。',
+            [_start_op(flow, ctx, state, resume=False, message=message)],
+            'stage_rule',
+        )
     if (state.latest.get(flow) or {}).get('status') in RESUMABLE_STATUSES | {'stopping'}:
         op = {'op': 'task.continue_latest', 'args': {'flow': flow}}
         return Draft(f'继续执行{_FLOW_LABELS[flow]}。', [op], 'stage_rule')
@@ -416,7 +420,10 @@ def _fill_eval(args: dict, inputs: dict) -> None:
 
 def _fill_abtest(args: dict, state: State) -> None:
     args.setdefault('apply_id', state.latest_id('apply'))
-    args.setdefault('baseline_eval_id', state.latest_payload('eval').get('eval_id') or state.artifact('eval_ids') or state.latest_id('eval'))
+    args.setdefault(
+        'baseline_eval_id',
+        state.latest_payload('eval').get('eval_id') or state.artifact('eval_ids') or state.latest_id('eval'),
+    )
     args.setdefault('dataset_id', state.artifact('dataset_ids'))
     args['target_chat_url'] = EVO_TARGET_CHAT_URL
     if state.inputs.get('dataset_name'):

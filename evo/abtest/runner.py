@@ -297,7 +297,15 @@ def _eval_max_workers(eval_options: dict[str, Any]) -> int:
 
 
 def _has_eval_partial(c: _Ctx) -> bool:
-    return (c.cfg.storage.base_dir / 'datasets' / c.inputs.dataset_id / 'eval_attempts' / c.inputs.abtest_id / 'partial.json').is_file()
+    partial_path = (
+        c.cfg.storage.base_dir
+        / 'datasets'
+        / c.inputs.dataset_id
+        / 'eval_attempts'
+        / c.inputs.abtest_id
+        / 'partial.json'
+    )
+    return partial_path.is_file()
 
 
 def _eval_phase_workers(eval_options: dict[str, Any], key: str, default: int) -> int:

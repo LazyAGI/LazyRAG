@@ -50,7 +50,7 @@ class ToolResult(Generic[T]):
     @classmethod
     def failure(cls, tool: str, code: str | ErrorCode, message: str,
                 details: dict[str, Any] | None = None, latency_ms: float = 0.0
-            ) -> 'ToolResult[Any]':
+                ) -> 'ToolResult[Any]':
         c = code.value if isinstance(code, ErrorCode) else code
         return cls(
             ok=False, tool=tool, error=ToolError(code=c, message=message, details=details), latency_ms=latency_ms

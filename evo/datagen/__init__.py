@@ -79,7 +79,7 @@ def run_generate_pipeline(kb_id: str, algo_id: str, eval_name: str, *, dataset_s
                           config: EvoConfig, thread_id: str | None = None, llm_factory=None,
                           cancel=None, num_cases: int | None = None, attempt_id: str | None = None,
                           resume: bool = True, on_progress=None,
-                        ) -> tuple[str, dict[str, Any]]:
+                          ) -> tuple[str, dict[str, Any]]:
     _log.info('start dataset_gen kb_id=%s algo_id=%s eval_name=%s', kb_id, algo_id, eval_name)
     _check_cancel(cancel)
     docs = _get_docs_or_raise(dataset_source, kb_id, algo_id)
