@@ -25,7 +25,13 @@ import {
 } from "@ant-design/icons";
 import { getLocalizedErrorMessage } from "@/components/request";
 import { useTranslation } from "react-i18next";
-import { Outlet, useMatch, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Outlet,
+  useLocation,
+  useMatch,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import {
   DEVELOPER_ACTIVE_EVENT,
   isDeveloperModeActive,
@@ -200,6 +206,7 @@ const mergeEvolutionSuggestionRecords = (
 
 export default function MemoryManagement() {
   const { t } = useTranslation();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabRouteMatch = useMatch(`${MEMORY_BASE_PATH}/:tab`);
@@ -208,15 +215,20 @@ export default function MemoryManagement() {
   const glossaryDetailMatch = useMatch(`${MEMORY_BASE_PATH}/glossary/:itemId`);
   const reviewRouteMatch = useMatch(`${MEMORY_BASE_PATH}/review/:tab/:itemId`);
   const reviewRouteReloadKeyRef = useRef("");
+  const skillRouteItemId = skillDetailMatch?.params.itemId;
+  const experienceRouteItemId = experienceDetailMatch?.params.itemId;
+  const glossaryRouteItemId = glossaryDetailMatch?.params.itemId;
+  const reviewRouteTab = parseChangeProposalTab(reviewRouteMatch?.params.tab);
+  const reviewRouteItemId = reviewRouteMatch?.params.itemId;
   const routeListTab = parseMemoryTab(tabRouteMatch?.params.tab);
   const initialRouteTab =
-    (skillDetailMatch?.params.itemId
+    (skillRouteItemId
       ? "skills"
-      : experienceDetailMatch?.params.itemId
+      : experienceRouteItemId
       ? "experience"
-      : glossaryDetailMatch?.params.itemId
+      : glossaryRouteItemId
       ? "glossary"
-      : parseChangeProposalTab(reviewRouteMatch?.params.tab) ||
+      : reviewRouteTab ||
         routeListTab ||
         parseMemoryTab(searchParams.get("tab")) ||
         "skills") as MemoryTab;
@@ -240,6 +252,8 @@ export default function MemoryManagement() {
   const [skillAutoEvoLoading, setSkillAutoEvoLoading] = useState<Set<string>>(new Set());
   const [skillsInitialized, setSkillsInitialized] = useState(false);
   const skillListRequestIdRef = useRef(0);
+  const skillListRouteLocationKeyRef = useRef("");
+  const skillListRefreshKeyRef = useRef("");
   const [skillListPage, setSkillListPage] = useState(1);
   const [skillListPageSize, setSkillListPageSize] = useState(defaultSkillListPageSize);
   const [skillListTotal, setSkillListTotal] = useState(initialSkills.length);
@@ -933,8 +947,64 @@ export default function MemoryManagement() {
   );
 
   useEffect(() => {
-    void refreshSkillAssets();
-  }, [refreshSkillAssets]);
+    const queryTab = parseMemoryTab(searchParams.get("tab"));
+    const routeTab =
+      skillRouteItemId
+        ? "skills"
+        : experienceRouteItemId
+        ? "experience"
+        : glossaryRouteItemId
+        ? "glossary"
+        : reviewRouteTab || routeListTab || queryTab || "skills";
+    const shouldRefreshSkillAssets =
+      Boolean(skillRouteItemId) ||
+      reviewRouteTab === "skills" ||
+      (!experienceRouteItemId && !glossaryRouteItemId && routeTab === "skills");
+
+    if (!shouldRefreshSkillAssets) {
+      return;
+    }
+
+    const isNewSkillListEntry =
+      !skillRouteItemId &&
+      reviewRouteTab !== "skills" &&
+      skillListRouteLocationKeyRef.current !== location.key;
+    const requestPage = isNewSkillListEntry ? 1 : skillListPage;
+    const refreshKey = [
+      location.key,
+      location.pathname,
+      location.search,
+      skillKeyword,
+      category || "",
+      tag || "",
+      requestPage,
+      skillListPageSize,
+    ].join("|");
+
+    if (skillListRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+    skillListRouteLocationKeyRef.current = location.key;
+    skillListRefreshKeyRef.current = refreshKey;
+
+    void refreshSkillAssets({ page: requestPage });
+  }, [
+    category,
+    experienceRouteItemId,
+    glossaryRouteItemId,
+    location.key,
+    location.pathname,
+    location.search,
+    refreshSkillAssets,
+    reviewRouteTab,
+    routeListTab,
+    searchParams,
+    skillKeyword,
+    skillListPage,
+    skillListPageSize,
+    skillRouteItemId,
+    tag,
+  ]);
 
   useEffect(() => {
     void refreshExperienceSection({ silent: true });
@@ -988,12 +1058,6 @@ export default function MemoryManagement() {
 
     void refreshGlossaryConflicts({ showErrorToast: true });
   }, [glossaryInboxOpen, refreshGlossaryConflicts]);
-
-  const glossaryRouteItemId = glossaryDetailMatch?.params.itemId;
-  const skillRouteItemId = skillDetailMatch?.params.itemId;
-  const experienceRouteItemId = experienceDetailMatch?.params.itemId;
-  const reviewRouteTab = parseChangeProposalTab(reviewRouteMatch?.params.tab);
-  const reviewRouteItemId = reviewRouteMatch?.params.itemId;
 
   useEffect(() => {
     const syncDeveloperActive = () => {
