@@ -277,7 +277,7 @@ services:
         <<: *mirror-args
     volumes:
       - ./api/backend:/openapi-export
-      - /tmp/evo:/var/lib/lazymind/evo
+      - ./data/evo:/var/lib/lazymind/evo
       - ./data/core/uploads:/var/lib/lazymind/uploads
     expose:
       - "8000"
@@ -710,7 +710,7 @@ services:
       LAZYMIND_MODEL_CONFIG_PATH: ${LAZYMIND_MODEL_CONFIG_PATH:-dynamic}
       <<: [*runtime-home, *trace-config, *proxy-env, *llm-api-keys]
     volumes:
-      - /tmp/evo:/var/lib/lazymind/evo
+      - ./data/evo:/var/lib/lazymind/evo
       - ./data/traces:/var/lib/lazymind/traces
       - ./data/core/uploads:/var/lib/lazymind/uploads:ro
       - ./algorithm:/app/algorithm:ro
