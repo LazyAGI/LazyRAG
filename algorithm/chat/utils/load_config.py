@@ -1,6 +1,8 @@
+import os
+import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import yaml
 from lazyllm.tools.agent.skill_manager import SkillManager as LazySkillManager
@@ -56,14 +58,20 @@ def get_config_path() -> str:
     return path
 
 
-def load_model_config(config_path: str | None = None) -> Dict[str, Any]:
-    '''Load and return the raw model config dict (yaml parsed, no env expansion).
+def load_model_config(config_path: str | None = None, *, expand_env: bool = False) -> Dict[str, Any]:
+    '''Load and return the raw model config dict (yaml parsed).
 
     When config_path is None, falls back to the path resolved by get_config_path()
     (controlled by LAZYMIND_MODEL_CONFIG_PATH).
+
+    If expand_env is True, environment variables in ${VAR} or $VAR format
+    are replaced with their values from os.environ.
     '''
     with Path(config_path or get_config_path()).open(encoding='utf-8') as f:
-        return yaml.safe_load(f) or {}
+        raw = yaml.safe_load(f) or {}
+    if expand_env:
+        raw = _deep_expand_env(raw)
+    return raw
 
 
 def normalize_skill_fs_url(value: Any) -> str:
@@ -420,3 +428,49 @@ def get_embed_index_kwargs(config_path: Optional[str] = None) -> list:
         ik['embed_key'] = role
         result.append(ik)
     return result
+
+
+class RetrievalSettings(NamedTuple):
+    embed_keys: List[str]
+    file_search_embed_key: str
+    temp_doc_embed_key: str
+    index_kwargs: List[dict]
+    retriever_configs: List[dict]
+
+
+def _expand_env(value: str) -> str:
+    """Expand ${VAR} and $VAR patterns in a string using environment variables."""
+    def replacer(m: re.Match) -> str:
+        var = m.group(1) or m.group(2)
+        return os.environ.get(var, m.group(0))
+    return re.sub(r'\$\{(\w+)\}|\$(\w+)', replacer, value)
+
+
+def _deep_expand_env(obj: Any) -> Any:
+    """Recursively expand environment variables in a dict/list/string structure."""
+    if isinstance(obj, dict):
+        return {k: _deep_expand_env(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_deep_expand_env(v) for v in obj]
+    if isinstance(obj, str):
+        return _expand_env(obj)
+    return obj
+
+
+@lru_cache(maxsize=1)
+def get_retrieval_settings(config_path: str | None = None) -> RetrievalSettings:
+    embed_keys = get_embed_keys(config_path) or ['embed_main']
+    index_kwargs = get_embed_index_kwargs(config_path)
+    file_search = embed_keys[-1] if embed_keys else 'embed_main'
+    temp_doc = embed_keys[0] if embed_keys else 'embed_main'
+    retriever_configs = [
+        {'group_name': 'line', 'embed_keys': embed_keys, 'topk': 20, 'target': 'block'},
+        {'group_name': 'block', 'embed_keys': embed_keys, 'topk': 20},
+    ]
+    return RetrievalSettings(
+        embed_keys=embed_keys,
+        file_search_embed_key=file_search,
+        temp_doc_embed_key=temp_doc,
+        index_kwargs=index_kwargs,
+        retriever_configs=retriever_configs,
+    )
