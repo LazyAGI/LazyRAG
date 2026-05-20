@@ -65,12 +65,16 @@ ifeq ($(OS),Windows_NT)
   export LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR  ?= D:/
 else
   _UNAME_S := $(shell uname -s 2>/dev/null)
+  _UNAME_R := $(shell uname -r 2>/dev/null | tr '[:upper:]' '[:lower:]')
   ifeq ($(_UNAME_S),Darwin)
     export LAZYMIND_FILE_WATCHER_HOST_PATH_STYLE ?= posix
-    export LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR  ?= /Users
+    export LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR  ?= $(HOME)
+  else ifneq (,$(findstring microsoft,$(_UNAME_R))$(findstring wsl,$(_UNAME_R)))
+    export LAZYMIND_FILE_WATCHER_HOST_PATH_STYLE ?= posix
+    export LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR  ?= /mnt
   else
     export LAZYMIND_FILE_WATCHER_HOST_PATH_STYLE ?= posix
-    export LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR  ?= /tmp
+    export LAZYMIND_FILE_WATCHER_WATCH_HOST_DIR  ?= $(HOME)
   endif
 endif
 
