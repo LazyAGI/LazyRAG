@@ -75,21 +75,11 @@ _TYPE_ORDER = ('single_hop', 'multi_hop', 'table', 'list')
 _TYPE_TO_QUESTION_TYPE = {'single_hop': 1, 'multi_hop': (2, 3), 'table': 4, 'list': 5}
 
 
-def run_generate_pipeline(
-    kb_id: str,
-    algo_id: str,
-    eval_name: str,
-    *,
-    dataset_source: KBClient,
-    config: EvoConfig,
-    thread_id: str | None = None,
-    llm_factory=None,
-    cancel=None,
-    num_cases: int | None = None,
-    attempt_id: str | None = None,
-    resume: bool = True,
-    on_progress=None,
-) -> tuple[str, dict[str, Any]]:
+def run_generate_pipeline(kb_id: str, algo_id: str, eval_name: str, *, dataset_source: KBClient,
+                          config: EvoConfig, thread_id: str | None = None, llm_factory=None,
+                          cancel=None, num_cases: int | None = None, attempt_id: str | None = None,
+                          resume: bool = True, on_progress=None,
+                          ) -> tuple[str, dict[str, Any]]:
     _log.info('start dataset_gen kb_id=%s algo_id=%s eval_name=%s', kb_id, algo_id, eval_name)
     _check_cancel(cancel)
     docs = _get_docs_or_raise(dataset_source, kb_id, algo_id)
@@ -265,9 +255,12 @@ def run_eval(
     cfg: EvoConfig,
     llm_factory=None,
     max_workers: int = 10,
+    rag_max_workers: int | None = None,
+    judge_max_workers: int | None = None,
     dataset_name: str = '',
     filters: dict[str, Any] | None = None,
     require_trace: bool = True,
+    model_config: dict[str, Any] | None = None,
     persist_report: bool = True,
     attempt_id: str | None = None,
     resume: bool = True,
@@ -276,6 +269,8 @@ def run_eval(
     on_judge_progress=None,
 ) -> dict[str, Any]:
     _log.info('start eval dataset_id=%s target=%s', dataset_id, target_chat_url)
+    rag_workers = max(1, int(rag_max_workers or max_workers))
+    judge_workers = max(1, int(judge_max_workers or max_workers))
     attempt_dir, prev = start_attempt(cfg.storage.base_dir / 'datasets' / dataset_id, 'eval_attempts', attempt_id)
     done = (
         [row for row in prev.get('case_details') or [] if row.get('case_id') and 'error' not in row]
@@ -287,16 +282,17 @@ def run_eval(
     def save_eval_attempt() -> None:
         report = build_eval_report(done, meta)
         report['eval_queue'] = [row for row in queued if row.get('case_id') not in {x.get('case_id') for x in done}]
-        save_attempt(attempt_dir, report)
+        save_attempt(attempt_dir, report, indent=None)
 
     eval_data = get_eval_queue(
         dataset_id,
         dataset_name=dataset_name,
         base_dir=cfg.storage.base_dir,
         target_chat_url=target_chat_url,
-        max_workers=max_workers,
+        max_workers=rag_workers,
         filters=filters or {},
         require_trace=require_trace,
+        model_config=model_config,
         skip_case_ids={row.get('case_id') for row in done + queued},
         on_item=lambda item: (queued.append(item), save_eval_attempt()),
         cancel=cancel,
@@ -311,7 +307,7 @@ def run_eval(
     create_evaluate_task(
         eval_queue,
         llm_factory=llm_factory,
-        max_workers=max_workers,
+        max_workers=judge_workers,
         on_item=lambda item: (done.append(item), save_eval_attempt()),
         cancel=cancel,
         on_progress=on_judge_progress,

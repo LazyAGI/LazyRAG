@@ -20,6 +20,7 @@ import (
 	"lazymind/core/common"
 	"lazymind/core/common/orm"
 	"lazymind/core/evolution"
+	"lazymind/core/modelconfig"
 	"lazymind/core/store"
 )
 
@@ -56,7 +57,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Println("[Core] [CHAT_REQUEST] path=", r.URL.Path,
-		" authorization=", apiKeyState(r.Header.Get("Authorization")),
+		" authorization=", modelconfig.APIKeyState(r.Header.Get("Authorization")),
 		" x_user_id=", r.Header.Get("X-User-Id"),
 		" x_user_name=", r.Header.Get("X-User-Name"))
 
@@ -204,7 +205,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reqBody := buildChatRequestBody(convID, sessionID, query, upstreamHistories, raw, resourceContext, userID)
-	llmConfig, err := loadLLMConfig(r.Context(), db, userID)
+	llmConfig, err := modelconfig.LoadLLMConfig(r.Context(), db, userID)
 	if err != nil {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "load llm config failed", err), http.StatusInternalServerError)
 		return
