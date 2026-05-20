@@ -136,7 +136,7 @@ for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
     "$f"; \
 done; \
 apt-get update && apt-get install -y --no-install-recommends \
-    ripgrep cmake ninja-build \
+    ripgrep cmake ninja-build git \
 && rm -rf /var/lib/apt/lists/*
 
 # Detect arch inside the container (dpkg) so the binary always matches the base image,

@@ -82,6 +82,9 @@ interface Props {
   setChatConfig?: (chatConfig: ChatConfig) => void;
   setChatConfigFn: (chatConfig: ChatConfig) => void;
   knowledgeRefreshKey?: number | string;
+  disabledReason?: string;
+  disabledDescription?: string;
+  disabledAction?: ReactNode;
 }
 
 export interface ChatMessage {
@@ -135,6 +138,9 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       setChatConfig,
       setChatConfigFn,
       knowledgeRefreshKey,
+      disabledReason,
+      disabledDescription,
+      disabledAction,
     } = props;
     const { getModelSelection, setModelSelection, resetForNewChat } =
       useModelSelectionStore();
@@ -253,7 +259,13 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     function sendMessage(params: SendMessageParams) {
       const { text, clearInput = true, create_time } = params;
       const normalizedText = text.trim();
-      if (activeStreamRef.current || loading || !canChat || !normalizedText) {
+      if (!canChat) {
+        if (disabledReason) {
+          message.warning(disabledReason);
+        }
+        return;
+      }
+      if (activeStreamRef.current || loading || !normalizedText) {
         return;
       }
 
@@ -1019,6 +1031,12 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     }
 
     function regenerate() {
+      if (!canChat) {
+        if (disabledReason) {
+          message.warning(disabledReason);
+        }
+        return;
+      }
       if (loading) {
         return;
       }
@@ -1105,6 +1123,12 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     }
 
     function handleStartEditUserMessage(item: any, index: number) {
+      if (!canChat) {
+        if (disabledReason) {
+          message.warning(disabledReason);
+        }
+        return;
+      }
       if (loading || activeStreamRef.current) {
         return;
       }
@@ -1118,6 +1142,12 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
     }
 
     function handleResendEditedUserMessage(index: number, value: string) {
+      if (!canChat) {
+        if (disabledReason) {
+          message.warning(disabledReason);
+        }
+        return;
+      }
       if (loading || activeStreamRef.current) {
         return;
       }
@@ -1407,6 +1437,10 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
             knowledgeRefreshKey={knowledgeRefreshKey}
             sessionId={sessionId}
             isStreaming={IS_STREAMING}
+            disabled={!canChat}
+            disabledReason={disabledReason}
+            disabledDescription={disabledDescription}
+            disabledAction={disabledAction}
           />
         </div>
       </div>

@@ -236,7 +236,7 @@ def agentic_forward(
         'stream': bool(stream_event_callback),
         'prompt': runtime_prompt,
         'skills': available_skills,
-        'workspace': config.get('workspace', './workspace'),
+        'workspace': config.get('workspace', '/tmp/lazymind-agentic-workspace'),
         'keep_full_turns': keep_full_turns,
         'fs': FS,
         'skills_dir': skills_dir,

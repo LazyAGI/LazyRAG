@@ -110,7 +110,7 @@ make up
 - API 文档：http://localhost:8090/docs.html
 - 默认账号：`admin` / `admin`
 
-环境变量配置与完整示例见 [`docs/quick_start.md`](docs/quick_start.md)。
+环境变量配置与完整示例见 [`docs/quick_start.CN.md`](docs/quick_start.CN.md)。
 
 ---
 
