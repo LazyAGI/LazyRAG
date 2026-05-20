@@ -1,7 +1,7 @@
+import json
 from typing import Dict
 
 from dotenv import load_dotenv
-
 from config import config
 
 load_dotenv()
@@ -10,8 +10,6 @@ MOUNT_BASE_DIR: str = config['mount_base_dir']
 SENSITIVE_WORDS_PATH: str = config['sensitive_words_path']
 
 LAZYMIND_LLM_PRIORITY: int = config['llm_priority']
-USE_MULTIMODAL = False
-LLM_TYPE_THINK = False
 
 MAX_CONCURRENCY: int = config['max_concurrency']
 RAG_MODE: bool = config['rag_mode']
@@ -26,7 +24,7 @@ DEFAULT_ALGO_SERVICE_URL: str = config['algo_service_url'].rstrip('/')
 DEFAULT_ALGO_DATASET_NAME: str = config['algo_dataset_name']
 DEFAULT_CHAT_DATASET: str = config['default_chat_dataset']
 
-URL_MAP: Dict[str, str] = {
+_DEFAULT_URL_MAP: Dict[str, str] = {
     'algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
     'default': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
     'general_algo': f'{DEFAULT_ALGO_SERVICE_URL},{DEFAULT_ALGO_DATASET_NAME}',
@@ -41,11 +39,44 @@ URL_MAP: Dict[str, str] = {
 }
 
 
-def resolve_dataset_url(dataset: str | None) -> str | None:
+def _parse_dataset_url_map(raw: str) -> Dict[str, str]:
+    text = str(raw or '').strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    result: Dict[str, str] = {}
+    for key, value in parsed.items():
+        if not isinstance(key, str):
+            continue
+        normalized_key = key.strip()
+        normalized_value = str(value or '').strip()
+        if normalized_key and normalized_value:
+            result[normalized_key] = normalized_value
+    return result
+
+
+URL_MAP: Dict[str, str] = {
+    **_DEFAULT_URL_MAP,
+    **_parse_dataset_url_map(config['dataset_url_map']),
+}
+
+
+def resolve_dataset_binding(dataset: str | None) -> tuple[str | None, str | None]:
     if not dataset:
-        return None
+        return None, None
     if dataset in URL_MAP:
-        return URL_MAP[dataset]
-    if dataset.startswith('ds_'):
-        return f'{DEFAULT_ALGO_SERVICE_URL},{dataset}'
-    return None
+        raw = URL_MAP[dataset]
+    elif dataset.startswith('ds_'):
+        raw = f'{DEFAULT_ALGO_SERVICE_URL},{dataset}'
+    else:
+        return None, None
+
+    parts = [part.strip() for part in str(raw).split(',', 1)]
+    kb_url = parts[0] if parts and parts[0] else None
+    kb_name = parts[1] if len(parts) > 1 and parts[1] else None
+    return kb_url, kb_name

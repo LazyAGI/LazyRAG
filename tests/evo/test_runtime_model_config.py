@@ -1,11 +1,8 @@
 import textwrap
-from pathlib import Path
 
 import pytest
-import yaml
 
 from chat.utils.load_config import load_model_config, get_retrieval_settings
-import chat.pipelines.builders.get_models as get_models_mod
 
 
 @pytest.fixture(autouse=True)
@@ -187,46 +184,3 @@ def test_model_config_uses_env_override_path(monkeypatch, tmp_path):
 
     assert config['llm']['model'] == 'foo-chat'
     assert settings.embed_keys == ['embed_1']
-
-
-def test_build_auto_model_writes_config_file(monkeypatch):
-    captured = {}
-
-    def fake_auto_model(*, model, config, **kwargs):
-        captured['model'] = model
-        captured['config'] = config
-        return 'fake-model'
-
-    monkeypatch.setattr(get_models_mod, 'AutoModel', fake_auto_model)
-
-    result = get_models_mod._build_auto_model('bgem3_emb_dense_custom', {
-        'source': 'bgem3embed',
-        'type': 'embed',
-        'url': 'http://127.0.0.1:2269/embed',
-        'skip_auth': True,
-    })
-
-    assert result == 'fake-model'
-    assert captured['model'] == 'bgem3_emb_dense_custom'
-    generated = yaml.safe_load(Path(captured['config']).read_text(encoding='utf-8'))
-    assert generated == {
-        'bgem3_emb_dense_custom': [{
-            'source': 'bgem3embed',
-            'type': 'embed',
-            'model': 'bgem3_emb_dense_custom',
-            'url': 'http://127.0.0.1:2269/embed',
-            'skip_auth': True,
-        }]
-    }
-
-
-def test_runtime_auto_model_dir_cleanup_removes_generated_files(tmp_path, monkeypatch):
-    runtime_dir = tmp_path / 'runtime-auto-model'
-    runtime_dir.mkdir()
-    generated = runtime_dir / 'foo.yaml'
-    generated.write_text('foo: bar\n', encoding='utf-8')
-    monkeypatch.setattr(get_models_mod, '_RUNTIME_AUTO_MODEL_DIR', runtime_dir)
-
-    get_models_mod._cleanup_runtime_auto_model_dir()
-
-    assert not runtime_dir.exists()

@@ -69,40 +69,43 @@ def test_kb_search_default_kb_branch(monkeypatch):
             'image_files': [],
         }
     }
-    assert result['total'] == 1
-    assert result['items'][0]['docid'] == 'doc_be9d0c894bf623ffc82aa3f9a073fb96'
+    assert result['success'] is True
+    assert result['tool'] == 'kb_search'
+    assert result['result']['total'] == 1
+    assert result['result']['items'][0]['docid'] == 'doc_be9d0c894bf623ffc82aa3f9a073fb96'
 
 
-def test_kb_get_parent_node_by_node_id(monkeypatch):
+def test_kb_get_parent_node_by_uid(monkeypatch):
     calls = []
 
-    def fake_opensearch_search(index, body, config):
-        calls.append({'index': index, 'body': body, 'config': config})
-        node_id = body['query']['bool']['must'][0]['bool']['should'][0]['ids']['values'][0]
-        sources = {
-            'child-node': {
-                'uid': 'child-node',
-                'number': 7,
-                'group': 'line',
-                'parent': 'parent-node',
-                'doc_id': 'doc-1',
-                'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id'],
-                'content': 'child text',
-            },
-            'parent-node': {
-                'uid': 'parent-node',
-                'number': 3,
-                'group': 'block',
-                'parent': None,
-                'doc_id': 'doc-1',
-                'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id'],
-                'content': 'parent text',
-            },
-        }
-        source = sources.get(node_id)
-        return {'hits': {'hits': [{'_id': node_id, '_source': source}] if source else []}}
+    class FakeNode:
+        def __init__(self, uid, number, group, parent, text, docid, kb_id):
+            self.uid = uid
+            self.number = number
+            self.group = group
+            self._parent = parent
+            self.text = text
+            self.metadata = {}
+            self.global_metadata = {'docid': docid, 'kb_id': kb_id}
 
-    monkeypatch.setattr(kb, '_opensearch_search', fake_opensearch_search)
+    class FakeDocument:
+        def get_nodes(self, uids=None, doc_ids=None, group=None, kb_id=None, numbers=None):
+            calls.append({
+                'uids': uids,
+                'doc_ids': doc_ids,
+                'group': group,
+                'kb_id': kb_id,
+                'numbers': numbers,
+            })
+            nodes = {
+                'child-node': FakeNode('child-node', 7, 'line', 'parent-node', 'child text', 'doc-1', DEFAULT_AGENTIC_CONFIG['kb_id']),
+                'parent-node': FakeNode('parent-node', 3, 'block', None, 'parent text', 'doc-1', DEFAULT_AGENTIC_CONFIG['kb_id']),
+            }
+            uid = uids[0] if uids else None
+            node = nodes.get(uid)
+            return [node] if node else []
+
+    monkeypatch.setattr(kb.lazyllm.tools.rag, 'Document', lambda **kwargs: FakeDocument())
     original_config = kb.lazyllm.globals.get('agentic_config')
     kb.lazyllm.globals['agentic_config'] = DEFAULT_AGENTIC_CONFIG
     try:
@@ -110,13 +113,30 @@ def test_kb_get_parent_node_by_node_id(monkeypatch):
     finally:
         kb.lazyllm.globals['agentic_config'] = original_config or {}
 
-    assert result['node_id'] == 'child-node'
-    assert result['parent_id'] == 'parent-node'
-    assert result['current_node']['uid'] == 'child-node'
-    assert result['total'] == 1
-    assert result['items'][0]['uid'] == 'parent-node'
-    assert result['items'][0]['text'] == 'parent text'
-    assert [call['index'] for call in calls] == ['col_general_algo_block', 'col_general_algo_block']
+    assert result['success'] is True
+    assert result['tool'] == 'kb_get_parent_node'
+    assert result['result']['node_id'] == 'child-node'
+    assert result['result']['parent_id'] == 'parent-node'
+    assert result['result']['current_node']['uid'] == 'child-node'
+    assert result['result']['total'] == 1
+    assert result['result']['items'][0]['uid'] == 'parent-node'
+    assert result['result']['items'][0]['text'] == 'parent text'
+    assert calls == [
+        {
+            'uids': ['child-node'],
+            'doc_ids': None,
+            'group': None,
+            'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id'],
+            'numbers': None,
+        },
+        {
+            'uids': ['parent-node'],
+            'doc_ids': None,
+            'group': None,
+            'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id'],
+            'numbers': None,
+        },
+    ]
 
 
 if __name__ == '__main__':

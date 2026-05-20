@@ -1,6 +1,7 @@
 """Retrieve command: run lazyllm.Retriever against a remote Document."""
 
 import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -19,7 +20,7 @@ import sys
 import tempfile
 
 from lazyllm import Document, Retriever
-from chat.pipelines.builders import get_retriever as retriever_builder
+retriever_builder = importlib.import_module('chat.pipelines.builders.get_ppl_search')
 from chat.utils.load_config import get_embed_keys
 
 
@@ -149,7 +150,7 @@ def _run_config_retrievers(
 ) -> List[Dict[str, Any]]:
     """Run all retrievers defined in runtime_models config."""
     from lazyllm import Retriever
-    from chat.pipelines.builders import get_retriever as retriever_builder
+    retriever_builder = importlib.import_module('chat.pipelines.builders.get_ppl_search')
     from chat.utils.load_config import get_embed_keys
 
     original_get_embed_keys = retriever_builder.get_embed_keys

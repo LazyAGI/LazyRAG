@@ -105,6 +105,7 @@ def test_vocab_manage_creates_group_for_new_pair(monkeypatch):
     ])
 
     assert result['success'] is True
+    assert result['tool'] == 'vocab_manage'
     assert captured['path'] == '/inner/word_group:apply'
     assert captured['payload']['action_list'] == [{
         'reason': 'user explicitly asked to remember it',
@@ -149,6 +150,7 @@ def test_vocab_manage_adds_to_group(monkeypatch):
     ])
 
     assert result['success'] is True
+    assert result['tool'] == 'vocab_manage'
     assert captured['payload']['action_list'] == [{
         'reason': 'user used the terms as the same concept',
         'words': ['民事法律'],
@@ -195,6 +197,7 @@ def test_vocab_manage_creates_new_group_when_domain_description_changes(monkeypa
     ])
 
     assert result['success'] is True
+    assert result['tool'] == 'vocab_manage'
     assert captured['payload']['action_list'] == [{
         'reason': '用户指定体育领域术语映射',
         'words': ['变白质', '铅球垫子'],

@@ -89,7 +89,6 @@ def fake_pipeline(monkeypatch):
     monkeypatch.setattr(agentic, 'create_sandbox', lambda **_kw: object())
     monkeypatch.setattr(agentic, '_ensure_tools_registered', lambda: None)
     monkeypatch.setattr(agentic, '_spawn_background_review', lambda **_kw: None)
-    monkeypatch.setattr(agentic, '_get_runtime_agent_defaults', lambda: {})
     monkeypatch.setattr(agentic, '_StreamingReactAgent', _FakeAgent)
     monkeypatch.setattr(lazyllm.tools.agent, 'ReactAgent', _FakeAgent)
 
@@ -105,7 +104,6 @@ def _build_configs(prefix: str, n: int) -> List[Dict[str, Any]]:
             'kb_url': f'http://{prefix}host/{i}',
             'available_tools': [f'tool_{prefix}{i}'],
             'available_skills': [f'skill_{prefix}{i}'],
-            'skill_fs_url': f'file:///tmp/{prefix}skills/{i}',
         }
         for i in range(n)
     ]
@@ -172,7 +170,6 @@ def test_stream_parallel_requests_see_isolated_config(fake_pipeline):
                 'kb_url': f'http://s_host/{i}',
                 'available_tools': [f's_tool_{i}'],
                 'available_skills': [f's_skill_{i}'],
-                'skill_fs_url': f'file:///tmp/stream-skills/{i}',
             }
             stream = agentic.agentic_rag(params, stream=True)
             events = []
@@ -444,12 +441,7 @@ def test_single_file_request_keeps_temp_file_search_only(fake_pipeline):
     })
 
 
-def test_request_does_not_override_runtime_agent_defaults(fake_pipeline, monkeypatch):
-    monkeypatch.setattr(agentic, '_get_runtime_agent_defaults', lambda: {
-        'available_tools': ['memory'],
-        'skill_fs_url': 'remote://skills',
-    })
-
+def test_request_without_available_tools_uses_defaults(fake_pipeline):
     lazyllm.globals._init_sid(sid='runtime-default-session')
     lazyllm.locals._init_sid(sid='runtime-default-session')
 
@@ -458,8 +450,8 @@ def test_request_does_not_override_runtime_agent_defaults(fake_pipeline, monkeyp
     })
 
     obs = fake_pipeline.observations[-1]
-    assert obs['config']['skill_fs_url'] == 'remote://skills,.agentic/skills'
-    assert obs['agent_kwargs_tools'] == ('memory', 'vocab_manage')
+    assert 'skill_fs_url' not in obs['config']
+    assert obs['agent_kwargs_tools'] == _expected_tools_for_request({})
 
 
 def test_stream_rewrites_citations_like_naive(fake_pipeline, monkeypatch):

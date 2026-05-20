@@ -38,7 +38,11 @@ def test_memory_submits_core_api_suggestion_paths(monkeypatch):
     user_result = memory_mod.memory('user', suggestions)
 
     assert memory_result['success'] is True
+    assert memory_result['tool'] == 'memory'
+    assert memory_result['result']['target'] == 'memory'
     assert user_result['success'] is True
+    assert user_result['tool'] == 'memory'
+    assert user_result['result']['target'] == 'user'
     assert calls == [
         ('/memory/suggestion', {'session_id': 'sid-1', 'suggestions': suggestions}),
         ('/user_preference/suggestion', {'session_id': 'sid-1', 'suggestions': suggestions}),
@@ -56,7 +60,10 @@ def test_memory_requires_session_id(monkeypatch):
 
     assert result == {
         'success': False,
-        'reason': "'session_id' is required in agentic_config.",
+        'tool': 'memory',
+        'error': {
+            'reason': "'session_id' is required in agentic_config.",
+        },
     }
 
 
@@ -70,7 +77,10 @@ def test_memory_rejects_too_many_suggestions(monkeypatch):
 
     assert result == {
         'success': False,
-        'reason': 'At most 5 suggestions are allowed per call; got 6.',
+        'tool': 'memory',
+        'error': {
+            'reason': 'At most 5 suggestions are allowed per call; got 6.',
+        },
     }
 
 
@@ -124,8 +134,11 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
     remove_result = skill_manager_mod.skill_manage('existing', 'remove', category='writing')
 
     assert create_result['success'] is True
+    assert create_result['tool'] == 'skill_manage'
     assert modify_result['success'] is True
+    assert modify_result['tool'] == 'skill_manage'
     assert remove_result['success'] is True
+    assert remove_result['tool'] == 'skill_manage'
     assert calls == [
         (
             '/skill/create',
@@ -172,43 +185,9 @@ def test_skill_manage_rejects_missing_skill_without_post(monkeypatch):
 
     assert result == {
         'success': False,
-        'reason': "Skill 'missing' does not exist in category 'writing'; use action='create' to add a new skill.",
+        'tool': 'skill_manage',
+        'error': {
+            'reason': "Skill 'missing' does not exist in category 'writing'; use action='create' to add a new skill.",
+        },
     }
     assert calls == []
-
-
-def test_skill_manage_rejects_writes_to_non_remote_skills(monkeypatch):
-    monkeypatch.setattr(
-        skill_manager_mod,
-        '_agentic_config',
-        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'remote://skills,.agentic/skills'},
-    )
-    monkeypatch.setattr(
-        skill_manager_mod,
-        'list_all_skill_entries',
-        lambda _base_dir: {
-            'writing/builtin': {
-                'name': 'builtin',
-                'category': 'writing',
-                'path': '.agentic/skills/writing/builtin',
-                'source': 'file',
-            }
-        },
-    )
-
-    modify_result = skill_manager_mod.skill_manage(
-        'builtin',
-        'modify',
-        category='writing',
-        suggestions=[{'title': 'Update instructions', 'content': 'Tighten the wording.'}],
-    )
-    remove_result = skill_manager_mod.skill_manage('builtin', 'remove', category='writing')
-
-    assert modify_result == {
-        'success': False,
-        'reason': "Skill 'builtin' in category 'writing' has read-only source 'file'; skill_manage can only modify remote skills.",
-    }
-    assert remove_result == {
-        'success': False,
-        'reason': "Skill 'builtin' in category 'writing' has read-only source 'file'; skill_manage can only remove remote skills.",
-    }

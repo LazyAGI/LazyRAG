@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 import lazyllm
 from lazyllm import LOG
 import lazyllm.tracing.collect.configs  # noqa: F401
@@ -10,16 +10,17 @@ from lazyllm.tracing import current_trace, enable_trace
 from lazyllm.tracing.collect import runtime as tracing_runtime
 from fastapi.responses import StreamingResponse
 from chat.app.core.trace_sink import ensure_local_trace_sink, local_trace_enabled
+from chat.components.process.sensitive_filter import SensitiveFilter
 from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          LAZYMIND_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT,
-                         URL_MAP, resolve_dataset_url)
+                         SENSITIVE_WORDS_PATH, resolve_dataset_binding)
+from chat.pipelines.agentic import agentic_rag
 from chat.utils.helpers import validate_and_resolve_files
-from chat.app.core.chat_server import chat_server
 from chat.utils.load_config import get_config_path, inject_model_config, summarize_model_config_for_log
-from chat.utils.markdown_images import rewrite_markdown_image_urls
 
 
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
+sensitive_filter = SensitiveFilter(SENSITIVE_WORDS_PATH)
 
 
 def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
@@ -70,12 +71,20 @@ def _resp(code: int, msg: str, data: Any, cost: float) -> Dict[str, Any]:
     return {'code': code, 'msg': msg, 'data': data, 'cost': cost}
 
 
+def _single_event_stream_response(payload: Dict[str, Any]) -> StreamingResponse:
+    async def _stream():
+        yield _sse_line(payload)
+        yield _sse_line(_resp(200, 'success', {'status': 'FINISHED'}, 0.0))
+
+    return StreamingResponse(_stream(), media_type='text/event-stream')
+
+
 def check_sensitive_content(
     query: str, session_id: str, start_time: float
 ) -> Optional[Dict[str, Any]]:
-    if not chat_server.sensitive_filter.loaded:
+    if not sensitive_filter.loaded:
         return None
-    has_sensitive, sensitive_word = chat_server.sensitive_filter.check(query)
+    has_sensitive, sensitive_word = sensitive_filter.check(query)
     if has_sensitive:
         cost = round(time.time() - start_time, 3)
         LOG.warning(
@@ -108,6 +117,7 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        use_memory: Optional[bool],
                        environment_context: Optional[Dict[str, Any]] = None,
                        user_id: Optional[str] = None) -> Dict[str, Any]:
+    kb_url, kb_name = resolve_dataset_binding(dataset)
     hist = [
         {
             'role': str(h.get('role', 'assistant')),
@@ -122,7 +132,8 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority,
         'dataset': dataset,
         'session_id': session_id,
-        'document_url': URL_MAP.get(dataset, ''),
+        'kb_url': kb_url or '',
+        'kb_name': kb_name or '',
         'available_tools': available_tools,
         'available_skills': available_skills,
         'memory': memory,
@@ -155,18 +166,22 @@ def _attach_trace_info(data: Any, trace_id: Optional[str], local_trace: Optional
     return out
 
 
-def _build_ppl_call(reasoning: bool, dataset: str, query_params: Dict[str, Any],
-                    stream: bool) -> tuple:
-    if reasoning:
-        dataset_url = resolve_dataset_url(dataset)
-        if dataset_url is None:
-            raise KeyError(f'dataset `{dataset}` not found in URL_MAP')
-        ppl = chat_server.query_ppl_reasoning
-        params = {**query_params, 'document_url': dataset_url, 'stream': stream}
-    else:
-        ppl = chat_server.get_query_pipeline(dataset, stream=stream)
-        params = query_params
-    return (ppl, params)
+def has_dataset(dataset: str | None) -> bool:
+    kb_url, _ = resolve_dataset_binding(dataset)
+    return kb_url is not None
+
+
+def _normalize_stream_chunk(chunk: Any) -> Any:
+    if isinstance(chunk, dict):
+        return dict(chunk)
+    if isinstance(chunk, str):
+        try:
+            payload = json.loads(chunk)
+        except (TypeError, ValueError):
+            return chunk
+        if isinstance(payload, dict):
+            return payload
+    return chunk
 
 
 async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
@@ -176,19 +191,20 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       priority: Optional[int], available_tools: Optional[List[str]],
                       available_skills: Optional[List[str]], memory: Optional[str],
                       user_preference: Optional[str], use_memory: Optional[bool],
-                      is_stream: bool, trace: bool = False,
+                      trace: bool = False,
                       environment_context: Optional[Dict[str, Any]] = None,
                       user_id: Optional[str] = None,
-                      model_config: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
-    result = None
+                      model_config: Optional[Dict[str, Any]] = None) -> StreamingResponse:
     priority = LAZYMIND_LLM_PRIORITY if priority is None else priority
 
-    if not chat_server.has_dataset(dataset):
-        return _resp(400, f'dataset {dataset} not found', None, 0.0)
+    if not has_dataset(dataset):
+        return _single_event_stream_response(
+            _resp(400, f'dataset {dataset} not found', None, 0.0)
+        )
 
     start_time = time.time()
     sensitive_check_result = check_sensitive_content(query, session_id, start_time)
-    log_tag = 'KB_CHAT_STREAM' if is_stream else 'KB_CHAT'
+    log_tag = 'KB_CHAT_STREAM'
     LOG.info(f'[ChatServer] [{log_tag}] [query={query}] [sid={session_id}]')
     LOG.info(
         f'[ChatServer] [MODEL_CONFIG_RECEIVED] [sid={session_id}] [user_id={user_id or ""}] '
@@ -221,124 +237,62 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         lazyllm.locals._init_sid(sid=session_id)
         inject_model_config(model_config)
 
-    if not is_stream:
-        if sensitive_check_result:
-            return sensitive_check_result
+    if sensitive_check_result:
+        return _single_event_stream_response(sensitive_check_result)
 
+    first_frame_logged = False
+    collected_chunks: List[str] = []
+    query_params['stream'] = True
+
+    async def event_stream(params: Dict[str, Any]) -> Any:
+        nonlocal first_frame_logged
         try:
             async with rag_sem:
                 _init_session()
-                ppl_call = _build_ppl_call(bool(reasoning), dataset, query_params, stream=False)
-                result, trace_id, local_trace = await asyncio.to_thread(
-                    _run_ppl_with_trace, ppl_call[0], ppl_call[1:],
+                async_result, trace_id, local_trace = await asyncio.to_thread(
+                    _run_ppl_with_trace, agentic_rag, (params,),
                     session_id=session_id, dataset=dataset,
-                    mode_tag='sync_reasoning' if reasoning else 'sync',
+                    mode_tag='stream_reasoning' if reasoning else 'stream',
                     trace_enabled=trace,
                 )
-                cost = round(time.time() - start_time, 3)
-                data = _attach_trace_info(result, trace_id, local_trace)
-                return _resp(200, 'success', data, cost)
+                if trace_id is not None:
+                    yield _sse_line(_resp(200, 'success',
+                                          _attach_trace_info({}, trace_id, local_trace), 0.0))
+                async for chunk in async_result:
+                    now = time.time()
+                    if not first_frame_logged:
+                        first_cost = round(now - start_time, 3)
+                        LOG.info(
+                            f'[ChatServer] [KB_CHAT_STREAM_FIRST_FRAME] '
+                            f'[query={query}] [session_id={session_id}] '
+                            f'[cost={first_cost}]'
+                        )
+                        first_frame_logged = True
+
+                    chunk_data = _normalize_stream_chunk(chunk)
+
+                    collected_chunks.append(
+                        json.dumps(chunk_data, ensure_ascii=False, default=str)
+                    )
+                    cost = round(now - start_time, 3)
+                    yield _sse_line(_resp(200, 'success', chunk_data, cost))
+
         except Exception as exc:
             LOG.exception(exc)
-            cost = round(time.time() - start_time, 3)
-            return _resp(500, f'chat service failed: {exc}', None, cost)
-        finally:
-            cost = round(time.time() - start_time, 3)
-            log_chat_request(
-                query, session_id, filters, other_files, databases, image_files, cost, result
+            collected_chunks.append(f'[EXCEPTION]: {str(exc)}')
+            final_resp = _resp(
+                500, f'chat service failed: {exc}', {'status': 'FAILED'}, 0.0
             )
-    else:
-        if sensitive_check_result:
+        else:
+            final_resp = _resp(200, 'success', {'status': 'FINISHED'}, 0.0)
 
-            async def error_stream():
-                yield _sse_line(sensitive_check_result)
-                yield _sse_line(_resp(200, 'success', {'status': 'FINISHED'}, 0.0))
+        cost = round(time.time() - start_time, 3)
+        final_resp['cost'] = cost
+        yield _sse_line(final_resp)
 
-            return StreamingResponse(error_stream(), media_type='text/event-stream')
+        log_chat_request(query, session_id, filters, other_files, databases, image_files,
+                         cost, '\n'.join(collected_chunks), 'KB_CHAT_STREAM_FINISH')
 
-        first_frame_logged = False
-        collected_chunks: List[str] = []
-        ppl_call = _build_ppl_call(bool(reasoning), dataset, query_params, stream=True)
-
-        async def event_stream(ppl, *args) -> Any:
-            nonlocal first_frame_logged
-            try:
-                async with rag_sem:
-                    _init_session()
-                    async_result, trace_id, local_trace = await asyncio.to_thread(
-                        _run_ppl_with_trace, ppl, args,
-                        session_id=session_id, dataset=dataset,
-                        mode_tag='stream_reasoning' if reasoning else 'stream',
-                        trace_enabled=trace,
-                    )
-                    if trace_id is not None:
-                        yield _sse_line(_resp(200, 'success',
-                                              _attach_trace_info({}, trace_id, local_trace), 0.0))
-                    async for chunk in async_result:
-                        now = time.time()
-                        if not first_frame_logged:
-                            first_cost = round(now - start_time, 3)
-                            LOG.info(
-                                f'[ChatServer] [KB_CHAT_STREAM_FIRST_FRAME] '
-                                f'[query={query}] [session_id={session_id}] '
-                                f'[cost={first_cost}]'
-                            )
-                            first_frame_logged = True
-
-                        agentic_config = lazyllm.globals.get('agentic_config')
-                        rewrite_config = (
-                            agentic_config if isinstance(agentic_config, dict) else None
-                        )
-
-                        if isinstance(chunk, dict):
-                            payload = dict(chunk)
-                            text = payload.get('text')
-                            if isinstance(text, str) and text:
-                                payload['text'] = rewrite_markdown_image_urls(
-                                    text, config=rewrite_config,
-                                )
-                            chunk_data = payload
-                        elif isinstance(chunk, str):
-                            try:
-                                payload = json.loads(chunk)
-                            except (TypeError, ValueError):
-                                payload = None
-                            if isinstance(payload, dict):
-                                text = payload.get('text')
-                                if isinstance(text, str) and text:
-                                    payload['text'] = rewrite_markdown_image_urls(
-                                        text, config=rewrite_config,
-                                    )
-                                chunk_data = payload
-                            else:
-                                chunk_data = rewrite_markdown_image_urls(
-                                    chunk, config=rewrite_config,
-                                )
-                        else:
-                            chunk_data = chunk
-
-                        collected_chunks.append(
-                            json.dumps(chunk_data, ensure_ascii=False, default=str)
-                        )
-                        cost = round(now - start_time, 3)
-                        yield _sse_line(_resp(200, 'success', chunk_data, cost))
-
-            except Exception as exc:
-                LOG.exception(exc)
-                collected_chunks.append(f'[EXCEPTION]: {str(exc)}')
-                final_resp = _resp(
-                    500, f'chat service failed: {exc}', {'status': 'FAILED'}, 0.0
-                )
-            else:
-                final_resp = _resp(200, 'success', {'status': 'FINISHED'}, 0.0)
-
-            cost = round(time.time() - start_time, 3)
-            final_resp['cost'] = cost
-            yield _sse_line(final_resp)
-
-            log_chat_request(query, session_id, filters, other_files, databases, image_files,
-                             cost, '\n'.join(collected_chunks), 'KB_CHAT_STREAM_FINISH')
-
-        return StreamingResponse(
-            event_stream(*ppl_call), media_type='text/event-stream'
-        )
+    return StreamingResponse(
+        event_stream(query_params), media_type='text/event-stream'
+    )

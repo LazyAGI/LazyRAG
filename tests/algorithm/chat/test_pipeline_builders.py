@@ -1,8 +1,8 @@
 import importlib
 from types import SimpleNamespace
 
-retriever_mod = importlib.import_module('chat.pipelines.builders.get_retriever')
 ppl_search_mod = importlib.import_module('chat.pipelines.builders.get_ppl_search')
+retriever_mod = ppl_search_mod
 
 
 class _DummyContext:
@@ -62,7 +62,7 @@ def test_get_remote_document_builds_default_name(monkeypatch):
 
     monkeypatch.setattr(retriever_mod, 'Document', _FakeDocument)
 
-    retriever_mod.get_remote_docment('http://kb-service')
+    retriever_mod.get_remote_document('http://kb-service')
 
     assert captured == {'url': 'http://kb-service/_call', 'name': '__default__'}
 
@@ -77,7 +77,7 @@ def test_get_remote_document_parses_custom_name(monkeypatch):
 
     monkeypatch.setattr(retriever_mod, 'Document', _FakeDocument)
 
-    retriever_mod.get_remote_docment('http://kb-service,my-kb')
+    retriever_mod.get_remote_document('http://kb-service,my-kb')
 
     assert captured == {'url': 'http://kb-service/_call', 'name': 'my-kb'}
 
@@ -111,7 +111,7 @@ def test_get_retriever_builds_parts(monkeypatch):
 
     monkeypatch.setattr(retriever_mod, 'Retriever', _FakeRetriever)
     monkeypatch.setattr(retriever_mod, 'TempDocRetriever', _FakeTempDocRetriever)
-    monkeypatch.setattr(retriever_mod, 'get_remote_docment', lambda url: fake_document)
+    monkeypatch.setattr(retriever_mod, 'get_remote_document', lambda url: fake_document)
     monkeypatch.setattr(
         retriever_mod,
         'AutoModel',
@@ -156,7 +156,7 @@ def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
             tmp_retriever_pipeline=_DummyPipe('tmp'),
         ),
     )
-    monkeypatch.setattr(ppl_search_mod, 'get_remote_docment', lambda url: 'document')
+    monkeypatch.setattr(ppl_search_mod, 'get_remote_document', lambda url: 'document')
     monkeypatch.setattr(ppl_search_mod, 'AutoModel', lambda model, config=False: f'model:{model}')
     monkeypatch.setattr(ppl_search_mod, 'bind', lambda **kwargs: _DummyBind(kwargs))
     monkeypatch.setattr(ppl_search_mod, 'parallel', lambda *items: ('parallel', items))
@@ -244,7 +244,7 @@ def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch
             tmp_retriever_pipeline=_DummyPipe('tmp'),
         ),
     )
-    monkeypatch.setattr(ppl_search_mod, 'get_remote_docment', lambda url: 'document')
+    monkeypatch.setattr(ppl_search_mod, 'get_remote_document', lambda url: 'document')
     monkeypatch.setattr(ppl_search_mod, 'AutoModel', lambda model, config=False: f'model:{model}')
     monkeypatch.setattr(ppl_search_mod, 'bind', lambda **kwargs: _DummyBind(kwargs))
     monkeypatch.setattr(ppl_search_mod, 'parallel', lambda *items: ('parallel', items))
@@ -264,5 +264,3 @@ def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch
     ppl_search_mod.get_ppl_search('http://kb-service', retriever_configs=[{'group_name': 'line'}])
 
     assert recorded['ifs']['cond']('ignored') is True
-
-

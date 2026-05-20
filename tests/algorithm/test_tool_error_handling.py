@@ -7,8 +7,9 @@ def test_kb_tool_returns_error_result_for_invalid_arguments():
     result = kb.kb_get_window_nodes('', 1)
 
     assert result['success'] is False
-    assert result['error_type'] == 'ValueError'
-    assert 'docid is required' in result['error']
+    assert result['tool'] == 'kb_get_window_nodes'
+    assert result['error']['type'] == 'ValueError'
+    assert 'docid is required' in result['error']['detail']
 
 
 def test_memory_tool_returns_error_result_for_unexpected_exception(monkeypatch):
@@ -21,8 +22,9 @@ def test_memory_tool_returns_error_result_for_unexpected_exception(monkeypatch):
     result = memory_mod.memory('memory', 'Remember the preference.')
 
     assert result['success'] is False
-    assert result['error_type'] == 'ValueError'
-    assert 'backend payload is invalid' in result['error']
+    assert result['tool'] == 'memory'
+    assert result['error']['type'] == 'ValueError'
+    assert 'backend payload is invalid' in result['error']['detail']
 
 
 def test_skill_manage_returns_error_result_for_skill_index_exception(monkeypatch):
@@ -44,5 +46,6 @@ def test_skill_manage_returns_error_result_for_skill_index_exception(monkeypatch
     )
 
     assert result['success'] is False
-    assert result['error_type'] == 'RuntimeError'
-    assert 'skill index unavailable' in result['error']
+    assert result['tool'] == 'skill_manage'
+    assert result['error']['type'] == 'RuntimeError'
+    assert 'skill index unavailable' in result['error']['detail']

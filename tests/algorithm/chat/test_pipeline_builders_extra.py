@@ -29,8 +29,8 @@ def _stub_vocab():
         sys.modules['vocab.vocab_manager'] = stub
 _stub_vocab()
 
-retriever_mod = importlib.import_module('chat.pipelines.builders.get_retriever')
 ppl_search_mod = importlib.import_module('chat.pipelines.builders.get_ppl_search')
+retriever_mod = ppl_search_mod
 
 
 # ---------------------------------------------------------------------------

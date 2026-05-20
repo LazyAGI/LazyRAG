@@ -68,12 +68,6 @@ def _import_agentic_module(monkeypatch):
     fake_prompts._COMBINED_REVIEW_PROMPT = ''
     fake_prompts._MEMORY_REVIEW_PROMPT = ''
     fake_prompts._SKILL_REVIEW_PROMPT = ''
-    fake_prompts._MEMORY_FLUSH_MESSAGES = []
-
-    fake_tool_registry = ModuleType('chat.components.tmp.tool_registry')
-    fake_tool_registry.get_all_tool_schemas = lambda: {}
-    fake_tool_registry.get_tool_instance = lambda name: None
-    fake_tool_registry.get_tool_schema = lambda name: {}
 
     # Fake deep dependency modules to avoid import chain issues
     fake_review = ModuleType('chat.components.agentic.review')
@@ -82,52 +76,6 @@ def _import_agentic_module(monkeypatch):
 
     fake_skill_manager = ModuleType('chat.tools.skill_manager')
     fake_skill_manager.list_all_skills_with_category = lambda *a, **kw: []
-
-    fake_output_parser = ModuleType('chat.components.generate.output_parser')
-
-    class _FakeOutputParser:
-        def forward(self, value, aggregate=None, stream=False):
-            if stream:
-                return {'stream': True, 'aggregate': aggregate}
-            return {'parsed': value, 'aggregate': aggregate, 'stream': stream}
-
-    fake_output_parser.CustomOutputParser = _FakeOutputParser
-
-    fake_helpers = ModuleType('chat.utils.helpers')
-    fake_helpers.tool_schema_to_string = lambda schema, include_params=True: 'tool-schema'
-
-    fake_schema = ModuleType('chat.utils.schema')
-
-    class PlanStep:
-        def __init__(self, step_id, goal, tool):
-            self.step_id = step_id
-            self.goal = goal
-            self.tool = tool
-            self.status = 'pending'
-            self.raw_results = []
-            self.formatted_results = []
-            self.extracted_results = []
-            self.inference = ''
-
-    class TaskContext:
-        def __init__(self):
-            self.query = ''
-            self.global_params = {}
-            self.tool_params = {}
-            self.pending_steps = []
-            self.executed_steps = []
-            self.middle_results = SimpleNamespace(
-                evaluation_result={},
-                raw_results=[],
-                formatted_results=[],
-                agg_results={},
-            )
-            self.inferences = []
-            self.reasoning_process_stream = []
-            self.answer = ''
-
-    fake_schema.PlanStep = PlanStep
-    fake_schema.TaskContext = TaskContext
 
     # Clear cached module so it gets re-imported with our fakes
     for name in list(sys.modules.keys()):
@@ -154,10 +102,8 @@ def _import_agentic_module(monkeypatch):
     # Fake chat.pipelines.builders to avoid deep import chain
     fake_builders_pkg = ModuleType('chat.pipelines.builders')
     fake_builders_pkg.get_ppl_search = lambda *a, **kw: None
-    fake_builders_pkg.get_ppl_generate = lambda *a, **kw: None
     fake_builders_pkg.get_retriever = lambda *a, **kw: None
-    fake_builders_pkg.get_remote_docment = lambda *a, **kw: None
-    fake_builders_pkg.get_automodel = lambda role: f'model:{role}'
+    fake_builders_pkg.get_remote_document = lambda *a, **kw: None
 
     monkeypatch.setitem(sys.modules, 'config', fake_config_mod)
     monkeypatch.setitem(sys.modules, 'chat.pipelines', fake_pipelines_pkg)
@@ -174,12 +120,8 @@ def _import_agentic_module(monkeypatch):
     monkeypatch.setitem(sys.modules, 'lazyllm.tools.sandbox.sandbox_base', fake_lazyllm_tools_sandbox_base)
     monkeypatch.setitem(sys.modules, 'tenacity', fake_tenacity)
     monkeypatch.setitem(sys.modules, 'chat.prompts.agentic', fake_prompts)
-    monkeypatch.setitem(sys.modules, 'chat.components.tmp.tool_registry', fake_tool_registry)
     monkeypatch.setitem(sys.modules, 'chat.components.agentic.review', fake_review)
     monkeypatch.setitem(sys.modules, 'chat.tools.skill_manager', fake_skill_manager)
-    monkeypatch.setitem(sys.modules, 'chat.components.generate.output_parser', fake_output_parser)
-    monkeypatch.setitem(sys.modules, 'chat.utils.helpers', fake_helpers)
-    monkeypatch.setitem(sys.modules, 'chat.utils.schema', fake_schema)
 
     return importlib.import_module('chat.pipelines.agentic')
 
