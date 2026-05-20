@@ -1162,7 +1162,7 @@ const zhCN = {
     memoryViewItem: "查看",
     memoryEditItem: "编辑",
     memoryShareItem: "分享",
-    memoryBuiltinCategoryReserved: "build-in category is reserved.",
+    memoryBuiltinCategoryReserved: "built-in category is reserved.",
     memorySkillDetailTitle: "技能详情",
     memorySkillDetailLoadFailed: "加载技能详情失败",
     memorySkillDetailMarkdownPreview: "Markdown 预览",

@@ -273,7 +273,7 @@ func TestSeedBuiltinSkillsImportsAuxiliaryFiles(t *testing.T) {
 	}
 
 	var child orm.SkillResource
-	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, "build-in/paper-search/scripts/search_arxiv.py").Take(&child).Error; err != nil {
+	if err := db.Where("owner_user_id = ? AND relative_path = ?", builtinSkillOwnerUserID, "built-in/paper-search/scripts/search_arxiv.py").Take(&child).Error; err != nil {
 		t.Fatalf("query builtin child: %v", err)
 	}
 	if child.Content != scriptContent {

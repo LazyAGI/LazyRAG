@@ -206,11 +206,11 @@ def test_skill_manage_rejects_writes_to_non_remote_skills(monkeypatch):
 
     assert modify_result == {
         'success': False,
-        'reason': "build-in skill can not be modified/deleted",
+        'reason': "built-in skill can not be modified/deleted",
     }
     assert remove_result == {
         'success': False,
-        'reason': "build-in skill can not be modified/deleted",
+        'reason': "built-in skill can not be modified/deleted",
     }
 
 
@@ -239,5 +239,5 @@ def test_skill_manage_rejects_reserved_builtin_categories(monkeypatch):
         )
         assert result == {
             'success': False,
-            'reason': 'build-in category is reserved.',
+            'reason': 'built-in category is reserved.',
         }

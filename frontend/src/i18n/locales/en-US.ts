@@ -1232,7 +1232,7 @@ const enUS = {
     memoryViewItem: "View",
     memoryEditItem: "Edit",
     memoryShareItem: "Share",
-    memoryBuiltinCategoryReserved: "build-in category is reserved.",
+    memoryBuiltinCategoryReserved: "built-in category is reserved.",
     memorySkillDetailTitle: "Skill Detail",
     memorySkillDetailLoadFailed: "Failed to load skill detail",
     memorySkillDetailMarkdownPreview: "Markdown Preview",

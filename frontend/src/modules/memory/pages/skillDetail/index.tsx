@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Empty, Input, Space, Tag, message } from "antd";
+import { Alert, Button, Empty, Input, Space, Tag, Tooltip, message } from "antd";
 import { useParams } from "react-router-dom";
 import MarkdownViewer from "@/modules/knowledge/components/MarkdownViewer";
 import { DetailPageHeader } from "@/components/ui";
@@ -23,6 +23,9 @@ const isMarkdownSkill = (asset: StructuredAsset) => {
   const ext = (asset.fileExt || "").trim().toLowerCase().replace(/^\./, "");
   return markdownExtensions.has(ext) || hasMarkdownShape(asset.content || "");
 };
+
+const isReservedBuiltinSkillCategory = (value: string): boolean =>
+  value.trim().toLowerCase().replaceAll("_", "-").replace(/\s+/g, " ") === "built-in";
 
 const META_LINE_REGEX = /^\s*(?:\*\*)?\s*(name|description)\s*(?:\*\*)?\s*[:：][^\n]*$/gim;
 
@@ -76,7 +79,38 @@ export default function MemorySkillDetailPage() {
     () => skillAssets.find((item: StructuredAsset) => item.id === itemId) || null,
     [itemId, skillAssets],
   );
+  const skillById = useMemo(
+    () => new Map(skillAssets.map((item) => [item.id, item])),
+    [skillAssets],
+  );
   const skill = detail || cachedSkill;
+  const isBuiltinSkillOrChild = useMemo(() => {
+    if (!skill) {
+      return false;
+    }
+
+    let current: StructuredAsset | undefined = skill;
+    while (current) {
+      if (isReservedBuiltinSkillCategory(current.category || "")) {
+        return true;
+      }
+      if (!current.parentId) {
+        return false;
+      }
+      current = skillById.get(current.parentId);
+    }
+
+    return false;
+  }, [skill, skillById]);
+  const canEditSkillDetail = Boolean(skill) && !isBuiltinSkillOrChild;
+  useEffect(() => {
+    if (canEditSkillDetail) {
+      return;
+    }
+    setIsInlineEditing(false);
+    setIsTitleEditing(false);
+    setIsDescriptionEditing(false);
+  }, [canEditSkillDetail]);
   const renderAsMarkdown = skill ? isMarkdownSkill(skill) : false;
   const previewContent = useMemo(
     () => stripLeadingMetaLines(skill?.content || ""),
@@ -158,6 +192,9 @@ export default function MemorySkillDetailPage() {
   }
 
   const handleStartInlineEdit = () => {
+    if (!canEditSkillDetail) {
+      return;
+    }
     setInlineContentDraft(stripLeadingMetaLines(skill?.content || ""));
     setIsInlineEditing(true);
   };
@@ -232,7 +269,7 @@ export default function MemorySkillDetailPage() {
   };
 
   const handleStartTitleEdit = () => {
-    if (!skill || titleSaving) {
+    if (!skill || titleSaving || !canEditSkillDetail) {
       return;
     }
     setTitleDraft(skill.name || "");
@@ -308,7 +345,7 @@ export default function MemorySkillDetailPage() {
   };
 
   const handleStartDescriptionEdit = () => {
-    if (!skill || descriptionSaving) {
+    if (!skill || descriptionSaving || !canEditSkillDetail) {
       return;
     }
     setDescriptionDraft(skill.description || "");
@@ -439,13 +476,17 @@ export default function MemorySkillDetailPage() {
                 </div>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    className="memory-skill-detail-title-trigger"
-                    onClick={handleStartTitleEdit}
-                  >
+                  {canEditSkillDetail ? (
+                    <button
+                      type="button"
+                      className="memory-skill-detail-title-trigger"
+                      onClick={handleStartTitleEdit}
+                    >
+                      <h3>{skill.name}</h3>
+                    </button>
+                  ) : (
                     <h3>{skill.name}</h3>
-                  </button>
+                  )}
                   {isDescriptionEditing ? (
                     <div
                       className="memory-skill-detail-description-editor"
@@ -472,7 +513,7 @@ export default function MemorySkillDetailPage() {
                         className="memory-skill-detail-description-input"
                       />
                     </div>
-                  ) : (
+                  ) : canEditSkillDetail ? (
                     <button
                       type="button"
                       className="memory-skill-detail-description-trigger"
@@ -480,6 +521,8 @@ export default function MemorySkillDetailPage() {
                     >
                       <p>{skill.description || "-"}</p>
                     </button>
+                  ) : (
+                    <p>{skill.description || "-"}</p>
                   )}
                 </>
               )}
@@ -535,16 +578,28 @@ export default function MemorySkillDetailPage() {
                     </Button>
                   </>
                 ) : (
-                  <Button onClick={handleStartInlineEdit}>
-                    {t("common.edit")}
-                  </Button>
+                  <Tooltip
+                    title={
+                      canEditSkillDetail
+                        ? undefined
+                        : t("admin.memoryBuiltinCategoryReserved")
+                    }
+                  >
+                    <span>
+                      <Button onClick={handleStartInlineEdit} disabled={!canEditSkillDetail}>
+                        {t("common.edit")}
+                      </Button>
+                    </span>
+                  </Tooltip>
                 )}
               </Space>
             </div>
             <div
-              className={`memory-skill-detail-content${!isInlineEditing ? " is-clickable" : ""}`}
+              className={`memory-skill-detail-content${
+                !isInlineEditing && canEditSkillDetail ? " is-clickable" : ""
+              }`}
               onClick={() => {
-                if (!isInlineEditing) {
+                if (!isInlineEditing && canEditSkillDetail) {
                   handleStartInlineEdit();
                 }
               }}

@@ -340,7 +340,7 @@ def skill_manage(
         if suggestions:
             return _fail("action='create' must not include 'suggestions'.")
         if _is_reserved_builtin_category(normalized_category):
-            return _fail("build-in category is reserved.")
+            return _fail("built-in category is reserved.")
         if existing_skill:
             source = existing_skill.get('source', 'file')
             if not _is_writable_skill_source(source):
@@ -389,7 +389,7 @@ def skill_manage(
         )
         if not _is_writable_skill_source(source) or _is_reserved_builtin_category(normalized_category):
             return _fail(
-                'build-in skill can not be modified/deleted'
+                'built-in skill can not be modified/deleted'
             )
 
         result = {
@@ -421,7 +421,7 @@ def skill_manage(
         source = existing_skill.get('source', 'file')
         if not _is_writable_skill_source(source) or _is_reserved_builtin_category(normalized_category):
             return _fail(
-                'build-in skill can not be modified/deleted'
+                'built-in skill can not be modified/deleted'
             )
 
         result = {

@@ -21,7 +21,7 @@ const (
 	builtinSkillOwnerUserID   = "__builtin__"
 	builtinSkillOwnerUserName = "Builtin Skills"
 	builtinSkillSourceType    = "builtin"
-	builtinSkillCategory      = "build-in"
+	builtinSkillCategory      = "built-in"
 	userSkillSourceType       = "user"
 )
 

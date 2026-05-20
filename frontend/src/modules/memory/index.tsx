@@ -4441,7 +4441,7 @@ export default function MemoryManagement() {
       render: (tags: string[], record) =>
         !record.parentId && (tags.length || record.isBuiltin) ? (
           <div className="memory-tag-group">
-            {record.isBuiltin ? <Tag key="build-in-skill">build-in skill</Tag> : null}
+            {record.isBuiltin ? <Tag key="build-in-skill">built-in skill</Tag> : null}
             {tags.map((item) => (
               <Tag key={item}>{item}</Tag>
             ))}

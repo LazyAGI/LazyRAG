@@ -189,7 +189,7 @@ func CreateManaged(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if isReservedBuiltinCategory(req.Category) {
-			common.ReplyErr(w, "build-in category is reserved", http.StatusBadRequest)
+			common.ReplyErr(w, "built-in category is reserved", http.StatusBadRequest)
 			return
 		}
 	}
@@ -909,7 +909,7 @@ func createParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 
 func createParentSkillWithContent(ctx context.Context, db *gorm.DB, userID, userName string, req createSkillRequest, fullContent, description string) error {
 	if isReservedBuiltinCategory(req.Category) {
-		return errors.New("build-in category is reserved")
+		return errors.New("built-in category is reserved")
 	}
 	relPath := parentRelativePath(req.Category, req.Name)
 	var count int64
@@ -1180,7 +1180,7 @@ func updateParentSkill(ctx context.Context, db *gorm.DB, userID, userName string
 			return err
 		}
 		if isReservedBuiltinCategory(newCategory) {
-			return errors.New("build-in category is reserved")
+			return errors.New("built-in category is reserved")
 		}
 	}
 	newBody := currentBody
