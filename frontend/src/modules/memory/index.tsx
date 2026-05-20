@@ -170,8 +170,10 @@ const showGlossaryInboxUi = true;
 const MERGED_GLOSSARY_GROUP_OPTION_ID = "__merged_glossary_group__";
 const MERGED_GLOSSARY_GROUP_OPTION_ID_PREFIX = `${MERGED_GLOSSARY_GROUP_OPTION_ID}:`;
 const NEW_GLOSSARY_GROUP_OPTION_ID = "__new_glossary_group__";
-const isPendingReviewSuggestionStatus = (status?: string) =>
-  String(status || "").trim().toLowerCase() === "pending_review";
+const isReviewableSuggestionStatus = (status?: string) => {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "pending_review" || normalized === "accepted";
+};
 const isSkillRemoveSuggestion = (suggestion: EvolutionSuggestionRecord) =>
   String(suggestion.action || "").trim().toLowerCase() === "remove";
 const normalizeAutoEvoApplyStatus = (status?: string) =>
@@ -221,6 +223,7 @@ export default function MemoryManagement() {
   const glossaryRouteItemId = glossaryDetailMatch?.params.itemId;
   const reviewRouteTab = parseChangeProposalTab(reviewRouteMatch?.params.tab);
   const reviewRouteItemId = reviewRouteMatch?.params.itemId;
+  const isReviewRouteRequested = Boolean(reviewRouteTab && reviewRouteItemId);
   const routeListTab = parseMemoryTab(tabRouteMatch?.params.tab);
   const queryRouteTab = parseMemoryTab(searchParams.get("tab"));
   const routeMemoryTab =
@@ -1805,12 +1808,21 @@ export default function MemoryManagement() {
 
   useEffect(() => {
     if (activeProposalId && !activeProposal) {
+      if (isReviewRouteRequested) {
+        return;
+      }
       setActiveProposalId(undefined);
       if (reviewRouteTab) {
         navigateToMemoryList(reviewRouteTab);
       }
     }
-  }, [activeProposal, activeProposalId, navigateToMemoryList, reviewRouteTab]);
+  }, [
+    activeProposal,
+    activeProposalId,
+    isReviewRouteRequested,
+    navigateToMemoryList,
+    reviewRouteTab,
+  ]);
 
   const keyword = query.trim().toLowerCase();
   const hasStructuredFilter = Boolean(keyword || category || tag);
@@ -2423,14 +2435,14 @@ export default function MemoryManagement() {
     if (!proposal || shouldReloadProposal) {
       if (tab === "skills") {
         const matchedSkill = skillAssets.find((item) => item.id === itemId);
-        const hasBackendPendingReview = Boolean(
+        const hasBackendReviewableSuggestions = Boolean(
           matchedSkill?.hasPendingReviewSuggestions,
         );
 
         if (
           shouldReloadProposal ||
           isSkillUpdatePending(skillUpdateStatus) ||
-          hasBackendPendingReview
+          hasBackendReviewableSuggestions
         ) {
           if (!matchedSkill) {
             message.warning(t("admin.memoryDiffTargetMissing"));
@@ -4461,16 +4473,16 @@ export default function MemoryManagement() {
       render: (_value, record) => {
         const pendingProposal =
           activeTab === "skills" ? getPendingProposal("skills", record.id) : undefined;
-        const hasBackendPendingReview =
+        const hasBackendReviewableSuggestions =
           activeTab === "skills" &&
           !record.autoEvo &&
           (Boolean(record.hasPendingReviewSuggestions) ||
-            isPendingReviewSuggestionStatus(record.suggestionStatus));
+            isReviewableSuggestionStatus(record.suggestionStatus));
         const showPendingTag =
           !record.autoEvo &&
           (Boolean(pendingProposal) ||
             isSkillUpdatePending(record.updateStatus) ||
-            hasBackendPendingReview);
+            hasBackendReviewableSuggestions);
         const autoEvoStatusMeta =
           activeTab === "skills" && record.autoEvo
             ? getAutoEvoStatusMeta(record.autoEvoApplyStatus)
@@ -4614,21 +4626,21 @@ export default function MemoryManagement() {
       render: (_value, record) => {
         const pendingProposal =
           activeTab === "skills" ? getPendingProposal("skills", record.id) : undefined;
-        const hasBackendPendingReview =
+        const hasBackendReviewableSuggestions =
           activeTab === "skills" &&
           !record.autoEvo &&
           (Boolean(record.hasPendingReviewSuggestions) ||
-            isPendingReviewSuggestionStatus(record.suggestionStatus));
+            isReviewableSuggestionStatus(record.suggestionStatus));
         const canReviewChange =
           !record.autoEvo &&
           (Boolean(pendingProposal) ||
             isSkillUpdatePending(record.updateStatus) ||
-            hasBackendPendingReview);
+            hasBackendReviewableSuggestions);
         const reviewTooltip = record.autoEvo
           ? t("admin.memoryDiffNoPending")
           : pendingProposal
           ? t("admin.memoryDiffReviewAction")
-          : isSkillUpdatePending(record.updateStatus) || hasBackendPendingReview
+          : isSkillUpdatePending(record.updateStatus) || hasBackendReviewableSuggestions
             ? t("admin.memorySkillUpdateReviewAction")
             : t("admin.memoryDiffNoPending");
 
@@ -4720,12 +4732,12 @@ export default function MemoryManagement() {
       width: 320,
       render: (_value, record) => {
         const pendingProposal = getPendingProposal("experience", record.id);
-        const hasBackendPendingReview =
+        const hasBackendReviewableSuggestions =
           !record.autoEvo &&
           (Boolean(record.hasPendingReviewSuggestions) ||
-            isPendingReviewSuggestionStatus(record.suggestionStatus));
+            isReviewableSuggestionStatus(record.suggestionStatus));
         const showPendingTag =
-          !record.autoEvo && (Boolean(pendingProposal) || hasBackendPendingReview);
+          !record.autoEvo && (Boolean(pendingProposal) || hasBackendReviewableSuggestions);
         const autoEvoStatusMeta = record.autoEvo
           ? getAutoEvoStatusMeta(record.autoEvoApplyStatus)
           : null;
@@ -4826,12 +4838,12 @@ export default function MemoryManagement() {
       width: 210,
       render: (_value, record) => {
         const pendingProposal = getPendingProposal("experience", record.id);
-        const hasBackendPendingReview =
+        const hasBackendReviewableSuggestions =
           !record.autoEvo &&
           (Boolean(record.hasPendingReviewSuggestions) ||
-            isPendingReviewSuggestionStatus(record.suggestionStatus));
+            isReviewableSuggestionStatus(record.suggestionStatus));
         const canReviewChange =
-          !record.autoEvo && (Boolean(pendingProposal) || hasBackendPendingReview);
+          !record.autoEvo && (Boolean(pendingProposal) || hasBackendReviewableSuggestions);
         const reviewTooltip = canReviewChange
           ? t("admin.memoryDiffReviewAction")
           : t("admin.memoryDiffNoPending");
@@ -4960,7 +4972,6 @@ export default function MemoryManagement() {
     label: item,
     value: item,
   }));
-  const isReviewRouteRequested = Boolean(reviewRouteTab && reviewRouteItemId);
   const isGlossaryRouteRequested = Boolean(glossaryRouteItemId);
   const isReviewMode = Boolean(activeProposal && (activeProposalDiff || isBackendSuggestionReviewMode));
   const glossaryDetailExists = useMemo(

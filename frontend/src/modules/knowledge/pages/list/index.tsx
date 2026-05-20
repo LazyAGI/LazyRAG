@@ -35,6 +35,7 @@ import {
 } from "@/api/generated/knowledge-client";
 import KnowledgeTag from "@/modules/knowledge/components/KnowledgeTag";
 import FileUtils from "@/modules/knowledge/utils/file";
+import { isDocumentDetailUnsupported } from "@/modules/knowledge/utils/document";
 
 import { ListPageTable } from "@/components/ui";
 import EditTags from "@/modules/knowledge/pages/detail/components/KnowledgeTable/editTags";
@@ -262,6 +263,10 @@ const KnowledgePage: FC = () => {
                 if (relPathtype === "FOLDER") {
                   navigate({ pathname: `/lib/knowledge/detail/${datasetId}` });
                 } else {
+                  if (isDocumentDetailUnsupported(record?.display_name)) {
+                    message.info(t("knowledge.documentDetailUnsupported"));
+                    return;
+                  }
                   navigate({
                     pathname:
                       documentId && datasetId

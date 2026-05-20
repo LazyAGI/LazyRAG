@@ -623,7 +623,8 @@ const enUS = {
     uploadFailedRetry: "Upload failed, please try again",
     supportedFolderImport: "Folder import supported",
     supportedZipFile: "Only ZIP archive files are supported (.zip)",
-    supportedDocTypes: "PDF, DOCX and DOC files are supported",
+    supportedDocTypes:
+      "PDF, DOCX, DOC, JPG, JPEG, PNG, GIF, BMP, WEBP, TIFF, TIF, MP3 and MP4 files are supported",
     zipRootOnly: "ZIP archives only support files in the root directory; nested folders will be ignored",
     uploadLimitHint: "Up to 300 files per upload, each file must be under 500MB, total size under 1GB",
     uploadSecurityRiskTip:
@@ -721,6 +722,8 @@ const enUS = {
     inputRequired: "Please enter",
     inputMismatch: "Input does not match",
     previewUnsupported: "Preview is not supported for this file format",
+    documentDetailUnsupported:
+      "Document details are not available for this file format yet",
     knowledgeNameRule: "Name supports Chinese/English, numbers, -, _, ., up to 100 characters",
     knowledgeDesc: "Knowledge Base Description",
     inputKnowledgeDesc: "Please enter a knowledge base description",
@@ -1507,7 +1510,8 @@ const enUS = {
     memoryGlossaryAliasMaxLength: "Each word must not exceed {{count}} characters",
     memoryGlossaryContentMaxLength: "Content must not exceed {{count}} characters",
     memorySkillTagMaxCount: "A skill can have at most {{count}} tags",
-    memoryGlossaryWordsAlreadyExist: "These words already exist: {{words}}",
+    memoryGlossaryWordsAlreadyExist:
+      "This phrase or word already exists: {{words}}. Edit the existing glossary entry or choose another value.",
     memoryGlossaryInboxButton: "Message Center ({{count}})",
     memoryGlossaryInboxTitle: "Glossary Message Center",
     memoryGlossaryInboxEmpty: "No pending glossary messages",
