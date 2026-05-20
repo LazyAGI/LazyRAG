@@ -387,7 +387,7 @@ def skill_manage(
             f'[skill_manage] MODIFY_CHECK source={source!r} '
             f'writable={_is_writable_skill_source(source)}'
         )
-        if not _is_writable_skill_source(source):
+        if not _is_writable_skill_source(source) or _is_reserved_builtin_category(normalized_category):
             return _fail(
                 'build-in skill can not be modified/deleted'
             )
@@ -419,7 +419,7 @@ def skill_manage(
                 'nothing to remove.'
             )
         source = existing_skill.get('source', 'file')
-        if not _is_writable_skill_source(source):
+        if not _is_writable_skill_source(source) or _is_reserved_builtin_category(normalized_category):
             return _fail(
                 'build-in skill can not be modified/deleted'
             )

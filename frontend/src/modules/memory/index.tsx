@@ -420,6 +420,37 @@ export default function MemoryManagement() {
     () => skillAssets.filter((item) => !item.parentId),
     [skillAssets],
   );
+  const skillById = useMemo(() => new Map(skillAssets.map((item) => [item.id, item])), [skillAssets]);
+  const isBuiltinSkillOrChild = useCallback(
+    (record: StructuredAsset) => {
+      if (activeTab !== "skills") {
+        return false;
+      }
+
+      if (isReservedBuiltinSkillCategory(record.category || "")) {
+        return true;
+      }
+
+      if (!record.parentId) {
+        return false;
+      }
+
+      let currentParentId = record.parentId;
+      while (currentParentId) {
+        const parentSkill = skillById.get(currentParentId);
+        if (!parentSkill) {
+          return false;
+        }
+        if (isReservedBuiltinSkillCategory(parentSkill.category || "")) {
+          return true;
+        }
+        currentParentId = parentSkill.parentId || "";
+      }
+
+      return false;
+    },
+    [activeTab, skillById],
+  );
   const parentSkillOptions = useMemo(
     () =>
       topLevelSkills
@@ -3407,8 +3438,8 @@ export default function MemoryManagement() {
     if (activeTab === "experience") {
       return;
     }
-    if (activeTab === "skills" && "isBuiltin" in item && item.isBuiltin) {
-      message.warning("build-in skill can not be modified/deleted");
+      if (activeTab === "skills" && "id" in item && isBuiltinSkillOrChild(item)) {
+      message.warning(t("admin.memoryBuiltinCategoryReserved"));
       return;
     }
 
@@ -3785,7 +3816,7 @@ export default function MemoryManagement() {
         !isChildSkill &&
         isReservedBuiltinSkillCategory(payload.category)
       ) {
-        message.warning("build-in category is reserved");
+        message.warning(t("admin.memoryBuiltinCategoryReserved"));
         return;
       }
 
@@ -4430,7 +4461,7 @@ export default function MemoryManagement() {
       render: (_value, record) => {
         const disabledByRemoveSuggestion =
           activeTab === "skills" && Boolean(record.hasPendingRemoveSuggestion);
-        const disabledByBuiltin = activeTab === "skills" && Boolean(record.isBuiltin);
+        const disabledByBuiltin = isBuiltinSkillOrChild(record);
         const autoEvoDisabled = disabledByRemoveSuggestion || disabledByBuiltin;
         const switchNode = (
           <Switch
@@ -4438,8 +4469,8 @@ export default function MemoryManagement() {
             disabled={autoEvoDisabled}
             loading={skillAutoEvoLoading.has(record.id)}
             onChange={(checked) => {
-              if (record.isBuiltin) {
-                message.warning("build-in skill can not be modified/deleted");
+              if (disabledByBuiltin) {
+                message.warning(t("admin.memoryBuiltinCategoryReserved"));
                 return;
               }
               if (checked && record.hasPendingRemoveSuggestion) {
@@ -4471,7 +4502,7 @@ export default function MemoryManagement() {
           />
         );
         return disabledByBuiltin ? (
-          <Tooltip title="build-in skill can not be modified/deleted">{switchNode}</Tooltip>
+          <Tooltip title={t("admin.memoryBuiltinCategoryReserved")}>{switchNode}</Tooltip>
         ) : disabledByRemoveSuggestion ? (
           <Tooltip title={t("admin.memorySkillAutoEvoDisabledByRemove")}>{switchNode}</Tooltip>
         ) : (
@@ -4485,6 +4516,7 @@ export default function MemoryManagement() {
       width: 250,
       fixed: "right",
       render: (_value, record) => {
+        const disabledByBuiltinCategory = isBuiltinSkillOrChild(record);
         const pendingProposal =
           activeTab === "skills" ? getPendingProposal("skills", record.id) : undefined;
         const hasBackendPendingReview =
@@ -4493,11 +4525,14 @@ export default function MemoryManagement() {
           (Boolean(record.hasPendingReviewSuggestions) ||
             isPendingReviewSuggestionStatus(record.suggestionStatus));
         const canReviewChange =
+          !disabledByBuiltinCategory &&
           !record.autoEvo &&
           (Boolean(pendingProposal) ||
             isSkillUpdatePending(record.updateStatus) ||
             hasBackendPendingReview);
-        const reviewTooltip = record.autoEvo
+        const reviewTooltip = disabledByBuiltinCategory
+          ? t("admin.memoryBuiltinCategoryReserved")
+          : record.autoEvo
           ? t("admin.memoryDiffNoPending")
           : pendingProposal
           ? t("admin.memoryDiffReviewAction")
@@ -4529,14 +4564,20 @@ export default function MemoryManagement() {
                     }
                   />
                 </Tooltip>
-                <Tooltip title={t("admin.memoryEditItem")}>
+                <Tooltip
+                  title={
+                    disabledByBuiltinCategory
+                      ? t("admin.memoryBuiltinCategoryReserved")
+                      : t("admin.memoryEditItem")
+                  }
+                >
                   <Button
                     type="text"
                     icon={<EditOutlined />}
-                    disabled={Boolean(record.isBuiltin)}
+                    disabled={disabledByBuiltinCategory}
                     onClick={() => {
-                      if (record.isBuiltin) {
-                        message.warning("build-in skill can not be modified/deleted");
+                      if (disabledByBuiltinCategory) {
+                        message.warning(t("admin.memoryBuiltinCategoryReserved"));
                         return;
                       }
                       openModal("edit", record);
@@ -4544,20 +4585,33 @@ export default function MemoryManagement() {
                   />
                 </Tooltip>
                 {!record.parentId ? (
-                  <Tooltip title={t("admin.memoryShareItem")}>
+                  <Tooltip
+                    title={
+                      disabledByBuiltinCategory
+                        ? t("admin.memoryBuiltinCategoryReserved")
+                        : t("admin.memoryShareItem")
+                    }
+                  >
                     <Button
                       type="text"
                       icon={<LinkOutlined />}
+                      disabled={disabledByBuiltinCategory}
                       onClick={() => openShareModal("skills", record)}
                     />
                   </Tooltip>
                 ) : null}
-                <Tooltip title={t("admin.memoryDeleteItem")}>
+                <Tooltip
+                  title={
+                    disabledByBuiltinCategory
+                      ? t("admin.memoryBuiltinCategoryReserved")
+                      : t("admin.memoryDeleteItem")
+                  }
+                >
                   <Button
                     type="text"
                     danger
                     icon={<DeleteOutlined />}
-                    disabled={Boolean(record.isBuiltin)}
+                    disabled={disabledByBuiltinCategory}
                     onClick={() => handleDelete(record)}
                   />
                 </Tooltip>
