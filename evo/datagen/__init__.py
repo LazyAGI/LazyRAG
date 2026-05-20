@@ -250,10 +250,10 @@ def _get_docs_or_raise(dataset_source: KBClient, kb_id: str, algo_id: str) -> li
 
 def run_eval(dataset_id: str, target_chat_url: str, *, cfg: EvoConfig, llm_factory=None, max_workers: int = 10,
              rag_max_workers: int | None = None, judge_max_workers: int | None = None, dataset_name: str = '',
-             filters: dict[str, Any] | None = None, require_trace: bool = True, model_config: dict[str, Any] | None = None,
-             persist_report: bool = True, attempt_id: str | None = None, resume: bool = True, cancel=None,
-             on_progress=None, on_judge_progress=None,
-            ) -> dict[str, Any]:
+             filters: dict[str, Any] | None = None, require_trace: bool = True,
+             model_config: dict[str, Any] | None = None, persist_report: bool = True, attempt_id: str | None = None,
+             resume: bool = True, cancel=None, on_progress=None, on_judge_progress=None,
+             ) -> dict[str, Any]:
     _log.info('start eval dataset_id=%s target=%s', dataset_id, target_chat_url)
     rag_workers = max(1, int(rag_max_workers or max_workers))
     judge_workers = max(1, int(judge_max_workers or max_workers))
