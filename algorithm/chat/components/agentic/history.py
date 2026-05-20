@@ -491,7 +491,7 @@ class _ConfigCitationPlugin(BasePlugin):
             source = _citation_source(self._config, index)
             if source:
                 self._collected.setdefault(index, source)
-            return (link_match.end(), link_match.group(0))
+            return (link_match.end(), '')
 
         match = self._pat.match(src, pos)
         if not match:
@@ -501,7 +501,7 @@ class _ConfigCitationPlugin(BasePlugin):
         if not source:
             return (match.end(), '')
         self._collected.setdefault(index, source)
-        return (match.end(), _citation_link(index, source))
+        return (match.end(), '')
 
     def collect(self) -> list[dict[str, Any]]:
         return list(self._collected.values())

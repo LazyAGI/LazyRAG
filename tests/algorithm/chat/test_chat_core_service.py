@@ -225,7 +225,7 @@ def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
     module = _import_chat_service_module(monkeypatch)
 
     def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
-        return {'text': 'answer'}, None, None
+        return {'text': 'answer'}, None
 
     monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
 
@@ -329,7 +329,7 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
     def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
         # ppl_args is a tuple; first element is the query_params dict
         captured['query_params'] = ppl_args[0] if ppl_args else {}
-        return _stream(), None, None
+        return _stream(), None
 
     monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
     monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: (['/tmp/a.txt'], ['/tmp/b.png']))
@@ -452,7 +452,7 @@ def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkey
         # ppl_args is a tuple; for non-reasoning it's (query_params_dict,)
         query_params_dict = ppl_args[0] if ppl_args else {}
         start_order.append(query_params_dict.get('query', ''))
-        return {'text': query_params_dict.get('query', '')}, None, None
+        return {'text': query_params_dict.get('query', '')}, None
 
     monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
 

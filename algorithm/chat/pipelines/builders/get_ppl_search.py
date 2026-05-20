@@ -35,21 +35,34 @@ def _adaptive_get_token_len(n: Any) -> int:
     return max(1, len(txt) // 4)
 
 
-def _rerank(nodes, query: str, topk: int):
-    config_path = get_config_path()
-    role_slots = get_dynamic_role_slot_map(config_path)
-    cfg = lazyllm.globals.config['dynamic_model_configs']
-    role_cfg = cfg.get('reranker') if isinstance(cfg, dict) else None
-
-    if 'reranker' not in role_slots or (isinstance(role_cfg, dict) and role_cfg.get(role_slots['reranker'])):
-        return Reranker(
-            'ModuleReranker', model=AutoModel(model='reranker', config=config_path), topk=topk,
-        )(nodes, query=query)
-
+def _ensure_scores(nodes):
     for node in nodes or []:
         if getattr(node, 'relevance_score', None) is None:
             node.relevance_score = getattr(node, 'score', None) or getattr(node, 'similarity_score', None) or 0.0
     return nodes
+
+
+def _reranker_configured(config_path: str) -> bool:
+    role_slots = get_dynamic_role_slot_map(config_path)
+    if 'reranker' not in role_slots:
+        return True
+    try:
+        cfg = lazyllm.globals.config['dynamic_model_configs']
+    except (AssertionError, KeyError):
+        cfg = None
+    role_cfg = cfg.get('reranker') if isinstance(cfg, dict) else None
+    return isinstance(role_cfg, dict) and bool(role_cfg.get(role_slots['reranker']))
+
+
+def _rerank(nodes, query: str, topk: int):
+    config_path = get_config_path()
+    if not _reranker_configured(config_path):
+        return _ensure_scores(nodes)
+    return Reranker(
+        'ModuleReranker',
+        model=AutoModel(model='reranker', config=config_path),
+        topk=topk,
+    )(nodes, query=query)
 
 
 def _build_text_branch(retrievers, tmp_retriever, document, topk: int, k_max: int):

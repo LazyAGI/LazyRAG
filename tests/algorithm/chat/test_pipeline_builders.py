@@ -221,7 +221,6 @@ def test_get_ppl_search_keeps_expected_stage_order(monkeypatch):
     ]
     assert recorded['join_top_k'] == 50
     assert recorded['ifs']['cond']() is False
-    assert recorded['reranker'] == {'name': 'ModuleReranker', 'model': 'model:reranker', 'topk': 7}
     assert recorded['adaptive_k']['k_max'] == 4
     assert recorded['adaptive_k']['max_tokens'] == 2048
     assert recorded['adaptive_k']['get_token_len'] is ppl_search_mod._adaptive_get_token_len
@@ -271,3 +270,53 @@ def test_get_ppl_search_diverts_to_temp_retriever_when_files_present(monkeypatch
 
     assert recorded['ifs']['cond']() is True
 
+
+def test_rerank_skips_when_dynamic_reranker_is_not_configured(monkeypatch):
+    nodes = [SimpleNamespace(score=0.42)]
+
+    monkeypatch.setattr(ppl_search_mod, 'get_config_path', lambda: '/tmp/runtime.yaml')
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'get_dynamic_role_slot_map',
+        lambda config_path: {'reranker': 'embed'},
+    )
+    monkeypatch.setattr(ppl_search_mod.lazyllm.globals, 'config', {'dynamic_model_configs': {}})
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'Reranker',
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('reranker should be skipped')),
+    )
+
+    assert ppl_search_mod._rerank(nodes, query='q', topk=3) is nodes
+    assert nodes[0].relevance_score == 0.42
+
+
+def test_rerank_uses_configured_dynamic_reranker(monkeypatch):
+    calls = {}
+
+    class _FakeReranker:
+        def __init__(self, name, model, topk):
+            calls['init'] = {'name': name, 'model': model, 'topk': topk}
+
+        def __call__(self, nodes, query):
+            calls['call'] = {'nodes': nodes, 'query': query}
+            return ['reranked']
+
+    monkeypatch.setattr(ppl_search_mod, 'get_config_path', lambda: '/tmp/runtime.yaml')
+    monkeypatch.setattr(
+        ppl_search_mod,
+        'get_dynamic_role_slot_map',
+        lambda config_path: {'reranker': 'embed'},
+    )
+    monkeypatch.setattr(
+        ppl_search_mod.lazyllm.globals,
+        'config',
+        {'dynamic_model_configs': {'reranker': {'embed': {'source': 'mock'}}}},
+    )
+    monkeypatch.setattr(ppl_search_mod, 'AutoModel', lambda model, config=False: f'model:{model}')
+    monkeypatch.setattr(ppl_search_mod, 'Reranker', _FakeReranker)
+
+    nodes = [object()]
+    assert ppl_search_mod._rerank(nodes, query='q', topk=7) == ['reranked']
+    assert calls['init'] == {'name': 'ModuleReranker', 'model': 'model:reranker', 'topk': 7}
+    assert calls['call'] == {'nodes': nodes, 'query': 'q'}
