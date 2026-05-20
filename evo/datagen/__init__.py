@@ -248,26 +248,12 @@ def _get_docs_or_raise(dataset_source: KBClient, kb_id: str, algo_id: str) -> li
     raise KBDocsEmptyError(f'生成评测集失败，因为知识库是空的。kb_id={kb_id} algo_id={algo_id}.{hint}')
 
 
-def run_eval(
-    dataset_id: str,
-    target_chat_url: str,
-    *,
-    cfg: EvoConfig,
-    llm_factory=None,
-    max_workers: int = 10,
-    rag_max_workers: int | None = None,
-    judge_max_workers: int | None = None,
-    dataset_name: str = '',
-    filters: dict[str, Any] | None = None,
-    require_trace: bool = True,
-    model_config: dict[str, Any] | None = None,
-    persist_report: bool = True,
-    attempt_id: str | None = None,
-    resume: bool = True,
-    cancel=None,
-    on_progress=None,
-    on_judge_progress=None,
-) -> dict[str, Any]:
+def run_eval(dataset_id: str, target_chat_url: str, *, cfg: EvoConfig, llm_factory=None, max_workers: int = 10,
+             rag_max_workers: int | None = None, judge_max_workers: int | None = None, dataset_name: str = '',
+             filters: dict[str, Any] | None = None, require_trace: bool = True,
+             model_config: dict[str, Any] | None = None, persist_report: bool = True, attempt_id: str | None = None,
+             resume: bool = True, cancel=None, on_progress=None, on_judge_progress=None,
+             ) -> dict[str, Any]:
     _log.info('start eval dataset_id=%s target=%s', dataset_id, target_chat_url)
     rag_workers = max(1, int(rag_max_workers or max_workers))
     judge_workers = max(1, int(judge_max_workers or max_workers))
@@ -296,7 +282,7 @@ def run_eval(
         skip_case_ids={row.get('case_id') for row in done + queued},
         on_item=lambda item: (queued.append(item), save_eval_attempt()),
         cancel=cancel,
-        on_progress=on_progress,
+        on_progress=_offset_progress(on_progress, _case_count(done + queued)),
     )
     _check_cancel(cancel)
     meta.update(eval_data)
@@ -310,7 +296,7 @@ def run_eval(
         max_workers=judge_workers,
         on_item=lambda item: (done.append(item), save_eval_attempt()),
         cancel=cancel,
-        on_progress=on_judge_progress,
+        on_progress=_offset_progress(on_judge_progress, _case_count(done), int(eval_data.get('total_cases') or 0)),
     )
     _check_cancel(cancel)
     done = _unique_by_case(done)
@@ -337,3 +323,18 @@ def _unique_by_case(rows: list[dict]) -> list[dict]:
         seen.add(case_id)
         out.append(row)
     return out
+
+
+def _case_count(rows: list[dict]) -> int:
+    return len(_unique_by_case(rows))
+
+
+def _offset_progress(callback, offset: int, total: int = 0):
+    if callback is None:
+        return None
+
+    def report(current: int, remaining_total: int) -> None:
+        full_total = total or offset + remaining_total
+        callback(min(offset + current, full_total), full_total)
+
+    return report
