@@ -51,6 +51,40 @@ func LoadLLMConfig(ctx context.Context, db *gorm.DB, userID string) (map[string]
 	return config, nil
 }
 
+// LoadAdminEmbedConfig queries the first system-wide default embedding model
+// (is_default=true, model_type=embedding) across all users, and returns it as
+// an embed_main config map. This is the admin-configured embedding model shared
+// by all users for document parsing and knowledge-base search.
+// Returns nil when no default embedding model is configured.
+func LoadAdminEmbedConfig(ctx context.Context, db *gorm.DB) (map[string]any, error) {
+	var row SelectedRuntimeModel
+	err := db.WithContext(ctx).
+		Table("user_model_provider_group_models m").
+		Select("m.provider_name, m.name AS model_name, m.base_url, g.api_key").
+		Joins(
+			"JOIN user_model_provider_groups g ON "+
+				"g.id = m.user_model_provider_group_id AND "+
+				"g.deleted_at IS NULL",
+		).
+		Where("m.model_type = ? AND m.is_default = ? AND m.deleted_at IS NULL", "embedding", true).
+		Order("m.created_at ASC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	if row.ProviderName == "" && row.ModelName == "" {
+		return nil, nil
+	}
+	cfg := map[string]any{
+		"source":   strings.ToLower(strings.TrimSpace(row.ProviderName)),
+		"model":    row.ModelName,
+		"base_url": row.BaseURL,
+		"api_key":  row.APIKey,
+	}
+	return cfg, nil
+}
+
 func BuildLLMConfig(rows []SelectedRuntimeModel) map[string]any {
 	out := map[string]any{}
 	for _, row := range rows {

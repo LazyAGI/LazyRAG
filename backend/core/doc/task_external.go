@@ -6,6 +6,8 @@ import (
 
 	"lazymind/core/common"
 	"lazymind/core/log"
+	"lazymind/core/modelconfig"
+	"lazymind/core/store"
 )
 
 type addResultItem struct {
@@ -25,17 +27,19 @@ type addFileItem struct {
 }
 
 type addRequest struct {
-	Items          []addFileItem `json:"items"`
-	KbID           string        `json:"kb_id,omitempty"`
-	SourceType     string        `json:"source_type,omitempty"`
-	IdempotencyKey string        `json:"idempotency_key,omitempty"`
+	Items          []addFileItem  `json:"items"`
+	KbID           string         `json:"kb_id,omitempty"`
+	SourceType     string         `json:"source_type,omitempty"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	ModelConfig    map[string]any `json:"llm_config,omitempty"`
 }
 
 type reparseRequest struct {
-	DocIDs         []string `json:"doc_ids"`
-	KbID           string   `json:"kb_id,omitempty"`
-	NgNames        []string `json:"ng_names,omitempty"`
-	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+	DocIDs         []string       `json:"doc_ids"`
+	KbID           string         `json:"kb_id,omitempty"`
+	NgNames        []string       `json:"ng_names,omitempty"`
+	IdempotencyKey string         `json:"idempotency_key,omitempty"`
+	ModelConfig    map[string]any `json:"llm_config,omitempty"`
 }
 
 // transferItem no longer carries source/target algo IDs after the node-group
@@ -54,6 +58,12 @@ type transferRequest struct {
 }
 
 func callExternalAddDocs(r *http.Request, req addRequest) ([]addResultItem, error) {
+	if embedCfg, err := modelconfig.LoadAdminEmbedConfig(r.Context(), store.DB()); err == nil && embedCfg != nil {
+		if req.ModelConfig == nil {
+			req.ModelConfig = map[string]any{}
+		}
+		req.ModelConfig["embed_main"] = embedCfg
+	}
 	url := common.JoinURL(parsingServiceEndpoint(), "/v1/docs/add")
 	log.Logger.Info().
 		Str("handler", "StartTask").
@@ -93,6 +103,12 @@ func callExternalAddDocs(r *http.Request, req addRequest) ([]addResultItem, erro
 }
 
 func callExternalReparseDocs(r *http.Request, req reparseRequest) ([]string, error) {
+	if embedCfg, err := modelconfig.LoadAdminEmbedConfig(r.Context(), store.DB()); err == nil && embedCfg != nil {
+		if req.ModelConfig == nil {
+			req.ModelConfig = map[string]any{}
+		}
+		req.ModelConfig["embed_main"] = embedCfg
+	}
 	var resp reparseResponse
 	if err := common.ApiPost(r.Context(), common.JoinURL(parsingServiceEndpoint(), "/v1/docs/reparse"), req, nil, &resp, 15*time.Second); err != nil {
 		return nil, err

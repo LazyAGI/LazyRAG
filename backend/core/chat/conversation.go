@@ -210,6 +210,14 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "load llm config failed", err), http.StatusInternalServerError)
 		return
 	}
+	// Merge admin-configured embed_main into llm_config so the chat service can
+	// use the system-wide embedding model for knowledge-base retrieval.
+	if embedCfg, embedErr := modelconfig.LoadAdminEmbedConfig(r.Context(), db); embedErr == nil && embedCfg != nil {
+		if llmConfig == nil {
+			llmConfig = map[string]any{}
+		}
+		llmConfig["embed_main"] = embedCfg
+	}
 	if len(llmConfig) > 0 {
 		reqBody["llm_config"] = llmConfig
 	}
