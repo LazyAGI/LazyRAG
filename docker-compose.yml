@@ -102,8 +102,8 @@ services:
     volumes:
       - ./kong.yml:/kong/kong.yml
       - ./kong/plugins/rbac-auth:/usr/local/share/lua/5.1/kong/plugins/rbac-auth
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       auth-service:
         condition: service_healthy
