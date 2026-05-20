@@ -21,11 +21,7 @@ from chat.utils.markdown_images import rewrite_markdown_image_urls
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
-def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag,
-                        trace_enabled, model_config):
-    lazyllm.globals._init_sid(sid=session_id)
-    lazyllm.locals._init_sid(sid=session_id)
-    inject_model_config(model_config)
+def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
     if not trace_enabled:
         return ppl(*ppl_args), None
 
@@ -229,7 +225,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                     _run_ppl_with_trace, ppl_call[0], ppl_call[1:],
                     session_id=session_id, dataset=dataset,
                     mode_tag='sync_reasoning' if reasoning else 'sync',
-                    trace_enabled=trace, model_config=model_config,
+                    trace_enabled=trace,
                 )
                 cost = round(time.time() - start_time, 3)
                 data = _attach_trace_info(result, trace_id)
@@ -265,7 +261,7 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                         _run_ppl_with_trace, ppl, args,
                         session_id=session_id, dataset=dataset,
                         mode_tag='stream_reasoning' if reasoning else 'stream',
-                        trace_enabled=trace, model_config=model_config,
+                        trace_enabled=trace,
                     )
                     if trace_id is not None:
                         yield _sse_line(_resp(200, 'success',
