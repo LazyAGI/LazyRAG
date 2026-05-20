@@ -1,6 +1,9 @@
 # Variables that need to be configured in the repository:
-## vars.REGISTRY && vars.REGISTRY_NAMESPACE &&
-## secrets.REGISTRY_USERNAME && secrets.REGISTRY_PASSWORD
+## vars.REGISTRY_DOCKERHUB && vars.REGISTRY_DOCKERHUB_NAMESPACE &&
+## secrets.REGISTRY_DOCKERHUB_USERNAME && secrets.REGISTRY_DOCKERHUB_TOKEN
+
+## vars.REGISTRY_ALIYUN && vars.REGISTRY_ALIYUN_NAMESPACE &&
+## secrets.REGISTRY_ALIYUN_USERNAME && secrets.REGISTRY_ALIYUN_TOKEN
 
 # Creates images for both linux/amd64 and linux/arm64 platforms
 
@@ -10,7 +13,6 @@ on:
   push:
     branches:
       - main
-      - cl/caoyangbo/*
     tags:
       - "v*"
     paths-ignore:
@@ -37,10 +39,14 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  # GitLab container registry host, defaults to registry.gitlab.com
-  REGISTRY: ${{ vars.REGISTRY || 'registry.gitlab.com' }}
-  # Namespace/repository path in GitLab registry (group/project)
-  REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE || github.repository }}
+  # DockerHub container registry host, defaults to docker.io
+  REGISTRY_DOCKERHUB: ${{ vars.REGISTRY_DOCKERHUB || 'docker.io' }}
+  # Namespace/repository path in DockerHub registry (group/project)
+  REGISTRY_DOCKERHUB_NAMESPACE: ${{ vars.REGISTRY_DOCKERHUB_NAMESPACE || 'lazyllm' }}
+  # Aliyun container registry host, defaults to registry.cn-hangzhou.aliyuncs.com
+  REGISTRY_ALIYUN: ${{ vars.REGISTRY_ALIYUN || 'registry.cn-hangzhou.aliyuncs.com' }}
+  # Namespace/repository path in Aliyun registry (group/project)
+  REGISTRY_ALIYUN_NAMESPACE: ${{ vars.REGISTRY_ALIYUN_NAMESPACE || 'lazyllm' }}
 
 
 jobs:
@@ -86,8 +92,8 @@ jobs:
             target: doc
             image: lazymind-doc
           - service: mineru
-            dockerfile: Dockerfile
-            context: algorithm
+            dockerfile: algorithm/Dockerfile
+            context: .
             target: mineru
             image: lazymind-mineru
           - service: algorithm
@@ -175,13 +181,21 @@ jobs:
         uses: docker/setup-buildx-action@v3
         if: ${{ steps.tag.outputs.value != '' }}
 
-      - name: Login to Registry
+      - name: Login to DockerHub Registry
         uses: docker/login-action@v3
         if: ${{ steps.tag.outputs.value != '' }}
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          registry: ${{ env.REGISTRY_DOCKERHUB }}
+          username: ${{ secrets.REGISTRY_DOCKERHUB_USERNAME }}
+          password: ${{ secrets.REGISTRY_DOCKERHUB_TOKEN }}
+
+      - name: Login to Aliyun Registry
+        uses: docker/login-action@v3
+        if: ${{ steps.tag.outputs.value != '' }}
+        with:
+          registry: ${{ env.REGISTRY_ALIYUN }}
+          username: ${{ secrets.REGISTRY_ALIYUN_USERNAME }}
+          password: ${{ secrets.REGISTRY_ALIYUN_TOKEN }}
 
       - name: Build and push ${{ matrix.service }} - linux/amd64
         uses: docker/build-push-action@v6
@@ -194,8 +208,10 @@ jobs:
           provenance: false
           platforms: linux/amd64
           tags: |
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-amd64
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest-amd64
+            ${{ env.REGISTRY_DOCKERHUB }}/${{ env.REGISTRY_DOCKERHUB_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-amd64
+            ${{ env.REGISTRY_DOCKERHUB }}/${{ env.REGISTRY_DOCKERHUB_NAMESPACE }}/${{ matrix.image }}:latest-amd64
+            ${{ env.REGISTRY_ALIYUN }}/${{ env.REGISTRY_ALIYUN_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-amd64
+            ${{ env.REGISTRY_ALIYUN }}/${{ env.REGISTRY_ALIYUN_NAMESPACE }}/${{ matrix.image }}:latest-amd64
 
       - name: Build and push ${{ matrix.service }} - linux/arm64
         uses: docker/build-push-action@v6
@@ -208,25 +224,47 @@ jobs:
           provenance: false
           platforms: linux/arm64
           tags: |
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-arm64
-            ${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}:latest-arm64
+            ${{ env.REGISTRY_DOCKERHUB }}/${{ env.REGISTRY_DOCKERHUB_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-arm64
+            ${{ env.REGISTRY_DOCKERHUB }}/${{ env.REGISTRY_DOCKERHUB_NAMESPACE }}/${{ matrix.image }}:latest-arm64
+            ${{ env.REGISTRY_ALIYUN }}/${{ env.REGISTRY_ALIYUN_NAMESPACE }}/${{ matrix.image }}:${{ steps.tag.outputs.value }}-arm64
+            ${{ env.REGISTRY_ALIYUN }}/${{ env.REGISTRY_ALIYUN_NAMESPACE }}/${{ matrix.image }}:latest-arm64
 
-      - name: Create and push manifest
+      - name: Create and push DockerHub manifest
         if: ${{ steps.tag.outputs.value != '' }}
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.REGISTRY_NAMESPACE }}/${{ matrix.image }}"
+          DOCKERHUB_IMAGE="${{ env.REGISTRY_DOCKERHUB }}/${{ env.REGISTRY_DOCKERHUB_NAMESPACE }}/${{ matrix.image }}"
 
           echo "Waiting for images to be available..."
           sleep 30
 
           # Create manifest
-          docker manifest create $IMAGE:${{ steps.tag.outputs.value }} \
-            --amend $IMAGE:${{ steps.tag.outputs.value }}-arm64 \
-            --amend $IMAGE:${{ steps.tag.outputs.value }}-amd64 || true
-          docker manifest push $IMAGE:${{ steps.tag.outputs.value }}
+          docker manifest create $DOCKERHUB_IMAGE:${{ steps.tag.outputs.value }} \
+            --amend $DOCKERHUB_IMAGE:${{ steps.tag.outputs.value }}-arm64 \
+            --amend $DOCKERHUB_IMAGE:${{ steps.tag.outputs.value }}-amd64 || true
+          docker manifest push $DOCKERHUB_IMAGE:${{ steps.tag.outputs.value }}
 
           # Create latest manifest
-          docker manifest create $IMAGE:latest \
-            --amend $IMAGE:latest-arm64 \
-            --amend $IMAGE:latest-amd64 || true
-          docker manifest push $IMAGE:latest
+          docker manifest create $DOCKERHUB_IMAGE:latest \
+            --amend $DOCKERHUB_IMAGE:latest-arm64 \
+            --amend $DOCKERHUB_IMAGE:latest-amd64 || true
+          docker manifest push $DOCKERHUB_IMAGE:latest
+
+      - name: Create and push Aliyun manifest
+        if: ${{ steps.tag.outputs.value != '' }}
+        run: |
+          ALIYUN_IMAGE="${{ env.REGISTRY_ALIYUN }}/${{ env.REGISTRY_ALIYUN_NAMESPACE }}/${{ matrix.image }}"
+
+          echo "Waiting for images to be available..."
+          sleep 30
+
+          # Create manifest
+          docker manifest create $ALIYUN_IMAGE:${{ steps.tag.outputs.value }} \
+            --amend $ALIYUN_IMAGE:${{ steps.tag.outputs.value }}-arm64 \
+            --amend $ALIYUN_IMAGE:${{ steps.tag.outputs.value }}-amd64 || true
+          docker manifest push $ALIYUN_IMAGE:${{ steps.tag.outputs.value }}
+
+          # Create latest manifest
+          docker manifest create $ALIYUN_IMAGE:latest \
+            --amend $ALIYUN_IMAGE:latest-arm64 \
+            --amend $ALIYUN_IMAGE:latest-amd64 || true
+          docker manifest push $ALIYUN_IMAGE:latest

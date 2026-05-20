@@ -136,6 +136,10 @@ export LAZYLLM_TRACE_BACKEND ?= langfuse
 export MINIO_ACCESS_KEY ?= minioadmin
 export MINIO_SECRET_KEY ?= minioadmin
 
+# Image mirror and tag
+export LAZYMIND_IMAGE_MIRROR ?= registry.cn-hangzhou.aliyuncs.com/lazyllm/
+export LAZYMIND_IMAGE_TAG ?= latest
+
 # Build mirrors — defaults point to Aliyun / domestic mirrors so docker build works
 # without VPN. Override via env or .env to use upstream/internal mirrors, e.g.:
 #   make up DOCKER_MIRROR= APT_MIRROR=http://deb.debian.org/debian ...
