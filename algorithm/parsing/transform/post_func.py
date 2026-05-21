@@ -298,9 +298,11 @@ class ImageNodeLoader(ModuleBase):
         if not image_path or not image_cache_dir:
             return ''
 
-        abs_path = Path(image_path)
-        if abs_path.is_file() and abs_path.stat().st_size > 0:
-            return str(abs_path.resolve())
+        path_obj = Path(image_path)
+        if path_obj.is_absolute():
+            if path_obj.is_file() and path_obj.stat().st_size > 0:
+                return str(path_obj.resolve())
+            return ''
 
         if _is_url(image_path):
             return ''
