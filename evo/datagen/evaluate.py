@@ -4,8 +4,10 @@ import logging
 import re
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
+from lazyllm.tracing import current_trace, enable_trace
 from evo.datagen.llm import chat
 from evo.datagen.prompts import prompt_evaluate
+from evo.datagen.trace_context import derive_trace_context, trace_status
 from evo.harness.plan import StopRequested
 
 _log = logging.getLogger('evo.datagen.evaluate')
@@ -13,7 +15,38 @@ _log = logging.getLogger('evo.datagen.evaluate')
 
 def evaluate_answer(question: str, ground_truth: str, rag_answer: str, key_points: list[str],
                     retrieve_contexts: list[str], *, llm_factory=None,
+                    trace_context: dict[str, Any] | None = None,
                     ) -> dict[str, Any]:
+    if trace_context:
+        expected_trace_id = str(trace_context.get('trace_id') or '')
+        captured: dict[str, str] = {}
+
+        def _run() -> dict[str, Any]:
+            trace = current_trace()
+            if trace:
+                trace.update_metadata(trace_context)
+                captured['trace_id'] = trace.trace_id
+            return evaluate_answer(
+                question, ground_truth, rag_answer, key_points, retrieve_contexts, llm_factory=llm_factory
+            )
+
+        result = enable_trace(
+            _run,
+            trace_id=expected_trace_id,
+            session_id=f"evo:judge:{trace_context.get('report_id', '')}",
+            request_tags=_judge_request_tags(trace_context),
+            module_trace={'default': True},
+        )
+        return {
+            **result,
+            'judge_trace_id': expected_trace_id,
+            'judge_trace_status': trace_status(
+                require_trace=True,
+                actual_trace_id=captured.get('trace_id', ''),
+                expected_trace_id=expected_trace_id,
+            ),
+        }
+
     kp_str = ', '.join(key_points) if isinstance(key_points, list) else str(key_points)
     rc_str = '\n'.join(retrieve_contexts) if isinstance(retrieve_contexts, list) else str(retrieve_contexts)
     prompt = prompt_evaluate(question, ground_truth, rag_answer, kp_str, rc_str)
@@ -60,7 +93,16 @@ def _score01(value: Any) -> float:
     return round(score, 4)
 
 
-def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_workers: int = 10, on_item=None, cancel=None, on_progress=None) -> list[dict]:  # noqa: E501
+def create_evaluate_task(
+    eval_queue: list[dict],
+    *,
+    llm_factory=None,
+    max_workers: int = 10,
+    on_item=None,
+    cancel=None,
+    on_progress=None,
+    trace_context: dict[str, Any] | None = None,
+) -> list[dict]:
     result_list: list[dict] = []
     done = 0
     total = len(eval_queue)
@@ -76,6 +118,11 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
                 item = next(iterator)
             except StopIteration:
                 return False
+            judge_trace_context = (
+                derive_trace_context(trace_context, scene='judge', case_id=str(item.get('case_id') or ''))
+                if trace_context is not None
+                else None
+            )
             pending[executor.submit(
                 evaluate_answer,
                 item['question'],
@@ -84,6 +131,7 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
                 item.get('key_points', []),
                 item.get('retrieve_contexts', []),
                 llm_factory=llm_factory,
+                trace_context=judge_trace_context,
             )] = item
             return True
 
@@ -113,3 +161,14 @@ def create_evaluate_task(eval_queue: list[dict], *, llm_factory=None, max_worker
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
     return result_list
+
+
+def _judge_request_tags(trace_context: dict[str, Any]) -> list[str]:
+    tags = ['scene:judge']
+    report_id = str(trace_context.get('report_id') or '')
+    case_id = str(trace_context.get('case_id') or '')
+    if report_id:
+        tags.append(f'report:{report_id}')
+    if case_id:
+        tags.append(f'case:{case_id}')
+    return tags

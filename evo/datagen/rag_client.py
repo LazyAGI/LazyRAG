@@ -6,6 +6,7 @@ import uuid
 import urllib.error
 import urllib.request
 from typing import Any
+from evo.datagen.trace_context import trace_status
 from evo.runtime.config import EVO_RAG_MAX_RETRIES, EVO_RAG_RETRY_BACKOFF_S, EVO_RAG_TIMEOUT_S
 
 _log = logging.getLogger('evo.datagen.rag_client')
@@ -33,11 +34,17 @@ def call_rag_chat(
     *,
     require_trace: bool = True,
     model_config: dict[str, Any] | None = None,
+    trace_id: str | None = None,
+    trace_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not target_chat_url:
         raise RAGTargetRequiredError('target_chat_url is required for RAG evaluation')
     session_id = f'evo-eval-{uuid.uuid4().hex}'
     payload = {'query': question, 'trace': require_trace, 'session_id': session_id}
+    if trace_id:
+        payload['trace_id'] = trace_id
+    if isinstance(trace_context, dict):
+        payload['trace_context'] = trace_context
     if dataset_name:
         payload['dataset'] = dataset_name
     if filters:
@@ -58,7 +65,11 @@ def call_rag_chat(
                 raise RAGCallFailed(f'RAG_CALL_FAILED: invalid response {type(result).__name__}')
             code = result.get('code')
             if code in (None, 200):
-                return _normalize_rag_result(result, require_trace=require_trace)
+                return _normalize_rag_result(
+                    result,
+                    require_trace=require_trace,
+                    expected_trace_id=trace_id,
+                )
             message = result.get('msg') or result
             if not _is_retryable_chat_error(code, message) or attempt == attempts:
                 raise RAGCallFailed(f'RAG_CALL_FAILED: {message}')
@@ -88,15 +99,20 @@ def _open_rag_request(req: urllib.request.Request) -> dict[str, Any]:
         raise exc
 
 
-def _normalize_rag_result(result: dict[str, Any], *, require_trace: bool) -> dict[str, Any]:
+def _normalize_rag_result(
+    result: dict[str, Any], *, require_trace: bool, expected_trace_id: str | None = None
+) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise RAGCallFailed(f'RAG_CALL_FAILED: invalid response {type(result).__name__}')
     data_obj = result.get('data') if isinstance(result.get('data'), dict) else {}
     sources = result.get('sources') or data_obj.get('sources') or data_obj.get('recall') or []
     trace = data_obj.get('trace') if isinstance(data_obj.get('trace'), dict) else None
     trace_id = result.get('trace_id') or data_obj.get('trace_id') or (trace or {}).get('trace_id') or (trace or {}).get('id') or ''  # noqa: E501
-    if require_trace and not trace_id and not trace:
-        raise RAGTraceMissing('target chat did not return trace_id or inline trace')
+    status = trace_status(
+        require_trace=require_trace,
+        actual_trace_id=str(trace_id or ''),
+        expected_trace_id=expected_trace_id,
+    )
     answer = result.get('answer') or data_obj.get('answer') or data_obj.get('text') or data_obj.get('data') or ''
     return {
         'answer': answer,
@@ -106,6 +122,7 @@ def _normalize_rag_result(result: dict[str, Any], *, require_trace: bool) -> dic
         'chunk_ids': result.get('chunk_ids') or _pluck_any(sources, ('chunk_id', 'segment_id', 'segement_id')),
         'doc_ids': result.get('doc_ids') or _pluck_any(sources, ('doc_id', 'document_id')),
         'trace_id': trace_id,
+        'trace_status': status,
         'trace': trace,
     }
 

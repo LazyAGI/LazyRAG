@@ -263,6 +263,7 @@ def _wait_health(candidate: ChatInstance, timeout_s: float = 60) -> None:
 def _phase_run_eval(c: _Ctx) -> None:
     if c.candidate is None:
         raise RuntimeError('candidate chat is not available')
+    eval_id = f'cand-{c.inputs.abtest_id}'
     report = run_eval(
         dataset_id=c.inputs.dataset_id,
         target_chat_url=_chat_api_url(c.candidate.base_url),
@@ -277,6 +278,9 @@ def _phase_run_eval(c: _Ctx) -> None:
         model_config=c.inputs.model_config,
         persist_report=False,
         attempt_id=c.inputs.abtest_id,
+        scene='abtest',
+        report_id=eval_id,
+        algorithm_version=c.inputs.apply_id,
         resume=_has_eval_partial(c),
         cancel=c.cancel,
         on_progress=lambda current, total: c.log.append_event(
@@ -290,7 +294,6 @@ def _phase_run_eval(c: _Ctx) -> None:
             payload={'current': current, 'total': total, 'dataset_id': c.inputs.dataset_id},
         ),
     )
-    eval_id = report.get('report_id') or f'cand-{c.inputs.abtest_id}'
     report['report_id'] = eval_id
     c.state['new_eval_id'] = eval_id
     _atomic_write(c.ws.eval_path(eval_id), json.dumps(report, ensure_ascii=False, indent=2))

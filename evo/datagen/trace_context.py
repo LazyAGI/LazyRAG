@@ -38,6 +38,16 @@ def derive_trace_context(base: dict[str, Any] | None, *, scene: str, case_id: st
     return {key: context[key] for key in TRACE_CONTEXT_KEYS}
 
 
+def trace_status(*, require_trace: bool, actual_trace_id: str, expected_trace_id: str | None = None) -> str:
+    if not require_trace:
+        return 'trace_disabled'
+    if not actual_trace_id:
+        return 'trace_missing'
+    if expected_trace_id and actual_trace_id != expected_trace_id:
+        return 'trace_collection_failed'
+    return 'success'
+
+
 def _clean_value(value: Any) -> str:
     return '' if value is None else str(value)
 
@@ -47,4 +57,5 @@ __all__ = [
     'TRACE_CONTEXT_KEYS',
     'derive_trace_context',
     'new_trace_id',
+    'trace_status',
 ]
