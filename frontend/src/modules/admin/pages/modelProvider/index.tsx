@@ -145,6 +145,12 @@ const moduleConfigs: ModuleConfig[] = [
     restricted: true,
   },
   {
+    key: "MULTIMODAL_EMBEDDING",
+    titleKey: "modelProvider.module.multimodalEmbeddingTitle",
+    subtitleKey: "modelProvider.module.multimodalEmbeddingSubtitle",
+    restricted: true,
+  },
+  {
     key: "VLM",
     titleKey: "modelProvider.module.vlmTitle",
     subtitleKey: "modelProvider.module.vlmSubtitle",
@@ -153,21 +159,6 @@ const moduleConfigs: ModuleConfig[] = [
     key: "RERANK",
     titleKey: "modelProvider.module.rerankTitle",
     subtitleKey: "modelProvider.module.rerankSubtitle",
-  },
-  {
-    key: "ASR",
-    titleKey: "modelProvider.module.asrTitle",
-    subtitleKey: "modelProvider.module.asrSubtitle",
-  },
-  {
-    key: "TTS",
-    titleKey: "modelProvider.module.ttsTitle",
-    subtitleKey: "modelProvider.module.ttsSubtitle",
-  },
-  {
-    key: "TEXT_TO_IMAGE",
-    titleKey: "modelProvider.module.textToImageTitle",
-    subtitleKey: "modelProvider.module.textToImageSubtitle",
   },
   {
     key: "LLM_SELF_EVOLUTION",

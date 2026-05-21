@@ -73,6 +73,147 @@ func ListUserProviders(w http.ResponseWriter, r *http.Request) {
 	common.ReplyOK(w, listResponse{Providers: out})
 }
 
+// seedUserGroupsFromAdmin copies all groups (and their models) from the system-admin user to the
+// target user, but only when the target user has no groups yet. The admin user is identified by
+// finding the user whose groups have create_user_name matching the admin username stored in the
+// ACL service. This is a best-effort operation: if no admin groups exist, we silently skip.
+func seedUserGroupsFromAdmin(ctx context.Context, db *gorm.DB, userID, userName string) error {
+	// Fast path: user already has groups — nothing to do.
+	var existing int64
+	if err := db.WithContext(ctx).Model(&orm.UserModelProviderGroup{}).
+		Where("create_user_id = ? AND deleted_at IS NULL", userID).
+		Count(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+
+	// Find the admin user by looking for the user who owns groups with create_user_name = 'admin'.
+	// We use a subquery to find the admin's user_id from their groups.
+	type adminInfo struct {
+		AdminID   string
+		AdminName string
+	}
+	var admin adminInfo
+	err := db.WithContext(ctx).Raw(`
+		SELECT create_user_id AS admin_id, create_user_name AS admin_name
+		FROM user_model_provider_groups
+		WHERE deleted_at IS NULL
+		  AND create_user_id != ?
+		  AND create_user_name = 'admin'
+		LIMIT 1
+	`, userID).Scan(&admin).Error
+	if err != nil || admin.AdminID == "" {
+		// Fallback: try any user with groups who is not the current user.
+		err = db.WithContext(ctx).Raw(`
+			SELECT create_user_id AS admin_id, create_user_name AS admin_name
+			FROM user_model_provider_groups
+			WHERE deleted_at IS NULL
+			  AND create_user_id != ?
+			LIMIT 1
+		`, userID).Scan(&admin).Error
+		if err != nil || admin.AdminID == "" {
+			return nil // No admin groups found; skip silently.
+		}
+	}
+	adminID := admin.AdminID
+
+	// Load admin's groups and their models.
+	var adminGroups []orm.UserModelProviderGroup
+	if err := db.WithContext(ctx).
+		Where("create_user_id = ? AND deleted_at IS NULL", adminID).
+		Find(&adminGroups).Error; err != nil {
+		return err
+	}
+	if len(adminGroups) == 0 {
+		return nil
+	}
+
+	// Build a map from admin's provider ID → user's provider ID (matched by default_model_provider_id).
+	var adminProviders []orm.UserModelProvider
+	if err := db.WithContext(ctx).
+		Where("create_user_id = ? AND deleted_at IS NULL", adminID).
+		Find(&adminProviders).Error; err != nil {
+		return err
+	}
+	var userProviders []orm.UserModelProvider
+	if err := db.WithContext(ctx).
+		Where("create_user_id = ? AND deleted_at IS NULL", userID).
+		Find(&userProviders).Error; err != nil {
+		return err
+	}
+	// Map default_model_provider_id → user's UserModelProvider.ID
+	userProviderByDefault := make(map[string]string, len(userProviders))
+	for _, p := range userProviders {
+		userProviderByDefault[p.DefaultModelProviderID] = p.ID
+	}
+	// Map admin's UserModelProvider.ID → default_model_provider_id
+	adminProviderDefault := make(map[string]string, len(adminProviders))
+	for _, p := range adminProviders {
+		adminProviderDefault[p.ID] = p.DefaultModelProviderID
+	}
+
+	now := time.Now()
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, ag := range adminGroups {
+			defaultProviderID := adminProviderDefault[ag.UserModelProviderID]
+			userProviderID := userProviderByDefault[defaultProviderID]
+			if userProviderID == "" {
+				continue // No matching provider for this user; skip.
+			}
+
+			newGroupID := common.GenerateID()
+			newGroup := orm.UserModelProviderGroup{
+				ID:                  newGroupID,
+				UserModelProviderID: userProviderID,
+				Name:                ag.Name,
+				BaseURL:             ag.BaseURL,
+				APIKey:              ag.APIKey,
+				IsVerified:          ag.IsVerified,
+				BaseModel: orm.BaseModel{
+					CreateUserID:   userID,
+					CreateUserName: userName,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				},
+			}
+			if err := tx.Create(&newGroup).Error; err != nil {
+				return err
+			}
+
+			// Copy models for this group.
+			var adminModels []orm.UserModelProviderGroupModel
+			if err := tx.Where("user_model_provider_group_id = ? AND deleted_at IS NULL", ag.ID).
+				Find(&adminModels).Error; err != nil {
+				return err
+			}
+			for _, am := range adminModels {
+				newModel := orm.UserModelProviderGroupModel{
+					ID:                       common.GenerateID(),
+					UserModelProviderID:      userProviderID,
+					UserModelProviderGroupID: newGroupID,
+					ProviderName:             am.ProviderName,
+					Name:                     am.Name,
+					ModelType:                am.ModelType,
+					BaseURL:                  am.BaseURL,
+					IsDefault:                am.IsDefault,
+					BaseModel: orm.BaseModel{
+						CreateUserID:   userID,
+						CreateUserName: userName,
+						CreatedAt:      now,
+						UpdatedAt:      now,
+					},
+				}
+				if err := tx.Create(&newModel).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
 // ListUserProvidersWithGroups returns user_model_providers rows that have at least one non-deleted
 // user_model_provider_groups row for the current user (distinct parent ids from groups, then load providers).
 func ListUserProvidersWithGroups(w http.ResponseWriter, r *http.Request) {
@@ -85,6 +226,13 @@ func ListUserProvidersWithGroups(w http.ResponseWriter, r *http.Request) {
 	if userID == "" {
 		common.ReplyErr(w, "missing X-User-Id", http.StatusBadRequest)
 		return
+	}
+	userName := strings.TrimSpace(store.UserName(r))
+
+	// Seed groups from admin on first visit (best-effort, non-fatal).
+	if err := seedUserGroupsFromAdmin(r.Context(), db, userID, userName); err != nil {
+		// Log but don't fail the request — user can still add groups manually.
+		_ = err
 	}
 
 	var providerIDs []string

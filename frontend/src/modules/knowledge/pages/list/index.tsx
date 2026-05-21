@@ -91,27 +91,37 @@ const KnowledgePage: FC = () => {
   const [showTagEditModal, setShowTagEditModal] = useState(false);
   const [tagEditRecord, setTagEditRecord] = useState<DocRow | null>(null);
   const [embeddingReady, setEmbeddingReady] = useState<boolean | null>(null);
+  const [multimodalEmbeddingReady, setMultimodalEmbeddingReady] = useState<boolean | null>(null);
   const isAdmin = AgentAppsAuth.getUserInfo()?.role === 'system-admin';
 
   useEffect(() => {
     getTags();
     getTableData();
-    if (!isAdmin) {
-      void checkEmbeddingReady();
-    }
+    void checkEmbeddingReady();
   }, []);
 
   async function checkEmbeddingReady() {
     try {
-      const resp = await axiosInstance.get<{ data?: { ready: boolean } } | { ready: boolean }>(
-        `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
-      );
-      const data = resp.data && typeof resp.data === 'object' && 'data' in resp.data
-        ? (resp.data as { data?: { ready: boolean } }).data
-        : resp.data as { ready: boolean };
-      setEmbeddingReady(data?.ready ?? null);
+      const [embResp, multiResp] = await Promise.all([
+        axiosInstance.get<{ data?: { ready: boolean } } | { ready: boolean }>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
+        ).catch(() => null),
+        axiosInstance.get<{ data?: { ready: boolean } } | { ready: boolean }>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=multimodal_embedding`
+        ).catch(() => null),
+      ]);
+      const unwrap = (resp: typeof embResp): boolean | null => {
+        if (!resp) return null;
+        const d = resp.data && typeof resp.data === 'object' && 'data' in resp.data
+          ? (resp.data as { data?: { ready: boolean } }).data
+          : resp.data as { ready: boolean };
+        return d?.ready ?? null;
+      };
+      setEmbeddingReady(unwrap(embResp));
+      setMultimodalEmbeddingReady(unwrap(multiResp));
     } catch {
       setEmbeddingReady(null);
+      setMultimodalEmbeddingReady(null);
     }
   }
 
@@ -588,11 +598,20 @@ const KnowledgePage: FC = () => {
   return (
     <div className="knowledge-list-page">
       <h2 className="knowledge-title admin-page-title">{t("layout.knowledgeBase")}</h2>
-      {!isAdmin && embeddingReady === false ? (
+      {embeddingReady === false ? (
         <Alert
           banner
           className="knowledge-embedding-warning"
           message={t("knowledge.embeddingNotReadyBanner")}
+          showIcon
+          type="warning"
+        />
+      ) : null}
+      {multimodalEmbeddingReady === false ? (
+        <Alert
+          banner
+          className="knowledge-embedding-warning"
+          message={t("knowledge.multimodalEmbeddingNotReadyBanner")}
           showIcon
           type="warning"
         />
@@ -606,8 +625,12 @@ const KnowledgePage: FC = () => {
           }
           searchKey="keyword"
           btnText={t("knowledge.createKnowledgeBase")}
-          btnDisabled={!isAdmin && embeddingReady === false}
-          btnDisabledTooltip={t("knowledge.embeddingNotReadyBanner")}
+          btnDisabled={embeddingReady === false || multimodalEmbeddingReady === false}
+          btnDisabledTooltip={
+            embeddingReady === false
+              ? t("knowledge.embeddingNotReadyBanner")
+              : t("knowledge.multimodalEmbeddingNotReadyBanner")
+          }
           onClick={() => {
             createUpdateRef.current?.onOpen();
           }}

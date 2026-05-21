@@ -84,6 +84,8 @@ const zhCN = {
       llmChatSubtitle: "负责聊天、问答与核心推理，是系统功能的必配项。",
       embeddingTitle: "向量模型",
       embeddingSubtitle: "用于知识库向量化与检索召回，当前只能从平台限定模型中选择。",
+      multimodalEmbeddingTitle: "多模态向量模型",
+      multimodalEmbeddingSubtitle: "用于图文混合内容的向量化与跨模态检索，当前只能从平台限定模型中选择。",
       vlmTitle: "图文模型",
       vlmSubtitle: "用于图片理解、多模态问答与视觉内容分析。",
       rerankTitle: "重排序模型",
@@ -324,6 +326,9 @@ const zhCN = {
     // ChatSelector
     knowledgeBase: "知识库",
     embeddingNotReadyKnowledge: "向量模型未就绪，暂时无法使用知识库",
+    multimodalEmbeddingNotReadyKnowledge: "多模态向量模型未就绪，暂时无法使用知识库",
+    rerankNotReadyKnowledge: "重排序模型未就绪，暂时无法使用知识库",
+    vlmNotReadyWarning: "图文模型（VLM）未配置，当前无法处理图片内容，如需图片理解请前往模型供应商配置图文模型。",
     searchKnowledge: "搜索知识库",
     reset: "重置",
     selectAll: "全选",
@@ -726,6 +731,7 @@ const zhCN = {
     folder: "文件夹",
     unknown: "未知",
     embeddingNotReadyBanner: "向量模型尚未就绪，知识库检索功能暂时不可用，请联系管理员配置向量模型。",
+    multimodalEmbeddingNotReadyBanner: "多模态向量模型尚未就绪，图文混合检索功能暂时不可用，请联系管理员配置多模态向量模型。",
   },
 
   admin: {

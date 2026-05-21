@@ -86,6 +86,8 @@ const enUS = {
       llmChatSubtitle: "Handles chat, Q&A, and core reasoning. Required for system features.",
       embeddingTitle: "Embedding Model",
       embeddingSubtitle: "Used for knowledge-base vectorization and retrieval recall. Currently limited to platform-approved models.",
+      multimodalEmbeddingTitle: "Multimodal Embedding Model",
+      multimodalEmbeddingSubtitle: "Used for cross-modal vectorization and retrieval of mixed image-text content. Currently limited to platform-approved models.",
       vlmTitle: "Vision-Language Model",
       vlmSubtitle: "Used for image understanding, multimodal Q&A, and visual content analysis.",
       rerankTitle: "Rerank Model",
@@ -355,6 +357,9 @@ const enUS = {
     // ChatSelector
     knowledgeBase: "Knowledge Base",
     embeddingNotReadyKnowledge: "Embedding model is not ready. Knowledge base is temporarily unavailable.",
+    multimodalEmbeddingNotReadyKnowledge: "Multimodal embedding model is not ready. Knowledge base is temporarily unavailable.",
+    rerankNotReadyKnowledge: "Rerank model is not ready. Knowledge base is temporarily unavailable.",
+    vlmNotReadyWarning: "Vision-Language Model (VLM) is not configured. Image content cannot be processed. Please configure a VLM in the model provider settings.",
     searchKnowledge: "Search knowledge bases",
     reset: "Reset",
     selectAll: "Select All",
@@ -764,6 +769,7 @@ const enUS = {
     folder: "Folder",
     unknown: "Unknown",
     embeddingNotReadyBanner: "The embedding model is not ready. Knowledge-base retrieval is temporarily unavailable. Please ask an admin to configure the embedding model.",
+    multimodalEmbeddingNotReadyBanner: "The multimodal embedding model is not ready. Mixed image-text retrieval is temporarily unavailable. Please ask an admin to configure the multimodal embedding model.",
   },
 
   // Admin

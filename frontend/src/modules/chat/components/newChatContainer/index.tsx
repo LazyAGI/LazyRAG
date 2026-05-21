@@ -83,6 +83,8 @@ interface Props {
   setChatConfigFn: (chatConfig: ChatConfig) => void;
   knowledgeRefreshKey?: number | string;
   embeddingReady?: boolean | null;
+  multimodalEmbeddingReady?: boolean | null;
+  rerankReady?: boolean | null;
   disabledReason?: string;
   disabledDescription?: string;
   disabledAction?: ReactNode;
@@ -140,6 +142,8 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
       setChatConfigFn,
       knowledgeRefreshKey,
       embeddingReady,
+      multimodalEmbeddingReady,
+      rerankReady,
       disabledReason,
       disabledDescription,
       disabledAction,
@@ -1426,6 +1430,8 @@ const ChatContainerComponent = forwardRef<ChatImperativeProps, Props>(
             setChatConfigFn={setChatConfigFn}
             knowledgeRefreshKey={knowledgeRefreshKey}
             embeddingReady={embeddingReady}
+            multimodalEmbeddingReady={multimodalEmbeddingReady}
+            rerankReady={rerankReady}
             sessionId={sessionId}
             isStreaming={IS_STREAMING}
             disabled={!canChat}

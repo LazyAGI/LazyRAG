@@ -34,6 +34,9 @@ export function useChatModelProviderGuard() {
       return typeof dynamic === "boolean" ? dynamic : null;
     });
   const [embeddingReady, setEmbeddingReady] = useState<boolean | null>(null);
+  const [multimodalEmbeddingReady, setMultimodalEmbeddingReady] = useState<boolean | null>(null);
+  const [rerankReady, setRerankReady] = useState<boolean | null>(null);
+  const [vlmReady, setVlmReady] = useState<boolean | null>(null);
   const requestIdRef = useRef(0);
   const mountedRef = useRef(true);
 
@@ -64,12 +67,21 @@ export function useChatModelProviderGuard() {
     }
 
     try {
-      const [chatReadyResp, embeddingResp] = await Promise.all([
+      const [chatReadyResp, embeddingResp, multimodalEmbeddingResp, rerankResp, vlmResp] = await Promise.all([
         axiosInstance.get<ApiEnvelope<ModelReadyResponse> | ModelReadyResponse>(
           `${BASE_URL}/api/core/model_providers/models/ready?model_type=llm-chat`
         ).catch(() => null),
         axiosInstance.get<ApiEnvelope<ModelReadyResponse> | ModelReadyResponse>(
           `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
+        ).catch(() => null),
+        axiosInstance.get<ApiEnvelope<ModelReadyResponse> | ModelReadyResponse>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=multimodal_embedding`
+        ).catch(() => null),
+        axiosInstance.get<ApiEnvelope<ModelReadyResponse> | ModelReadyResponse>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=rerank`
+        ).catch(() => null),
+        axiosInstance.get<ApiEnvelope<ModelReadyResponse> | ModelReadyResponse>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=VLM`
         ).catch(() => null),
       ]);
 
@@ -82,12 +94,14 @@ export function useChatModelProviderGuard() {
         : false;
       setStatus(ready ? "ready" : "missing");
 
-      if (embeddingResp) {
-        const embeddingData = unwrapResponse<ModelReadyResponse>(embeddingResp.data);
-        setEmbeddingReady(embeddingData.ready);
-      } else {
-        setEmbeddingReady(null);
-      }
+      const getReady = (resp: typeof embeddingResp): boolean | null => {
+        if (!resp) return null;
+        return unwrapResponse<ModelReadyResponse>(resp.data).ready ?? null;
+      };
+      setEmbeddingReady(getReady(embeddingResp));
+      setMultimodalEmbeddingReady(getReady(multimodalEmbeddingResp));
+      setRerankReady(getReady(rerankResp));
+      setVlmReady(getReady(vlmResp));
 
       return ready;
     } catch {
@@ -131,6 +145,9 @@ export function useChatModelProviderGuard() {
     needsModelProviderConfig: status === "missing",
     requiresModelProviderConfig: requiresModelProviderConfig === true,
     embeddingReady,
+    multimodalEmbeddingReady,
+    rerankReady,
+    vlmReady,
     refresh,
     status,
   };

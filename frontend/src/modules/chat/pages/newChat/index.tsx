@@ -59,6 +59,8 @@ const NewChatPage = () => {
   // Warn when knowledge base is selected but embedding is not ready.
   const hasKnowledgeBase = Boolean(chatConfig.datasetIds?.length);
   const showEmbeddingWarning = hasKnowledgeBase && modelProviderGuard.embeddingReady === false;
+  // Warn when VLM is not configured (informational only, does not block any feature).
+  const showVlmWarning = modelProviderGuard.vlmReady === false;
 
   useEffect(() => {
     if (!isChatContent) {
@@ -182,6 +184,8 @@ const NewChatPage = () => {
             initchatConfig={chatConfig}
             canChat={!isChatDisabled}
             embeddingReady={modelProviderGuard.embeddingReady}
+            multimodalEmbeddingReady={modelProviderGuard.multimodalEmbeddingReady}
+            rerankReady={modelProviderGuard.rerankReady}
             chatDisabledReason={chatDisabledReason}
             chatDisabledDescription={chatDisabledDescription}
             chatDisabledAction={chatDisabledAction}
@@ -222,6 +226,11 @@ const NewChatPage = () => {
                       {t("chat.embeddingNotReadyWarning")}
                     </div>
                   ) : null}
+                  {showVlmWarning ? (
+                    <div className="vlm-warning-banner" role="alert">
+                      {t("chat.vlmNotReadyWarning")}
+                    </div>
+                  ) : null}
                   <ChatInput
                     ref={newChatInputRef}
                     value={inputValue}
@@ -242,6 +251,8 @@ const NewChatPage = () => {
                     setChatConfig={setChatConfig}
                     disabled={isChatDisabled}
                     embeddingReady={modelProviderGuard.embeddingReady}
+                    multimodalEmbeddingReady={modelProviderGuard.multimodalEmbeddingReady}
+                    rerankReady={modelProviderGuard.rerankReady}
                     disabledReason={chatDisabledReason}
                     disabledDescription={chatDisabledDescription}
                     disabledAction={chatDisabledAction}

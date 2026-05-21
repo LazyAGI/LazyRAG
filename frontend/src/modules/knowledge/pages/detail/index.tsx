@@ -80,6 +80,7 @@ const Detail = () => {
   const [importingTotal, setImportingTotal] = useState(0);
   const [developerActive, setDeveloperActive] = useState(isDeveloperModeActive);
   const [embeddingReady, setEmbeddingReady] = useState<boolean | null>(null);
+  const [multimodalEmbeddingReady, setMultimodalEmbeddingReady] = useState<boolean | null>(null);
   const isAdmin = AgentAppsAuth.getUserInfo()?.role === 'system-admin';
 
   const { id = "" } = useParams();
@@ -102,19 +103,33 @@ const Detail = () => {
     console.log("searchParams", searchParams);
     getDetail();
     getImportingTotal();
-    if (!isAdmin) {
-      axiosInstance
-        .get<{ data?: { ready: boolean } } | { ready: boolean }>(
-          `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
-        )
-        .then((resp) => {
-          const data =
-            resp.data && typeof resp.data === "object" && "data" in resp.data
-              ? (resp.data as { data?: { ready: boolean } }).data
-              : (resp.data as { ready: boolean });
-          setEmbeddingReady(data?.ready ?? null);
-        })
-        .catch(() => setEmbeddingReady(null));
+    {
+      const unwrap = (resp: { data: { data?: { ready: boolean } } | { ready: boolean } } | null): boolean | null => {
+        if (!resp) return null;
+        const body = resp.data;
+        const d = body && typeof body === "object" && "data" in body
+          ? (body as { data?: { ready: boolean } }).data
+          : (body as { ready: boolean });
+        return d?.ready ?? null;
+      };
+      Promise.all([
+        axiosInstance
+          .get<{ data?: { ready: boolean } } | { ready: boolean }>(
+            `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
+          )
+          .catch(() => null),
+        axiosInstance
+          .get<{ data?: { ready: boolean } } | { ready: boolean }>(
+            `${BASE_URL}/api/core/model_providers/models/ready?model_type=multimodal_embedding`
+          )
+          .catch(() => null),
+      ]).then(([embResp, multiResp]) => {
+        setEmbeddingReady(unwrap(embResp));
+        setMultimodalEmbeddingReady(unwrap(multiResp));
+      }).catch(() => {
+        setEmbeddingReady(null);
+        setMultimodalEmbeddingReady(null);
+      });
     }
 
     return () => {
@@ -444,10 +459,14 @@ const Detail = () => {
             )}
             <Badge count={importingTotal} size="small" style={{ zIndex: 2 }}>
               <Space.Compact>
-                <Tooltip title={!isAdmin && embeddingReady === false ? t("knowledge.embeddingNotReadyBanner") : undefined}>
+                <Tooltip title={
+                  (embeddingReady === false || multimodalEmbeddingReady === false)
+                    ? (embeddingReady === false ? t("knowledge.embeddingNotReadyBanner") : t("knowledge.multimodalEmbeddingNotReadyBanner"))
+                    : undefined
+                }>
                   <Button
                     type="primary"
-                    disabled={!isAdmin && embeddingReady === false}
+                    disabled={embeddingReady === false || multimodalEmbeddingReady === false}
                     onClick={() => openImportModal({ importMode: "file" })}
                   >
                     {t("knowledge.importFile")}
@@ -459,17 +478,17 @@ const Detail = () => {
                       {
                         key: "importFile",
                         label: t("knowledge.importFile"),
-                        disabled: !isAdmin && embeddingReady === false,
+                        disabled: embeddingReady === false || multimodalEmbeddingReady === false,
                       },
                       {
                         key: "importFolder",
                         label: t("knowledge.importFolder"),
-                        disabled: !isAdmin && embeddingReady === false,
+                        disabled: embeddingReady === false || multimodalEmbeddingReady === false,
                       },
                       {
                         key: "importZip",
                         label: t("knowledge.importZip"),
-                        disabled: !isAdmin && embeddingReady === false,
+                        disabled: embeddingReady === false || multimodalEmbeddingReady === false,
                       },
                       {
                         key: "taskManage",

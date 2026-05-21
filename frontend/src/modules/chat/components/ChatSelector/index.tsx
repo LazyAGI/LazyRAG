@@ -27,6 +27,8 @@ export interface ChatSelectorProps {
   chatConfig: ChatConfig;
   refreshKey?: number | string;
   embeddingReady?: boolean | null;
+  multimodalEmbeddingReady?: boolean | null;
+  rerankReady?: boolean | null;
   onChange?: (
     knowledgeIds: string[],
     creators: string[],
@@ -41,9 +43,16 @@ export interface ChatSelectorImperativeProps {
 
 const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
   (props, ref) => {
-    const { chatConfig, refreshKey, onChange, embeddingReady } = props;
+    const { chatConfig, refreshKey, onChange, embeddingReady, multimodalEmbeddingReady, rerankReady } = props;
     const { t } = useTranslation();
-    const isEmbeddingDisabled = embeddingReady === false;
+    const isEmbeddingDisabled = embeddingReady === false || multimodalEmbeddingReady === false || rerankReady === false;
+    const knowledgeDisabledReason = embeddingReady === false
+      ? t("chat.embeddingNotReadyKnowledge")
+      : multimodalEmbeddingReady === false
+        ? t("chat.multimodalEmbeddingNotReadyKnowledge")
+        : rerankReady === false
+          ? t("chat.rerankNotReadyKnowledge")
+          : undefined;
 
     const [knowledgeBaseList, setKnowledgeBaseList] = useState<Dataset[]>([]);
     const [filteredList, setFilteredList] = useState<Dataset[]>([]);
@@ -452,7 +461,7 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
             setOpen(bool);
           }}
         >
-          <Tooltip title={isEmbeddingDisabled ? t("chat.embeddingNotReadyKnowledge") : undefined}>
+          <Tooltip title={isEmbeddingDisabled ? knowledgeDisabledReason : undefined}>
             <div
               className={`input-bottom-actions-left-item ${open || selectedIds.length > 0 ? "selected" : ""}${isEmbeddingDisabled ? " is-disabled" : ""}`}
               aria-disabled={isEmbeddingDisabled}

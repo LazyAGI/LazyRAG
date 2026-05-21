@@ -148,6 +148,8 @@ func BuildLLMConfig(rows []SelectedRuntimeModel) map[string]any {
 			out["embed_main"] = cfg
 		case "rerank", "reranker":
 			out["reranker"] = cfg
+		case "multimodal_embedding", "cross_modal_embed":
+			out["embed_image"] = cfg
 		}
 	}
 	if len(out) == 0 {
