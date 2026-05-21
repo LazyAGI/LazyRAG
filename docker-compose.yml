@@ -375,7 +375,6 @@ services:
       - ./data/traces:/var/lib/lazymind/traces
       # Image bakes /app/algorithm; Python may import lazyllm from there (not /opt/lazyllm). Mount repo
       # so doc_manager matches Core /v1/docs/add (kb bound to general_algo, no algo_id in body).
-      - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       <<: [*db-conn, *upload-paths, *llm-api-keys, *trace-config]
@@ -393,7 +392,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 120s
+      start_period: 180s
     depends_on:
       db:
         condition: service_healthy
@@ -470,7 +469,7 @@ services:
     shm_size: '16gb'
     healthcheck:
       test: ['CMD-SHELL', 'curl -f http://localhost:8118/health || exit 1']
-      start_period: 120s
+      start_period: 180s
 
   paddleocr:
     profiles:
@@ -514,7 +513,6 @@ services:
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./data/traces:/var/lib/lazymind/traces
-      - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       LAZYMIND_DOCUMENT_PROCESSOR_PORT: "8000"
@@ -526,7 +524,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 90s
+      start_period: 180s
     depends_on:
       db:
         condition: service_healthy
@@ -551,7 +549,6 @@ services:
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./data/traces:/var/lib/lazymind/traces
-      - ./algorithm:/app/algorithm:ro
       - ./algorithm/lazyllm:/opt/lazyllm:ro
     environment:
       LAZYMIND_DOCUMENT_WORKER_PORT: "8001"
@@ -569,7 +566,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 90s
+      start_period: 180s
     depends_on:
       db:
         condition: service_healthy
@@ -597,7 +594,6 @@ services:
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./data/traces:/var/lib/lazymind/traces
-      - ./algorithm:/app/algorithm:ro
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
@@ -611,7 +607,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 120s
+      start_period: 180s
     environment:
       LAZYMIND_UPLOAD_ROOT: /var/lib/lazymind/uploads
       <<: [*runtime-home, *upload-paths, *llm-api-keys, *ocr-env, *db-conn, *trace-config]
@@ -652,7 +648,6 @@ services:
     volumes:
       - ./data/core/uploads:/var/lib/lazymind/uploads
       - ./data/traces:/var/lib/lazymind/traces
-      - ./algorithm:/app/algorithm:ro
       - ./algorithm/chat:/app/chat:ro
       - ./algorithm/common:/app/common:ro
       - ./algorithm/vocab:/app/vocab:ro
@@ -665,7 +660,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 180s
     environment:
       LAZYMIND_DOCUMENT_SERVER_URL: http://parsing:8000,general_algo
       LAZYMIND_SHARED_UPLOAD_DIR: /var/lib/lazymind/uploads
@@ -729,7 +724,6 @@ services:
       - ./data/evo:/var/lib/lazymind/evo
       - ./data/traces:/var/lib/lazymind/traces
       - ./data/core/uploads:/var/lib/lazymind/uploads:ro
-      - ./algorithm:/app/algorithm:ro
       - ./algorithm/chat:/var/lib/lazymind/chat-source:ro
       - ./algorithm/config.py:/app/config.py:ro
       - ./algorithm/config.py:/app/algorithm/config.py:ro
@@ -740,7 +734,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 180s
     depends_on:
       chat:
         condition: service_healthy
@@ -795,7 +789,7 @@ services:
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9091/healthz']
       interval: 30s
-      start_period: 90s
+      start_period: 180s
       timeout: 20s
       retries: 3
     expose:
@@ -844,7 +838,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 180s
     expose:
       - '9200'
 
