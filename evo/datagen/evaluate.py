@@ -18,7 +18,7 @@ def evaluate_answer(question: str, ground_truth: str, rag_answer: str, key_point
                     trace_context: dict[str, Any] | None = None,
                     ) -> dict[str, Any]:
     if trace_context:
-        expected_trace_id = str(trace_context.get('trace_id') or '')
+        expected_trace_id = str(trace_context['trace_id']) if trace_context.get('trace_id') else None
         captured: dict[str, str] = {}
 
         def _run() -> dict[str, Any]:
