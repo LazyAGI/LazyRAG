@@ -4,8 +4,6 @@ from chat.tools import kb
 
 
 DEFAULT_AGENTIC_CONFIG = {
-    'kb_url': 'http://10.119.24.129:8056',
-    'kb_name': 'general_algo',
     'kb_id': 'ds_9e96150bb1ceeec7d96055638072b8a9',
     'es_url': 'https://10.119.24.129:9200',
     'es_user': 'admin',
@@ -56,7 +54,7 @@ def test_kb_search_default_kb_branch(monkeypatch):
         kb.lazyllm.globals['agentic_config'] = original_config or {}
 
     assert calls[0] == {
-        'url': f"{DEFAULT_AGENTIC_CONFIG['kb_url']},{DEFAULT_AGENTIC_CONFIG['kb_name']}",
+        'url': f"{kb._DEFAULT_KB_URL},{kb._DEFAULT_KB_NAME}",
         'retriever_configs': None,
         'topk': 20,
         'k_max': 10,
@@ -78,6 +76,7 @@ def test_kb_search_default_kb_branch(monkeypatch):
 
 def test_kb_get_parent_node_by_uid(monkeypatch):
     calls = []
+    document_kwargs = {}
 
     class FakeNode:
         def __init__(self, uid, number, group, parent, text, docid, kb_id):
@@ -90,6 +89,9 @@ def test_kb_get_parent_node_by_uid(monkeypatch):
             self.global_metadata = {'docid': docid, 'kb_id': kb_id}
 
     class FakeDocument:
+        def __init__(self, **kwargs):
+            document_kwargs.update(kwargs)
+
         def get_nodes(self, uids=None, doc_ids=None, group=None, kb_id=None, numbers=None):
             calls.append({
                 'uids': uids,
@@ -106,7 +108,7 @@ def test_kb_get_parent_node_by_uid(monkeypatch):
             node = nodes.get(uid)
             return [node] if node else []
 
-    monkeypatch.setattr(kb.lazyllm.tools.rag, 'Document', lambda **kwargs: FakeDocument())
+    monkeypatch.setattr(kb.lazyllm.tools.rag, 'Document', lambda **kwargs: FakeDocument(**kwargs))
     original_config = kb.lazyllm.globals.get('agentic_config')
     kb.lazyllm.globals['agentic_config'] = DEFAULT_AGENTIC_CONFIG
     try:
@@ -122,6 +124,10 @@ def test_kb_get_parent_node_by_uid(monkeypatch):
     assert result['result']['total'] == 1
     assert result['result']['items'][0]['uid'] == 'parent-node'
     assert result['result']['items'][0]['text'] == 'parent text'
+    assert document_kwargs == {
+        'url': kb._DEFAULT_KB_URL,
+        'name': kb._DEFAULT_KB_NAME,
+    }
     assert calls == [
         {
             'uids': ['child-node'],

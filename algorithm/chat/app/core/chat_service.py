@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from chat.components.process.sensitive_filter import SensitiveFilter
 from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          LAZYMIND_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT,
-                         SENSITIVE_WORDS_PATH, resolve_dataset_binding)
+                         SENSITIVE_WORDS_PATH)
 from chat.pipelines.agentic import agentic_rag
 from chat.utils.helpers import validate_and_resolve_files
 from chat.utils.load_config import get_config_path, inject_model_config, summarize_model_config_for_log
@@ -117,7 +117,6 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
                        use_memory: Optional[bool],
                        environment_context: Optional[Dict[str, Any]] = None,
                        user_id: Optional[str] = None) -> Dict[str, Any]:
-    kb_url, kb_name = resolve_dataset_binding(dataset)
     hist = [
         {
             'role': str(h.get('role', 'assistant')),
@@ -132,8 +131,6 @@ def build_query_params(query: str, history: Optional[List[Dict[str, Any]]],
         'debug': debug, 'databases': databases if RAG_MODE and databases else [], 'priority': priority,
         'dataset': dataset,
         'session_id': session_id,
-        'kb_url': kb_url or '',
-        'kb_name': kb_name or '',
         'available_tools': available_tools,
         'available_skills': available_skills,
         'memory': memory,
@@ -162,12 +159,6 @@ def _attach_trace_info(data: Any, trace_id: Optional[str]) -> Any:
         return data
     return {**data, 'trace_id': trace_id} if isinstance(data, dict) else {'data': data, 'trace_id': trace_id}
 
-
-def has_dataset(dataset: str | None) -> bool:
-    kb_url, _ = resolve_dataset_binding(dataset)
-    return kb_url is not None
-
-
 def _normalize_stream_chunk(chunk: Any) -> Any:
     if isinstance(chunk, dict):
         return dict(chunk)
@@ -193,11 +184,6 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       user_id: Optional[str] = None,
                       model_config: Optional[Dict[str, Any]] = None) -> StreamingResponse:
     priority = LAZYMIND_LLM_PRIORITY if priority is None else priority
-
-    if not has_dataset(dataset):
-        return _single_event_stream_response(
-            _resp(400, f'dataset {dataset} not found', None, 0.0)
-        )
 
     start_time = time.time()
     sensitive_check_result = check_sensitive_content(query, session_id, start_time)

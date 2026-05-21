@@ -150,12 +150,6 @@ def _normalize_es_url(url: Optional[str]) -> str:
     return (url or _DEFAULT_ES_URL).rstrip('/')
 
 
-def _resolve_kb_name(kb_name: Any) -> str:
-    resolved = str(kb_name or '').strip()
-    if not resolved:
-        raise ValueError('kb_name is required when it is not available in agentic_config')
-    return resolved
-
 def _iter_lookup_kb_ids(kb_id: Any) -> List[Optional[str]]:
     if kb_id is None:
         return [None]
@@ -169,25 +163,22 @@ def _iter_lookup_kb_ids(kb_id: Any) -> List[Optional[str]]:
 def _build_agentic_document(config: Dict[str, Any]) -> Any:
     return lazyllm.tools.rag.Document(
         url=_DEFAULT_KB_URL,
-        name=_resolve_algo_name(
-            config.get('algo_id'),
-            config.get('kb_name'),
-        ),
+        name=_resolve_algo_name(config.get('algo_id')),
     )
 
 
-def _resolve_algo_name(algo_id: Any, kb_name: Any) -> str:
+def _resolve_algo_name(algo_id: Any) -> str:
     """Return the algo name bound to this dataset.
 
     After the node-group refactor the collection name no longer includes the
     algo name, but lazyllm.Document still needs 'name' (= algo_id) to connect
-    to the correct algorithm instance.  We read 'algo_id' from agentic_config
-    and fall back to 'kb_name' (= agentic_kb_name = 'general_algo').
+    to the correct algorithm instance. We read 'algo_id' from agentic_config
+    and otherwise fall back to the configured default kb name.
     """
     normalized_algo_id = str(algo_id or '').strip()
     if normalized_algo_id:
         return normalized_algo_id
-    return _resolve_kb_name(kb_name)
+    return str(_DEFAULT_KB_NAME or '').strip()
 
 
 def _resolve_index(group: str) -> str:

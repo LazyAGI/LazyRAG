@@ -75,8 +75,7 @@ def memory(
             f'call; got {len(suggestions)}.'
         )
 
-    agentic_config = lazyllm.globals['agentic_config']
-    session_id = str(agentic_config.get('session_id') or '').strip()
+    session_id = str(lazyllm.globals['agentic_config'].get('session_id') or '').strip()
     if not session_id:
         return tool_error('memory', "'session_id' is required in agentic_config.")
 
