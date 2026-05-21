@@ -5,6 +5,7 @@ from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any
 from evo.datagen.rag_client import call_rag_chat, RAGTargetRequiredError
+from evo.datagen.trace_context import derive_trace_context
 from evo.datagen.validate import require_valid_eval_case
 from evo.harness.plan import StopRequested
 
@@ -22,6 +23,8 @@ def get_eval_queue(
     filters: dict[str, Any] | None = None,
     require_trace: bool = True,
     model_config: dict[str, Any] | None = None,
+    scene: str = 'eval',
+    trace_context: dict[str, Any] | None = None,
     skip_case_ids: set[str] | None = None,
     on_item=None,
     cancel=None,
@@ -33,6 +36,7 @@ def get_eval_queue(
         eval_data = json.load(f)
     cases = eval_data.get('cases', [])
     eval_filters = _eval_filters(filters or {}, eval_data)
+    case_trace_context = _eval_trace_context(trace_context or {}, eval_name, eval_data)
     if case_id:
         cases = [c for c in cases if c.get('case_id') == case_id]
     if skip_case_ids:
@@ -68,6 +72,8 @@ def get_eval_queue(
                 eval_filters,
                 require_trace,
                 model_config,
+                scene,
+                case_trace_context,
             )] = case
             return True
 
@@ -116,6 +122,14 @@ def _eval_filters(filters: dict[str, Any], eval_data: dict[str, Any]) -> dict[st
     return out
 
 
+def _eval_trace_context(trace_context: dict[str, Any], eval_name: str, eval_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **trace_context,
+        'dataset_id': trace_context.get('dataset_id') or eval_name,
+        'knowledge_base_id': trace_context.get('knowledge_base_id') or eval_data.get('kb_id', ''),
+    }
+
+
 def _build_eval_item(
     case: dict,
     target_chat_url: str,
@@ -123,9 +137,12 @@ def _build_eval_item(
     filters: dict[str, Any],
     require_trace: bool,
     model_config: dict[str, Any] | None,
+    scene: str,
+    trace_context: dict[str, Any] | None,
 ) -> dict:
     question = case['question']
     ground_truth = case['ground_truth']
+    case_trace_context = derive_trace_context(trace_context or {}, scene=scene, case_id=case['case_id'])
     rag_result = call_rag_chat(
         question,
         target_chat_url,
@@ -133,6 +150,8 @@ def _build_eval_item(
         filters,
         require_trace=require_trace,
         model_config=model_config,
+        trace_id=case_trace_context['trace_id'],
+        trace_context=case_trace_context,
     )
     metrics = _calculate_metrics(
         case.get('reference_chunk_ids', []),
@@ -156,6 +175,7 @@ def _build_eval_item(
         'retrieve_chunk_ids': rag_result['chunk_ids'],
         'retrieve_doc_ids': rag_result['doc_ids'],
         'trace_id': rag_result['trace_id'],
+        'trace_status': rag_result.get('trace_status', ''),
         'rag_trace': rag_result.get('trace'),
         'context_recall': metrics['context_recall'],
         'doc_recall': metrics['doc_recall'],

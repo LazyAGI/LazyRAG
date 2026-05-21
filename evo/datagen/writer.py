@@ -32,7 +32,7 @@ def build_eval_report(eval_results: list[dict], eval_data: dict) -> dict[str, An
         round(sum(answer_correctness_list) / len(answer_correctness_list), 4) if answer_correctness_list else 0.0
     )
     return {
-        'report_id': str(uuid.uuid4()),
+        'report_id': eval_data.get('report_id') or str(uuid.uuid4()),
         'dataset_id': eval_data.get('eval_name', ''),
         'eval_name': eval_data.get('eval_name', ''),
         'eval_set_id': eval_data.get('eval_set_id', ''),

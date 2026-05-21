@@ -63,6 +63,9 @@ def execute(ctx: ExecCtx, tid: str) -> None:
                 model_config=model_config,
                 persist_report=False,
                 attempt_id=tid,
+                scene='eval',
+                report_id=tid,
+                algorithm_version='baseline',
                 resume=bool(payload.get('resume', True)),
                 cancel=token.requested,
                 on_progress=lambda current, total: elog.append_event(

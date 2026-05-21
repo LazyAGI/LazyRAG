@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import uuid
 from typing import Any
 from evo.datagen.attempts import save_attempt, start_attempt
 from evo.datagen.evaluate import create_evaluate_task
@@ -253,8 +254,10 @@ def run_eval(dataset_id: str, target_chat_url: str, *, cfg: EvoConfig, llm_facto
              filters: dict[str, Any] | None = None, require_trace: bool = True,
              model_config: dict[str, Any] | None = None, persist_report: bool = True, attempt_id: str | None = None,
              resume: bool = True, cancel=None, on_progress=None, on_judge_progress=None,
+             scene: str = 'eval', report_id: str | None = None, algorithm_version: str = 'baseline',
              ) -> dict[str, Any]:
     _log.info('start eval dataset_id=%s target=%s', dataset_id, target_chat_url)
+    report_id = report_id or attempt_id or uuid.uuid4().hex
     rag_workers = max(1, int(rag_max_workers or max_workers))
     judge_workers = max(1, int(judge_max_workers or max_workers))
     attempt_dir, prev = start_attempt(cfg.storage.base_dir / 'datasets' / dataset_id, 'eval_attempts', attempt_id)
@@ -263,7 +266,18 @@ def run_eval(dataset_id: str, target_chat_url: str, *, cfg: EvoConfig, llm_facto
         if resume else []
     )
     queued = [row for row in prev.get('eval_queue') or [] if row.get('case_id')] if resume else []
-    meta: dict[str, Any] = {'eval_name': dataset_id, 'eval_set_id': '', 'kb_id': ''}
+    meta: dict[str, Any] = {
+        'report_id': report_id,
+        'eval_name': dataset_id,
+        'eval_set_id': '',
+        'kb_id': '',
+    }
+    base_trace_context = {
+        'report_id': report_id,
+        'dataset_id': dataset_id,
+        'knowledge_base_id': meta.get('kb_id', ''),
+        'algorithm_version': algorithm_version,
+    }
 
     def save_eval_attempt() -> None:
         report = build_eval_report(done, meta)
@@ -279,6 +293,8 @@ def run_eval(dataset_id: str, target_chat_url: str, *, cfg: EvoConfig, llm_facto
         filters=filters or {},
         require_trace=require_trace,
         model_config=model_config,
+        scene=scene,
+        trace_context=base_trace_context,
         skip_case_ids={row.get('case_id') for row in done + queued},
         on_item=lambda item: (queued.append(item), save_eval_attempt()),
         cancel=cancel,
@@ -286,6 +302,8 @@ def run_eval(dataset_id: str, target_chat_url: str, *, cfg: EvoConfig, llm_facto
     )
     _check_cancel(cancel)
     meta.update(eval_data)
+    meta['report_id'] = report_id
+    base_trace_context['knowledge_base_id'] = meta.get('kb_id', '')
     save_eval_attempt()
     eval_queue = [row for row in _unique_by_case(queued) if row.get('case_id') not in {x.get('case_id') for x in done}]
     if not eval_queue and not done:
@@ -297,9 +315,11 @@ def run_eval(dataset_id: str, target_chat_url: str, *, cfg: EvoConfig, llm_facto
         on_item=lambda item: (done.append(item), save_eval_attempt()),
         cancel=cancel,
         on_progress=_offset_progress(on_judge_progress, _case_count(done), int(eval_data.get('total_cases') or 0)),
+        trace_context=base_trace_context,
     )
     _check_cancel(cancel)
     done = _unique_by_case(done)
+    eval_data['report_id'] = report_id
     report = build_eval_report(done, eval_data)
     save_attempt(attempt_dir, report)
     total = int(eval_data.get('total_cases') or len(done))

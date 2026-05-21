@@ -22,7 +22,7 @@ rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
 def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag,
-                        trace_enabled, model_config):
+                        trace_enabled, model_config, trace_id=None, trace_context=None):
     lazyllm.globals._init_sid(sid=session_id)
     lazyllm.locals._init_sid(sid=session_id)
     inject_model_config(model_config)
@@ -30,8 +30,12 @@ def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag,
         return ppl(*ppl_args), None
 
     captured: Dict[str, Any] = {}
+    metadata = trace_context if isinstance(trace_context, dict) else None
 
     def run_chat_pipeline(*args, **kwargs):
+        trace = current_trace()
+        if trace and metadata:
+            trace.update_metadata(metadata)
         out = ppl(*args, **kwargs)
         trace = current_trace()
         captured['trace_id'] = trace.trace_id if trace else None
@@ -39,6 +43,7 @@ def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag,
 
     result = enable_trace(
         run_chat_pipeline, *ppl_args,
+        trace_id=trace_id,
         session_id=session_id,
         request_tags=[f'dataset:{dataset}', f'mode:{mode_tag}'],
         module_trace={'default': True},
@@ -175,7 +180,9 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                       is_stream: bool, trace: bool = False,
                       environment_context: Optional[Dict[str, Any]] = None,
                       user_id: Optional[str] = None,
-                      model_config: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
+                      model_config: Optional[Dict[str, Any]] = None,
+                      trace_id: Optional[str] = None,
+                      trace_context: Optional[Dict[str, Any]] = None) -> Union[Dict[str, Any], StreamingResponse]:
     result = None
     priority = LAZYMIND_LLM_PRIORITY if priority is None else priority
 
@@ -225,14 +232,15 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             async with rag_sem:
                 _init_session()
                 ppl_call = _build_ppl_call(bool(reasoning), dataset, query_params, stream=False)
-                result, trace_id = await asyncio.to_thread(
+                result, actual_trace_id = await asyncio.to_thread(
                     _run_ppl_with_trace, ppl_call[0], ppl_call[1:],
                     session_id=session_id, dataset=dataset,
                     mode_tag='sync_reasoning' if reasoning else 'sync',
                     trace_enabled=trace, model_config=model_config,
+                    trace_id=trace_id, trace_context=trace_context,
                 )
                 cost = round(time.time() - start_time, 3)
-                data = _attach_trace_info(result, trace_id)
+                data = _attach_trace_info(result, actual_trace_id)
                 return _resp(200, 'success', data, cost)
         except Exception as exc:
             LOG.exception(exc)
@@ -261,15 +269,16 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
             try:
                 async with rag_sem:
                     _init_session()
-                    async_result, trace_id = await asyncio.to_thread(
+                    async_result, actual_trace_id = await asyncio.to_thread(
                         _run_ppl_with_trace, ppl, args,
                         session_id=session_id, dataset=dataset,
                         mode_tag='stream_reasoning' if reasoning else 'stream',
                         trace_enabled=trace, model_config=model_config,
+                        trace_id=trace_id, trace_context=trace_context,
                     )
-                    if trace_id is not None:
+                    if actual_trace_id is not None:
                         yield _sse_line(_resp(200, 'success',
-                                              _attach_trace_info({}, trace_id), 0.0))
+                                              _attach_trace_info({}, actual_trace_id), 0.0))
                     async for chunk in async_result:
                         now = time.time()
                         if not first_frame_logged:
