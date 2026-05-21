@@ -423,6 +423,13 @@ def _rewrite_citations(text: str, config: dict) -> tuple[str, list[dict[str, Any
     return rewritten, list(collected.values())
 
 
+def _registered_citation_sources(config: dict) -> list[dict[str, Any]]:
+    refs = config.get(_CITATION_REFS_KEY)
+    if not isinstance(refs, dict):
+        return []
+    return [source for source in refs.values() if isinstance(source, dict)]
+
+
 def _split_think_and_body(raw_text: str, existing_think: Any = '') -> tuple[str, str]:
     think_parts: list[str] = []
     if existing_think:

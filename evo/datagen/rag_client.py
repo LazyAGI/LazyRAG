@@ -32,6 +32,7 @@ def call_rag_chat(
     filters: dict[str, Any] | None = None,
     *,
     require_trace: bool = True,
+    model_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not target_chat_url:
         raise RAGTargetRequiredError('target_chat_url is required for RAG evaluation')
@@ -41,6 +42,8 @@ def call_rag_chat(
         payload['dataset'] = dataset_name
     if filters:
         payload['filters'] = filters
+    if model_config:
+        payload['llm_config'] = model_config
     data = json.dumps(payload).encode('utf-8')
     req = urllib.request.Request(
         target_chat_url, data=data, headers={'Content-Type': 'application/json'}, method='POST'

@@ -473,6 +473,200 @@ def test_vocab_evolution_service_continues_when_one_user_fails():
     }]
 
 
+# ---------------------------------------------------------------------------
+# Tests for _merge_related_actions
+# ---------------------------------------------------------------------------
+
+def test_merge_related_actions_merges_overlapping_create_new_group():
+    planner = ActionPlanningModule(
+        llm=FakeLLM([]),
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: {},
+    )
+    payload = {
+        'request': VocabEvolutionRequest(),
+        'user_id': 'u1',
+        'histories': [
+            _history('m1', '记住 苹果 就是 apple'),
+            _history('m2', '记住 苹果 就是 红富士'),
+            _history('m3', '记住 香蕉 就是 banana'),
+        ],
+        'candidates': [
+            SynonymCandidate(
+                user_id='u1', word='苹果', synonym='apple',
+                description='水果语境', reason='用户明确要求',
+                message_ids=['m1'],
+            ),
+            SynonymCandidate(
+                user_id='u1', word='苹果', synonym='红富士',
+                description='水果语境', reason='用户明确要求',
+                message_ids=['m2'],
+            ),
+            SynonymCandidate(
+                user_id='u1', word='香蕉', synonym='banana',
+                description='水果语境', reason='用户明确要求',
+                message_ids=['m3'],
+            ),
+        ],
+    }
+    result = planner.forward(payload)
+    # 苹果/apple and 苹果/红富士 should merge → [苹果, apple, 红富士]
+    # 香蕉/banana is unrelated → separate create_new_group
+    assert len(result['actions']) == 2
+    create_actions = [a for a in result['actions'] if a['action'] == 'create_new_group']
+    assert len(create_actions) == 2
+
+    # Find the merged one (should have 3 words)
+    merged = next(a for a in create_actions if len(a['words']) == 3)
+    assert set(merged['words']) == {'苹果', 'apple', '红富士'}
+    assert set(merged['message_ids']) == {'m1', 'm2'}
+
+    # The other one should be the standalone 香蕉/banana
+    standalone = next(a for a in create_actions if len(a['words']) == 2)
+    assert set(standalone['words']) == {'香蕉', 'banana'}
+    assert standalone['message_ids'] == ['m3']
+
+
+def test_merge_related_actions_merges_add_to_group_same_target():
+    groups = {
+        'g-fruit': {
+            'group_id': 'g-fruit', 'description': '水果',
+            'words': ['苹果'], 'references': [],
+        },
+    }
+    planner = ActionPlanningModule(
+        llm=FakeLLM([]),
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: groups,
+    )
+    payload = {
+        'request': VocabEvolutionRequest(),
+        'user_id': 'u1',
+        'histories': [
+            _history('m1', '记住 apple 就是 苹果'),
+            _history('m2', '记住 红富士 就是 苹果'),
+        ],
+        'candidates': [
+            SynonymCandidate(
+                user_id='u1', word='apple', synonym='苹果',
+                description='水果', reason='用户明确要求',
+                message_ids=['m1'],
+            ),
+            SynonymCandidate(
+                user_id='u1', word='红富士', synonym='苹果',
+                description='水果', reason='用户明确要求',
+                message_ids=['m2'],
+            ),
+        ],
+    }
+    result = planner.forward(payload)
+    assert result['actions'] == [
+        {
+            'reason': '用户明确要求',
+            'words': ['apple', '红富士'],
+            'description': '',
+            'group_ids': ['g-fruit'],
+            'user_id': 'u1',
+            'message_ids': ['m1', 'm2'],
+            'action': 'add_to_group',
+        },
+    ]
+
+
+def test_merge_related_actions_handles_chained_overlap():
+    """A-B, B-C, C-D → one merged group [A,B,C,D]."""
+    planner = ActionPlanningModule(
+        llm=FakeLLM([]),
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: {},
+    )
+    payload = {
+        'request': VocabEvolutionRequest(),
+        'user_id': 'u1',
+        'histories': [
+            _history('m1', '记住 A 就是 B'),
+            _history('m2', '记住 B 就是 C'),
+            _history('m3', '记住 C 就是 D'),
+        ],
+        'candidates': [
+            SynonymCandidate(
+                user_id='u1', word='A', synonym='B',
+                description='测试', reason='明确同义',
+                message_ids=['m1'],
+            ),
+            SynonymCandidate(
+                user_id='u1', word='B', synonym='C',
+                description='测试', reason='明确同义',
+                message_ids=['m2'],
+            ),
+            SynonymCandidate(
+                user_id='u1', word='C', synonym='D',
+                description='测试', reason='明确同义',
+                message_ids=['m3'],
+            ),
+        ],
+    }
+    result = planner.forward(payload)
+    assert len(result['actions']) == 1
+    action = result['actions'][0]
+    assert action['action'] == 'create_new_group'
+    assert set(action['words']) == {'A', 'B', 'C', 'D'}
+    assert set(action['message_ids']) == {'m1', 'm2', 'm3'}
+
+
+def test_merge_related_actions_does_not_merge_different_target_groups():
+    groups = {
+        'g-fruit': {
+            'group_id': 'g-fruit', 'description': '水果',
+            'words': ['苹果'], 'references': [],
+        },
+        'g-tech': {
+            'group_id': 'g-tech', 'description': '科技',
+            'words': ['苹果'], 'references': [],
+        },
+    }
+    llm = FakeLLM([
+        {
+            'reason': 'apple 明确属于水果组',
+            'group_ids_can_join': ['g-fruit'],
+            'excluded_group_ids': ['g-tech'],
+            'conflict_group_ids': [],
+        },
+        {
+            'reason': 'apple_inc 明确属于科技组',
+            'group_ids_can_join': ['g-tech'],
+            'excluded_group_ids': ['g-fruit'],
+            'conflict_group_ids': [],
+        },
+    ])
+    planner = ActionPlanningModule(
+        llm=llm,
+        fetch_vocab_groups_fn=lambda user_id, **kwargs: groups,
+    )
+    payload = {
+        'request': VocabEvolutionRequest(conflict_retries=1),
+        'user_id': 'u1',
+        'histories': [
+            _history('m1', '记住 apple 是水果语境下的 苹果'),
+            _history('m2', '记住 apple_inc 是科技公司的 苹果'),
+        ],
+        'candidates': [
+            SynonymCandidate(
+                user_id='u1', word='apple', synonym='苹果',
+                description='水果语境', reason='明确同义',
+                message_ids=['m1'],
+            ),
+            SynonymCandidate(
+                user_id='u1', word='apple_inc', synonym='苹果',
+                description='科技语境', reason='明确同义',
+                message_ids=['m2'],
+            ),
+        ],
+    }
+    result = planner.forward(payload)
+    # Two add_to_group actions to different groups should NOT merge
+    assert len(result['actions']) == 2
+    groups_targeted = sorted(a['group_ids'][0] for a in result['actions'])
+    assert groups_targeted == ['g-fruit', 'g-tech']
+
+
 def test_resolve_word_group_apply_url_prefers_exact_apply_url_env(monkeypatch):
     monkeypatch.setenv('LAZYMIND_WORD_GROUP_APPLY_URL', 'http://backend.local/api/core/inner/word_group:apply')
     monkeypatch.setenv('LAZYMIND_CORE_SERVICE_URL', 'http://core:8000')

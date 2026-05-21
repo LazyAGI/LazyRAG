@@ -1,5 +1,3 @@
-import asyncio
-import importlib
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -197,6 +195,7 @@ def test_agentic_forward_uses_automodel(monkeypatch):
 
     monkeypatch.setattr(module, 'AutoModel', lambda model, config=False: f'model:{model}')
     # Patch lazyllm.globals and lazyllm.tools.agent.ReactAgent on the fake lazyllm
+
     class _FakeGlobals:
         _sid = 'test-sid'
 

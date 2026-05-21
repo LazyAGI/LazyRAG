@@ -9,7 +9,6 @@ import lazyllm.tracing.collect.configs  # noqa: F401
 from lazyllm.tracing import current_trace, enable_trace
 from lazyllm.tracing.collect import runtime as tracing_runtime
 from fastapi.responses import StreamingResponse
-from chat.app.core.trace_sink import ensure_local_trace_sink, local_trace_enabled
 from chat.components.process.sensitive_filter import SensitiveFilter
 from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
                          LAZYMIND_LLM_PRIORITY, SENSITIVE_FILTER_RESPONSE_TEXT,
@@ -17,18 +16,22 @@ from chat.config import (RAG_MODE, MULTIMODAL_MODE, MAX_CONCURRENCY,
 from chat.pipelines.agentic import agentic_rag
 from chat.utils.helpers import validate_and_resolve_files
 from chat.utils.load_config import get_config_path, inject_model_config, summarize_model_config_for_log
+from chat.utils.markdown_images import rewrite_markdown_image_urls
 
 
 rag_sem = asyncio.Semaphore(MAX_CONCURRENCY)
 sensitive_filter = SensitiveFilter(SENSITIVE_WORDS_PATH)
 
 
-def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
+def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag,
+                        trace_enabled, model_config):
+    lazyllm.globals._init_sid(sid=session_id)
+    lazyllm.locals._init_sid(sid=session_id)
+    inject_model_config(model_config)
     if not trace_enabled:
-        return ppl(*ppl_args), None, None
+        return ppl(*ppl_args), None
 
     captured: Dict[str, Any] = {}
-    sink = ensure_local_trace_sink() if local_trace_enabled() else None
 
     def run_chat_pipeline(*args, **kwargs):
         out = ppl(*args, **kwargs)
@@ -46,10 +49,7 @@ def _run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_e
     trace_id = captured.get('trace_id')
     if not trace_id:
         raise RuntimeError('LazyLLM trace did not expose a trace_id')
-    local_trace = sink.get_trace(trace_id) if sink is not None else None
-    if sink is not None and local_trace is None:
-        raise RuntimeError(f'local LazyLLM trace sink did not capture trace {trace_id}')
-    return result, trace_id, local_trace
+    return result, trace_id
 
 
 def _flush_trace_exporter() -> None:
@@ -157,13 +157,10 @@ def log_chat_request(query: str, session_id: str, filters: Optional[Dict[str, An
     )
 
 
-def _attach_trace_info(data: Any, trace_id: Optional[str], local_trace: Optional[dict]) -> Any:
+def _attach_trace_info(data: Any, trace_id: Optional[str]) -> Any:
     if trace_id is None:
         return data
-    out = {**data, 'trace_id': trace_id} if isinstance(data, dict) else {'data': data, 'trace_id': trace_id}
-    if local_trace is not None:
-        out['trace'] = local_trace
-    return out
+    return {**data, 'trace_id': trace_id} if isinstance(data, dict) else {'data': data, 'trace_id': trace_id}
 
 
 def has_dataset(dataset: str | None) -> bool:
@@ -249,15 +246,16 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
         try:
             async with rag_sem:
                 _init_session()
-                async_result, trace_id, local_trace = await asyncio.to_thread(
+                async_result, trace_id = await asyncio.to_thread(
                     _run_ppl_with_trace, agentic_rag, (params,),
                     session_id=session_id, dataset=dataset,
                     mode_tag='stream_reasoning' if reasoning else 'stream',
-                    trace_enabled=trace,
+                    trace_enabled=trace, model_config=model_config,
                 )
                 if trace_id is not None:
-                    yield _sse_line(_resp(200, 'success',
-                                          _attach_trace_info({}, trace_id, local_trace), 0.0))
+                    yield _sse_line(
+                        _resp(200, 'success', _attach_trace_info({}, trace_id), 0.0)
+                    )
                 async for chunk in async_result:
                     now = time.time()
                     if not first_frame_logged:
@@ -269,14 +267,28 @@ async def handle_chat(query: str, history: Optional[List[Dict[str, Any]]],
                         )
                         first_frame_logged = True
 
+                    agentic_config = lazyllm.globals.get('agentic_config')
+                    rewrite_config = (
+                        agentic_config if isinstance(agentic_config, dict) else None
+                    )
+
                     chunk_data = _normalize_stream_chunk(chunk)
+                    if isinstance(chunk_data, dict):
+                        text = chunk_data.get('text')
+                        if isinstance(text, str) and text:
+                            chunk_data['text'] = rewrite_markdown_image_urls(
+                                text, config=rewrite_config,
+                            )
+                    elif isinstance(chunk_data, str):
+                        chunk_data = rewrite_markdown_image_urls(
+                            chunk_data, config=rewrite_config,
+                        )
 
                     collected_chunks.append(
                         json.dumps(chunk_data, ensure_ascii=False, default=str)
                     )
                     cost = round(now - start_time, 3)
                     yield _sse_line(_resp(200, 'success', chunk_data, cost))
-
         except Exception as exc:
             LOG.exception(exc)
             collected_chunks.append(f'[EXCEPTION]: {str(exc)}')

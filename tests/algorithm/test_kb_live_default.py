@@ -67,6 +67,7 @@ def test_kb_search_default_kb_branch(monkeypatch):
             'filters': {'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id']},
             'files': [],
             'image_files': [],
+            'user_id': '',
         }
     }
     assert result['success'] is True

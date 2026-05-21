@@ -7,16 +7,20 @@ import ChatInput, {
 } from "@/modules/chat/components/ChatInput";
 import ChatLayout from "../chatLayout";
 import { ChatConfig } from "@/modules/chat/components/ChatConfigs";
-import { Tooltip, message } from "antd";
+import { Button, Tooltip, message } from "antd";
 import {
   CHAT_RESUME_CONVERSATION_KEY,
   CHAT_SELECT_CONVERSATION_EVENT,
 } from "@/modules/chat/constants/chat";
 import { allowedUploadTypes } from "@/modules/chat/components/ImageUpload";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
+import { useChatModelProviderGuard } from "@/modules/chat/hooks/useChatModelProviderGuard";
 
 const NewChatPage = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const modelProviderGuard = useChatModelProviderGuard();
   const getGreeting = () => {
     const currentHour = new Date().getHours();
     return currentHour < 12 ? t("chat.greetingMorning") : t("chat.greetingAfternoon");
@@ -31,6 +35,26 @@ const NewChatPage = () => {
 
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
+  const isChatDisabled = !modelProviderGuard.canChat;
+  const chatDisabledReason = modelProviderGuard.isChecking
+    ? t("chat.modelProviderChecking")
+    : modelProviderGuard.status === "error"
+      ? t("chat.modelProviderCheckFailed")
+      : t("chat.modelProviderRequiredTitle");
+  const chatDisabledDescription = modelProviderGuard.isChecking
+    ? t("chat.modelProviderCheckingDesc")
+    : modelProviderGuard.status === "error"
+      ? t("chat.modelProviderCheckFailedDesc")
+      : t("chat.modelProviderRequiredDesc");
+  const chatDisabledAction = modelProviderGuard.isChecking ? null : modelProviderGuard.status === "error" ? (
+    <Button size="small" onClick={() => void modelProviderGuard.refresh()}>
+      {t("chat.retryCheckModelProvider")}
+    </Button>
+  ) : (
+    <Button type="primary" size="small" onClick={() => navigate("/model-providers")}>
+      {t("chat.goConfigureModelProvider")}
+    </Button>
+  );
 
   useEffect(() => {
     if (!isChatContent) {
@@ -93,6 +117,9 @@ const NewChatPage = () => {
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isChatDisabled) {
+      return;
+    }
     dragCounterRef.current++;
     if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
       setIsDragging(true);
@@ -119,6 +146,11 @@ const NewChatPage = () => {
     setIsDragging(false);
     dragCounterRef.current = 0;
 
+    if (isChatDisabled) {
+      message.warning(chatDisabledReason);
+      return;
+    }
+
     const files = Array.from(e.dataTransfer.files);
 
     if (files.length === 0) {
@@ -144,6 +176,10 @@ const NewChatPage = () => {
             setIsChatContent={handleSetIsChatContent}
             setChatConfigFn={setChatConfig}
             initchatConfig={chatConfig}
+            canChat={!isChatDisabled}
+            chatDisabledReason={chatDisabledReason}
+            chatDisabledDescription={chatDisabledDescription}
+            chatDisabledAction={chatDisabledAction}
           />
         </div>
       )}
@@ -194,6 +230,10 @@ const NewChatPage = () => {
                     }}
                     chatConfig={chatConfig}
                     setChatConfig={setChatConfig}
+                    disabled={isChatDisabled}
+                    disabledReason={chatDisabledReason}
+                    disabledDescription={chatDisabledDescription}
+                    disabledAction={chatDisabledAction}
                   />
                 </div>
               </div>
