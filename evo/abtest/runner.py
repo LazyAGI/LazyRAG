@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 from evo.chat_runner import ChatInstance, ChatRegistry, ChatRunner
 from evo.datagen import run_eval, load_report, fetch_traces_for_report
+from evo.harness.plan import StopRequested
 from evo.runtime.config import EVO_EVAL_JUDGE_MAX_WORKERS, EVO_EVAL_MAX_WORKERS, EVO_EVAL_RAG_MAX_WORKERS
 from evo.runtime.fs import atomic_write as _atomic_write
 from evo.runtime.fs import atomic_write_json
@@ -66,7 +67,7 @@ def execute_abtest(
     candidate: ChatInstance | None = None
     if state['candidate_chat_id']:
         candidate = chat_registry.get(state['candidate_chat_id'])
-    ctx = _Ctx(inputs, workspace, log, chat_runner, chat_registry, cfg, llm_factory, state, candidate)
+    ctx = _Ctx(inputs, workspace, log, chat_runner, chat_registry, cfg, llm_factory, state, candidate, cancel)
     log.append_event(
         'abtest.start',
         task_id=inputs.abtest_id,
@@ -82,21 +83,7 @@ def execute_abtest(
     try:
         for phase in PHASES:
             if cancel():
-                if ctx.candidate is not None:
-                    chat_runner.stop(ctx.candidate.chat_id)
-                    chat_registry.purge(ctx.candidate.chat_id)
-                log.append_event(
-                    'abtest.finish',
-                    task_id=inputs.abtest_id,
-                    payload={
-                        'abtest_id': inputs.abtest_id,
-                        'status': 'cancelled',
-                        'candidate_chat_id': state.get('candidate_chat_id'),
-                        'new_eval_id': state.get('new_eval_id'),
-                    },
-                )
-                _save_state(state_path, state)
-                return AbtestResult('cancelled', None, None, state['candidate_chat_id'], state['new_eval_id'])
+                return _cancelled_result(ctx, state_path)
             if _phase_done(ctx, phase):
                 continue
             if phase in state['completed']:
@@ -104,6 +91,8 @@ def execute_abtest(
             _PHASES_FN[phase](ctx)
             state['completed'].append(phase)
             _save_state(state_path, state)
+    except StopRequested:
+        return _cancelled_result(ctx, state_path)
     except Exception as exc:
         state['summary'] = _invalid_summary(exc)
         try:
@@ -172,6 +161,24 @@ class _Ctx:
     llm_factory: Any
     state: dict
     candidate: ChatInstance | None
+    cancel: Callable[[], bool]
+
+
+def _cancelled_result(c: _Ctx, state_path: Path) -> AbtestResult:
+    if c.candidate is not None:
+        _retire_candidate(c.candidate, c.runner, c.registry)
+    c.log.append_event(
+        'abtest.finish',
+        task_id=c.inputs.abtest_id,
+        payload={
+            'abtest_id': c.inputs.abtest_id,
+            'status': 'cancelled',
+            'candidate_chat_id': c.state.get('candidate_chat_id'),
+            'new_eval_id': c.state.get('new_eval_id'),
+        },
+    )
+    _save_state(state_path, c.state)
+    return AbtestResult('cancelled', None, None, c.state.get('candidate_chat_id'), c.state.get('new_eval_id'))
 
 
 def _phase_launch_chat(c: _Ctx) -> None:
@@ -271,6 +278,7 @@ def _phase_run_eval(c: _Ctx) -> None:
         persist_report=False,
         attempt_id=c.inputs.abtest_id,
         resume=_has_eval_partial(c),
+        cancel=c.cancel,
         on_progress=lambda current, total: c.log.append_event(
             'abtest.progress',
             task_id=c.inputs.abtest_id,

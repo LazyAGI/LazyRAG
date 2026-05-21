@@ -1,5 +1,6 @@
 x-mirror-args: &mirror-args
   DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io/library/}
+  LAZYMIND_IMAGE_MIRROR: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}
   PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
   PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-2400}
   PIP_RETRIES: ${PIP_RETRIES:-10}
@@ -85,6 +86,7 @@ x-ocr-env: &ocr-env
 services:
 
   kong:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-kong:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: ./kong
@@ -144,6 +146,7 @@ services:
     restart: "no"
 
   scan-control-plane:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-scan-control-plane:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: ./backend/scan-control-plane
@@ -173,6 +176,7 @@ services:
     restart: unless-stopped
 
   file-watcher:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-file-watcher:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: ./backend/file-watcher
@@ -212,6 +216,7 @@ services:
       retries: 20
 
   auth-service:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-auth-service:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: ./backend
@@ -248,6 +253,7 @@ services:
         condition: service_healthy
 
   office-convert-service:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-office-convert-service:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: ./backend
@@ -269,6 +275,7 @@ services:
       retries: 3
 
   core:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-core:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: ./backend
@@ -331,6 +338,7 @@ services:
         condition: service_healthy
 
   frontend:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-frontend:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: ./frontend
@@ -350,6 +358,7 @@ services:
       FRONTEND_API_DOCS_PROXY_PASS: http://kong:8000
 
   lazyllm-doc-server:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-doc:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: .
@@ -402,10 +411,11 @@ services:
   mineru:
     profiles:
       - mineru
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-mineru:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
-      context: ./algorithm
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: algorithm/Dockerfile
       target: mineru
       args:
         <<: *mirror-args
@@ -489,6 +499,7 @@ services:
     restart: unless-stopped
 
   lazyllm-parse-server:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-algorithm:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: .
@@ -527,6 +538,7 @@ services:
           - processor-server
 
   lazyllm-parse-worker:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-algorithm:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: .
@@ -571,6 +583,7 @@ services:
           - processor-worker
 
   lazyllm-algo:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-algorithm:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: .
@@ -626,6 +639,7 @@ services:
           - parsing
 
   chat:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-algorithm:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: .
@@ -680,7 +694,9 @@ services:
     depends_on:
       lazyllm-algo:
         condition: service_healthy
+
   evo-api:
+    image: ${LAZYMIND_IMAGE_MIRROR:-registry.cn-hangzhou.aliyuncs.com}/lazyllm/lazymind-evo-api:${LAZYMIND_IMAGE_TAG:-latest}
     build:
       network: host
       context: .

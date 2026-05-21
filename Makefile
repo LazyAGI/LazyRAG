@@ -136,24 +136,6 @@ export LAZYLLM_TRACE_BACKEND ?= langfuse
 export MINIO_ACCESS_KEY ?= minioadmin
 export MINIO_SECRET_KEY ?= minioadmin
 
-# Build mirrors — defaults point to Aliyun / domestic mirrors so docker build works
-# without VPN. Override via env or .env to use upstream/internal mirrors, e.g.:
-#   make up DOCKER_MIRROR= APT_MIRROR=http://deb.debian.org/debian ...
-export DOCKER_MIRROR ?= docker.m.daocloud.io/library/
-export PIP_INDEX_URL ?= https://mirrors.aliyun.com/pypi/simple
-export PIP_DEFAULT_TIMEOUT ?= 2400
-export PIP_RETRIES ?= 10
-export APT_MIRROR ?= http://mirrors.aliyun.com/debian
-export APT_SECURITY_MIRROR ?= http://mirrors.aliyun.com/debian-security
-export APT_UBUNTU_MIRROR ?= http://mirrors.aliyun.com/ubuntu
-export ALPINE_MIRROR ?= https://mirrors.aliyun.com/alpine
-export NPM_REGISTRY ?= https://registry.npmmirror.com
-export GOPROXY ?= https://goproxy.cn,direct
-export GOSUMDB ?= sum.golang.google.cn
-# GitHub release/source proxy used when GitHub raw / luarocks.org / codeload
-# / raw.githubusercontent are blocked.
-export GITHUB_PROXY ?= https://gh-proxy.com/
-
 # Pluggable parent images for the algorithm Dockerfile's multi-stage chain:
 #
 #   FROM ${BASE_LAZYLLM_IMAGE}  AS base_lazymind    # adds `lazyllm install rag`

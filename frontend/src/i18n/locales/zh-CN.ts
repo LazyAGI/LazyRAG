@@ -587,7 +587,8 @@ const zhCN = {
     uploadFailedRetry: "上传失败，请重试",
     supportedFolderImport: "支持导入文件夹",
     supportedZipFile: "仅支持 ZIP 类型压缩包文件（.zip）",
-    supportedDocTypes: "支持pdf、docx、doc类型的文件",
+    supportedDocTypes:
+      "支持pdf、docx、doc、jpg、jpeg、png、gif、bmp、webp、tiff、tif、mp3、mp4类型的文件",
     zipRootOnly: "zip压缩包仅支持根目录的文件，一级及以上文件夹将被忽略",
     uploadLimitHint: "单次上传限制300个文件，单个文件大小不超过500MB，总大小不超过1GB",
     uploadSecurityRiskTip:
@@ -685,6 +686,7 @@ const zhCN = {
     inputRequired: "请输入",
     inputMismatch: "输入不一致",
     previewUnsupported: "暂不支持该文件格式预览",
+    documentDetailUnsupported: "该文件格式暂不支持进入文档详情",
     knowledgeNameRule: "名称支持中英文、数字、-、_、.，长度不超过 100 个字符",
     knowledgeDesc: "知识库描述",
     inputKnowledgeDesc: "请输入知识库描述",
@@ -1404,7 +1406,7 @@ const zhCN = {
     memoryGlossaryAliasMaxLength: "单个词长度不能超过{{count}}个字符",
     memoryGlossaryContentMaxLength: "内容长度不能超过{{count}}个字符",
     memorySkillTagMaxCount: "技能标签最多只能设置 {{count}} 个",
-    memoryGlossaryWordsAlreadyExist: "以下词已存在：{{words}}",
+    memoryGlossaryWordsAlreadyExist: "词组或词已存在：{{words}}。请编辑已有词表，或更换后再保存。",
     memoryGlossaryInboxButton: "消息处理（{{count}}）",
     memoryGlossaryInboxTitle: "词表消息中心",
     memoryGlossaryInboxEmpty: "暂无待处理词表消息",
