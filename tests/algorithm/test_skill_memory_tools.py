@@ -3,16 +3,6 @@ from chat.tools import skill_manager as skill_manager_mod
 from chat.tools.skill_manager import Suggestion
 
 
-def test_core_api_endpoint_uses_internal_core_base_url():
-    assert (
-        memory_mod._core_api_endpoint(
-            '/memory/suggestion',
-            {'core_api_url': 'http://core:8000'},
-        )
-        == 'http://core:8000/memory/suggestion'
-    )
-
-
 def test_memory_submits_core_api_suggestion_paths(monkeypatch):
     calls = []
 
@@ -20,12 +10,8 @@ def test_memory_submits_core_api_suggestion_paths(monkeypatch):
         calls.append((path, payload))
         return {'persisted': 'core_api', 'url': f'http://core{path}'}
 
-    monkeypatch.setattr(
-        memory_mod,
-        '_agentic_config',
-        lambda: {'session_id': 'sid-1', 'core_api_url': 'http://10.119.24.129:9090'},
-    )
-    monkeypatch.setattr(memory_mod, '_post_core_api', fake_post_core_api)
+    monkeypatch.setattr(memory_mod.lazyllm, 'globals', {'agentic_config': {'session_id': 'sid-1'}})
+    monkeypatch.setattr(memory_mod, 'post_core_api', fake_post_core_api)
 
     suggestions = [
         {
@@ -51,8 +37,7 @@ def test_memory_submits_core_api_suggestion_paths(monkeypatch):
 
 
 def test_memory_requires_session_id(monkeypatch):
-    monkeypatch.setattr(memory_mod, '_agentic_config', lambda: {})
-    monkeypatch.setattr(memory_mod, '_session_id', lambda _config: '')
+    monkeypatch.setattr(memory_mod.lazyllm, 'globals', {'agentic_config': {}})
 
     result = memory_mod.memory(
         'memory',
@@ -69,7 +54,7 @@ def test_memory_requires_session_id(monkeypatch):
 
 
 def test_memory_rejects_too_many_suggestions(monkeypatch):
-    monkeypatch.setattr(memory_mod, '_agentic_config', lambda: {'session_id': 'sid-1'})
+    monkeypatch.setattr(memory_mod.lazyllm, 'globals', {'agentic_config': {'session_id': 'sid-1'}})
 
     result = memory_mod.memory(
         'memory',
@@ -92,12 +77,8 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
         calls.append((path, payload))
         return {'persisted': 'core_api', 'url': f'http://core{path}'}
 
-    monkeypatch.setattr(
-        skill_manager_mod,
-        '_agentic_config',
-        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
-    )
-    monkeypatch.setattr(skill_manager_mod, '_post_core_api', fake_post_core_api)
+    monkeypatch.setattr(skill_manager_mod.lazyllm, 'globals', {'agentic_config': {'session_id': 'sid-1'}})
+    monkeypatch.setattr(skill_manager_mod, 'post_core_api', fake_post_core_api)
     monkeypatch.setattr(
         skill_manager_mod,
         'list_all_skill_entries',
@@ -169,12 +150,8 @@ def test_skill_manage_create_modify_remove_use_core_api_paths(monkeypatch):
 def test_skill_manage_rejects_missing_skill_without_post(monkeypatch):
     calls = []
 
-    monkeypatch.setattr(
-        skill_manager_mod,
-        '_agentic_config',
-        lambda: {'session_id': 'sid-1', 'skill_fs_url': 'file:///tmp/skills'},
-    )
-    monkeypatch.setattr(skill_manager_mod, '_post_core_api', lambda path, payload: calls.append((path, payload)))
+    monkeypatch.setattr(skill_manager_mod.lazyllm, 'globals', {'agentic_config': {'session_id': 'sid-1'}})
+    monkeypatch.setattr(skill_manager_mod, 'post_core_api', lambda path, payload: calls.append((path, payload)))
     monkeypatch.setattr(skill_manager_mod, 'list_all_skill_entries', lambda _base_dir: {})
 
     result = skill_manager_mod.skill_manage(

@@ -18,8 +18,7 @@ if __package__ in (None, ''):
 from lazyllm.tools.fs.client import FS
 from common.remote_fs import RemoteFileSystem  # noqa: F401
 from chat.tools._common import handle_tool_errors, tool_error, tool_success
-from chat.tools._core_api import post_core_api as _post_core_api
-from chat.tools._core_api import session_id as _session_id
+from chat.tools._utils import post_core_api
 from chat.utils.load_config import extract_skill_fs_source
 from config import config as _cfg
 
@@ -204,7 +203,7 @@ def skill_manage(
         return tool_error('skill_manage', name_error, log_message=f'[skill_manage] fail reason={name_error!r}')
 
     agentic_config = lazyllm.globals['agentic_config']
-    session_id = _session_id(agentic_config)
+    session_id = str(agentic_config.get('session_id') or '').strip()
     if not session_id:
         return tool_error(
             'skill_manage',
@@ -268,7 +267,7 @@ def skill_manage(
             'content': content,
         }
         try:
-            result.update(_post_core_api('/skill/create', payload))
+            result.update(post_core_api('/skill/create', payload))
         except (requests.RequestException, RuntimeError) as exc:
             return tool_error(
                 'skill_manage',
@@ -321,7 +320,7 @@ def skill_manage(
             'suggestions': [s.model_dump() for s in suggestions],
         }
         try:
-            result.update(_post_core_api('/skill/suggestion', payload))
+            result.update(post_core_api('/skill/suggestion', payload))
         except (requests.RequestException, RuntimeError) as exc:
             return tool_error(
                 'skill_manage',
@@ -361,7 +360,7 @@ def skill_manage(
             'reason': reason or '',
         }
         try:
-            result.update(_post_core_api('/skill/remove', payload))
+            result.update(post_core_api('/skill/remove', payload))
         except (requests.RequestException, RuntimeError) as exc:
             return tool_error(
                 'skill_manage',

@@ -7,8 +7,7 @@ from lazyllm import LOG, fc_register
 from typing_extensions import TypedDict
 
 from chat.tools._common import handle_tool_errors, tool_error, tool_success
-from chat.tools._core_api import post_core_api as _post_core_api
-from chat.tools._core_api import session_id as _session_id
+from chat.tools._utils import post_core_api
 from vocab.db import (
     fetch_chat_histories_for_session,
     fetch_vocab_groups_for_user_id,
@@ -172,7 +171,7 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
         )
 
     agentic_config = lazyllm.globals['agentic_config']
-    session_id = _session_id(agentic_config)
+    session_id = str(agentic_config.get('session_id') or '').strip()
     if not session_id:
         return tool_error(
             'vocab_manage',
@@ -282,7 +281,7 @@ def vocab_manage(suggestions: List[Dict[str, Any]]) -> Dict[str, Any]:
         f'user_id={user_id!r} payload={json.dumps(payload, ensure_ascii=False)}'
     )
     try:
-        result.update(_post_core_api(_WORD_GROUP_APPLY_INTERNAL_PATH, payload))
+        result.update(post_core_api(_WORD_GROUP_APPLY_INTERNAL_PATH, payload))
     except (requests.RequestException, RuntimeError) as exc:
         return tool_error(
             'vocab_manage',

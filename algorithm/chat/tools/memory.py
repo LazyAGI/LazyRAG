@@ -6,8 +6,7 @@ from lazyllm import fc_register
 from typing_extensions import TypedDict
 
 from chat.tools._common import handle_tool_errors, tool_error, tool_success
-from chat.tools._core_api import post_core_api as _post_core_api
-from chat.tools._core_api import session_id as _session_id
+from chat.tools._utils import post_core_api
 
 MAX_SUGGESTIONS_PER_CALL = 5
 
@@ -77,7 +76,7 @@ def memory(
         )
 
     agentic_config = lazyllm.globals['agentic_config']
-    session_id = _session_id(agentic_config)
+    session_id = str(agentic_config.get('session_id') or '').strip()
     if not session_id:
         return tool_error('memory', "'session_id' is required in agentic_config.")
 
@@ -96,7 +95,7 @@ def memory(
         'appended_suggestions': len(suggestions),
     }
     try:
-        result.update(_post_core_api(endpoint, payload))
+        result.update(post_core_api(endpoint, payload))
     except (requests.RequestException, RuntimeError) as exc:
         return tool_error(
             'memory',
