@@ -1,7 +1,7 @@
 """
 Additional tests for kb tool helpers (filters, temp_files, no-parent node).
 
-The chat.tools.kb module imports chat.pipelines.builders which triggers a
+The chat.tools.kb module imports chat.pipelines.get_ppl_search which triggers a
 circular import via vocab.evolution.  We break the cycle with the same
 lightweight stub approach used in test_pipeline_builders_extra.py.
 """
@@ -13,7 +13,7 @@ def _stub_vocab_and_chat_pipelines():
     """Stub out modules that cause circular imports at collection time.
 
     vocab.evolution is NOT stubbed here because the circular import
-    (vocab.evolution → chat.pipelines.builders) has been resolved with lazy
+    (vocab.evolution → chat.pipelines) has been resolved with lazy
     imports inside the class constructors.  Stubbing vocab.evolution would
     leave an empty module object in sys.modules and break any later test that
     imports real symbols from it (e.g. ActionPlanningModule).
@@ -180,25 +180,23 @@ def test_kb_search_explicit_empty_files_overrides_temp_files(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_kb_get_parent_node_returns_empty_when_no_parent(monkeypatch):
-    def fake_opensearch_search(index, body, config):
-        return {
-            'hits': {
-                'hits': [{
-                    '_id': 'root-node',
-                    '_source': {
-                        'uid': 'root-node',
-                        'number': 1,
-                        'group': 'block',
-                        'parent': None,
-                        'doc_id': 'doc-1',
-                        'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id'],
-                        'content': 'root text',
-                    },
-                }]
-            }
-        }
+    class FakeNode:
+        def __init__(self):
+            self.uid = 'root-node'
+            self.number = 1
+            self.group = 'block'
+            self._parent = None
+            self.text = 'root text'
+            self.metadata = {}
+            self.global_metadata = {'docid': 'doc-1', 'kb_id': DEFAULT_AGENTIC_CONFIG['kb_id']}
 
-    monkeypatch.setattr(kb, '_opensearch_search', fake_opensearch_search)
+    class FakeDocument:
+        def get_nodes(self, uids=None, doc_ids=None, group=None, kb_id=None, numbers=None):
+            if uids == ['root-node']:
+                return [FakeNode()]
+            return []
+
+    monkeypatch.setattr(kb.lazyllm.tools.rag, 'Document', lambda **kwargs: FakeDocument())
     original_config = kb.lazyllm.globals.get('agentic_config')
     kb.lazyllm.globals['agentic_config'] = DEFAULT_AGENTIC_CONFIG
     try:
@@ -206,7 +204,9 @@ def test_kb_get_parent_node_returns_empty_when_no_parent(monkeypatch):
     finally:
         kb.lazyllm.globals['agentic_config'] = original_config or {}
 
-    assert result['node_id'] == 'root-node'
-    assert result['parent_id'] is None
-    assert result['total'] == 0
-    assert result['items'] == []
+    assert result['success'] is True
+    assert result['tool'] == 'kb_get_parent_node'
+    assert result['result']['node_id'] == 'root-node'
+    assert result['result']['parent_id'] is None
+    assert result['result']['total'] == 0
+    assert result['result']['items'] == []
