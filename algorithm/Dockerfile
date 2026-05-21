@@ -82,7 +82,6 @@ RUN if [ "$LAZYMIND_PRELOAD_WHISPER_MODEL" = "1" ]; then \
         python -c "import whisper; whisper.load_model('${LAZYMIND_WHISPER_MODEL}')"; \
     fi
 COPY algorithm/ /app/algorithm/
-RUN chmod +x /app/algorithm/docker-entrypoint.sh
 ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
   LAZYMIND_DOCUMENT_SERVER_URL=http://parsing:8000 \
   LAZYMIND_SHARED_UPLOAD_DIR=/var/lib/lazymind/uploads \
@@ -98,7 +97,6 @@ ENV PYTHONPATH=/opt/lazyllm:/app/algorithm \
   LAZYMIND_USE_INNER_MODEL=true \
   LAZYMIND_MODEL_CONFIG_PATH=dynamic
 WORKDIR /app/algorithm
-ENTRYPOINT ["/app/algorithm/docker-entrypoint.sh"]
 CMD ["python", "parsing/parsing.py"]
 
 
