@@ -113,7 +113,7 @@ def _normalize_rag_result(
         actual_trace_id=str(actual_trace_id or ''),
         expected_trace_id=expected_trace_id,
     )
-    trace_id = expected_trace_id or actual_trace_id
+    trace_id = actual_trace_id or expected_trace_id
     answer = result.get('answer') or data_obj.get('answer') or data_obj.get('text') or data_obj.get('data') or ''
     return {
         'answer': answer,
