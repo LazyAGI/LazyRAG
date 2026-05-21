@@ -37,6 +37,11 @@ async def chat(
     ] = None,
     user_id: Annotated[Optional[str], Body(description='User ID for loading user-specific vocabulary')] = None,
     trace: Annotated[Optional[bool], Body(description='Enable trace recording (for admin debugging only)')] = False,
+    trace_id: Annotated[Optional[str], Body(description='Caller-provided LazyLLM trace ID')] = None,
+    trace_context: Annotated[
+        Optional[Dict[str, Any]],
+        Body(description='Business context to attach to the LazyLLM trace root metadata'),
+    ] = None,
     llm_config: Annotated[
         Optional[Dict[str, Any]],
         Body(
@@ -66,6 +71,8 @@ async def chat(
         dataset=dataset,
         priority=priority,
         trace=bool(trace),
+        trace_id=(trace_id or '').strip() or None,
+        trace_context=trace_context,
         available_tools=available_tools,
         available_skills=available_skills,
         memory=memory,
