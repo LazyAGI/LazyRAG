@@ -107,12 +107,13 @@ def _normalize_rag_result(
     data_obj = result.get('data') if isinstance(result.get('data'), dict) else {}
     sources = result.get('sources') or data_obj.get('sources') or data_obj.get('recall') or []
     trace = data_obj.get('trace') if isinstance(data_obj.get('trace'), dict) else None
-    trace_id = result.get('trace_id') or data_obj.get('trace_id') or (trace or {}).get('trace_id') or (trace or {}).get('id') or ''  # noqa: E501
+    actual_trace_id = result.get('trace_id') or data_obj.get('trace_id') or (trace or {}).get('trace_id') or (trace or {}).get('id') or ''  # noqa: E501
     status = trace_status(
         require_trace=require_trace,
-        actual_trace_id=str(trace_id or ''),
+        actual_trace_id=str(actual_trace_id or ''),
         expected_trace_id=expected_trace_id,
     )
+    trace_id = expected_trace_id or actual_trace_id
     answer = result.get('answer') or data_obj.get('answer') or data_obj.get('text') or data_obj.get('data') or ''
     return {
         'answer': answer,

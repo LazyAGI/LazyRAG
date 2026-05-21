@@ -34,7 +34,6 @@ def evaluate_answer(question: str, ground_truth: str, rag_answer: str, key_point
             _run,
             trace_id=expected_trace_id,
             session_id=f"evo:judge:{trace_context.get('report_id', '')}",
-            request_tags=_judge_request_tags(trace_context),
             module_trace={'default': True},
         )
         return {
@@ -161,14 +160,3 @@ def create_evaluate_task(
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
     return result_list
-
-
-def _judge_request_tags(trace_context: dict[str, Any]) -> list[str]:
-    tags = ['scene:judge']
-    report_id = str(trace_context.get('report_id') or '')
-    case_id = str(trace_context.get('case_id') or '')
-    if report_id:
-        tags.append(f'report:{report_id}')
-    if case_id:
-        tags.append(f'case:{case_id}')
-    return tags
