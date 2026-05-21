@@ -325,10 +325,14 @@ const zhCN = {
     disclaimerTooltip: "风险提示：为了保障您的信息安全，请勿上传敏感个人信息（如您的密码等信息）和您的敏感资产信息（如关键源代码、签名私钥、调试安装包、业务日志等信息），且您需自行承担由此产生的信息泄露等安全风险。",
     // ChatSelector
     knowledgeBase: "知识库",
-    embeddingNotReadyKnowledge: "向量模型未就绪，暂时无法使用知识库",
-    multimodalEmbeddingNotReadyKnowledge: "多模态向量模型未就绪，暂时无法使用知识库",
+    embeddingNotReadyKnowledge: "向量模型未就绪，暂时无法使用知识库，请联系管理员配置",
+    multimodalEmbeddingNotReadyKnowledge: "多模态向量模型未就绪，暂时无法使用知识库，请联系管理员配置",
     rerankNotReadyKnowledge: "重排序模型未就绪，暂时无法使用知识库",
+    rerankNotReadyKnowledgeAdmin: "重排序模型未就绪，暂时无法使用知识库，请先配置重排序模型",
+    embeddingNotReadyKnowledgeAdmin: "向量模型未就绪，暂时无法使用知识库，请先配置向量模型",
+    multimodalEmbeddingNotReadyKnowledgeAdmin: "多模态向量模型未就绪，暂时无法使用知识库，请先配置多模态向量模型",
     vlmNotReadyWarning: "图文模型（VLM）未配置，当前无法处理图片内容，如需图片理解请前往模型供应商配置图文模型。",
+    vlmNotReadyWarningAdmin: "图文模型（VLM）未配置，当前无法处理图片内容，请先配置图文模型。",
     searchKnowledge: "搜索知识库",
     reset: "重置",
     selectAll: "全选",
@@ -732,6 +736,9 @@ const zhCN = {
     unknown: "未知",
     embeddingNotReadyBanner: "向量模型尚未就绪，知识库检索功能暂时不可用，请联系管理员配置向量模型。",
     multimodalEmbeddingNotReadyBanner: "多模态向量模型尚未就绪，图文混合检索功能暂时不可用，请联系管理员配置多模态向量模型。",
+    embeddingNotReadyBannerAdmin: "向量模型尚未就绪，知识库检索功能暂时不可用，请先配置向量模型。",
+    multimodalEmbeddingNotReadyBannerAdmin: "多模态向量模型尚未就绪，图文混合检索功能暂时不可用，请先配置多模态向量模型。",
+    goToConfig: "去配置",
   },
 
   admin: {

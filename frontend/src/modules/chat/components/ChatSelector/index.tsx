@@ -12,6 +12,8 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  MouseEvent,
+  ReactNode,
 } from "react";
 import {
   KnowledgeBaseServiceApi,
@@ -22,6 +24,8 @@ import "./index.scss";
 import { debounce } from "lodash";
 import { ChatConfig } from "../ChatConfigs";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
+import { AgentAppsAuth } from "@/components/auth";
 
 export interface ChatSelectorProps {
   chatConfig: ChatConfig;
@@ -43,16 +47,38 @@ export interface ChatSelectorImperativeProps {
 
 const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
   (props, ref) => {
-    const { chatConfig, refreshKey, onChange, embeddingReady, multimodalEmbeddingReady, rerankReady } = props;
-    const { t } = useTranslation();
-    const isEmbeddingDisabled = embeddingReady === false || multimodalEmbeddingReady === false || rerankReady === false;
-    const knowledgeDisabledReason = embeddingReady === false
-      ? t("chat.embeddingNotReadyKnowledge")
-      : multimodalEmbeddingReady === false
-        ? t("chat.multimodalEmbeddingNotReadyKnowledge")
-        : rerankReady === false
-          ? t("chat.rerankNotReadyKnowledge")
-          : undefined;
+  const { chatConfig, refreshKey, onChange, embeddingReady, multimodalEmbeddingReady, rerankReady } = props;
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const isAdmin = AgentAppsAuth.getUserInfo()?.role === 'system-admin';
+  const isEmbeddingDisabled = embeddingReady === false || multimodalEmbeddingReady === false || rerankReady === false;
+
+  const buildKnowledgeDisabledReason = (): ReactNode => {
+    const goConfig = (
+      <a
+        href="/model-providers"
+        style={{ marginLeft: 6, color: '#fff', textDecoration: 'underline' }}
+        onClick={(e: MouseEvent<HTMLAnchorElement>) => { e.preventDefault(); navigate('/model-providers'); }}
+      >
+        {t("knowledge.goToConfig")}
+      </a>
+    );
+    if (embeddingReady === false) {
+      return isAdmin
+        ? <span>{t("chat.embeddingNotReadyKnowledgeAdmin")}{goConfig}</span>
+        : t("chat.embeddingNotReadyKnowledge");
+    }
+    if (multimodalEmbeddingReady === false) {
+      return isAdmin
+        ? <span>{t("chat.multimodalEmbeddingNotReadyKnowledgeAdmin")}{goConfig}</span>
+        : t("chat.multimodalEmbeddingNotReadyKnowledge");
+    }
+    if (rerankReady === false) {
+      return <span>{t("chat.rerankNotReadyKnowledge")}{goConfig}</span>;
+    }
+    return undefined;
+  };
+  const knowledgeDisabledReason = buildKnowledgeDisabledReason();
 
     const [knowledgeBaseList, setKnowledgeBaseList] = useState<Dataset[]>([]);
     const [filteredList, setFilteredList] = useState<Dataset[]>([]);

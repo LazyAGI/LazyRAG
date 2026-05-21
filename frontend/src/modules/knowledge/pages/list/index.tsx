@@ -1,4 +1,4 @@
-import { FC, useState, useEffect, useRef } from "react";
+import { FC, useState, useEffect, useRef, MouseEvent } from "react";
 import {
   Alert,
   Button,
@@ -602,7 +602,20 @@ const KnowledgePage: FC = () => {
         <Alert
           banner
           className="knowledge-embedding-warning"
-          message={t("knowledge.embeddingNotReadyBanner")}
+          message={
+            isAdmin ? (
+              <span>
+                {t("knowledge.embeddingNotReadyBannerAdmin")}
+                <a
+                  href="/model-providers"
+                  style={{ marginLeft: 8, fontWeight: 500 }}
+                  onClick={(e: MouseEvent<HTMLAnchorElement>) => { e.preventDefault(); navigate('/model-providers'); }}
+                >
+                  {t("knowledge.goToConfig")}
+                </a>
+              </span>
+            ) : t("knowledge.embeddingNotReadyBanner")
+          }
           showIcon
           type="warning"
         />
@@ -611,7 +624,20 @@ const KnowledgePage: FC = () => {
         <Alert
           banner
           className="knowledge-embedding-warning"
-          message={t("knowledge.multimodalEmbeddingNotReadyBanner")}
+          message={
+            isAdmin ? (
+              <span>
+                {t("knowledge.multimodalEmbeddingNotReadyBannerAdmin")}
+                <a
+                  href="/model-providers"
+                  style={{ marginLeft: 8, fontWeight: 500 }}
+                  onClick={(e: MouseEvent<HTMLAnchorElement>) => { e.preventDefault(); navigate('/model-providers'); }}
+                >
+                  {t("knowledge.goToConfig")}
+                </a>
+              </span>
+            ) : t("knowledge.multimodalEmbeddingNotReadyBanner")
+          }
           showIcon
           type="warning"
         />
@@ -627,9 +653,24 @@ const KnowledgePage: FC = () => {
           btnText={t("knowledge.createKnowledgeBase")}
           btnDisabled={embeddingReady === false || multimodalEmbeddingReady === false}
           btnDisabledTooltip={
-            embeddingReady === false
-              ? t("knowledge.embeddingNotReadyBanner")
-              : t("knowledge.multimodalEmbeddingNotReadyBanner")
+            isAdmin ? (
+              <span>
+                {embeddingReady === false
+                  ? t("knowledge.embeddingNotReadyBannerAdmin")
+                  : t("knowledge.multimodalEmbeddingNotReadyBannerAdmin")}
+                <a
+                  href="/model-providers"
+                  style={{ marginLeft: 8, color: '#fff', textDecoration: 'underline' }}
+                  onClick={(e: MouseEvent<HTMLAnchorElement>) => { e.preventDefault(); navigate('/model-providers'); }}
+                >
+                  {t("knowledge.goToConfig")}
+                </a>
+              </span>
+            ) : (
+              embeddingReady === false
+                ? t("knowledge.embeddingNotReadyBanner")
+                : t("knowledge.multimodalEmbeddingNotReadyBanner")
+            )
           }
           onClick={() => {
             createUpdateRef.current?.onOpen();

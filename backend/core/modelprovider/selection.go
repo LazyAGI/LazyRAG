@@ -64,12 +64,6 @@ type modelReadyResponse struct {
 	Source string `json:"source,omitempty"`
 }
 
-// embeddingModelTypes are the model_type values that should be auto-shared when set by admin.
-var embeddingModelTypes = map[string]struct{}{
-	"embedding":            {},
-	"multimodal_embedding": {},
-}
-
 // GetSelectedModels returns selected model rows for the current user.
 func GetSelectedModels(w http.ResponseWriter, r *http.Request) {
 	db := store.DB()
@@ -198,19 +192,6 @@ func SetSelectedModels(w http.ResponseWriter, r *http.Request) {
 						"user_name":                          userName,
 						"updated_at":                         now,
 					}).Error; err != nil {
-					return err
-				}
-			}
-			// Auto-share embedding types: clear old share by model_type, then set share=true on this row.
-			if _, isEmbed := embeddingModelTypes[modelType]; isEmbed {
-				if err := tx.Model(&orm.UserSelectedModel{}).
-					Where("model_type = ? AND share = ?", modelType, true).
-					Updates(map[string]any{"share": false, "updated_at": now}).Error; err != nil {
-					return err
-				}
-				if err := tx.Model(&orm.UserSelectedModel{}).
-					Where("user_id = ? AND model_type = ?", userID, modelType).
-					Updates(map[string]any{"share": true, "updated_at": now}).Error; err != nil {
 					return err
 				}
 			}

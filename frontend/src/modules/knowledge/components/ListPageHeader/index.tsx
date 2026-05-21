@@ -1,4 +1,4 @@
-import { FC, ReactElement } from "react";
+import { FC, ReactElement, ReactNode } from "react";
 import { Input, Select, Form, Button, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import "./index.scss";
@@ -30,7 +30,7 @@ interface Props {
   
   btnText?: string;
   btnDisabled?: boolean;
-  btnDisabledTooltip?: string;
+  btnDisabledTooltip?: ReactNode;
   onClick?: () => void;
   onSearch: () => void;
 }

@@ -356,10 +356,14 @@ const enUS = {
     disclaimerTooltip: "Security notice: For your information security, please do not upload sensitive personal information (such as passwords) or sensitive assets (such as source code, private keys, debug packages, business logs). You bear the risk of any resulting information leakage.",
     // ChatSelector
     knowledgeBase: "Knowledge Base",
-    embeddingNotReadyKnowledge: "Embedding model is not ready. Knowledge base is temporarily unavailable.",
-    multimodalEmbeddingNotReadyKnowledge: "Multimodal embedding model is not ready. Knowledge base is temporarily unavailable.",
+    embeddingNotReadyKnowledge: "Embedding model is not ready. Knowledge base is temporarily unavailable. Please ask an admin to configure it.",
+    multimodalEmbeddingNotReadyKnowledge: "Multimodal embedding model is not ready. Knowledge base is temporarily unavailable. Please ask an admin to configure it.",
     rerankNotReadyKnowledge: "Rerank model is not ready. Knowledge base is temporarily unavailable.",
+    rerankNotReadyKnowledgeAdmin: "Rerank model is not ready. Knowledge base is temporarily unavailable. Please configure the rerank model.",
+    embeddingNotReadyKnowledgeAdmin: "Embedding model is not ready. Knowledge base is temporarily unavailable. Please configure the embedding model.",
+    multimodalEmbeddingNotReadyKnowledgeAdmin: "Multimodal embedding model is not ready. Knowledge base is temporarily unavailable. Please configure the multimodal embedding model.",
     vlmNotReadyWarning: "Vision-Language Model (VLM) is not configured. Image content cannot be processed. Please configure a VLM in the model provider settings.",
+    vlmNotReadyWarningAdmin: "Vision-Language Model (VLM) is not configured. Image content cannot be processed. Please configure a VLM.",
     searchKnowledge: "Search knowledge bases",
     reset: "Reset",
     selectAll: "Select All",
@@ -770,6 +774,9 @@ const enUS = {
     unknown: "Unknown",
     embeddingNotReadyBanner: "The embedding model is not ready. Knowledge-base retrieval is temporarily unavailable. Please ask an admin to configure the embedding model.",
     multimodalEmbeddingNotReadyBanner: "The multimodal embedding model is not ready. Mixed image-text retrieval is temporarily unavailable. Please ask an admin to configure the multimodal embedding model.",
+    embeddingNotReadyBannerAdmin: "The embedding model is not ready. Knowledge-base retrieval is temporarily unavailable. Please configure the embedding model.",
+    multimodalEmbeddingNotReadyBannerAdmin: "The multimodal embedding model is not ready. Mixed image-text retrieval is temporarily unavailable. Please configure the multimodal embedding model.",
+    goToConfig: "Go to Config",
   },
 
   // Admin

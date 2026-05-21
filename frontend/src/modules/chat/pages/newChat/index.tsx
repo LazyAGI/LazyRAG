@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, MouseEvent } from "react";
 import "./index.scss";
 import DisclaimerIcon from "../../assets/icons/disclaimer_icon.svg?react";
 import WarningIcon from "../../assets/icons/warning.svg?react";
@@ -16,11 +16,13 @@ import { allowedUploadTypes } from "@/modules/chat/components/ImageUpload";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useChatModelProviderGuard } from "@/modules/chat/hooks/useChatModelProviderGuard";
+import { AgentAppsAuth } from "@/components/auth";
 
 const NewChatPage = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const modelProviderGuard = useChatModelProviderGuard();
+  const isAdmin = AgentAppsAuth.getUserInfo()?.role === 'system-admin';
   const getGreeting = () => {
     const currentHour = new Date().getHours();
     return currentHour < 12 ? t("chat.greetingMorning") : t("chat.greetingAfternoon");
@@ -228,7 +230,29 @@ const NewChatPage = () => {
                   ) : null}
                   {showVlmWarning ? (
                     <div className="vlm-warning-banner" role="alert">
-                      {t("chat.vlmNotReadyWarning")}
+                      {isAdmin ? (
+                        <span>
+                          {t("chat.vlmNotReadyWarningAdmin")}
+                          <a
+                            href="/model-providers"
+                            style={{ marginLeft: 6, fontWeight: 500 }}
+                            onClick={(e: MouseEvent<HTMLAnchorElement>) => { e.preventDefault(); navigate('/model-providers'); }}
+                          >
+                            {t("knowledge.goToConfig")}
+                          </a>
+                        </span>
+                      ) : (
+                        <span>
+                          {t("chat.vlmNotReadyWarning")}
+                          <a
+                            href="/model-providers"
+                            style={{ marginLeft: 6, fontWeight: 500 }}
+                            onClick={(e: MouseEvent<HTMLAnchorElement>) => { e.preventDefault(); navigate('/model-providers'); }}
+                          >
+                            {t("knowledge.goToConfig")}
+                          </a>
+                        </span>
+                      )}
                     </div>
                   ) : null}
                   <ChatInput

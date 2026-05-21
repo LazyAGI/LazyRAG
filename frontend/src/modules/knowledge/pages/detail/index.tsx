@@ -11,7 +11,7 @@ import {
 import { axiosInstance, BASE_URL } from "@/components/request";
 import { AgentAppsAuth } from "@/components/auth";
 import type { MenuProps } from "antd";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, MouseEvent } from "react";
 import { useParams } from "react-router-dom";
 import {
   EditOutlined,
@@ -461,7 +461,26 @@ const Detail = () => {
               <Space.Compact>
                 <Tooltip title={
                   (embeddingReady === false || multimodalEmbeddingReady === false)
-                    ? (embeddingReady === false ? t("knowledge.embeddingNotReadyBanner") : t("knowledge.multimodalEmbeddingNotReadyBanner"))
+                    ? (
+                      isAdmin ? (
+                        <span>
+                          {embeddingReady === false
+                            ? t("knowledge.embeddingNotReadyBannerAdmin")
+                            : t("knowledge.multimodalEmbeddingNotReadyBannerAdmin")}
+                          <a
+                            href="/model-providers"
+                            style={{ marginLeft: 8, color: '#fff', textDecoration: 'underline' }}
+                            onClick={(e: MouseEvent<HTMLAnchorElement>) => { e.preventDefault(); navigate('/model-providers'); }}
+                          >
+                            {t("knowledge.goToConfig")}
+                          </a>
+                        </span>
+                      ) : (
+                        embeddingReady === false
+                          ? t("knowledge.embeddingNotReadyBanner")
+                          : t("knowledge.multimodalEmbeddingNotReadyBanner")
+                      )
+                    )
                     : undefined
                 }>
                   <Button
