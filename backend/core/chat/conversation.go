@@ -205,6 +205,7 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reqBody := buildChatRequestBody(convID, sessionID, query, upstreamHistories, raw, resourceContext, userID)
+	historyExt := buildChatHistoryExt(raw, query)
 	llmConfig, err := modelconfig.LoadLLMConfig(r.Context(), db, userID)
 	if err != nil {
 		common.ReplyErr(w, fmt.Sprintf("%s: %v", "load llm config failed", err), http.StatusInternalServerError)
@@ -218,11 +219,11 @@ func ChatConversations(w http.ResponseWriter, r *http.Request) {
 	rdb := store.Redis()
 
 	if !stream {
-		handleNonStreamChat(w, reqCtx, db, rdb, baseURL, reqBody, convID, query, target)
+		handleNonStreamChat(w, reqCtx, db, rdb, baseURL, reqBody, convID, query, target, historyExt)
 		return
 	}
 
-	handleStreamChat(w, r, db, rdb, baseURL, reqBody, convID, query, target, dualReply)
+	handleStreamChat(w, r, db, rdb, baseURL, reqBody, convID, query, target, dualReply, historyExt)
 }
 
 // ResumeChat text POST /api/v1/conversations:resumeChat
@@ -716,6 +717,7 @@ func GetConversationDetail(w http.ResponseWriter, r *http.Request) {
 				RawContent:     in.RawContent,
 				Content:        in.RawContent,
 				Result:         "",
+				Ext:            in.Ext,
 				TimeMixin:      orm.TimeMixin{CreateTime: ct, UpdateTime: ct},
 			})
 		}
