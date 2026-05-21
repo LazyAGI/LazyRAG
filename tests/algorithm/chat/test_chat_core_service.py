@@ -190,6 +190,44 @@ def test_build_query_params_sets_user_id(monkeypatch):
 
     assert params['user_id'] == 'user-1'
 
+
+def test_run_ppl_with_trace_forwards_trace_context(monkeypatch):
+    module = _import_chat_service_module(monkeypatch)
+    enable_kwargs = {}
+    metadata_updates = []
+    fake_trace = SimpleNamespace(
+        trace_id='trace-123',
+        update_metadata=lambda data: metadata_updates.append(dict(data)),
+    )
+
+    def fake_enable_trace(func, *args, **kwargs):
+        enable_kwargs.update(kwargs)
+        return func(*args)
+
+    monkeypatch.setattr(module, 'enable_trace', fake_enable_trace)
+    monkeypatch.setattr(module, 'current_trace', lambda: fake_trace)
+    monkeypatch.setattr(module, '_flush_trace_exporter', lambda: None)
+
+    def ppl(params):
+        assert metadata_updates == [{'scene': 'eval', 'case_id': 'case-1'}]
+        return {'text': params['query']}
+
+    result, trace_id = module._run_ppl_with_trace(
+        ppl,
+        ({'query': 'hello'},),
+        session_id='sid-1',
+        dataset='algo',
+        mode_tag='sync',
+        trace_enabled=True,
+        model_config=None,
+        trace_id='trace-123',
+        trace_context={'scene': 'eval', 'case_id': 'case-1'},
+    )
+
+    assert result == {'text': 'hello'}
+    assert trace_id == 'trace-123'
+    assert enable_kwargs['trace_id'] == 'trace-123'
+
 def test_handle_chat_rejects_unknown_dataset(monkeypatch):
     chat_server = SimpleNamespace(
         sensitive_filter=SimpleNamespace(loaded=False, check=lambda query: (False, None)),
@@ -224,8 +262,11 @@ def test_handle_chat_rejects_unknown_dataset(monkeypatch):
 def test_handle_chat_non_stream_returns_pipeline_result(monkeypatch):
     module = _import_chat_service_module(monkeypatch)
 
-    def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
-        return {'text': 'answer'}, None, None
+    def fake_run_ppl_with_trace(
+        ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled, model_config=None,
+        trace_id=None, trace_context=None,
+    ):
+        return {'text': 'answer'}, None
 
     monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
 
@@ -326,10 +367,13 @@ def test_handle_chat_stream_returns_sse_chunks_and_final_status(monkeypatch):
             self.body_iterator = body_iterator
             self.media_type = media_type
 
-    def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
+    def fake_run_ppl_with_trace(
+        ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled, model_config=None,
+        trace_id=None, trace_context=None,
+    ):
         # ppl_args is a tuple; first element is the query_params dict
         captured['query_params'] = ppl_args[0] if ppl_args else {}
-        return _stream(), None, None
+        return _stream(), None
 
     monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
     monkeypatch.setattr(module, 'validate_and_resolve_files', lambda files: (['/tmp/a.txt'], ['/tmp/b.png']))
@@ -448,11 +492,14 @@ def test_handle_chat_concurrency_respects_semaphore_and_session_isolation(monkey
     monkeypatch.setattr(module.lazyllm.globals, '_init_sid', lambda sid: init_calls.append(('global', sid)))
     monkeypatch.setattr(module.lazyllm.locals, '_init_sid', lambda sid: init_calls.append(('local', sid)))
 
-    def fake_run_ppl_with_trace(ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled):
+    def fake_run_ppl_with_trace(
+        ppl, ppl_args, *, session_id, dataset, mode_tag, trace_enabled, model_config=None,
+        trace_id=None, trace_context=None,
+    ):
         # ppl_args is a tuple; for non-reasoning it's (query_params_dict,)
         query_params_dict = ppl_args[0] if ppl_args else {}
         start_order.append(query_params_dict.get('query', ''))
-        return {'text': query_params_dict.get('query', '')}, None, None
+        return {'text': query_params_dict.get('query', '')}, None
 
     monkeypatch.setattr(module, '_run_ppl_with_trace', fake_run_ppl_with_trace)
 

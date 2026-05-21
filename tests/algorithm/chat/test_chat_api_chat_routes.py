@@ -42,6 +42,8 @@ def test_chat_route_forwards_parameters_and_stream_flag(monkeypatch):
             databases=[{'name': 'db'}],
             dataset='algo',
             priority=9,
+            trace_id='trace-1',
+            trace_context={'scene': 'eval'},
             request=request,
         )
     )
@@ -66,6 +68,8 @@ def test_chat_route_forwards_parameters_and_stream_flag(monkeypatch):
         'use_memory': True,
         'user_id': '',
         'trace': False,
+        'trace_id': 'trace-1',
+        'trace_context': {'scene': 'eval'},
         'model_config': None,
         'environment_context': None,
     }
