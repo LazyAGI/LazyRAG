@@ -595,7 +595,10 @@ def kb_get_window_nodes(
 
     doc = lazyllm.tools.rag.Document(
         url=_DEFAULT_KB_URL,
-        name=_resolve_algo_name(lazyllm.globals['agentic_config'].get('algo_id'), lazyllm.globals['agentic_config'].get('kb_name')),
+        name=_resolve_algo_name(
+            lazyllm.globals['agentic_config'].get('algo_id'),
+            lazyllm.globals['agentic_config'].get('kb_name'),
+        ),
     )
 
     nodes = doc.get_nodes(

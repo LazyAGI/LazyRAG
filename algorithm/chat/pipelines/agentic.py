@@ -38,7 +38,7 @@ from chat.components.agentic.history import (  # noqa: E402
 from chat.components.agentic.review import (  # noqa: E402
     _build_review_decision,
     _spawn_background_review,
-    )
+)
 from chat.utils.markdown_images import rewrite_markdown_image_urls  # noqa: E402
 from chat.components.agentic.tool_stream import (  # noqa: E402
     _STREAM_CHUNK_SIZE,
@@ -50,6 +50,7 @@ from chat.components.agentic.tool_stream import (  # noqa: E402
 )
 from lazyllm import AutoModel  # noqa: E402
 from chat.utils.load_config import get_config_path  # noqa: E402
+
 
 def _augment_query_with_attached_images(query: str, config: dict[str, Any]) -> str:
     '''Run VLM once on ``config['image_files']`` and merge summaries into ``query``.

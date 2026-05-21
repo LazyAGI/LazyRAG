@@ -6,6 +6,7 @@ from chat.config import DEFAULT_CHAT_DATASET
 
 router = APIRouter()
 
+
 @router.post('/api/chat/stream', summary='Chat with the knowledge base (streaming)')
 async def chat(
     query: Annotated[str, Body(description='User question')],

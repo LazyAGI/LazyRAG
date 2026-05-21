@@ -234,7 +234,11 @@ def skill_manage(
     if action == 'create':
         content_error = _validate_skill_content(content or '')
         if content_error:
-            return tool_error('skill_manage', content_error, log_message=f'[skill_manage] fail reason={content_error!r}')
+            return tool_error(
+                'skill_manage',
+                content_error,
+                log_message=f'[skill_manage] fail reason={content_error!r}',
+            )
         if suggestions:
             return tool_error('skill_manage', "action='create' must not include 'suggestions'.")
         if existing_skill:

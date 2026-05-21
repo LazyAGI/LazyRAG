@@ -66,6 +66,7 @@ def _normalize_available_skills(skills: Any) -> list[str]:
         return []
     return [skill for skill in skills if isinstance(skill, str) and skill]
 
+
 def _normalize_environment_context(config: dict) -> None:
     env_ctx = config.get('environment_context')
     if not isinstance(env_ctx, dict):

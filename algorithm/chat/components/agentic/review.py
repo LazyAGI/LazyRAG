@@ -64,6 +64,7 @@ def _build_review_decision(
         'available_tools': list(available_tools or []),
     }
 
+
 def _spawn_background_review(
     config: dict,
     llm: Any,

@@ -17,6 +17,8 @@ _VISION_EXTRACT_DEFAULT_INSTRUCTION = (
     'Describe the image in plain text. Include visible text, objects, charts, and any '
     'details that would help answer follow-up questions about this image.'
 )
+
+
 @fc_register('tool', execute_in_sandbox=False)
 @handle_tool_errors
 def vision_extractor(url: str, instruction: Optional[str] = None) -> Dict[str, Any]:

@@ -9,7 +9,12 @@ import chat.components.online_models.local_models  # noqa: F401
 
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent
-from chat.utils.load_config import get_config_path, get_image_embed_key, get_text_embed_keys
+from chat.utils.load_config import (
+    get_config_path,
+    get_dynamic_role_slot_map,
+    get_image_embed_key,
+    get_text_embed_keys,
+)
 from vocab.vocab_manager import get_vocab_manager
 from config import config as _cfg
 
