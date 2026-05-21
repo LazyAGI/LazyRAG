@@ -1,7 +1,7 @@
 """
 Additional tests for kb tool helpers (filters, temp_files, no-parent node).
 
-The chat.tools.kb module imports chat.pipelines.builders which triggers a
+The chat.tools.kb module imports chat.pipelines.get_ppl_search which triggers a
 circular import via vocab.evolution.  We break the cycle with the same
 lightweight stub approach used in test_pipeline_builders_extra.py.
 """
@@ -13,7 +13,7 @@ def _stub_vocab_and_chat_pipelines():
     """Stub out modules that cause circular imports at collection time.
 
     vocab.evolution is NOT stubbed here because the circular import
-    (vocab.evolution → chat.pipelines.builders) has been resolved with lazy
+    (vocab.evolution → chat.pipelines) has been resolved with lazy
     imports inside the class constructors.  Stubbing vocab.evolution would
     leave an empty module object in sys.modules and break any later test that
     imports real symbols from it (e.g. ActionPlanningModule).

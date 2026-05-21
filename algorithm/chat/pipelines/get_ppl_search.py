@@ -5,7 +5,7 @@ from lazyllm.tools.rag import Reranker
 from lazyllm.tools.rag.rank_fusion.reciprocal_rank_fusion import RRFFusion
 from lazyllm.tools.rag import TempDocRetriever
 
-import chat.components.online_models.local_models  # noqa: F401
+import chat.components.online_models.local_models  # noqa: F401 — registers BgeM3Embed / Qwen3Rerank into lazyllm.online
 
 from chat.config import DEFAULT_TMP_BLOCK_TOPK
 from chat.components.process import AdaptiveKComponent, ContextExpansionComponent

@@ -97,15 +97,15 @@ def _import_agentic_module(monkeypatch):
         fake_pipelines_pkg.__path__ = list(real_pipelines_spec.submodule_search_locations)
     fake_pipelines_pkg.__package__ = 'chat.pipelines'
 
-    # Fake chat.pipelines.builders to avoid deep import chain
-    fake_builders_pkg = ModuleType('chat.pipelines.builders')
-    fake_builders_pkg.get_ppl_search = lambda *a, **kw: None
-    fake_builders_pkg.get_retriever = lambda *a, **kw: None
-    fake_builders_pkg.get_remote_document = lambda *a, **kw: None
+    # Fake chat.pipelines.get_ppl_search to avoid deep import chain
+    fake_get_ppl_search_mod = ModuleType('chat.pipelines.get_ppl_search')
+    fake_get_ppl_search_mod.get_ppl_search = lambda *a, **kw: None
+    fake_get_ppl_search_mod.get_retriever = lambda *a, **kw: None
+    fake_get_ppl_search_mod.get_remote_document = lambda *a, **kw: None
 
     monkeypatch.setitem(sys.modules, 'config', fake_config_mod)
     monkeypatch.setitem(sys.modules, 'chat.pipelines', fake_pipelines_pkg)
-    monkeypatch.setitem(sys.modules, 'chat.pipelines.builders', fake_builders_pkg)
+    monkeypatch.setitem(sys.modules, 'chat.pipelines.get_ppl_search', fake_get_ppl_search_mod)
     monkeypatch.setitem(sys.modules, 'lazyllm', fake_lazyllm)
     monkeypatch.setitem(sys.modules, 'lazyllm.tools', fake_lazyllm_tools)
     monkeypatch.setitem(sys.modules, 'lazyllm.tools.agent', fake_lazyllm_tools_agent)

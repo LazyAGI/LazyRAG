@@ -1,7 +1,7 @@
-import importlib
 from types import SimpleNamespace
 
-ppl_search_mod = importlib.import_module('chat.pipelines.builders.get_ppl_search')
+import chat.pipelines.get_ppl_search as ppl_search_mod
+
 retriever_mod = ppl_search_mod
 
 
