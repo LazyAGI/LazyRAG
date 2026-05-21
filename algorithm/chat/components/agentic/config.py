@@ -103,6 +103,7 @@ def _normalize_environment_context(config: dict) -> None:
 
     config['environment_context'] = {'time': normalized_time} if normalized_time else {}
 
+
 def _sync_request_context(config: dict) -> None:
     filters = config.get('filters') if isinstance(config.get('filters'), dict) else {}
     kb_id = _normalize_kb_id_value(filters.get('kb_id'))

@@ -159,6 +159,7 @@ def _attach_trace_info(data: Any, trace_id: Optional[str]) -> Any:
         return data
     return {**data, 'trace_id': trace_id} if isinstance(data, dict) else {'data': data, 'trace_id': trace_id}
 
+
 def _normalize_stream_chunk(chunk: Any) -> Any:
     if isinstance(chunk, dict):
         return dict(chunk)

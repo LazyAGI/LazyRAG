@@ -656,7 +656,10 @@ def kb_keyword_search(
             filters.insert(0, _term_filter('kb_id', kb_id))
         body = {
             'size': size,
-            '_source': ['uid', 'doc_id', 'kb_id', 'group', 'content', 'meta', 'global_meta', 'type', 'number', 'parent'],
+            '_source': [
+                'uid', 'doc_id', 'kb_id', 'group', 'content', 'meta',
+                'global_meta', 'type', 'number', 'parent',
+            ],
             'query': {
                 'bool': {
                     'filter': filters,
