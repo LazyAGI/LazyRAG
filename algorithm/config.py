@@ -21,7 +21,6 @@ config.add('image_topk', int, 3, 'IMAGE_TOPK', description='Top-k for image-only
 config.add('algo_service_url', str, 'http://lazyllm-algo:8000', 'ALGO_SERVICE_URL', description='Algorithm service URL.')
 config.add('algo_dataset_name', str, 'general_algo', 'ALGO_DATASET_NAME', description='Default algorithm dataset name.')
 config.add('default_chat_dataset', str, 'algo', 'DEFAULT_CHAT_DATASET', description='Default chat dataset.')
-config.add('dataset_url_map', str, '', 'DATASET_URL_MAP', description='Optional JSON object mapping dataset alias to \"kb_url,kb_name\".')
 config.add('skip_startup_pipeline', bool, False, 'SKIP_STARTUP_PIPELINE', description='Skip startup pipeline initialization.')
 config.add('model_config_path', str, 'dynamic', 'MODEL_CONFIG_PATH', description='Runtime model config path (inner/online/dynamic or file path).')
 
