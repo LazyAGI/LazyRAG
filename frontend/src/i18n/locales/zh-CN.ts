@@ -103,6 +103,8 @@ const zhCN = {
     embeddingLimitedAlert: "向量模型当前仅允许从平台限定的供应商和模型中选择；后续名单确定后可直接收敛这里的选项。",
     moduleHelpAria: "{{title}} 说明",
     limited: "限定",
+    restrictedAdminOnly: "仅管理员可配置",
+    restrictedPlaceholder: "只有管理员可以配置并分享给你",
     requiredModelPlaceholder: "请选择必配模型",
     optionalModelPlaceholder: "可选配置",
     noModelOptions: "暂无可选模型",
@@ -169,7 +171,7 @@ const zhCN = {
     modelType: "模型类型",
     providerDescriptionFallback: "系统内置模型供应商，可配置连接分组后使用。",
     embeddingChangeTitle: "向量模型变更提醒",
-    embeddingChangeContent: "切换向量模型后，知识库检索服务将暂时不可用，直到向量全部重新计算完成。",
+    embeddingChangeContent: "更换向量模型可能导致整个知识库检索服务不可用。如果新模型与旧模型不同，建议先清空知识库中的文档，再切换模型，否则旧文档的向量将与新模型不兼容。",
     confirmSwitch: "确认切换",
     cancelSwitch: "暂不切换",
     validation: {
@@ -199,6 +201,19 @@ const zhCN = {
       modelAdded: "模型已添加",
       modelDeleted: "模型已删除",
     },
+    noModelSelectedForShare: "请先选择模型后再设置分享",
+    shareOn: "已开启分享",
+    shareOff: "未开启分享",
+    shared: "已分享",
+    unshared: "未分享",
+    shareEnabled: "分享已开启",
+    shareDisabled: "分享已关闭",
+    shareToggleAria: "{{title}} 分享开关",
+    readyStatusAria: "{{title}} 就绪状态",
+    embeddingNotReadyTip: "向量模型尚未就绪，知识库检索暂不可用",
+    embeddingReadyTip: "向量模型已就绪",
+    modelNotReadyTip: "模型尚未就绪",
+    modelReadyTip: "模型已就绪",
     error: {
       searchFailed: "模型供应商搜索失败",
       loadProvidersFailed: "模型供应商加载失败",
@@ -210,6 +225,7 @@ const zhCN = {
       addModelFailed: "模型添加失败",
       deleteModelFailed: "模型删除失败",
       saveDefaultModelFailed: "默认模型保存失败",
+      shareUpdateFailed: "分享状态更新失败",
     },
   },
 
@@ -307,6 +323,7 @@ const zhCN = {
     disclaimerTooltip: "风险提示：为了保障您的信息安全，请勿上传敏感个人信息（如您的密码等信息）和您的敏感资产信息（如关键源代码、签名私钥、调试安装包、业务日志等信息），且您需自行承担由此产生的信息泄露等安全风险。",
     // ChatSelector
     knowledgeBase: "知识库",
+    embeddingNotReadyKnowledge: "向量模型未就绪，暂时无法使用知识库",
     searchKnowledge: "搜索知识库",
     reset: "重置",
     selectAll: "全选",
@@ -708,6 +725,7 @@ const zhCN = {
     stageFailed: "解析失败",
     folder: "文件夹",
     unknown: "未知",
+    embeddingNotReadyBanner: "向量模型尚未就绪，知识库检索功能暂时不可用，请联系管理员配置向量模型。",
   },
 
   admin: {

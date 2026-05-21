@@ -7,13 +7,9 @@ type ApiEnvelope<T> = {
   data?: T;
 };
 
-interface SelectedModelItem {
-  model_id?: string;
-  model_type?: string;
-}
-
-interface SelectedModelsResponse {
-  selections?: SelectedModelItem[];
+interface ModelReadyResponse {
+  ready: boolean;
+  source?: string;
 }
 
 export type ChatModelProviderStatus =
@@ -23,20 +19,11 @@ export type ChatModelProviderStatus =
   | "missing"
   | "error";
 
-const chatModelTypes = new Set(["llm-chat", "llm"]);
-
 function unwrapResponse<T>(payload: ApiEnvelope<T> | T): T {
   if (payload && typeof payload === "object" && "data" in payload) {
     return (payload as ApiEnvelope<T>).data as T;
   }
   return payload as T;
-}
-
-function hasChatModel(selections?: SelectedModelItem[]) {
-  return (selections || []).some((selection) => {
-    const modelType = (selection.model_type || "").trim().toLowerCase();
-    return chatModelTypes.has(modelType) && Boolean(selection.model_id?.trim());
-  });
 }
 
 export function useChatModelProviderGuard() {
@@ -46,6 +33,7 @@ export function useChatModelProviderGuard() {
       const dynamic = AgentAppsAuth.getUserInfo()?.dynamic;
       return typeof dynamic === "boolean" ? dynamic : null;
     });
+  const [embeddingReady, setEmbeddingReady] = useState<boolean | null>(null);
   const requestIdRef = useRef(0);
   const mountedRef = useRef(true);
 
@@ -76,15 +64,31 @@ export function useChatModelProviderGuard() {
     }
 
     try {
-      const response = await axiosInstance.get<
-        ApiEnvelope<SelectedModelsResponse> | SelectedModelsResponse
-      >(`${BASE_URL}/api/core/model_providers/selected_models`);
-      const data = unwrapResponse<SelectedModelsResponse>(response.data);
+      const [chatReadyResp, embeddingResp] = await Promise.all([
+        axiosInstance.get<ApiEnvelope<ModelReadyResponse> | ModelReadyResponse>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=llm-chat`
+        ).catch(() => null),
+        axiosInstance.get<ApiEnvelope<ModelReadyResponse> | ModelReadyResponse>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
+        ).catch(() => null),
+      ]);
+
       if (!mountedRef.current || requestIdRef.current !== requestId) {
         return false;
       }
-      const ready = hasChatModel(data.selections);
+
+      const ready = chatReadyResp
+        ? unwrapResponse<ModelReadyResponse>(chatReadyResp.data).ready === true
+        : false;
       setStatus(ready ? "ready" : "missing");
+
+      if (embeddingResp) {
+        const embeddingData = unwrapResponse<ModelReadyResponse>(embeddingResp.data);
+        setEmbeddingReady(embeddingData.ready);
+      } else {
+        setEmbeddingReady(null);
+      }
+
       return ready;
     } catch {
       if (mountedRef.current && requestIdRef.current === requestId) {
@@ -126,6 +130,7 @@ export function useChatModelProviderGuard() {
     isChecking: status === "idle" || status === "loading",
     needsModelProviderConfig: status === "missing",
     requiresModelProviderConfig: requiresModelProviderConfig === true,
+    embeddingReady,
     refresh,
     status,
   };

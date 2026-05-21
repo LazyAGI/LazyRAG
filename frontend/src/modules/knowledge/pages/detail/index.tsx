@@ -8,6 +8,8 @@ import {
   Tag,
   Space,
 } from "antd";
+import { axiosInstance, BASE_URL } from "@/components/request";
+import { AgentAppsAuth } from "@/components/auth";
 import type { MenuProps } from "antd";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
@@ -77,6 +79,8 @@ const Detail = () => {
   const [detail, setDetail] = useState<Dataset>();
   const [importingTotal, setImportingTotal] = useState(0);
   const [developerActive, setDeveloperActive] = useState(isDeveloperModeActive);
+  const [embeddingReady, setEmbeddingReady] = useState<boolean | null>(null);
+  const isAdmin = AgentAppsAuth.getUserInfo()?.role === 'system-admin';
 
   const { id = "" } = useParams();
 
@@ -98,6 +102,20 @@ const Detail = () => {
     console.log("searchParams", searchParams);
     getDetail();
     getImportingTotal();
+    if (!isAdmin) {
+      axiosInstance
+        .get<{ data?: { ready: boolean } } | { ready: boolean }>(
+          `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
+        )
+        .then((resp) => {
+          const data =
+            resp.data && typeof resp.data === "object" && "data" in resp.data
+              ? (resp.data as { data?: { ready: boolean } }).data
+              : (resp.data as { ready: boolean });
+          setEmbeddingReady(data?.ready ?? null);
+        })
+        .catch(() => setEmbeddingReady(null));
+    }
 
     return () => {
       pollingRef.current.cancel();
@@ -426,26 +444,32 @@ const Detail = () => {
             )}
             <Badge count={importingTotal} size="small" style={{ zIndex: 2 }}>
               <Space.Compact>
-                <Button
-                  type="primary"
-                  onClick={() => openImportModal({ importMode: "file" })}
-                >
-                  {t("knowledge.importFile")}
-                </Button>
+                <Tooltip title={!isAdmin && embeddingReady === false ? t("knowledge.embeddingNotReadyBanner") : undefined}>
+                  <Button
+                    type="primary"
+                    disabled={!isAdmin && embeddingReady === false}
+                    onClick={() => openImportModal({ importMode: "file" })}
+                  >
+                    {t("knowledge.importFile")}
+                  </Button>
+                </Tooltip>
                 <Dropdown
                   menu={{
                     items: [
                       {
                         key: "importFile",
                         label: t("knowledge.importFile"),
+                        disabled: !isAdmin && embeddingReady === false,
                       },
                       {
                         key: "importFolder",
                         label: t("knowledge.importFolder"),
+                        disabled: !isAdmin && embeddingReady === false,
                       },
                       {
                         key: "importZip",
                         label: t("knowledge.importZip"),
+                        disabled: !isAdmin && embeddingReady === false,
                       },
                       {
                         key: "taskManage",

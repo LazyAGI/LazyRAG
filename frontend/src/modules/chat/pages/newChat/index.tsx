@@ -56,6 +56,10 @@ const NewChatPage = () => {
     </Button>
   );
 
+  // Warn when knowledge base is selected but embedding is not ready.
+  const hasKnowledgeBase = Boolean(chatConfig.datasetIds?.length);
+  const showEmbeddingWarning = hasKnowledgeBase && modelProviderGuard.embeddingReady === false;
+
   useEffect(() => {
     if (!isChatContent) {
       newChatInputRef.current?.clearFiles();
@@ -177,6 +181,7 @@ const NewChatPage = () => {
             setChatConfigFn={setChatConfig}
             initchatConfig={chatConfig}
             canChat={!isChatDisabled}
+            embeddingReady={modelProviderGuard.embeddingReady}
             chatDisabledReason={chatDisabledReason}
             chatDisabledDescription={chatDisabledDescription}
             chatDisabledAction={chatDisabledAction}
@@ -212,6 +217,11 @@ const NewChatPage = () => {
                 </div>
 
                 <div className="input-section">
+                  {showEmbeddingWarning ? (
+                    <div className="embedding-warning-banner" role="alert">
+                      {t("chat.embeddingNotReadyWarning")}
+                    </div>
+                  ) : null}
                   <ChatInput
                     ref={newChatInputRef}
                     value={inputValue}
@@ -231,6 +241,7 @@ const NewChatPage = () => {
                     chatConfig={chatConfig}
                     setChatConfig={setChatConfig}
                     disabled={isChatDisabled}
+                    embeddingReady={modelProviderGuard.embeddingReady}
                     disabledReason={chatDisabledReason}
                     disabledDescription={chatDisabledDescription}
                     disabledAction={chatDisabledAction}

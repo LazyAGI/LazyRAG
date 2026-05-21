@@ -6,8 +6,6 @@ import (
 
 	"lazymind/core/common"
 	"lazymind/core/log"
-	"lazymind/core/modelconfig"
-	"lazymind/core/store"
 )
 
 type addResultItem struct {
@@ -58,12 +56,6 @@ type transferRequest struct {
 }
 
 func callExternalAddDocs(r *http.Request, req addRequest) ([]addResultItem, error) {
-	if embedCfg, err := modelconfig.LoadAdminEmbedConfig(r.Context(), store.DB()); err == nil && embedCfg != nil {
-		if req.ModelConfig == nil {
-			req.ModelConfig = map[string]any{}
-		}
-		req.ModelConfig["embed_main"] = embedCfg
-	}
 	url := common.JoinURL(parsingServiceEndpoint(), "/v1/docs/add")
 	log.Logger.Info().
 		Str("handler", "StartTask").
@@ -103,12 +95,6 @@ func callExternalAddDocs(r *http.Request, req addRequest) ([]addResultItem, erro
 }
 
 func callExternalReparseDocs(r *http.Request, req reparseRequest) ([]string, error) {
-	if embedCfg, err := modelconfig.LoadAdminEmbedConfig(r.Context(), store.DB()); err == nil && embedCfg != nil {
-		if req.ModelConfig == nil {
-			req.ModelConfig = map[string]any{}
-		}
-		req.ModelConfig["embed_main"] = embedCfg
-	}
 	var resp reparseResponse
 	if err := common.ApiPost(r.Context(), common.JoinURL(parsingServiceEndpoint(), "/v1/docs/reparse"), req, nil, &resp, 15*time.Second); err != nil {
 		return nil, err

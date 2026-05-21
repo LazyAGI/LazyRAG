@@ -1,5 +1,6 @@
 import { FC, useState, useEffect, useRef } from "react";
 import {
+  Alert,
   Button,
   Form,
   Tooltip,
@@ -41,6 +42,8 @@ import { ListPageTable } from "@/components/ui";
 import EditTags from "@/modules/knowledge/pages/detail/components/KnowledgeTable/editTags";
 import type { TreeNode } from "@/modules/knowledge/pages/detail/components/KnowledgeTable";
 import { useTranslation } from "react-i18next";
+import { axiosInstance, BASE_URL } from "@/components/request";
+import { AgentAppsAuth } from "@/components/auth";
 
 import "./index.scss";
 
@@ -87,11 +90,30 @@ const KnowledgePage: FC = () => {
   const [knowledgeType, setKnowledgeType] = useState<string>("knowledgeBase");
   const [showTagEditModal, setShowTagEditModal] = useState(false);
   const [tagEditRecord, setTagEditRecord] = useState<DocRow | null>(null);
+  const [embeddingReady, setEmbeddingReady] = useState<boolean | null>(null);
+  const isAdmin = AgentAppsAuth.getUserInfo()?.role === 'system-admin';
 
   useEffect(() => {
     getTags();
     getTableData();
+    if (!isAdmin) {
+      void checkEmbeddingReady();
+    }
   }, []);
+
+  async function checkEmbeddingReady() {
+    try {
+      const resp = await axiosInstance.get<{ data?: { ready: boolean } } | { ready: boolean }>(
+        `${BASE_URL}/api/core/model_providers/models/ready?model_type=embedding`
+      );
+      const data = resp.data && typeof resp.data === 'object' && 'data' in resp.data
+        ? (resp.data as { data?: { ready: boolean } }).data
+        : resp.data as { ready: boolean };
+      setEmbeddingReady(data?.ready ?? null);
+    } catch {
+      setEmbeddingReady(null);
+    }
+  }
 
   useEffect(() => {
     if (knowledgeType) {
@@ -566,6 +588,15 @@ const KnowledgePage: FC = () => {
   return (
     <div className="knowledge-list-page">
       <h2 className="knowledge-title admin-page-title">{t("layout.knowledgeBase")}</h2>
+      {!isAdmin && embeddingReady === false ? (
+        <Alert
+          banner
+          className="knowledge-embedding-warning"
+          message={t("knowledge.embeddingNotReadyBanner")}
+          showIcon
+          type="warning"
+        />
+      ) : null}
       <Form className="list-header" form={form}>
         <ListPageHeader
           placeholder={
@@ -575,6 +606,8 @@ const KnowledgePage: FC = () => {
           }
           searchKey="keyword"
           btnText={t("knowledge.createKnowledgeBase")}
+          btnDisabled={!isAdmin && embeddingReady === false}
+          btnDisabledTooltip={t("knowledge.embeddingNotReadyBanner")}
           onClick={() => {
             createUpdateRef.current?.onOpen();
           }}

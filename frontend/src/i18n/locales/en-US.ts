@@ -105,6 +105,8 @@ const enUS = {
     embeddingLimitedAlert: "Embedding models can currently be selected only from platform-approved providers and models. The option list can be narrowed once the final allowlist is confirmed.",
     moduleHelpAria: "{{title}} help",
     limited: "Limited",
+    restrictedAdminOnly: "Only admins can configure this",
+    restrictedPlaceholder: "Only admins can configure and share this with you",
     requiredModelPlaceholder: "Select a required model",
     optionalModelPlaceholder: "Optional",
     noModelOptions: "No available models",
@@ -192,9 +194,9 @@ const enUS = {
       siliconflow:
         "SiliconFlow is an efficient model API aggregation and acceleration platform with broad model access, high concurrency, and cost-effective pricing.\n\nGet API Key:\nhttps://cloud.siliconflow.cn/account/ak\n\nSetup guide:\n\n1. Open SiliconFlow Cloud and register with phone, WeChat, or email.\n\n2. In the console, open API Keys from the left menu.\n\n3. Create a new API key, add an optional description, and copy it for model calls.",
     },
-    embeddingChangeTitle: "Embedding Model Change",
-    embeddingChangeContent: "After switching the embedding model, knowledge-base retrieval will be unavailable until all vectors are recomputed.",
-    confirmSwitch: "Switch",
+    embeddingChangeTitle: "Embedding Model Change Warning",
+    embeddingChangeContent: "Changing the embedding model may make the entire knowledge-base retrieval service unavailable. If the new model differs from the old one, it is strongly recommended to clear all documents from the knowledge base first — otherwise existing document vectors will be incompatible with the new model.",
+    confirmSwitch: "Switch Anyway",
     cancelSwitch: "Not Now",
     validation: {
       apiKeyRequired: "Enter API Key",
@@ -223,6 +225,19 @@ const enUS = {
       modelAdded: "Model added",
       modelDeleted: "Model deleted",
     },
+    noModelSelectedForShare: "Please select a model before enabling sharing",
+    shareOn: "Sharing enabled",
+    shareOff: "Sharing disabled",
+    shared: "Shared",
+    unshared: "Not shared",
+    shareEnabled: "Sharing enabled",
+    shareDisabled: "Sharing disabled",
+    shareToggleAria: "{{title}} share toggle",
+    readyStatusAria: "{{title}} ready status",
+    embeddingNotReadyTip: "Embedding model is not ready. Knowledge-base retrieval is temporarily unavailable.",
+    embeddingReadyTip: "Embedding model is ready",
+    modelNotReadyTip: "Model is not ready",
+    modelReadyTip: "Model is ready",
     error: {
       searchFailed: "Model provider search failed",
       loadProvidersFailed: "Failed to load model providers",
@@ -234,6 +249,7 @@ const enUS = {
       addModelFailed: "Failed to add model",
       deleteModelFailed: "Failed to delete model",
       saveDefaultModelFailed: "Failed to save default model",
+      shareUpdateFailed: "Failed to update share status",
     },
   },
 
@@ -338,6 +354,7 @@ const enUS = {
     disclaimerTooltip: "Security notice: For your information security, please do not upload sensitive personal information (such as passwords) or sensitive assets (such as source code, private keys, debug packages, business logs). You bear the risk of any resulting information leakage.",
     // ChatSelector
     knowledgeBase: "Knowledge Base",
+    embeddingNotReadyKnowledge: "Embedding model is not ready. Knowledge base is temporarily unavailable.",
     searchKnowledge: "Search knowledge bases",
     reset: "Reset",
     selectAll: "Select All",
@@ -746,6 +763,7 @@ const enUS = {
     stageFailed: "Parse Failed",
     folder: "Folder",
     unknown: "Unknown",
+    embeddingNotReadyBanner: "The embedding model is not ready. Knowledge-base retrieval is temporarily unavailable. Please ask an admin to configure the embedding model.",
   },
 
   // Admin

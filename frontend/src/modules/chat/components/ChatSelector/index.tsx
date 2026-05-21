@@ -1,4 +1,4 @@
-import { Button, Input, Popover } from "antd";
+import { Button, Input, Popover, Tooltip } from "antd";
 import {
   SearchOutlined,
   CheckOutlined,
@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 export interface ChatSelectorProps {
   chatConfig: ChatConfig;
   refreshKey?: number | string;
+  embeddingReady?: boolean | null;
   onChange?: (
     knowledgeIds: string[],
     creators: string[],
@@ -40,8 +41,9 @@ export interface ChatSelectorImperativeProps {
 
 const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
   (props, ref) => {
-    const { chatConfig, refreshKey, onChange } = props;
+    const { chatConfig, refreshKey, onChange, embeddingReady } = props;
     const { t } = useTranslation();
+    const isEmbeddingDisabled = embeddingReady === false;
 
     const [knowledgeBaseList, setKnowledgeBaseList] = useState<Dataset[]>([]);
     const [filteredList, setFilteredList] = useState<Dataset[]>([]);
@@ -445,14 +447,25 @@ const ChatSelector = forwardRef<ChatSelectorImperativeProps, ChatSelectorProps>(
           classNames={{ root: "knowledgePopover" }}
           trigger="click"
           open={open}
-          onOpenChange={(bool) => setOpen(bool)}
+          onOpenChange={(bool) => {
+            if (isEmbeddingDisabled) return;
+            setOpen(bool);
+          }}
         >
-          <div
-            className={`input-bottom-actions-left-item ${open || selectedIds.length > 0 ? "selected" : ""}`}
-          >
-            <KnowledgeIcon />
-            {t("chat.knowledgeBase")}
-          </div>
+          <Tooltip title={isEmbeddingDisabled ? t("chat.embeddingNotReadyKnowledge") : undefined}>
+            <div
+              className={`input-bottom-actions-left-item ${open || selectedIds.length > 0 ? "selected" : ""}${isEmbeddingDisabled ? " is-disabled" : ""}`}
+              aria-disabled={isEmbeddingDisabled}
+              onClick={(e) => {
+                if (isEmbeddingDisabled) {
+                  e.stopPropagation();
+                }
+              }}
+            >
+              <KnowledgeIcon />
+              {t("chat.knowledgeBase")}
+            </div>
+          </Tooltip>
         </Popover>
       </div>
     );

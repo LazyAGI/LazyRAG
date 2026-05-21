@@ -45,6 +45,7 @@ interface IChatLayoutProps {
   initchatConfig: ChatConfig;
   setChatConfigFn: (val: ChatConfig) => void;
   canChat: boolean;
+  embeddingReady?: boolean | null;
   chatDisabledReason?: string;
   chatDisabledDescription?: string;
   chatDisabledAction?: ReactNode;
@@ -57,6 +58,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
     initchatConfig,
     setChatConfigFn,
     canChat,
+    embeddingReady,
     chatDisabledReason,
     chatDisabledDescription,
     chatDisabledAction,
@@ -644,6 +646,7 @@ const ChatLayout: FC<IChatLayoutProps> = (props) => {
         setChatConfig={setChatConfig}
         setChatConfigFn={setChatConfigFn}
         knowledgeRefreshKey={knowledgeRefreshKey}
+        embeddingReady={embeddingReady}
         disabledReason={chatDisabledReason}
         disabledDescription={chatDisabledDescription}
         disabledAction={chatDisabledAction}
