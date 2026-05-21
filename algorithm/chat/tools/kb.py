@@ -156,19 +156,24 @@ def _resolve_kb_name(kb_name: Any) -> str:
         raise ValueError('kb_name is required when it is not available in agentic_config')
     return resolved
 
-
-def _resolve_kb_id(kb_id: Any) -> Optional[str]:
+def _iter_lookup_kb_ids(kb_id: Any) -> List[Optional[str]]:
+    if kb_id is None:
+        return [None]
     if isinstance(kb_id, str):
-        normalized = kb_id.strip()
-        return normalized or None
+        return [kb_id]
     if isinstance(kb_id, list):
-        for item in kb_id:
-            if not isinstance(item, str):
-                continue
-            normalized = item.strip()
-            if normalized:
-                return normalized
-    return None
+        return kb_id or [None]
+    raise TypeError(f'agentic_config.kb_id must be None, str, or list[str], got {type(kb_id).__name__}')
+
+
+def _build_agentic_document(config: Dict[str, Any]) -> Any:
+    return lazyllm.tools.rag.Document(
+        url=_DEFAULT_KB_URL,
+        name=_resolve_algo_name(
+            config.get('algo_id'),
+            config.get('kb_name'),
+        ),
+    )
 
 
 def _resolve_algo_name(algo_id: Any, kb_name: Any) -> str:
@@ -472,7 +477,7 @@ def kb_search(
         files: List of temporary file IDs (uploaded by the user in the current
             session). When non-empty, the pipeline switches to Branch A
             (TempDocRetriever). Defaults to the session's uploaded file list
-            from `agentic_config['temp_files']`; pass an explicit list to
+            from `agentic_config['files']`; pass an explicit list to
             override, or pass [] to force Branch B even when temp files exist.
             Attached images are read from `agentic_config['image_files']` and
             passed through so the search pipeline can rewrite the query.
@@ -483,7 +488,7 @@ def kb_search(
     agentic_config = lazyllm.globals['agentic_config']
 
     if files is None:
-        files = agentic_config.get('temp_files') or []
+        files = agentic_config.get('files') or []
 
     payload = {
         'query': query,
@@ -492,8 +497,8 @@ def kb_search(
         'image_files': agentic_config.get('image_files') or [],
         'user_id': agentic_config.get('user_id', ''),
     }
-    resolved_kb_id = _resolve_kb_id(agentic_config.get('kb_id'))
-    if resolved_kb_id:
+    resolved_kb_id = agentic_config.get('kb_id')
+    if resolved_kb_id is not None:
         payload['filters']['kb_id'] = resolved_kb_id
     search_ppl = get_ppl_search(
         url=f'{_DEFAULT_KB_URL},{_DEFAULT_KB_NAME}',
@@ -519,46 +524,44 @@ def kb_get_parent_node(node_id: str) -> Dict[str, Any]:
     if not node_id:
         raise ValueError('node_id is required')
 
-    kb_id = _resolve_kb_id(lazyllm.globals['agentic_config'].get('kb_id'))
-    doc = lazyllm.tools.rag.Document(
-        url=_DEFAULT_KB_URL,
-        name=_resolve_algo_name(
-            lazyllm.globals['agentic_config'].get('algo_id'),
-            lazyllm.globals['agentic_config'].get('kb_name'),
-        ),
-    )
-    current_nodes = doc.get_nodes(uids=[node_id], kb_id=kb_id)
-    current_nodes = current_nodes if isinstance(current_nodes, list) else []
-    if not current_nodes:
-        return tool_success('kb_get_parent_node', {
-            'node_id': node_id,
-            'current_node': None,
-            'parent_id': None,
-            'total': 0,
-            'items': [],
-        })
+    config = lazyllm.globals['agentic_config']
+    doc = _build_agentic_document(config)
 
-    current = _serialize_doc_node_like(current_nodes[0])
-    parent_id = current.get('parent')
-    if not parent_id:
+    for kb_id in _iter_lookup_kb_ids(config.get('kb_id')):
+        current_nodes = doc.get_nodes(uids=[node_id], kb_id=kb_id)
+        current_nodes = current_nodes if isinstance(current_nodes, list) else []
+        if not current_nodes:
+            continue
+
+        current = _serialize_doc_node_like(current_nodes[0])
+        parent_id = current.get('parent')
+        if not parent_id:
+            return tool_success('kb_get_parent_node', _annotate_citations({
+                'node_id': node_id,
+                'current_node': current,
+                'parent_id': None,
+                'total': 0,
+                'items': [],
+            }))
+
+        parent_nodes = doc.get_nodes(uids=[parent_id], kb_id=kb_id)
+        parent_nodes = parent_nodes if isinstance(parent_nodes, list) else []
+        parent = _serialize_doc_node_like(parent_nodes[0]) if parent_nodes else None
         return tool_success('kb_get_parent_node', _annotate_citations({
             'node_id': node_id,
             'current_node': current,
-            'parent_id': None,
-            'total': 0,
-            'items': [],
+            'parent_id': parent_id,
+            'total': 1 if parent else 0,
+            'items': [parent] if parent else [],
         }))
 
-    parent_nodes = doc.get_nodes(uids=[parent_id], kb_id=kb_id)
-    parent_nodes = parent_nodes if isinstance(parent_nodes, list) else []
-    parent = _serialize_doc_node_like(parent_nodes[0]) if parent_nodes else None
-    return tool_success('kb_get_parent_node', _annotate_citations({
+    return tool_success('kb_get_parent_node', {
         'node_id': node_id,
-        'current_node': current,
-        'parent_id': parent_id,
-        'total': 1 if parent else 0,
-        'items': [parent] if parent else [],
-    }))
+        'current_node': None,
+        'parent_id': None,
+        'total': 0,
+        'items': [],
+    })
 
 
 @fc_register('tool', execute_in_sandbox=False)
@@ -591,30 +594,31 @@ def kb_get_window_nodes(
     if len(numbers) > _MAX_RESULT_ITEMS:
         raise ValueError(f'number range cannot exceed {_MAX_RESULT_ITEMS} nodes')
 
-    kb_id = _resolve_kb_id(lazyllm.globals['agentic_config'].get('kb_id'))
+    config = lazyllm.globals['agentic_config']
+    doc = _build_agentic_document(config)
 
-    doc = lazyllm.tools.rag.Document(
-        url=_DEFAULT_KB_URL,
-        name=_resolve_algo_name(
-            lazyllm.globals['agentic_config'].get('algo_id'),
-            lazyllm.globals['agentic_config'].get('kb_name'),
-        ),
-    )
+    for kb_id in _iter_lookup_kb_ids(config.get('kb_id')):
+        nodes = doc.get_nodes(
+            doc_ids=[docid],
+            group=group,
+            kb_id=kb_id,
+            offset=max(start - 1, 0),
+            limit=len(numbers),
+            sort_by_number=True,
+        )
+        nodes = nodes if isinstance(nodes, list) else []
+        nodes = [n for n in nodes if _safe_getattr(n, 'number', None) in numbers]
+        if not nodes:
+            continue
+        nodes.sort(key=lambda n: (_safe_getattr(n, 'number', 0) or 0, _safe_getattr(n, 'uid', '') or ''))
+        return tool_success('kb_get_window_nodes', _annotate_citations({
+            'total': len(nodes),
+            'items': [_serialize_doc_node_like(n) for n in nodes],
+        }))
 
-    nodes = doc.get_nodes(
-        doc_ids=[docid],
-        group=group,
-        kb_id=kb_id,
-        offset=max(start - 1, 0),
-        limit=len(numbers),
-        sort_by_number=True,
-    )
-    nodes = nodes if isinstance(nodes, list) else []
-    nodes = [n for n in nodes if _safe_getattr(n, 'number', None) in numbers]
-    nodes.sort(key=lambda n: (_safe_getattr(n, 'number', 0) or 0, _safe_getattr(n, 'uid', '') or ''))
     return tool_success('kb_get_window_nodes', _annotate_citations({
-        'total': len(nodes),
-        'items': [_serialize_doc_node_like(n) for n in nodes],
+        'total': 0,
+        'items': [],
     }))
 
 
@@ -648,42 +652,53 @@ def kb_keyword_search(
         raise ValueError('docid is required')
 
     config = lazyllm.globals['agentic_config']
-    kb_id = _resolve_kb_id(config.get('kb_id'))
     size = max(1, min(int(size), _MAX_RESULT_ITEMS))
     text_query = {'match_phrase' if phrase else 'match': {'content': keyword}}
     sort = [{'number': {'order': 'asc'}}] if sort_by == 'number' else [
         {'_score': {'order': 'desc'}},
         {'number': {'order': 'asc'}},
     ]
-    filters = [_term_filter('doc_id', docid)]
-    if kb_id:
-        filters.insert(0, _term_filter('kb_id', kb_id))
-    body = {
-        'size': size,
-        '_source': ['uid', 'doc_id', 'kb_id', 'group', 'content', 'meta', 'global_meta', 'type', 'number', 'parent'],
-        'query': {
-            'bool': {
-                'filter': filters,
-                'must': [text_query],
-            }
-        },
-        'sort': sort,
-        'highlight': {
-            'fields': {
-                'content': {
-                    'fragment_size': 180,
-                    'number_of_fragments': 3,
-                }
-            }
-        },
-    }
     index_name = _resolve_index(group)
-    hits = _opensearch_search(index_name, body).get('hits', {}).get('hits', [])
+    for kb_id in _iter_lookup_kb_ids(config.get('kb_id')):
+        filters = [_term_filter('doc_id', docid)]
+        if kb_id:
+            filters.insert(0, _term_filter('kb_id', kb_id))
+        body = {
+            'size': size,
+            '_source': ['uid', 'doc_id', 'kb_id', 'group', 'content', 'meta', 'global_meta', 'type', 'number', 'parent'],
+            'query': {
+                'bool': {
+                    'filter': filters,
+                    'must': [text_query],
+                }
+            },
+            'sort': sort,
+            'highlight': {
+                'fields': {
+                    'content': {
+                        'fragment_size': 180,
+                        'number_of_fragments': 3,
+                    }
+                }
+            },
+        }
+        hits = _opensearch_search(index_name, body).get('hits', {}).get('hits', [])
+        if not hits:
+            continue
+        return tool_success('kb_keyword_search', _annotate_citations({
+            'index': index_name,
+            'group': group,
+            'docid': docid,
+            'keyword': keyword,
+            'total': len(hits),
+            'items': [_source_to_result(hit) for hit in hits],
+        }))
+
     return tool_success('kb_keyword_search', _annotate_citations({
         'index': index_name,
         'group': group,
         'docid': docid,
         'keyword': keyword,
-        'total': len(hits),
-        'items': [_source_to_result(hit) for hit in hits],
+        'total': 0,
+        'items': [],
     }))

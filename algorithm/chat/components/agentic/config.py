@@ -42,6 +42,21 @@ REVIEW_PROMPTS: dict[str, str] = {
 }
 
 
+def _normalize_kb_id_value(kb_id: Any) -> Any:
+    if isinstance(kb_id, str):
+        normalized = kb_id.strip()
+        return normalized or None
+    if isinstance(kb_id, list):
+        normalized = [
+            item.strip()
+            for item in kb_id
+            if isinstance(item, str) and item.strip()
+        ]
+        if normalized:
+            return normalized[0] if len(normalized) == 1 else normalized
+    return None
+
+
 def _normalize_available_tools(tools: Any) -> list[str]:
     if tools is None:
         return list(DEFAULT_TOOLS)
@@ -88,34 +103,14 @@ def _normalize_environment_context(config: dict) -> None:
 
     config['environment_context'] = {'time': normalized_time} if normalized_time else {}
 
-
 def _sync_request_context(config: dict) -> None:
     filters = config.get('filters') if isinstance(config.get('filters'), dict) else {}
-    raw_kb_id = filters.get('kb_id')
-    if not raw_kb_id:
-        raw_kb_id = config.get('kb_id')
-
-    kb_id = ''
-    if isinstance(raw_kb_id, str):
-        kb_id = raw_kb_id.strip()
-    elif isinstance(raw_kb_id, list):
-        for item in raw_kb_id:
-            if isinstance(item, str) and item.strip():
-                kb_id = item.strip()
-                break
-
-    if kb_id:
+    kb_id = _normalize_kb_id_value(filters.get('kb_id'))
+    if kb_id is not None:
         config['kb_id'] = kb_id
     else:
         config.pop('kb_id', None)
 
-    files = config.get('files') or []
-    config['temp_files'] = files if isinstance(files, list) else []
-
-    kb_url = config.get('kb_url')
-    config['kb_url'] = kb_url.strip() if isinstance(kb_url, str) else ''
-    kb_name = config.get('kb_name')
-    config['kb_name'] = kb_name.strip() if isinstance(kb_name, str) else ''
     _normalize_environment_context(config)
 
 
@@ -126,12 +121,12 @@ def _filter_tools_for_request(tools: list[str], config: dict) -> list[str]:
     if config.get('kb_id'):
         return tools
 
-    has_temp_files = bool(config.get('temp_files'))
+    has_files = bool(config.get('files'))
     filtered = []
     for tool in tools:
         if not tool.startswith('kb_'):
             filtered.append(tool)
-        elif has_temp_files and tool == 'kb_search':
+        elif has_files and tool == 'kb_search':
             filtered.append(tool)
     return filtered
 
