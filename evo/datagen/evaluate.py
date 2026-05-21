@@ -38,7 +38,7 @@ def evaluate_answer(question: str, ground_truth: str, rag_answer: str, key_point
         )
         return {
             **result,
-            'judge_trace_id': expected_trace_id,
+            'judge_trace_id': captured.get('trace_id') or expected_trace_id or '',
             'judge_trace_status': trace_status(
                 require_trace=True,
                 actual_trace_id=captured.get('trace_id', ''),
